@@ -7,16 +7,16 @@ export class AIModel {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
 
-  @Column()
+  @Column({ type: "varchar" })
   companyId!: string;
 
-  @Column()
+  @Column({ type: "varchar" })
   name!: string;
 
-  @Column()
+  @Column({ type: "varchar" })
   provider!: Provider;
 
-  @Column()
+  @Column({ type: "varchar" })
   model!: string;
 
   @Column({ type: "text", default: "{}" })

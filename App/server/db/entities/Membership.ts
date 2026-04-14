@@ -8,12 +8,12 @@ export class Membership {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
 
-  @Column()
+  @Column({ type: "varchar" })
   companyId!: string;
 
-  @Column()
+  @Column({ type: "varchar" })
   userId!: string;
 
-  @Column()
+  @Column({ type: "varchar" })
   role!: Role;
 }

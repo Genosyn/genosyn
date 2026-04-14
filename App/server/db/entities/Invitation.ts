@@ -5,16 +5,16 @@ export class Invitation {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
 
-  @Column()
+  @Column({ type: "varchar" })
   companyId!: string;
 
-  @Column()
+  @Column({ type: "varchar" })
   email!: string;
 
-  @Column({ unique: true })
+  @Column({ type: "varchar", unique: true })
   token!: string;
 
-  @Column("datetime")
+  @Column({ type: "datetime" })
   expiresAt!: Date;
 
   @Column({ type: "datetime", nullable: true })

@@ -6,13 +6,13 @@ export class Skill {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
 
-  @Column()
+  @Column({ type: "varchar" })
   employeeId!: string;
 
-  @Column()
+  @Column({ type: "varchar" })
   name!: string;
 
-  @Column()
+  @Column({ type: "varchar" })
   slug!: string;
 
   @CreateDateColumn()

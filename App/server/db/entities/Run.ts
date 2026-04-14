@@ -7,16 +7,16 @@ export class Run {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
 
-  @Column()
+  @Column({ type: "varchar" })
   routineId!: string;
 
-  @Column("datetime")
+  @Column({ type: "datetime" })
   startedAt!: Date;
 
   @Column({ type: "datetime", nullable: true })
   finishedAt!: Date | null;
 
-  @Column()
+  @Column({ type: "varchar" })
   status!: RunStatus;
 
   @Column({ type: "varchar", nullable: true })

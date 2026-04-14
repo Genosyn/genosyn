@@ -6,16 +6,16 @@ export class AIEmployee {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
 
-  @Column()
+  @Column({ type: "varchar" })
   companyId!: string;
 
-  @Column()
+  @Column({ type: "varchar" })
   name!: string;
 
-  @Column()
+  @Column({ type: "varchar" })
   slug!: string;
 
-  @Column()
+  @Column({ type: "varchar" })
   role!: string;
 
   @Column({ type: "varchar", nullable: true })

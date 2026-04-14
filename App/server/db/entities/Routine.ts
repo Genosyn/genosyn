@@ -6,19 +6,19 @@ export class Routine {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
 
-  @Column()
+  @Column({ type: "varchar" })
   employeeId!: string;
 
-  @Column()
+  @Column({ type: "varchar" })
   name!: string;
 
-  @Column()
+  @Column({ type: "varchar" })
   slug!: string;
 
-  @Column()
+  @Column({ type: "varchar" })
   cronExpr!: string;
 
-  @Column({ default: true })
+  @Column({ type: "boolean", default: true })
   enabled!: boolean;
 
   @Column({ type: "datetime", nullable: true })
