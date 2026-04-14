@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { DataSource } from "typeorm";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import { config } from "../../config.js";
 import { User } from "./entities/User.js";
@@ -15,13 +16,19 @@ import { Run } from "./entities/Run.js";
 
 const entities = [User, Company, Membership, Invitation, AIModel, AIEmployee, Skill, Routine, Run];
 
+// Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)
+// and the compiled .js files under dist/server/db/migrations in production.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const migrations = [path.join(__dirname, "migrations", "*.{ts,js}")];
+
 function buildDataSource(): DataSource {
   if (config.db.driver === "postgres") {
     return new DataSource({
       type: "postgres",
       url: config.db.postgresUrl,
       entities,
-      synchronize: true,
+      migrations,
+      synchronize: false,
       logging: false,
     });
   }
@@ -31,7 +38,8 @@ function buildDataSource(): DataSource {
     type: "better-sqlite3",
     database: sqlitePath,
     entities,
-    synchronize: true,
+    migrations,
+    synchronize: false,
     logging: false,
   });
 }
@@ -42,4 +50,7 @@ export async function initDb(): Promise<void> {
   if (!AppDataSource.isInitialized) {
     await AppDataSource.initialize();
   }
+  // Run any pending migrations on boot. Idempotent -- already-run migrations
+  // are tracked in the `migrations` table that TypeORM manages.
+  await AppDataSource.runMigrations();
 }

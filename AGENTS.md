@@ -134,10 +134,19 @@ data/
   before commit.
 - **Required npm scripts** (both `App/` and `Home/` must implement these,
   CI depends on them): `dev`, `build`, `lint`, `typecheck`, `start`.
+  App additionally exposes: `typeorm`, `migration:generate`,
+  `migration:run`, `migration:revert`, `migration:show`, `migration:create`.
+- **Runtime:** Node 22 (LTS). Pinned in `.nvmrc`, both `Dockerfile`s, and
+  CI. Do not downgrade.
 - **Build output layout** (Dockerfiles depend on this):
   - App: server compiled to `dist/server/index.js`, client assets under
     `dist/client/` (served by the Express process).
   - Home: `dist/server.js` serving built client assets.
+- **Schema changes require a migration.** `synchronize` is off. After
+  editing entities, run `npm run migration:generate -- server/db/migrations/<Name>`
+  and commit the generated file. Boot calls `AppDataSource.runMigrations()`
+  so pending migrations apply on startup. Never edit a migration that has
+  already been committed.
 
 ---
 

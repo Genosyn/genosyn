@@ -13,7 +13,13 @@
     "build:client": "vite build",
     "start": "node dist/server/index.js",
     "lint": "eslint . --ext .ts,.tsx",
-    "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit"
+    "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit",
+    "typeorm": "tsx ./node_modules/typeorm/cli.js",
+    "migration:generate": "npm run typeorm -- migration:generate -d ormconfig.ts",
+    "migration:create": "npm run typeorm -- migration:create",
+    "migration:run": "npm run typeorm -- migration:run -d ormconfig.ts",
+    "migration:revert": "npm run typeorm -- migration:revert -d ormconfig.ts",
+    "migration:show": "npm run typeorm -- migration:show -d ormconfig.ts"
   },
   "dependencies": {
     "bcrypt": "^5.1.1",
