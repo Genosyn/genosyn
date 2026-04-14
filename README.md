@@ -25,6 +25,35 @@ genosyn/
 
 The App (product) and Home (marketing) are independent. Run either.
 
+### Docker (recommended)
+
+Pre-built images are published to GitHub Container Registry on every push to
+`main`.
+
+```bash
+# Product app — API + UI on one port
+docker run --rm -p 8471:8471 -v genosyn-data:/app/data \
+  ghcr.io/genosyn/app:latest
+# → http://localhost:8471
+
+# Marketing site
+docker run --rm -p 8472:3000 ghcr.io/genosyn/home:latest
+# → http://localhost:8472
+```
+
+The `genosyn-data` volume holds the SQLite database and the per-company
+markdown tree (`SOUL.md`, skills, routines). To override `config.ts` without
+rebuilding, mount your own on top:
+
+```bash
+docker run --rm -p 8471:8471 \
+  -v genosyn-data:/app/data \
+  -v "$PWD/config.ts:/app/config.ts:ro" \
+  ghcr.io/genosyn/app:latest
+```
+
+### From source
+
 ```bash
 # Product app — API + UI on one port
 cd App && npm install && npm run dev

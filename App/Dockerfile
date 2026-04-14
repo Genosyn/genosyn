@@ -37,5 +37,5 @@ RUN mkdir -p /app/data && chown -R node:node /app
 VOLUME ["/app/data"]
 
 USER node
-EXPOSE 4000
+EXPOSE 8471
 CMD ["node", "dist/server/index.js"]
