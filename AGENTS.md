@@ -132,6 +132,12 @@ data/
   `vite.config.ts`).
 - **Lint/format**: project ships with ESLint + Prettier defaults; run them
   before commit.
+- **Required npm scripts** (both `App/` and `Home/` must implement these,
+  CI depends on them): `dev`, `build`, `lint`, `typecheck`, `start`.
+- **Build output layout** (Dockerfiles depend on this):
+  - App: server compiled to `dist/server/index.js`, client assets under
+    `dist/client/` (served by the Express process).
+  - Home: `dist/server.js` serving built client assets.
 
 ---
 
