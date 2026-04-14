@@ -3,9 +3,6 @@
 > **Mission:** Run companies autonomously. Give every team a roster of AI
 > employees that live by a written soul, carry real skills, work recurring
 > routines on a schedule, and report back to humans.
->
-> **North star reference:** [paperclip.ing](https://paperclip.ing/) — clean,
-> employee-centric, playful but serious.
 
 This file is the working plan. Edit freely — nothing here is built yet.
 
