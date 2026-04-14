@@ -51,14 +51,13 @@ export function HowItWorks() {
             <pre className="overflow-x-auto px-6 py-5 font-mono text-[13px] leading-6 text-slate-200">
               <code>
                 <span className="text-slate-500">$ </span>
-                <span className="text-slate-200">git clone </span>
-                <span className="text-indigo-300">github.com/Genosyn/genosyn</span>
+                <span className="text-slate-200">docker run --rm -p 8471:8471 \</span>
                 {"\n"}
-                <span className="text-slate-500">$ </span>
-                <span className="text-slate-200">cd genosyn/App && npm install</span>
+                <span className="text-slate-500">    </span>
+                <span className="text-slate-200">-v genosyn-data:/app/data \</span>
                 {"\n"}
-                <span className="text-slate-500">$ </span>
-                <span className="text-slate-200">npm run dev</span>
+                <span className="text-slate-500">    </span>
+                <span className="text-indigo-300">ghcr.io/genosyn/app:latest</span>
                 {"\n\n"}
                 <span className="text-emerald-400">[genosyn]</span>
                 <span className="text-slate-300"> listening on :8471</span>
