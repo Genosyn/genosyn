@@ -44,9 +44,25 @@ async function main() {
   app.use("/api/companies/:cid", routinesRouter);
   app.use("/api/companies/:cid/models", modelsRouter);
 
-  // Serve built client in production. dist/server/index.js -> ../client
+  // Client. Dev: mount Vite as middleware so API + UI share one port and
+  // HMR still works. Prod: serve the built SPA from dist/client.
+  // Layout-wise, dev __dirname=App/server → clientDir=App/client;
+  // prod __dirname=App/dist/server → clientDir=App/dist/client.
   const clientDir = path.resolve(__dirname, "..", "client");
-  if (fs.existsSync(clientDir)) {
+  const isDev = process.env.NODE_ENV !== "production";
+
+  if (isDev) {
+    const { createServer: createViteServer } = await import("vite");
+    // configFile must be explicit: Vite's auto-discovery looks in `root`
+    // (client/), but our vite.config.ts lives one level up. Without it,
+    // @vitejs/plugin-react is never applied and JSX crashes at runtime.
+    const vite = await createViteServer({
+      configFile: path.resolve(__dirname, "..", "vite.config.ts"),
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
+  } else if (fs.existsSync(clientDir)) {
     app.use(express.static(clientDir));
     app.get(/^\/(?!api).*/, (_req, res) => {
       res.sendFile(path.join(clientDir, "index.html"));

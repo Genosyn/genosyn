@@ -5,9 +5,7 @@
   "description": "Genosyn App — run companies autonomously with AI employees",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -n server,client -c blue,magenta \"npm:dev:server\" \"npm:dev:client\"",
-    "dev:server": "tsx watch server/index.ts",
-    "dev:client": "vite",
+    "dev": "tsx watch --ignore='**/vite.config.*' --ignore='client/**' --ignore='dist/**' --ignore='data/**' server/index.ts",
     "build": "npm run build:server && npm run build:client",
     "build:server": "tsc -p tsconfig.server.json",
     "build:client": "vite build",

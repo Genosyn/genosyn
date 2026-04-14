@@ -28,6 +28,8 @@ pnpm-debug.log*
 !.vscode/settings.json
 .claude/launch.json
 .claude/run-app.sh
+.claude/run-home.sh
+.claude/scheduled_tasks.lock
 *.swp
 *.swo
 

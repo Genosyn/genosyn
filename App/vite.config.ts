@@ -10,12 +10,9 @@ export default defineConfig({
       "@": path.resolve(__dirname, "client"),
     },
   },
-  server: {
-    port: 5173,
-    proxy: {
-      "/api": "http://localhost:4000",
-    },
-  },
+  // No `server` block: in dev, Vite runs in middleware mode inside the
+  // Express process (see server/index.ts), so there is no separate Vite
+  // HTTP server and no proxy is needed. One port for API + UI.
   build: {
     outDir: "../dist/client",
     emptyOutDir: true,
