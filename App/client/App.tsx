@@ -46,8 +46,8 @@ export default function App() {
         </div>
       ) : auth.status === "anon" ? (
         <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/signup" element={<Signup />} />
+          <Route path="/login" element={<Login onAuth={refresh} />} />
+          <Route path="/signup" element={<Signup onAuth={refresh} />} />
           <Route path="/forgot" element={<Forgot />} />
           <Route path="/reset/:token" element={<Reset />} />
           <Route path="/invite/:token" element={<Navigate to="/login" replace />} />

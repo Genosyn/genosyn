@@ -6,7 +6,7 @@ import { Input } from "../components/ui/Input";
 import { AuthShell } from "./Login";
 import { useToast } from "../components/ui/Toast";
 
-export default function Signup() {
+export default function Signup({ onAuth }: { onAuth: () => Promise<void> }) {
   const [name, setName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -19,6 +19,9 @@ export default function Signup() {
     setLoading(true);
     try {
       await api.post("/api/auth/signup", { email, password, name });
+      // See Login.tsx: refresh App's auth state before navigating so the
+      // route tree flips from "anon" to "ready".
+      await onAuth();
       navigate("/");
     } catch (err) {
       toast((err as Error).message, "error");

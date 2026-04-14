@@ -14,10 +14,10 @@ npm install
 npm run dev
 ```
 
-- API runs on `http://localhost:4000`
-- Vite client runs on `http://localhost:5173` (proxies `/api/*` to the API)
+- App runs on `http://localhost:8471` (API + UI, Vite mounted as Express
+  middleware in dev — same process, same port as prod)
 
-Open http://localhost:5173 and sign up.
+Open http://localhost:8471 and sign up.
 
 ## Production build
 
@@ -26,11 +26,11 @@ npm run build
 npm start
 ```
 
-The server serves the built client from `dist/client/` at `http://localhost:4000`.
+The server serves the built client from `dist/client/` at `http://localhost:8471`.
 
 ## Required scripts
 
-- `npm run dev` — concurrent server (tsx watch) + client (vite)
+- `npm run dev` — tsx watch on server, Vite mounted as middleware in-process
 - `npm run build` — tsc server + vite build client
 - `npm run start` — run compiled `dist/server/index.js`
 - `npm run lint` — ESLint over `server/` and `client/`

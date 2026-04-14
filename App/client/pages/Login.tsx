@@ -6,7 +6,7 @@ import { Input } from "../components/ui/Input";
 import { LogoMark } from "../components/Logo";
 import { useToast } from "../components/ui/Toast";
 
-export default function Login() {
+export default function Login({ onAuth }: { onAuth: () => Promise<void> }) {
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [loading, setLoading] = React.useState(false);
@@ -18,6 +18,9 @@ export default function Login() {
     setLoading(true);
     try {
       await api.post("/api/auth/login", { email, password });
+      // Refresh App's auth state so the route tree flips from "anon" to
+      // "ready" before we navigate — otherwise "/" bounces back to /login.
+      await onAuth();
       navigate("/");
     } catch (err) {
       toast((err as Error).message, "error");

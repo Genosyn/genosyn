@@ -8,7 +8,7 @@ React 18 + Vite + TailwindCSS, served in production by a tiny Express process.
 
 ```bash
 npm install        # install deps
-npm run dev        # Vite dev server on http://localhost:3000
+npm run dev        # Vite dev server on http://localhost:8472
 npm run build      # compile server.ts + build client into dist/
 npm run lint       # eslint
 npm run typecheck  # tsc --noEmit for client and server
@@ -20,7 +20,7 @@ npm start          # run dist/server.js (requires npm run build first)
 - `dist/server.js` — Express process that serves the built client
 - `dist/client/` — Vite client bundle (HTML, JS, CSS, assets)
 
-The Docker image (`Home/Dockerfile`) runs `node dist/server.js` on port `3000`.
+The Docker image (`Home/Dockerfile`) runs `node dist/server.js` on port `8472`.
 
 ## Structure
 
