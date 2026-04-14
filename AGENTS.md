@@ -82,9 +82,10 @@ not, flag the addition in the PR description.
 ## 5. Config
 
 All runtime settings live in `App/config.ts` as a single exported object with
-**commented JSON-shape**. Do not introduce `.env` parsing, `dotenv`,
-`config-yaml`, or per-environment files. One file, one object, comments above
-each field.
+**commented JSON-shape**. There is **no `.env` file** in this project — do not
+introduce `dotenv`, `config-yaml`, `.env.*`, or per-environment config files.
+One file (`config.ts`), one object, comments above each field. Users who want
+to override values edit `config.ts` directly.
 
 Users flip `config.db.driver` from `"sqlite"` to `"postgres"` to upgrade.
 Entities and migrations must work on both.
@@ -169,7 +170,7 @@ milestone is done, drive the happy path in a browser (via the `browse` /
 - One logical change per commit where practical.
 - Never use `--no-verify`, `--no-gpg-sign`, or `--amend` on a commit that
   has already been pushed.
-- Never commit anything under `data/`, `node_modules/`, or a `.env` file.
+- Never commit anything under `data/` or `node_modules/`.
 - PR descriptions reference the milestone (`M3 — AI Employees + Soul`) from
   `ROADMAP.md` and list the manual test steps you ran.
 

@@ -12,11 +12,6 @@ build/
 # Runtime data (SQLite db + per-company filesystem tree)
 data/
 
-# Environment
-.env
-.env.local
-.env.*.local
-
 # Logs
 logs/
 *.log
