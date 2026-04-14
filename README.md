@@ -32,21 +32,26 @@ Pre-built images are published to GitHub Container Registry on every push to
 
 ```bash
 # Product app — API + UI on one port
-docker run --rm -p 8471:8471 -v genosyn-data:/app/data \
+docker run -d --name genosyn -p 8471:8471 \
+  -v genosyn-data:/app/data \
   ghcr.io/genosyn/app:latest
 # → http://localhost:8471
 
 # Marketing site
-docker run --rm -p 8472:3000 ghcr.io/genosyn/home:latest
+docker run -d --name genosyn-home -p 8472:3000 \
+  ghcr.io/genosyn/home:latest
 # → http://localhost:8472
 ```
 
 The `genosyn-data` volume holds the SQLite database and the per-company
-markdown tree (`SOUL.md`, skills, routines). To override `config.ts` without
-rebuilding, mount your own on top:
+markdown tree (`SOUL.md`, skills, routines) and persists across restarts and
+image upgrades. Manage the containers with `docker stop genosyn`,
+`docker start genosyn`, `docker logs -f genosyn`.
+
+To override `config.ts` without rebuilding, mount your own on top:
 
 ```bash
-docker run --rm -p 8471:8471 \
+docker run -d --name genosyn -p 8471:8471 \
   -v genosyn-data:/app/data \
   -v "$PWD/config.ts:/app/config.ts:ro" \
   ghcr.io/genosyn/app:latest
