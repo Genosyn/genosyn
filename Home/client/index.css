@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  @apply bg-white text-slate-900 antialiased;
+  font-feature-settings: "cv11", "ss01", "ss03";
+}
+
+body {
+  @apply font-sans;
+}
