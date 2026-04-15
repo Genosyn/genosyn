@@ -5,6 +5,7 @@ import { Secret } from "../db/entities/Secret.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { decryptSecret, encryptSecret, maskSecret } from "../lib/secret.js";
+import { recordAudit } from "../services/audit.js";
 
 /**
  * Per-company secrets vault. Values are encrypted at rest and never leave the
@@ -91,6 +92,14 @@ secretsRouter.post("/secrets", validateBody(createSchema), async (req, res) => {
     description: body.description ?? "",
   });
   await repo.save(s);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "secret.create",
+    targetType: "secret",
+    targetId: s.id,
+    targetLabel: s.name,
+  });
   res.json(serialize(s));
 });
 
@@ -105,9 +114,18 @@ secretsRouter.patch("/secrets/:sid", validateBody(patchSchema), async (req, res)
   const repo = AppDataSource.getRepository(Secret);
   const s = await repo.findOneBy({ id: sid, companyId: cid });
   if (!s) return res.status(404).json({ error: "Not found" });
-  if (typeof body.value === "string") s.encryptedValue = encryptSecret(body.value);
+  const rotated = typeof body.value === "string";
+  if (rotated) s.encryptedValue = encryptSecret(body.value as string);
   if (typeof body.description === "string") s.description = body.description;
   await repo.save(s);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: rotated ? "secret.rotate" : "secret.update",
+    targetType: "secret",
+    targetId: s.id,
+    targetLabel: s.name,
+  });
   res.json(serialize(s));
 });
 
@@ -117,6 +135,14 @@ secretsRouter.delete("/secrets/:sid", async (req, res) => {
   const s = await repo.findOneBy({ id: sid, companyId: cid });
   if (!s) return res.status(404).json({ error: "Not found" });
   await repo.delete({ id: s.id });
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "secret.delete",
+    targetType: "secret",
+    targetId: s.id,
+    targetLabel: s.name,
+  });
   res.json({ ok: true });
 });
 

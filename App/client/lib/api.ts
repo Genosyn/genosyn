@@ -161,6 +161,21 @@ export type JournalEntry = {
   createdAt: string;
 };
 
+export type AuditActorKind = "user" | "system" | "webhook" | "cron";
+export type AuditEvent = {
+  id: string;
+  companyId: string;
+  actorKind: AuditActorKind;
+  actorUserId: string | null;
+  actor: { id: string; name: string; email: string } | null;
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  targetLabel: string;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+};
+
 export type Secret = {
   id: string;
   companyId: string;

@@ -11,6 +11,7 @@ import { ensureDir } from "../services/paths.js";
 import { PROVIDERS, isModelConnected } from "../services/providers.js";
 import { removeDir } from "../services/files.js";
 import { encryptSecret, maskSecret } from "../lib/secret.js";
+import { recordAudit } from "../services/audit.js";
 
 /**
  * Per-employee Model routes. Mounted twice in `index.ts`:
@@ -152,6 +153,15 @@ modelsRouter.put("/", validateBody(upsertSchema), async (req, res) => {
       ensureDir(path.dirname(spec.credsPath(ctx.co.slug, ctx.emp.slug)));
     }
   }
+  await recordAudit({
+    companyId: ctx.co.id,
+    actorUserId: req.userId ?? null,
+    action: "model.configure",
+    targetType: "employee",
+    targetId: ctx.emp.id,
+    targetLabel: ctx.emp.name,
+    metadata: { provider: m.provider, model: m.model, authMode: m.authMode },
+  });
   res.json(toPublic(m, ctx.co, ctx.emp));
 });
 
@@ -180,6 +190,15 @@ modelsRouter.post("/apikey", validateBody(apiKeySchema), async (req, res) => {
   m.configJson = JSON.stringify(cfg);
   m.connectedAt = new Date();
   await repo.save(m);
+  await recordAudit({
+    companyId: ctx.co.id,
+    actorUserId: req.userId ?? null,
+    action: "model.apikey.set",
+    targetType: "employee",
+    targetId: ctx.emp.id,
+    targetLabel: ctx.emp.name,
+    metadata: { provider: m.provider },
+  });
   res.json(toPublic(m, ctx.co, ctx.emp));
 });
 
@@ -217,6 +236,15 @@ modelsRouter.delete("/", async (req, res) => {
   await repo.delete({ id: m.id });
   // Wipe on-disk creds for subscription auth. Safe no-op if missing.
   removeDir(PROVIDERS[m.provider].configDir(ctx.co.slug, ctx.emp.slug));
+  await recordAudit({
+    companyId: ctx.co.id,
+    actorUserId: req.userId ?? null,
+    action: "model.disconnect",
+    targetType: "employee",
+    targetId: ctx.emp.id,
+    targetLabel: ctx.emp.name,
+    metadata: { provider: m.provider },
+  });
   res.json({ ok: true });
 });
 

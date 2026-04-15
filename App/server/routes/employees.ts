@@ -22,6 +22,7 @@ import { isModelConnected } from "../services/providers.js";
 import { readText, removeDir, soulTemplate, writeText } from "../services/files.js";
 import { unregisterRoutine } from "../services/cron.js";
 import { deleteEmployeeConversations } from "./employeeSurface.js";
+import { recordAudit } from "../services/audit.js";
 
 export const employeesRouter = Router({ mergeParams: true });
 employeesRouter.use(requireAuth);
@@ -95,6 +96,15 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
   ensureDir(path.join(dir, "skills"));
   ensureDir(path.join(dir, "routines"));
   writeText(soulPath(co.slug, slug), soulTemplate(body.name, body.role));
+  await recordAudit({
+    companyId: co.id,
+    actorUserId: req.userId ?? null,
+    action: "employee.create",
+    targetType: "employee",
+    targetId: emp.id,
+    targetLabel: emp.name,
+    metadata: { role: emp.role, slug: emp.slug },
+  });
   res.json(emp);
 });
 
@@ -117,9 +127,19 @@ employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
   const repo = AppDataSource.getRepository(AIEmployee);
   const emp = await repo.findOneBy({ id: req.params.eid, companyId: (req.params as Record<string, string>).cid });
   if (!emp) return res.status(404).json({ error: "Not found" });
+  const before = { name: emp.name, role: emp.role };
   if (body.name !== undefined) emp.name = body.name;
   if (body.role !== undefined) emp.role = body.role;
   await repo.save(emp);
+  await recordAudit({
+    companyId: emp.companyId,
+    actorUserId: req.userId ?? null,
+    action: "employee.update",
+    targetType: "employee",
+    targetId: emp.id,
+    targetLabel: emp.name,
+    metadata: { before, after: { name: emp.name, role: emp.role } },
+  });
   res.json(emp);
 });
 
@@ -145,6 +165,15 @@ employeesRouter.delete("/:eid", async (req, res) => {
   await empRepo.delete({ id: emp.id });
 
   if (co) removeDir(employeeDir(co.slug, emp.slug));
+  await recordAudit({
+    companyId: emp.companyId,
+    actorUserId: req.userId ?? null,
+    action: "employee.delete",
+    targetType: "employee",
+    targetId: emp.id,
+    targetLabel: emp.name,
+    metadata: { role: emp.role, slug: emp.slug },
+  });
   res.json({ ok: true });
 });
 

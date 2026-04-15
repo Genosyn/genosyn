@@ -7,6 +7,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { runRoutine } from "../services/runner.js";
+import { recordAudit } from "../services/audit.js";
 
 /**
  * Human-in-the-loop inbox. Cron ticks for routines marked `requiresApproval`
@@ -75,6 +76,15 @@ approvalsRouter.post("/approvals/:id/approve", async (req, res) => {
   approval.decidedAt = new Date();
   approval.decidedByUserId = req.session?.userId ?? null;
   await AppDataSource.getRepository(Approval).save(approval);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "approval.approve",
+    targetType: "approval",
+    targetId: approval.id,
+    targetLabel: routine.name,
+    metadata: { routineId: routine.id },
+  });
   // Fire the routine. We don't await the run here so the UI responds fast;
   // the runner persists progress to the Run table regardless.
   runRoutine(routine).catch((err) => {
@@ -95,6 +105,15 @@ approvalsRouter.post("/approvals/:id/reject", async (req, res) => {
   approval.decidedAt = new Date();
   approval.decidedByUserId = req.session?.userId ?? null;
   await AppDataSource.getRepository(Approval).save(approval);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "approval.reject",
+    targetType: "approval",
+    targetId: approval.id,
+    targetLabel: "",
+    metadata: { routineId: approval.routineId },
+  });
   const routine = await AppDataSource.getRepository(Routine).findOneBy({
     id: approval.routineId,
   });

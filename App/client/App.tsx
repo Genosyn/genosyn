@@ -31,6 +31,7 @@ import TasksIndex from "./pages/TasksIndex";
 import ProjectNew from "./pages/ProjectNew";
 import ProjectDetail from "./pages/ProjectDetail";
 import Approvals from "./pages/Approvals";
+import AuditLog from "./pages/AuditLog";
 
 type AuthState =
   | { status: "loading" }
@@ -161,6 +162,7 @@ function CompanyRoutes({
         </Route>
 
         <Route path="approvals" element={<Approvals company={company} />} />
+        <Route path="audit" element={<AuditLog company={company} />} />
 
         {/* Company-level settings */}
         <Route

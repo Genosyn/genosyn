@@ -5,6 +5,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Approval } from "../db/entities/Approval.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { runRoutine } from "../services/runner.js";
+import { recordAudit } from "../services/audit.js";
 
 /**
  * Unauthenticated trigger surface. The URL itself is the credential — each
@@ -54,6 +55,16 @@ webhooksRouter.post("/r/:routineId/:token", async (req, res) => {
       authorUserId: null,
     }),
   );
+
+  await recordAudit({
+    companyId: emp.companyId,
+    actorKind: "webhook",
+    action: "routine.run.webhook",
+    targetType: "routine",
+    targetId: routine.id,
+    targetLabel: routine.name,
+    metadata: { payloadBytes: payloadPreview.length },
+  });
 
   if (routine.requiresApproval) {
     const approvalRepo = AppDataSource.getRepository(Approval);

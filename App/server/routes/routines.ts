@@ -16,6 +16,7 @@ import { routineDir, routineReadme } from "../services/paths.js";
 import { readText, removeDir, routineTemplate, writeText } from "../services/files.js";
 import { registerRoutine, unregisterRoutine } from "../services/cron.js";
 import { runRoutine } from "../services/runner.js";
+import { recordAudit } from "../services/audit.js";
 
 export const routinesRouter = Router({ mergeParams: true });
 routinesRouter.use(requireAuth);
@@ -75,6 +76,15 @@ routinesRouter.post(
     await repo.save(r);
     writeText(routineReadme(co.slug, emp.slug, slug), routineTemplate(body.name, body.cronExpr));
     registerRoutine(r);
+    await recordAudit({
+      companyId: co.id,
+      actorUserId: req.userId ?? null,
+      action: "routine.create",
+      targetType: "routine",
+      targetId: r.id,
+      targetLabel: r.name,
+      metadata: { employeeId: emp.id, cronExpr: r.cronExpr },
+    });
     res.json(r);
   },
 );
@@ -118,6 +128,15 @@ routinesRouter.patch(
     if (body.requiresApproval !== undefined) r.requiresApproval = body.requiresApproval;
     await AppDataSource.getRepository(Routine).save(r);
     registerRoutine(r);
+    await recordAudit({
+      companyId: found.co.id,
+      actorUserId: req.userId ?? null,
+      action: "routine.update",
+      targetType: "routine",
+      targetId: r.id,
+      targetLabel: r.name,
+      metadata: { changes: body },
+    });
     res.json(r);
   },
 );
@@ -129,6 +148,15 @@ routinesRouter.delete("/routines/:rid", async (req, res) => {
   await AppDataSource.getRepository(Approval).delete({ routineId: found.routine.id });
   await AppDataSource.getRepository(Routine).delete({ id: found.routine.id });
   removeDir(routineDir(found.co.slug, found.emp.slug, found.routine.slug));
+  await recordAudit({
+    companyId: found.co.id,
+    actorUserId: req.userId ?? null,
+    action: "routine.delete",
+    targetType: "routine",
+    targetId: found.routine.id,
+    targetLabel: found.routine.name,
+    metadata: { employeeId: found.emp.id },
+  });
   res.json({ ok: true });
 });
 
@@ -173,6 +201,14 @@ routinesRouter.post(
     r.webhookEnabled = body.enabled;
     r.webhookToken = body.enabled ? crypto.randomBytes(24).toString("hex") : null;
     await AppDataSource.getRepository(Routine).save(r);
+    await recordAudit({
+      companyId: found.co.id,
+      actorUserId: req.userId ?? null,
+      action: body.enabled ? "routine.webhook.enable" : "routine.webhook.disable",
+      targetType: "routine",
+      targetId: r.id,
+      targetLabel: r.name,
+    });
     res.json(r);
   },
 );
@@ -180,6 +216,14 @@ routinesRouter.post(
 routinesRouter.post("/routines/:rid/run", async (req, res) => {
   const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
   if (!found) return res.status(404).json({ error: "Not found" });
+  await recordAudit({
+    companyId: found.co.id,
+    actorUserId: req.userId ?? null,
+    action: "routine.run.manual",
+    targetType: "routine",
+    targetId: found.routine.id,
+    targetLabel: found.routine.name,
+  });
   const run = await runRoutine(found.routine);
   res.json(run);
 });
