@@ -48,6 +48,8 @@ export type Routine = {
   lastRunAt: string | null;
   timeoutSec: number;
   requiresApproval: boolean;
+  webhookEnabled: boolean;
+  webhookToken: string | null;
 };
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";

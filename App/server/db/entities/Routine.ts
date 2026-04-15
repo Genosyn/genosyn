@@ -41,6 +41,17 @@ export class Routine {
   @Column({ type: "boolean", default: false })
   requiresApproval!: boolean;
 
+  /**
+   * Optional HTTP trigger. When enabled, external systems can POST to
+   * `/api/webhooks/r/:routineId/:webhookToken` to fire this routine. The
+   * token is the only secret; regenerate by toggling off and back on.
+   */
+  @Column({ type: "boolean", default: false })
+  webhookEnabled!: boolean;
+
+  @Column({ type: "varchar", nullable: true })
+  webhookToken!: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

@@ -624,7 +624,22 @@ function RoutineEditor({
   const [requiresApproval, setRequiresApproval] = React.useState(
     routine.requiresApproval ?? false,
   );
+  const [webhookEnabled, setWebhookEnabled] = React.useState(routine.webhookEnabled);
+  const [webhookToken, setWebhookToken] = React.useState(routine.webhookToken);
   const { toast } = useToast();
+
+  async function toggleWebhook(enabled: boolean) {
+    try {
+      const updated = await api.post<Routine>(
+        `/api/companies/${company.id}/routines/${routine.id}/webhook`,
+        { enabled },
+      );
+      setWebhookEnabled(updated.webhookEnabled);
+      setWebhookToken(updated.webhookToken);
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
 
   React.useEffect(() => {
     api
@@ -675,6 +690,12 @@ function RoutineEditor({
           <div className="-mt-2 text-xs text-slate-500">
             Manual "Run now" still runs immediately — a human is already in the loop.
           </div>
+          <WebhookField
+            enabled={webhookEnabled}
+            token={webhookToken}
+            routineId={routine.id}
+            onToggle={toggleWebhook}
+          />
           <MarkdownEditor value={content} onChange={setContent} rows={12} />
           <div className="flex gap-2">
             <Button
@@ -1211,6 +1232,72 @@ function ApiKeyPanel({
         </Button>
       </div>
     </form>
+  );
+}
+
+function WebhookField({
+  enabled,
+  token,
+  routineId,
+  onToggle,
+}: {
+  enabled: boolean;
+  token: string | null;
+  routineId: string;
+  onToggle: (enabled: boolean) => void | Promise<void>;
+}) {
+  const { toast } = useToast();
+  const url =
+    enabled && token
+      ? `${window.location.origin}/api/webhooks/r/${routineId}/${token}`
+      : null;
+  return (
+    <div className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-slate-50 p-3">
+      <div className="flex items-center justify-between">
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => onToggle(e.target.checked)}
+          />
+          Trigger via incoming webhook
+        </label>
+        {enabled && token && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={async () => {
+              await onToggle(false);
+              await onToggle(true);
+              toast("Webhook token regenerated", "success");
+            }}
+          >
+            Regenerate token
+          </Button>
+        )}
+      </div>
+      <div className="text-xs text-slate-500">
+        External systems POST here to fire this routine. The URL itself is the
+        credential — keep it secret.
+      </div>
+      {url && (
+        <div className="flex items-center gap-1">
+          <code className="flex-1 truncate rounded bg-white px-2 py-1 font-mono text-[11px] text-slate-800">
+            {url}
+          </code>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              navigator.clipboard.writeText(url);
+              toast("Copied", "success");
+            }}
+          >
+            <Copy size={12} />
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
 

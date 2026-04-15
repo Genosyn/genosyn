@@ -8,6 +8,7 @@ import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { Approval } from "../db/entities/Approval.js";
 import fs from "node:fs";
+import crypto from "node:crypto";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
@@ -152,6 +153,27 @@ routinesRouter.put(
       (req.body as z.infer<typeof readmeSchema>).content,
     );
     res.json({ ok: true });
+  },
+);
+
+/**
+ * Turn webhook on (generates a fresh 48-hex token) or off (clears the token).
+ * Regenerating a token is accomplished by calling this twice: once with
+ * `enabled=false`, then again with `enabled=true`.
+ */
+const webhookSchema = z.object({ enabled: z.boolean() });
+routinesRouter.post(
+  "/routines/:rid/webhook",
+  validateBody(webhookSchema),
+  async (req, res) => {
+    const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
+    if (!found) return res.status(404).json({ error: "Not found" });
+    const body = req.body as z.infer<typeof webhookSchema>;
+    const r = found.routine;
+    r.webhookEnabled = body.enabled;
+    r.webhookToken = body.enabled ? crypto.randomBytes(24).toString("hex") : null;
+    await AppDataSource.getRepository(Routine).save(r);
+    res.json(r);
   },
 );
 

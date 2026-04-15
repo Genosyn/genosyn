@@ -18,6 +18,7 @@ import { modelsRouter } from "./routes/models.js";
 import { employeeSurfaceRouter } from "./routes/employeeSurface.js";
 import { projectsRouter } from "./routes/projects.js";
 import { approvalsRouter } from "./routes/approvals.js";
+import { webhooksRouter } from "./routes/webhooks.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,6 +38,10 @@ async function main() {
       sameSite: "lax",
     }),
   );
+
+  // Public webhooks (token in URL is the credential). Mounted before auth
+  // so session-less POSTs from external systems aren't gated.
+  app.use("/api/webhooks", webhooksRouter);
 
   app.use("/api/auth", authRouter);
   app.use("/api/companies", companiesRouter);
