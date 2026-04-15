@@ -109,23 +109,43 @@ export async function runRoutine(routine: Routine): Promise<Run> {
   // installed we catch ENOENT and degrade to a "skipped" log so the UI keeps
   // working before any provider has been installed on the host.
   const invocation = buildInvocation(model.provider, model.model, prompt);
+  const timeoutMs = Math.max(1, routine.timeoutSec) * 1000;
   try {
-    await spawnAndLog(invocation.cmd, invocation.args, { cwd, env: env.env }, logFile);
+    const result = await spawnAndLog(
+      invocation.cmd,
+      invocation.args,
+      { cwd, env: env.env, timeoutMs },
+      logFile,
+    );
     saved.finishedAt = new Date();
-    saved.status = "completed";
+    saved.exitCode = result.code;
+    saved.status = result.code === 0 ? "completed" : "failed";
+    if (result.code !== 0) {
+      appendLine(logFile, `[error] ${invocation.cmd} exited with code ${result.code}`);
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("ENOENT")) {
+    if (err instanceof SpawnTimeoutError) {
+      appendLine(
+        logFile,
+        `[timeout] Killed after ${routine.timeoutSec}s. Increase the routine's timeoutSec if this is expected.`,
+      );
+      saved.finishedAt = new Date();
+      saved.status = "timeout";
+      saved.exitCode = null;
+    } else if (msg.includes("ENOENT")) {
       appendLine(
         logFile,
         `[stub] \`${invocation.cmd}\` CLI not found on PATH. Install it to run this routine for real.`,
       );
       saved.finishedAt = new Date();
       saved.status = "skipped";
+      saved.exitCode = null;
     } else {
       appendLine(logFile, `[error] ${msg}`);
       saved.finishedAt = new Date();
       saved.status = "failed";
+      saved.exitCode = null;
     }
   }
   saved.logsPath = logFile;
@@ -231,25 +251,51 @@ function buildInvocation(
   }
 }
 
+class SpawnTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SpawnTimeoutError";
+  }
+}
+
+/**
+ * Spawn a child, pipe stdout/stderr into `logFile`, and resolve with the
+ * exit code on normal close. If the child doesn't exit within `timeoutMs`
+ * we SIGKILL it and reject with {@link SpawnTimeoutError} — the caller is
+ * expected to mark the Run `timeout` with `exitCode = null`.
+ */
 function spawnAndLog(
   cmd: string,
   args: string[],
-  opts: { cwd: string; env: NodeJS.ProcessEnv },
+  opts: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number },
   logFile: string,
-): Promise<void> {
+): Promise<{ code: number }> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env });
     const out = fs.createWriteStream(logFile, { flags: "a" });
     child.stdout.pipe(out, { end: false });
     child.stderr.pipe(out, { end: false });
+
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, opts.timeoutMs);
+
     child.on("error", (err) => {
+      clearTimeout(timer);
       out.end();
       reject(err);
     });
     child.on("close", (code) => {
-      out.end(`\n[${new Date().toISOString()}] exit ${code}\n`);
-      if (code === 0) resolve();
-      else reject(new Error(`${cmd} exited with code ${code}`));
+      clearTimeout(timer);
+      const tag = timedOut ? "timeout" : `exit ${code}`;
+      out.end(`\n[${new Date().toISOString()}] ${tag}\n`);
+      if (timedOut) {
+        reject(new SpawnTimeoutError(`${cmd} timed out after ${opts.timeoutMs}ms`));
+      } else {
+        resolve({ code: code ?? -1 });
+      }
     });
   });
 }

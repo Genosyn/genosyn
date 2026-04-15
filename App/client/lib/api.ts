@@ -46,6 +46,7 @@ export type Routine = {
   cronExpr: string;
   enabled: boolean;
   lastRunAt: string | null;
+  timeoutSec: number;
 };
 export type Provider = "claude-code" | "codex" | "opencode";
 export type AuthMode = "subscription" | "apikey";

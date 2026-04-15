@@ -95,6 +95,7 @@ const patchSchema = z.object({
     .refine((v) => cron.validate(v), "Invalid cron expression")
     .optional(),
   enabled: z.boolean().optional(),
+  timeoutSec: z.number().int().min(10).max(6 * 60 * 60).optional(),
 });
 
 routinesRouter.patch(
@@ -108,6 +109,7 @@ routinesRouter.patch(
     if (body.name !== undefined) r.name = body.name;
     if (body.cronExpr !== undefined) r.cronExpr = body.cronExpr;
     if (body.enabled !== undefined) r.enabled = body.enabled;
+    if (body.timeoutSec !== undefined) r.timeoutSec = body.timeoutSec;
     await AppDataSource.getRepository(Routine).save(r);
     registerRoutine(r);
     res.json(r);

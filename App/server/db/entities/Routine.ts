@@ -24,6 +24,15 @@ export class Routine {
   @Column({ type: "datetime", nullable: true })
   lastRunAt!: Date | null;
 
+  /**
+   * Per-routine hard timeout in seconds. The runner SIGKILLs the CLI after
+   * this long and marks the Run `timeout`. Default 10 min (`600`) covers
+   * most substantive routines without letting a wedged process hold a
+   * license / API quota indefinitely.
+   */
+  @Column({ type: "integer", default: 600 })
+  timeoutSec!: number;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

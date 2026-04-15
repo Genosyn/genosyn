@@ -454,6 +454,7 @@ function RoutineEditor({
   const [name, setName] = React.useState(routine.name);
   const [cronExpr, setCronExpr] = React.useState(routine.cronExpr);
   const [enabled, setEnabled] = React.useState(routine.enabled);
+  const [timeoutSec, setTimeoutSec] = React.useState(routine.timeoutSec ?? 600);
   const { toast } = useToast();
 
   React.useEffect(() => {
@@ -475,6 +476,17 @@ function RoutineEditor({
             onChange={(e) => setCronExpr(e.target.value)}
           />
           <div className="-mt-2 text-xs text-slate-500">{cronHuman(cronExpr)}</div>
+          <Input
+            label="Timeout (seconds)"
+            type="number"
+            min={10}
+            max={21600}
+            value={String(timeoutSec)}
+            onChange={(e) => setTimeoutSec(Math.max(10, Number(e.target.value) || 600))}
+          />
+          <div className="-mt-2 text-xs text-slate-500">
+            Hard kill after this long. The Run is marked <code>timeout</code>.
+          </div>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -492,6 +504,7 @@ function RoutineEditor({
                     name,
                     cronExpr,
                     enabled,
+                    timeoutSec,
                   });
                   await api.put(
                     `/api/companies/${company.id}/routines/${routine.id}/readme`,
