@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { ChevronRight, Pencil, ScrollText, Trash2 } from "lucide-react";
+import { BarChart3, ChevronRight, Pencil, ScrollText, Trash2 } from "lucide-react";
 import { api, Company, Member, Secret } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -119,6 +119,26 @@ export default function Settings({
         </Card>
 
         <SecretsCard company={company} />
+
+        <Card>
+          <CardBody>
+            <Link
+              to={`/c/${company.slug}/usage`}
+              className="flex items-center gap-3 text-sm"
+            >
+              <div className="rounded-md bg-slate-100 p-2 text-slate-600">
+                <BarChart3 size={16} />
+              </div>
+              <div className="flex-1">
+                <div className="font-medium text-slate-900">Usage</div>
+                <div className="text-xs text-slate-500">
+                  Run counts, compute time, and success rate per employee and routine.
+                </div>
+              </div>
+              <ChevronRight size={16} className="text-slate-400" />
+            </Link>
+          </CardBody>
+        </Card>
 
         <Card>
           <CardBody>

@@ -22,6 +22,7 @@ import { webhooksRouter } from "./routes/webhooks.js";
 import { mcpRouter } from "./routes/mcp.js";
 import { secretsRouter } from "./routes/secrets.js";
 import { auditRouter } from "./routes/audit.js";
+import { usageRouter } from "./routes/usage.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -62,6 +63,7 @@ async function main() {
   app.use("/api/companies/:cid", approvalsRouter);
   app.use("/api/companies/:cid", secretsRouter);
   app.use("/api/companies/:cid", auditRouter);
+  app.use("/api/companies/:cid", usageRouter);
   // Per-employee model (one-to-one with AIEmployee). See ROADMAP §5.
   app.use("/api/companies/:cid/employees/:eid/model", modelsRouter);
   app.use("/api/companies/:cid/employees/:eid/mcp", mcpRouter);

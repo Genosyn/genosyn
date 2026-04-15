@@ -161,6 +161,34 @@ export type JournalEntry = {
   createdAt: string;
 };
 
+export type UsageBucket = {
+  runs: number;
+  completed: number;
+  failed: number;
+  skipped: number;
+  timeout: number;
+  durationMs: number;
+};
+export type UsageEmployeeRow = UsageBucket & {
+  employeeId: string;
+  name: string;
+  slug: string;
+};
+export type UsageRoutineRow = UsageBucket & {
+  routineId: string;
+  name: string;
+  slug: string;
+  employeeId: string;
+  employeeName: string;
+  employeeSlug: string;
+};
+export type UsageSummary = {
+  windowDays: number;
+  totals: UsageBucket;
+  byEmployee: UsageEmployeeRow[];
+  byRoutine: UsageRoutineRow[];
+};
+
 export type AuditActorKind = "user" | "system" | "webhook" | "cron";
 export type AuditEvent = {
   id: string;
