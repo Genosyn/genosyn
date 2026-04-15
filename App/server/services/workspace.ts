@@ -64,11 +64,10 @@ export function resolveInside(
   return abs;
 }
 
-const IGNORED = new Set([
-  "node_modules",
-  ".git",
-  ".DS_Store",
-]);
+// Dot-prefixed entries (`.claude`, `.git`, `.DS_Store`, provider credential
+// dirs, etc.) are hidden from the tree — they're either tool state or
+// credentials the Settings tab manages, not user-facing workspace content.
+const IGNORED = new Set(["node_modules"]);
 
 export function buildTree(companySlug: string, employeeSlug: string): WorkspaceNode {
   const base = root(companySlug, employeeSlug);
@@ -95,6 +94,7 @@ function walk(absDir: string, base: string): WorkspaceNode {
   });
   for (const ent of entries) {
     if (IGNORED.has(ent.name)) continue;
+    if (ent.name.startsWith(".")) continue;
     const abs = path.join(absDir, ent.name);
     const childRel = path.relative(base, abs).split(path.sep).join("/");
     if (ent.isDirectory()) {
