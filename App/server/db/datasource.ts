@@ -15,6 +15,7 @@ import { Routine } from "./entities/Routine.js";
 import { Run } from "./entities/Run.js";
 import { Project } from "./entities/Project.js";
 import { Todo } from "./entities/Todo.js";
+import { TodoComment } from "./entities/TodoComment.js";
 
 const entities = [
   User,
@@ -28,6 +29,7 @@ const entities = [
   Run,
   Project,
   Todo,
+  TodoComment,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

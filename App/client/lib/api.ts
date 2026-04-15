@@ -114,6 +114,22 @@ export type Todo = {
   assignee: { id: string; name: string; slug: string; role: string } | null;
 };
 
+export type TodoCommentAuthor =
+  | { kind: "human"; id: string; name: string; email: string | null }
+  | { kind: "ai"; id: string; name: string; slug: string; role: string };
+
+export type TodoComment = {
+  id: string;
+  todoId: string;
+  authorUserId: string | null;
+  authorEmployeeId: string | null;
+  body: string;
+  pending: boolean;
+  createdAt: string;
+  updatedAt: string;
+  author: TodoCommentAuthor | null;
+};
+
 export type WorkspaceFile =
   | { type: "text"; path: string; size: number; content: string }
   | { type: "binary"; path: string; size: number; reason: string }

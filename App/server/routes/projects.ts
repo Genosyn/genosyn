@@ -5,9 +5,12 @@ import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Project } from "../db/entities/Project.js";
 import { Todo, TodoPriority, TodoStatus } from "../db/entities/Todo.js";
+import { TodoComment } from "../db/entities/TodoComment.js";
+import { User } from "../db/entities/User.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
+import { ChatTurn, chatWithEmployee } from "../services/chat.js";
 
 export const projectsRouter = Router({ mergeParams: true });
 projectsRouter.use(requireAuth);
@@ -316,6 +319,214 @@ projectsRouter.delete("/todos/:tid", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const found = await loadTodo(cid, req.params.tid);
   if (!found) return res.status(404).json({ error: "Not found" });
+  await AppDataSource.getRepository(TodoComment).delete({ todoId: found.todo.id });
   await AppDataSource.getRepository(Todo).delete({ id: found.todo.id });
   res.json({ ok: true });
 });
+
+// ----- Comments -----
+
+type HydratedComment = TodoComment & {
+  author:
+    | { kind: "human"; id: string; name: string; email: string | null }
+    | { kind: "ai"; id: string; name: string; slug: string; role: string }
+    | null;
+};
+
+/**
+ * Attach author info (human Member or AI Employee) so the UI can render an
+ * avatar + name without extra fetches.
+ */
+async function hydrateComments(
+  cid: string,
+  comments: TodoComment[],
+): Promise<HydratedComment[]> {
+  const userIds = [
+    ...new Set(comments.map((c) => c.authorUserId).filter((x): x is string => !!x)),
+  ];
+  const empIds = [
+    ...new Set(
+      comments.map((c) => c.authorEmployeeId).filter((x): x is string => !!x),
+    ),
+  ];
+  const [users, emps] = await Promise.all([
+    userIds.length
+      ? AppDataSource.getRepository(User).find({ where: { id: In(userIds) } })
+      : Promise.resolve([]),
+    empIds.length
+      ? AppDataSource.getRepository(AIEmployee).find({
+          where: { id: In(empIds), companyId: cid },
+        })
+      : Promise.resolve([]),
+  ]);
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const empById = new Map(emps.map((e) => [e.id, e]));
+  return comments.map((c) => {
+    let author: HydratedComment["author"] = null;
+    if (c.authorUserId) {
+      const u = userById.get(c.authorUserId);
+      if (u) author = { kind: "human", id: u.id, name: u.name, email: u.email };
+    } else if (c.authorEmployeeId) {
+      const e = empById.get(c.authorEmployeeId);
+      if (e) author = { kind: "ai", id: e.id, name: e.name, slug: e.slug, role: e.role };
+    }
+    return { ...c, author };
+  });
+}
+
+projectsRouter.get("/todos/:tid/comments", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const found = await loadTodo(cid, req.params.tid);
+  if (!found) return res.status(404).json({ error: "Not found" });
+  const comments = await AppDataSource.getRepository(TodoComment).find({
+    where: { todoId: found.todo.id },
+    order: { createdAt: "ASC" },
+  });
+  res.json(await hydrateComments(cid, comments));
+});
+
+const createCommentSchema = z.object({
+  body: z.string().min(1).max(10_000),
+  /** When set, the mentioned AI employee is invoked and their reply is posted. */
+  mentionEmployeeId: z.string().uuid().nullable().optional(),
+});
+
+projectsRouter.post(
+  "/todos/:tid/comments",
+  validateBody(createCommentSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const found = await loadTodo(cid, req.params.tid);
+    if (!found) return res.status(404).json({ error: "Not found" });
+    const body = req.body as z.infer<typeof createCommentSchema>;
+    const commentRepo = AppDataSource.getRepository(TodoComment);
+
+    // Validate mention target belongs to this company.
+    let mentionEmp: AIEmployee | null = null;
+    if (body.mentionEmployeeId) {
+      mentionEmp = await AppDataSource.getRepository(AIEmployee).findOneBy({
+        id: body.mentionEmployeeId,
+        companyId: cid,
+      });
+      if (!mentionEmp) return res.status(400).json({ error: "Invalid mention" });
+    }
+
+    // 1. Save the human comment.
+    const human = await commentRepo.save(
+      commentRepo.create({
+        todoId: found.todo.id,
+        authorUserId: req.userId ?? null,
+        authorEmployeeId: null,
+        body: body.body,
+        pending: false,
+      }),
+    );
+
+    // 2. If an AI employee was mentioned, create a pending placeholder so the
+    //    client can render a "typing" row immediately, then kick off the chat
+    //    call in the background. The placeholder is filled in (or marked
+    //    errored) once the CLI returns.
+    let pending: TodoComment | null = null;
+    if (mentionEmp) {
+      pending = await commentRepo.save(
+        commentRepo.create({
+          todoId: found.todo.id,
+          authorUserId: null,
+          authorEmployeeId: mentionEmp.id,
+          body: "",
+          pending: true,
+        }),
+      );
+      // Fire-and-forget. Errors are captured onto the comment so the UI
+      // surfaces them instead of silently hanging.
+      void respondAsEmployee(cid, found.todo.id, pending.id, mentionEmp.id).catch(
+        (err) => {
+          console.error("[todo-comments] AI reply failed", err);
+        },
+      );
+    }
+
+    const toReturn = pending ? [human, pending] : [human];
+    res.json(await hydrateComments(cid, toReturn));
+  },
+);
+
+projectsRouter.delete("/comments/:cmtId", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const repo = AppDataSource.getRepository(TodoComment);
+  const cmt = await repo.findOneBy({ id: req.params.cmtId });
+  if (!cmt) return res.status(404).json({ error: "Not found" });
+  // Comment must belong to a todo in this company.
+  const found = await loadTodo(cid, cmt.todoId);
+  if (!found) return res.status(404).json({ error: "Not found" });
+  // Only the human author may delete their own comment. AI comments can be
+  // cleared by any member (treating them as transient thread noise).
+  if (cmt.authorUserId && cmt.authorUserId !== req.userId) {
+    return res.status(403).json({ error: "Not your comment" });
+  }
+  await repo.delete({ id: cmt.id });
+  res.json({ ok: true });
+});
+
+/**
+ * Build chat context from the todo + thread so far, run the AI, and write
+ * the reply back onto the pending comment row.
+ */
+async function respondAsEmployee(
+  companyId: string,
+  todoId: string,
+  pendingCommentId: string,
+  employeeId: string,
+): Promise<void> {
+  const commentRepo = AppDataSource.getRepository(TodoComment);
+  const todoRepo = AppDataSource.getRepository(Todo);
+  const projRepo = AppDataSource.getRepository(Project);
+
+  const todo = await todoRepo.findOneBy({ id: todoId });
+  if (!todo) return;
+  const project = await projRepo.findOneBy({ id: todo.projectId });
+  if (!project) return;
+
+  // All prior comments on this todo (excluding the pending one).
+  const thread = await commentRepo.find({
+    where: { todoId },
+    order: { createdAt: "ASC" },
+  });
+  const history: ChatTurn[] = [];
+  // Opening synthetic turn: frames the todo so the model knows what we're
+  // talking about, regardless of whether it has memory of prior threads.
+  const header =
+    `You are collaborating on **${project.key}-${todo.number}: ${todo.title}** ` +
+    `(status: ${todo.status}, priority: ${todo.priority}).` +
+    (todo.description ? `\n\nDescription:\n${todo.description}` : "");
+  history.push({ role: "user", content: header });
+
+  let latestHumanBody = "";
+  for (const c of thread) {
+    if (c.id === pendingCommentId) continue;
+    if (c.pending) continue;
+    if (c.authorEmployeeId === employeeId) {
+      history.push({ role: "assistant", content: c.body });
+    } else {
+      history.push({ role: "user", content: c.body });
+      if (c.authorUserId) latestHumanBody = c.body;
+    }
+  }
+  // Last human message becomes the "new message" passed to chatWithEmployee;
+  // pop it off history so it isn't duplicated.
+  let message = latestHumanBody;
+  if (message && history[history.length - 1]?.content === message) {
+    history.pop();
+  } else if (!message) {
+    message = "Please weigh in on this todo.";
+  }
+
+  const result = await chatWithEmployee(companyId, employeeId, message, history);
+  const reply = result.reply || "(no reply)";
+
+  const pending = await commentRepo.findOneBy({ id: pendingCommentId });
+  if (!pending) return;
+  pending.body = reply;
+  pending.pending = false;
+  await commentRepo.save(pending);
+}
