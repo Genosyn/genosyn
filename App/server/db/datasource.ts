@@ -13,8 +13,22 @@ import { AIEmployee } from "./entities/AIEmployee.js";
 import { Skill } from "./entities/Skill.js";
 import { Routine } from "./entities/Routine.js";
 import { Run } from "./entities/Run.js";
+import { Project } from "./entities/Project.js";
+import { Todo } from "./entities/Todo.js";
 
-const entities = [User, Company, Membership, Invitation, AIModel, AIEmployee, Skill, Routine, Run];
+const entities = [
+  User,
+  Company,
+  Membership,
+  Invitation,
+  AIModel,
+  AIEmployee,
+  Skill,
+  Routine,
+  Run,
+  Project,
+  Todo,
+];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)
 // and the compiled .js files under dist/server/db/migrations in production.

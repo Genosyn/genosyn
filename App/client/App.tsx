@@ -18,6 +18,10 @@ import EmployeeWorkspace from "./pages/EmployeeWorkspace";
 import { RoutinesPage, SettingsPage, SkillsPage } from "./pages/employeeTabs";
 import Settings from "./pages/Settings";
 import Invite from "./pages/Invite";
+import TasksLayout from "./pages/TasksLayout";
+import TasksIndex from "./pages/TasksIndex";
+import ProjectNew from "./pages/ProjectNew";
+import ProjectDetail from "./pages/ProjectDetail";
 
 type AuthState =
   | { status: "loading" }
@@ -132,6 +136,13 @@ function CompanyRoutes({
           <Route path="skills" element={<SkillsPage />} />
           <Route path="routines" element={<RoutinesPage />} />
           <Route path="settings" element={<SettingsPage />} />
+        </Route>
+
+        {/* Tasks (Projects + Todos) — task manager. */}
+        <Route path="tasks" element={<TasksLayout company={company} />}>
+          <Route index element={<TasksIndex company={company} />} />
+          <Route path="new" element={<ProjectNew company={company} />} />
+          <Route path="p/:pSlug" element={<ProjectDetail company={company} />} />
         </Route>
 
         {/* Company-level settings */}

@@ -75,6 +75,45 @@ export type WorkspaceNode =
   | { type: "dir"; name: string; path: string; children: WorkspaceNode[] }
   | { type: "file"; name: string; path: string; size: number };
 
+export type TodoStatus =
+  | "backlog"
+  | "todo"
+  | "in_progress"
+  | "in_review"
+  | "done"
+  | "cancelled";
+export type TodoPriority = "none" | "low" | "medium" | "high" | "urgent";
+export type Project = {
+  id: string;
+  companyId: string;
+  name: string;
+  slug: string;
+  description: string;
+  key: string;
+  createdById: string | null;
+  todoCounter: number;
+  createdAt: string;
+  totalTodos?: number;
+  openTodos?: number;
+};
+export type Todo = {
+  id: string;
+  projectId: string;
+  number: number;
+  title: string;
+  description: string;
+  status: TodoStatus;
+  priority: TodoPriority;
+  assigneeEmployeeId: string | null;
+  createdById: string | null;
+  dueAt: string | null;
+  sortOrder: number;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  assignee: { id: string; name: string; slug: string; role: string } | null;
+};
+
 export type WorkspaceFile =
   | { type: "text"; path: string; size: number; content: string }
   | { type: "binary"; path: string; size: number; reason: string }
