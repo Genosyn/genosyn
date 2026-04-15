@@ -48,6 +48,23 @@ export type Routine = {
   lastRunAt: string | null;
   timeoutSec: number;
 };
+export type RunStatus = "running" | "completed" | "failed" | "skipped" | "timeout";
+export type Run = {
+  id: string;
+  routineId: string;
+  startedAt: string;
+  finishedAt: string | null;
+  status: RunStatus;
+  logsPath: string | null;
+  exitCode: number | null;
+  createdAt: string;
+};
+export type RunLog = {
+  content: string;
+  truncated?: boolean;
+  size?: number;
+  missing?: boolean;
+};
 export type Provider = "claude-code" | "codex" | "opencode";
 export type AuthMode = "subscription" | "apikey";
 export type AIModel = {

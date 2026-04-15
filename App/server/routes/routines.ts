@@ -5,6 +5,8 @@ import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Routine } from "../db/entities/Routine.js";
+import { Run } from "../db/entities/Run.js";
+import fs from "node:fs";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
@@ -154,4 +156,54 @@ routinesRouter.post("/routines/:rid/run", async (req, res) => {
   if (!found) return res.status(404).json({ error: "Not found" });
   const run = await runRoutine(found.routine);
   res.json(run);
+});
+
+/**
+ * List recent runs for a routine, newest-first. Returns the full Run row
+ * (sans log contents) so the UI can render a history timeline with status
+ * badges and exit codes; log text is fetched lazily via /runs/:runId/log.
+ */
+routinesRouter.get("/routines/:rid/runs", async (req, res) => {
+  const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
+  if (!found) return res.status(404).json({ error: "Not found" });
+  const runs = await AppDataSource.getRepository(Run).find({
+    where: { routineId: found.routine.id },
+    order: { startedAt: "DESC" },
+    take: 50,
+  });
+  res.json(runs);
+});
+
+/**
+ * Stream the captured log file for a single run. We cap at 256KB — routine
+ * logs should stay terse, and anything larger is almost certainly a runaway
+ * that would blow up the browser.
+ */
+routinesRouter.get("/runs/:runId/log", async (req, res) => {
+  const run = await AppDataSource.getRepository(Run).findOneBy({ id: req.params.runId });
+  if (!run) return res.status(404).json({ error: "Not found" });
+  // Confirm the caller has access to the parent routine (company scope).
+  const found = await loadRoutine(
+    (req.params as Record<string, string>).cid,
+    run.routineId,
+  );
+  if (!found) return res.status(404).json({ error: "Not found" });
+  if (!run.logsPath || !fs.existsSync(run.logsPath)) {
+    return res.json({ content: "", missing: true });
+  }
+  const MAX = 256 * 1024;
+  const stat = fs.statSync(run.logsPath);
+  let content: string;
+  let truncated = false;
+  if (stat.size <= MAX) {
+    content = fs.readFileSync(run.logsPath, "utf8");
+  } else {
+    const fd = fs.openSync(run.logsPath, "r");
+    const buf = Buffer.alloc(MAX);
+    fs.readSync(fd, buf, 0, MAX, stat.size - MAX);
+    fs.closeSync(fd);
+    content = buf.toString("utf8");
+    truncated = true;
+  }
+  res.json({ content, truncated, size: stat.size });
 });

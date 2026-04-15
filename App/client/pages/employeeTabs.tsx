@@ -6,6 +6,7 @@ import {
   Copy,
   KeyRound,
   Loader2,
+  History,
   Play,
   PlugZap,
   Sparkles,
@@ -21,6 +22,9 @@ import {
   Employee,
   Provider,
   Routine,
+  Run,
+  RunLog,
+  RunStatus,
   Skill,
 } from "../lib/api";
 import { Button } from "../components/ui/Button";
@@ -258,6 +262,7 @@ export function RoutinesPage() {
   const [routines, setRoutines] = React.useState<Routine[] | null>(null);
   const [adding, setAdding] = React.useState(false);
   const [editing, setEditing] = React.useState<Routine | null>(null);
+  const [viewingRuns, setViewingRuns] = React.useState<Routine | null>(null);
   const { toast } = useToast();
 
   async function reload() {
@@ -323,6 +328,9 @@ export function RoutinesPage() {
                   >
                     <Play size={14} /> Run
                   </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setViewingRuns(r)}>
+                    <History size={14} /> Runs
+                  </Button>
                   <Button
                     size="sm"
                     variant="ghost"
@@ -362,7 +370,162 @@ export function RoutinesPage() {
           }}
         />
       )}
+      {viewingRuns && (
+        <RunsModal
+          company={company}
+          routine={viewingRuns}
+          onClose={() => setViewingRuns(null)}
+        />
+      )}
     </>
+  );
+}
+
+const RUN_STATUS_STYLE: Record<RunStatus, string> = {
+  running: "bg-sky-50 text-sky-700 border-sky-200",
+  completed: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  failed: "bg-rose-50 text-rose-700 border-rose-200",
+  skipped: "bg-amber-50 text-amber-700 border-amber-200",
+  timeout: "bg-orange-50 text-orange-700 border-orange-200",
+};
+
+function formatDuration(started: string, finished: string | null): string {
+  if (!finished) return "—";
+  const ms = new Date(finished).getTime() - new Date(started).getTime();
+  if (ms < 1000) return `${ms}ms`;
+  const s = Math.round(ms / 100) / 10;
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = Math.round(s - m * 60);
+  return `${m}m ${rem}s`;
+}
+
+/**
+ * Per-routine run history. Left rail lists recent runs newest-first; picking
+ * one loads its captured log on the right. Logs are truncated at 256KB
+ * server-side and the tail is shown — runaway output shouldn't DoS the UI.
+ */
+function RunsModal({
+  company,
+  routine,
+  onClose,
+}: {
+  company: Company;
+  routine: Routine;
+  onClose: () => void;
+}) {
+  const [runs, setRuns] = React.useState<Run[] | null>(null);
+  const [activeId, setActiveId] = React.useState<string | null>(null);
+  const [log, setLog] = React.useState<RunLog | null>(null);
+  const [loadingLog, setLoadingLog] = React.useState(false);
+  const { toast } = useToast();
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const list = await api.get<Run[]>(
+          `/api/companies/${company.id}/routines/${routine.id}/runs`,
+        );
+        setRuns(list);
+        if (list.length > 0) setActiveId(list[0].id);
+      } catch (err) {
+        toast((err as Error).message, "error");
+        setRuns([]);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routine.id]);
+
+  React.useEffect(() => {
+    if (!activeId) {
+      setLog(null);
+      return;
+    }
+    setLoadingLog(true);
+    (async () => {
+      try {
+        const l = await api.get<RunLog>(
+          `/api/companies/${company.id}/runs/${activeId}/log`,
+        );
+        setLog(l);
+      } catch (err) {
+        toast((err as Error).message, "error");
+      } finally {
+        setLoadingLog(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId]);
+
+  return (
+    <Modal open onClose={onClose} title={`Runs: ${routine.name}`} size="xl">
+      {runs === null ? (
+        <Spinner />
+      ) : runs.length === 0 ? (
+        <EmptyState
+          title="No runs yet"
+          description="Click Run on the routine card to trigger it, or wait for its cron to fire."
+        />
+      ) : (
+        <div className="flex gap-3" style={{ minHeight: 420 }}>
+          <aside className="w-64 shrink-0 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+            <ul className="flex flex-col">
+              {runs.map((r) => (
+                <li key={r.id}>
+                  <button
+                    onClick={() => setActiveId(r.id)}
+                    className={
+                      "flex w-full flex-col gap-0.5 border-b border-slate-100 px-3 py-2 text-left text-xs " +
+                      (r.id === activeId ? "bg-slate-50" : "hover:bg-slate-50")
+                    }
+                  >
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={
+                          "rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
+                          RUN_STATUS_STYLE[r.status]
+                        }
+                      >
+                        {r.status}
+                      </span>
+                      {r.exitCode !== null && (
+                        <span className="text-[10px] text-slate-400">exit {r.exitCode}</span>
+                      )}
+                    </div>
+                    <div className="text-slate-700">
+                      {new Date(r.startedAt).toLocaleString()}
+                    </div>
+                    <div className="text-slate-400">
+                      {formatDuration(r.startedAt, r.finishedAt)}
+                    </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </aside>
+          <div className="flex-1 overflow-hidden rounded-lg border border-slate-200 bg-slate-950">
+            {loadingLog ? (
+              <div className="flex h-full items-center justify-center text-xs text-slate-500">
+                <Loader2 size={14} className="mr-2 animate-spin" /> Loading log…
+              </div>
+            ) : log === null ? null : log.missing ? (
+              <div className="flex h-full items-center justify-center text-xs text-slate-400">
+                Log file is missing on disk.
+              </div>
+            ) : (
+              <pre className="h-full overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-[11px] leading-relaxed text-slate-100">
+                {log.truncated && (
+                  <div className="mb-2 text-amber-400">
+                    [log truncated — showing last 256KB of {log.size} bytes]
+                  </div>
+                )}
+                {log.content || "(empty log)"}
+              </pre>
+            )}
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
 
