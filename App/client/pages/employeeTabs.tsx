@@ -6,6 +6,7 @@ import {
   Copy,
   KeyRound,
   Loader2,
+  BookText,
   History,
   Play,
   PlugZap,
@@ -26,6 +27,8 @@ import {
   RunLog,
   RunStatus,
   Skill,
+  JournalEntry as JournalEntryT,
+  JournalKind,
 } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -1193,5 +1196,154 @@ function ApiKeyPanel({
         </Button>
       </div>
     </form>
+  );
+}
+
+const JOURNAL_KIND_STYLE: Record<JournalKind, string> = {
+  run: "bg-sky-50 text-sky-700 border-sky-200",
+  note: "bg-slate-50 text-slate-700 border-slate-200",
+  system: "bg-violet-50 text-violet-700 border-violet-200",
+};
+
+/**
+ * Per-employee journal. Auto-emits a row for every routine run; humans add
+ * free-form notes. The product intent is that future routine prompts can
+ * feed the last N entries back into the CLI — but v1 just makes the diary
+ * visible so you can audit what the employee has actually done.
+ */
+export function JournalPage() {
+  const { company, emp } = useCtx();
+  const [entries, setEntries] = React.useState<JournalEntryT[] | null>(null);
+  const [title, setTitle] = React.useState("");
+  const [body, setBody] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const { toast } = useToast();
+
+  const base = `/api/companies/${company.id}/employees/${emp.id}`;
+
+  async function reload() {
+    try {
+      const list = await api.get<JournalEntryT[]>(`${base}/journal`);
+      setEntries(list);
+    } catch (err) {
+      toast((err as Error).message, "error");
+      setEntries([]);
+    }
+  }
+
+  React.useEffect(() => {
+    reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emp.id]);
+
+  async function addNote(e: React.FormEvent) {
+    e.preventDefault();
+    const t = title.trim();
+    if (!t || saving) return;
+    setSaving(true);
+    try {
+      const created = await api.post<JournalEntryT>(`${base}/journal`, {
+        title: t,
+        body: body.trim(),
+      });
+      setEntries((prev) => (prev ? [created, ...prev] : [created]));
+      setTitle("");
+      setBody("");
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove(id: string) {
+    if (!confirm("Delete this journal entry?")) return;
+    try {
+      await api.del(`${base}/journal/${id}`);
+      setEntries((prev) => (prev ? prev.filter((e) => e.id !== id) : prev));
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
+
+  return (
+    <>
+      <TopBar title="Journal" />
+      <Card>
+        <CardBody>
+          <form onSubmit={addNote} className="flex flex-col gap-2">
+            <Input
+              label="Add note"
+              placeholder="What should this employee remember?"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+            <textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={3}
+              placeholder="Optional detail…"
+              className="resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+            <div>
+              <Button type="submit" size="sm" disabled={saving || title.trim().length === 0}>
+                <BookText size={14} /> {saving ? "Saving…" : "Add entry"}
+              </Button>
+            </div>
+          </form>
+        </CardBody>
+      </Card>
+
+      <div className="mt-4">
+        {entries === null ? (
+          <Spinner />
+        ) : entries.length === 0 ? (
+          <EmptyState
+            title="No entries yet"
+            description="Routine runs will appear here automatically, or add a note above."
+          />
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {entries.map((e) => (
+              <li key={e.id}>
+                <Card>
+                  <CardBody className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={
+                            "rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
+                            JOURNAL_KIND_STYLE[e.kind]
+                          }
+                        >
+                          {e.kind}
+                        </span>
+                        <div className="text-sm font-medium text-slate-900">{e.title}</div>
+                      </div>
+                      {e.body && (
+                        <div className="mt-1 whitespace-pre-wrap text-xs text-slate-600">
+                          {e.body}
+                        </div>
+                      )}
+                      <div className="mt-1 text-[11px] text-slate-400">
+                        {new Date(e.createdAt).toLocaleString()}
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => remove(e.id)}
+                      aria-label="Delete entry"
+                    >
+                      <Trash2 size={12} />
+                    </Button>
+                  </CardBody>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </>
   );
 }

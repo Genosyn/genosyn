@@ -8,6 +8,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { Skill } from "../db/entities/Skill.js";
+import { JournalEntry } from "../db/entities/JournalEntry.js";
 import {
   employeeDir,
   ensureDir,
@@ -151,7 +152,45 @@ export async function runRoutine(routine: Routine): Promise<Run> {
   saved.logsPath = logFile;
   await runRepo.save(saved);
   await touchRoutine(routine, saved.finishedAt, routineRepo);
+  await writeJournalForRun(emp.id, routine, saved);
   return saved;
+}
+
+/**
+ * Emit a journal entry for every terminal run so the employee's diary shows
+ * what actually happened. We don't journal the `running` state — only the
+ * terminal transition, once the status is final.
+ */
+async function writeJournalForRun(
+  employeeId: string,
+  routine: Routine,
+  run: Run,
+): Promise<void> {
+  const journalRepo = AppDataSource.getRepository(JournalEntry);
+  const verb =
+    run.status === "completed"
+      ? "completed"
+      : run.status === "failed"
+        ? "failed"
+        : run.status === "skipped"
+          ? "was skipped"
+          : run.status === "timeout"
+            ? "timed out"
+            : "finished";
+  const title = `Routine "${routine.name}" ${verb}`;
+  const bodyLines: string[] = [];
+  if (run.exitCode !== null) bodyLines.push(`exit code: ${run.exitCode}`);
+  if (run.logsPath) bodyLines.push(`log: ${run.logsPath}`);
+  const entry = journalRepo.create({
+    employeeId,
+    kind: "run",
+    title,
+    body: bodyLines.join("\n"),
+    runId: run.id,
+    routineId: routine.id,
+    authorUserId: null,
+  });
+  await journalRepo.save(entry);
 }
 
 async function touchRoutine(

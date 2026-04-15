@@ -117,6 +117,19 @@ export type SendMessageResult = {
   assistantMessage: ConversationMessage;
 };
 
+export type JournalKind = "run" | "note" | "system";
+export type JournalEntry = {
+  id: string;
+  employeeId: string;
+  kind: JournalKind;
+  title: string;
+  body: string;
+  runId: string | null;
+  routineId: string | null;
+  authorUserId: string | null;
+  createdAt: string;
+};
+
 export type WorkspaceNode =
   | { type: "dir"; name: string; path: string; children: WorkspaceNode[] }
   | { type: "file"; name: string; path: string; size: number };

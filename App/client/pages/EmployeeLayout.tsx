@@ -2,6 +2,7 @@ import React from "react";
 import { Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
+  BookText,
   Calendar,
   FolderTree,
   MessageSquare,
@@ -28,6 +29,7 @@ const EMP_TAB_LABEL: Record<string, string> = {
   workspace: "Workspace",
   skills: "Skills",
   routines: "Routines",
+  journal: "Journal",
   settings: "Settings",
   soul: "Soul",
   model: "Model",
@@ -85,6 +87,7 @@ export default function EmployeeLayout({ company }: { company: Company }) {
         <SidebarLink to={`${base}/workspace`} icon={<FolderTree size={14} />} label="Workspace" />
         <SidebarLink to={`${base}/skills`} icon={<Wrench size={14} />} label="Skills" />
         <SidebarLink to={`${base}/routines`} icon={<Calendar size={14} />} label="Routines" />
+        <SidebarLink to={`${base}/journal`} icon={<BookText size={14} />} label="Journal" />
         <SidebarLink to={`${base}/settings`} icon={<SettingsIcon size={14} />} label="Settings" />
       </nav>
       <div className="border-t border-slate-100 p-3">

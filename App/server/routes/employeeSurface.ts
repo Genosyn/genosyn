@@ -5,6 +5,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Conversation } from "../db/entities/Conversation.js";
 import { ConversationMessage } from "../db/entities/ConversationMessage.js";
+import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { chatWithEmployee } from "../services/chat.js";
@@ -244,6 +245,65 @@ employeeSurfaceRouter.put(
     res.json({ ok: true });
   },
 );
+
+// ---------- Journal ----------
+
+/**
+ * Paginated journal. Default 100, capped at 500, newest first. Routine runs
+ * auto-emit entries via runner.ts; humans can also post free-form notes.
+ */
+employeeSurfaceRouter.get("/:eid/journal", async (req, res) => {
+  const { cid, eid } = req.params as Record<string, string>;
+  const loaded = await loadEmpAndCompany(cid, eid);
+  if (!loaded) return res.status(404).json({ error: "Not found" });
+  const take = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
+  const entries = await AppDataSource.getRepository(JournalEntry).find({
+    where: { employeeId: loaded.emp.id },
+    order: { createdAt: "DESC" },
+    take,
+  });
+  res.json(entries);
+});
+
+const journalNoteSchema = z.object({
+  title: z.string().min(1).max(200),
+  body: z.string().max(10_000).default(""),
+});
+
+employeeSurfaceRouter.post(
+  "/:eid/journal",
+  validateBody(journalNoteSchema),
+  async (req, res) => {
+    const { cid, eid } = req.params as Record<string, string>;
+    const loaded = await loadEmpAndCompany(cid, eid);
+    if (!loaded) return res.status(404).json({ error: "Not found" });
+    const body = req.body as z.infer<typeof journalNoteSchema>;
+    const userId = req.session?.userId ?? null;
+    const repo = AppDataSource.getRepository(JournalEntry);
+    const entry = repo.create({
+      employeeId: loaded.emp.id,
+      kind: "note",
+      title: body.title,
+      body: body.body,
+      runId: null,
+      routineId: null,
+      authorUserId: userId,
+    });
+    await repo.save(entry);
+    res.json(entry);
+  },
+);
+
+employeeSurfaceRouter.delete("/:eid/journal/:entryId", async (req, res) => {
+  const { cid, eid, entryId } = req.params as Record<string, string>;
+  const loaded = await loadEmpAndCompany(cid, eid);
+  if (!loaded) return res.status(404).json({ error: "Not found" });
+  const repo = AppDataSource.getRepository(JournalEntry);
+  const entry = await repo.findOneBy({ id: entryId, employeeId: loaded.emp.id });
+  if (!entry) return res.status(404).json({ error: "Not found" });
+  await repo.delete({ id: entry.id });
+  res.json({ ok: true });
+});
 
 // Also cascade-delete conversations when an employee is deleted. The employee
 // delete path lives in employees.ts; we expose a helper here so that file can

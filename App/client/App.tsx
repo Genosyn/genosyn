@@ -17,6 +17,7 @@ import EmployeeChat from "./pages/EmployeeChat";
 import EmployeeWorkspace from "./pages/EmployeeWorkspace";
 import {
   ModelSettingsPage,
+  JournalPage,
   RoutinesPage,
   SettingsPage,
   SkillsPage,
@@ -141,6 +142,7 @@ function CompanyRoutes({
           <Route path="workspace" element={<EmployeeWorkspace />} />
           <Route path="skills" element={<SkillsPage />} />
           <Route path="routines" element={<RoutinesPage />} />
+          <Route path="journal" element={<JournalPage />} />
           <Route path="settings" element={<SettingsPage />}>
             <Route index element={<Navigate to="soul" replace />} />
             <Route path="soul" element={<SoulSettingsPage />} />
