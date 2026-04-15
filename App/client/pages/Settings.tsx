@@ -4,7 +4,7 @@ import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
-import { TopBar } from "../components/AppShell";
+import { Breadcrumbs, TopBar } from "../components/AppShell";
 import { useToast } from "../components/ui/Toast";
 
 export default function Settings({
@@ -32,6 +32,9 @@ export default function Settings({
 
   return (
     <>
+      <div className="mb-3">
+        <Breadcrumbs items={[{ label: "Settings" }]} />
+      </div>
       <TopBar title="Settings" />
       <div className="flex flex-col gap-6">
         <Card>

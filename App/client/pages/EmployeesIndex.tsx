@@ -2,6 +2,7 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus, Users } from "lucide-react";
 import { Button } from "../components/ui/Button";
+import { Breadcrumbs } from "../components/AppShell";
 import { Company } from "../lib/api";
 import { useEmployees } from "./employeesContext";
 
@@ -16,9 +17,17 @@ export default function EmployeesIndex({ company }: { company: Company }) {
   const { employees } = useEmployees();
   const navigate = useNavigate();
 
+  const crumbs = (
+    <div className="mb-6">
+      <Breadcrumbs items={[{ label: "Employees" }]} />
+    </div>
+  );
+
   if (employees.length === 0) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center">
+      <>
+        {crumbs}
+        <div className="flex min-h-[50vh] items-center justify-center">
         <div className="max-w-md text-center">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
             <Users size={20} />
@@ -36,18 +45,22 @@ export default function EmployeesIndex({ company }: { company: Company }) {
             </Button>
           </div>
         </div>
-      </div>
+        </div>
+      </>
     );
   }
 
   return (
-    <div className="flex min-h-[60vh] items-center justify-center text-center text-sm text-slate-500">
-      <div>
-        <div className="text-base font-medium text-slate-700">Pick an employee</div>
-        <div className="mt-1">Choose someone from the sidebar to chat, edit their
-          workspace, or review their Soul.
+    <>
+      {crumbs}
+      <div className="flex min-h-[50vh] items-center justify-center text-center text-sm text-slate-500">
+        <div>
+          <div className="text-base font-medium text-slate-700">Pick an employee</div>
+          <div className="mt-1">Choose someone from the sidebar to chat, edit their
+            workspace, or review their Soul.
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

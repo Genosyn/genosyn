@@ -4,7 +4,7 @@ import { api, Company, Project } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
-import { TopBar } from "../components/AppShell";
+import { Breadcrumbs, TopBar } from "../components/AppShell";
 import { useToast } from "../components/ui/Toast";
 import { useTasks } from "./TasksLayout";
 
@@ -38,6 +38,14 @@ export default function ProjectNew({ company }: { company: Company }) {
 
   return (
     <div className="mx-auto max-w-2xl p-8">
+      <div className="mb-3">
+        <Breadcrumbs
+          items={[
+            { label: "Tasks", to: `/c/${companySlug}/tasks` },
+            { label: "New project" },
+          ]}
+        />
+      </div>
       <TopBar title="New project" />
       <Card>
         <CardHeader>

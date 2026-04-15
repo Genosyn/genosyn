@@ -4,7 +4,7 @@ import { api, Company, Employee } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
-import { TopBar } from "../components/AppShell";
+import { Breadcrumbs, TopBar } from "../components/AppShell";
 import { useToast } from "../components/ui/Toast";
 
 export default function EmployeeNew({ company }: { company: Company }) {
@@ -34,6 +34,14 @@ export default function EmployeeNew({ company }: { company: Company }) {
 
   return (
     <>
+      <div className="mb-3">
+        <Breadcrumbs
+          items={[
+            { label: "Employees", to: `/c/${companySlug}` },
+            { label: "New" },
+          ]}
+        />
+      </div>
       <TopBar title="Hire an AI Employee" />
       <Card>
         <CardHeader>

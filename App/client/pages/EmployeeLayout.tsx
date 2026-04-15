@@ -1,5 +1,5 @@
 import React from "react";
-import { Outlet, useNavigate, useParams } from "react-router-dom";
+import { Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   Calendar,
@@ -10,7 +10,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { api, Company, Employee } from "../lib/api";
-import { ContextualLayout, SidebarLink } from "../components/AppShell";
+import { Breadcrumbs, ContextualLayout, SidebarLink } from "../components/AppShell";
 import { Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
 import { useToast } from "../components/ui/Toast";
@@ -23,8 +23,17 @@ import { useToast } from "../components/ui/Toast";
  * Child routes read the loaded `Employee` via Outlet context so they don't
  * each re-fetch on mount.
  */
+const EMP_TAB_LABEL: Record<string, string> = {
+  chat: "Chat",
+  workspace: "Workspace",
+  skills: "Skills",
+  routines: "Routines",
+  settings: "Settings",
+};
+
 export default function EmployeeLayout({ company }: { company: Company }) {
   const { empSlug } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [emp, setEmp] = React.useState<Employee | null | undefined>(undefined);
@@ -96,9 +105,23 @@ export default function EmployeeLayout({ company }: { company: Company }) {
     </div>
   );
 
+  // Tail segment of the URL (chat/workspace/skills/…) drives the trailing
+  // breadcrumb so section changes update without the child having to push.
+  const tail = location.pathname.split("/").pop() ?? "";
+  const tabLabel = EMP_TAB_LABEL[tail];
+
   return (
     <ContextualLayout sidebar={sidebar}>
       <div className="mx-auto max-w-5xl p-8">
+        <div className="mb-4">
+          <Breadcrumbs
+            items={[
+              { label: "Employees", to: `/c/${company.slug}` },
+              { label: emp.name, to: tabLabel ? base : undefined },
+              ...(tabLabel ? [{ label: tabLabel }] : []),
+            ]}
+          />
+        </div>
         <Outlet context={{ company, emp }} />
       </div>
     </ContextualLayout>

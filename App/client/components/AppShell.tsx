@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
-import { ChevronDown, LogOut } from "lucide-react";
+import { ChevronDown, ChevronRight, LogOut } from "lucide-react";
 import { api, Company, Me } from "../lib/api";
 import { useToast } from "./ui/Toast";
 import { LogoMark } from "./Logo";
@@ -232,6 +232,50 @@ export function SidebarLink({
       {icon}
       <span className="min-w-0 flex-1 truncate">{label}</span>
     </NavLink>
+  );
+}
+
+/**
+ * Breadcrumb trail. The last item is rendered as the current page (no link).
+ * Earlier items should include a `to` so users can navigate back up. Used at
+ * the top of most main panes so "where am I?" is always one glance away.
+ */
+export type Crumb = { label: React.ReactNode; to?: string };
+export function Breadcrumbs({ items }: { items: Crumb[] }) {
+  if (items.length === 0) return null;
+  return (
+    <nav
+      aria-label="Breadcrumb"
+      className="flex items-center gap-1 text-xs text-slate-500"
+    >
+      {items.map((c, i) => {
+        const last = i === items.length - 1;
+        return (
+          <React.Fragment key={i}>
+            {i > 0 && <ChevronRight size={12} className="text-slate-300" />}
+            {c.to && !last ? (
+              <Link
+                to={c.to}
+                className="rounded px-1 py-0.5 hover:bg-slate-100 hover:text-slate-800"
+              >
+                {c.label}
+              </Link>
+            ) : (
+              <span
+                className={
+                  last
+                    ? "px-1 py-0.5 font-medium text-slate-700"
+                    : "px-1 py-0.5"
+                }
+                aria-current={last ? "page" : undefined}
+              >
+                {c.label}
+              </span>
+            )}
+          </React.Fragment>
+        );
+      })}
+    </nav>
   );
 }
 
