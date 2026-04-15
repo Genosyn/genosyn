@@ -47,6 +47,21 @@ export type Routine = {
   enabled: boolean;
   lastRunAt: string | null;
   timeoutSec: number;
+  requiresApproval: boolean;
+};
+
+export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
+export type Approval = {
+  id: string;
+  companyId: string;
+  routineId: string;
+  employeeId: string;
+  status: ApprovalStatus;
+  requestedAt: string;
+  decidedAt: string | null;
+  decidedByUserId: string | null;
+  routine: { id: string; name: string; slug: string } | null;
+  employee: { id: string; name: string; slug: string } | null;
 };
 export type RunStatus = "running" | "completed" | "failed" | "skipped" | "timeout";
 export type Run = {

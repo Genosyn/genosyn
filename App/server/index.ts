@@ -17,6 +17,7 @@ import { routinesRouter } from "./routes/routines.js";
 import { modelsRouter } from "./routes/models.js";
 import { employeeSurfaceRouter } from "./routes/employeeSurface.js";
 import { projectsRouter } from "./routes/projects.js";
+import { approvalsRouter } from "./routes/approvals.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -50,6 +51,7 @@ async function main() {
   app.use("/api/companies/:cid", routinesRouter);
   // Projects + Todos (task manager). See ROADMAP.md V1 backlog.
   app.use("/api/companies/:cid", projectsRouter);
+  app.use("/api/companies/:cid", approvalsRouter);
   // Per-employee model (one-to-one with AIEmployee). See ROADMAP §5.
   app.use("/api/companies/:cid/employees/:eid/model", modelsRouter);
 

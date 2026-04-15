@@ -29,6 +29,7 @@ import TasksLayout from "./pages/TasksLayout";
 import TasksIndex from "./pages/TasksIndex";
 import ProjectNew from "./pages/ProjectNew";
 import ProjectDetail from "./pages/ProjectDetail";
+import Approvals from "./pages/Approvals";
 
 type AuthState =
   | { status: "loading" }
@@ -156,6 +157,8 @@ function CompanyRoutes({
           <Route path="new" element={<ProjectNew company={company} />} />
           <Route path="p/:pSlug" element={<ProjectDetail company={company} />} />
         </Route>
+
+        <Route path="approvals" element={<Approvals company={company} />} />
 
         {/* Company-level settings */}
         <Route

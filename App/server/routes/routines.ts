@@ -6,6 +6,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
+import { Approval } from "../db/entities/Approval.js";
 import fs from "node:fs";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
@@ -98,6 +99,7 @@ const patchSchema = z.object({
     .optional(),
   enabled: z.boolean().optional(),
   timeoutSec: z.number().int().min(10).max(6 * 60 * 60).optional(),
+  requiresApproval: z.boolean().optional(),
 });
 
 routinesRouter.patch(
@@ -112,6 +114,7 @@ routinesRouter.patch(
     if (body.cronExpr !== undefined) r.cronExpr = body.cronExpr;
     if (body.enabled !== undefined) r.enabled = body.enabled;
     if (body.timeoutSec !== undefined) r.timeoutSec = body.timeoutSec;
+    if (body.requiresApproval !== undefined) r.requiresApproval = body.requiresApproval;
     await AppDataSource.getRepository(Routine).save(r);
     registerRoutine(r);
     res.json(r);
@@ -122,6 +125,7 @@ routinesRouter.delete("/routines/:rid", async (req, res) => {
   const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
   if (!found) return res.status(404).json({ error: "Not found" });
   unregisterRoutine(found.routine.id);
+  await AppDataSource.getRepository(Approval).delete({ routineId: found.routine.id });
   await AppDataSource.getRepository(Routine).delete({ id: found.routine.id });
   removeDir(routineDir(found.co.slug, found.emp.slug, found.routine.slug));
   res.json({ ok: true });

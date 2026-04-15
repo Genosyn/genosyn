@@ -33,6 +33,14 @@ export class Routine {
   @Column({ type: "integer", default: 600 })
   timeoutSec!: number;
 
+  /**
+   * If true, cron ticks enqueue an {@link Approval} instead of running. A
+   * human decides from the Approvals inbox. Manual "Run now" from the UI
+   * still runs immediately — a human is already in the loop.
+   */
+  @Column({ type: "boolean", default: false })
+  requiresApproval!: boolean;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

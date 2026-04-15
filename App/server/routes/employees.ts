@@ -7,6 +7,7 @@ import { Skill } from "../db/entities/Skill.js";
 import { Routine } from "../db/entities/Routine.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
+import { Approval } from "../db/entities/Approval.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
@@ -133,6 +134,7 @@ employeesRouter.delete("/:eid", async (req, res) => {
   });
   for (const r of routines) unregisterRoutine(r.id);
 
+  await AppDataSource.getRepository(Approval).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(Routine).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(Skill).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(AIModel).delete({ employeeId: emp.id });

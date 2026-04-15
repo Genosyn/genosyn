@@ -621,6 +621,9 @@ function RoutineEditor({
   const [cronExpr, setCronExpr] = React.useState(routine.cronExpr);
   const [enabled, setEnabled] = React.useState(routine.enabled);
   const [timeoutSec, setTimeoutSec] = React.useState(routine.timeoutSec ?? 600);
+  const [requiresApproval, setRequiresApproval] = React.useState(
+    routine.requiresApproval ?? false,
+  );
   const { toast } = useToast();
 
   React.useEffect(() => {
@@ -661,6 +664,17 @@ function RoutineEditor({
             />
             Enabled
           </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={requiresApproval}
+              onChange={(e) => setRequiresApproval(e.target.checked)}
+            />
+            Require approval before each scheduled run
+          </label>
+          <div className="-mt-2 text-xs text-slate-500">
+            Manual "Run now" still runs immediately — a human is already in the loop.
+          </div>
           <MarkdownEditor value={content} onChange={setContent} rows={12} />
           <div className="flex gap-2">
             <Button
@@ -671,6 +685,7 @@ function RoutineEditor({
                     cronExpr,
                     enabled,
                     timeoutSec,
+                    requiresApproval,
                   });
                   await api.put(
                     `/api/companies/${company.id}/routines/${routine.id}/readme`,
