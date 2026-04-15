@@ -1,12 +1,14 @@
 import React from "react";
-import { useOutletContext } from "react-router-dom";
+import { NavLink, Outlet, useOutletContext } from "react-router-dom";
 import {
+  BrainCircuit,
   Check,
   Copy,
   KeyRound,
   Loader2,
   Play,
   PlugZap,
+  Sparkles,
   Trash2,
   Unplug,
 } from "lucide-react";
@@ -526,24 +528,71 @@ const PROVIDER_DEFAULTS: Record<
 };
 
 /**
- * Employee Settings page. Stacks:
- *   1. Soul editor (moved here from its own tab)
- *   2. Model connection card
- *
- * If the product grows another per-employee setting later (notifications,
- * permissions, memory retention) it slots in as another card below.
+ * Employee Settings. Soul + Model used to share one scroll-heavy page; now
+ * each is its own sub-route with a small side nav. New per-employee setting
+ * surfaces (permissions, memory retention, notifications) slot in as extra
+ * sidebar entries rather than another stacked card.
  */
 export function SettingsPage() {
-  const { company, emp } = useCtx();
   return (
     <>
       <TopBar title="Settings" />
-      <div className="flex flex-col gap-4">
-        <SoulCard company={company} emp={emp} />
-        <ModelSection company={company} emp={emp} />
+      <div className="flex gap-6">
+        <SettingsSideNav />
+        <div className="min-w-0 flex-1">
+          <Outlet context={useCtx()} />
+        </div>
       </div>
     </>
   );
+}
+
+function SettingsSideNav() {
+  return (
+    <nav className="w-44 shrink-0">
+      <ul className="flex flex-col gap-0.5">
+        <SettingsNavItem to="soul" icon={<Sparkles size={14} />} label="Soul" />
+        <SettingsNavItem to="model" icon={<BrainCircuit size={14} />} label="Model" />
+      </ul>
+    </nav>
+  );
+}
+
+function SettingsNavItem({
+  to,
+  icon,
+  label,
+}: {
+  to: string;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <li>
+      <NavLink
+        to={to}
+        className={({ isActive }) =>
+          "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm " +
+          (isActive
+            ? "bg-indigo-50 text-indigo-700"
+            : "text-slate-700 hover:bg-slate-50")
+        }
+      >
+        {icon}
+        {label}
+      </NavLink>
+    </li>
+  );
+}
+
+export function SoulSettingsPage() {
+  const { company, emp } = useCtx();
+  return <SoulCard company={company} emp={emp} />;
+}
+
+export function ModelSettingsPage() {
+  const { company, emp } = useCtx();
+  return <ModelSection company={company} emp={emp} />;
 }
 
 function ModelSection({ company, emp }: { company: Company; emp: Employee }) {

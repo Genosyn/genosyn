@@ -29,6 +29,8 @@ const EMP_TAB_LABEL: Record<string, string> = {
   skills: "Skills",
   routines: "Routines",
   settings: "Settings",
+  soul: "Soul",
+  model: "Model",
 };
 
 export default function EmployeeLayout({ company }: { company: Company }) {
@@ -105,10 +107,22 @@ export default function EmployeeLayout({ company }: { company: Company }) {
     </div>
   );
 
-  // Tail segment of the URL (chat/workspace/skills/…) drives the trailing
-  // breadcrumb so section changes update without the child having to push.
-  const tail = location.pathname.split("/").pop() ?? "";
-  const tabLabel = EMP_TAB_LABEL[tail];
+  // Segments after the employee slug (e.g. `settings/soul`) become the trailing
+  // breadcrumbs. Each known segment gets a label from EMP_TAB_LABEL; unknown
+  // segments are skipped so the chain stays clean.
+  const afterBase = location.pathname.startsWith(base)
+    ? location.pathname.slice(base.length).replace(/^\/+/, "")
+    : "";
+  const segments = afterBase ? afterBase.split("/").filter(Boolean) : [];
+  const tabCrumbs: { label: string; to?: string }[] = [];
+  let acc = base;
+  segments.forEach((seg, i) => {
+    acc = `${acc}/${seg}`;
+    const label = EMP_TAB_LABEL[seg];
+    if (!label) return;
+    const isLast = i === segments.length - 1;
+    tabCrumbs.push({ label, to: isLast ? undefined : acc });
+  });
 
   return (
     <ContextualLayout sidebar={sidebar}>
@@ -117,8 +131,8 @@ export default function EmployeeLayout({ company }: { company: Company }) {
           <Breadcrumbs
             items={[
               { label: "Employees", to: `/c/${company.slug}` },
-              { label: emp.name, to: tabLabel ? base : undefined },
-              ...(tabLabel ? [{ label: tabLabel }] : []),
+              { label: emp.name, to: tabCrumbs.length ? base : undefined },
+              ...tabCrumbs,
             ]}
           />
         </div>

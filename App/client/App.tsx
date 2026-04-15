@@ -15,7 +15,13 @@ import EmployeeLayout from "./pages/EmployeeLayout";
 import EmployeeNew from "./pages/EmployeeNew";
 import EmployeeChat from "./pages/EmployeeChat";
 import EmployeeWorkspace from "./pages/EmployeeWorkspace";
-import { RoutinesPage, SettingsPage, SkillsPage } from "./pages/employeeTabs";
+import {
+  ModelSettingsPage,
+  RoutinesPage,
+  SettingsPage,
+  SkillsPage,
+  SoulSettingsPage,
+} from "./pages/employeeTabs";
 import Settings from "./pages/Settings";
 import Invite from "./pages/Invite";
 import TasksLayout from "./pages/TasksLayout";
@@ -135,7 +141,11 @@ function CompanyRoutes({
           <Route path="workspace" element={<EmployeeWorkspace />} />
           <Route path="skills" element={<SkillsPage />} />
           <Route path="routines" element={<RoutinesPage />} />
-          <Route path="settings" element={<SettingsPage />} />
+          <Route path="settings" element={<SettingsPage />}>
+            <Route index element={<Navigate to="soul" replace />} />
+            <Route path="soul" element={<SoulSettingsPage />} />
+            <Route path="model" element={<ModelSettingsPage />} />
+          </Route>
         </Route>
 
         {/* Tasks (Projects + Todos) — task manager. */}
