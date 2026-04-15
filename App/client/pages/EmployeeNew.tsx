@@ -23,8 +23,8 @@ export default function EmployeeNew({ company }: { company: Company }) {
         name,
         role,
       });
-      // Jump straight to the Model tab so the operator connects a brain next.
-      navigate(`/c/${companySlug}/employees/${emp.slug}?tab=model`);
+      // Jump straight to Settings so the operator connects a brain next.
+      navigate(`/c/${companySlug}/employees/${emp.slug}/settings`);
     } catch (err) {
       toast((err as Error).message, "error");
     } finally {

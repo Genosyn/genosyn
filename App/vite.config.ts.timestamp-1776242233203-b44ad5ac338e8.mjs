@@ -1,0 +1,25 @@
+// vite.config.ts
+import { defineConfig } from "file:///Users/nawazdhandala/Projects/Genosyn/genosyn/App/node_modules/vite/dist/node/index.js";
+import react from "file:///Users/nawazdhandala/Projects/Genosyn/genosyn/App/node_modules/@vitejs/plugin-react/dist/index.js";
+import path from "node:path";
+var __vite_injected_original_dirname = "/Users/nawazdhandala/Projects/Genosyn/genosyn/App";
+var vite_config_default = defineConfig({
+  root: "client",
+  plugins: [react()],
+  resolve: {
+    alias: {
+      "@": path.resolve(__vite_injected_original_dirname, "client")
+    }
+  },
+  // No `server` block: in dev, Vite runs in middleware mode inside the
+  // Express process (see server/index.ts), so there is no separate Vite
+  // HTTP server and no proxy is needed. One port for API + UI.
+  build: {
+    outDir: "../dist/client",
+    emptyOutDir: true
+  }
+});
+export {
+  vite_config_default as default
+};
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsidml0ZS5jb25maWcudHMiXSwKICAic291cmNlc0NvbnRlbnQiOiBbImNvbnN0IF9fdml0ZV9pbmplY3RlZF9vcmlnaW5hbF9kaXJuYW1lID0gXCIvVXNlcnMvbmF3YXpkaGFuZGFsYS9Qcm9qZWN0cy9HZW5vc3luL2dlbm9zeW4vQXBwXCI7Y29uc3QgX192aXRlX2luamVjdGVkX29yaWdpbmFsX2ZpbGVuYW1lID0gXCIvVXNlcnMvbmF3YXpkaGFuZGFsYS9Qcm9qZWN0cy9HZW5vc3luL2dlbm9zeW4vQXBwL3ZpdGUuY29uZmlnLnRzXCI7Y29uc3QgX192aXRlX2luamVjdGVkX29yaWdpbmFsX2ltcG9ydF9tZXRhX3VybCA9IFwiZmlsZTovLy9Vc2Vycy9uYXdhemRoYW5kYWxhL1Byb2plY3RzL0dlbm9zeW4vZ2Vub3N5bi9BcHAvdml0ZS5jb25maWcudHNcIjtpbXBvcnQgeyBkZWZpbmVDb25maWcgfSBmcm9tIFwidml0ZVwiO1xuaW1wb3J0IHJlYWN0IGZyb20gXCJAdml0ZWpzL3BsdWdpbi1yZWFjdFwiO1xuaW1wb3J0IHBhdGggZnJvbSBcIm5vZGU6cGF0aFwiO1xuXG5leHBvcnQgZGVmYXVsdCBkZWZpbmVDb25maWcoe1xuICByb290OiBcImNsaWVudFwiLFxuICBwbHVnaW5zOiBbcmVhY3QoKV0sXG4gIHJlc29sdmU6IHtcbiAgICBhbGlhczoge1xuICAgICAgXCJAXCI6IHBhdGgucmVzb2x2ZShfX2Rpcm5hbWUsIFwiY2xpZW50XCIpLFxuICAgIH0sXG4gIH0sXG4gIC8vIE5vIGBzZXJ2ZXJgIGJsb2NrOiBpbiBkZXYsIFZpdGUgcnVucyBpbiBtaWRkbGV3YXJlIG1vZGUgaW5zaWRlIHRoZVxuICAvLyBFeHByZXNzIHByb2Nlc3MgKHNlZSBzZXJ2ZXIvaW5kZXgudHMpLCBzbyB0aGVyZSBpcyBubyBzZXBhcmF0ZSBWaXRlXG4gIC8vIEhUVFAgc2VydmVyIGFuZCBubyBwcm94eSBpcyBuZWVkZWQuIE9uZSBwb3J0IGZvciBBUEkgKyBVSS5cbiAgYnVpbGQ6IHtcbiAgICBvdXREaXI6IFwiLi4vZGlzdC9jbGllbnRcIixcbiAgICBlbXB0eU91dERpcjogdHJ1ZSxcbiAgfSxcbn0pO1xuIl0sCiAgIm1hcHBpbmdzIjogIjtBQUFxVSxTQUFTLG9CQUFvQjtBQUNsVyxPQUFPLFdBQVc7QUFDbEIsT0FBTyxVQUFVO0FBRmpCLElBQU0sbUNBQW1DO0FBSXpDLElBQU8sc0JBQVEsYUFBYTtBQUFBLEVBQzFCLE1BQU07QUFBQSxFQUNOLFNBQVMsQ0FBQyxNQUFNLENBQUM7QUFBQSxFQUNqQixTQUFTO0FBQUEsSUFDUCxPQUFPO0FBQUEsTUFDTCxLQUFLLEtBQUssUUFBUSxrQ0FBVyxRQUFRO0FBQUEsSUFDdkM7QUFBQSxFQUNGO0FBQUE7QUFBQTtBQUFBO0FBQUEsRUFJQSxPQUFPO0FBQUEsSUFDTCxRQUFRO0FBQUEsSUFDUixhQUFhO0FBQUEsRUFDZjtBQUNGLENBQUM7IiwKICAibmFtZXMiOiBbXQp9Cg==

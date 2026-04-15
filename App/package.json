@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Genosyn App — run companies autonomously with AI employees",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "tsx watch --ignore='**/vite.config.*' --ignore='client/**' --ignore='dist/**' --ignore='data/**' server/index.ts",

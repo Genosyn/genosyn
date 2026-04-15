@@ -1,56 +1,94 @@
 import React from "react";
-import { Link, NavLink, useNavigate, useParams } from "react-router-dom";
-import { ChevronDown, Cpu, LogOut, Settings, Users } from "lucide-react";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
+import { ChevronDown, LogOut } from "lucide-react";
 import { api, Company, Me } from "../lib/api";
 import { useToast } from "./ui/Toast";
+import { LogoMark } from "./Logo";
 
-export function AppShell({
+/**
+ * App chrome:
+ *   ┌───────────────────────────────────────────────┐
+ *   │ TopNav (company switcher · sections · user)   │
+ *   ├─────────┬─────────────────────────────────────┤
+ *   │         │                                     │
+ *   │ Sidebar │           Main content              │
+ *   │         │                                     │
+ *   └─────────┴─────────────────────────────────────┘
+ *
+ * Sections live in the top nav (Employees / Settings). The sidebar is
+ * context-specific: list of employees on the Employees section, an
+ * employee's sub-nav (Chat / Workspace / Soul / Skills / Routines /
+ * Settings) once one is selected, or Settings sub-pages on the Settings
+ * section. Each page renders `<ContextualLayout sidebar={...}>{main}</>`
+ * so the sidebar can change route-by-route without remounting the shell.
+ */
+
+type AppShellProps = {
+  me: Me;
+  companies: Company[];
+  current: Company;
+  onCompaniesChanged: () => void;
+  children: React.ReactNode;
+};
+
+export function AppShell({ me, companies, current, onCompaniesChanged, children }: AppShellProps) {
+  return (
+    <div className="flex h-full flex-col">
+      <TopNav me={me} companies={companies} current={current} onCompaniesChanged={onCompaniesChanged} />
+      <div className="flex min-h-0 flex-1">{children}</div>
+    </div>
+  );
+}
+
+function TopNav({
   me,
   companies,
-  children,
+  current,
   onCompaniesChanged,
 }: {
   me: Me;
   companies: Company[];
-  children: React.ReactNode;
+  current: Company;
   onCompaniesChanged: () => void;
 }) {
-  const { companySlug } = useParams();
-  const current = companies.find((c) => c.slug === companySlug) ?? companies[0];
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
-  const [dropdown, setDropdown] = React.useState(false);
+  const [companyOpen, setCompanyOpen] = React.useState(false);
+  const [userOpen, setUserOpen] = React.useState(false);
 
   async function logout() {
     await api.post("/api/auth/logout");
     navigate("/login");
   }
 
+  // Determine active top-level section from the URL path so /employees/:slug
+  // still highlights "Employees".
+  const section = location.pathname.includes("/settings") ? "settings" : "employees";
+
   return (
-    <div className="flex h-full">
-      <aside className="flex w-64 flex-col border-r border-slate-200 bg-white">
-        <div className="relative border-b border-slate-100 p-3">
-          <button
-            onClick={() => setDropdown((d) => !d)}
-            className="flex w-full items-center justify-between rounded-lg px-2 py-2 hover:bg-slate-50"
-          >
-            <div className="flex flex-col items-start">
-              <span className="text-xs font-medium uppercase tracking-wider text-slate-400">
-                Company
-              </span>
-              <span className="text-sm font-semibold text-slate-900">
-                {current?.name ?? "No company"}
-              </span>
-            </div>
-            <ChevronDown size={16} className="text-slate-400" />
-          </button>
-          {dropdown && (
-            <div className="absolute left-3 right-3 top-full z-20 mt-1 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+    <header className="flex h-14 shrink-0 items-center gap-6 border-b border-slate-200 bg-white px-4">
+      <Link to={`/c/${current.slug}`} className="flex items-center gap-2">
+        <LogoMark className="h-7 w-7" />
+      </Link>
+
+      <div className="relative">
+        <button
+          onClick={() => setCompanyOpen((d) => !d)}
+          className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-slate-900 hover:bg-slate-50"
+        >
+          {current.name}
+          <ChevronDown size={14} className="text-slate-400" />
+        </button>
+        {companyOpen && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setCompanyOpen(false)} />
+            <div className="absolute left-0 top-full z-20 mt-1 w-56 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
               {companies.map((c) => (
                 <button
                   key={c.id}
                   onClick={() => {
-                    setDropdown(false);
+                    setCompanyOpen(false);
                     navigate(`/c/${c.slug}`);
                   }}
                   className="block w-full px-3 py-2 text-left text-sm hover:bg-slate-50"
@@ -60,7 +98,7 @@ export function AppShell({
               ))}
               <button
                 onClick={async () => {
-                  setDropdown(false);
+                  setCompanyOpen(false);
                   const name = prompt("New company name");
                   if (!name) return;
                   try {
@@ -76,62 +114,109 @@ export function AppShell({
                 + New company
               </button>
             </div>
+          </>
+        )}
+      </div>
+
+      <nav className="flex items-center gap-1">
+        <TopTab to={`/c/${current.slug}`} active={section === "employees"} label="Employees" />
+        <TopTab to={`/c/${current.slug}/settings`} active={section === "settings"} label="Settings" />
+      </nav>
+
+      <div className="ml-auto">
+        <div className="relative">
+          <button
+            onClick={() => setUserOpen((d) => !d)}
+            className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-slate-50"
+          >
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700">
+              {initials(me.name || me.email)}
+            </div>
+            <span className="max-w-[12rem] truncate text-slate-700">{me.name || me.email}</span>
+          </button>
+          {userOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setUserOpen(false)} />
+              <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                <div className="px-3 py-2 text-xs text-slate-500">
+                  <div className="truncate text-slate-900">{me.name}</div>
+                  <div className="truncate">{me.email}</div>
+                </div>
+                <button
+                  onClick={logout}
+                  className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  <LogOut size={14} /> Log out
+                </button>
+              </div>
+            </>
           )}
         </div>
-
-        {current && (
-          <nav className="flex flex-col gap-1 p-2">
-            <SidebarLink to={`/c/${current.slug}`} icon={<Users size={16} />} label="Employees" />
-            <SidebarLink
-              to={`/c/${current.slug}/models`}
-              icon={<Cpu size={16} />}
-              label="AI Models"
-            />
-            <SidebarLink
-              to={`/c/${current.slug}/settings`}
-              icon={<Settings size={16} />}
-              label="Settings"
-            />
-          </nav>
-        )}
-
-        <div className="mt-auto border-t border-slate-100 p-3">
-          <div className="flex items-center justify-between gap-2 px-2 py-2">
-            <div className="min-w-0">
-              <div className="truncate text-sm font-medium">{me.name}</div>
-              <div className="truncate text-xs text-slate-500">{me.email}</div>
-            </div>
-            <button
-              onClick={logout}
-              className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-              title="Log out"
-            >
-              <LogOut size={16} />
-            </button>
-          </div>
-        </div>
-      </aside>
-
-      <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-5xl p-8">{children}</div>
-      </main>
-    </div>
+      </div>
+    </header>
   );
 }
 
-function SidebarLink({
+function TopTab({ to, active, label }: { to: string; active: boolean; label: string }) {
+  return (
+    <Link
+      to={to}
+      className={
+        "rounded-md px-3 py-1.5 text-sm font-medium " +
+        (active ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-50")
+      }
+    >
+      {label}
+    </Link>
+  );
+}
+
+function initials(s: string): string {
+  const parts = s.trim().split(/\s+/);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/**
+ * Two-pane layout mounted inside `<AppShell>` by each section. Pages choose
+ * whether to render a sidebar by passing `sidebar`; pages that want the
+ * whole pane (e.g. an onboarding flow) simply omit it.
+ */
+export function ContextualLayout({
+  sidebar,
+  children,
+}: {
+  sidebar?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <>
+      {sidebar !== undefined && (
+        <aside className="flex w-64 shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-white">
+          {sidebar}
+        </aside>
+      )}
+      <main className="min-w-0 flex-1 overflow-y-auto bg-slate-50">{children}</main>
+    </>
+  );
+}
+
+export function SidebarLink({
   to,
   icon,
   label,
+  end,
 }: {
   to: string;
-  icon: React.ReactNode;
-  label: string;
+  icon?: React.ReactNode;
+  label: React.ReactNode;
+  end?: boolean;
 }) {
   return (
     <NavLink
       to={to}
-      end
+      end={end}
       className={({ isActive }) =>
         "flex items-center gap-2 rounded-md px-3 py-2 text-sm " +
         (isActive
@@ -140,7 +225,7 @@ function SidebarLink({
       }
     >
       {icon}
-      {label}
+      <span className="min-w-0 flex-1 truncate">{label}</span>
     </NavLink>
   );
 }

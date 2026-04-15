@@ -1,14 +1,13 @@
 import { Github } from "lucide-react";
 import { GITHUB_URL } from "@/lib/constants";
-import { LogoMark } from "@/components/Logo";
+import { Logo } from "@/components/Logo";
 
 export function Nav() {
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200/70 bg-white/80 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
-        <a href="/" className="flex items-center gap-2">
-          <LogoMark className="h-7 w-7" />
-          <span className="text-base font-semibold tracking-tight text-slate-900">Genosyn</span>
+        <a href="/" className="flex items-center text-slate-900">
+          <Logo className="h-7 w-auto" />
         </a>
         <a
           href={GITHUB_URL}

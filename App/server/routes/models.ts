@@ -1,5 +1,4 @@
 import { Router } from "express";
-import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { AppDataSource } from "../db/datasource.js";
@@ -9,7 +8,7 @@ import { Company } from "../db/entities/Company.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { ensureDir } from "../services/paths.js";
-import { PROVIDERS } from "../services/providers.js";
+import { PROVIDERS, isModelConnected } from "../services/providers.js";
 import { removeDir } from "../services/files.js";
 import { encryptSecret, maskSecret } from "../lib/secret.js";
 
@@ -63,7 +62,7 @@ function toPublic(m: AIModel, co: Company, emp: AIEmployee): PublicModel {
     ? (cfg.apiKeyEncrypted as string)
     : null;
   const spec = PROVIDERS[m.provider];
-  const connected = isConnected(m, co, emp);
+  const connected = isModelConnected(m, co, emp);
   return {
     id: m.id,
     employeeId: m.employeeId,
@@ -87,24 +86,6 @@ function safeParseConfig(s: string): Record<string, unknown> {
     return v && typeof v === "object" ? (v as Record<string, unknown>) : {};
   } catch {
     return {};
-  }
-}
-
-/**
- * A Model is "connected" if credentials are actually usable:
- *  - subscription: creds file exists on disk at the employee's CLAUDE_CONFIG_DIR
- *  - apikey:      an encrypted key is present in configJson
- */
-function isConnected(m: AIModel, co: Company, emp: AIEmployee): boolean {
-  if (m.authMode === "apikey") {
-    const cfg = safeParseConfig(m.configJson);
-    return typeof cfg.apiKeyEncrypted === "string" && (cfg.apiKeyEncrypted as string).length > 0;
-  }
-  // subscription: check the provider-specific creds file.
-  try {
-    return fs.existsSync(PROVIDERS[m.provider].credsPath(co.slug, emp.slug));
-  } catch {
-    return false;
   }
 }
 
@@ -213,7 +194,7 @@ modelsRouter.post("/refresh", async (req, res) => {
   const repo = AppDataSource.getRepository(AIModel);
   const m = await repo.findOneBy({ employeeId: ctx.emp.id });
   if (!m) return res.json(null);
-  const nowConnected = isConnected(m, ctx.co, ctx.emp);
+  const nowConnected = isModelConnected(m, ctx.co, ctx.emp);
   if (nowConnected && !m.connectedAt) {
     m.connectedAt = new Date();
     await repo.save(m);
@@ -239,31 +220,3 @@ modelsRouter.delete("/", async (req, res) => {
   res.json({ ok: true });
 });
 
-// ---------- Company-wide read-only overview ----------
-
-export const modelsOverviewRouter = Router({ mergeParams: true });
-modelsOverviewRouter.use(requireAuth);
-modelsOverviewRouter.use(requireCompanyMember);
-
-modelsOverviewRouter.get("/", async (req, res) => {
-  const cid = (req.params as Record<string, string>).cid;
-  const co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
-  if (!co) return res.status(404).json({ error: "Company not found" });
-  const emps = await AppDataSource.getRepository(AIEmployee).find({
-    where: { companyId: cid },
-  });
-  const models = await AppDataSource.getRepository(AIModel).find();
-  const byEmp = new Map(models.map((m) => [m.employeeId, m]));
-
-  const rows = emps.map((emp) => {
-    const m = byEmp.get(emp.id) ?? null;
-    return {
-      employeeId: emp.id,
-      employeeName: emp.name,
-      employeeSlug: emp.slug,
-      role: emp.role,
-      model: m ? toPublic(m, co, emp) : null,
-    };
-  });
-  res.json(rows);
-});

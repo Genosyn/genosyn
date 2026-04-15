@@ -1,4 +1,7 @@
-import type { Provider } from "../db/entities/AIModel.js";
+import fs from "node:fs";
+import type { AIModel, Provider } from "../db/entities/AIModel.js";
+import type { AIEmployee } from "../db/entities/AIEmployee.js";
+import type { Company } from "../db/entities/Company.js";
 import {
   claudeCredsPath,
   codexCredsPath,
@@ -36,6 +39,29 @@ export type ProviderSpec = {
   /** Absolute path to the creds file the provider drops on successful login. */
   credsPath(companySlug: string, employeeSlug: string): string;
 };
+
+/**
+ * A Model is "connected" if credentials are actually usable:
+ *  - subscription: creds file exists on disk at the provider's config dir
+ *  - apikey:      an encrypted key is present in configJson
+ */
+export function isModelConnected(m: AIModel, co: Company, emp: AIEmployee): boolean {
+  if (m.authMode === "apikey") {
+    let cfg: Record<string, unknown> = {};
+    try {
+      const v = JSON.parse(m.configJson || "{}");
+      if (v && typeof v === "object") cfg = v as Record<string, unknown>;
+    } catch {
+      // fall through
+    }
+    return typeof cfg.apiKeyEncrypted === "string" && (cfg.apiKeyEncrypted as string).length > 0;
+  }
+  try {
+    return fs.existsSync(PROVIDERS[m.provider].credsPath(co.slug, emp.slug));
+  } catch {
+    return false;
+  }
+}
 
 export const PROVIDERS: Record<Provider, ProviderSpec> = {
   "claude-code": {

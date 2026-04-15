@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "description": "Genosyn marketing site",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",

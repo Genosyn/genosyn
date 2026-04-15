@@ -1,5 +1,5 @@
 import React from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useOutletContext } from "react-router-dom";
 import {
   Check,
   Copy,
@@ -31,82 +31,25 @@ import { MarkdownEditor } from "../components/MarkdownEditor";
 import { Modal } from "../components/ui/Modal";
 import { useToast } from "../components/ui/Toast";
 import { Select } from "../components/ui/Select";
+import type { EmployeeOutletCtx } from "./EmployeeLayout";
 
-type Tab = "soul" | "skills" | "routines" | "model";
+/**
+ * The individual employee sub-pages. Previously these were tabs on
+ * EmployeeDetail.tsx — now each is a route rendered inside EmployeeLayout
+ * via <Outlet context>. The logic inside each component is mostly a
+ * straight lift of the old tab bodies.
+ */
 
-export default function EmployeeDetail({ company }: { company: Company }) {
-  const { empSlug } = useParams();
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const initialTab = (searchParams.get("tab") as Tab | null) ?? "soul";
-  const [emp, setEmp] = React.useState<Employee | null>(null);
-  const [tab, setTab] = React.useState<Tab>(
-    ["soul", "skills", "routines", "model"].includes(initialTab) ? initialTab : "soul",
-  );
-  const { toast } = useToast();
-
-  React.useEffect(() => {
-    (async () => {
-      const list = await api.get<Employee[]>(`/api/companies/${company.id}/employees`);
-      const e = list.find((x) => x.slug === empSlug);
-      if (!e) {
-        navigate(`/c/${company.slug}`);
-        return;
-      }
-      setEmp(e);
-    })().catch(() => {});
-  }, [company.id, company.slug, empSlug, navigate]);
-
-  if (!emp) return <div className="p-10 flex justify-center"><Spinner /></div>;
-
-  return (
-    <>
-      <TopBar
-        title={emp.name}
-        right={
-          <Button
-            variant="danger"
-            size="sm"
-            onClick={async () => {
-              if (!confirm(`Delete ${emp.name}?`)) return;
-              try {
-                await api.del(`/api/companies/${company.id}/employees/${emp.id}`);
-                navigate(`/c/${company.slug}`);
-              } catch (err) {
-                toast((err as Error).message, "error");
-              }
-            }}
-          >
-            <Trash2 size={14} /> Delete
-          </Button>
-        }
-      />
-      <div className="mb-4 text-sm text-slate-500">{emp.role}</div>
-      <div className="mb-6 flex gap-1 border-b border-slate-200">
-        {(["soul", "skills", "routines", "model"] as Tab[]).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={
-              "relative -mb-px px-4 py-2 text-sm font-medium capitalize " +
-              (tab === t
-                ? "border-b-2 border-indigo-600 text-slate-900"
-                : "text-slate-500 hover:text-slate-900")
-            }
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-      {tab === "soul" && <SoulTab company={company} emp={emp} />}
-      {tab === "skills" && <SkillsTab company={company} emp={emp} />}
-      {tab === "routines" && <RoutinesTab company={company} emp={emp} />}
-      {tab === "model" && <ModelTab company={company} emp={emp} />}
-    </>
-  );
+function useCtx(): EmployeeOutletCtx {
+  return useOutletContext<EmployeeOutletCtx>();
 }
 
-function SoulTab({ company, emp }: { company: Company; emp: Employee }) {
+/**
+ * SoulCard — the SOUL.md editor. Used inline on the employee Settings page
+ * (no longer has its own sidebar entry; Soul sits with the rest of the
+ * per-employee settings).
+ */
+function SoulCard({ company, emp }: { company: Company; emp: Employee }) {
   const [content, setContent] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const { toast } = useToast();
@@ -117,35 +60,51 @@ function SoulTab({ company, emp }: { company: Company; emp: Employee }) {
       .then((r) => setContent(r.content));
   }, [company.id, emp.id]);
 
-  if (content === null) return <Spinner />;
   return (
-    <div className="flex flex-col gap-3">
-      <MarkdownEditor value={content} onChange={setContent} rows={20} />
-      <div>
-        <Button
-          onClick={async () => {
-            setSaving(true);
-            try {
-              await api.put(`/api/companies/${company.id}/employees/${emp.id}/soul`, {
-                content,
-              });
-              toast("Soul saved", "success");
-            } catch (err) {
-              toast((err as Error).message, "error");
-            } finally {
-              setSaving(false);
-            }
-          }}
-          disabled={saving}
-        >
-          {saving ? "Saving…" : "Save SOUL.md"}
-        </Button>
-      </div>
-    </div>
+    <Card>
+      <CardBody className="flex flex-col gap-3">
+        <div>
+          <div className="text-sm font-medium text-slate-900">Soul</div>
+          <div className="text-xs text-slate-500">
+            {emp.name}&apos;s constitution — edited here, stored as{" "}
+            <code className="rounded bg-slate-100 px-1 py-0.5 text-[11px]">SOUL.md</code> in
+            the workspace.
+          </div>
+        </div>
+        {content === null ? (
+          <Spinner />
+        ) : (
+          <>
+            <MarkdownEditor value={content} onChange={setContent} rows={16} />
+            <div>
+              <Button
+                onClick={async () => {
+                  setSaving(true);
+                  try {
+                    await api.put(`/api/companies/${company.id}/employees/${emp.id}/soul`, {
+                      content,
+                    });
+                    toast("Soul saved", "success");
+                  } catch (err) {
+                    toast((err as Error).message, "error");
+                  } finally {
+                    setSaving(false);
+                  }
+                }}
+                disabled={saving}
+              >
+                {saving ? "Saving…" : "Save SOUL.md"}
+              </Button>
+            </div>
+          </>
+        )}
+      </CardBody>
+    </Card>
   );
 }
 
-function SkillsTab({ company, emp }: { company: Company; emp: Employee }) {
+export function SkillsPage() {
+  const { company, emp } = useCtx();
   const [skills, setSkills] = React.useState<Skill[] | null>(null);
   const [adding, setAdding] = React.useState(false);
   const [name, setName] = React.useState("");
@@ -163,13 +122,15 @@ function SkillsTab({ company, emp }: { company: Company; emp: Employee }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [emp.id]);
 
-  if (skills === null) return <Spinner />;
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
-        <Button onClick={() => setAdding(true)}>New skill</Button>
-      </div>
-      {skills.length === 0 ? (
+    <>
+      <TopBar
+        title="Skills"
+        right={<Button onClick={() => setAdding(true)}>New skill</Button>}
+      />
+      {skills === null ? (
+        <Spinner />
+      ) : skills.length === 0 ? (
         <EmptyState
           title="No skills yet"
           description="Skills are markdown playbooks an employee can apply to their work."
@@ -177,11 +138,7 @@ function SkillsTab({ company, emp }: { company: Company; emp: Employee }) {
       ) : (
         <div className="grid gap-3">
           {skills.map((s) => (
-            <Card
-              key={s.id}
-              className="cursor-pointer"
-              onClick={() => setEditing(s)}
-            >
+            <Card key={s.id} className="cursor-pointer" onClick={() => setEditing(s)}>
               <CardBody className="flex items-center justify-between">
                 <div>
                   <div className="font-medium">{s.name}</div>
@@ -232,13 +189,9 @@ function SkillsTab({ company, emp }: { company: Company; emp: Employee }) {
         </form>
       </Modal>
       {editing && (
-        <SkillEditor
-          company={company}
-          skill={editing}
-          onClose={() => setEditing(null)}
-        />
+        <SkillEditor company={company} skill={editing} onClose={() => setEditing(null)} />
       )}
-    </div>
+    </>
   );
 }
 
@@ -298,7 +251,8 @@ function SkillEditor({
   );
 }
 
-function RoutinesTab({ company, emp }: { company: Company; emp: Employee }) {
+export function RoutinesPage() {
+  const { company, emp } = useCtx();
   const [routines, setRoutines] = React.useState<Routine[] | null>(null);
   const [adding, setAdding] = React.useState(false);
   const [editing, setEditing] = React.useState<Routine | null>(null);
@@ -316,13 +270,15 @@ function RoutinesTab({ company, emp }: { company: Company; emp: Employee }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [emp.id]);
 
-  if (routines === null) return <Spinner />;
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
-        <Button onClick={() => setAdding(true)}>New routine</Button>
-      </div>
-      {routines.length === 0 ? (
+    <>
+      <TopBar
+        title="Routines"
+        right={<Button onClick={() => setAdding(true)}>New routine</Button>}
+      />
+      {routines === null ? (
+        <Spinner />
+      ) : routines.length === 0 ? (
         <EmptyState
           title="No routines yet"
           description="Routines are cron-scheduled work this employee performs automatically."
@@ -404,7 +360,7 @@ function RoutinesTab({ company, emp }: { company: Company; emp: Employee }) {
           }}
         />
       )}
-    </div>
+    </>
   );
 }
 
@@ -455,12 +411,7 @@ function NewRoutineModal({
           }
         }}
       >
-        <Input
-          label="Name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-        />
+        <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
         <Input
           label="Cron expression"
           value={cronExpr}
@@ -563,7 +514,7 @@ function RoutineEditor({
   );
 }
 
-// ---------- Model tab: connect a Model to this employee ----------
+// ---------- Model (Settings) tab ----------
 
 const PROVIDER_DEFAULTS: Record<
   Provider,
@@ -574,7 +525,28 @@ const PROVIDER_DEFAULTS: Record<
   opencode: { label: "opencode", model: "anthropic/claude-opus-4-6", supportsApiKey: false },
 };
 
-function ModelTab({ company, emp }: { company: Company; emp: Employee }) {
+/**
+ * Employee Settings page. Stacks:
+ *   1. Soul editor (moved here from its own tab)
+ *   2. Model connection card
+ *
+ * If the product grows another per-employee setting later (notifications,
+ * permissions, memory retention) it slots in as another card below.
+ */
+export function SettingsPage() {
+  const { company, emp } = useCtx();
+  return (
+    <>
+      <TopBar title="Settings" />
+      <div className="flex flex-col gap-4">
+        <SoulCard company={company} emp={emp} />
+        <ModelSection company={company} emp={emp} />
+      </div>
+    </>
+  );
+}
+
+function ModelSection({ company, emp }: { company: Company; emp: Employee }) {
   const [model, setModel] = React.useState<AIModel | null | undefined>(undefined);
   const { toast } = useToast();
 
@@ -589,8 +561,6 @@ function ModelTab({ company, emp }: { company: Company; emp: Employee }) {
     reload().catch(() => setModel(null));
   }, [reload]);
 
-  // Poll while waiting for `claude login` to drop a creds file. Stops as
-  // soon as the server reports connected, or when the user navigates away.
   React.useEffect(() => {
     if (!model || model.status === "connected" || model.authMode !== "subscription") return;
     let alive = true;
@@ -604,7 +574,7 @@ function ModelTab({ company, emp }: { company: Company; emp: Employee }) {
         setModel(m);
         if (m.status === "connected") toast(`${emp.name} signed in`, "success");
       } catch {
-        // swallow; next tick will retry
+        // swallow
       }
     }, 2500);
     return () => {
@@ -614,19 +584,10 @@ function ModelTab({ company, emp }: { company: Company; emp: Employee }) {
   }, [model, company.id, emp.id, emp.name, toast]);
 
   if (model === undefined) return <Spinner />;
-
-  if (!model) {
-    return <ModelSetup company={company} emp={emp} onSaved={reload} />;
-  }
-
+  if (!model) return <ModelSetup company={company} emp={emp} onSaved={reload} />;
   return (
     <div className="flex flex-col gap-4">
-      <ModelStatusCard
-        company={company}
-        emp={emp}
-        model={model}
-        onChanged={reload}
-      />
+      <ModelStatusCard company={company} emp={emp} model={model} onChanged={reload} />
       <Card>
         <CardBody className="flex flex-col gap-3">
           <div className="text-sm font-medium text-slate-900">Reconfigure</div>
@@ -695,8 +656,6 @@ function ModelForm({
   const { toast } = useToast();
   const supportsApiKey = PROVIDER_DEFAULTS[provider].supportsApiKey;
 
-  // If the chosen provider doesn't support apikey, force the toggle back to
-  // subscription so the form is always submittable.
   React.useEffect(() => {
     if (!supportsApiKey && authMode === "apikey") setAuthMode("subscription");
   }, [supportsApiKey, authMode]);
@@ -761,9 +720,7 @@ function ModelForm({
             icon={<KeyRound size={16} />}
             title="Use an API key"
             description={
-              supportsApiKey
-                ? apiKeyBlurb(provider)
-                : "Not supported for this provider."
+              supportsApiKey ? apiKeyBlurb(provider) : "Not supported for this provider."
             }
           />
         </div>
@@ -949,17 +906,13 @@ function SubscriptionLoginPanel({ model }: { model: AIModel }) {
       </div>
       <div className="flex items-center gap-2 text-xs text-slate-500">
         <Loader2 size={12} className="animate-spin" /> Watching for credentials at{" "}
-        <code className="rounded bg-white px-1 py-0.5 text-[11px]">
-          {model.configDir}
-        </code>
+        <code className="rounded bg-white px-1 py-0.5 text-[11px]">{model.configDir}</code>
       </div>
     </div>
   );
 }
 
 function shellQuote(s: string): string {
-  // Single-quote for sh; embedded single-quotes are escaped via the standard
-  // '\'' trick. Keeps paths with spaces or special chars safe to paste.
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 

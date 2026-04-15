@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
-import { LogoMark } from "../components/Logo";
+import { Logo } from "../components/Logo";
 import { useToast } from "../components/ui/Toast";
 
 export default function Login({ onAuth }: { onAuth: () => Promise<void> }) {
@@ -72,10 +72,9 @@ export function AuthShell({
   return (
     <div className="flex min-h-full items-center justify-center p-6">
       <div className="w-full max-w-sm">
-        <div className="mb-6 text-center">
-          <LogoMark className="inline-block h-10 w-10" />
-          <h1 className="mt-3 text-xl font-semibold text-slate-900">{title}</h1>
-          <p className="text-sm text-slate-500">Genosyn</p>
+        <div className="mb-6 flex flex-col items-center text-center">
+          <Logo className="h-8 w-auto text-slate-900" />
+          <h1 className="mt-5 text-xl font-semibold text-slate-900">{title}</h1>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">{children}</div>
       </div>

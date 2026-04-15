@@ -30,6 +30,12 @@ export type Employee = {
   name: string;
   slug: string;
   role: string;
+  /** Lightweight model summary, present only on the list endpoint. */
+  model?: {
+    provider: Provider;
+    model: string;
+    status: "connected" | "not_connected";
+  } | null;
 };
 export type Skill = { id: string; employeeId: string; name: string; slug: string };
 export type Routine = {
@@ -58,11 +64,18 @@ export type AIModel = {
   apiKeyEnv: string | null;
   supportsApiKey: boolean;
 };
-export type ModelOverviewRow = {
-  employeeId: string;
-  employeeName: string;
-  employeeSlug: string;
-  role: string;
-  model: AIModel | null;
-};
 export type Member = { userId: string; role: string; email: string | null; name: string | null };
+
+export type ChatResult =
+  | { status: "ok"; reply: string }
+  | { status: "skipped"; reply: string }
+  | { status: "error"; reply: string };
+
+export type WorkspaceNode =
+  | { type: "dir"; name: string; path: string; children: WorkspaceNode[] }
+  | { type: "file"; name: string; path: string; size: number };
+
+export type WorkspaceFile =
+  | { type: "text"; path: string; size: number; content: string }
+  | { type: "binary"; path: string; size: number; reason: string }
+  | { type: "missing"; path: string };

@@ -81,4 +81,4 @@ flight and what's next.
 
 ## License
 
-TBD.
+[MIT](./LICENSE) © HackerBay, Inc.

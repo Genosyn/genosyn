@@ -9,10 +9,13 @@ import Signup from "./pages/Signup";
 import Forgot from "./pages/Forgot";
 import Reset from "./pages/Reset";
 import Onboarding from "./pages/Onboarding";
-import CompanyDashboard from "./pages/CompanyDashboard";
+import EmployeesLayout from "./pages/EmployeesLayout";
+import EmployeesIndex from "./pages/EmployeesIndex";
+import EmployeeLayout from "./pages/EmployeeLayout";
 import EmployeeNew from "./pages/EmployeeNew";
-import EmployeeDetail from "./pages/EmployeeDetail";
-import Models from "./pages/Models";
+import EmployeeChat from "./pages/EmployeeChat";
+import EmployeeWorkspace from "./pages/EmployeeWorkspace";
+import { RoutinesPage, SettingsPage, SkillsPage } from "./pages/employeeTabs";
 import Settings from "./pages/Settings";
 import Invite from "./pages/Invite";
 
@@ -110,21 +113,61 @@ function CompanyRoutes({
   if (!company) return <Navigate to="/" replace />;
 
   return (
-    <AppShell me={me} companies={companies} onCompaniesChanged={onChanged}>
+    <AppShell me={me} companies={companies} current={company} onCompaniesChanged={onChanged}>
       <Routes>
-        <Route index element={<CompanyDashboard company={company} />} />
-        <Route path="employees/new" element={<EmployeeNew company={company} />} />
+        {/* Employees section — sidebar = roster */}
+        <Route element={<EmployeesLayout company={company} />}>
+          <Route index element={<EmployeesIndex company={company} />} />
+          <Route path="employees/new" element={<EmployeeNew company={company} />} />
+        </Route>
+
+        {/* Selected-employee section — sidebar = employee sub-nav */}
         <Route
           path="employees/:empSlug"
-          element={<EmployeeDetail company={company} />}
-        />
-        <Route path="models" element={<Models company={company} />} />
+          element={<EmployeeLayout company={company} />}
+        >
+          <Route index element={<Navigate to="chat" replace />} />
+          <Route path="chat" element={<EmployeeChat />} />
+          <Route path="workspace" element={<EmployeeWorkspace />} />
+          <Route path="skills" element={<SkillsPage />} />
+          <Route path="routines" element={<RoutinesPage />} />
+          <Route path="settings" element={<SettingsPage />} />
+        </Route>
+
+        {/* Company-level settings */}
         <Route
           path="settings"
-          element={<Settings company={company} onCompaniesChanged={onChanged} />}
+          element={
+            <CompanySettingsPane
+              company={company}
+              onCompaniesChanged={onChanged}
+            />
+          }
         />
+
         <Route path="*" element={<Navigate to="" replace />} />
       </Routes>
     </AppShell>
+  );
+}
+
+/**
+ * Wrap Settings with a plain full-pane layout (no sidebar). In the future
+ * this could sprout a sub-nav of its own (Company, Members, Billing) — the
+ * `<ContextualLayout sidebar={...}>` plumbing is ready for it.
+ */
+function CompanySettingsPane({
+  company,
+  onCompaniesChanged,
+}: {
+  company: Company;
+  onCompaniesChanged: () => void;
+}) {
+  return (
+    <main className="min-w-0 flex-1 overflow-y-auto bg-slate-50">
+      <div className="mx-auto max-w-4xl p-8">
+        <Settings company={company} onCompaniesChanged={onCompaniesChanged} />
+      </div>
+    </main>
   );
 }

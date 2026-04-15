@@ -226,7 +226,18 @@ export const config = {
 - [ ] Company-level read-only "AI Models" overview page (per-employee
       connection status table)
 
-### M7 — Polish + QA
+### M7 — Chat + Workspace
+- [x] Top-nav sections (Employees / Settings) with context-specific sidebar
+- [x] Per-employee sub-nav (Chat / Workspace / Soul / Skills / Routines / Settings)
+- [x] One-shot **Chat** with an employee: send a message, shell out to the
+      employee's provider CLI with SOUL + Skills + recent turns as the
+      prompt, return the reply. No persisted Conversation entity yet —
+      transcript lives in the browser.
+- [x] Employee **Workspace** browser + text editor: tree of the employee's
+      on-disk directory, read/write scoped inside `employeeDir()` with
+      path-traversal guards, 2 MiB text-only cap, binary files read-only.
+
+### M8 — Polish + QA
 - [ ] Browser-tested flows: signup → company → employee → skill → routine → model
 - [ ] Empty states, loading states, error toasts
 - [ ] README.md with self-host instructions
@@ -238,8 +249,9 @@ export const config = {
 ### Employee depth
 - **Memory / Journal** — each employee keeps a running `memory/YYYY-MM-DD.md`
   log of what it did, decisions it made, questions it had.
-- **Conversations** — chat directly with an employee in the app. Mentions
-  (`@ada`) anywhere trigger a reply.
+- **Persisted Conversations** — the M7 chat is ephemeral (lives in the
+  browser). Persist threads in the DB, show history, support `@ada`
+  mentions elsewhere that trigger a reply.
 - **Handoffs** — one employee delegates to another (writes a brief, pings).
 - **Run history + artifacts** — every routine run logs output + produced files.
 - **Approvals / human-in-the-loop** — employee proposes action, waits for a

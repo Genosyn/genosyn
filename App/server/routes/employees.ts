@@ -9,11 +9,13 @@ import { AIModel } from "../db/entities/AIModel.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
+import path from "node:path";
 import {
   employeeDir,
   ensureDir,
   soulPath,
 } from "../services/paths.js";
+import { isModelConnected } from "../services/providers.js";
 import { readText, removeDir, soulTemplate, writeText } from "../services/files.js";
 import { unregisterRoutine } from "../services/cron.js";
 
@@ -37,10 +39,31 @@ async function uniqueEmpSlug(companyId: string, base: string): Promise<string> {
 }
 
 employeesRouter.get("/", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const co = await loadCompany(cid);
+  if (!co) return res.status(404).json({ error: "Company not found" });
   const emps = await AppDataSource.getRepository(AIEmployee).find({
-    where: { companyId: (req.params as Record<string, string>).cid },
+    where: { companyId: cid },
   });
-  res.json(emps);
+  // Include a lightweight model summary per employee so the dashboard can
+  // show connection chips from a single roundtrip. Keep it minimal — the
+  // full model shape lives at /employees/:eid/model.
+  const models = await AppDataSource.getRepository(AIModel).find();
+  const byEmp = new Map(models.map((m) => [m.employeeId, m]));
+  const rows = emps.map((e) => {
+    const m = byEmp.get(e.id);
+    return {
+      ...e,
+      model: m
+        ? {
+            provider: m.provider,
+            model: m.model,
+            status: isModelConnected(m, co, e) ? "connected" : "not_connected",
+          }
+        : null,
+    };
+  });
+  res.json(rows);
 });
 
 const createSchema = z.object({
@@ -61,7 +84,12 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
     slug,
   });
   await repo.save(emp);
-  ensureDir(employeeDir(co.slug, slug));
+  const dir = employeeDir(co.slug, slug);
+  ensureDir(dir);
+  // Scaffold the expected directory structure so the Workspace view shows
+  // `skills/` and `routines/` from day one, even before any are created.
+  ensureDir(path.join(dir, "skills"));
+  ensureDir(path.join(dir, "routines"));
   writeText(soulPath(co.slug, slug), soulTemplate(body.name, body.role));
   res.json(emp);
 });

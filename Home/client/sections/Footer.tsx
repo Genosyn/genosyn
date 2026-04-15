@@ -1,6 +1,6 @@
 import { Github } from "lucide-react";
 import { GITHUB_URL, ROADMAP_URL } from "@/lib/constants";
-import { LogoMark } from "@/components/Logo";
+import { Logo } from "@/components/Logo";
 
 const ISSUES_URL = `${GITHUB_URL}/issues`;
 
@@ -35,9 +35,9 @@ export function Footer() {
         </div>
 
         <div className="mt-14 flex flex-col items-center justify-between gap-6 border-t border-slate-200 pt-8 text-xs text-slate-500 sm:flex-row">
-          <div className="flex items-center gap-2">
-            <LogoMark className="h-5 w-5" />
-            <span>&copy; {new Date().getFullYear()} Genosyn. Built in the open.</span>
+          <div className="flex items-center gap-3 text-slate-600">
+            <Logo className="h-5 w-auto" />
+            <span>&copy; {new Date().getFullYear()} Built in the open.</span>
           </div>
           <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
             <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="hover:text-slate-900">

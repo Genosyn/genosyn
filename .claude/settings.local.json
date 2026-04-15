@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p /Users/nawazdhandala/Projects/Genosyn/genosyn/App/data/companies/acme/employees/ada/.claude)",
+      "Bash(printf '{\"fake\":\"creds\"}')"
+    ]
+  }
+}
