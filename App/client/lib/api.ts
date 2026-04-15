@@ -161,6 +161,15 @@ export type JournalEntry = {
   createdAt: string;
 };
 
+export type EmployeeTemplate = {
+  id: string;
+  name: string;
+  role: string;
+  tagline: string;
+  skills: string[];
+  routines: { name: string; cronExpr: string }[];
+};
+
 export type UsageBucket = {
   runs: number;
   completed: number;

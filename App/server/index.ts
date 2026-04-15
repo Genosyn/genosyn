@@ -23,6 +23,7 @@ import { mcpRouter } from "./routes/mcp.js";
 import { secretsRouter } from "./routes/secrets.js";
 import { auditRouter } from "./routes/audit.js";
 import { usageRouter } from "./routes/usage.js";
+import { templatesRouter } from "./routes/templates.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -50,6 +51,7 @@ async function main() {
   app.use("/api/auth", authRouter);
   app.use("/api/companies", companiesRouter);
   app.use("/api/invitations", invitationsRouter);
+  app.use("/api", templatesRouter);
   // Nested under /api/companies/:cid/...
   app.use("/api/companies/:cid/employees", employeesRouter);
   // Chat + workspace file editor, scoped per employee. Split from the

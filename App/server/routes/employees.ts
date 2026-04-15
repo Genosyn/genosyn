@@ -23,6 +23,10 @@ import { readText, removeDir, soulTemplate, writeText } from "../services/files.
 import { unregisterRoutine } from "../services/cron.js";
 import { deleteEmployeeConversations } from "./employeeSurface.js";
 import { recordAudit } from "../services/audit.js";
+import { findTemplate } from "../services/templates.js";
+import { skillReadme, routineReadme, routineDir } from "../services/paths.js";
+import { skillTemplate as skillTemplateMd } from "../services/files.js";
+import { registerRoutine } from "../services/cron.js";
 
 export const employeesRouter = Router({ mergeParams: true });
 employeesRouter.use(requireAuth);
@@ -74,6 +78,7 @@ employeesRouter.get("/", async (req, res) => {
 const createSchema = z.object({
   name: z.string().min(1).max(80),
   role: z.string().min(1).max(80),
+  templateId: z.string().min(1).max(80).optional(),
 });
 
 employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
@@ -95,7 +100,52 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
   // `skills/` and `routines/` from day one, even before any are created.
   ensureDir(path.join(dir, "skills"));
   ensureDir(path.join(dir, "routines"));
-  writeText(soulPath(co.slug, slug), soulTemplate(body.name, body.role));
+  const template = body.templateId ? findTemplate(body.templateId) : undefined;
+  if (body.templateId && !template) {
+    return res.status(400).json({ error: "Unknown template" });
+  }
+
+  const soulBody = template
+    ? template.soul.replace(/\b(Casey|Wren|Sam|Ivy)\b/g, body.name)
+    : soulTemplate(body.name, body.role);
+  writeText(soulPath(co.slug, slug), soulBody);
+
+  // Materialize template's skills + routines. Skills and routines are small
+  // enough that we write them synchronously; a template with dozens would
+  // warrant a background job.
+  if (template) {
+    const skillRepo = AppDataSource.getRepository(Skill);
+    for (const s of template.skills) {
+      const sSlug = toSlug(s.name);
+      const skillRow = skillRepo.create({
+        employeeId: emp.id,
+        name: s.name,
+        slug: sSlug,
+      });
+      await skillRepo.save(skillRow);
+      writeText(
+        skillReadme(co.slug, slug, sSlug),
+        s.readme || skillTemplateMd(s.name),
+      );
+    }
+    const routineRepo = AppDataSource.getRepository(Routine);
+    for (const r of template.routines) {
+      const rSlug = toSlug(r.name);
+      const rRow = routineRepo.create({
+        employeeId: emp.id,
+        name: r.name,
+        slug: rSlug,
+        cronExpr: r.cronExpr,
+        enabled: true,
+        lastRunAt: null,
+      });
+      await routineRepo.save(rRow);
+      writeText(routineReadme(co.slug, slug, rSlug), r.readme);
+      ensureDir(routineDir(co.slug, slug, rSlug));
+      registerRoutine(rRow);
+    }
+  }
+
   await recordAudit({
     companyId: co.id,
     actorUserId: req.userId ?? null,
@@ -103,7 +153,7 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
     targetType: "employee",
     targetId: emp.id,
     targetLabel: emp.name,
-    metadata: { role: emp.role, slug: emp.slug },
+    metadata: { role: emp.role, slug: emp.slug, templateId: template?.id ?? null },
   });
   res.json(emp);
 });
