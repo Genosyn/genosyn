@@ -63,50 +63,65 @@ function useCtx(): EmployeeOutletCtx {
  */
 function SoulCard({ company, emp }: { company: Company; emp: Employee }) {
   const [content, setContent] = React.useState<string | null>(null);
+  const [saved, setSaved] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const { toast } = useToast();
 
   React.useEffect(() => {
     api
       .get<{ content: string }>(`/api/companies/${company.id}/employees/${emp.id}/soul`)
-      .then((r) => setContent(r.content));
+      .then((r) => {
+        setContent(r.content);
+        setSaved(r.content);
+      });
   }, [company.id, emp.id]);
+
+  const dirty = content !== null && saved !== null && content !== saved;
+
+  const save = React.useCallback(async () => {
+    if (content === null || saving) return;
+    setSaving(true);
+    try {
+      await api.put(`/api/companies/${company.id}/employees/${emp.id}/soul`, { content });
+      setSaved(content);
+      toast("Soul saved", "success");
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setSaving(false);
+    }
+  }, [company.id, emp.id, content, saving, toast]);
 
   return (
     <Card>
       <CardBody className="flex flex-col gap-3">
-        <div>
-          <div className="text-sm font-medium text-slate-900">Soul</div>
-          <div className="text-xs text-slate-500">
-            {emp.name}&apos;s constitution — edited here, stored as{" "}
-            <code className="rounded bg-slate-100 px-1 py-0.5 text-[11px]">SOUL.md</code> in
-            the workspace.
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-slate-900">Soul</span>
+              {dirty && (
+                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                  Unsaved
+                </span>
+              )}
+            </div>
+            <div className="text-xs text-slate-500">
+              {emp.name}&apos;s constitution — edited here, stored as{" "}
+              <code className="rounded bg-slate-100 px-1 py-0.5 text-[11px]">SOUL.md</code> in
+              the workspace.
+            </div>
           </div>
         </div>
         {content === null ? (
           <Spinner />
         ) : (
           <>
-            <MarkdownEditor value={content} onChange={setContent} rows={16} />
-            <div>
-              <Button
-                onClick={async () => {
-                  setSaving(true);
-                  try {
-                    await api.put(`/api/companies/${company.id}/employees/${emp.id}/soul`, {
-                      content,
-                    });
-                    toast("Soul saved", "success");
-                  } catch (err) {
-                    toast((err as Error).message, "error");
-                  } finally {
-                    setSaving(false);
-                  }
-                }}
-                disabled={saving}
-              >
+            <MarkdownEditor value={content} onChange={setContent} rows={16} onSave={save} />
+            <div className="flex items-center gap-2">
+              <Button onClick={save} disabled={saving || !dirty}>
                 {saving ? "Saving…" : "Save SOUL.md"}
               </Button>
+              <span className="text-xs text-slate-400">⌘S to save</span>
             </div>
           </>
         )}
