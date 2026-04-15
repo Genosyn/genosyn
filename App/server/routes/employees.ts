@@ -18,6 +18,7 @@ import {
 import { isModelConnected } from "../services/providers.js";
 import { readText, removeDir, soulTemplate, writeText } from "../services/files.js";
 import { unregisterRoutine } from "../services/cron.js";
+import { deleteEmployeeConversations } from "./employeeSurface.js";
 
 export const employeesRouter = Router({ mergeParams: true });
 employeesRouter.use(requireAuth);
@@ -134,6 +135,7 @@ employeesRouter.delete("/:eid", async (req, res) => {
   await AppDataSource.getRepository(Routine).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(Skill).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(AIModel).delete({ employeeId: emp.id });
+  await deleteEmployeeConversations(emp.id);
   await empRepo.delete({ id: emp.id });
 
   if (co) removeDir(employeeDir(co.slug, emp.slug));

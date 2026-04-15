@@ -71,6 +71,34 @@ export type ChatResult =
   | { status: "skipped"; reply: string }
   | { status: "error"; reply: string };
 
+export type ConversationSummary = {
+  id: string;
+  employeeId: string;
+  title: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastMessageAt: string | null;
+};
+export type ConversationMessageRole = "user" | "assistant";
+export type ConversationMessageStatus = "ok" | "skipped" | "error";
+export type ConversationMessage = {
+  id: string;
+  conversationId: string;
+  role: ConversationMessageRole;
+  content: string;
+  status: ConversationMessageStatus | null;
+  createdAt: string;
+};
+export type ConversationDetail = {
+  conversation: ConversationSummary;
+  messages: ConversationMessage[];
+};
+export type SendMessageResult = {
+  conversation: ConversationSummary;
+  userMessage: ConversationMessage;
+  assistantMessage: ConversationMessage;
+};
+
 export type WorkspaceNode =
   | { type: "dir"; name: string; path: string; children: WorkspaceNode[] }
   | { type: "file"; name: string; path: string; size: number };

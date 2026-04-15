@@ -1,74 +1,173 @@
 import React from "react";
 import { useOutletContext } from "react-router-dom";
-import { Loader2, Send } from "lucide-react";
-import { api, ChatResult } from "../lib/api";
+import { Loader2, MessageSquarePlus, Send, Trash2 } from "lucide-react";
+import {
+  api,
+  ConversationDetail,
+  ConversationMessage,
+  ConversationSummary,
+  SendMessageResult,
+} from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { TopBar } from "../components/AppShell";
 import { useToast } from "../components/ui/Toast";
 import type { EmployeeOutletCtx } from "./EmployeeLayout";
 
 /**
- * Chat with the selected employee.
- *
- * No persistence in v1 — the transcript lives in component state and dies
- * on navigation. Each send ships the last ~20 turns as `history` so the
- * employee has recent context without us building a persisted Conversation
- * entity yet.
+ * Chat with the selected employee. Threads are persisted server-side as
+ * {@link ConversationSummary} rows; the left rail lists them newest-first
+ * and the main panel shows the selected thread. A "New" button creates an
+ * empty conversation locally (not persisted until first send) so switching
+ * employees never lands on a stale thread.
  */
-
-type UiTurn = {
-  role: "user" | "assistant";
-  content: string;
-  status?: "ok" | "skipped" | "error";
-};
-
-const MAX_HISTORY_TURNS = 20;
 
 export default function EmployeeChat() {
   const { company, emp } = useOutletContext<EmployeeOutletCtx>();
-  const [turns, setTurns] = React.useState<UiTurn[]>([]);
-  const [input, setInput] = React.useState("");
-  const [sending, setSending] = React.useState(false);
-  const scrollRef = React.useRef<HTMLDivElement>(null);
+  const base = `/api/companies/${company.id}/employees/${emp.id}`;
   const { toast } = useToast();
 
-  // Reset transcript when the selected employee changes so we never leak
-  // one employee's messages into another's chat.
+  const [convs, setConvs] = React.useState<ConversationSummary[]>([]);
+  const [activeId, setActiveId] = React.useState<string | null>(null);
+  const [messages, setMessages] = React.useState<ConversationMessage[]>([]);
+  const [input, setInput] = React.useState("");
+  const [sending, setSending] = React.useState(false);
+  const [loadingConv, setLoadingConv] = React.useState(false);
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+
+  // Load the conversation list whenever the selected employee changes.
   React.useEffect(() => {
-    setTurns([]);
+    setActiveId(null);
+    setMessages([]);
     setInput("");
+    (async () => {
+      try {
+        const list = await api.get<ConversationSummary[]>(`${base}/conversations`);
+        setConvs(list);
+        if (list.length > 0) {
+          setActiveId(list[0].id);
+        }
+      } catch (err) {
+        toast((err as Error).message, "error");
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [emp.id]);
+
+  // Load the active conversation's messages whenever the selection changes.
+  React.useEffect(() => {
+    if (!activeId) {
+      setMessages([]);
+      return;
+    }
+    setLoadingConv(true);
+    (async () => {
+      try {
+        const detail = await api.get<ConversationDetail>(
+          `${base}/conversations/${activeId}`,
+        );
+        setMessages(detail.messages);
+      } catch (err) {
+        toast((err as Error).message, "error");
+      } finally {
+        setLoadingConv(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId]);
 
   React.useEffect(() => {
     if (!scrollRef.current) return;
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [turns, sending]);
+  }, [messages, sending]);
+
+  async function createConversation(): Promise<ConversationSummary> {
+    const created = await api.post<ConversationSummary>(`${base}/conversations`, {});
+    setConvs((prev) => [created, ...prev]);
+    return created;
+  }
+
+  async function handleNewClick() {
+    try {
+      const created = await createConversation();
+      setActiveId(created.id);
+      setMessages([]);
+      setInput("");
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
+
+  async function handleDelete(convId: string) {
+    if (!confirm("Delete this conversation? Messages will be lost.")) return;
+    try {
+      await api.del(`${base}/conversations/${convId}`);
+      setConvs((prev) => prev.filter((c) => c.id !== convId));
+      if (activeId === convId) {
+        setActiveId(null);
+        setMessages([]);
+      }
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
 
   async function send() {
     const msg = input.trim();
     if (!msg || sending) return;
     setInput("");
     setSending(true);
-    const nextTurns: UiTurn[] = [...turns, { role: "user", content: msg }];
-    setTurns(nextTurns);
+
+    // Optimistic user bubble. The server returns the persisted row; we'll
+    // swap this temp entry out on response.
+    const tempId = `temp-${Date.now()}`;
+    const tempUser: ConversationMessage = {
+      id: tempId,
+      conversationId: activeId ?? "",
+      role: "user",
+      content: msg,
+      status: null,
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, tempUser]);
+
     try {
-      const history = nextTurns
-        .slice(-MAX_HISTORY_TURNS - 1, -1) // everything up to (not including) the message we're sending
-        .map((t) => ({ role: t.role, content: t.content }));
-      const result = await api.post<ChatResult>(
-        `/api/companies/${company.id}/employees/${emp.id}/chat`,
-        { message: msg, history },
+      // Lazily create a conversation on first send so the sidebar stays
+      // empty for employees you've never chatted with.
+      let convId = activeId;
+      if (!convId) {
+        const created = await createConversation();
+        convId = created.id;
+        setActiveId(convId);
+      }
+      const result = await api.post<SendMessageResult>(
+        `${base}/conversations/${convId}/messages`,
+        { message: msg },
       );
-      setTurns((prev) => [
-        ...prev,
-        { role: "assistant", content: result.reply, status: result.status },
+      setMessages((prev) => [
+        ...prev.filter((m) => m.id !== tempId),
+        result.userMessage,
+        result.assistantMessage,
       ]);
+      setConvs((prev) => {
+        const idx = prev.findIndex((c) => c.id === result.conversation.id);
+        const next = [...prev];
+        if (idx >= 0) next.splice(idx, 1);
+        return [result.conversation, ...next];
+      });
     } catch (err) {
       const m = (err as Error).message;
       toast(m, "error");
-      setTurns((prev) => [
-        ...prev,
-        { role: "assistant", content: m, status: "error" },
+      setMessages((prev) => [
+        ...prev.filter((x) => x.id !== tempId),
+        tempUser,
+        {
+          id: `err-${Date.now()}`,
+          conversationId: activeId ?? "",
+          role: "assistant",
+          content: m,
+          status: "error",
+          createdAt: new Date().toISOString(),
+        },
       ]);
     } finally {
       setSending(false);
@@ -80,40 +179,83 @@ export default function EmployeeChat() {
       <TopBar
         title={`Chat with ${emp.name}`}
         right={
-          turns.length > 0 ? (
-            <Button variant="ghost" size="sm" onClick={() => setTurns([])}>
-              Clear
-            </Button>
-          ) : null
+          <Button size="sm" variant="secondary" onClick={handleNewClick}>
+            <MessageSquarePlus size={14} /> New
+          </Button>
         }
       />
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto rounded-xl border border-slate-200 bg-white p-4"
-        style={{ minHeight: 360 }}
-      >
-        {turns.length === 0 ? (
-          <div className="flex h-full min-h-[240px] items-center justify-center text-center text-sm text-slate-500">
-            <div>
-              <div className="font-medium text-slate-700">Start a conversation with {emp.name}</div>
-              <div className="mt-1 text-xs">
-                Messages use {emp.name}'s Soul and Skills as context — each send spawns the
-                employee's CLI, so replies take a few seconds.
+      <div className="flex flex-1 gap-3 overflow-hidden" style={{ minHeight: 360 }}>
+        <aside className="hidden w-56 shrink-0 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 md:block">
+          {convs.length === 0 ? (
+            <div className="p-3 text-xs text-slate-500">
+              No conversations yet. Click <span className="font-medium">New</span> or just
+              start typing.
+            </div>
+          ) : (
+            <ul className="flex flex-col gap-0.5">
+              {convs.map((c) => (
+                <li key={c.id}>
+                  <div
+                    className={
+                      "group flex items-center gap-1 rounded-md px-2 py-1.5 text-sm " +
+                      (c.id === activeId
+                        ? "bg-slate-100 text-slate-900"
+                        : "text-slate-700 hover:bg-slate-50")
+                    }
+                  >
+                    <button
+                      onClick={() => setActiveId(c.id)}
+                      className="flex-1 truncate text-left"
+                      title={c.title ?? "New conversation"}
+                    >
+                      {c.title ?? <span className="italic text-slate-400">New conversation</span>}
+                    </button>
+                    <button
+                      onClick={() => handleDelete(c.id)}
+                      className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100"
+                      aria-label="Delete conversation"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </aside>
+        <div
+          ref={scrollRef}
+          className="flex-1 overflow-y-auto rounded-xl border border-slate-200 bg-white p-4"
+        >
+          {loadingConv ? (
+            <div className="flex h-full min-h-[240px] items-center justify-center text-xs text-slate-400">
+              <Loader2 size={14} className="mr-2 animate-spin" /> Loading…
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="flex h-full min-h-[240px] items-center justify-center text-center text-sm text-slate-500">
+              <div>
+                <div className="font-medium text-slate-700">
+                  Start a conversation with {emp.name}
+                </div>
+                <div className="mt-1 text-xs">
+                  Messages use {emp.name}'s Soul and Skills as context — each send spawns
+                  the employee's CLI, so replies take a few seconds.
+                </div>
               </div>
             </div>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {turns.map((t, i) => (
-              <TurnBubble key={i} turn={t} authorName={emp.name} />
-            ))}
-            {sending && (
-              <div className="flex items-center gap-2 text-xs text-slate-500">
-                <Loader2 size={12} className="animate-spin" /> {emp.name} is thinking…
-              </div>
-            )}
-          </div>
-        )}
+          ) : (
+            <div className="flex flex-col gap-3">
+              {messages.map((m) => (
+                <TurnBubble key={m.id} message={m} authorName={emp.name} />
+              ))}
+              {sending && (
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <Loader2 size={12} className="animate-spin" /> {emp.name} is thinking…
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <form
@@ -147,8 +289,14 @@ export default function EmployeeChat() {
   );
 }
 
-function TurnBubble({ turn, authorName }: { turn: UiTurn; authorName: string }) {
-  const mine = turn.role === "user";
+function TurnBubble({
+  message,
+  authorName,
+}: {
+  message: ConversationMessage;
+  authorName: string;
+}) {
+  const mine = message.role === "user";
   return (
     <div className={"flex " + (mine ? "justify-end" : "justify-start")}>
       <div
@@ -156,9 +304,9 @@ function TurnBubble({ turn, authorName }: { turn: UiTurn; authorName: string }) 
           "max-w-[min(680px,85%)] whitespace-pre-wrap rounded-xl px-3 py-2 text-sm " +
           (mine
             ? "bg-indigo-600 text-white"
-            : turn.status === "error"
+            : message.status === "error"
               ? "border border-rose-200 bg-rose-50 text-rose-900"
-              : turn.status === "skipped"
+              : message.status === "skipped"
                 ? "border border-amber-200 bg-amber-50 text-amber-900"
                 : "border border-slate-200 bg-slate-50 text-slate-900")
         }
@@ -167,19 +315,19 @@ function TurnBubble({ turn, authorName }: { turn: UiTurn; authorName: string }) 
           <div
             className={
               "mb-1 text-[10px] font-semibold uppercase tracking-wide " +
-              (turn.status === "error"
+              (message.status === "error"
                 ? "text-rose-700"
-                : turn.status === "skipped"
+                : message.status === "skipped"
                   ? "text-amber-700"
                   : "text-slate-500")
             }
           >
             {authorName}
-            {turn.status === "skipped" && " · not available"}
-            {turn.status === "error" && " · error"}
+            {message.status === "skipped" && " · not available"}
+            {message.status === "error" && " · error"}
           </div>
         )}
-        {turn.content}
+        {message.content}
       </div>
     </div>
   );
