@@ -28,7 +28,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
   return (
     <AuthShell title="Name your company">
       <form className="flex flex-col gap-4" onSubmit={submit}>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-slate-500 dark:text-slate-400">
           A company is your Genosyn tenant — it holds your team of humans and AI employees.
         </p>
         <Input

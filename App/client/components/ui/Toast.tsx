@@ -26,10 +26,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             className={
               "pointer-events-auto rounded-lg border px-4 py-2 text-sm shadow-sm " +
               (t.kind === "error"
-                ? "border-red-200 bg-red-50 text-red-800"
+                ? "border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200"
                 : t.kind === "success"
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                  : "border-slate-200 bg-white text-slate-800")
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"
+                  : "border-slate-200 bg-white text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100")
             }
           >
             {t.message}

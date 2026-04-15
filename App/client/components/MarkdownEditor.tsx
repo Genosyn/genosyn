@@ -132,8 +132,8 @@ export function MarkdownEditor({ value, onChange, rows = 16, onSave }: MarkdownE
   const chars = value.length;
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 p-2">
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 p-2 dark:border-slate-800">
         <div className="flex items-center gap-1">
           <ToolbarButton title="Heading 1" onClick={() => prefixLine("# ")}>
             <Heading1 size={14} />
@@ -177,7 +177,7 @@ export function MarkdownEditor({ value, onChange, rows = 16, onSave }: MarkdownE
           </ModeButton>
         </div>
       </div>
-      <div className={mode === "split" ? "grid grid-cols-2 divide-x divide-slate-100" : ""}>
+      <div className={mode === "split" ? "grid grid-cols-2 divide-x divide-slate-100 dark:divide-slate-800" : ""}>
         {mode !== "preview" && (
           <Textarea
             ref={textareaRef}
@@ -191,13 +191,13 @@ export function MarkdownEditor({ value, onChange, rows = 16, onSave }: MarkdownE
         )}
         {mode !== "edit" && (
           <div
-            className="prose prose-slate max-w-none overflow-y-auto p-4 text-sm"
+            className="prose prose-slate max-w-none overflow-y-auto p-4 text-sm dark:prose-invert"
             style={{ maxHeight: `${rows * 1.6}rem` }}
             dangerouslySetInnerHTML={{ __html: html }}
           />
         )}
       </div>
-      <div className="flex items-center justify-between border-t border-slate-100 px-3 py-1.5 text-[11px] text-slate-400">
+      <div className="flex items-center justify-between border-t border-slate-100 px-3 py-1.5 text-[11px] text-slate-400 dark:border-slate-800 dark:text-slate-500">
         <span>Markdown · ⌘B bold · ⌘I italic · Tab indent</span>
         <span>
           {lines} {lines === 1 ? "line" : "lines"} · {chars} {chars === 1 ? "char" : "chars"}
@@ -221,7 +221,7 @@ function ToolbarButton({
       type="button"
       title={title}
       onClick={onClick}
-      className="rounded p-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+      className="rounded p-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
     >
       {children}
     </button>
@@ -229,7 +229,7 @@ function ToolbarButton({
 }
 
 function ToolbarDivider() {
-  return <span className="mx-1 h-4 w-px bg-slate-200" />;
+  return <span className="mx-1 h-4 w-px bg-slate-200 dark:bg-slate-700" />;
 }
 
 function ModeButton({
@@ -250,7 +250,9 @@ function ModeButton({
       onClick={() => onClick(mode)}
       className={clsx(
         "flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium",
-        active ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:bg-slate-50",
+        active
+          ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
+          : "text-slate-500 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800",
       )}
     >
       {children}

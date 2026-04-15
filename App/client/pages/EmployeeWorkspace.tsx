@@ -94,13 +94,13 @@ export default function EmployeeWorkspace() {
         }
       />
       <div className="flex min-h-[480px] flex-1 gap-4">
-        <div className="w-72 shrink-0 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2">
+        <div className="w-72 shrink-0 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 dark:bg-slate-900 dark:border-slate-700">
           {tree === null ? (
             <div className="flex justify-center p-4">
               <Spinner size={16} />
             </div>
           ) : tree.type === "dir" && tree.children.length === 0 ? (
-            <div className="p-4 text-xs text-slate-500">
+            <div className="p-4 text-xs text-slate-500 dark:text-slate-400">
               Empty workspace. Files appear here once this employee has any
               SOUL / skills / routines created.
             </div>
@@ -117,9 +117,9 @@ export default function EmployeeWorkspace() {
           )}
         </div>
 
-        <div className="flex min-w-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white">
+        <div className="flex min-w-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-700">
           {!selected ? (
-            <div className="flex flex-1 items-center justify-center p-10 text-sm text-slate-500">
+            <div className="flex flex-1 items-center justify-center p-10 text-sm text-slate-500 dark:text-slate-400">
               Select a file to view or edit.
             </div>
           ) : file === null ? (
@@ -127,20 +127,20 @@ export default function EmployeeWorkspace() {
               <Spinner />
             </div>
           ) : file.type === "missing" ? (
-            <div className="flex flex-1 items-center justify-center p-10 text-sm text-slate-500">
+            <div className="flex flex-1 items-center justify-center p-10 text-sm text-slate-500 dark:text-slate-400">
               File not found.
             </div>
           ) : file.type === "binary" ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-2 p-10 text-sm text-slate-500">
-              <div className="font-medium text-slate-700">{selected}</div>
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 p-10 text-sm text-slate-500 dark:text-slate-400">
+              <div className="font-medium text-slate-700 dark:text-slate-200">{selected}</div>
               <div>{file.reason}</div>
             </div>
           ) : (
             <>
-              <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
-                <div className="truncate font-mono text-xs text-slate-600">{selected}</div>
+              <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2 dark:border-slate-800">
+                <div className="truncate font-mono text-xs text-slate-600 dark:text-slate-300">{selected}</div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] uppercase tracking-wide text-slate-400">
+                  <span className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
                     {file.size} B
                   </span>
                   <Button size="sm" onClick={save} disabled={saving || !dirty}>
@@ -162,7 +162,7 @@ export default function EmployeeWorkspace() {
                   }
                 }}
                 spellCheck={false}
-                className="h-full min-h-[360px] w-full flex-1 resize-none rounded-b-xl border-0 bg-white p-3 font-mono text-xs text-slate-900 focus:outline-none"
+                className="h-full min-h-[360px] w-full flex-1 resize-none rounded-b-xl border-0 bg-white p-3 font-mono text-xs text-slate-900 focus:outline-none dark:bg-slate-900 dark:text-slate-100"
               />
             </>
           )}
@@ -198,11 +198,11 @@ function TreeView({
         onClick={() => onSelect(node.path)}
         className={
           "flex w-full items-center gap-1 rounded px-1.5 py-1 text-left text-xs " +
-          (isActive ? "bg-indigo-50 text-indigo-700" : "text-slate-700 hover:bg-slate-50")
+          (isActive ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300" : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800")
         }
         style={{ paddingLeft: 8 + depth * 12 }}
       >
-        <FileIcon size={12} className="shrink-0 text-slate-400" />
+        <FileIcon size={12} className="shrink-0 text-slate-400 dark:text-slate-500" />
         <span className="truncate">{node.name}</span>
       </button>
     );
@@ -230,7 +230,7 @@ function DirRow({
     return (
       <div className="flex flex-col">
         {node.children.length === 0 ? (
-          <div className="px-3 py-2 text-xs text-slate-400">Empty directory.</div>
+          <div className="px-3 py-2 text-xs text-slate-400 dark:text-slate-500">Empty directory.</div>
         ) : (
           node.children.map((c) => (
             <TreeView
@@ -250,20 +250,20 @@ function DirRow({
     <div>
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-1 rounded px-1.5 py-1 text-left text-xs text-slate-700 hover:bg-slate-50"
+        className="flex w-full items-center gap-1 rounded px-1.5 py-1 text-left text-xs text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
         style={{ paddingLeft: 8 + depth * 12 }}
       >
         {open ? (
-          <ChevronDown size={12} className="shrink-0 text-slate-400" />
+          <ChevronDown size={12} className="shrink-0 text-slate-400 dark:text-slate-500" />
         ) : (
-          <ChevronRight size={12} className="shrink-0 text-slate-400" />
+          <ChevronRight size={12} className="shrink-0 text-slate-400 dark:text-slate-500" />
         )}
-        <Folder size={12} className="shrink-0 text-slate-400" />
+        <Folder size={12} className="shrink-0 text-slate-400 dark:text-slate-500" />
         <span className="truncate font-medium">{node.name}</span>
       </button>
       {open && node.children.length === 0 && (
         <div
-          className="text-xs text-slate-400"
+          className="text-xs text-slate-400 dark:text-slate-500"
           style={{ paddingLeft: 8 + (depth + 1) * 12 }}
         >
           empty

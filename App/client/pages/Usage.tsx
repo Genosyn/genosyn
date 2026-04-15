@@ -41,7 +41,7 @@ export default function Usage({ company }: { company: Company }) {
   }, [company.id, days, toast]);
 
   return (
-    <main className="min-w-0 flex-1 overflow-y-auto bg-slate-50">
+    <main className="min-w-0 flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-900">
       <div className="mx-auto max-w-5xl p-8">
         <div className="mb-3">
           <Breadcrumbs items={[{ label: "Usage" }]} />
@@ -58,7 +58,7 @@ export default function Usage({ company }: { company: Company }) {
             </Select>
           }
         />
-        <p className="mb-6 text-xs text-slate-500">
+        <p className="mb-6 text-xs text-slate-500 dark:text-slate-400">
           Measured from routine runs. Token counts and dollar costs aren't tracked yet — the
           provider CLIs don't surface that metadata in a stable way.
         </p>
@@ -102,9 +102,9 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub?: s
   return (
     <Card>
       <CardBody>
-        <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</div>
-        <div className="mt-1 text-2xl font-semibold text-slate-900">{value}</div>
-        {sub && <div className="mt-0.5 text-xs text-slate-500">{sub}</div>}
+        <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</div>
+        <div className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">{value}</div>
+        {sub && <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{sub}</div>}
       </CardBody>
     </Card>
   );
@@ -120,7 +120,7 @@ function ByEmployeeTable({ summary, company }: { summary: UsageSummary; company:
       </CardHeader>
       <CardBody>
         <table className="w-full text-sm">
-          <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
+          <thead className="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
             <tr>
               <th className="py-2">Employee</th>
               <th className="py-2 text-right">Runs</th>
@@ -128,13 +128,13 @@ function ByEmployeeTable({ summary, company }: { summary: UsageSummary; company:
               <th className="py-2 text-right">Success</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
             {rows.map((e) => (
               <tr key={e.employeeId}>
                 <td className="py-2">
                   <Link
                     to={`/c/${company.slug}/employees/${e.slug}`}
-                    className="font-medium text-slate-900 hover:text-indigo-600"
+                    className="font-medium text-slate-900 hover:text-indigo-600 dark:text-slate-100"
                   >
                     {e.name}
                   </Link>
@@ -163,7 +163,7 @@ function ByRoutineTable({ summary, company }: { summary: UsageSummary; company: 
       </CardHeader>
       <CardBody>
         <table className="w-full text-sm">
-          <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
+          <thead className="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
             <tr>
               <th className="py-2">Routine</th>
               <th className="py-2">Employee</th>
@@ -172,23 +172,23 @@ function ByRoutineTable({ summary, company }: { summary: UsageSummary; company: 
               <th className="py-2 text-right">Avg duration</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
             {rows.map((r) => {
               const finished = r.completed + r.failed + r.timeout;
               const avg = finished > 0 ? r.durationMs / finished : 0;
               return (
                 <tr key={r.routineId}>
-                  <td className="py-2 font-medium text-slate-900">{r.name}</td>
+                  <td className="py-2 font-medium text-slate-900 dark:text-slate-100">{r.name}</td>
                   <td className="py-2">
                     {r.employeeName ? (
                       <Link
                         to={`/c/${company.slug}/employees/${r.employeeSlug}`}
-                        className="text-slate-600 hover:text-indigo-600"
+                        className="text-slate-600 hover:text-indigo-600 dark:text-slate-300"
                       >
                         {r.employeeName}
                       </Link>
                     ) : (
-                      <span className="text-slate-400">—</span>
+                      <span className="text-slate-400 dark:text-slate-500">—</span>
                     )}
                   </td>
                   <td className="py-2 text-right tabular-nums">{r.runs}</td>

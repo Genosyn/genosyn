@@ -26,7 +26,7 @@ export default function Invite() {
   }
   return (
     <AuthShell title="Accept invitation">
-      <div className="flex flex-col gap-4 text-sm text-slate-600">
+      <div className="flex flex-col gap-4 text-sm text-slate-600 dark:text-slate-300">
         <p>You&apos;ve been invited to join a company on Genosyn.</p>
         <Button onClick={accept} disabled={loading}>
           {loading ? "Accepting…" : "Accept invitation"}

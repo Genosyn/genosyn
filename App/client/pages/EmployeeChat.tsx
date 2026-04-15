@@ -185,9 +185,9 @@ export default function EmployeeChat() {
         }
       />
       <div className="flex flex-1 gap-3 overflow-hidden" style={{ minHeight: 360 }}>
-        <aside className="hidden w-56 shrink-0 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 md:block">
+        <aside className="hidden w-56 shrink-0 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 md:block dark:bg-slate-900 dark:border-slate-700">
           {convs.length === 0 ? (
-            <div className="p-3 text-xs text-slate-500">
+            <div className="p-3 text-xs text-slate-500 dark:text-slate-400">
               No conversations yet. Click <span className="font-medium">New</span> or just
               start typing.
             </div>
@@ -199,8 +199,8 @@ export default function EmployeeChat() {
                     className={
                       "group flex items-center gap-1 rounded-md px-2 py-1.5 text-sm " +
                       (c.id === activeId
-                        ? "bg-slate-100 text-slate-900"
-                        : "text-slate-700 hover:bg-slate-50")
+                        ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
+                        : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800")
                     }
                   >
                     <button
@@ -208,11 +208,11 @@ export default function EmployeeChat() {
                       className="flex-1 truncate text-left"
                       title={c.title ?? "New conversation"}
                     >
-                      {c.title ?? <span className="italic text-slate-400">New conversation</span>}
+                      {c.title ?? <span className="italic text-slate-400 dark:text-slate-500">New conversation</span>}
                     </button>
                     <button
                       onClick={() => handleDelete(c.id)}
-                      className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100"
+                      className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100 dark:text-slate-500 dark:hover:text-slate-200"
                       aria-label="Delete conversation"
                     >
                       <Trash2 size={12} />
@@ -225,16 +225,16 @@ export default function EmployeeChat() {
         </aside>
         <div
           ref={scrollRef}
-          className="flex-1 overflow-y-auto rounded-xl border border-slate-200 bg-white p-4"
+          className="flex-1 overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 dark:bg-slate-900 dark:border-slate-700"
         >
           {loadingConv ? (
-            <div className="flex h-full min-h-[240px] items-center justify-center text-xs text-slate-400">
+            <div className="flex h-full min-h-[240px] items-center justify-center text-xs text-slate-400 dark:text-slate-500">
               <Loader2 size={14} className="mr-2 animate-spin" /> Loading…
             </div>
           ) : messages.length === 0 ? (
-            <div className="flex h-full min-h-[240px] items-center justify-center text-center text-sm text-slate-500">
+            <div className="flex h-full min-h-[240px] items-center justify-center text-center text-sm text-slate-500 dark:text-slate-400">
               <div>
-                <div className="font-medium text-slate-700">
+                <div className="font-medium text-slate-700 dark:text-slate-200">
                   Start a conversation with {emp.name}
                 </div>
                 <div className="mt-1 text-xs">
@@ -249,7 +249,7 @@ export default function EmployeeChat() {
                 <TurnBubble key={m.id} message={m} authorName={emp.name} />
               ))}
               {sending && (
-                <div className="flex items-center gap-2 text-xs text-slate-500">
+                <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                   <Loader2 size={12} className="animate-spin" /> {emp.name} is thinking…
                 </div>
               )}
@@ -277,7 +277,7 @@ export default function EmployeeChat() {
           }}
           rows={2}
           placeholder={`Message ${emp.name}…`}
-          className="flex-1 resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          className="flex-1 resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
           disabled={sending}
         />
         <Button type="submit" disabled={sending || input.trim().length === 0}>
@@ -307,8 +307,8 @@ function TurnBubble({
             : message.status === "error"
               ? "border border-rose-200 bg-rose-50 text-rose-900"
               : message.status === "skipped"
-                ? "border border-amber-200 bg-amber-50 text-amber-900"
-                : "border border-slate-200 bg-slate-50 text-slate-900")
+                ? "border border-amber-200 bg-amber-50 text-amber-900 dark:bg-amber-950"
+                : "border border-slate-200 bg-slate-50 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100")
         }
       >
         {!mine && (
@@ -318,8 +318,8 @@ function TurnBubble({
               (message.status === "error"
                 ? "text-rose-700"
                 : message.status === "skipped"
-                  ? "text-amber-700"
-                  : "text-slate-500")
+                  ? "text-amber-700 dark:text-amber-300"
+                  : "text-slate-500 dark:text-slate-400")
             }
           >
             {authorName}

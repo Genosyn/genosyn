@@ -56,9 +56,9 @@ export default function Signup({ onAuth }: { onAuth: () => Promise<void> }) {
         <Button type="submit" disabled={loading}>
           {loading ? "Creating…" : "Create account"}
         </Button>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-slate-500 dark:text-slate-400">
           Already have an account?{" "}
-          <Link to="/login" className="text-indigo-600 hover:underline">
+          <Link to="/login" className="text-indigo-600 hover:underline dark:text-indigo-400">
             Sign in
           </Link>
         </p>

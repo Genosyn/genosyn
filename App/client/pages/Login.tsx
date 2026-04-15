@@ -49,7 +49,7 @@ export default function Login({ onAuth }: { onAuth: () => Promise<void> }) {
         <Button type="submit" disabled={loading}>
           {loading ? "Signing in…" : "Sign in"}
         </Button>
-        <div className="flex items-center justify-between text-sm text-slate-500">
+        <div className="flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
           <Link to="/signup" className="hover:text-indigo-600">
             Create account
           </Link>
@@ -73,10 +73,10 @@ export function AuthShell({
     <div className="flex min-h-full items-center justify-center p-6">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center text-center">
-          <Logo className="h-8 w-auto text-slate-900" />
-          <h1 className="mt-5 text-xl font-semibold text-slate-900">{title}</h1>
+          <Logo className="h-8 w-auto text-slate-900 dark:text-slate-100" />
+          <h1 className="mt-5 text-xl font-semibold text-slate-900 dark:text-slate-100">{title}</h1>
         </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">{children}</div>
+        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:bg-slate-900 dark:border-slate-700">{children}</div>
       </div>
     </div>
   );

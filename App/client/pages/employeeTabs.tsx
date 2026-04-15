@@ -98,16 +98,16 @@ function SoulCard({ company, emp }: { company: Company; emp: Employee }) {
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-slate-900">Soul</span>
+              <span className="text-sm font-medium text-slate-900 dark:text-slate-100">Soul</span>
               {dirty && (
-                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
                   Unsaved
                 </span>
               )}
             </div>
-            <div className="text-xs text-slate-500">
+            <div className="text-xs text-slate-500 dark:text-slate-400">
               {emp.name}&apos;s constitution — edited here, stored as{" "}
-              <code className="rounded bg-slate-100 px-1 py-0.5 text-[11px]">SOUL.md</code> in
+              <code className="rounded bg-slate-100 px-1 py-0.5 text-[11px] dark:bg-slate-800">SOUL.md</code> in
               the workspace.
             </div>
           </div>
@@ -121,7 +121,7 @@ function SoulCard({ company, emp }: { company: Company; emp: Employee }) {
               <Button onClick={save} disabled={saving || !dirty}>
                 {saving ? "Saving…" : "Save SOUL.md"}
               </Button>
-              <span className="text-xs text-slate-400">⌘S to save</span>
+              <span className="text-xs text-slate-400 dark:text-slate-500">⌘S to save</span>
             </div>
           </>
         )}
@@ -169,7 +169,7 @@ export function SkillsPage() {
               <CardBody className="flex items-center justify-between">
                 <div>
                   <div className="font-medium">{s.name}</div>
-                  <div className="text-xs text-slate-400">@{s.slug}</div>
+                  <div className="text-xs text-slate-400 dark:text-slate-500">@{s.slug}</div>
                 </div>
                 <Button
                   size="sm"
@@ -323,13 +323,13 @@ export function RoutinesPage() {
                   <div className="flex items-center gap-2">
                     <div className="font-medium">{r.name}</div>
                     {!r.enabled && (
-                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-500">
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                         paused
                       </span>
                     )}
                   </div>
-                  <div className="text-xs text-slate-500">{cronHuman(r.cronExpr)}</div>
-                  <div className="text-xs text-slate-400">
+                  <div className="text-xs text-slate-500 dark:text-slate-400">{cronHuman(r.cronExpr)}</div>
+                  <div className="text-xs text-slate-400 dark:text-slate-500">
                     {r.lastRunAt ? `Last run ${new Date(r.lastRunAt).toLocaleString()}` : "Never run"}
                   </div>
                 </div>
@@ -489,15 +489,15 @@ function RunsModal({
         />
       ) : (
         <div className="flex gap-3" style={{ minHeight: 420 }}>
-          <aside className="w-64 shrink-0 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+          <aside className="w-64 shrink-0 overflow-y-auto rounded-lg border border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-700">
             <ul className="flex flex-col">
               {runs.map((r) => (
                 <li key={r.id}>
                   <button
                     onClick={() => setActiveId(r.id)}
                     className={
-                      "flex w-full flex-col gap-0.5 border-b border-slate-100 px-3 py-2 text-left text-xs " +
-                      (r.id === activeId ? "bg-slate-50" : "hover:bg-slate-50")
+                      "flex w-full flex-col gap-0.5 border-b border-slate-100 px-3 py-2 text-left text-xs dark:border-slate-800" +
+                      (r.id === activeId ? "bg-slate-50 dark:bg-slate-900" : "hover:bg-slate-50 dark:hover:bg-slate-800")
                     }
                   >
                     <div className="flex items-center gap-2">
@@ -510,13 +510,13 @@ function RunsModal({
                         {r.status}
                       </span>
                       {r.exitCode !== null && (
-                        <span className="text-[10px] text-slate-400">exit {r.exitCode}</span>
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500">exit {r.exitCode}</span>
                       )}
                     </div>
-                    <div className="text-slate-700">
+                    <div className="text-slate-700 dark:text-slate-200">
                       {new Date(r.startedAt).toLocaleString()}
                     </div>
-                    <div className="text-slate-400">
+                    <div className="text-slate-400 dark:text-slate-500">
                       {formatDuration(r.startedAt, r.finishedAt)}
                     </div>
                   </button>
@@ -524,13 +524,13 @@ function RunsModal({
               ))}
             </ul>
           </aside>
-          <div className="flex-1 overflow-hidden rounded-lg border border-slate-200 bg-slate-950">
+          <div className="flex-1 overflow-hidden rounded-lg border border-slate-200 bg-slate-950 dark:border-slate-700">
             {loadingLog ? (
-              <div className="flex h-full items-center justify-center text-xs text-slate-500">
+              <div className="flex h-full items-center justify-center text-xs text-slate-500 dark:text-slate-400">
                 <Loader2 size={14} className="mr-2 animate-spin" /> Loading log…
               </div>
             ) : log === null ? null : log.missing ? (
-              <div className="flex h-full items-center justify-center text-xs text-slate-400">
+              <div className="flex h-full items-center justify-center text-xs text-slate-400 dark:text-slate-500">
                 Log file is missing on disk.
               </div>
             ) : (
@@ -604,14 +604,14 @@ function NewRoutineModal({
           onChange={(e) => setCronExpr(e.target.value)}
           required
         />
-        <div className="-mt-2 text-xs text-slate-500">{cronHuman(cronExpr)}</div>
+        <div className="-mt-2 text-xs text-slate-500 dark:text-slate-400">{cronHuman(cronExpr)}</div>
         <div className="flex flex-wrap gap-2">
           {PRESETS.map((p) => (
             <button
               key={p.expr}
               type="button"
               onClick={() => setCronExpr(p.expr)}
-              className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+              className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
             >
               {p.label}
             </button>
@@ -677,7 +677,7 @@ function RoutineEditor({
             value={cronExpr}
             onChange={(e) => setCronExpr(e.target.value)}
           />
-          <div className="-mt-2 text-xs text-slate-500">{cronHuman(cronExpr)}</div>
+          <div className="-mt-2 text-xs text-slate-500 dark:text-slate-400">{cronHuman(cronExpr)}</div>
           <Input
             label="Timeout (seconds)"
             type="number"
@@ -686,7 +686,7 @@ function RoutineEditor({
             value={String(timeoutSec)}
             onChange={(e) => setTimeoutSec(Math.max(10, Number(e.target.value) || 600))}
           />
-          <div className="-mt-2 text-xs text-slate-500">
+          <div className="-mt-2 text-xs text-slate-500 dark:text-slate-400">
             Hard kill after this long. The Run is marked <code>timeout</code>.
           </div>
           <label className="flex items-center gap-2 text-sm">
@@ -705,7 +705,7 @@ function RoutineEditor({
             />
             Require approval before each scheduled run
           </label>
-          <div className="-mt-2 text-xs text-slate-500">
+          <div className="-mt-2 text-xs text-slate-500 dark:text-slate-400">
             Manual "Run now" still runs immediately — a human is already in the loop.
           </div>
           <WebhookField
@@ -807,8 +807,8 @@ function SettingsNavItem({
         className={({ isActive }) =>
           "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm " +
           (isActive
-            ? "bg-indigo-50 text-indigo-700"
-            : "text-slate-700 hover:bg-slate-50")
+            ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
+            : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800")
         }
       >
         {icon}
@@ -872,7 +872,7 @@ function ModelSection({ company, emp }: { company: Company; emp: Employee }) {
       <ModelStatusCard company={company} emp={emp} model={model} onChanged={reload} />
       <Card>
         <CardBody className="flex flex-col gap-3">
-          <div className="text-sm font-medium text-slate-900">Reconfigure</div>
+          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Reconfigure</div>
           <ModelForm
             initial={{ provider: model.provider, model: model.model, authMode: model.authMode }}
             company={company}
@@ -899,10 +899,10 @@ function ModelSetup({
     <Card>
       <CardBody className="flex flex-col gap-4">
         <div>
-          <div className="text-sm font-medium text-slate-900">
+          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
             Connect a brain for {emp.name}
           </div>
-          <div className="text-xs text-slate-500">
+          <div className="text-xs text-slate-500 dark:text-slate-400">
             Each AI Employee signs into their own provider — pick one and connect it.
           </div>
         </div>
@@ -984,7 +984,7 @@ function ModelForm({
         />
       </div>
       <div className="flex flex-col gap-2">
-        <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+        <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Authentication
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
@@ -1061,23 +1061,23 @@ function AuthModeChoice({
       className={
         "flex items-start gap-3 rounded-lg border px-3 py-3 text-left transition " +
         (disabled
-          ? "cursor-not-allowed border-slate-200 bg-slate-50 opacity-60"
+          ? "cursor-not-allowed border-slate-200 bg-slate-50 opacity-60 dark:bg-slate-900 dark:border-slate-700"
           : active
             ? "border-indigo-500 bg-indigo-50/60 ring-1 ring-indigo-200"
-            : "border-slate-200 bg-white hover:bg-slate-50")
+            : "border-slate-200 bg-white hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-700 dark:hover:bg-slate-800")
       }
     >
       <div
         className={
           "mt-0.5 rounded-md p-1.5 " +
-          (active ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-500")
+          (active ? "bg-indigo-100 text-indigo-700 dark:text-indigo-300" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400")
         }
       >
         {icon}
       </div>
       <div className="min-w-0">
-        <div className="text-sm font-medium text-slate-900">{title}</div>
-        <div className="text-xs text-slate-500">{description}</div>
+        <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{title}</div>
+        <div className="text-xs text-slate-500 dark:text-slate-400">{description}</div>
       </div>
     </button>
   );
@@ -1114,12 +1114,12 @@ function ModelStatusCard({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-slate-900">
+              <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                 {model.provider} · {model.model}
               </span>
               <StatusBadge connected={connected} />
             </div>
-            <div className="mt-0.5 text-xs text-slate-500">
+            <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
               {model.authMode === "subscription"
                 ? `Signed in with ${model.provider} subscription`
                 : `Authenticated with ${model.apiKeyEnv ?? "API"} key`}
@@ -1147,13 +1147,13 @@ function ModelStatusCard({
 function StatusBadge({ connected }: { connected: boolean }) {
   if (connected) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200">
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950 dark:text-emerald-300">
         <Check size={10} /> Connected
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 ring-1 ring-amber-200">
+    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950 dark:text-amber-300">
       <Loader2 size={10} className="animate-spin" /> Waiting
     </span>
   );
@@ -1164,8 +1164,8 @@ function SubscriptionLoginPanel({ model }: { model: AIModel }) {
   const [copied, setCopied] = React.useState(false);
 
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
-      <div className="text-xs text-slate-600">
+    <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:bg-slate-900 dark:border-slate-700">
+      <div className="text-xs text-slate-600 dark:text-slate-300">
         Run this once in any terminal on this server. The page will detect the
         login automatically — no need to refresh.
       </div>
@@ -1186,9 +1186,9 @@ function SubscriptionLoginPanel({ model }: { model: AIModel }) {
           {copied ? "Copied" : "Copy"}
         </Button>
       </div>
-      <div className="flex items-center gap-2 text-xs text-slate-500">
+      <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
         <Loader2 size={12} className="animate-spin" /> Watching for credentials at{" "}
-        <code className="rounded bg-white px-1 py-0.5 text-[11px]">{model.configDir}</code>
+        <code className="rounded bg-white px-1 py-0.5 text-[11px] dark:bg-slate-900">{model.configDir}</code>
       </div>
     </div>
   );
@@ -1241,7 +1241,7 @@ function ApiKeyPanel({
         placeholder={model.provider === "codex" ? "sk-…" : "sk-ant-…"}
         required
       />
-      <div className="text-xs text-slate-500">
+      <div className="text-xs text-slate-500 dark:text-slate-400">
         Stored encrypted at rest. Wiped on disconnect.
       </div>
       <div>
@@ -1270,7 +1270,7 @@ function WebhookField({
       ? `${window.location.origin}/api/webhooks/r/${routineId}/${token}`
       : null;
   return (
-    <div className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-slate-50 p-3">
+    <div className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:bg-slate-900 dark:border-slate-700">
       <div className="flex items-center justify-between">
         <label className="flex items-center gap-2 text-sm">
           <input
@@ -1294,13 +1294,13 @@ function WebhookField({
           </Button>
         )}
       </div>
-      <div className="text-xs text-slate-500">
+      <div className="text-xs text-slate-500 dark:text-slate-400">
         External systems POST here to fire this routine. The URL itself is the
         credential — keep it secret.
       </div>
       {url && (
         <div className="flex items-center gap-1">
-          <code className="flex-1 truncate rounded bg-white px-2 py-1 font-mono text-[11px] text-slate-800">
+          <code className="flex-1 truncate rounded bg-white px-2 py-1 font-mono text-[11px] text-slate-800 dark:bg-slate-900 dark:text-slate-100">
             {url}
           </code>
           <Button
@@ -1403,7 +1403,7 @@ export function JournalPage() {
               onChange={(e) => setBody(e.target.value)}
               rows={3}
               placeholder="Optional detail…"
-              className="resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
             />
             <div>
               <Button type="submit" size="sm" disabled={saving || title.trim().length === 0}>
@@ -1438,14 +1438,14 @@ export function JournalPage() {
                         >
                           {e.kind}
                         </span>
-                        <div className="text-sm font-medium text-slate-900">{e.title}</div>
+                        <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{e.title}</div>
                       </div>
                       {e.body && (
-                        <div className="mt-1 whitespace-pre-wrap text-xs text-slate-600">
+                        <div className="mt-1 whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-300">
                           {e.body}
                         </div>
                       )}
-                      <div className="mt-1 text-[11px] text-slate-400">
+                      <div className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
                         {new Date(e.createdAt).toLocaleString()}
                       </div>
                     </div>
@@ -1526,13 +1526,13 @@ export function McpPage() {
                 <CardBody className="flex items-center justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <Plug size={14} className="text-slate-500" />
+                      <Plug size={14} className="text-slate-500 dark:text-slate-400" />
                       <div className="font-medium">{s.name}</div>
-                      <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-600">
+                      <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300">
                         {s.transport}
                       </span>
                     </div>
-                    <div className="mt-1 truncate font-mono text-xs text-slate-500">
+                    <div className="mt-1 truncate font-mono text-xs text-slate-500 dark:text-slate-400">
                       {s.transport === "stdio"
                         ? `${s.command ?? ""}${s.args.length ? ` ${s.args.join(" ")}` : ""}`
                         : s.url}
@@ -1634,7 +1634,7 @@ function NewMcpModal({
           required
         />
         <div className="flex flex-col gap-1">
-          <label className="text-sm font-medium text-slate-700">Transport</label>
+          <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Transport</label>
           <div className="flex gap-2">
             {(["stdio", "http"] as const).map((t) => (
               <label key={t} className="flex items-center gap-1.5 text-sm">
@@ -1674,14 +1674,14 @@ function NewMcpModal({
           />
         )}
         <div className="flex flex-col gap-1">
-          <label className="text-sm font-medium text-slate-700">
+          <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
             Env (KEY=value, one per line)
           </label>
           <textarea
             value={envLines}
             onChange={(e) => setEnvLines(e.target.value)}
             rows={3}
-            className="resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-xs placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-xs placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
             placeholder="GITHUB_TOKEN=ghp_…"
           />
         </div>

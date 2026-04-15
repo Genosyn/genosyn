@@ -29,13 +29,13 @@ export default function EmployeesIndex({ company }: { company: Company }) {
         {crumbs}
         <div className="flex min-h-[50vh] items-center justify-center">
         <div className="max-w-md text-center">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400">
             <Users size={20} />
           </div>
-          <h2 className="mt-4 text-lg font-semibold text-slate-900">
+          <h2 className="mt-4 text-lg font-semibold text-slate-900 dark:text-slate-100">
             Hire your first AI employee
           </h2>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             Give them a name and a role, then write their Soul, define Skills, and
             schedule Routines.
           </p>
@@ -53,9 +53,9 @@ export default function EmployeesIndex({ company }: { company: Company }) {
   return (
     <>
       {crumbs}
-      <div className="flex min-h-[50vh] items-center justify-center text-center text-sm text-slate-500">
+      <div className="flex min-h-[50vh] items-center justify-center text-center text-sm text-slate-500 dark:text-slate-400">
         <div>
-          <div className="text-base font-medium text-slate-700">Pick an employee</div>
+          <div className="text-base font-medium text-slate-700 dark:text-slate-200">Pick an employee</div>
           <div className="mt-1">Choose someone from the sidebar to chat, edit their
             workspace, or review their Soul.
           </div>

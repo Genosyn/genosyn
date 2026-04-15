@@ -75,14 +75,14 @@ export default function Settings({
             {members === null ? (
               <Spinner />
             ) : (
-              <ul className="divide-y divide-slate-100">
+              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                 {members.map((m) => (
                   <li key={m.userId} className="flex items-center justify-between py-2 text-sm">
                     <div>
                       <div className="font-medium">{m.name ?? "(unknown)"}</div>
-                      <div className="text-xs text-slate-500">{m.email}</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">{m.email}</div>
                     </div>
-                    <span className="text-xs uppercase tracking-wide text-slate-400">
+                    <span className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">
                       {m.role}
                     </span>
                   </li>
@@ -90,7 +90,7 @@ export default function Settings({
               </ul>
             )}
             <form
-              className="flex items-end gap-3 border-t border-slate-100 pt-4"
+              className="flex items-end gap-3 border-t border-slate-100 pt-4 dark:border-slate-800"
               onSubmit={async (e) => {
                 e.preventDefault();
                 try {
@@ -126,16 +126,16 @@ export default function Settings({
               to={`/c/${company.slug}/usage`}
               className="flex items-center gap-3 text-sm"
             >
-              <div className="rounded-md bg-slate-100 p-2 text-slate-600">
+              <div className="rounded-md bg-slate-100 p-2 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                 <BarChart3 size={16} />
               </div>
               <div className="flex-1">
-                <div className="font-medium text-slate-900">Usage</div>
-                <div className="text-xs text-slate-500">
+                <div className="font-medium text-slate-900 dark:text-slate-100">Usage</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
                   Run counts, compute time, and success rate per employee and routine.
                 </div>
               </div>
-              <ChevronRight size={16} className="text-slate-400" />
+              <ChevronRight size={16} className="text-slate-400 dark:text-slate-500" />
             </Link>
           </CardBody>
         </Card>
@@ -146,16 +146,16 @@ export default function Settings({
               to={`/c/${company.slug}/audit`}
               className="flex items-center gap-3 text-sm"
             >
-              <div className="rounded-md bg-slate-100 p-2 text-slate-600">
+              <div className="rounded-md bg-slate-100 p-2 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                 <ScrollText size={16} />
               </div>
               <div className="flex-1">
-                <div className="font-medium text-slate-900">Audit log</div>
-                <div className="text-xs text-slate-500">
+                <div className="font-medium text-slate-900 dark:text-slate-100">Audit log</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
                   Who did what, across employees, routines, secrets, approvals, and models.
                 </div>
               </div>
-              <ChevronRight size={16} className="text-slate-400" />
+              <ChevronRight size={16} className="text-slate-400 dark:text-slate-500" />
             </Link>
           </CardBody>
         </Card>
@@ -196,7 +196,7 @@ function SecretsCard({ company }: { company: Company }) {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-sm font-semibold">Secrets</h2>
-            <p className="mt-0.5 text-xs text-slate-500">
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
               Encrypted at rest. Injected into every employee run and chat as environment variables.
             </p>
           </div>
@@ -214,18 +214,18 @@ function SecretsCard({ company }: { company: Company }) {
             description="Store API keys, tokens, and other sensitive values once and make them available to every employee."
           />
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-slate-100 dark:divide-slate-800">
             {rows.map((s) => (
               <li key={s.id} className="flex items-center justify-between gap-3 py-2 text-sm">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-800">
+                    <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-800 dark:bg-slate-800 dark:text-slate-100">
                       {s.name}
                     </code>
-                    <span className="font-mono text-xs text-slate-500">{s.preview}</span>
+                    <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{s.preview}</span>
                   </div>
                   {s.description && (
-                    <div className="mt-0.5 truncate text-xs text-slate-500">{s.description}</div>
+                    <div className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">{s.description}</div>
                   )}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
@@ -345,12 +345,12 @@ function SecretModal({
           />
         )}
         <div>
-          <label className="mb-1 block text-xs font-medium text-slate-600">
-            Value {isEdit && <span className="text-slate-400">(leave blank to keep current)</span>}
+          <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+            Value {isEdit && <span className="text-slate-400 dark:text-slate-500">(leave blank to keep current)</span>}
           </label>
           <input
             type="password"
-            className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-mono shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-mono shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
             value={value}
             onChange={(e) => setValue(e.target.value)}
             autoComplete="off"

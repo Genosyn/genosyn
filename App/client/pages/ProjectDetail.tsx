@@ -115,7 +115,7 @@ function PriorityIcon({ priority, size = 14 }: { priority: TodoPriority; size?: 
     case "medium":
       return <SignalMedium size={size} className="text-amber-500" />;
     case "low":
-      return <SignalLow size={size} className="text-slate-500" />;
+      return <SignalLow size={size} className="text-slate-500 dark:text-slate-400" />;
     default:
       return <Minus size={size} className="text-slate-300" />;
   }
@@ -136,7 +136,7 @@ function Avatar({ name, size = 22 }: { name: string; size?: number }) {
   return (
     <div
       style={{ width: size, height: size, fontSize: Math.round(size * 0.42) }}
-      className="flex items-center justify-center rounded-full bg-indigo-100 font-semibold text-indigo-700"
+      className="flex items-center justify-center rounded-full bg-indigo-100 font-semibold text-indigo-700 dark:text-indigo-300"
       title={name}
     >
       {initials(name)}
@@ -182,11 +182,11 @@ function StatusPicker({
           className={clsx(
             "flex items-center gap-1.5 rounded-md text-left text-xs",
             compact ? "p-0.5" : "px-1.5 py-1",
-            open ? "bg-slate-100" : "hover:bg-slate-100",
+            open ? "bg-slate-100 dark:bg-slate-800" : "hover:bg-slate-100 dark:hover:bg-slate-800",
           )}
         >
           <StatusIcon status={value} />
-          {!compact && <span className="text-slate-700">{STATUS_LABEL[value]}</span>}
+          {!compact && <span className="text-slate-700 dark:text-slate-200">{STATUS_LABEL[value]}</span>}
         </button>
       )}
       width={200}
@@ -234,12 +234,12 @@ function PriorityPicker({
           className={clsx(
             "flex items-center gap-1.5 rounded-md text-left text-xs",
             compact ? "p-0.5" : "px-1.5 py-1",
-            open ? "bg-slate-100" : "hover:bg-slate-100",
+            open ? "bg-slate-100 dark:bg-slate-800" : "hover:bg-slate-100 dark:hover:bg-slate-800",
           )}
         >
           <PriorityIcon priority={value} />
           {!compact && value !== "none" && (
-            <span className="text-slate-700">{PRIORITY_LABEL[value]}</span>
+            <span className="text-slate-700 dark:text-slate-200">{PRIORITY_LABEL[value]}</span>
           )}
         </button>
       )}
@@ -296,21 +296,21 @@ function AssigneePicker({
           className={clsx(
             "flex items-center gap-1.5 rounded-md text-xs",
             compact ? "p-0.5" : "px-1.5 py-1",
-            open ? "bg-slate-100" : "hover:bg-slate-100",
+            open ? "bg-slate-100 dark:bg-slate-800" : "hover:bg-slate-100 dark:hover:bg-slate-800",
           )}
         >
           {current ? (
             <Avatar name={current.name} size={compact ? 20 : 22} />
           ) : (
             <div
-              className="flex items-center justify-center rounded-full border border-dashed border-slate-300 text-slate-400"
+              className="flex items-center justify-center rounded-full border border-dashed border-slate-300 text-slate-400 dark:border-slate-600 dark:text-slate-500"
               style={{ width: compact ? 20 : 22, height: compact ? 20 : 22 }}
             >
               <UserIcon size={compact ? 10 : 12} />
             </div>
           )}
           {!compact && (
-            <span className="text-slate-700">
+            <span className="text-slate-700 dark:text-slate-200">
               {current ? current.name : "Unassigned"}
             </span>
           )}
@@ -329,14 +329,14 @@ function AssigneePicker({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search…"
-              className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:outline-none"
+              className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:outline-none dark:bg-slate-900 dark:border-slate-700"
             />
           </div>
           <MenuSeparator />
           <MenuItem
             active={value === null}
             icon={
-              <div className="flex h-5 w-5 items-center justify-center rounded-full border border-dashed border-slate-300 text-slate-400">
+              <div className="flex h-5 w-5 items-center justify-center rounded-full border border-dashed border-slate-300 text-slate-400 dark:border-slate-600 dark:text-slate-500">
                 <UserIcon size={10} />
               </div>
             }
@@ -347,7 +347,7 @@ function AssigneePicker({
             }}
           />
           {filtered.length === 0 ? (
-            <div className="px-2 py-3 text-center text-xs text-slate-400">
+            <div className="px-2 py-3 text-center text-xs text-slate-400 dark:text-slate-500">
               No employees
             </div>
           ) : (
@@ -359,7 +359,7 @@ function AssigneePicker({
                 label={
                   <span className="flex flex-col">
                     <span className="truncate text-sm">{e.name}</span>
-                    <span className="truncate text-[11px] text-slate-500">
+                    <span className="truncate text-[11px] text-slate-500 dark:text-slate-400">
                       {e.role}
                     </span>
                   </span>
@@ -524,7 +524,7 @@ export default function ProjectDetail({ company }: { company: Company }) {
     <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Header */}
-        <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-6 py-4">
+        <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-6 py-4 dark:bg-slate-900 dark:border-slate-700">
           <div className="min-w-0 flex-1">
             <Breadcrumbs
               items={[
@@ -533,18 +533,18 @@ export default function ProjectDetail({ company }: { company: Company }) {
               ]}
             />
             <div className="mt-1 flex items-center gap-2">
-              <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-600">
+              <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                 {project.key}
               </span>
-              <h1 className="truncate text-lg font-semibold text-slate-900">
+              <h1 className="truncate text-lg font-semibold text-slate-900 dark:text-slate-100">
                 {project.name}
               </h1>
-              <span className="ml-2 text-xs text-slate-500">
+              <span className="ml-2 text-xs text-slate-500 dark:text-slate-400">
                 {summary.open} open · {summary.done} done
               </span>
             </div>
             {project.description && (
-              <p className="mt-1 truncate text-sm text-slate-500">
+              <p className="mt-1 truncate text-sm text-slate-500 dark:text-slate-400">
                 {project.description}
               </p>
             )}
@@ -552,7 +552,7 @@ export default function ProjectDetail({ company }: { company: Company }) {
           <ViewToggle value={view} onChange={setView} />
           <button
             onClick={() => setShowSettings(true)}
-            className="rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+            className="rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
             title="Project settings"
           >
             <SettingsIcon size={16} />
@@ -658,7 +658,7 @@ function ViewToggle({
   onChange: (v: "list" | "board") => void;
 }) {
   return (
-    <div className="flex items-center rounded-lg border border-slate-200 bg-white p-0.5">
+    <div className="flex items-center rounded-lg border border-slate-200 bg-white p-0.5 dark:bg-slate-900 dark:border-slate-700">
       {(
         [
           { v: "list" as const, label: "List", Icon: LayoutList },
@@ -671,8 +671,8 @@ function ViewToggle({
           className={clsx(
             "flex items-center gap-1.5 rounded-md px-2 py-1 text-xs",
             value === v
-              ? "bg-slate-100 text-slate-900"
-              : "text-slate-500 hover:text-slate-900",
+              ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
+              : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100",
           )}
         >
           <Icon size={14} /> {label}
@@ -717,8 +717,8 @@ function FilterBar({
   const active = countActive(filters);
 
   return (
-    <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-6 py-2">
-      <Filter size={14} className="text-slate-400" />
+    <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-6 py-2 dark:bg-slate-900 dark:border-slate-700">
+      <Filter size={14} className="text-slate-400 dark:text-slate-500" />
       <FilterChip
         label="Status"
         count={filters.statuses.size}
@@ -731,7 +731,7 @@ function FilterBar({
                 active={filters.statuses.has(s)}
                 icon={
                   filters.statuses.has(s) ? (
-                    <Check size={12} className="text-indigo-600" />
+                    <Check size={12} className="text-indigo-600 dark:text-indigo-400" />
                   ) : (
                     <StatusIcon status={s} />
                   )
@@ -763,7 +763,7 @@ function FilterBar({
                 active={filters.priorities.has(p)}
                 icon={
                   filters.priorities.has(p) ? (
-                    <Check size={12} className="text-indigo-600" />
+                    <Check size={12} className="text-indigo-600 dark:text-indigo-400" />
                   ) : (
                     <PriorityIcon priority={p} />
                   )
@@ -793,9 +793,9 @@ function FilterBar({
               active={filters.assignees.has("unassigned")}
               icon={
                 filters.assignees.has("unassigned") ? (
-                  <Check size={12} className="text-indigo-600" />
+                  <Check size={12} className="text-indigo-600 dark:text-indigo-400" />
                 ) : (
-                  <UserIcon size={12} className="text-slate-400" />
+                  <UserIcon size={12} className="text-slate-400 dark:text-slate-500" />
                 )
               }
               label="Unassigned"
@@ -809,7 +809,7 @@ function FilterBar({
                   active={filters.assignees.has(e.id)}
                   icon={
                     filters.assignees.has(e.id) ? (
-                      <Check size={12} className="text-indigo-600" />
+                      <Check size={12} className="text-indigo-600 dark:text-indigo-400" />
                     ) : (
                       <Avatar name={e.name} size={20} />
                     )
@@ -832,7 +832,7 @@ function FilterBar({
       {active > 0 && (
         <button
           onClick={() => setFilters(emptyFilters())}
-          className="ml-auto text-xs text-slate-500 hover:text-slate-900"
+          className="ml-auto text-xs text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
         >
           Clear all
         </button>
@@ -859,13 +859,13 @@ function FilterChip({
           className={clsx(
             "flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs",
             count > 0 || open
-              ? "border-indigo-200 bg-indigo-50 text-indigo-700"
-              : "border-slate-200 text-slate-700 hover:bg-slate-50",
+              ? "border-indigo-200 bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:border-indigo-800 dark:text-indigo-300"
+              : "border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800",
           )}
         >
           <span>{label}</span>
           {count > 0 && (
-            <span className="rounded bg-indigo-100 px-1 text-[10px] font-semibold text-indigo-700">
+            <span className="rounded bg-indigo-100 px-1 text-[10px] font-semibold text-indigo-700 dark:text-indigo-300">
               {count}
             </span>
           )}
@@ -930,15 +930,15 @@ function NewTodoRow({
   return (
     <form
       onSubmit={submit}
-      className="flex items-center gap-2 border-b border-slate-200 bg-white px-6 py-2"
+      className="flex items-center gap-2 border-b border-slate-200 bg-white px-6 py-2 dark:bg-slate-900 dark:border-slate-700"
     >
-      <Plus size={14} className="text-slate-400" />
+      <Plus size={14} className="text-slate-400 dark:text-slate-500" />
       <input
         ref={inputRef}
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         placeholder="Add a todo… (c)"
-        className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
+        className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
       />
       <StatusPicker value={status} onChange={setStatus} />
       <PriorityPicker value={priority} onChange={setPriority} />
@@ -979,9 +979,9 @@ function ListView({
 
   if (totalBeforeFilter === 0) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500">
+      <div className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500 dark:text-slate-400">
         No todos yet — press{" "}
-        <kbd className="mx-1 rounded border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-600">
+        <kbd className="mx-1 rounded border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-600 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300">
           c
         </kbd>{" "}
         or type above to add one.
@@ -990,7 +990,7 @@ function ListView({
   }
   if (todos.length === 0) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500">
+      <div className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500 dark:text-slate-400">
         No todos match the current filters.
       </div>
     );
@@ -1002,11 +1002,11 @@ function ListView({
         const items = byStatus.get(status)!;
         if (items.length === 0) return null;
         return (
-          <div key={status} className="border-b border-slate-100">
-            <div className="flex items-center gap-2 bg-slate-50 px-6 py-1.5 text-xs font-medium text-slate-600">
+          <div key={status} className="border-b border-slate-100 dark:border-slate-800">
+            <div className="flex items-center gap-2 bg-slate-50 px-6 py-1.5 text-xs font-medium text-slate-600 dark:bg-slate-900 dark:text-slate-300">
               <StatusIcon status={status} />
               <span>{STATUS_LABEL[status]}</span>
-              <span className="text-slate-400">{items.length}</span>
+              <span className="text-slate-400 dark:text-slate-500">{items.length}</span>
             </div>
             <ul>
               {items.map((t) => (
@@ -1067,8 +1067,8 @@ function TodoRow({
         if (!editing) onOpen();
       }}
       className={clsx(
-        "group flex items-center gap-2 border-b border-slate-100 px-6 py-1.5 last:border-b-0",
-        active ? "bg-indigo-50/40" : "bg-white hover:bg-slate-50",
+        "group flex items-center gap-2 border-b border-slate-100 px-6 py-1.5 last:border-b-0 dark:border-slate-800",
+        active ? "bg-indigo-50/40" : "bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800",
       )}
     >
       <StatusPicker
@@ -1076,7 +1076,7 @@ function TodoRow({
         onChange={(s) => onPatch({ status: s })}
         compact
       />
-      <span className="w-14 shrink-0 font-mono text-[11px] text-slate-400">
+      <span className="w-14 shrink-0 font-mono text-[11px] text-slate-400 dark:text-slate-500">
         {project.key}-{todo.number}
       </span>
       <PriorityPicker
@@ -1098,7 +1098,7 @@ function TodoRow({
                 setEditing(false);
               }
             }}
-            className="w-full rounded border border-indigo-300 bg-white px-1 py-0.5 text-sm text-slate-900 focus:outline-none"
+            className="w-full rounded border border-indigo-300 bg-white px-1 py-0.5 text-sm text-slate-900 focus:outline-none dark:bg-slate-900 dark:text-slate-100"
           />
         ) : (
           <button
@@ -1109,8 +1109,8 @@ function TodoRow({
             className={clsx(
               "truncate text-left text-sm",
               todo.status === "done" || todo.status === "cancelled"
-                ? "text-slate-400 line-through"
-                : "text-slate-900",
+                ? "text-slate-400 line-through dark:text-slate-500"
+                : "text-slate-900 dark:text-slate-100",
             )}
           >
             {todo.title}
@@ -1139,7 +1139,7 @@ function TodoRow({
           e.stopPropagation();
           onDelete();
         }}
-        className="rounded p-1 text-slate-400 opacity-0 hover:bg-red-50 hover:text-red-600 group-hover:opacity-100"
+        className="rounded p-1 text-slate-400 opacity-0 hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 dark:text-slate-500"
         title="Delete"
       >
         <Trash2 size={13} />
@@ -1201,18 +1201,18 @@ function BoardView({
               setDragId(null);
             }}
             className={clsx(
-              "flex w-72 shrink-0 flex-col rounded-lg border bg-slate-50 transition-colors",
-              isOver ? "border-indigo-400 bg-indigo-50/50" : "border-slate-200",
+              "flex w-72 shrink-0 flex-col rounded-lg border bg-slate-50 transition-colors dark:bg-slate-900",
+              isOver ? "border-indigo-400 bg-indigo-50/50" : "border-slate-200 dark:border-slate-700",
             )}
           >
-            <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-2 text-xs font-medium text-slate-600">
+            <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300">
               <StatusIcon status={status} />
               <span>{STATUS_LABEL[status]}</span>
-              <span className="ml-auto text-slate-400">{items.length}</span>
+              <span className="ml-auto text-slate-400 dark:text-slate-500">{items.length}</span>
             </div>
             <div className="flex flex-1 flex-col gap-2 p-2">
               {items.length === 0 ? (
-                <div className="rounded border border-dashed border-slate-200 py-6 text-center text-[11px] text-slate-400">
+                <div className="rounded border border-dashed border-slate-200 py-6 text-center text-[11px] text-slate-400 dark:border-slate-700 dark:text-slate-500">
                   Drop here
                 </div>
               ) : (
@@ -1259,21 +1259,21 @@ function BoardCard({
       onDragEnd={onDragEnd}
       onClick={onClick}
       className={clsx(
-        "group relative cursor-pointer overflow-hidden rounded-lg border bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow",
-        active ? "border-indigo-400 ring-2 ring-indigo-100" : "border-slate-200",
+        "group relative cursor-pointer overflow-hidden rounded-lg border bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow dark:bg-slate-900",
+        active ? "border-indigo-400 ring-2 ring-indigo-100" : "border-slate-200 dark:border-slate-700",
       )}
     >
       <div
         className={clsx("absolute left-0 top-0 h-full w-0.5", PRIORITY_BAR[todo.priority])}
       />
       <div className="p-3 pl-3.5">
-        <div className="flex items-center gap-2 text-[10px] text-slate-400">
+        <div className="flex items-center gap-2 text-[10px] text-slate-400 dark:text-slate-500">
           <span className="font-mono">
             {project.key}-{todo.number}
           </span>
           <PriorityIcon priority={todo.priority} size={11} />
         </div>
-        <div className="mt-1 line-clamp-3 text-sm text-slate-900">{todo.title}</div>
+        <div className="mt-1 line-clamp-3 text-sm text-slate-900 dark:text-slate-100">{todo.title}</div>
         <div className="mt-2 flex items-center justify-between">
           {due ? (
             <span className={clsx("flex items-center gap-1 text-[11px]", due.cls)}>
@@ -1285,7 +1285,7 @@ function BoardCard({
           {todo.assignee ? (
             <Avatar name={todo.assignee.name} size={20} />
           ) : (
-            <div className="flex h-5 w-5 items-center justify-center rounded-full border border-dashed border-slate-300 text-slate-300">
+            <div className="flex h-5 w-5 items-center justify-center rounded-full border border-dashed border-slate-300 text-slate-300 dark:border-slate-600">
               <UserIcon size={10} />
             </div>
           )}
@@ -1336,17 +1336,17 @@ function TodoPeek({
   const due = todo.dueAt ? todo.dueAt.slice(0, 10) : "";
 
   return (
-    <aside className="flex w-[460px] shrink-0 flex-col border-l border-slate-200 bg-white">
-      <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3">
-        <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-600">
+    <aside className="flex w-[460px] shrink-0 flex-col border-l border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-700">
+      <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+        <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
           {project.key}-{todo.number}
         </span>
-        <span className="text-xs text-slate-500">
+        <span className="text-xs text-slate-500 dark:text-slate-400">
           {STATUS_LABEL[todo.status]}
         </span>
         <button
           onClick={onClose}
-          className="ml-auto rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          className="ml-auto rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
           title="Close (Esc)"
         >
           <X size={16} />
@@ -1363,7 +1363,7 @@ function TodoPeek({
               (e.target as HTMLInputElement).blur();
             }
           }}
-          className="w-full bg-transparent text-lg font-semibold text-slate-900 focus:outline-none"
+          className="w-full bg-transparent text-lg font-semibold text-slate-900 focus:outline-none dark:text-slate-100"
         />
 
         <textarea
@@ -1375,17 +1375,17 @@ function TodoPeek({
           }}
           onBlur={commitDesc}
           rows={6}
-          className="mt-3 w-full resize-none rounded-md border border-transparent bg-slate-50 p-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:outline-none"
+          className="mt-3 w-full resize-none rounded-md border border-transparent bg-slate-50 p-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:outline-none dark:bg-slate-900 dark:text-slate-100"
         />
 
         <div className="mt-6 grid grid-cols-[90px_1fr] items-center gap-y-3 text-sm">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
             Status
           </span>
           <div>
             <StatusPicker value={todo.status} onChange={(s) => onPatch({ status: s })} />
           </div>
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
             Priority
           </span>
           <div>
@@ -1394,7 +1394,7 @@ function TodoPeek({
               onChange={(p) => onPatch({ priority: p })}
             />
           </div>
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
             Assignee
           </span>
           <div>
@@ -1404,7 +1404,7 @@ function TodoPeek({
               onChange={(id) => onPatch({ assigneeEmployeeId: id })}
             />
           </div>
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
             Due date
           </span>
           <div className="flex items-center gap-2">
@@ -1422,7 +1422,7 @@ function TodoPeek({
             {due && (
               <button
                 onClick={() => onPatch({ dueAt: null })}
-                className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                 title="Clear"
               >
                 <X size={14} />
@@ -1434,8 +1434,8 @@ function TodoPeek({
         <CommentThread todo={todo} employees={employees} companyId={companyId} />
       </div>
 
-      <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3">
-        <span className="text-[11px] text-slate-400">
+      <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 dark:border-slate-700">
+        <span className="text-[11px] text-slate-400 dark:text-slate-500">
           Created {new Date(todo.createdAt).toLocaleDateString()}
         </span>
         <Button variant="danger" size="sm" onClick={onDelete}>
@@ -1504,13 +1504,13 @@ function ProjectSettingsModal({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
+        className="w-full max-w-lg overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:bg-slate-900 dark:border-slate-700"
       >
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3 dark:border-slate-800">
           <h2 className="text-base font-semibold">Project settings</h2>
           <button
             onClick={onClose}
-            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
           >
             <X size={16} />
           </button>
@@ -1526,12 +1526,12 @@ function ProjectSettingsModal({
             maxLength={6}
           />
           <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium text-slate-700">Description</label>
+            <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Description</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
             />
           </div>
           <div className="mt-2 flex items-center justify-between">
@@ -1653,12 +1653,12 @@ function CommentThread({
   const mentionEmp = mentionId ? employees.find((e) => e.id === mentionId) : null;
 
   return (
-    <div className="mt-6 border-t border-slate-100 pt-4">
-      <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+    <div className="mt-6 border-t border-slate-100 pt-4 dark:border-slate-800">
+      <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
         <MessageSquare size={13} />
         Discussion
         {comments && comments.length > 0 && (
-          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] normal-case tracking-normal text-slate-600">
+          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] normal-case tracking-normal text-slate-600 dark:bg-slate-800 dark:text-slate-300">
             {comments.length}
           </span>
         )}
@@ -1670,7 +1670,7 @@ function CommentThread({
             <Spinner size={14} />
           </div>
         ) : comments.length === 0 ? (
-          <div className="rounded-md border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-500">
+          <div className="rounded-md border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
             No messages yet. Ping a teammate — @mention an AI employee to loop
             them in.
           </div>
@@ -1679,7 +1679,7 @@ function CommentThread({
         )}
       </div>
 
-      <div className="mt-3 rounded-lg border border-slate-200 bg-white focus-within:border-indigo-400">
+      <div className="mt-3 rounded-lg border border-slate-200 bg-white focus-within:border-indigo-400 dark:bg-slate-900 dark:border-slate-700">
         <textarea
           value={body}
           onChange={(e) => setBody(e.target.value)}
@@ -1691,9 +1691,9 @@ function CommentThread({
           }}
           placeholder="Write a message…"
           rows={2}
-          className="w-full resize-none rounded-t-lg bg-transparent px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none"
+          className="w-full resize-none rounded-t-lg bg-transparent px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
         />
-        <div className="flex items-center gap-1 border-t border-slate-100 px-2 py-1.5">
+        <div className="flex items-center gap-1 border-t border-slate-100 px-2 py-1.5 dark:border-slate-800">
           <MentionPicker
             value={mentionId}
             employees={employees}
@@ -1750,30 +1750,30 @@ function CommentRow({
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 text-xs">
-          <span className="font-medium text-slate-800">{name}</span>
+          <span className="font-medium text-slate-800 dark:text-slate-100">{name}</span>
           {isAi && (
             <span className="rounded bg-violet-100 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-700">
               AI
             </span>
           )}
-          <span className="text-slate-400">·</span>
-          <span className="text-slate-400">{when}</span>
+          <span className="text-slate-400 dark:text-slate-500">·</span>
+          <span className="text-slate-400 dark:text-slate-500">{when}</span>
           <div className="flex-1" />
           <button
             onClick={() => onDelete(comment)}
             title="Delete"
-            className="rounded p-0.5 text-slate-300 opacity-0 hover:bg-slate-100 hover:text-slate-600 group-hover:opacity-100"
+            className="rounded p-0.5 text-slate-300 opacity-0 hover:bg-slate-100 hover:text-slate-600 group-hover:opacity-100 dark:hover:bg-slate-800"
           >
             <X size={12} />
           </button>
         </div>
         {comment.pending ? (
-          <div className="mt-1 flex items-center gap-2 text-xs italic text-slate-400">
+          <div className="mt-1 flex items-center gap-2 text-xs italic text-slate-400 dark:text-slate-500">
             <Spinner size={12} />
             Thinking…
           </div>
         ) : (
-          <div className="mt-0.5 whitespace-pre-wrap break-words text-sm text-slate-800">
+          <div className="mt-0.5 whitespace-pre-wrap break-words text-sm text-slate-800 dark:text-slate-100">
             {comment.body}
           </div>
         )}
@@ -1805,10 +1805,10 @@ function MentionPicker({
           className={clsx(
             "flex items-center gap-1.5 rounded-md px-2 py-1 text-xs",
             open
-              ? "bg-slate-100 text-slate-800"
+              ? "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-100"
               : selected
                 ? "text-violet-700 hover:bg-violet-50"
-                : "text-slate-500 hover:bg-slate-100",
+                : "text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800",
           )}
           title="Mention an AI employee to reply"
         >
@@ -1822,7 +1822,7 @@ function MentionPicker({
           <MenuHeader>Ask an AI employee</MenuHeader>
           <MenuItem
             active={value === null}
-            icon={<X size={12} className="text-slate-400" />}
+            icon={<X size={12} className="text-slate-400 dark:text-slate-500" />}
             label="No mention"
             onSelect={() => {
               onChange(null);

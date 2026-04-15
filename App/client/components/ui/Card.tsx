@@ -9,7 +9,7 @@ export function Card({
     <div
       {...rest}
       className={clsx(
-        "rounded-xl border border-slate-200 bg-white shadow-sm",
+        "rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900",
         className,
       )}
     />
@@ -20,7 +20,7 @@ export function CardHeader({
   className,
   ...rest
 }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div {...rest} className={clsx("border-b border-slate-100 p-4", className)} />;
+  return <div {...rest} className={clsx("border-b border-slate-100 p-4 dark:border-slate-800", className)} />;
 }
 
 export function CardBody({

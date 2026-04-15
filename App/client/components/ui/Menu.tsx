@@ -81,7 +81,7 @@ export function Menu({
           ref={menuRef}
           role="menu"
           style={{ top: coords.top, left: coords.left, width }}
-          className="fixed z-50 max-h-[80vh] overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg"
+          className="fixed z-50 max-h-[80vh] overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
         >
           {children(() => setOpen(false))}
         </div>
@@ -116,24 +116,26 @@ export function MenuItem({
       onClick={onSelect}
       className={clsx(
         "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
-        active ? "bg-indigo-50 text-indigo-700" : "text-slate-700 hover:bg-slate-100",
+        active
+          ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
+          : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800",
         className,
       )}
     >
       {icon && <span className="flex h-4 w-4 items-center justify-center">{icon}</span>}
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      {hint && <span className="text-xs text-slate-400">{hint}</span>}
+      {hint && <span className="text-xs text-slate-400 dark:text-slate-500">{hint}</span>}
     </button>
   );
 }
 
 export function MenuSeparator() {
-  return <div className="my-1 h-px bg-slate-100" />;
+  return <div className="my-1 h-px bg-slate-100 dark:bg-slate-800" />;
 }
 
 export function MenuHeader({ children }: { children: React.ReactNode }) {
   return (
-    <div className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+    <div className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
       {children}
     </div>
   );

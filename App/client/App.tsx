@@ -4,6 +4,7 @@ import { api, Company, Me } from "./lib/api";
 import { AppShell } from "./components/AppShell";
 import { Spinner } from "./components/ui/Spinner";
 import { ToastProvider } from "./components/ui/Toast";
+import { ThemeProvider } from "./components/Theme";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Forgot from "./pages/Forgot";
@@ -57,6 +58,7 @@ export default function App() {
   }, [refresh]);
 
   return (
+    <ThemeProvider>
     <ToastProvider>
       {auth.status === "loading" ? (
         <div className="flex h-full items-center justify-center">
@@ -75,6 +77,7 @@ export default function App() {
         <AuthedRoutes me={auth.me} companies={auth.companies} onChanged={refresh} />
       )}
     </ToastProvider>
+    </ThemeProvider>
   );
 }
 

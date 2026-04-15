@@ -80,7 +80,7 @@ export default function EmployeeNew({ company }: { company: Company }) {
           <CardHeader>
             <div>
               <h2 className="text-sm font-semibold">Pick a template</h2>
-              <p className="mt-0.5 text-xs text-slate-500">
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                 Templates come with a pre-written Soul, starter skills, and sometimes a routine.
                 Start blank if you'd rather author everything yourself.
               </p>
@@ -116,21 +116,21 @@ export default function EmployeeNew({ company }: { company: Company }) {
               </div>
             )}
             {selectedTemplate && (
-              <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50 p-3 text-xs text-slate-600">
-                <div className="mb-1 font-medium text-slate-800">
+              <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50 p-3 text-xs text-slate-600 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300">
+                <div className="mb-1 font-medium text-slate-800 dark:text-slate-100">
                   You'll get:
                 </div>
                 <ul className="list-inside list-disc space-y-0.5">
                   <li>A fully-written SOUL.md — you can edit it after.</li>
                   {selectedTemplate.skills.map((s) => (
                     <li key={s}>
-                      Skill · <span className="font-medium text-slate-800">{s}</span>
+                      Skill · <span className="font-medium text-slate-800 dark:text-slate-100">{s}</span>
                     </li>
                   ))}
                   {selectedTemplate.routines.map((r) => (
                     <li key={r.name}>
-                      Routine · <span className="font-medium text-slate-800">{r.name}</span>{" "}
-                      <code className="rounded bg-white px-1 py-0.5 text-[11px]">
+                      Routine · <span className="font-medium text-slate-800 dark:text-slate-100">{r.name}</span>{" "}
+                      <code className="rounded bg-white px-1 py-0.5 text-[11px] dark:bg-slate-900">
                         {r.cronExpr}
                       </code>
                     </li>
@@ -143,7 +143,7 @@ export default function EmployeeNew({ company }: { company: Company }) {
 
         <Card>
           <CardHeader>
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-slate-500 dark:text-slate-400">
               Name and role — you can change these later.
             </p>
           </CardHeader>
@@ -205,8 +205,8 @@ function TemplateCard({
       className={clsx(
         "relative rounded-lg border p-4 text-left transition",
         selected
-          ? "border-indigo-300 bg-indigo-50 shadow-sm"
-          : "border-slate-200 bg-white hover:border-slate-300",
+          ? "border-indigo-300 bg-indigo-50 shadow-sm dark:bg-indigo-500/10"
+          : "border-slate-200 bg-white hover:border-slate-300 dark:bg-slate-900 dark:border-slate-700",
       )}
     >
       {selected && (
@@ -214,12 +214,12 @@ function TemplateCard({
           <Check size={12} />
         </span>
       )}
-      <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+      <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
         {icon}
         {title}
       </div>
-      <div className="mt-1 text-xs text-slate-600">{tagline}</div>
-      <div className="mt-2 text-[11px] uppercase tracking-wide text-slate-400">
+      <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">{tagline}</div>
+      <div className="mt-2 text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
         {subtitle}
       </div>
     </button>

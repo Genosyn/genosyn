@@ -32,13 +32,13 @@ export default function EmployeesLayout({ company }: { company: Company }) {
 
   const sidebar = (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-slate-100 px-3 py-3">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+      <div className="flex items-center justify-between border-b border-slate-100 px-3 py-3 dark:border-slate-800">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
           <Users size={14} /> Employees
         </div>
         <button
           onClick={() => navigate(`/c/${company.slug}/employees/new`)}
-          className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+          className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
           title="New employee"
         >
           <Plus size={14} />
@@ -50,7 +50,7 @@ export default function EmployeesLayout({ company }: { company: Company }) {
             <Spinner size={16} />
           </div>
         ) : employees.length === 0 ? (
-          <div className="px-3 py-6 text-center text-xs text-slate-500">
+          <div className="px-3 py-6 text-center text-xs text-slate-500 dark:text-slate-400">
             No employees yet.
           </div>
         ) : (
@@ -62,7 +62,7 @@ export default function EmployeesLayout({ company }: { company: Company }) {
                   label={
                     <span className="flex flex-col">
                       <span className="truncate text-sm font-medium">{e.name}</span>
-                      <span className="truncate text-xs text-slate-500">{e.role}</span>
+                      <span className="truncate text-xs text-slate-500 dark:text-slate-400">{e.role}</span>
                     </span>
                   }
                 />

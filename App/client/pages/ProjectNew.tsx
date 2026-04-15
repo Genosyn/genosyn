@@ -49,11 +49,11 @@ export default function ProjectNew({ company }: { company: Company }) {
       <TopBar title="New project" />
       <Card>
         <CardHeader>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-slate-500 dark:text-slate-400">
             A project is a container for todos. Pick a short key (e.g.{" "}
-            <span className="font-mono text-slate-700">ENG</span>) —
+            <span className="font-mono text-slate-700 dark:text-slate-200">ENG</span>) —
             it&apos;ll prefix todo numbers like{" "}
-            <span className="font-mono text-slate-700">ENG-42</span>.
+            <span className="font-mono text-slate-700 dark:text-slate-200">ENG-42</span>.
           </p>
         </CardHeader>
         <CardBody>
@@ -73,7 +73,7 @@ export default function ProjectNew({ company }: { company: Company }) {
               maxLength={6}
             />
             <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium text-slate-700">
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
                 Description (optional)
               </label>
               <textarea
@@ -81,7 +81,7 @@ export default function ProjectNew({ company }: { company: Company }) {
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="What's the goal of this project?"
                 rows={3}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
               />
             </div>
             <div className="flex gap-2">

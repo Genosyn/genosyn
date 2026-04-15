@@ -74,15 +74,15 @@ export default function EmployeeLayout({ company }: { company: Company }) {
 
   const sidebar = (
     <div className="flex h-full flex-col">
-      <div className="border-b border-slate-100 px-3 py-3">
+      <div className="border-b border-slate-100 px-3 py-3 dark:border-slate-800">
         <button
           onClick={() => navigate(`/c/${company.slug}`)}
-          className="flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-900"
+          className="flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
         >
           <ArrowLeft size={12} /> All employees
         </button>
-        <div className="mt-2 text-sm font-semibold text-slate-900">{emp.name}</div>
-        <div className="text-xs text-slate-500">{emp.role}</div>
+        <div className="mt-2 text-sm font-semibold text-slate-900 dark:text-slate-100">{emp.name}</div>
+        <div className="text-xs text-slate-500 dark:text-slate-400">{emp.role}</div>
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
         <SidebarLink to={`${base}/chat`} icon={<MessageSquare size={14} />} label="Chat" />
@@ -93,7 +93,7 @@ export default function EmployeeLayout({ company }: { company: Company }) {
         <SidebarLink to={`${base}/mcp`} icon={<Plug size={14} />} label="MCP" />
         <SidebarLink to={`${base}/settings`} icon={<SettingsIcon size={14} />} label="Settings" />
       </nav>
-      <div className="border-t border-slate-100 p-3">
+      <div className="border-t border-slate-100 p-3 dark:border-slate-800">
         <Button
           variant="ghost"
           size="sm"

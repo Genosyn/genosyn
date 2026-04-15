@@ -29,7 +29,7 @@ export default function AuditLog({ company }: { company: Company }) {
   }, [company.id, toast]);
 
   return (
-    <main className="min-w-0 flex-1 overflow-y-auto bg-slate-50">
+    <main className="min-w-0 flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-900">
       <div className="mx-auto max-w-4xl p-8">
         <div className="mb-3">
           <Breadcrumbs items={[{ label: "Audit log" }]} />
@@ -45,7 +45,7 @@ export default function AuditLog({ company }: { company: Company }) {
         ) : (
           <Card>
             <CardBody>
-              <ul className="divide-y divide-slate-100">
+              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                 {rows.map((e) => (
                   <AuditRow key={e.id} event={e} />
                 ))}
@@ -75,7 +75,7 @@ function AuditRow({ event }: { event: AuditEvent }) {
         className="flex w-full items-start gap-2 text-left"
         onClick={() => setOpen((o) => !o)}
       >
-        <div className="mt-0.5 text-slate-400">
+        <div className="mt-0.5 text-slate-400 dark:text-slate-500">
           {hasMeta ? (
             open ? (
               <ChevronDown size={14} />
@@ -88,21 +88,21 @@ function AuditRow({ event }: { event: AuditEvent }) {
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 text-sm">
-            <span className="font-medium text-slate-900">{actor}</span>
-            <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-700">
+            <span className="font-medium text-slate-900 dark:text-slate-100">{actor}</span>
+            <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-700 dark:bg-slate-800 dark:text-slate-200">
               {event.action}
             </code>
             {event.targetLabel && (
-              <span className="truncate text-slate-600">{event.targetLabel}</span>
+              <span className="truncate text-slate-600 dark:text-slate-300">{event.targetLabel}</span>
             )}
           </div>
-          <div className="mt-0.5 text-xs text-slate-500">
+          <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
             {new Date(event.createdAt).toLocaleString()}
           </div>
         </div>
       </button>
       {open && hasMeta && (
-        <pre className="ml-6 mt-1 overflow-x-auto rounded bg-slate-50 p-2 text-[11px] text-slate-700">
+        <pre className="ml-6 mt-1 overflow-x-auto rounded bg-slate-50 p-2 text-[11px] text-slate-700 dark:bg-slate-900 dark:text-slate-200">
           {JSON.stringify(event.metadata, null, 2)}
         </pre>
       )}

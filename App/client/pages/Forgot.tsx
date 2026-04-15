@@ -27,7 +27,7 @@ export default function Forgot() {
   return (
     <AuthShell title="Reset your password">
       {sent ? (
-        <div className="text-sm text-slate-600">
+        <div className="text-sm text-slate-600 dark:text-slate-300">
           If an account exists for that email, a reset link has been sent. When SMTP is not
           configured, check your server console for the reset URL.
         </div>
@@ -43,7 +43,7 @@ export default function Forgot() {
           <Button type="submit" disabled={loading}>
             {loading ? "Sending…" : "Send reset link"}
           </Button>
-          <Link to="/login" className="text-sm text-slate-500 hover:text-indigo-600">
+          <Link to="/login" className="text-sm text-slate-500 hover:text-indigo-600 dark:text-slate-400">
             Back to sign in
           </Link>
         </form>

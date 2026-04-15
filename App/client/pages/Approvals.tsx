@@ -70,11 +70,11 @@ export default function Approvals({ company }: { company: Company }) {
       ) : (
         <div className="flex flex-col gap-6">
           <section>
-            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
               Pending ({pending.length})
             </div>
             {pending.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500">
+              <div className="rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
                 Nothing waiting.
               </div>
             ) : (
@@ -84,11 +84,11 @@ export default function Approvals({ company }: { company: Company }) {
                     <Card>
                       <CardBody className="flex items-center justify-between gap-3">
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 text-sm font-medium text-slate-900">
+                          <div className="flex items-center gap-2 text-sm font-medium text-slate-900 dark:text-slate-100">
                             <ShieldCheck size={14} className="text-amber-600" />
                             {a.routine?.name ?? "(deleted routine)"}
                           </div>
-                          <div className="text-xs text-slate-500">
+                          <div className="text-xs text-slate-500 dark:text-slate-400">
                             {a.employee?.name ?? "(deleted employee)"} · requested{" "}
                             {new Date(a.requestedAt).toLocaleString()}
                           </div>
@@ -115,13 +115,13 @@ export default function Approvals({ company }: { company: Company }) {
 
           {history.length > 0 && (
             <section>
-              <div className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+              <div className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 History
               </div>
               <ul className="flex flex-col gap-1">
                 {history.map((a) => (
                   <li key={a.id}>
-                    <div className="flex items-center gap-2 rounded-md border border-slate-100 bg-white px-3 py-2 text-xs">
+                    <div className="flex items-center gap-2 rounded-md border border-slate-100 bg-white px-3 py-2 text-xs dark:bg-slate-900 dark:border-slate-800">
                       <span
                         className={
                           "rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
@@ -130,14 +130,14 @@ export default function Approvals({ company }: { company: Company }) {
                       >
                         {a.status}
                       </span>
-                      <span className="truncate text-slate-700">
+                      <span className="truncate text-slate-700 dark:text-slate-200">
                         {a.routine?.name ?? "(deleted routine)"}
                       </span>
-                      <span className="text-slate-400">·</span>
-                      <span className="truncate text-slate-500">
+                      <span className="text-slate-400 dark:text-slate-500">·</span>
+                      <span className="truncate text-slate-500 dark:text-slate-400">
                         {a.employee?.name ?? "(deleted employee)"}
                       </span>
-                      <span className="ml-auto text-slate-400">
+                      <span className="ml-auto text-slate-400 dark:text-slate-500">
                         {a.decidedAt
                           ? new Date(a.decidedAt).toLocaleString()
                           : new Date(a.requestedAt).toLocaleString()}
