@@ -161,6 +161,17 @@ export type JournalEntry = {
   createdAt: string;
 };
 
+export type Secret = {
+  id: string;
+  companyId: string;
+  name: string;
+  description: string;
+  /** Masked preview of the plaintext value; full value is never returned. */
+  preview: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type WorkspaceNode =
   | { type: "dir"; name: string; path: string; children: WorkspaceNode[] }
   | { type: "file"; name: string; path: string; size: number };

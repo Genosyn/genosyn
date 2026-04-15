@@ -21,6 +21,7 @@ import { PROVIDERS } from "./providers.js";
 import { readText } from "./files.js";
 import { decryptSecret } from "../lib/secret.js";
 import { materializeMcpConfig } from "./mcp.js";
+import { loadCompanySecretsEnv } from "../routes/secrets.js";
 
 /**
  * Run seam.
@@ -93,6 +94,20 @@ export async function runRoutine(routine: Routine): Promise<Run> {
   const prompt = composePrompt({ co, emp, routine, skills });
 
   const env = buildProviderEnv(co.slug, emp.slug, model);
+  if (!("error" in env)) {
+    // Merge company vault secrets into the child env. Validation + the
+    // internal RESERVED_NAMES filter in loadCompanySecretsEnv mean this
+    // can't clobber provider auth keys we just set above.
+    try {
+      const secrets = await loadCompanySecretsEnv(co.id);
+      for (const [k, v] of Object.entries(secrets)) {
+        if (k in (env.env ?? {})) continue;
+        env.env![k] = v;
+      }
+    } catch (err) {
+      appendLine(logFile, `[warn] failed to load company secrets: ${(err as Error).message}`);
+    }
+  }
   if ("error" in env) {
     appendLine(logFile, `[error] ${env.error}`);
     saved.finishedAt = new Date();

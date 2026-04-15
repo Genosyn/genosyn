@@ -20,6 +20,7 @@ import { projectsRouter } from "./routes/projects.js";
 import { approvalsRouter } from "./routes/approvals.js";
 import { webhooksRouter } from "./routes/webhooks.js";
 import { mcpRouter } from "./routes/mcp.js";
+import { secretsRouter } from "./routes/secrets.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -58,6 +59,7 @@ async function main() {
   // Projects + Todos (task manager). See ROADMAP.md V1 backlog.
   app.use("/api/companies/:cid", projectsRouter);
   app.use("/api/companies/:cid", approvalsRouter);
+  app.use("/api/companies/:cid", secretsRouter);
   // Per-employee model (one-to-one with AIEmployee). See ROADMAP §5.
   app.use("/api/companies/:cid/employees/:eid/model", modelsRouter);
   app.use("/api/companies/:cid/employees/:eid/mcp", mcpRouter);

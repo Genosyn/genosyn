@@ -1,9 +1,12 @@
 import React from "react";
-import { api, Company, Member } from "../lib/api";
+import { Pencil, Trash2 } from "lucide-react";
+import { api, Company, Member, Secret } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
+import { Modal } from "../components/ui/Modal";
+import { EmptyState } from "../components/ui/EmptyState";
 import { Breadcrumbs, TopBar } from "../components/AppShell";
 import { useToast } from "../components/ui/Toast";
 
@@ -113,7 +116,221 @@ export default function Settings({
             </form>
           </CardBody>
         </Card>
+
+        <SecretsCard company={company} />
       </div>
     </>
+  );
+}
+
+/**
+ * Per-company vault. Secrets are encrypted at rest and injected into every
+ * employee spawn (routine + chat) as environment variables. The plaintext
+ * value is never returned by the API — only a masked preview. "Edit" lets a
+ * user rotate the value; we never show the old one.
+ */
+function SecretsCard({ company }: { company: Company }) {
+  const [rows, setRows] = React.useState<Secret[] | null>(null);
+  const [creating, setCreating] = React.useState(false);
+  const [editing, setEditing] = React.useState<Secret | null>(null);
+  const { toast } = useToast();
+
+  const reload = React.useCallback(async () => {
+    try {
+      const list = await api.get<Secret[]>(`/api/companies/${company.id}/secrets`);
+      setRows(list);
+    } catch (err) {
+      toast((err as Error).message, "error");
+      setRows([]);
+    }
+  }, [company.id, toast]);
+
+  React.useEffect(() => {
+    reload();
+  }, [reload]);
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold">Secrets</h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Encrypted at rest. Injected into every employee run and chat as environment variables.
+            </p>
+          </div>
+          <Button size="sm" onClick={() => setCreating(true)}>
+            Add secret
+          </Button>
+        </div>
+      </CardHeader>
+      <CardBody>
+        {rows === null ? (
+          <Spinner />
+        ) : rows.length === 0 ? (
+          <EmptyState
+            title="No secrets yet"
+            description="Store API keys, tokens, and other sensitive values once and make them available to every employee."
+          />
+        ) : (
+          <ul className="divide-y divide-slate-100">
+            {rows.map((s) => (
+              <li key={s.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-800">
+                      {s.name}
+                    </code>
+                    <span className="font-mono text-xs text-slate-500">{s.preview}</span>
+                  </div>
+                  {s.description && (
+                    <div className="mt-0.5 truncate text-xs text-slate-500">{s.description}</div>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button variant="ghost" size="sm" onClick={() => setEditing(s)}>
+                    <Pencil size={12} /> Edit
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={async () => {
+                      if (!confirm(`Delete secret ${s.name}? Employees will lose access on their next run.`))
+                        return;
+                      try {
+                        await api.del(`/api/companies/${company.id}/secrets/${s.id}`);
+                        await reload();
+                      } catch (err) {
+                        toast((err as Error).message, "error");
+                      }
+                    }}
+                  >
+                    <Trash2 size={12} />
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardBody>
+
+      <SecretModal
+        open={creating}
+        onClose={() => setCreating(false)}
+        onSaved={async () => {
+          setCreating(false);
+          await reload();
+        }}
+        companyId={company.id}
+      />
+      <SecretModal
+        open={editing !== null}
+        onClose={() => setEditing(null)}
+        onSaved={async () => {
+          setEditing(null);
+          await reload();
+        }}
+        companyId={company.id}
+        secret={editing ?? undefined}
+      />
+    </Card>
+  );
+}
+
+function SecretModal({
+  open,
+  onClose,
+  onSaved,
+  companyId,
+  secret,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+  companyId: string;
+  secret?: Secret;
+}) {
+  const isEdit = !!secret;
+  const [name, setName] = React.useState(secret?.name ?? "");
+  const [value, setValue] = React.useState("");
+  const [description, setDescription] = React.useState(secret?.description ?? "");
+  const [busy, setBusy] = React.useState(false);
+  const { toast } = useToast();
+
+  React.useEffect(() => {
+    if (open) {
+      setName(secret?.name ?? "");
+      setValue("");
+      setDescription(secret?.description ?? "");
+    }
+  }, [open, secret]);
+
+  return (
+    <Modal open={open} onClose={onClose} title={isEdit ? `Edit ${secret?.name}` : "Add secret"}>
+      <form
+        className="flex flex-col gap-3"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          try {
+            if (isEdit) {
+              const body: { value?: string; description?: string } = { description };
+              if (value.length > 0) body.value = value;
+              await api.patch(`/api/companies/${companyId}/secrets/${secret!.id}`, body);
+            } else {
+              await api.post(`/api/companies/${companyId}/secrets`, {
+                name: name.trim(),
+                value,
+                description,
+              });
+            }
+            onSaved();
+          } catch (err) {
+            toast((err as Error).message, "error");
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {!isEdit && (
+          <Input
+            label="Name"
+            value={name}
+            onChange={(e) => setName(e.target.value.toUpperCase())}
+            placeholder="STRIPE_API_KEY"
+            pattern="[A-Z_][A-Z0-9_]*"
+            title="Uppercase letters, digits, and underscores; must start with a letter or underscore"
+            required
+          />
+        )}
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-600">
+            Value {isEdit && <span className="text-slate-400">(leave blank to keep current)</span>}
+          </label>
+          <input
+            type="password"
+            className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-mono shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            autoComplete="off"
+            required={!isEdit}
+          />
+        </div>
+        <Input
+          label="Description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="What is this for?"
+        />
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={busy}>
+            {isEdit ? "Save" : "Add secret"}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }

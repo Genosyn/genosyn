@@ -15,6 +15,7 @@ import { PROVIDERS } from "./providers.js";
 import { readText } from "./files.js";
 import { decryptSecret } from "../lib/secret.js";
 import { materializeMcpConfig } from "./mcp.js";
+import { loadCompanySecretsEnv } from "../routes/secrets.js";
 
 /**
  * One-shot chat seam.
@@ -67,6 +68,15 @@ export async function chatWithEmployee(
   const envResult = buildProviderEnv(co.slug, emp.slug, model);
   if (envResult.error !== undefined) return { status: "error", reply: envResult.error };
   const childEnv = envResult.env;
+  try {
+    const secrets = await loadCompanySecretsEnv(co.id);
+    for (const [k, v] of Object.entries(secrets)) {
+      if (k in childEnv) continue;
+      childEnv[k] = v;
+    }
+  } catch {
+    // Best-effort: chat still proceeds without secrets if the vault hiccups.
+  }
 
   const cwd = employeeDir(co.slug, emp.slug);
   ensureDir(cwd);
