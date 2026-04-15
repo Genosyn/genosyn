@@ -18,9 +18,6 @@ export class AIEmployee {
   @Column({ type: "varchar" })
   role!: string;
 
-  @Column({ type: "varchar", nullable: true })
-  defaultModelId!: string | null;
-
   @CreateDateColumn()
   createdAt!: Date;
 }

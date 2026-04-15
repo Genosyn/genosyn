@@ -1,6 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from "typeorm";
 
-export type RunStatus = "running" | "completed" | "failed";
+export type RunStatus = "running" | "completed" | "failed" | "skipped";
 
 @Entity("runs")
 export class Run {

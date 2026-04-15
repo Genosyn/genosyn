@@ -14,7 +14,7 @@ import { invitationsRouter } from "./routes/invitations.js";
 import { employeesRouter } from "./routes/employees.js";
 import { skillsRouter } from "./routes/skills.js";
 import { routinesRouter } from "./routes/routines.js";
-import { modelsRouter } from "./routes/models.js";
+import { modelsRouter, modelsOverviewRouter } from "./routes/models.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,7 +42,10 @@ async function main() {
   app.use("/api/companies/:cid/employees", employeesRouter);
   app.use("/api/companies/:cid", skillsRouter);
   app.use("/api/companies/:cid", routinesRouter);
-  app.use("/api/companies/:cid/models", modelsRouter);
+  // Per-employee model (one-to-one with AIEmployee). See ROADMAP §5.
+  app.use("/api/companies/:cid/employees/:eid/model", modelsRouter);
+  // Read-only company-wide overview.
+  app.use("/api/companies/:cid/models", modelsOverviewRouter);
 
   // Client. Dev: mount Vite as middleware so API + UI share one port and
   // HMR still works. Prod: serve the built SPA from dist/client.

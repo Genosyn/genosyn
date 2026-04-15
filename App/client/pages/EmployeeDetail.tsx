@@ -1,12 +1,23 @@
 import React from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { Play, Trash2 } from "lucide-react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import {
+  Check,
+  Copy,
+  KeyRound,
+  Loader2,
+  Play,
+  PlugZap,
+  Trash2,
+  Unplug,
+} from "lucide-react";
 import cronstrue from "cronstrue";
 import {
   api,
   AIModel,
+  AuthMode,
   Company,
   Employee,
+  Provider,
   Routine,
   Skill,
 } from "../lib/api";
@@ -21,13 +32,17 @@ import { Modal } from "../components/ui/Modal";
 import { useToast } from "../components/ui/Toast";
 import { Select } from "../components/ui/Select";
 
-type Tab = "soul" | "skills" | "routines";
+type Tab = "soul" | "skills" | "routines" | "model";
 
 export default function EmployeeDetail({ company }: { company: Company }) {
   const { empSlug } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const initialTab = (searchParams.get("tab") as Tab | null) ?? "soul";
   const [emp, setEmp] = React.useState<Employee | null>(null);
-  const [tab, setTab] = React.useState<Tab>("soul");
+  const [tab, setTab] = React.useState<Tab>(
+    ["soul", "skills", "routines", "model"].includes(initialTab) ? initialTab : "soul",
+  );
   const { toast } = useToast();
 
   React.useEffect(() => {
@@ -68,7 +83,7 @@ export default function EmployeeDetail({ company }: { company: Company }) {
       />
       <div className="mb-4 text-sm text-slate-500">{emp.role}</div>
       <div className="mb-6 flex gap-1 border-b border-slate-200">
-        {(["soul", "skills", "routines"] as Tab[]).map((t) => (
+        {(["soul", "skills", "routines", "model"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -86,6 +101,7 @@ export default function EmployeeDetail({ company }: { company: Company }) {
       {tab === "soul" && <SoulTab company={company} emp={emp} />}
       {tab === "skills" && <SkillsTab company={company} emp={emp} />}
       {tab === "routines" && <RoutinesTab company={company} emp={emp} />}
+      {tab === "model" && <ModelTab company={company} emp={emp} />}
     </>
   );
 }
@@ -286,7 +302,6 @@ function RoutinesTab({ company, emp }: { company: Company; emp: Employee }) {
   const [routines, setRoutines] = React.useState<Routine[] | null>(null);
   const [adding, setAdding] = React.useState(false);
   const [editing, setEditing] = React.useState<Routine | null>(null);
-  const [models, setModels] = React.useState<AIModel[]>([]);
   const { toast } = useToast();
 
   async function reload() {
@@ -298,7 +313,6 @@ function RoutinesTab({ company, emp }: { company: Company; emp: Employee }) {
 
   React.useEffect(() => {
     reload().catch(() => setRoutines([]));
-    api.get<AIModel[]>(`/api/companies/${company.id}/models`).then(setModels).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [emp.id]);
 
@@ -372,7 +386,6 @@ function RoutinesTab({ company, emp }: { company: Company; emp: Employee }) {
         <NewRoutineModal
           company={company}
           emp={emp}
-          models={models}
           onClose={() => setAdding(false)}
           onCreated={() => {
             setAdding(false);
@@ -384,7 +397,6 @@ function RoutinesTab({ company, emp }: { company: Company; emp: Employee }) {
         <RoutineEditor
           company={company}
           routine={editing}
-          models={models}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -414,19 +426,16 @@ const PRESETS: Array<{ label: string; expr: string }> = [
 function NewRoutineModal({
   company,
   emp,
-  models,
   onClose,
   onCreated,
 }: {
   company: Company;
   emp: Employee;
-  models: AIModel[];
   onClose: () => void;
   onCreated: () => void;
 }) {
   const [name, setName] = React.useState("");
   const [cronExpr, setCronExpr] = React.useState("0 9 * * 1-5");
-  const [modelId, setModelId] = React.useState("");
   const { toast } = useToast();
 
   return (
@@ -439,7 +448,6 @@ function NewRoutineModal({
             await api.post(`/api/companies/${company.id}/employees/${emp.id}/routines`, {
               name,
               cronExpr,
-              modelId: modelId || undefined,
             });
             onCreated();
           } catch (err) {
@@ -472,18 +480,6 @@ function NewRoutineModal({
             </button>
           ))}
         </div>
-        <Select
-          label="AI Model override (optional)"
-          value={modelId}
-          onChange={(e) => setModelId(e.target.value)}
-        >
-          <option value="">— Use employee default —</option>
-          {models.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name} · {m.provider}/{m.model}
-            </option>
-          ))}
-        </Select>
         <Button type="submit">Create</Button>
       </form>
     </Modal>
@@ -493,13 +489,11 @@ function NewRoutineModal({
 function RoutineEditor({
   company,
   routine,
-  models,
   onClose,
   onSaved,
 }: {
   company: Company;
   routine: Routine;
-  models: AIModel[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -507,7 +501,6 @@ function RoutineEditor({
   const [name, setName] = React.useState(routine.name);
   const [cronExpr, setCronExpr] = React.useState(routine.cronExpr);
   const [enabled, setEnabled] = React.useState(routine.enabled);
-  const [modelId, setModelId] = React.useState(routine.modelId ?? "");
   const { toast } = useToast();
 
   React.useEffect(() => {
@@ -537,18 +530,6 @@ function RoutineEditor({
             />
             Enabled
           </label>
-          <Select
-            label="AI Model override"
-            value={modelId}
-            onChange={(e) => setModelId(e.target.value)}
-          >
-            <option value="">— Use employee default —</option>
-            {models.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name} · {m.provider}/{m.model}
-              </option>
-            ))}
-          </Select>
           <MarkdownEditor value={content} onChange={setContent} rows={12} />
           <div className="flex gap-2">
             <Button
@@ -558,7 +539,6 @@ function RoutineEditor({
                     name,
                     cronExpr,
                     enabled,
-                    modelId: modelId || null,
                   });
                   await api.put(
                     `/api/companies/${company.id}/routines/${routine.id}/readme`,
@@ -580,5 +560,460 @@ function RoutineEditor({
         </div>
       )}
     </Modal>
+  );
+}
+
+// ---------- Model tab: connect a Model to this employee ----------
+
+const PROVIDER_DEFAULTS: Record<
+  Provider,
+  { label: string; model: string; supportsApiKey: boolean }
+> = {
+  "claude-code": { label: "claude-code", model: "claude-opus-4-6", supportsApiKey: true },
+  codex: { label: "codex", model: "gpt-5-codex", supportsApiKey: true },
+  opencode: { label: "opencode", model: "anthropic/claude-opus-4-6", supportsApiKey: false },
+};
+
+function ModelTab({ company, emp }: { company: Company; emp: Employee }) {
+  const [model, setModel] = React.useState<AIModel | null | undefined>(undefined);
+  const { toast } = useToast();
+
+  const reload = React.useCallback(async () => {
+    const m = await api.get<AIModel | null>(
+      `/api/companies/${company.id}/employees/${emp.id}/model`,
+    );
+    setModel(m);
+  }, [company.id, emp.id]);
+
+  React.useEffect(() => {
+    reload().catch(() => setModel(null));
+  }, [reload]);
+
+  // Poll while waiting for `claude login` to drop a creds file. Stops as
+  // soon as the server reports connected, or when the user navigates away.
+  React.useEffect(() => {
+    if (!model || model.status === "connected" || model.authMode !== "subscription") return;
+    let alive = true;
+    const id = window.setInterval(async () => {
+      if (!alive) return;
+      try {
+        const m = await api.post<AIModel>(
+          `/api/companies/${company.id}/employees/${emp.id}/model/refresh`,
+        );
+        if (!alive) return;
+        setModel(m);
+        if (m.status === "connected") toast(`${emp.name} signed in`, "success");
+      } catch {
+        // swallow; next tick will retry
+      }
+    }, 2500);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, [model, company.id, emp.id, emp.name, toast]);
+
+  if (model === undefined) return <Spinner />;
+
+  if (!model) {
+    return <ModelSetup company={company} emp={emp} onSaved={reload} />;
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <ModelStatusCard
+        company={company}
+        emp={emp}
+        model={model}
+        onChanged={reload}
+      />
+      <Card>
+        <CardBody className="flex flex-col gap-3">
+          <div className="text-sm font-medium text-slate-900">Reconfigure</div>
+          <ModelForm
+            initial={{ provider: model.provider, model: model.model, authMode: model.authMode }}
+            company={company}
+            emp={emp}
+            onSaved={reload}
+            submitLabel="Save changes"
+          />
+        </CardBody>
+      </Card>
+    </div>
+  );
+}
+
+function ModelSetup({
+  company,
+  emp,
+  onSaved,
+}: {
+  company: Company;
+  emp: Employee;
+  onSaved: () => void;
+}) {
+  return (
+    <Card>
+      <CardBody className="flex flex-col gap-4">
+        <div>
+          <div className="text-sm font-medium text-slate-900">
+            Connect a brain for {emp.name}
+          </div>
+          <div className="text-xs text-slate-500">
+            Each AI Employee signs into their own provider — pick one and connect it.
+          </div>
+        </div>
+        <ModelForm
+          initial={{ provider: "claude-code", model: "claude-opus-4-6", authMode: "subscription" }}
+          company={company}
+          emp={emp}
+          onSaved={onSaved}
+          submitLabel="Continue"
+        />
+      </CardBody>
+    </Card>
+  );
+}
+
+function ModelForm({
+  initial,
+  company,
+  emp,
+  onSaved,
+  submitLabel,
+}: {
+  initial: { provider: Provider; model: string; authMode: AuthMode };
+  company: Company;
+  emp: Employee;
+  onSaved: () => void;
+  submitLabel: string;
+}) {
+  const [provider, setProvider] = React.useState<Provider>(initial.provider);
+  const [modelStr, setModelStr] = React.useState(initial.model);
+  const [authMode, setAuthMode] = React.useState<AuthMode>(initial.authMode);
+  const [saving, setSaving] = React.useState(false);
+  const { toast } = useToast();
+  const supportsApiKey = PROVIDER_DEFAULTS[provider].supportsApiKey;
+
+  // If the chosen provider doesn't support apikey, force the toggle back to
+  // subscription so the form is always submittable.
+  React.useEffect(() => {
+    if (!supportsApiKey && authMode === "apikey") setAuthMode("subscription");
+  }, [supportsApiKey, authMode]);
+
+  return (
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setSaving(true);
+        try {
+          await api.put(`/api/companies/${company.id}/employees/${emp.id}/model`, {
+            provider,
+            model: modelStr,
+            authMode,
+          });
+          onSaved();
+        } catch (err) {
+          toast((err as Error).message, "error");
+        } finally {
+          setSaving(false);
+        }
+      }}
+    >
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Select
+          label="Provider"
+          value={provider}
+          onChange={(e) => {
+            const p = e.target.value as Provider;
+            setProvider(p);
+            setModelStr(PROVIDER_DEFAULTS[p].model);
+          }}
+        >
+          <option value="claude-code">claude-code</option>
+          <option value="codex">codex</option>
+          <option value="opencode">opencode</option>
+        </Select>
+        <Input
+          label="Model"
+          value={modelStr}
+          onChange={(e) => setModelStr(e.target.value)}
+          required
+        />
+      </div>
+      <div className="flex flex-col gap-2">
+        <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          Authentication
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <AuthModeChoice
+            active={authMode === "subscription"}
+            onClick={() => setAuthMode("subscription")}
+            icon={<PlugZap size={16} />}
+            title="Sign in with subscription"
+            description={subscriptionBlurb(provider)}
+          />
+          <AuthModeChoice
+            active={authMode === "apikey"}
+            onClick={() => supportsApiKey && setAuthMode("apikey")}
+            disabled={!supportsApiKey}
+            icon={<KeyRound size={16} />}
+            title="Use an API key"
+            description={
+              supportsApiKey
+                ? apiKeyBlurb(provider)
+                : "Not supported for this provider."
+            }
+          />
+        </div>
+      </div>
+      <div>
+        <Button type="submit" disabled={saving}>
+          {saving ? "Saving…" : submitLabel}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function subscriptionBlurb(p: Provider): string {
+  switch (p) {
+    case "claude-code":
+      return "Use a Claude Pro or Max plan via `claude login`.";
+    case "codex":
+      return "Use a ChatGPT plan via `codex login`.";
+    case "opencode":
+      return "Sign in via `opencode auth login` — any provider opencode supports.";
+  }
+}
+
+function apiKeyBlurb(p: Provider): string {
+  switch (p) {
+    case "claude-code":
+      return "Pay-as-you-go from console.anthropic.com.";
+    case "codex":
+      return "Pay-as-you-go from platform.openai.com.";
+    case "opencode":
+      return "";
+  }
+}
+
+function AuthModeChoice({
+  active,
+  onClick,
+  icon,
+  title,
+  description,
+  disabled,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={
+        "flex items-start gap-3 rounded-lg border px-3 py-3 text-left transition " +
+        (disabled
+          ? "cursor-not-allowed border-slate-200 bg-slate-50 opacity-60"
+          : active
+            ? "border-indigo-500 bg-indigo-50/60 ring-1 ring-indigo-200"
+            : "border-slate-200 bg-white hover:bg-slate-50")
+      }
+    >
+      <div
+        className={
+          "mt-0.5 rounded-md p-1.5 " +
+          (active ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-500")
+        }
+      >
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-slate-900">{title}</div>
+        <div className="text-xs text-slate-500">{description}</div>
+      </div>
+    </button>
+  );
+}
+
+function ModelStatusCard({
+  company,
+  emp,
+  model,
+  onChanged,
+}: {
+  company: Company;
+  emp: Employee;
+  model: AIModel;
+  onChanged: () => void;
+}) {
+  const { toast } = useToast();
+  const connected = model.status === "connected";
+
+  async function disconnect() {
+    if (!confirm(`Disconnect ${emp.name}'s ${model.provider} model?`)) return;
+    try {
+      await api.del(`/api/companies/${company.id}/employees/${emp.id}/model`);
+      toast("Model disconnected", "success");
+      onChanged();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
+
+  return (
+    <Card>
+      <CardBody className="flex flex-col gap-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-slate-900">
+                {model.provider} · {model.model}
+              </span>
+              <StatusBadge connected={connected} />
+            </div>
+            <div className="mt-0.5 text-xs text-slate-500">
+              {model.authMode === "subscription"
+                ? `Signed in with ${model.provider} subscription`
+                : `Authenticated with ${model.apiKeyEnv ?? "API"} key`}
+              {model.connectedAt && connected && (
+                <> · connected {new Date(model.connectedAt).toLocaleString()}</>
+              )}
+            </div>
+          </div>
+          <Button size="sm" variant="ghost" onClick={disconnect}>
+            <Unplug size={14} /> Disconnect
+          </Button>
+        </div>
+
+        {!connected && model.authMode === "subscription" && (
+          <SubscriptionLoginPanel model={model} />
+        )}
+        {!connected && model.authMode === "apikey" && (
+          <ApiKeyPanel company={company} emp={emp} model={model} onSaved={onChanged} />
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
+function StatusBadge({ connected }: { connected: boolean }) {
+  if (connected) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200">
+        <Check size={10} /> Connected
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 ring-1 ring-amber-200">
+      <Loader2 size={10} className="animate-spin" /> Waiting
+    </span>
+  );
+}
+
+function SubscriptionLoginPanel({ model }: { model: AIModel }) {
+  const command = `${model.configDirEnv}=${shellQuote(model.configDir)} ${model.loginCommand}`;
+  const [copied, setCopied] = React.useState(false);
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+      <div className="text-xs text-slate-600">
+        Run this once in any terminal on this server. The page will detect the
+        login automatically — no need to refresh.
+      </div>
+      <div className="flex items-center gap-2">
+        <code className="flex-1 overflow-x-auto whitespace-nowrap rounded-md bg-slate-900 px-3 py-2 font-mono text-xs text-slate-100">
+          {command}
+        </code>
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={async () => {
+            await navigator.clipboard.writeText(command);
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1500);
+          }}
+        >
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+          {copied ? "Copied" : "Copy"}
+        </Button>
+      </div>
+      <div className="flex items-center gap-2 text-xs text-slate-500">
+        <Loader2 size={12} className="animate-spin" /> Watching for credentials at{" "}
+        <code className="rounded bg-white px-1 py-0.5 text-[11px]">
+          {model.configDir}
+        </code>
+      </div>
+    </div>
+  );
+}
+
+function shellQuote(s: string): string {
+  // Single-quote for sh; embedded single-quotes are escaped via the standard
+  // '\'' trick. Keeps paths with spaces or special chars safe to paste.
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+function ApiKeyPanel({
+  company,
+  emp,
+  model,
+  onSaved,
+}: {
+  company: Company;
+  emp: Employee;
+  model: AIModel;
+  onSaved: () => void;
+}) {
+  const [key, setKey] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const { toast } = useToast();
+  return (
+    <form
+      className="flex flex-col gap-2"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setSaving(true);
+        try {
+          await api.post(
+            `/api/companies/${company.id}/employees/${emp.id}/model/apikey`,
+            { apiKey: key },
+          );
+          setKey("");
+          toast("API key saved", "success");
+          onSaved();
+        } catch (err) {
+          toast((err as Error).message, "error");
+        } finally {
+          setSaving(false);
+        }
+      }}
+    >
+      <Input
+        label={model.apiKeyEnv ?? "API_KEY"}
+        type="password"
+        value={key}
+        onChange={(e) => setKey(e.target.value)}
+        placeholder={model.provider === "codex" ? "sk-…" : "sk-ant-…"}
+        required
+      />
+      <div className="text-xs text-slate-500">
+        Stored encrypted at rest. Wiped on disconnect.
+      </div>
+      <div>
+        <Button type="submit" disabled={saving || key.length === 0}>
+          {saving ? "Saving…" : "Save key"}
+        </Button>
+      </div>
+    </form>
   );
 }

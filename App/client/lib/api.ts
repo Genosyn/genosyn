@@ -30,7 +30,6 @@ export type Employee = {
   name: string;
   slug: string;
   role: string;
-  defaultModelId: string | null;
 };
 export type Skill = { id: string; employeeId: string; name: string; slug: string };
 export type Routine = {
@@ -41,14 +40,29 @@ export type Routine = {
   cronExpr: string;
   enabled: boolean;
   lastRunAt: string | null;
-  modelId: string | null;
 };
+export type Provider = "claude-code" | "codex" | "opencode";
+export type AuthMode = "subscription" | "apikey";
 export type AIModel = {
   id: string;
-  companyId: string;
-  name: string;
-  provider: "claude-code" | "codex" | "opencode";
+  employeeId: string;
+  provider: Provider;
   model: string;
-  configJson: string;
+  authMode: AuthMode;
+  connectedAt: string | null;
+  status: "not_connected" | "connected";
+  apiKeyMasked: string | null;
+  configDir: string;
+  configDirEnv: string;
+  loginCommand: string;
+  apiKeyEnv: string | null;
+  supportsApiKey: boolean;
+};
+export type ModelOverviewRow = {
+  employeeId: string;
+  employeeName: string;
+  employeeSlug: string;
+  role: string;
+  model: AIModel | null;
 };
 export type Member = { userId: string; role: string; email: string | null; name: string | null };

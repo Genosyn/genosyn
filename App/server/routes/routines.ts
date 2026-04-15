@@ -47,7 +47,6 @@ routinesRouter.get("/employees/:eid/routines", async (req, res) => {
 const createSchema = z.object({
   name: z.string().min(1).max(80),
   cronExpr: z.string().refine((v) => cron.validate(v), "Invalid cron expression"),
-  modelId: z.string().uuid().optional(),
 });
 
 routinesRouter.post(
@@ -68,7 +67,6 @@ routinesRouter.post(
       cronExpr: body.cronExpr,
       enabled: true,
       lastRunAt: null,
-      modelId: body.modelId ?? null,
     });
     await repo.save(r);
     writeText(routineReadme(co.slug, emp.slug, slug), routineTemplate(body.name, body.cronExpr));
@@ -97,7 +95,6 @@ const patchSchema = z.object({
     .refine((v) => cron.validate(v), "Invalid cron expression")
     .optional(),
   enabled: z.boolean().optional(),
-  modelId: z.string().uuid().nullable().optional(),
 });
 
 routinesRouter.patch(
@@ -111,7 +108,6 @@ routinesRouter.patch(
     if (body.name !== undefined) r.name = body.name;
     if (body.cronExpr !== undefined) r.cronExpr = body.cronExpr;
     if (body.enabled !== undefined) r.enabled = body.enabled;
-    if (body.modelId !== undefined) r.modelId = body.modelId;
     await AppDataSource.getRepository(Routine).save(r);
     registerRoutine(r);
     res.json(r);

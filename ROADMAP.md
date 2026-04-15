@@ -42,10 +42,25 @@ Fully **standalone**. Own package.json, own UI, no shared components. Open
 source, **no pricing page**.
 
 ### 4. Task runner execution
-Routines store cron expressions and prompt/skill bindings but the actual model
-invocation (claude-code / codex / opencode) is **stubbed** in the MVP. A clean
-`runner` seam lives in the backend so we can wire real execution later without
-restructuring.
+Routines store cron expressions and prompt/skill bindings. Real model
+invocation (claude-code / codex / opencode) ships in M6. The runner spawns
+the provider CLI in the employee's working directory with the employee's
+own credentials scoped to `data/.../employees/<slug>/.claude/`, falling back
+to a stub log when no model is connected (so self-hosters without the CLI
+installed still see Run records).
+
+### 5. Who owns an AI Model?
+**Decision:** Models are **employee-owned, one-to-one**. Each AI Employee has
+(at most) one AIModel connection, with its own credentials on disk under the
+employee's directory. No shared company pool. Rationale:
+- Matches how human employees work (each has their own signed-in accounts).
+- Concurrency is naturally scoped per employee.
+- Firing an employee revokes their credentials in one step (`rm -rf`).
+- Per-employee cost attribution is free from the provider's own dashboard.
+
+Users who want to share one subscription across several employees can reuse
+the same Anthropic account during `claude login` — each employee still has
+its own on-disk creds file, which can be individually disconnected.
 
 ---
 
@@ -62,8 +77,9 @@ restructuring.
   to triage a bug report."*
 - **Routine** — a scheduled recurring piece of work. Cron-triggered. Lives as
   `routines/<slug>/README.md` + metadata row.
-- **AI Model** — a backend brain: `claude-code`, `codex`, `opencode` w/ custom
-  model. Assigned to employees.
+- **AI Model** — the brain of a single AI Employee. One-to-one with the
+  employee. Has a provider (`claude-code` / `codex` / `opencode`), a model
+  string, and its own credentials stored under the employee's data dir.
 - **Run** — a single execution of a routine. Produces logs + artifacts.
 
 ---
@@ -95,7 +111,8 @@ genosyn/
 │       └── companies/<company-slug>/employees/<emp-slug>/
 │           ├── SOUL.md
 │           ├── skills/<skill-slug>/README.md
-│           └── routines/<routine-slug>/README.md
+│           ├── routines/<routine-slug>/README.md
+│           └── .claude/          # CLAUDE_CONFIG_DIR — per-employee creds
 └── Home/                         # Marketing site, standalone
     ├── server.ts
     ├── client/
@@ -115,9 +132,10 @@ genosyn/
 - `Company` — id, name, slug, ownerId
 - `Membership` — companyId, userId, role (owner / admin / member)
 - `Invitation` — companyId, email, token, expiresAt *(V1)*
-- `AIModel` — companyId, name, provider (`claude-code | codex | opencode`),
-  model, configJson
-- `AIEmployee` — companyId, name, slug, role, defaultModelId
+- `AIModel` — employeeId (unique), provider (`claude-code | codex | opencode`),
+  model, authMode (`subscription | apikey`), configJson (encrypted secrets),
+  connectedAt
+- `AIEmployee` — companyId, name, slug, role
 - `Skill` — employeeId, name, slug
 - `Routine` — employeeId, name, slug, cronExpr, enabled, lastRunAt
 - `Run` — routineId, startedAt, finishedAt, status, logsPath *(V1)*
@@ -191,10 +209,22 @@ export const config = {
 - [ ] Enable/disable toggle
 - [ ] `node-cron` registration on boot; stubbed runner writes a Run record
 
-### M6 — AI Models
-- [ ] Add provider-specific AI Model (claude-code / codex / opencode)
-- [ ] Assign default model to an employee
-- [ ] Per-routine model override
+### M6 — AI Models (employee-owned)
+- [ ] `AIModel` entity one-to-one with `AIEmployee`; migration drops
+      `companyId` and `AIEmployee.defaultModelId`, adds `employeeId` (unique),
+      `authMode`, `connectedAt`
+- [ ] Provider-specific setup for claude-code / codex / opencode
+- [ ] **Subscription sign-in flow:** employee detail page shows a one-liner
+      (`CLAUDE_CONFIG_DIR=<path> claude login`), UI polls for credentials
+      file and flips to "Connected" automatically
+- [ ] **API-key flow:** encrypted-at-rest in `configJson` (AES-256-GCM, key
+      derived from `config.sessionSecret`); "Test connection" button
+- [ ] `runner` spawns the provider CLI with `cwd=<employeeDir>` and env
+      scoped to that employee's credentials; falls back to stub log when no
+      Model is connected or the CLI isn't installed
+- [ ] Disconnect deletes the DB row and wipes `.claude/` on disk
+- [ ] Company-level read-only "AI Models" overview page (per-employee
+      connection status table)
 
 ### M7 — Polish + QA
 - [ ] Browser-tested flows: signup → company → employee → skill → routine → model

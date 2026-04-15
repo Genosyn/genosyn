@@ -24,9 +24,6 @@ export class Routine {
   @Column({ type: "datetime", nullable: true })
   lastRunAt!: Date | null;
 
-  @Column({ type: "varchar", nullable: true })
-  modelId!: string | null;
-
   @CreateDateColumn()
   createdAt!: Date;
 }

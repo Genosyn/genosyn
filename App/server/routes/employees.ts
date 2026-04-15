@@ -5,6 +5,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Skill } from "../db/entities/Skill.js";
 import { Routine } from "../db/entities/Routine.js";
+import { AIModel } from "../db/entities/AIModel.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
@@ -45,7 +46,6 @@ employeesRouter.get("/", async (req, res) => {
 const createSchema = z.object({
   name: z.string().min(1).max(80),
   role: z.string().min(1).max(80),
-  defaultModelId: z.string().uuid().optional(),
 });
 
 employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
@@ -59,7 +59,6 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
     name: body.name,
     role: body.role,
     slug,
-    defaultModelId: body.defaultModelId ?? null,
   });
   await repo.save(emp);
   ensureDir(employeeDir(co.slug, slug));
@@ -79,7 +78,6 @@ employeesRouter.get("/:eid", async (req, res) => {
 const patchSchema = z.object({
   name: z.string().min(1).max(80).optional(),
   role: z.string().min(1).max(80).optional(),
-  defaultModelId: z.string().uuid().nullable().optional(),
 });
 
 employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
@@ -89,7 +87,6 @@ employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
   if (!emp) return res.status(404).json({ error: "Not found" });
   if (body.name !== undefined) emp.name = body.name;
   if (body.role !== undefined) emp.role = body.role;
-  if (body.defaultModelId !== undefined) emp.defaultModelId = body.defaultModelId;
   await repo.save(emp);
   res.json(emp);
 });
@@ -108,6 +105,7 @@ employeesRouter.delete("/:eid", async (req, res) => {
 
   await AppDataSource.getRepository(Routine).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(Skill).delete({ employeeId: emp.id });
+  await AppDataSource.getRepository(AIModel).delete({ employeeId: emp.id });
   await empRepo.delete({ id: emp.id });
 
   if (co) removeDir(employeeDir(co.slug, emp.slug));

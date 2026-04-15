@@ -1,148 +1,94 @@
 import React from "react";
-import { Trash2 } from "lucide-react";
-import { api, AIModel, Company } from "../lib/api";
-import { Button } from "../components/ui/Button";
-import { Input } from "../components/ui/Input";
-import { Select } from "../components/ui/Select";
+import { Link, useParams } from "react-router-dom";
+import { Check, Loader2 } from "lucide-react";
+import { api, Company, ModelOverviewRow } from "../lib/api";
 import { Card, CardBody } from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Spinner } from "../components/ui/Spinner";
-import { Modal } from "../components/ui/Modal";
 import { TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
 
+/**
+ * AI Models overview. Models are employee-owned (one-to-one), so this page
+ * is a read-only cross-company roll-up. Click a row to jump to the
+ * employee's Model tab and configure from there.
+ */
 export default function Models({ company }: { company: Company }) {
-  const [models, setModels] = React.useState<AIModel[] | null>(null);
-  const [adding, setAdding] = React.useState(false);
-  const { toast } = useToast();
-
-  async function reload() {
-    const m = await api.get<AIModel[]>(`/api/companies/${company.id}/models`);
-    setModels(m);
-  }
+  const { companySlug } = useParams();
+  const [rows, setRows] = React.useState<ModelOverviewRow[] | null>(null);
 
   React.useEffect(() => {
-    reload().catch(() => setModels([]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    api
+      .get<ModelOverviewRow[]>(`/api/companies/${company.id}/models`)
+      .then(setRows)
+      .catch(() => setRows([]));
   }, [company.id]);
 
   return (
     <>
-      <TopBar
-        title="AI Models"
-        right={<Button onClick={() => setAdding(true)}>Add model</Button>}
-      />
-      {models === null ? (
+      <TopBar title="AI Models" />
+      <p className="mb-6 -mt-2 text-sm text-slate-500">
+        Each AI Employee signs into their own provider. This page shows who is
+        connected to what.
+      </p>
+      {rows === null ? (
         <Spinner />
-      ) : models.length === 0 ? (
+      ) : rows.length === 0 ? (
         <EmptyState
-          title="No models configured"
-          description="Add a Claude Code, Codex, or opencode model so your employees have a brain."
+          title="No employees yet"
+          description="Hire an AI Employee first, then connect a Model on their page."
         />
       ) : (
         <div className="grid gap-3">
-          {models.map((m) => (
-            <Card key={m.id}>
-              <CardBody className="flex items-center justify-between">
-                <div>
-                  <div className="font-medium">{m.name}</div>
-                  <div className="text-xs text-slate-500">
-                    {m.provider} · {m.model}
+          {rows.map((row) => (
+            <Link
+              key={row.employeeId}
+              to={`/c/${companySlug}/employees/${row.employeeSlug}?tab=model`}
+              className="block"
+            >
+              <Card className="transition hover:border-slate-300 hover:shadow">
+                <CardBody className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="font-medium text-slate-900">{row.employeeName}</div>
+                    <div className="text-xs text-slate-500">{row.role}</div>
                   </div>
-                </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={async () => {
-                    if (!confirm(`Delete model "${m.name}"?`)) return;
-                    try {
-                      await api.del(`/api/companies/${company.id}/models/${m.id}`);
-                      reload();
-                    } catch (err) {
-                      toast((err as Error).message, "error");
-                    }
-                  }}
-                >
-                  <Trash2 size={14} />
-                </Button>
-              </CardBody>
-            </Card>
+                  <div className="flex items-center gap-3">
+                    {row.model ? (
+                      <>
+                        <div className="text-right">
+                          <div className="text-sm text-slate-700">
+                            {row.model.provider}
+                          </div>
+                          <div className="text-xs text-slate-400">{row.model.model}</div>
+                        </div>
+                        <Badge status={row.model.status} />
+                      </>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-600 ring-1 ring-slate-200">
+                        Not configured
+                      </span>
+                    )}
+                  </div>
+                </CardBody>
+              </Card>
+            </Link>
           ))}
         </div>
-      )}
-      {adding && (
-        <AddModelModal
-          company={company}
-          onClose={() => setAdding(false)}
-          onCreated={() => {
-            setAdding(false);
-            reload();
-          }}
-        />
       )}
     </>
   );
 }
 
-function AddModelModal({
-  company,
-  onClose,
-  onCreated,
-}: {
-  company: Company;
-  onClose: () => void;
-  onCreated: () => void;
-}) {
-  const [name, setName] = React.useState("");
-  const [provider, setProvider] = React.useState<"claude-code" | "codex" | "opencode">(
-    "claude-code",
-  );
-  const [model, setModel] = React.useState("");
-  const { toast } = useToast();
-
+function Badge({ status }: { status: "connected" | "not_connected" }) {
+  if (status === "connected") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200">
+        <Check size={10} /> Connected
+      </span>
+    );
+  }
   return (
-    <Modal open onClose={onClose} title="Add AI Model">
-      <form
-        className="flex flex-col gap-4"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          try {
-            await api.post(`/api/companies/${company.id}/models`, {
-              name,
-              provider,
-              model,
-            });
-            onCreated();
-          } catch (err) {
-            toast((err as Error).message, "error");
-          }
-        }}
-      >
-        <Input
-          label="Display name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Production Claude"
-          required
-        />
-        <Select
-          label="Provider"
-          value={provider}
-          onChange={(e) => setProvider(e.target.value as "claude-code" | "codex" | "opencode")}
-        >
-          <option value="claude-code">claude-code</option>
-          <option value="codex">codex</option>
-          <option value="opencode">opencode</option>
-        </Select>
-        <Input
-          label="Model"
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-          placeholder="claude-opus-4-6"
-          required
-        />
-        <Button type="submit">Add</Button>
-      </form>
-    </Modal>
+    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 ring-1 ring-amber-200">
+      <Loader2 size={10} className="animate-spin" /> Waiting
+    </span>
   );
 }
