@@ -9,6 +9,7 @@ import {
   BookText,
   History,
   Play,
+  Plug,
   PlugZap,
   Sparkles,
   Trash2,
@@ -29,6 +30,8 @@ import {
   Skill,
   JournalEntry as JournalEntryT,
   JournalKind,
+  McpServer,
+  McpTransport,
 } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -1447,5 +1450,235 @@ export function JournalPage() {
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * Per-employee MCP (Model Context Protocol) server list. Adding a server
+ * writes its config into `.mcp.json` at the employee's workspace root on
+ * the next spawn, so tools show up natively to the model.
+ */
+export function McpPage() {
+  const { company, emp } = useCtx();
+  const [servers, setServers] = React.useState<McpServer[] | null>(null);
+  const [adding, setAdding] = React.useState(false);
+  const { toast } = useToast();
+  const base = `/api/companies/${company.id}/employees/${emp.id}/mcp`;
+
+  async function reload() {
+    try {
+      const list = await api.get<McpServer[]>(base);
+      setServers(list);
+    } catch (err) {
+      toast((err as Error).message, "error");
+      setServers([]);
+    }
+  }
+
+  React.useEffect(() => {
+    reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emp.id]);
+
+  async function remove(id: string) {
+    if (!confirm("Delete this MCP server?")) return;
+    try {
+      await api.del(`${base}/${id}`);
+      setServers((prev) => (prev ? prev.filter((s) => s.id !== id) : prev));
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
+
+  return (
+    <>
+      <TopBar
+        title="MCP servers"
+        right={<Button onClick={() => setAdding(true)}>Add server</Button>}
+      />
+      {servers === null ? (
+        <Spinner />
+      ) : servers.length === 0 ? (
+        <EmptyState
+          title="No MCP servers yet"
+          description="Attach tools via the Model Context Protocol so this employee can use them from any provider CLI."
+        />
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {servers.map((s) => (
+            <li key={s.id}>
+              <Card>
+                <CardBody className="flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <Plug size={14} className="text-slate-500" />
+                      <div className="font-medium">{s.name}</div>
+                      <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-600">
+                        {s.transport}
+                      </span>
+                    </div>
+                    <div className="mt-1 truncate font-mono text-xs text-slate-500">
+                      {s.transport === "stdio"
+                        ? `${s.command ?? ""}${s.args.length ? ` ${s.args.join(" ")}` : ""}`
+                        : s.url}
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => remove(s.id)}
+                    aria-label="Delete MCP server"
+                  >
+                    <Trash2 size={12} />
+                  </Button>
+                </CardBody>
+              </Card>
+            </li>
+          ))}
+        </ul>
+      )}
+      {adding && (
+        <NewMcpModal
+          company={company}
+          emp={emp}
+          onClose={() => setAdding(false)}
+          onCreated={() => {
+            setAdding(false);
+            reload();
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+function NewMcpModal({
+  company,
+  emp,
+  onClose,
+  onCreated,
+}: {
+  company: Company;
+  emp: Employee;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [name, setName] = React.useState("");
+  const [transport, setTransport] = React.useState<McpTransport>("stdio");
+  const [command, setCommand] = React.useState("");
+  const [argsLine, setArgsLine] = React.useState("");
+  const [url, setUrl] = React.useState("");
+  const [envLines, setEnvLines] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const { toast } = useToast();
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      // Space-separated args on one line — MCP command lines are typically
+      // short. Users with complex args can paste them with quoting; we keep
+      // the input simple on purpose.
+      const args = argsLine.trim() ? argsLine.trim().split(/\s+/) : [];
+      const env: Record<string, string> = {};
+      for (const line of envLines.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const eq = trimmed.indexOf("=");
+        if (eq > 0) env[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1);
+      }
+      const body: Record<string, unknown> = { name: name.trim(), transport };
+      if (transport === "stdio") {
+        body.command = command.trim();
+        if (args.length) body.args = args;
+      } else {
+        body.url = url.trim();
+      }
+      if (Object.keys(env).length) body.env = env;
+      await api.post(
+        `/api/companies/${company.id}/employees/${emp.id}/mcp`,
+        body,
+      );
+      onCreated();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Add MCP server" size="lg">
+      <form onSubmit={submit} className="flex flex-col gap-3">
+        <Input
+          label="Name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. github"
+          required
+        />
+        <div className="flex flex-col gap-1">
+          <label className="text-sm font-medium text-slate-700">Transport</label>
+          <div className="flex gap-2">
+            {(["stdio", "http"] as const).map((t) => (
+              <label key={t} className="flex items-center gap-1.5 text-sm">
+                <input
+                  type="radio"
+                  checked={transport === t}
+                  onChange={() => setTransport(t)}
+                />
+                {t}
+              </label>
+            ))}
+          </div>
+        </div>
+        {transport === "stdio" ? (
+          <>
+            <Input
+              label="Command"
+              value={command}
+              onChange={(e) => setCommand(e.target.value)}
+              placeholder="e.g. npx"
+              required
+            />
+            <Input
+              label="Args (space-separated)"
+              value={argsLine}
+              onChange={(e) => setArgsLine(e.target.value)}
+              placeholder="e.g. -y @modelcontextprotocol/server-github"
+            />
+          </>
+        ) : (
+          <Input
+            label="URL"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://…"
+            required
+          />
+        )}
+        <div className="flex flex-col gap-1">
+          <label className="text-sm font-medium text-slate-700">
+            Env (KEY=value, one per line)
+          </label>
+          <textarea
+            value={envLines}
+            onChange={(e) => setEnvLines(e.target.value)}
+            rows={3}
+            className="resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-xs placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            placeholder="GITHUB_TOKEN=ghp_…"
+          />
+        </div>
+        <div className="flex gap-2">
+          <Button type="submit" disabled={saving || !name.trim()}>
+            {saving ? "Saving…" : "Add server"}
+          </Button>
+          <Button type="button" variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }

@@ -6,6 +6,7 @@ import {
   Calendar,
   FolderTree,
   MessageSquare,
+  Plug,
   Settings as SettingsIcon,
   Trash2,
   Wrench,
@@ -30,6 +31,7 @@ const EMP_TAB_LABEL: Record<string, string> = {
   skills: "Skills",
   routines: "Routines",
   journal: "Journal",
+  mcp: "MCP",
   settings: "Settings",
   soul: "Soul",
   model: "Model",
@@ -88,6 +90,7 @@ export default function EmployeeLayout({ company }: { company: Company }) {
         <SidebarLink to={`${base}/skills`} icon={<Wrench size={14} />} label="Skills" />
         <SidebarLink to={`${base}/routines`} icon={<Calendar size={14} />} label="Routines" />
         <SidebarLink to={`${base}/journal`} icon={<BookText size={14} />} label="Journal" />
+        <SidebarLink to={`${base}/mcp`} icon={<Plug size={14} />} label="MCP" />
         <SidebarLink to={`${base}/settings`} icon={<SettingsIcon size={14} />} label="Settings" />
       </nav>
       <div className="border-t border-slate-100 p-3">

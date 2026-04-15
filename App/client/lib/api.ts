@@ -134,6 +134,20 @@ export type SendMessageResult = {
   assistantMessage: ConversationMessage;
 };
 
+export type McpTransport = "stdio" | "http";
+export type McpServer = {
+  id: string;
+  employeeId: string;
+  name: string;
+  transport: McpTransport;
+  command: string | null;
+  args: string[];
+  env: Record<string, string>;
+  url: string | null;
+  enabled: boolean;
+  createdAt: string;
+};
+
 export type JournalKind = "run" | "note" | "system";
 export type JournalEntry = {
   id: string;

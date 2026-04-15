@@ -19,6 +19,7 @@ import { employeeSurfaceRouter } from "./routes/employeeSurface.js";
 import { projectsRouter } from "./routes/projects.js";
 import { approvalsRouter } from "./routes/approvals.js";
 import { webhooksRouter } from "./routes/webhooks.js";
+import { mcpRouter } from "./routes/mcp.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -59,6 +60,7 @@ async function main() {
   app.use("/api/companies/:cid", approvalsRouter);
   // Per-employee model (one-to-one with AIEmployee). See ROADMAP §5.
   app.use("/api/companies/:cid/employees/:eid/model", modelsRouter);
+  app.use("/api/companies/:cid/employees/:eid/mcp", mcpRouter);
 
   // Client. Dev: mount Vite as middleware so API + UI share one port and
   // HMR still works. Prod: serve the built SPA from dist/client.

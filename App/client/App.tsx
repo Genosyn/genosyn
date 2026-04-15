@@ -18,6 +18,7 @@ import EmployeeWorkspace from "./pages/EmployeeWorkspace";
 import {
   ModelSettingsPage,
   JournalPage,
+  McpPage,
   RoutinesPage,
   SettingsPage,
   SkillsPage,
@@ -144,6 +145,7 @@ function CompanyRoutes({
           <Route path="skills" element={<SkillsPage />} />
           <Route path="routines" element={<RoutinesPage />} />
           <Route path="journal" element={<JournalPage />} />
+          <Route path="mcp" element={<McpPage />} />
           <Route path="settings" element={<SettingsPage />}>
             <Route index element={<Navigate to="soul" replace />} />
             <Route path="soul" element={<SoulSettingsPage />} />

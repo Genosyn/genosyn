@@ -20,6 +20,7 @@ import {
 import { PROVIDERS } from "./providers.js";
 import { readText } from "./files.js";
 import { decryptSecret } from "../lib/secret.js";
+import { materializeMcpConfig } from "./mcp.js";
 
 /**
  * Run seam.
@@ -104,6 +105,7 @@ export async function runRoutine(routine: Routine): Promise<Run> {
 
   const cwd = employeeDir(co.slug, emp.slug);
   ensureDir(cwd);
+  await materializeMcpConfig(emp.id, cwd);
 
   // Dispatch by provider. The headless invocations below are the documented
   // non-interactive entry points for each CLI. If the CLI binary isn't

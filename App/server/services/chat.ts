@@ -14,6 +14,7 @@ import {
 import { PROVIDERS } from "./providers.js";
 import { readText } from "./files.js";
 import { decryptSecret } from "../lib/secret.js";
+import { materializeMcpConfig } from "./mcp.js";
 
 /**
  * One-shot chat seam.
@@ -69,6 +70,7 @@ export async function chatWithEmployee(
 
   const cwd = employeeDir(co.slug, emp.slug);
   ensureDir(cwd);
+  await materializeMcpConfig(emp.id, cwd);
 
   const invocation = buildInvocation(model.provider, model.model, prompt);
   try {

@@ -20,6 +20,7 @@ import { Conversation } from "./entities/Conversation.js";
 import { ConversationMessage } from "./entities/ConversationMessage.js";
 import { JournalEntry } from "./entities/JournalEntry.js";
 import { Approval } from "./entities/Approval.js";
+import { McpServer } from "./entities/McpServer.js";
 
 const entities = [
   User,
@@ -38,6 +39,7 @@ const entities = [
   ConversationMessage,
   JournalEntry,
   Approval,
+  McpServer,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)
