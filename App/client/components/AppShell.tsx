@@ -69,9 +69,11 @@ function TopNav({
     ? "settings"
     : location.pathname.includes("/tasks")
       ? "tasks"
-      : location.pathname.includes("/approvals")
-        ? "approvals"
-        : "employees";
+      : location.pathname.includes("/bases")
+        ? "bases"
+        : location.pathname.includes("/approvals")
+          ? "approvals"
+          : "employees";
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-6 border-b border-slate-200 bg-white px-4 dark:border-slate-800 dark:bg-slate-950">
@@ -128,6 +130,7 @@ function TopNav({
       <nav className="flex items-center gap-1">
         <TopTab to={`/c/${current.slug}`} active={section === "employees"} label="Employees" />
         <TopTab to={`/c/${current.slug}/tasks`} active={section === "tasks"} label="Tasks" />
+        <TopTab to={`/c/${current.slug}/bases`} active={section === "bases"} label="Bases" />
         <TopTab
           to={`/c/${current.slug}/approvals`}
           active={section === "approvals"}

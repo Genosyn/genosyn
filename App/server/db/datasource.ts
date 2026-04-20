@@ -23,6 +23,10 @@ import { Approval } from "./entities/Approval.js";
 import { McpServer } from "./entities/McpServer.js";
 import { Secret } from "./entities/Secret.js";
 import { AuditEvent } from "./entities/AuditEvent.js";
+import { Base } from "./entities/Base.js";
+import { BaseTable } from "./entities/BaseTable.js";
+import { BaseField } from "./entities/BaseField.js";
+import { BaseRecord } from "./entities/BaseRecord.js";
 
 const entities = [
   User,
@@ -44,6 +48,10 @@ const entities = [
   McpServer,
   Secret,
   AuditEvent,
+  Base,
+  BaseTable,
+  BaseField,
+  BaseRecord,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

@@ -34,6 +34,10 @@ import ProjectDetail from "./pages/ProjectDetail";
 import Approvals from "./pages/Approvals";
 import AuditLog from "./pages/AuditLog";
 import Usage from "./pages/Usage";
+import BasesLayout from "./pages/BasesLayout";
+import BasesIndex from "./pages/BasesIndex";
+import BaseNew from "./pages/BaseNew";
+import BaseDetail from "./pages/BaseDetail";
 
 type AuthState =
   | { status: "loading" }
@@ -163,6 +167,17 @@ function CompanyRoutes({
           <Route index element={<TasksIndex company={company} />} />
           <Route path="new" element={<ProjectNew company={company} />} />
           <Route path="p/:pSlug" element={<ProjectDetail company={company} />} />
+        </Route>
+
+        {/* Bases (Airtable-style) — structured data for the company. */}
+        <Route path="bases" element={<BasesLayout company={company} />}>
+          <Route index element={<BasesIndex company={company} />} />
+          <Route path="new" element={<BaseNew company={company} />} />
+          <Route path=":baseSlug" element={<BaseDetail company={company} />} />
+          <Route
+            path=":baseSlug/:tableSlug"
+            element={<BaseDetail company={company} />}
+          />
         </Route>
 
         <Route path="approvals" element={<Approvals company={company} />} />

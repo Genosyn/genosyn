@@ -287,3 +287,101 @@ export type WorkspaceFile =
   | { type: "text"; path: string; size: number; content: string }
   | { type: "binary"; path: string; size: number; reason: string }
   | { type: "missing"; path: string };
+
+// ───────────────────────── Bases (Airtable-style) ───────────────────────────
+
+export type BaseColor =
+  | "indigo"
+  | "emerald"
+  | "amber"
+  | "rose"
+  | "sky"
+  | "violet"
+  | "slate";
+
+export type Base = {
+  id: string;
+  companyId: string;
+  name: string;
+  slug: string;
+  description: string;
+  icon: string;
+  color: BaseColor;
+  createdById: string | null;
+  createdAt: string;
+  tableCount?: number;
+};
+
+export type BaseTable = {
+  id: string;
+  baseId: string;
+  name: string;
+  slug: string;
+  sortOrder: number;
+  createdAt: string;
+};
+
+export type BaseFieldType =
+  | "text"
+  | "longtext"
+  | "number"
+  | "checkbox"
+  | "date"
+  | "datetime"
+  | "email"
+  | "url"
+  | "select"
+  | "multiselect"
+  | "link";
+
+export type SelectOption = { id: string; label: string; color: string };
+
+export type BaseField = {
+  id: string;
+  tableId: string;
+  name: string;
+  type: BaseFieldType;
+  config: Record<string, unknown>;
+  isPrimary: boolean;
+  sortOrder: number;
+};
+
+export type BaseRecord = {
+  id: string;
+  tableId: string;
+  data: Record<string, unknown>;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BaseLinkOption = { id: string; label: string; tableId: string };
+
+export type BaseDetail = {
+  base: Base;
+  tables: BaseTable[];
+};
+
+export type BaseTableContent = {
+  table: BaseTable;
+  fields: BaseField[];
+  records: BaseRecord[];
+  linkOptions: Record<string, BaseLinkOption[]>;
+};
+
+export type BaseTemplateSummary = {
+  id: string;
+  name: string;
+  tagline: string;
+  icon: string;
+  color: BaseColor;
+  description: string;
+  tableCount: number;
+  tableNames: string[];
+};
+
+export type BaseAssistantResult = {
+  status: "ok" | "skipped" | "error";
+  reply: string;
+  employee?: { id: string; name: string; slug: string };
+};

@@ -24,6 +24,7 @@ import { secretsRouter } from "./routes/secrets.js";
 import { auditRouter } from "./routes/audit.js";
 import { usageRouter } from "./routes/usage.js";
 import { templatesRouter } from "./routes/templates.js";
+import { basesRouter } from "./routes/bases.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -62,6 +63,8 @@ async function main() {
   app.use("/api/companies/:cid", routinesRouter);
   // Projects + Todos (task manager). See ROADMAP.md V1 backlog.
   app.use("/api/companies/:cid", projectsRouter);
+  // Bases (Airtable-style workspaces) — companion to Tasks.
+  app.use("/api/companies/:cid", basesRouter);
   app.use("/api/companies/:cid", approvalsRouter);
   app.use("/api/companies/:cid", secretsRouter);
   app.use("/api/companies/:cid", auditRouter);
