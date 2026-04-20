@@ -840,10 +840,16 @@ export function SoulSettingsPage() {
 
 export function ModelSettingsPage() {
   const { company, emp } = useCtx();
-  return <ModelSection company={company} emp={emp} />;
+  return <EmployeeModelSection company={company} emp={emp} />;
 }
 
-function ModelSection({ company, emp }: { company: Company; emp: Employee }) {
+/**
+ * Renders the full per-employee model connect flow (provider picker, auth
+ * mode, subscription sign-in with polling, API key form, status card).
+ * Exported so the onboarding wizard can drop it in as a step without
+ * duplicating the state machine.
+ */
+export function EmployeeModelSection({ company, emp }: { company: Company; emp: Employee }) {
   const [model, setModel] = React.useState<AIModel | null | undefined>(undefined);
   const { toast } = useToast();
 
