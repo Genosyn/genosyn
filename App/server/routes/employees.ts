@@ -106,7 +106,10 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
   }
 
   const soulBody = template
-    ? template.soul.replace(/\b(Casey|Wren|Sam|Ivy)\b/g, body.name)
+    ? template.soul.replace(
+        /\b(Casey|Wren|Sam|Ivy|Sage|Remy|Juno|Quinn|Pax|Nova)\b/g,
+        body.name,
+      )
     : soulTemplate(body.name, body.role);
   writeText(soulPath(co.slug, slug), soulBody);
 

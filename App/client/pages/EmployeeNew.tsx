@@ -1,6 +1,19 @@
 import React from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Check, Sparkles } from "lucide-react";
+import {
+  BarChart3,
+  Check,
+  Code2,
+  Compass,
+  HeartHandshake,
+  LifeBuoy,
+  Megaphone,
+  PenTool,
+  Phone,
+  Search,
+  Sparkles,
+  Workflow,
+} from "lucide-react";
 import { api, Company, Employee, EmployeeTemplate } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -9,6 +22,19 @@ import { Spinner } from "../components/ui/Spinner";
 import { Breadcrumbs, TopBar } from "../components/AppShell";
 import { useToast } from "../components/ui/Toast";
 import { clsx } from "../components/ui/clsx";
+
+const TEMPLATE_ICONS: Record<string, React.ReactNode> = {
+  "customer-success": <HeartHandshake size={14} />,
+  "content-writer": <PenTool size={14} />,
+  sdr: <Phone size={14} />,
+  engineer: <Code2 size={14} />,
+  "research-analyst": <Search size={14} />,
+  operations: <Workflow size={14} />,
+  marketing: <Megaphone size={14} />,
+  "product-manager": <Compass size={14} />,
+  support: <LifeBuoy size={14} />,
+  "data-analyst": <BarChart3 size={14} />,
+};
 
 /**
  * Hiring flow. Two steps, same page:
@@ -90,7 +116,7 @@ export default function EmployeeNew({ company }: { company: Company }) {
             {templates === null ? (
               <Spinner />
             ) : (
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <TemplateCard
                   selected={selected === null}
                   onPick={() => pick(null)}
@@ -111,6 +137,7 @@ export default function EmployeeNew({ company }: { company: Company }) {
                     } · ${t.routines.length} ${
                       t.routines.length === 1 ? "routine" : "routines"
                     }`}
+                    icon={TEMPLATE_ICONS[t.id]}
                   />
                 ))}
               </div>
