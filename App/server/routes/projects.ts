@@ -4,7 +4,7 @@ import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Project } from "../db/entities/Project.js";
-import { Todo, TodoPriority, TodoStatus } from "../db/entities/Todo.js";
+import { Todo, TodoPriority, TodoRecurrence, TodoStatus } from "../db/entities/Todo.js";
 import { TodoComment } from "../db/entities/TodoComment.js";
 import { User } from "../db/entities/User.js";
 import { validateBody } from "../middleware/validate.js";
@@ -25,6 +25,50 @@ const STATUSES: TodoStatus[] = [
   "cancelled",
 ];
 const PRIORITIES: TodoPriority[] = ["none", "low", "medium", "high", "urgent"];
+const RECURRENCES: TodoRecurrence[] = [
+  "none",
+  "daily",
+  "weekdays",
+  "weekly",
+  "biweekly",
+  "monthly",
+  "yearly",
+];
+
+/**
+ * Advance a date by one recurrence period. `weekdays` skips ahead to the
+ * next Monday–Friday slot; the others use straight calendar math via
+ * `setDate`/`setMonth`/`setFullYear` so DST / month-length fall out for free.
+ */
+function nextOccurrence(from: Date, recurrence: TodoRecurrence): Date | null {
+  if (recurrence === "none") return null;
+  const d = new Date(from.getTime());
+  switch (recurrence) {
+    case "daily":
+      d.setDate(d.getDate() + 1);
+      return d;
+    case "weekdays": {
+      do {
+        d.setDate(d.getDate() + 1);
+      } while (d.getDay() === 0 || d.getDay() === 6);
+      return d;
+    }
+    case "weekly":
+      d.setDate(d.getDate() + 7);
+      return d;
+    case "biweekly":
+      d.setDate(d.getDate() + 14);
+      return d;
+    case "monthly":
+      d.setMonth(d.getMonth() + 1);
+      return d;
+    case "yearly":
+      d.setFullYear(d.getFullYear() + 1);
+      return d;
+    default:
+      return null;
+  }
+}
 
 async function uniqueProjectSlug(companyId: string, base: string): Promise<string> {
   const repo = AppDataSource.getRepository(Project);
@@ -207,6 +251,7 @@ const createTodoSchema = z.object({
   priority: z.enum(PRIORITIES as [TodoPriority, ...TodoPriority[]]).optional(),
   assigneeEmployeeId: z.string().uuid().nullable().optional(),
   dueAt: z.string().datetime().nullable().optional(),
+  recurrence: z.enum(RECURRENCES as [TodoRecurrence, ...TodoRecurrence[]]).optional(),
 });
 
 projectsRouter.post(
@@ -254,6 +299,8 @@ projectsRouter.post(
       dueAt: body.dueAt ? new Date(body.dueAt) : null,
       sortOrder,
       completedAt: status === "done" ? new Date() : null,
+      recurrence: body.recurrence ?? "none",
+      recurrenceParentId: null,
     });
     await AppDataSource.getRepository(Todo).save(t);
     const [hydrated] = await hydrateTodos(cid, [t]);
@@ -280,6 +327,7 @@ const patchTodoSchema = z.object({
   assigneeEmployeeId: z.string().uuid().nullable().optional(),
   dueAt: z.string().datetime().nullable().optional(),
   sortOrder: z.number().optional(),
+  recurrence: z.enum(RECURRENCES as [TodoRecurrence, ...TodoRecurrence[]]).optional(),
 });
 
 projectsRouter.patch("/todos/:tid", validateBody(patchTodoSchema), async (req, res) => {
@@ -303,17 +351,65 @@ projectsRouter.patch("/todos/:tid", validateBody(patchTodoSchema), async (req, r
   if (body.assigneeEmployeeId !== undefined) t.assigneeEmployeeId = body.assigneeEmployeeId;
   if (body.dueAt !== undefined) t.dueAt = body.dueAt ? new Date(body.dueAt) : null;
   if (body.sortOrder !== undefined) t.sortOrder = body.sortOrder;
+  if (body.recurrence !== undefined) t.recurrence = body.recurrence;
+  let justCompleted = false;
   if (body.status !== undefined) {
     const prev = t.status;
     t.status = body.status;
-    if (body.status === "done" && prev !== "done") t.completedAt = new Date();
+    if (body.status === "done" && prev !== "done") {
+      t.completedAt = new Date();
+      justCompleted = true;
+    }
     if (body.status !== "done" && prev === "done") t.completedAt = null;
   }
 
   await AppDataSource.getRepository(Todo).save(t);
+
+  // If a recurring todo was just completed, spawn the next instance so the
+  // work reappears on the list when it's next due. We anchor the next dueAt
+  // to the completed todo's dueAt (when present) so a weekly report that
+  // was due Monday stays due on Mondays; otherwise anchor to now.
+  if (justCompleted && t.recurrence !== "none") {
+    await spawnNextRecurrence(found.project, t);
+  }
+
   const [hydrated] = await hydrateTodos(cid, [t]);
   res.json(hydrated);
 });
+
+async function spawnNextRecurrence(project: Project, completed: Todo): Promise<void> {
+  const anchor = completed.dueAt ?? new Date();
+  const nextDue = nextOccurrence(anchor, completed.recurrence);
+  if (!nextDue) return;
+
+  const projRepo = AppDataSource.getRepository(Project);
+  project.todoCounter += 1;
+  await projRepo.save(project);
+
+  const todoRepo = AppDataSource.getRepository(Todo);
+  const last = await todoRepo.findOne({
+    where: { projectId: project.id, status: "todo" },
+    order: { sortOrder: "DESC" },
+  });
+  const sortOrder = (last?.sortOrder ?? 0) + 1000;
+
+  const next = todoRepo.create({
+    projectId: project.id,
+    number: project.todoCounter,
+    title: completed.title,
+    description: completed.description,
+    status: "todo",
+    priority: completed.priority,
+    assigneeEmployeeId: completed.assigneeEmployeeId,
+    createdById: completed.createdById,
+    dueAt: nextDue,
+    sortOrder,
+    completedAt: null,
+    recurrence: completed.recurrence,
+    recurrenceParentId: completed.recurrenceParentId ?? completed.id,
+  });
+  await todoRepo.save(next);
+}
 
 projectsRouter.delete("/todos/:tid", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;

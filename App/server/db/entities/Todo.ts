@@ -18,6 +18,21 @@ export type TodoStatus =
 export type TodoPriority = "none" | "low" | "medium" | "high" | "urgent";
 
 /**
+ * Repeat cadence for a recurring todo. When the todo transitions to `done`,
+ * the server spawns a fresh todo with the same title / priority / assignee
+ * and a new `dueAt` = previous `dueAt` (or now) + recurrence period.
+ * `none` keeps the todo as a one-shot.
+ */
+export type TodoRecurrence =
+  | "none"
+  | "daily"
+  | "weekdays"
+  | "weekly"
+  | "biweekly"
+  | "monthly"
+  | "yearly";
+
+/**
  * A Todo is a single work item inside a Project. Can be assigned to an AI
  * Employee — when a routine doesn't fit, a todo is the unit of work an
  * employee picks up. See ROADMAP.md "Task manager".
@@ -63,6 +78,13 @@ export class Todo {
 
   @Column({ type: "datetime", nullable: true })
   completedAt!: Date | null;
+
+  @Column({ type: "varchar", default: "none" })
+  recurrence!: TodoRecurrence;
+
+  /** Links a spawned instance back to the todo that was completed to create it. */
+  @Column({ type: "varchar", nullable: true })
+  recurrenceParentId!: string | null;
 
   @CreateDateColumn()
   createdAt!: Date;

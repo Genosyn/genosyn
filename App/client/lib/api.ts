@@ -236,6 +236,14 @@ export type TodoStatus =
   | "done"
   | "cancelled";
 export type TodoPriority = "none" | "low" | "medium" | "high" | "urgent";
+export type TodoRecurrence =
+  | "none"
+  | "daily"
+  | "weekdays"
+  | "weekly"
+  | "biweekly"
+  | "monthly"
+  | "yearly";
 export type Project = {
   id: string;
   companyId: string;
@@ -262,6 +270,8 @@ export type Todo = {
   dueAt: string | null;
   sortOrder: number;
   completedAt: string | null;
+  recurrence: TodoRecurrence;
+  recurrenceParentId: string | null;
   createdAt: string;
   updatedAt: string;
   assignee: { id: string; name: string; slug: string; role: string } | null;

@@ -27,6 +27,8 @@ import {
   Send,
   Bot,
   Sparkles,
+  Repeat,
+  RefreshCw,
 } from "lucide-react";
 import {
   api,
@@ -36,6 +38,7 @@ import {
   Todo,
   TodoComment,
   TodoPriority,
+  TodoRecurrence,
   TodoStatus,
 } from "../lib/api";
 import { Button } from "../components/ui/Button";
@@ -121,6 +124,34 @@ function PriorityIcon({ priority, size = 14 }: { priority: TodoPriority; size?: 
       return <Minus size={size} className="text-slate-300" />;
   }
 }
+
+const RECURRENCE_ORDER: TodoRecurrence[] = [
+  "none",
+  "daily",
+  "weekdays",
+  "weekly",
+  "biweekly",
+  "monthly",
+  "yearly",
+];
+const RECURRENCE_LABEL: Record<TodoRecurrence, string> = {
+  none: "Does not repeat",
+  daily: "Daily",
+  weekdays: "Every weekday",
+  weekly: "Weekly",
+  biweekly: "Every 2 weeks",
+  monthly: "Monthly",
+  yearly: "Yearly",
+};
+const RECURRENCE_SHORT: Record<TodoRecurrence, string> = {
+  none: "",
+  daily: "Daily",
+  weekdays: "Weekdays",
+  weekly: "Weekly",
+  biweekly: "Biweekly",
+  monthly: "Monthly",
+  yearly: "Yearly",
+};
 
 function initials(name: string): string {
   return (
@@ -378,6 +409,73 @@ function AssigneePicker({
   );
 }
 
+function RecurrencePicker({
+  value,
+  onChange,
+  compact,
+}: {
+  value: TodoRecurrence;
+  onChange: (v: TodoRecurrence) => void;
+  compact?: boolean;
+}) {
+  const active = value !== "none";
+  return (
+    <Menu
+      trigger={({ ref, onClick, open }) => (
+        <button
+          ref={ref}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClick();
+          }}
+          title={active ? `Repeats ${RECURRENCE_LABEL[value].toLowerCase()}` : "Does not repeat"}
+          className={clsx(
+            "flex items-center gap-1.5 rounded-md text-left text-xs",
+            compact ? "p-0.5" : "px-1.5 py-1",
+            open
+              ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
+              : active
+                ? "text-indigo-600 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-500/10"
+                : "text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800",
+          )}
+        >
+          <Repeat size={compact ? 12 : 13} />
+          {!compact && active && (
+            <span className="text-slate-700 dark:text-slate-200">{RECURRENCE_SHORT[value]}</span>
+          )}
+        </button>
+      )}
+      width={220}
+    >
+      {(close) => (
+        <>
+          <MenuHeader>Repeat</MenuHeader>
+          {RECURRENCE_ORDER.map((r) => (
+            <MenuItem
+              key={r}
+              active={r === value}
+              icon={
+                r === value ? (
+                  <Check size={12} className="text-indigo-600 dark:text-indigo-400" />
+                ) : r === "none" ? (
+                  <Minus size={12} className="text-slate-400 dark:text-slate-500" />
+                ) : (
+                  <Repeat size={12} className="text-slate-400 dark:text-slate-500" />
+                )
+              }
+              label={RECURRENCE_LABEL[r]}
+              onSelect={() => {
+                onChange(r);
+                close();
+              }}
+            />
+          ))}
+        </>
+      )}
+    </Menu>
+  );
+}
+
 // ───────────────────────── filter model ──────────────────────────────────────
 
 type Filters = {
@@ -502,6 +600,18 @@ export default function ProjectDetail({ company }: { company: Company }) {
           ? { ...d, todos: d.todos.map((x) => (x.id === updated.id ? updated : x)) }
           : d,
       );
+      // Recurring todo just completed → the server spawned a fresh instance
+      // with a bumped due date. Re-fetch so it appears in the list, and
+      // surface a toast so the user knows what happened.
+      const becameDone =
+        patch.status === "done" && t.status !== "done" && t.recurrence !== "none";
+      if (becameDone) {
+        await reload();
+        toast(
+          `Next occurrence scheduled (${RECURRENCE_LABEL[t.recurrence].toLowerCase()}).`,
+          "success",
+        );
+      }
       reloadProjects();
     } catch (err) {
       toast((err as Error).message, "error");
@@ -905,6 +1015,7 @@ function NewTodoRow({
   const [assignee, setAssignee] = React.useState<string | null>(null);
   const [priority, setPriority] = React.useState<TodoPriority>("none");
   const [status, setStatus] = React.useState<TodoStatus>("todo");
+  const [recurrence, setRecurrence] = React.useState<TodoRecurrence>("none");
   const [busy, setBusy] = React.useState(false);
   const { toast } = useToast();
 
@@ -920,6 +1031,7 @@ function NewTodoRow({
           priority,
           status,
           assigneeEmployeeId: assignee,
+          recurrence,
         },
       );
       onCreated(t);
@@ -927,6 +1039,7 @@ function NewTodoRow({
       setPriority("none");
       setAssignee(null);
       setStatus("todo");
+      setRecurrence("none");
       inputRef.current?.focus();
     } catch (err) {
       toast((err as Error).message, "error");
@@ -950,6 +1063,7 @@ function NewTodoRow({
       />
       <StatusPicker value={status} onChange={setStatus} />
       <PriorityPicker value={priority} onChange={setPriority} />
+      <RecurrencePicker value={recurrence} onChange={setRecurrence} />
       <AssigneePicker value={assignee} employees={employees} onChange={setAssignee} />
       <Button type="submit" size="sm" disabled={!title.trim() || busy}>
         {busy ? "…" : "Add"}
@@ -1136,6 +1250,15 @@ function TodoRow({
           <Calendar size={12} /> {due.label}
         </span>
       )}
+      {todo.recurrence !== "none" && (
+        <span
+          className="flex shrink-0 items-center gap-1 rounded-md bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
+          title={`Repeats ${RECURRENCE_LABEL[todo.recurrence].toLowerCase()}`}
+        >
+          <Repeat size={10} />
+          <span className="hidden sm:inline">{RECURRENCE_SHORT[todo.recurrence]}</span>
+        </span>
+      )}
       <AssigneePicker
         value={todo.assigneeEmployeeId}
         employees={employees}
@@ -1282,14 +1405,22 @@ function BoardCard({
           <PriorityIcon priority={todo.priority} size={11} />
         </div>
         <div className="mt-1 line-clamp-3 text-sm text-slate-900 dark:text-slate-100">{todo.title}</div>
-        <div className="mt-2 flex items-center justify-between">
-          {due ? (
-            <span className={clsx("flex items-center gap-1 text-[11px]", due.cls)}>
-              <Calendar size={11} /> {due.label}
-            </span>
-          ) : (
-            <span />
-          )}
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            {due && (
+              <span className={clsx("flex items-center gap-1 text-[11px]", due.cls)}>
+                <Calendar size={11} /> {due.label}
+              </span>
+            )}
+            {todo.recurrence !== "none" && (
+              <span
+                className="flex items-center gap-1 text-[11px] text-indigo-600 dark:text-indigo-300"
+                title={`Repeats ${RECURRENCE_LABEL[todo.recurrence].toLowerCase()}`}
+              >
+                <Repeat size={11} /> {RECURRENCE_SHORT[todo.recurrence]}
+              </span>
+            )}
+          </div>
           {todo.assignee ? (
             <Avatar name={todo.assignee.name} size={20} />
           ) : (
@@ -1437,7 +1568,27 @@ function TodoPeek({
               </button>
             )}
           </div>
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+            Repeat
+          </span>
+          <div>
+            <RecurrencePicker
+              value={todo.recurrence}
+              onChange={(r) => onPatch({ recurrence: r })}
+            />
+          </div>
         </div>
+
+        {todo.recurrence !== "none" && (
+          <div className="mt-4 flex items-start gap-2 rounded-lg border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-xs text-indigo-800 dark:border-indigo-500/20 dark:bg-indigo-500/10 dark:text-indigo-200">
+            <RefreshCw size={13} className="mt-0.5 shrink-0" />
+            <span>
+              Repeats <b>{RECURRENCE_LABEL[todo.recurrence].toLowerCase()}</b>. When you mark this
+              done, a fresh copy will reappear
+              {todo.dueAt ? " on its next scheduled date." : " on the next cycle."}
+            </span>
+          </div>
+        )}
 
         <CommentThread todo={todo} employees={employees} companyId={companyId} />
       </div>
