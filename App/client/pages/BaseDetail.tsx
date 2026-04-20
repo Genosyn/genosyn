@@ -39,6 +39,7 @@ import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Menu, MenuHeader, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { useToast } from "../components/ui/Toast";
+import { useDialog } from "../components/ui/Dialog";
 import { useBases } from "./BasesLayout";
 import { CellEditor, CellView, SelectOptionsEditor } from "./BaseGridCells";
 import { BaseAssistant } from "./BaseAssistant";
@@ -71,6 +72,7 @@ export default function BaseDetail({ company }: { company: Company }) {
   const { baseSlug, tableSlug } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const dialog = useDialog();
   const { reload: reloadBases } = useBases();
 
   const [detail, setDetail] = React.useState<BaseDetailT | null>(null);
@@ -145,7 +147,12 @@ export default function BaseDetail({ company }: { company: Company }) {
   const { base, tables } = detail;
 
   async function addTable() {
-    const name = prompt("Name the new table", `Table ${tables.length + 1}`);
+    const name = await dialog.prompt({
+      title: "New table",
+      placeholder: "Table name",
+      defaultValue: `Table ${tables.length + 1}`,
+      confirmLabel: "Create",
+    });
     if (!name) return;
     try {
       const t = await api.post<BaseTable>(
@@ -161,7 +168,11 @@ export default function BaseDetail({ company }: { company: Company }) {
   }
 
   async function renameTable(t: BaseTable) {
-    const name = prompt("Rename table", t.name);
+    const name = await dialog.prompt({
+      title: "Rename table",
+      defaultValue: t.name,
+      confirmLabel: "Rename",
+    });
     if (!name || name === t.name) return;
     try {
       await api.patch(
@@ -175,7 +186,13 @@ export default function BaseDetail({ company }: { company: Company }) {
   }
 
   async function deleteTable(t: BaseTable) {
-    if (!confirm(`Delete "${t.name}" and all its rows?`)) return;
+    const ok = await dialog.confirm({
+      title: `Delete "${t.name}"?`,
+      message: "This table and all its rows will be removed.",
+      confirmLabel: "Delete table",
+      variant: "danger",
+    });
+    if (!ok) return;
     try {
       await api.del(
         `/api/companies/${company.id}/bases/${base.slug}/tables/${t.id}`,
@@ -410,7 +427,9 @@ function Grid({
   companyId: string;
 }) {
   const { toast } = useToast();
+  const dialog = useDialog();
   const { fields, records, linkOptions } = content;
+  const [pendingLinkField, setPendingLinkField] = React.useState<string | null>(null);
 
   async function patchCell(row: BaseRecord, fieldId: string, value: unknown) {
     // Optimistic: update in-place then re-fetch for link-label freshness.
@@ -451,36 +470,48 @@ function Grid({
   }
 
   async function addField(type: BaseFieldType) {
-    const name = prompt(`New ${FIELD_TYPE_META[type].label.toLowerCase()} field`, "New field");
+    if (type === "link") {
+      // Link fields need both a name AND a target table — launch the richer
+      // dedicated dialog below instead of two serial prompts.
+      const choices = tables.filter((t) => t.id !== table.id);
+      if (choices.length === 0) {
+        await dialog.alert({
+          title: "No table to link",
+          message: "Add another table in this base first, then you can link to it.",
+        });
+        return;
+      }
+      setPendingLinkField("open");
+      return;
+    }
+    const name = await dialog.prompt({
+      title: `Add ${FIELD_TYPE_META[type].label.toLowerCase()} field`,
+      placeholder: "Field name",
+      defaultValue: FIELD_TYPE_META[type].label,
+      confirmLabel: "Add field",
+    });
     if (!name) return;
     const config: Record<string, unknown> = {};
     if (type === "select" || type === "multiselect") {
       config.options = [];
     }
-    if (type === "link") {
-      const choices = tables.filter((t) => t.id !== table.id);
-      if (choices.length === 0) {
-        alert("Add another table first to link to.");
-        return;
-      }
-      const chosen = prompt(
-        `Link to which table? Options: ${choices.map((c) => c.name).join(", ")}`,
-        choices[0].name,
-      );
-      if (!chosen) return;
-      const target = choices.find(
-        (c) => c.name.toLowerCase() === chosen.toLowerCase(),
-      );
-      if (!target) {
-        alert(`No table called "${chosen}".`);
-        return;
-      }
-      config.targetTableId = target.id;
-    }
     try {
       await api.post<BaseField>(
         `/api/companies/${companyId}/bases/${base.slug}/tables/${table.id}/fields`,
         { name, type, config },
+      );
+      await onReload();
+      await onTablesReload();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
+
+  async function createLinkField(name: string, targetTableId: string) {
+    try {
+      await api.post<BaseField>(
+        `/api/companies/${companyId}/bases/${base.slug}/tables/${table.id}/fields`,
+        { name, type: "link", config: { targetTableId } },
       );
       await onReload();
       await onTablesReload();
@@ -502,7 +533,13 @@ function Grid({
   }
 
   async function deleteField(f: BaseField) {
-    if (!confirm(`Delete field "${f.name}"? This clears its values.`)) return;
+    const ok = await dialog.confirm({
+      title: `Delete "${f.name}"?`,
+      message: "This column and all its values across every row will be removed.",
+      confirmLabel: "Delete field",
+      variant: "danger",
+    });
+    if (!ok) return;
     try {
       await api.del(
         `/api/companies/${companyId}/bases/${base.slug}/tables/${table.id}/fields/${f.id}`,
@@ -571,6 +608,114 @@ function Grid({
           This table is empty. Click <span className="font-semibold">Add row</span> above to start.
         </div>
       )}
+
+      {pendingLinkField && (
+        <AddLinkFieldModal
+          tables={tables.filter((t) => t.id !== table.id)}
+          onCancel={() => setPendingLinkField(null)}
+          onCreate={async (name, targetTableId) => {
+            setPendingLinkField(null);
+            await createLinkField(name, targetTableId);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AddLinkFieldModal({
+  tables,
+  onCancel,
+  onCreate,
+}: {
+  tables: BaseTable[];
+  onCancel: () => void;
+  onCreate: (name: string, targetTableId: string) => void | Promise<void>;
+}) {
+  const [name, setName] = React.useState("");
+  const [targetTableId, setTargetTableId] = React.useState(tables[0]?.id ?? "");
+
+  React.useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onCancel();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  const canSubmit = name.trim() && targetTableId;
+
+  return (
+    <div
+      onMouseDown={onCancel}
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 p-4 dark:bg-black/60"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        onMouseDown={(e) => e.stopPropagation()}
+        className="w-full max-w-md overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
+      >
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3 dark:border-slate-800">
+          <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+            Add link field
+          </h2>
+          <button
+            onClick={onCancel}
+            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            aria-label="Close"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <div className="flex flex-col gap-3 p-5">
+          <div className="flex flex-col gap-1">
+            <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+              Field name
+            </label>
+            <input
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Company"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && canSubmit) {
+                  void onCreate(name.trim(), targetTableId);
+                }
+              }}
+              className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+              Link to table
+            </label>
+            <select
+              value={targetTableId}
+              onChange={(e) => setTargetTableId(e.target.value)}
+              className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            >
+              {tables.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="mt-1 flex justify-end gap-2">
+            <Button variant="secondary" size="sm" onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={!canSubmit}
+              onClick={() => void onCreate(name.trim(), targetTableId)}
+            >
+              Add field
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -862,6 +1007,7 @@ function BaseSettingsModal({
   onDeleted: () => void;
 }) {
   const { toast } = useToast();
+  const dialog = useDialog();
   const [name, setName] = React.useState(base.name);
   const [description, setDescription] = React.useState(base.description);
   const [icon, setIcon] = React.useState(base.icon);
@@ -887,7 +1033,13 @@ function BaseSettingsModal({
   }
 
   async function remove() {
-    if (!confirm(`Delete "${base.name}" and all its tables?`)) return;
+    const ok = await dialog.confirm({
+      title: `Delete "${base.name}"?`,
+      message: "Every table, field, and row in this base will be permanently removed.",
+      confirmLabel: "Delete base",
+      variant: "danger",
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       await api.del(`/api/companies/${company.id}/bases/${base.slug}`);

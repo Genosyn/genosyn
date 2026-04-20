@@ -42,6 +42,7 @@ import { TopBar } from "../components/AppShell";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { Modal } from "../components/ui/Modal";
 import { useToast } from "../components/ui/Toast";
+import { useDialog } from "../components/ui/Dialog";
 import { Select } from "../components/ui/Select";
 import type { EmployeeOutletCtx } from "./EmployeeLayout";
 
@@ -137,6 +138,7 @@ export function SkillsPage() {
   const [name, setName] = React.useState("");
   const [editing, setEditing] = React.useState<Skill | null>(null);
   const { toast } = useToast();
+  const dialog = useDialog();
 
   async function reload() {
     const s = await api.get<Skill[]>(
@@ -176,7 +178,13 @@ export function SkillsPage() {
                   variant="ghost"
                   onClick={async (e) => {
                     e.stopPropagation();
-                    if (!confirm(`Delete skill "${s.name}"?`)) return;
+                    const ok = await dialog.confirm({
+                      title: `Delete skill "${s.name}"?`,
+                      message: "The skill's README and metadata will be removed from this employee.",
+                      confirmLabel: "Delete skill",
+                      variant: "danger",
+                    });
+                    if (!ok) return;
                     await api.del(`/api/companies/${company.id}/skills/${s.id}`);
                     reload();
                   }}
@@ -285,6 +293,7 @@ export function RoutinesPage() {
   const [editing, setEditing] = React.useState<Routine | null>(null);
   const [viewingRuns, setViewingRuns] = React.useState<Routine | null>(null);
   const { toast } = useToast();
+  const dialog = useDialog();
 
   async function reload() {
     const r = await api.get<Routine[]>(
@@ -356,7 +365,13 @@ export function RoutinesPage() {
                     size="sm"
                     variant="ghost"
                     onClick={async () => {
-                      if (!confirm(`Delete routine "${r.name}"?`)) return;
+                      const ok = await dialog.confirm({
+                        title: `Delete routine "${r.name}"?`,
+                        message: "The cron schedule and its README will be removed. Past run logs are preserved.",
+                        confirmLabel: "Delete routine",
+                        variant: "danger",
+                      });
+                      if (!ok) return;
                       await api.del(`/api/companies/${company.id}/routines/${r.id}`);
                       reload();
                     }}
@@ -1095,10 +1110,17 @@ function ModelStatusCard({
   onChanged: () => void;
 }) {
   const { toast } = useToast();
+  const dialog = useDialog();
   const connected = model.status === "connected";
 
   async function disconnect() {
-    if (!confirm(`Disconnect ${emp.name}'s ${model.provider} model?`)) return;
+    const ok = await dialog.confirm({
+      title: `Disconnect ${model.provider}?`,
+      message: `${emp.name}'s on-disk credentials will be wiped. You can reconnect any time.`,
+      confirmLabel: "Disconnect",
+      variant: "danger",
+    });
+    if (!ok) return;
     try {
       await api.del(`/api/companies/${company.id}/employees/${emp.id}/model`);
       toast("Model disconnected", "success");
@@ -1338,6 +1360,7 @@ export function JournalPage() {
   const [body, setBody] = React.useState("");
   const [saving, setSaving] = React.useState(false);
   const { toast } = useToast();
+  const dialog = useDialog();
 
   const base = `/api/companies/${company.id}/employees/${emp.id}`;
 
@@ -1377,7 +1400,13 @@ export function JournalPage() {
   }
 
   async function remove(id: string) {
-    if (!confirm("Delete this journal entry?")) return;
+    const ok = await dialog.confirm({
+      title: "Delete this entry?",
+      message: "This journal entry will be permanently removed.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
     try {
       await api.del(`${base}/journal/${id}`);
       setEntries((prev) => (prev ? prev.filter((e) => e.id !== id) : prev));
@@ -1478,6 +1507,7 @@ export function McpPage() {
   const [servers, setServers] = React.useState<McpServer[] | null>(null);
   const [adding, setAdding] = React.useState(false);
   const { toast } = useToast();
+  const dialog = useDialog();
   const base = `/api/companies/${company.id}/employees/${emp.id}/mcp`;
 
   async function reload() {
@@ -1496,7 +1526,13 @@ export function McpPage() {
   }, [emp.id]);
 
   async function remove(id: string) {
-    if (!confirm("Delete this MCP server?")) return;
+    const ok = await dialog.confirm({
+      title: "Delete MCP server?",
+      message: "This server will no longer be materialized into .mcp.json for this employee.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
     try {
       await api.del(`${base}/${id}`);
       setServers((prev) => (prev ? prev.filter((s) => s.id !== id) : prev));

@@ -4,6 +4,7 @@ import { api, Company, Me } from "./lib/api";
 import { AppShell } from "./components/AppShell";
 import { Spinner } from "./components/ui/Spinner";
 import { ToastProvider } from "./components/ui/Toast";
+import { DialogProvider } from "./components/ui/Dialog";
 import { ThemeProvider } from "./components/Theme";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
@@ -64,6 +65,7 @@ export default function App() {
   return (
     <ThemeProvider>
     <ToastProvider>
+    <DialogProvider>
       {auth.status === "loading" ? (
         <div className="flex h-full items-center justify-center">
           <Spinner size={24} />
@@ -80,6 +82,7 @@ export default function App() {
       ) : (
         <AuthedRoutes me={auth.me} companies={auth.companies} onChanged={refresh} />
       )}
+    </DialogProvider>
     </ToastProvider>
     </ThemeProvider>
   );

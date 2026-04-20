@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { Textarea } from "./ui/Textarea";
 import { clsx } from "./ui/clsx";
+import { useDialog } from "./ui/Dialog";
 
 /**
  * Markdown editor with three view modes (edit / split / preview), a minimal
@@ -37,6 +38,7 @@ type Mode = "edit" | "split" | "preview";
 export function MarkdownEditor({ value, onChange, rows = 16, onSave }: MarkdownEditorProps) {
   const [mode, setMode] = React.useState<Mode>("split");
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const dialog = useDialog();
 
   const html = React.useMemo(() => {
     const raw = marked.parse(value || "", { async: false }) as string;
@@ -77,8 +79,17 @@ export function MarkdownEditor({ value, onChange, rows = 16, onSave }: MarkdownE
     [value, onChange],
   );
 
-  const insertLink = React.useCallback(() => {
-    const url = window.prompt("Link URL");
+  const insertLink = React.useCallback(async () => {
+    const url = await dialog.prompt({
+      title: "Insert link",
+      placeholder: "https://example.com",
+      confirmLabel: "Insert",
+      validate: (v) => {
+        if (!v) return "Required";
+        if (!/^(https?:\/\/|mailto:|\/|#)/.test(v)) return "Must start with http(s)://, /, #, or mailto:";
+        return null;
+      },
+    });
     if (!url) return;
     const ta = textareaRef.current;
     if (!ta) return;
@@ -93,7 +104,7 @@ export function MarkdownEditor({ value, onChange, rows = 16, onSave }: MarkdownE
       const caret = start + md.length;
       ta.setSelectionRange(caret, caret);
     });
-  }, [value, onChange]);
+  }, [value, onChange, dialog]);
 
   const onKeyDown = React.useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

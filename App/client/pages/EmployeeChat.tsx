@@ -11,6 +11,7 @@ import {
 import { Button } from "../components/ui/Button";
 import { TopBar } from "../components/AppShell";
 import { useToast } from "../components/ui/Toast";
+import { useDialog } from "../components/ui/Dialog";
 import type { EmployeeOutletCtx } from "./EmployeeLayout";
 
 /**
@@ -25,6 +26,7 @@ export default function EmployeeChat() {
   const { company, emp } = useOutletContext<EmployeeOutletCtx>();
   const base = `/api/companies/${company.id}/employees/${emp.id}`;
   const { toast } = useToast();
+  const dialog = useDialog();
 
   const [convs, setConvs] = React.useState<ConversationSummary[]>([]);
   const [activeId, setActiveId] = React.useState<string | null>(null);
@@ -98,7 +100,13 @@ export default function EmployeeChat() {
   }
 
   async function handleDelete(convId: string) {
-    if (!confirm("Delete this conversation? Messages will be lost.")) return;
+    const ok = await dialog.confirm({
+      title: "Delete conversation?",
+      message: "Every message in this thread will be permanently removed.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
     try {
       await api.del(`${base}/conversations/${convId}`);
       setConvs((prev) => prev.filter((c) => c.id !== convId));

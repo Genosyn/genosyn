@@ -6,6 +6,7 @@ import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
 import { useToast } from "../components/ui/Toast";
+import { useDialog } from "../components/ui/Dialog";
 import type { EmployeeOutletCtx } from "./EmployeeLayout";
 
 /**
@@ -19,6 +20,7 @@ import type { EmployeeOutletCtx } from "./EmployeeLayout";
 export default function EmployeeWorkspace() {
   const { company, emp } = useOutletContext<EmployeeOutletCtx>();
   const { toast } = useToast();
+  const dialog = useDialog();
   const [tree, setTree] = React.useState<WorkspaceNode | null>(null);
   const [selected, setSelected] = React.useState<string | null>(null);
   const [file, setFile] = React.useState<WorkspaceFile | null>(null);
@@ -108,8 +110,16 @@ export default function EmployeeWorkspace() {
             <TreeView
               node={tree}
               selected={selected}
-              onSelect={(p) => {
-                if (dirty && !confirm("Discard unsaved changes?")) return;
+              onSelect={async (p) => {
+                if (dirty) {
+                  const ok = await dialog.confirm({
+                    title: "Discard unsaved changes?",
+                    message: "You have edits in this file that haven't been saved.",
+                    confirmLabel: "Discard",
+                    variant: "danger",
+                  });
+                  if (!ok) return;
+                }
                 setSelected(p);
               }}
               depth={0}

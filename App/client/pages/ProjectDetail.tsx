@@ -44,6 +44,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { Breadcrumbs } from "../components/AppShell";
 import { Menu, MenuHeader, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { useToast } from "../components/ui/Toast";
+import { useDialog } from "../components/ui/Dialog";
 import { useTasks } from "./TasksLayout";
 import { clsx } from "../components/ui/clsx";
 
@@ -411,6 +412,7 @@ export default function ProjectDetail({ company }: { company: Company }) {
   const { pSlug } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const dialog = useDialog();
   const { reload: reloadProjects } = useTasks();
 
   const [data, setData] = React.useState<ProjectTodos | null>(null);
@@ -507,7 +509,13 @@ export default function ProjectDetail({ company }: { company: Company }) {
   }
 
   async function deleteTodo(t: Todo) {
-    if (!confirm(`Delete "${t.title}"?`)) return;
+    const ok = await dialog.confirm({
+      title: `Delete "${t.title}"?`,
+      message: "This todo will be permanently removed.",
+      confirmLabel: "Delete todo",
+      variant: "danger",
+    });
+    if (!ok) return;
     try {
       await api.del(`/api/companies/${company.id}/todos/${t.id}`);
       setData((d) => (d ? { ...d, todos: d.todos.filter((x) => x.id !== t.id) } : d));
@@ -1466,6 +1474,7 @@ function ProjectSettingsModal({
   const [description, setDescription] = React.useState(project.description);
   const [busy, setBusy] = React.useState(false);
   const { toast } = useToast();
+  const dialog = useDialog();
 
   async function save() {
     setBusy(true);
@@ -1485,7 +1494,13 @@ function ProjectSettingsModal({
   }
 
   async function remove() {
-    if (!confirm(`Delete project "${project.name}" and all its todos?`)) return;
+    const ok = await dialog.confirm({
+      title: `Delete "${project.name}"?`,
+      message: "The project and all of its todos will be permanently removed.",
+      confirmLabel: "Delete project",
+      variant: "danger",
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       await api.del(`/api/companies/${company.id}/projects/${project.slug}`);

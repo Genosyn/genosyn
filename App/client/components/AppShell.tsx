@@ -3,6 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { ChevronDown, ChevronRight, LogOut, Monitor, Moon, Sun } from "lucide-react";
 import { api, Company, Me } from "../lib/api";
 import { useToast } from "./ui/Toast";
+import { useDialog } from "./ui/Dialog";
 import { LogoMark } from "./Logo";
 import { useTheme, Theme } from "./Theme";
 
@@ -55,6 +56,7 @@ function TopNav({
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
+  const dialog = useDialog();
   const [companyOpen, setCompanyOpen] = React.useState(false);
   const [userOpen, setUserOpen] = React.useState(false);
 
@@ -108,7 +110,11 @@ function TopNav({
               <button
                 onClick={async () => {
                   setCompanyOpen(false);
-                  const name = prompt("New company name");
+                  const name = await dialog.prompt({
+                    title: "New company",
+                    placeholder: "Company name",
+                    confirmLabel: "Create",
+                  });
                   if (!name) return;
                   try {
                     const c = await api.post<Company>("/api/companies", { name });

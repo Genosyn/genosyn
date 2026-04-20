@@ -16,6 +16,7 @@ import { Breadcrumbs, ContextualLayout, SidebarLink } from "../components/AppShe
 import { Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
 import { useToast } from "../components/ui/Toast";
+import { useDialog } from "../components/ui/Dialog";
 
 /**
  * Sidebar + layout for a single selected employee. The sidebar switches from
@@ -42,6 +43,7 @@ export default function EmployeeLayout({ company }: { company: Company }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const dialog = useDialog();
   const [emp, setEmp] = React.useState<Employee | null | undefined>(undefined);
 
   React.useEffect(() => {
@@ -98,7 +100,13 @@ export default function EmployeeLayout({ company }: { company: Company }) {
           variant="ghost"
           size="sm"
           onClick={async () => {
-            if (!confirm(`Delete ${emp.name}? This removes their workspace too.`)) return;
+            const ok = await dialog.confirm({
+              title: `Fire ${emp.name}?`,
+              message: "Their workspace on disk, conversations, routines, and skills will be removed.",
+              confirmLabel: "Delete employee",
+              variant: "danger",
+            });
+            if (!ok) return;
             try {
               await api.del(`/api/companies/${company.id}/employees/${emp.id}`);
               navigate(`/c/${company.slug}`);

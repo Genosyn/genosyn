@@ -10,6 +10,7 @@ import { Modal } from "../components/ui/Modal";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Breadcrumbs, TopBar } from "../components/AppShell";
 import { useToast } from "../components/ui/Toast";
+import { useDialog } from "../components/ui/Dialog";
 
 export default function Settings({
   company,
@@ -175,6 +176,7 @@ function SecretsCard({ company }: { company: Company }) {
   const [creating, setCreating] = React.useState(false);
   const [editing, setEditing] = React.useState<Secret | null>(null);
   const { toast } = useToast();
+  const dialog = useDialog();
 
   const reload = React.useCallback(async () => {
     try {
@@ -236,8 +238,13 @@ function SecretsCard({ company }: { company: Company }) {
                     variant="ghost"
                     size="sm"
                     onClick={async () => {
-                      if (!confirm(`Delete secret ${s.name}? Employees will lose access on their next run.`))
-                        return;
+                      const ok = await dialog.confirm({
+                        title: `Delete "${s.name}"?`,
+                        message: "Employees lose access to this secret on their next run.",
+                        confirmLabel: "Delete secret",
+                        variant: "danger",
+                      });
+                      if (!ok) return;
                       try {
                         await api.del(`/api/companies/${company.id}/secrets/${s.id}`);
                         await reload();
