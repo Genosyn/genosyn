@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
-import { ChevronDown, ChevronRight, LogOut, Monitor, Moon, Sun } from "lucide-react";
+import { ChevronDown, ChevronRight, LogOut, Monitor, Moon, Sun, UserCog } from "lucide-react";
 import { api, Company, Me } from "../lib/api";
 import { useToast } from "./ui/Toast";
 import { useDialog } from "./ui/Dialog";
@@ -165,6 +165,13 @@ function TopNav({
                   <div className="truncate text-slate-900 dark:text-slate-100">{me.name}</div>
                   <div className="truncate">{me.email}</div>
                 </div>
+                <Link
+                  to={`/c/${current.slug}/settings/profile`}
+                  onClick={() => setUserOpen(false)}
+                  className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  <UserCog size={14} /> Profile settings
+                </Link>
                 <button
                   onClick={logout}
                   className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"

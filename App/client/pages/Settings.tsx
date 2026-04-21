@@ -1,7 +1,7 @@
 import React from "react";
 import { useOutletContext } from "react-router-dom";
 import { Pencil, Trash2 } from "lucide-react";
-import { api, Company, Member, Secret } from "../lib/api";
+import { api, Company, Me, Member, Secret } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
@@ -21,6 +21,154 @@ import type { SettingsOutletCtx } from "./SettingsLayout";
 
 function useCtx(): SettingsOutletCtx {
   return useOutletContext<SettingsOutletCtx>();
+}
+
+export function SettingsAccount() {
+  const { me, onCompaniesChanged } = useCtx();
+  const [name, setName] = React.useState(me.name);
+  const [email, setEmail] = React.useState(me.email);
+  const [savingProfile, setSavingProfile] = React.useState(false);
+  const [currentPassword, setCurrentPassword] = React.useState("");
+  const [newPassword, setNewPassword] = React.useState("");
+  const [confirmPassword, setConfirmPassword] = React.useState("");
+  const [savingPassword, setSavingPassword] = React.useState(false);
+  const { toast } = useToast();
+
+  React.useEffect(() => {
+    setName(me.name);
+    setEmail(me.email);
+  }, [me.id, me.name, me.email]);
+
+  const profileDirty = name.trim() !== me.name || email.trim().toLowerCase() !== me.email;
+
+  return (
+    <>
+      <TopBar title="Profile" />
+      <div className="flex flex-col gap-4">
+        <Card>
+          <CardHeader>
+            <h2 className="text-sm font-semibold">Personal details</h2>
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              This name and email appear on your account and on any invitations you send.
+            </p>
+          </CardHeader>
+          <CardBody>
+            <form
+              className="flex flex-col gap-3"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!profileDirty) return;
+                setSavingProfile(true);
+                try {
+                  await api.patch<Me>("/api/auth/me", {
+                    name: name.trim(),
+                    email: email.trim().toLowerCase(),
+                  });
+                  onCompaniesChanged();
+                  toast("Profile updated", "success");
+                } catch (err) {
+                  toast((err as Error).message, "error");
+                } finally {
+                  setSavingProfile(false);
+                }
+              }}
+            >
+              <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
+              <Input
+                label="Email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+              <div className="flex justify-end pt-1">
+                <Button type="submit" disabled={!profileDirty || savingProfile}>
+                  {savingProfile ? "Saving…" : "Save changes"}
+                </Button>
+              </div>
+            </form>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <h2 className="text-sm font-semibold">Change password</h2>
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              At least 8 characters. You'll stay signed in after changing it.
+            </p>
+          </CardHeader>
+          <CardBody>
+            <form
+              className="flex flex-col gap-3"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (newPassword.length < 8) {
+                  toast("New password must be at least 8 characters", "error");
+                  return;
+                }
+                if (newPassword !== confirmPassword) {
+                  toast("New passwords don't match", "error");
+                  return;
+                }
+                setSavingPassword(true);
+                try {
+                  await api.post("/api/auth/password", { currentPassword, newPassword });
+                  setCurrentPassword("");
+                  setNewPassword("");
+                  setConfirmPassword("");
+                  toast("Password changed", "success");
+                } catch (err) {
+                  toast((err as Error).message, "error");
+                } finally {
+                  setSavingPassword(false);
+                }
+              }}
+            >
+              <Input
+                label="Current password"
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
+              <Input
+                label="New password"
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                autoComplete="new-password"
+                minLength={8}
+                required
+              />
+              <Input
+                label="Confirm new password"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                autoComplete="new-password"
+                minLength={8}
+                required
+              />
+              <div className="flex justify-end pt-1">
+                <Button
+                  type="submit"
+                  disabled={
+                    savingPassword ||
+                    currentPassword.length === 0 ||
+                    newPassword.length === 0 ||
+                    confirmPassword.length === 0
+                  }
+                >
+                  {savingPassword ? "Saving…" : "Change password"}
+                </Button>
+              </div>
+            </form>
+          </CardBody>
+        </Card>
+      </div>
+    </>
+  );
 }
 
 export function SettingsCompany() {

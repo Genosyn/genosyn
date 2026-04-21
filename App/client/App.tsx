@@ -27,7 +27,7 @@ import {
   SoulSettingsPage,
 } from "./pages/employeeTabs";
 import SettingsLayout from "./pages/SettingsLayout";
-import { SettingsCompany, SettingsMembers, SettingsSecrets } from "./pages/Settings";
+import { SettingsAccount, SettingsCompany, SettingsMembers, SettingsSecrets } from "./pages/Settings";
 import Invite from "./pages/Invite";
 import TasksLayout from "./pages/TasksLayout";
 import TasksIndex from "./pages/TasksIndex";
@@ -186,14 +186,16 @@ function CompanyRoutes({
 
         <Route path="approvals" element={<Approvals company={company} />} />
 
-        {/* Company-level settings — own sidebar, like Employees/Tasks/Bases. */}
+        {/* Settings — own sidebar, like Employees/Tasks/Bases. Holds both
+            personal-account pages and company-level pages. */}
         <Route
           path="settings"
           element={
-            <SettingsLayout company={company} onCompaniesChanged={onChanged} />
+            <SettingsLayout company={company} me={me} onCompaniesChanged={onChanged} />
           }
         >
           <Route index element={<Navigate to="company" replace />} />
+          <Route path="profile" element={<SettingsAccount />} />
           <Route path="company" element={<SettingsCompany />} />
           <Route path="members" element={<SettingsMembers />} />
           <Route path="secrets" element={<SettingsSecrets />} />

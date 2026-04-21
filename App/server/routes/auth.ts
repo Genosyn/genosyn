@@ -102,3 +102,48 @@ authRouter.get("/me", requireAuth, async (req, res) => {
   const u = req.user!;
   res.json({ id: u.id, email: u.email, name: u.name });
 });
+
+const updateMeSchema = z
+  .object({
+    name: z.string().min(1).max(200).optional(),
+    email: z.string().email().optional(),
+  })
+  .refine((v) => v.name !== undefined || v.email !== undefined, {
+    message: "Nothing to update",
+  });
+
+authRouter.patch("/me", requireAuth, validateBody(updateMeSchema), async (req, res) => {
+  const { name, email } = req.body as z.infer<typeof updateMeSchema>;
+  const user = req.user!;
+  const repo = AppDataSource.getRepository(User);
+  if (typeof name === "string") user.name = name.trim();
+  if (typeof email === "string") {
+    const next = email.toLowerCase();
+    if (next !== user.email) {
+      const taken = await repo.findOneBy({ email: next });
+      if (taken && taken.id !== user.id) {
+        return res.status(409).json({ error: "Email already registered" });
+      }
+      user.email = next;
+    }
+  }
+  await repo.save(user);
+  res.json({ id: user.id, email: user.email, name: user.name });
+});
+
+const passwordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8),
+});
+
+authRouter.post("/password", requireAuth, validateBody(passwordSchema), async (req, res) => {
+  const { currentPassword, newPassword } = req.body as z.infer<typeof passwordSchema>;
+  const user = req.user!;
+  const ok = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!ok) return res.status(400).json({ error: "Current password is incorrect" });
+  user.passwordHash = await bcrypt.hash(newPassword, 10);
+  user.resetToken = null;
+  user.resetExpiresAt = null;
+  await AppDataSource.getRepository(User).save(user);
+  res.json({ ok: true });
+});
