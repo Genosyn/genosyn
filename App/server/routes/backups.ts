@@ -7,7 +7,9 @@ import {
   backupFilePath,
   deleteBackup,
   getBackupSchedule,
+  ingestUploadedArchive,
   listBackups,
+  restoreFromBackup,
   runBackup,
   serializeBackup,
   serializeSchedule,
@@ -42,6 +44,36 @@ backupsRouter.delete("/:id", async (req, res) => {
   const ok = await deleteBackup(id);
   if (!ok) return res.status(404).json({ error: "Not found" });
   res.json({ ok: true });
+});
+
+/**
+ * Streamed archive upload. Body is the zip bytes with Content-Type:
+ * application/zip so express.json() skips it and `req` stays a readable
+ * stream. On success we register the file as a Backup row with
+ * `kind: 'uploaded'` so it shows up in History alongside manual/scheduled
+ * runs and is eligible for restore.
+ */
+backupsRouter.post("/upload", async (req, res, next) => {
+  try {
+    const row = await ingestUploadedArchive(req);
+    res.json(serializeBackup(row));
+  } catch (err) {
+    next(err);
+  }
+});
+
+backupsRouter.post("/:id/restore", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const result = await restoreFromBackup(id);
+    res.json({
+      ok: true,
+      safety: serializeBackup(result.safety),
+      restored: serializeBackup(result.restored),
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 backupsRouter.get("/:id/download", async (req, res) => {

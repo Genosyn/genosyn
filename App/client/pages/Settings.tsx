@@ -1,6 +1,6 @@
 import React from "react";
 import { useOutletContext } from "react-router-dom";
-import { Download, Pencil, Trash2 } from "lucide-react";
+import { Download, Pencil, RotateCcw, Trash2, Upload } from "lucide-react";
 import {
   api,
   Backup,
@@ -538,6 +538,9 @@ export function SettingsBackup() {
   const [schedule, setSchedule] = React.useState<BackupSchedule | null>(null);
   const [running, setRunning] = React.useState(false);
   const [savingSchedule, setSavingSchedule] = React.useState(false);
+  const [uploading, setUploading] = React.useState(false);
+  const [restoringId, setRestoringId] = React.useState<string | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const { toast } = useToast();
   const dialog = useDialog();
 
@@ -572,13 +575,62 @@ export function SettingsBackup() {
     }
   };
 
+  const uploadArchive = async (file: File) => {
+    setUploading(true);
+    try {
+      const res = await fetch("/api/backups/upload", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/zip" },
+        body: file,
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        let msg = res.statusText;
+        try {
+          msg = JSON.parse(text).error ?? msg;
+        } catch {
+          if (text) msg = text;
+        }
+        throw new Error(msg);
+      }
+      toast("Backup uploaded", "success");
+      await reload();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const restoreFrom = async (b: Backup) => {
+    const ok = await dialog.confirm({
+      title: `Restore from "${b.filename}"?`,
+      message:
+        "This replaces every file in the data directory with the contents of the archive. A pre-restore safety backup will be created first. You will be signed out when the restore completes.",
+      confirmLabel: "Restore data",
+      variant: "danger",
+    });
+    if (!ok) return;
+    setRestoringId(b.id);
+    try {
+      await api.post(`/api/backups/${b.id}/restore`);
+      toast("Restore complete — reloading", "success");
+      setTimeout(() => window.location.reload(), 600);
+    } catch (err) {
+      toast((err as Error).message, "error");
+      setRestoringId(null);
+    }
+  };
+
   return (
     <>
       <TopBar title="Backup" />
       <div className="flex flex-col gap-4">
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
+            <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-sm font-semibold">Manual backup</h2>
                 <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
@@ -586,12 +638,41 @@ export function SettingsBackup() {
                   <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
                     data/Backup/
                   </code>
-                  .
+                  . Upload an existing{" "}
+                  <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
+                    .zip
+                  </code>{" "}
+                  archive to restore from elsewhere.
                 </p>
               </div>
-              <Button size="sm" onClick={backupNow} disabled={running}>
-                {running ? "Backing up…" : "Back up now"}
-              </Button>
+              <div className="flex shrink-0 items-center gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".zip,application/zip"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) uploadArchive(f);
+                  }}
+                />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading || running || restoringId !== null}
+                >
+                  <Upload size={12} />
+                  {uploading ? "Uploading…" : "Upload backup"}
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={backupNow}
+                  disabled={running || uploading || restoringId !== null}
+                >
+                  {running ? "Backing up…" : "Back up now"}
+                </Button>
+              </div>
             </div>
           </CardHeader>
         </Card>
@@ -651,16 +732,28 @@ export function SettingsBackup() {
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
                       {b.status === "completed" && (
-                        <a
-                          href={`/api/backups/${b.id}/download`}
-                          className="inline-flex h-8 items-center gap-1 rounded-lg px-3 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
-                        >
-                          <Download size={12} /> Download
-                        </a>
+                        <>
+                          <a
+                            href={`/api/backups/${b.id}/download`}
+                            className="inline-flex h-8 items-center gap-1 rounded-lg px-3 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+                          >
+                            <Download size={12} /> Download
+                          </a>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => restoreFrom(b)}
+                            disabled={restoringId !== null || running || uploading}
+                          >
+                            <RotateCcw size={12} />
+                            {restoringId === b.id ? "Restoring…" : "Restore"}
+                          </Button>
+                        </>
                       )}
                       <Button
                         variant="ghost"
                         size="sm"
+                        disabled={restoringId !== null}
                         onClick={async () => {
                           const ok = await dialog.confirm({
                             title: `Delete "${b.filename}"?`,

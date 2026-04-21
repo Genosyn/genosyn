@@ -148,6 +148,7 @@ export function applyBackupSchedule(sched: BackupSchedule): void {
 
 export async function bootBackups(): Promise<void> {
   ensureBackupDir();
+  await reconcileBackupHistory();
   const sched = await getBackupSchedule();
   applyBackupSchedule(sched);
 }
@@ -335,6 +336,248 @@ export async function deleteBackup(id: string): Promise<boolean> {
   }
   await repo.delete({ id });
   return true;
+}
+
+/**
+ * Stream an uploaded archive body to `<dataDir>/Backup/` and register it as
+ * a Backup row (`kind: 'uploaded'`). The body is piped straight through with
+ * a size cap so a hostile client can't fill the disk. Returns the completed
+ * row on success; rolls back the on-disk file and row on error.
+ */
+export const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
+
+export async function ingestUploadedArchive(req: IncomingMessage): Promise<Backup> {
+  ensureBackupDir();
+  const repo = AppDataSource.getRepository(Backup);
+  const now = new Date();
+  const filename = `uploaded-${timestampSuffix(now)}.zip`;
+  const row = repo.create({
+    filename,
+    sizeBytes: 0,
+    kind: "uploaded",
+    status: "running",
+    errorMessage: "",
+    completedAt: null,
+  });
+  await repo.save(row);
+
+  const outPath = backupFilePath(filename);
+  try {
+    const contentLength = Number(req.headers["content-length"] ?? "0");
+    if (contentLength && contentLength > MAX_UPLOAD_BYTES) {
+      throw new Error(
+        `Upload is ${(contentLength / (1024 * 1024)).toFixed(1)} MB, which exceeds the 2 GB limit.`,
+      );
+    }
+
+    let received = 0;
+    req.on("data", (chunk: Buffer) => {
+      received += chunk.length;
+      if (received > MAX_UPLOAD_BYTES) {
+        req.destroy(new Error("Upload exceeded 2 GB limit"));
+      }
+    });
+
+    await pipeline(req, createWriteStream(outPath));
+
+    // Sanity-check that the uploaded file is a zip archive by peeking at the
+    // local file header signature (PK\x03\x04). Reject plain text / tampered
+    // uploads before the user can try to restore from them.
+    await assertIsZip(outPath);
+
+    const size = fs.statSync(outPath).size;
+    row.sizeBytes = size;
+    row.status = "completed";
+    row.completedAt = new Date();
+    await repo.save(row);
+    return row;
+  } catch (err) {
+    row.status = "failed";
+    row.errorMessage = (err as Error).message ?? String(err);
+    row.completedAt = new Date();
+    await repo.save(row);
+    try {
+      if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
+    } catch {
+      // best-effort
+    }
+    throw err;
+  }
+}
+
+async function assertIsZip(p: string): Promise<void> {
+  const fd = await fs.promises.open(p, "r");
+  try {
+    const buf = Buffer.alloc(4);
+    const { bytesRead } = await fd.read(buf, 0, 4, 0);
+    if (
+      bytesRead < 4 ||
+      buf[0] !== 0x50 ||
+      buf[1] !== 0x4b ||
+      buf[2] !== 0x03 ||
+      buf[3] !== 0x04
+    ) {
+      throw new Error("File is not a valid zip archive");
+    }
+  } finally {
+    await fd.close();
+  }
+}
+
+/**
+ * Replace the data directory with the contents of a Backup archive. Takes a
+ * pre-restore safety snapshot, closes the TypeORM DataSource, wipes `data/`
+ * (keeping `Backup/` so both the safety backup and history survive),
+ * extracts the archive, re-initializes the DataSource, and reboots the cron
+ * registries. Any failure is propagated to the caller — partial state on
+ * disk may require manually restoring from the safety backup.
+ */
+let restoreInProgress = false;
+
+export async function restoreFromBackup(id: string): Promise<{
+  safety: Backup;
+  restored: Backup;
+}> {
+  if (restoreInProgress) {
+    throw new Error("A restore is already running; wait for it to finish.");
+  }
+  if (runningBackup) {
+    throw new Error("A backup is currently running; try again in a moment.");
+  }
+  restoreInProgress = true;
+  try {
+    const repo = AppDataSource.getRepository(Backup);
+    const target = await repo.findOneBy({ id });
+    if (!target) throw new Error("Backup not found");
+    if (target.status !== "completed") {
+      throw new Error("Can only restore from a completed backup");
+    }
+    const zipPath = backupFilePath(target.filename);
+    if (!fs.existsSync(zipPath)) {
+      throw new Error("Backup archive is missing on disk");
+    }
+
+    // Pre-restore safety snapshot. Reuses runBackup so the resulting archive
+    // shows up in History — tagged `manual` because the user initiated the
+    // restore that triggered it.
+    const safety = await runBackup("manual");
+
+    if (scheduledTask) {
+      scheduledTask.stop();
+      scheduledTask = null;
+    }
+    await AppDataSource.destroy();
+
+    wipeDataExceptBackup();
+    await extractZipIntoDataRoot(zipPath);
+
+    await AppDataSource.initialize();
+    await AppDataSource.runMigrations();
+
+    // After the restored DB comes back online it has no row for the safety
+    // snapshot (or any other archive written since the restored zip was
+    // taken). Stitch every zip in `Backup/` back into the `backups` table so
+    // the History view reflects what's actually on disk.
+    await reconcileBackupHistory();
+
+    // Rebuild in-memory schedules from the restored DB rows.
+    await bootCron();
+    await bootBackups();
+
+    return { safety, restored: target };
+  } finally {
+    restoreInProgress = false;
+  }
+}
+
+function wipeDataExceptBackup(): void {
+  const root = dataRoot();
+  if (!fs.existsSync(root)) {
+    fs.mkdirSync(root, { recursive: true });
+    return;
+  }
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    if (entry.name === BACKUP_DIR_NAME) continue;
+    const p = path.join(root, entry.name);
+    try {
+      fs.rmSync(p, { recursive: true, force: true });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`[backups] failed to remove ${p}:`, err);
+    }
+  }
+}
+
+async function reconcileBackupHistory(): Promise<void> {
+  const dir = backupDir();
+  if (!fs.existsSync(dir)) return;
+  const repo = AppDataSource.getRepository(Backup);
+  const existing = await repo.find();
+  const byName = new Map(existing.map((r) => [r.filename, r]));
+
+  // Patch up rows that were captured mid-backup. The VACUUM INTO snapshot we
+  // ship inside each archive freezes the table while the row is still
+  // `running` with sizeBytes=0; after a restore, those rows would otherwise
+  // look perpetually in-flight. Promote them to completed and fill in the
+  // real file size so History matches what's actually on disk.
+  const salvage: Backup[] = [];
+  for (const row of existing) {
+    const abs = backupFilePath(row.filename);
+    if (!fs.existsSync(abs)) continue;
+    let dirty = false;
+    if (row.status === "running") {
+      row.status = "completed";
+      if (!row.completedAt) row.completedAt = new Date();
+      dirty = true;
+    }
+    if (row.sizeBytes === 0) {
+      row.sizeBytes = fs.statSync(abs).size;
+      dirty = true;
+    }
+    if (dirty) salvage.push(row);
+  }
+  if (salvage.length > 0) await repo.save(salvage);
+
+  const pending: Backup[] = [];
+  for (const entry of fs.readdirSync(dir)) {
+    if (!entry.endsWith(".zip")) continue;
+    if (byName.has(entry)) continue;
+    const abs = path.join(dir, entry);
+    const stat = fs.statSync(abs);
+    pending.push(
+      repo.create({
+        filename: entry,
+        sizeBytes: stat.size,
+        kind: entry.startsWith("uploaded-") ? "uploaded" : "manual",
+        status: "completed",
+        errorMessage: "",
+        createdAt: stat.mtime,
+        completedAt: stat.mtime,
+      }),
+    );
+  }
+  if (pending.length > 0) await repo.save(pending);
+}
+
+async function extractZipIntoDataRoot(zipPath: string): Promise<void> {
+  const root = dataRoot();
+  const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep;
+  fs.mkdirSync(root, { recursive: true });
+
+  const directory = await unzipper.Open.file(zipPath);
+  for (const entry of directory.files) {
+    if (entry.type === "Directory") continue;
+    // Normalise and guard against zip-slip — entry paths that try to escape
+    // the data root with `..` segments are rejected rather than silently
+    // clamped so we don't quietly write somewhere unexpected.
+    const rel = entry.path.replace(/\\/g, "/");
+    const abs = path.resolve(root, rel);
+    if (!abs.startsWith(rootWithSep) && abs !== root) {
+      throw new Error(`Refusing to extract outside data root: ${entry.path}`);
+    }
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    await pipeline(entry.stream(), createWriteStream(abs));
+  }
 }
 
 export function serializeBackup(b: Backup) {
