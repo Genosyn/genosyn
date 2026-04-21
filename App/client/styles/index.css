@@ -43,3 +43,115 @@ html.dark ::selection {
     opacity: 0;
   }
 }
+
+/* Minimal markdown styling for chat bubbles — compact, bubble-aware spacing.
+   Keep tight: no page-level <h1> margins, tiny paragraph gaps, and inline
+   code that reads inside a sentence rather than sticking out. */
+.chat-md > :first-child {
+  margin-top: 0;
+}
+.chat-md > :last-child {
+  margin-bottom: 0;
+}
+.chat-md p {
+  margin: 0.35rem 0;
+}
+.chat-md strong {
+  font-weight: 600;
+}
+.chat-md em {
+  font-style: italic;
+}
+.chat-md a {
+  color: #4f46e5; /* indigo-600 */
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+html.dark .chat-md a {
+  color: #818cf8; /* indigo-400 */
+}
+.chat-md ul,
+.chat-md ol {
+  margin: 0.35rem 0;
+  padding-left: 1.25rem;
+}
+.chat-md ul {
+  list-style: disc;
+}
+.chat-md ol {
+  list-style: decimal;
+}
+.chat-md li {
+  margin: 0.1rem 0;
+}
+.chat-md li > p {
+  margin: 0;
+}
+.chat-md h1,
+.chat-md h2,
+.chat-md h3,
+.chat-md h4 {
+  margin: 0.5rem 0 0.25rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.chat-md h1 {
+  font-size: 1.05rem;
+}
+.chat-md h2,
+.chat-md h3,
+.chat-md h4 {
+  font-size: 0.95rem;
+}
+.chat-md code {
+  background-color: rgba(15, 23, 42, 0.07); /* slate-900/7 */
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.86em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+html.dark .chat-md code {
+  background-color: rgba(226, 232, 240, 0.12); /* slate-200/12 */
+}
+.chat-md pre {
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.75rem;
+  background-color: rgba(15, 23, 42, 0.06);
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 0.85em;
+}
+.chat-md pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 1em;
+}
+html.dark .chat-md pre {
+  background-color: rgba(15, 23, 42, 0.5);
+}
+.chat-md blockquote {
+  margin: 0.35rem 0;
+  padding-left: 0.75rem;
+  border-left: 2px solid rgba(100, 116, 139, 0.5); /* slate-500/50 */
+  color: inherit;
+  opacity: 0.85;
+}
+.chat-md hr {
+  margin: 0.75rem 0;
+  border-color: rgba(148, 163, 184, 0.4); /* slate-400/40 */
+}
+.chat-md table {
+  margin: 0.5rem 0;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+.chat-md th,
+.chat-md td {
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  padding: 0.25rem 0.5rem;
+  text-align: left;
+}
+.chat-md th {
+  font-weight: 600;
+  background-color: rgba(148, 163, 184, 0.12);
+}

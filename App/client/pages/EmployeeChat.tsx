@@ -1,5 +1,7 @@
 import React from "react";
 import { useOutletContext } from "react-router-dom";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import {
   AlertCircle,
   CircleSlash,
@@ -493,7 +495,11 @@ function TurnBubble({
                 : "border border-slate-200 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100")
           }
         >
-          <div className="whitespace-pre-wrap break-words">{message.content}</div>
+          {isError || isSkipped ? (
+            <div className="whitespace-pre-wrap break-words">{message.content}</div>
+          ) : (
+            <ChatMarkdown content={message.content} />
+          )}
         </div>
         <div className="mt-1 pl-1 text-[10px] text-slate-400 opacity-0 transition group-hover:opacity-100 dark:text-slate-500">
           {formatTime(message.createdAt)}
@@ -520,13 +526,11 @@ function StreamingBubble({
           {authorName}
         </div>
         <div className="rounded-2xl rounded-tl-md border border-slate-200 bg-white px-3.5 py-2 text-sm leading-relaxed text-slate-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-          <div className="whitespace-pre-wrap break-words">
-            {content}
-            <span
-              className="ml-0.5 inline-block h-3.5 w-1.5 translate-y-[2px] bg-indigo-500"
-              style={{ animation: "chatCursor 1s steps(2) infinite" }}
-            />
-          </div>
+          <ChatMarkdown content={content} />
+          <span
+            className="ml-0.5 inline-block h-3.5 w-1.5 translate-y-[2px] bg-indigo-500"
+            style={{ animation: "chatCursor 1s steps(2) infinite" }}
+          />
         </div>
       </div>
     </div>
@@ -705,6 +709,36 @@ function Composer({
         {disabled && <span className="italic">Waiting for reply…</span>}
       </div>
     </form>
+  );
+}
+
+// ───────────────────────────── Markdown ─────────────────────────────
+
+/**
+ * Render an assistant's reply as HTML. Models emit markdown (bold, lists,
+ * links, fenced code) and showing the raw `**` markers alongside the prose
+ * was the reason this got flagged — the chat bubble should read like a
+ * polished message, not a diff.
+ *
+ * `breaks: true` keeps single-line newlines as `<br>`, matching the
+ * whitespace-pre-wrap feel people are used to from chat. DOMPurify strips
+ * anything scripty before we hand it to `dangerouslySetInnerHTML` — the CLI
+ * output is ultimately user-controlled text, so we don't trust it.
+ */
+function ChatMarkdown({ content }: { content: string }) {
+  const html = React.useMemo(() => {
+    const raw = marked.parse(content ?? "", {
+      async: false,
+      gfm: true,
+      breaks: true,
+    }) as string;
+    return DOMPurify.sanitize(raw);
+  }, [content]);
+  return (
+    <div
+      className="chat-md break-words"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
   );
 }
 
