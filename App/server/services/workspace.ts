@@ -6,9 +6,11 @@ import { employeeDir } from "./paths.js";
  * Employee workspace = everything under `data/companies/<co>/employees/<emp>/`.
  *
  * This is what the AI employee's CLI sees as cwd when a routine or chat runs,
- * so it's the natural place to give a human a filesystem view. The in-app
- * editor writes into the same tree the runner uses — SOUL.md edits here are
- * the same bytes the Soul tab edits, skill READMEs the same, and so on.
+ * so it's the natural place to give a human a filesystem view. Soul, Skill,
+ * and Routine bodies live in the DB now, so the tree only surfaces artifacts
+ * the CLI itself writes into cwd plus anything the operator drops in.
+ * Dot-prefixed directories (`.claude`, `.codex`, `.opencode`, `.mcp.json`)
+ * stay hidden — those are managed by the Settings / MCP tabs.
  *
  * Security:
  *  - every `rel` path is resolved against the employee root and must stay

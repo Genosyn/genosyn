@@ -63,7 +63,7 @@ function SoulPreview() {
           <span className="h-2.5 w-2.5 rounded-full bg-slate-200" />
           <div className="ml-3 flex min-w-0 items-center gap-1.5 text-xs font-medium text-slate-500">
             <FileText className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">employees/alex-brand/SOUL.md</span>
+            <span className="truncate">alex-brand · Soul</span>
           </div>
         </div>
         <div className="space-y-4 px-6 py-5 font-mono text-[13px] leading-6 text-slate-600">

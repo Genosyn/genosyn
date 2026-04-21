@@ -58,9 +58,10 @@ function useCtx(): EmployeeOutletCtx {
 }
 
 /**
- * SoulCard — the SOUL.md editor. Used inline on the employee Settings page
+ * SoulCard — the Soul editor. Used inline on the employee Settings page
  * (no longer has its own sidebar entry; Soul sits with the rest of the
- * per-employee settings).
+ * per-employee settings). Round-trips the Soul body against
+ * `AIEmployee.soulBody` via `/api/.../employees/:eid/soul`.
  */
 function SoulCard({ company, emp }: { company: Company; emp: Employee }) {
   const [content, setContent] = React.useState<string | null>(null);
@@ -107,9 +108,8 @@ function SoulCard({ company, emp }: { company: Company; emp: Employee }) {
               )}
             </div>
             <div className="text-xs text-slate-500 dark:text-slate-400">
-              {emp.name}&apos;s constitution — edited here, stored as{" "}
-              <code className="rounded bg-slate-100 px-1 py-0.5 text-[11px] dark:bg-slate-800">SOUL.md</code> in
-              the workspace.
+              {emp.name}&apos;s constitution — the markdown {emp.name} reads
+              before every task.
             </div>
           </div>
         </div>
@@ -120,7 +120,7 @@ function SoulCard({ company, emp }: { company: Company; emp: Employee }) {
             <MarkdownEditor value={content} onChange={setContent} rows={16} onSave={save} />
             <div className="flex items-center gap-2">
               <Button onClick={save} disabled={saving || !dirty}>
-                {saving ? "Saving…" : "Save SOUL.md"}
+                {saving ? "Saving…" : "Save Soul"}
               </Button>
               <span className="text-xs text-slate-400 dark:text-slate-500">⌘S to save</span>
             </div>
@@ -544,15 +544,11 @@ function RunsModal({
               <div className="flex h-full items-center justify-center text-xs text-slate-500 dark:text-slate-400">
                 <Loader2 size={14} className="mr-2 animate-spin" /> Loading log…
               </div>
-            ) : log === null ? null : log.missing ? (
-              <div className="flex h-full items-center justify-center text-xs text-slate-400 dark:text-slate-500">
-                Log file is missing on disk.
-              </div>
-            ) : (
+            ) : log === null ? null : (
               <pre className="h-full overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-[11px] leading-relaxed text-slate-100">
                 {log.truncated && (
                   <div className="mb-2 text-amber-400">
-                    [log truncated — showing last 256KB of {log.size} bytes]
+                    [log truncated — first 256KB of {log.size} bytes]
                   </div>
                 )}
                 {log.content || "(empty log)"}

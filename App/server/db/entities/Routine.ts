@@ -25,6 +25,14 @@ export class Routine {
   lastRunAt!: Date | null;
 
   /**
+   * Markdown brief — what used to live at `routines/<slug>/README.md` on
+   * disk. The runner folds this into the prompt each time the routine fires;
+   * the Routine editor round-trips through `/api/.../routines/:rid/readme`.
+   */
+  @Column({ type: "text", default: "" })
+  body!: string;
+
+  /**
    * Per-routine hard timeout in seconds. The runner SIGKILLs the CLI after
    * this long and marks the Run `timeout`. Default 10 min (`600`) covers
    * most substantive routines without letting a wedged process hold a

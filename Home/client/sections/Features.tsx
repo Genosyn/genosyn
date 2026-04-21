@@ -26,13 +26,13 @@ const FEATURES: Feature[] = [
     icon: BookOpen,
     title: "Soul",
     tagline: "A written constitution every employee lives by.",
-    body: "SOUL.md holds values, tone, and decision-making. Edit it like code. Diff it. Review it.",
+    body: "The Soul holds values, tone, and decision-making. Edit markdown in the app, audit the history, ship a new version.",
   },
   {
     icon: Sparkles,
     title: "Skills",
     tagline: "Documented capabilities, reusable and versionable.",
-    body: "Each skill is a markdown file. Attach them to employees, compose them in routines, share them across teams.",
+    body: "Each skill is a markdown playbook attached to an employee. Compose them in routines; share them across teams.",
   },
   {
     icon: CalendarClock,

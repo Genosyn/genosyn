@@ -1,8 +1,10 @@
 /**
  * Pre-built employee templates. Picked on the "Hire an employee" screen so
- * operators don't stare at an empty SOUL.md. A template carries a fully-
- * authored SOUL.md, a handful of skills (each with its own README), and a
- * small number of starter routines (schedule + README).
+ * operators don't stare at an empty Soul. A template carries a fully-authored
+ * Soul body, a handful of Skills (each with its own markdown body), and a
+ * small number of starter Routines (schedule + markdown body). When an
+ * employee is created from a template, these bodies land on the respective
+ * DB rows (`AIEmployee.soulBody`, `Skill.body`, `Routine.body`).
  *
  * Templates are intentionally declared in-code (not in the DB) so they ship
  * with the binary and are trivially editable via PR — no migrations, no

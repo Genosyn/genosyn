@@ -7,8 +7,7 @@ import { Skill } from "../db/entities/Skill.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
-import { skillDir, skillReadme } from "../services/paths.js";
-import { readText, removeDir, skillTemplate, writeText } from "../services/files.js";
+import { skillTemplate } from "../services/files.js";
 
 export const skillsRouter = Router({ mergeParams: true });
 skillsRouter.use(requireAuth);
@@ -54,9 +53,13 @@ skillsRouter.post(
     const { name } = req.body as z.infer<typeof createSchema>;
     const slug = await uniqueSlug(emp.id, toSlug(name));
     const repo = AppDataSource.getRepository(Skill);
-    const s = repo.create({ employeeId: emp.id, name, slug });
+    const s = repo.create({
+      employeeId: emp.id,
+      name,
+      slug,
+      body: skillTemplate(name),
+    });
     await repo.save(s);
-    writeText(skillReadme(co.slug, emp.slug, slug), skillTemplate(name));
     res.json(s);
   },
 );
@@ -77,7 +80,7 @@ async function loadSkill(cid: string, sid: string) {
 skillsRouter.get("/skills/:sid/readme", async (req, res) => {
   const found = await loadSkill((req.params as Record<string, string>).cid, req.params.sid);
   if (!found) return res.status(404).json({ error: "Not found" });
-  res.json({ content: readText(skillReadme(found.co.slug, found.emp.slug, found.skill.slug)) });
+  res.json({ content: found.skill.body });
 });
 
 const readmeSchema = z.object({ content: z.string() });
@@ -88,10 +91,8 @@ skillsRouter.put(
   async (req, res) => {
     const found = await loadSkill((req.params as Record<string, string>).cid, req.params.sid);
     if (!found) return res.status(404).json({ error: "Not found" });
-    writeText(
-      skillReadme(found.co.slug, found.emp.slug, found.skill.slug),
-      (req.body as z.infer<typeof readmeSchema>).content,
-    );
+    found.skill.body = (req.body as z.infer<typeof readmeSchema>).content;
+    await AppDataSource.getRepository(Skill).save(found.skill);
     res.json({ ok: true });
   },
 );
@@ -100,6 +101,5 @@ skillsRouter.delete("/skills/:sid", async (req, res) => {
   const found = await loadSkill((req.params as Record<string, string>).cid, req.params.sid);
   if (!found) return res.status(404).json({ error: "Not found" });
   await AppDataSource.getRepository(Skill).delete({ id: found.skill.id });
-  removeDir(skillDir(found.co.slug, found.emp.slug, found.skill.slug));
   res.json({ ok: true });
 });

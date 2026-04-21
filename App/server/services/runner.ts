@@ -1,6 +1,4 @@
 import { spawn } from "node:child_process";
-import fs from "node:fs";
-import path from "node:path";
 import { AppDataSource } from "../db/datasource.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
@@ -9,16 +7,8 @@ import { Company } from "../db/entities/Company.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { Skill } from "../db/entities/Skill.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
-import {
-  employeeDir,
-  ensureDir,
-  routineDir,
-  routineReadme,
-  skillReadme,
-  soulPath,
-} from "./paths.js";
+import { employeeDir, ensureDir } from "./paths.js";
 import { PROVIDERS, isSubscriptionConnected } from "./providers.js";
-import { readText } from "./files.js";
 import { decryptSecret } from "../lib/secret.js";
 import { materializeMcpConfig } from "./mcp.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
@@ -28,16 +18,25 @@ import { loadCompanySecretsEnv } from "../routes/secrets.js";
  *
  * For each Routine run we:
  *  1. Load the employee, company, model, and skill list.
- *  2. Compose a single prompt from SOUL.md + skill READMEs + routine README.
+ *  2. Compose a single prompt from the Soul body + skill bodies + routine
+ *     body, all pulled from the DB.
  *  3. Resolve credentials per employee — subscription (CLAUDE_CONFIG_DIR
  *     pointing at their .claude/) or API key (ANTHROPIC_API_KEY).
- *  4. Spawn the provider CLI in the employee's directory, stream stdout +
- *     stderr into a run log, and persist the Run record.
+ *  4. Spawn the provider CLI in the employee's directory, buffer stdout +
+ *     stderr into the Run's `logContent`, and persist the Run record.
  *
  * Degradation: if no Model is connected, or the provider CLI isn't installed,
  * we write a clear stub log and mark the Run as skipped — the product must
  * keep working on a fresh self-host before anyone has run `claude login`.
  */
+
+/**
+ * Hard cap on how many bytes of stdout+stderr we keep on a single run row.
+ * Matches the old 256KB file-tail display window so nothing visibly changes;
+ * output past the cap is dropped and a truncation marker is appended.
+ */
+export const RUN_LOG_MAX_BYTES = 256 * 1024;
+
 export async function runRoutine(routine: Routine): Promise<Run> {
   const runRepo = AppDataSource.getRepository(Run);
   const routineRepo = AppDataSource.getRepository(Routine);
@@ -58,34 +57,31 @@ export async function runRoutine(routine: Routine): Promise<Run> {
     routineId: routine.id,
     startedAt: now,
     status: "running",
+    logContent: "",
   });
   const saved = await runRepo.save(run);
 
-  const logsDir = path.join(routineDir(co.slug, emp.slug, routine.slug), "runs");
-  ensureDir(logsDir);
-  const stamp = now.toISOString().replace(/[:.]/g, "-");
-  const logFile = path.join(logsDir, `${stamp}.log`);
-
-  const header = [
-    `[${now.toISOString()}] run started`,
-    `routine=${routine.name} (${routine.slug})`,
-    `employee=${emp.name} (${emp.slug})`,
-    `company=${co.name} (${co.slug})`,
-    `model=${model ? `${model.provider}/${model.model} (${model.authMode})` : "not connected"}`,
-    `cron=${routine.cronExpr}`,
-    "",
-  ];
-  fs.writeFileSync(logFile, header.join("\n") + "\n", "utf8");
+  const log = new LogBuffer(RUN_LOG_MAX_BYTES);
+  log.write(
+    [
+      `[${now.toISOString()}] run started`,
+      `routine=${routine.name} (${routine.slug})`,
+      `employee=${emp.name} (${emp.slug})`,
+      `company=${co.name} (${co.slug})`,
+      `model=${model ? `${model.provider}/${model.model} (${model.authMode})` : "not connected"}`,
+      `cron=${routine.cronExpr}`,
+      "",
+    ].join("\n") + "\n",
+  );
 
   // No model connected → skip cleanly.
   if (!model) {
-    appendLine(
-      logFile,
+    log.line(
       "[skipped] This employee has no AI Model connected. Open the employee in the app and connect one.",
     );
     saved.finishedAt = new Date();
     saved.status = "skipped";
-    saved.logsPath = logFile;
+    saved.logContent = log.value();
     await runRepo.save(saved);
     await touchRoutine(routine, saved.finishedAt, routineRepo);
     return saved;
@@ -105,14 +101,14 @@ export async function runRoutine(routine: Routine): Promise<Run> {
         env.env![k] = v;
       }
     } catch (err) {
-      appendLine(logFile, `[warn] failed to load company secrets: ${(err as Error).message}`);
+      log.line(`[warn] failed to load company secrets: ${(err as Error).message}`);
     }
   }
   if ("error" in env) {
-    appendLine(logFile, `[error] ${env.error}`);
+    log.line(`[error] ${env.error}`);
     saved.finishedAt = new Date();
     saved.status = "failed";
-    saved.logsPath = logFile;
+    saved.logContent = log.value();
     await runRepo.save(saved);
     await touchRoutine(routine, saved.finishedAt, routineRepo);
     return saved;
@@ -129,44 +125,42 @@ export async function runRoutine(routine: Routine): Promise<Run> {
   const invocation = buildInvocation(model.provider, model.model, prompt);
   const timeoutMs = Math.max(1, routine.timeoutSec) * 1000;
   try {
-    const result = await spawnAndLog(
+    const result = await spawnAndBuffer(
       invocation.cmd,
       invocation.args,
       { cwd, env: env.env, timeoutMs },
-      logFile,
+      log,
     );
     saved.finishedAt = new Date();
     saved.exitCode = result.code;
     saved.status = result.code === 0 ? "completed" : "failed";
     if (result.code !== 0) {
-      appendLine(logFile, `[error] ${invocation.cmd} exited with code ${result.code}`);
+      log.line(`[error] ${invocation.cmd} exited with code ${result.code}`);
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (err instanceof SpawnTimeoutError) {
-      appendLine(
-        logFile,
+      log.line(
         `[timeout] Killed after ${routine.timeoutSec}s. Increase the routine's timeoutSec if this is expected.`,
       );
       saved.finishedAt = new Date();
       saved.status = "timeout";
       saved.exitCode = null;
     } else if (msg.includes("ENOENT")) {
-      appendLine(
-        logFile,
+      log.line(
         `[stub] \`${invocation.cmd}\` CLI not found on PATH. Install it to run this routine for real.`,
       );
       saved.finishedAt = new Date();
       saved.status = "skipped";
       saved.exitCode = null;
     } else {
-      appendLine(logFile, `[error] ${msg}`);
+      log.line(`[error] ${msg}`);
       saved.finishedAt = new Date();
       saved.status = "failed";
       saved.exitCode = null;
     }
   }
-  saved.logsPath = logFile;
+  saved.logContent = log.value();
   await runRepo.save(saved);
   await touchRoutine(routine, saved.finishedAt, routineRepo);
   await writeJournalForRun(emp.id, routine, saved);
@@ -197,7 +191,6 @@ async function writeJournalForRun(
   const title = `Routine "${routine.name}" ${verb}`;
   const bodyLines: string[] = [];
   if (run.exitCode !== null) bodyLines.push(`exit code: ${run.exitCode}`);
-  if (run.logsPath) bodyLines.push(`log: ${run.logsPath}`);
   const entry = journalRepo.create({
     employeeId,
     kind: "run",
@@ -230,14 +223,14 @@ function composePrompt(args: {
   parts.push(
     `You are ${emp.name}, ${emp.role} at ${co.name}. The following documents are yours — your Soul, your Skills, and today's Routine.`,
   );
-  parts.push("\n## SOUL.md\n");
-  parts.push(readText(soulPath(co.slug, emp.slug)));
+  parts.push("\n## Soul\n");
+  parts.push(emp.soulBody);
   for (const s of skills) {
     parts.push(`\n## Skill: ${s.name}\n`);
-    parts.push(readText(skillReadme(co.slug, emp.slug, s.slug)));
+    parts.push(s.body);
   }
   parts.push(`\n## Routine: ${routine.name}\n`);
-  parts.push(readText(routineReadme(co.slug, emp.slug, routine.slug)));
+  parts.push(routine.body);
   parts.push("\n---\nRun this routine now. Produce the expected output.");
   return parts.join("\n");
 }
@@ -315,22 +308,63 @@ class SpawnTimeoutError extends Error {
 }
 
 /**
- * Spawn a child, pipe stdout/stderr into `logFile`, and resolve with the
- * exit code on normal close. If the child doesn't exit within `timeoutMs`
- * we SIGKILL it and reject with {@link SpawnTimeoutError} — the caller is
- * expected to mark the Run `timeout` with `exitCode = null`.
+ * Bounded log buffer. Keeps the first `cap` bytes; everything after is
+ * dropped with a one-shot `[truncated]` marker, so a runaway CLI can't blow
+ * up the run row. Stored content fits the same display cap the route used
+ * to apply at read time.
  */
-function spawnAndLog(
+class LogBuffer {
+  private parts: string[] = [];
+  private size = 0;
+  private truncated = false;
+
+  constructor(private readonly cap: number) {}
+
+  write(s: string): void {
+    if (!s) return;
+    if (this.truncated) return;
+    const b = Buffer.byteLength(s, "utf8");
+    if (this.size + b <= this.cap) {
+      this.parts.push(s);
+      this.size += b;
+      return;
+    }
+    const remaining = this.cap - this.size;
+    if (remaining > 0) {
+      // Trim to roughly `remaining` bytes. Favor correctness over byte-exactness:
+      // slice by chars, then push, then mark as truncated.
+      this.parts.push(s.slice(0, remaining));
+      this.size += Buffer.byteLength(s.slice(0, remaining), "utf8");
+    }
+    this.parts.push(`\n[truncated — output exceeded ${this.cap} bytes]\n`);
+    this.truncated = true;
+  }
+
+  line(s: string): void {
+    this.write(s + "\n");
+  }
+
+  value(): string {
+    return this.parts.join("");
+  }
+}
+
+/**
+ * Spawn a child, copy stdout/stderr into the provided LogBuffer, and resolve
+ * with the exit code on normal close. If the child doesn't exit within
+ * `timeoutMs` we SIGKILL it and reject with {@link SpawnTimeoutError} — the
+ * caller is expected to mark the Run `timeout` with `exitCode = null`.
+ */
+function spawnAndBuffer(
   cmd: string,
   args: string[],
   opts: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number },
-  logFile: string,
+  log: LogBuffer,
 ): Promise<{ code: number }> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env });
-    const out = fs.createWriteStream(logFile, { flags: "a" });
-    child.stdout.pipe(out, { end: false });
-    child.stderr.pipe(out, { end: false });
+    child.stdout.on("data", (b: Buffer) => log.write(b.toString("utf8")));
+    child.stderr.on("data", (b: Buffer) => log.write(b.toString("utf8")));
 
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -340,13 +374,12 @@ function spawnAndLog(
 
     child.on("error", (err) => {
       clearTimeout(timer);
-      out.end();
       reject(err);
     });
     child.on("close", (code) => {
       clearTimeout(timer);
       const tag = timedOut ? "timeout" : `exit ${code}`;
-      out.end(`\n[${new Date().toISOString()}] ${tag}\n`);
+      log.line(`\n[${new Date().toISOString()}] ${tag}`);
       if (timedOut) {
         reject(new SpawnTimeoutError(`${cmd} timed out after ${opts.timeoutMs}ms`));
       } else {
@@ -354,8 +387,4 @@ function spawnAndLog(
       }
     });
   });
-}
-
-function appendLine(file: string, line: string): void {
-  fs.appendFileSync(file, line + "\n", "utf8");
 }

@@ -23,7 +23,7 @@ import { useDialog } from "./ui/Dialog";
  * Markdown editor with three view modes (edit / split / preview), a minimal
  * formatting toolbar, and ⌘S save. Kept dependency-light — marked + DOMPurify
  * for preview, plain <textarea> for input. Monaco is overkill for the sort
- * of prose files we edit here (SOUL.md, skill/routine READMEs).
+ * of prose bodies we edit here (Soul, skill, routine).
  */
 export type MarkdownEditorProps = {
   value: string;

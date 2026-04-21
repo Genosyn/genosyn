@@ -70,17 +70,19 @@ its own on-disk creds file, which can be individually disconnected.
 - **Member** — a human user inside a company.
 - **AI Employee** — a persistent AI persona attached to a company. Has a name,
   role, and **Soul**.
-- **Soul** (`SOUL.md`) — the written constitution of an employee: values, tone,
-  how it makes decisions, what it refuses to do.
-- **Skill** — a capability the employee knows how to apply. Lives as
-  `skills/<slug>/README.md`. Think: *"how to write a weekly changelog,"* *"how
+- **Soul** — the written constitution of an employee: values, tone, how it
+  makes decisions, what it refuses to do. Stored as markdown on
+  `AIEmployee.soulBody` in the DB.
+- **Skill** — a capability the employee knows how to apply. Stored as markdown
+  on `Skill.body` in the DB. Think: *"how to write a weekly changelog,"* *"how
   to triage a bug report."*
-- **Routine** — a scheduled recurring piece of work. Cron-triggered. Lives as
-  `routines/<slug>/README.md` + metadata row.
+- **Routine** — a scheduled recurring piece of work. Cron-triggered. Brief is
+  markdown on `Routine.body` alongside the cron metadata.
 - **AI Model** — the brain of a single AI Employee. One-to-one with the
   employee. Has a provider (`claude-code` / `codex` / `opencode`), a model
   string, and its own credentials stored under the employee's data dir.
-- **Run** — a single execution of a routine. Produces logs + artifacts.
+- **Run** — a single execution of a routine. Captured stdout + stderr are
+  stored on `Run.logContent` in the DB (hard-capped at 256KB).
 
 ---
 
@@ -107,12 +109,11 @@ genosyn/
 │   │   ├── lib/api.ts
 │   │   └── styles/
 │   └── data/                     # runtime
-│       ├── app.sqlite
+│       ├── app.sqlite            # Soul / Skill / Routine bodies + Run logs live here
 │       └── companies/<company-slug>/employees/<emp-slug>/
-│           ├── SOUL.md
-│           ├── skills/<skill-slug>/README.md
-│           ├── routines/<routine-slug>/README.md
-│           └── .claude/          # CLAUDE_CONFIG_DIR — per-employee creds
+│           ├── .claude/ .codex/ .opencode/  # per-employee provider creds
+│           ├── .mcp.json                     # materialized before each spawn
+│           └── …                             # artifacts the CLI writes to cwd
 └── Home/                         # Marketing site, standalone
     ├── server.ts
     ├── client/
@@ -135,10 +136,11 @@ genosyn/
 - `AIModel` — employeeId (unique), provider (`claude-code | codex | opencode`),
   model, authMode (`subscription | apikey`), configJson (encrypted secrets),
   connectedAt
-- `AIEmployee` — companyId, name, slug, role
-- `Skill` — employeeId, name, slug
-- `Routine` — employeeId, name, slug, cronExpr, enabled, lastRunAt
-- `Run` — routineId, startedAt, finishedAt, status, logsPath *(V1)*
+- `AIEmployee` — companyId, name, slug, role, soulBody (markdown)
+- `Skill` — employeeId, name, slug, body (markdown)
+- `Routine` — employeeId, name, slug, cronExpr, enabled, lastRunAt, body (markdown)
+- `Run` — routineId, startedAt, finishedAt, status, exitCode, logContent
+  (captured stdout + stderr, capped at 256KB)
 
 ### `config.ts` shape
 ```ts
@@ -193,7 +195,8 @@ export const config = {
 
 ### M3 — AI Employees + Soul
 - [ ] Create employee (name → slug, role)
-- [ ] Scaffold `SOUL.md` with a sensible starter template
+- [ ] Scaffold Soul with a sensible starter template (seeded into
+      `AIEmployee.soulBody` at create time)
 - [ ] In-app Soul editor (monaco or simple textarea with markdown preview)
 - [ ] Employee list + detail pages
 
@@ -298,7 +301,8 @@ export const config = {
 
 ## V2+ wild ideas (parking lot)
 
-- **Marketplace** — share SOUL.md personas and skill packs publicly.
+- **Marketplace** — share Soul personas and skill packs publicly (exported
+  from the DB as markdown bundles).
 - **Employee ↔ employee** messaging, with humans CC'd.
 - **Inbox** — unified stream of everything every employee produced today.
 - **Voice** — TTS summaries; "call" an employee.
@@ -314,10 +318,14 @@ export const config = {
 
 1. **Employee-first, not workflow-first.** The primary noun is the employee;
    routines and skills hang off them.
-2. **Markdown as source of truth.** Soul, skills, routines — all readable,
-   diffable, commitable files on disk. DB is the index, not the truth.
-3. **Local-first & self-hostable.** SQLite + filesystem works offline on a
-   laptop. Postgres is an upgrade, not a requirement.
+2. **Database as source of truth.** Soul, skills, routines, and captured
+   run logs all live on their DB rows as markdown / text. One place to back
+   up, one place to restore. The filesystem tree under `data/companies/…`
+   only carries what the provider CLI needs at runtime (credentials,
+   `.mcp.json`, cwd artifacts).
+3. **Local-first & self-hostable.** SQLite works offline on a laptop;
+   flip `config.db.driver` to Postgres when you outgrow it. Either way the
+   same entities and migrations apply.
 4. **Human-in-the-loop by default.** Autonomy is opt-in per routine.
 5. **Boring tech, clean UI.** Express + TypeORM + React. No frameworks of the
    month. Interface should feel like Linear crossed with Notion.

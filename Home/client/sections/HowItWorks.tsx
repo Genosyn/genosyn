@@ -10,12 +10,12 @@ const STEPS: Step[] = [
   {
     number: "01",
     title: "Hire an Employee",
-    body: "Give them a name and a role. Genosyn scaffolds the folder on disk and drops a starter SOUL.md in place.",
+    body: "Give them a name and a role. Genosyn seeds a starter Soul, hooks up their credential directory, and opens the editor.",
   },
   {
     number: "02",
     title: "Write their Soul",
-    body: "Edit SOUL.md to describe how they think, what they value, and what they will never do. Add skills as markdown.",
+    body: "Edit their Soul to describe how they think, what they value, and what they will never do. Add skills as markdown playbooks.",
   },
   {
     number: "03",

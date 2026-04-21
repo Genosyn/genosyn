@@ -4,14 +4,8 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { Skill } from "../db/entities/Skill.js";
-import {
-  employeeDir,
-  ensureDir,
-  skillReadme,
-  soulPath,
-} from "./paths.js";
+import { employeeDir, ensureDir } from "./paths.js";
 import { PROVIDERS, isSubscriptionConnected } from "./providers.js";
-import { readText } from "./files.js";
 import { decryptSecret } from "../lib/secret.js";
 import { materializeMcpConfig } from "./mcp.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
@@ -21,9 +15,9 @@ import { loadCompanySecretsEnv } from "../routes/secrets.js";
  *
  * The product surface is: a human sits at a keyboard and types at an AI
  * employee. We translate that into a single headless CLI invocation with a
- * prompt that carries the employee's SOUL + skills + recent conversation
- * turns + the latest user message. No streaming for v1 — we wait for the
- * CLI to exit and return stdout.
+ * prompt that carries the employee's Soul + skill bodies + recent conversation
+ * turns + the latest user message — all pulled from the DB. No streaming for
+ * v1 — we wait for the CLI to exit and return stdout.
  *
  * Same degradation rules as `runner.ts`:
  *  - no model connected → `skipped` with an explanatory reply
@@ -112,11 +106,11 @@ function composeChatPrompt(args: {
   parts.push(
     `You are ${emp.name}, ${emp.role} at ${co.name}. A teammate is chatting with you directly. Reply in your own voice, guided by your Soul and Skills below. Keep replies focused and grounded — ask clarifying questions when needed.`,
   );
-  parts.push("\n## SOUL.md\n");
-  parts.push(readText(soulPath(co.slug, emp.slug)));
+  parts.push("\n## Soul\n");
+  parts.push(emp.soulBody);
   for (const s of skills) {
     parts.push(`\n## Skill: ${s.name}\n`);
-    parts.push(readText(skillReadme(co.slug, emp.slug, s.slug)));
+    parts.push(s.body);
   }
   if (history.length > 0) {
     parts.push("\n## Conversation so far\n");

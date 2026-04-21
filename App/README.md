@@ -47,14 +47,20 @@ If `config.smtp.host` is empty, Genosyn does **not** send emails. Instead,
 welcome / password-reset / invitation messages are logged to the server
 console with the prefix `[email:skipped]`. Use this for local development.
 
-## Data on disk
+## Data storage
 
-User-generated content (Soul, Skills, Routines) lives under `config.dataDir`
-(default `./data`). Markdown files are the source of truth; the DB is the
-index. Everything under `data/` is gitignored.
+User-generated content (Soul, Skills, Routines, Run logs) lives in the DB.
+With the default driver that's `./data/app.sqlite`; flip
+`config.db.driver` to `postgres` and everything (entities + migrations) moves
+with you. The filesystem side of `config.dataDir` only holds per-employee
+provider credentials (`.claude`, `.codex`, `.opencode`), the `.mcp.json` we
+materialize before each spawn, and any artifacts the CLI writes into its
+working directory. Everything under `data/` is gitignored.
 
-## Runner (stub)
+## Runner
 
-The cron-driven runner in `server/services/runner.ts` is a stub — it writes a
-fake log line per run but does not yet invoke `claude-code` / `codex` /
-`opencode`. See `ROADMAP.md` V1 for real execution.
+The cron-driven runner in `server/services/runner.ts` spawns the employee's
+provider CLI (`claude-code` / `codex` / `opencode`) with a prompt composed
+from the employee's Soul + Skills + Routine. Stdout + stderr are captured
+into `Run.logContent` (capped at 256KB). When no model is connected or the
+CLI isn't installed, the run is marked `skipped` with an explanatory log.

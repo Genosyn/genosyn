@@ -66,9 +66,10 @@ const EMPTY_ANSWERS: SoulAnswers = {
  *     this employee. Can be skipped and done later from settings.
  *  3. About — a handful of questions that shape the Soul (tone, autonomy,
  *     hard "no"s, reference material). All optional.
- *  4. Review the Soul — preview + edit the generated SOUL.md before
+ *  4. Review the Soul — preview + edit the generated Soul markdown before
  *     finishing. Falls back to the template's soul when the operator
- *     skipped the About step.
+ *     skipped the About step. The Soul body lives on the employee row;
+ *     this step round-trips through PUT /employees/:eid/soul.
  *
  * The employee row is created at the end of step 1 so the model connect
  * step in step 2 has a real employee slug to target. If the operator
@@ -394,7 +395,7 @@ function BasicsStep({
                 You&apos;ll get:
               </div>
               <ul className="list-inside list-disc space-y-0.5">
-                <li>A fully-written SOUL.md — you can edit it after.</li>
+                <li>A fully-written Soul — you can edit it after.</li>
                 {selectedTemplate.skills.map((s) => (
                   <li key={s}>
                     Skill ·{" "}
@@ -634,11 +635,8 @@ function SoulStep({
             <div>
               <h2 className="text-sm font-semibold">Review {name}&apos;s Soul</h2>
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                This becomes{" "}
-                <code className="rounded bg-slate-100 px-1 py-0.5 text-[11px] dark:bg-slate-800">
-                  SOUL.md
-                </code>{" "}
-                — {name}&apos;s constitution. Edit freely now, or later from settings.
+                This becomes {name}&apos;s constitution — the markdown {name} reads
+                before every task. Edit freely now, or later from settings.
               </p>
             </div>
             <Button size="sm" variant="secondary" onClick={onRegenerate}>
@@ -745,11 +743,12 @@ function TemplateCard({
 // ─── Soul generator ────────────────────────────────────────────────────────
 
 /**
- * Build a fresh SOUL.md from the operator's About answers. The template's
+ * Build a fresh Soul body from the operator's About answers. The template's
  * own (server-side) soul is not consumed here — when the operator leaves the
  * About step blank, the caller skips generation and shows whatever the
- * server already wrote at create-time (`GET /soul`). This keeps the
- * generator predictable and side-effect free.
+ * server already stored at create-time (`GET /soul` returns the seeded
+ * `AIEmployee.soulBody`). This keeps the generator predictable and
+ * side-effect free.
  */
 function generateSoul(
   name: string,

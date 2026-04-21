@@ -7,15 +7,13 @@ import { Company } from "../db/entities/Company.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { Approval } from "../db/entities/Approval.js";
-import fs from "node:fs";
 import crypto from "node:crypto";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
-import { routineDir, routineReadme } from "../services/paths.js";
-import { readText, removeDir, routineTemplate, writeText } from "../services/files.js";
+import { routineTemplate } from "../services/files.js";
 import { registerRoutine, unregisterRoutine } from "../services/cron.js";
-import { runRoutine } from "../services/runner.js";
+import { runRoutine, RUN_LOG_MAX_BYTES } from "../services/runner.js";
 import { recordAudit } from "../services/audit.js";
 
 export const routinesRouter = Router({ mergeParams: true });
@@ -72,9 +70,9 @@ routinesRouter.post(
       cronExpr: body.cronExpr,
       enabled: true,
       lastRunAt: null,
+      body: routineTemplate(body.name, body.cronExpr),
     });
     await repo.save(r);
-    writeText(routineReadme(co.slug, emp.slug, slug), routineTemplate(body.name, body.cronExpr));
     registerRoutine(r);
     await recordAudit({
       companyId: co.id,
@@ -146,8 +144,8 @@ routinesRouter.delete("/routines/:rid", async (req, res) => {
   if (!found) return res.status(404).json({ error: "Not found" });
   unregisterRoutine(found.routine.id);
   await AppDataSource.getRepository(Approval).delete({ routineId: found.routine.id });
+  await AppDataSource.getRepository(Run).delete({ routineId: found.routine.id });
   await AppDataSource.getRepository(Routine).delete({ id: found.routine.id });
-  removeDir(routineDir(found.co.slug, found.emp.slug, found.routine.slug));
   await recordAudit({
     companyId: found.co.id,
     actorUserId: req.userId ?? null,
@@ -163,9 +161,7 @@ routinesRouter.delete("/routines/:rid", async (req, res) => {
 routinesRouter.get("/routines/:rid/readme", async (req, res) => {
   const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
   if (!found) return res.status(404).json({ error: "Not found" });
-  res.json({
-    content: readText(routineReadme(found.co.slug, found.emp.slug, found.routine.slug)),
-  });
+  res.json({ content: found.routine.body });
 });
 
 const readmeSchema = z.object({ content: z.string() });
@@ -176,10 +172,8 @@ routinesRouter.put(
   async (req, res) => {
     const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
     if (!found) return res.status(404).json({ error: "Not found" });
-    writeText(
-      routineReadme(found.co.slug, found.emp.slug, found.routine.slug),
-      (req.body as z.infer<typeof readmeSchema>).content,
-    );
+    found.routine.body = (req.body as z.infer<typeof readmeSchema>).content;
+    await AppDataSource.getRepository(Routine).save(found.routine);
     res.json({ ok: true });
   },
 );
@@ -229,25 +223,36 @@ routinesRouter.post("/routines/:rid/run", async (req, res) => {
 });
 
 /**
- * List recent runs for a routine, newest-first. Returns the full Run row
- * (sans log contents) so the UI can render a history timeline with status
- * badges and exit codes; log text is fetched lazily via /runs/:runId/log.
+ * List recent runs for a routine, newest-first. Returns lightweight metadata
+ * (sans the captured `logContent`) so the history timeline renders fast;
+ * log text is fetched lazily via /runs/:runId/log.
  */
 routinesRouter.get("/routines/:rid/runs", async (req, res) => {
   const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
   if (!found) return res.status(404).json({ error: "Not found" });
-  const runs = await AppDataSource.getRepository(Run).find({
-    where: { routineId: found.routine.id },
-    order: { startedAt: "DESC" },
-    take: 50,
-  });
+  const runs = await AppDataSource.getRepository(Run)
+    .createQueryBuilder("run")
+    .select([
+      "run.id",
+      "run.routineId",
+      "run.startedAt",
+      "run.finishedAt",
+      "run.status",
+      "run.exitCode",
+      "run.createdAt",
+    ])
+    .where("run.routineId = :rid", { rid: found.routine.id })
+    .orderBy("run.startedAt", "DESC")
+    .take(50)
+    .getMany();
   res.json(runs);
 });
 
 /**
- * Stream the captured log file for a single run. We cap at 256KB — routine
- * logs should stay terse, and anything larger is almost certainly a runaway
- * that would blow up the browser.
+ * Return the captured log for a single run. The runner hard-caps the stored
+ * content at {@link RUN_LOG_MAX_BYTES}, so this endpoint never has to worry
+ * about runaway sizes — it just returns the row verbatim with the usual
+ * company-scope check.
  */
 routinesRouter.get("/runs/:runId/log", async (req, res) => {
   const run = await AppDataSource.getRepository(Run).findOneBy({ id: req.params.runId });
@@ -258,22 +263,8 @@ routinesRouter.get("/runs/:runId/log", async (req, res) => {
     run.routineId,
   );
   if (!found) return res.status(404).json({ error: "Not found" });
-  if (!run.logsPath || !fs.existsSync(run.logsPath)) {
-    return res.json({ content: "", missing: true });
-  }
-  const MAX = 256 * 1024;
-  const stat = fs.statSync(run.logsPath);
-  let content: string;
-  let truncated = false;
-  if (stat.size <= MAX) {
-    content = fs.readFileSync(run.logsPath, "utf8");
-  } else {
-    const fd = fs.openSync(run.logsPath, "r");
-    const buf = Buffer.alloc(MAX);
-    fs.readSync(fd, buf, 0, MAX, stat.size - MAX);
-    fs.closeSync(fd);
-    content = buf.toString("utf8");
-    truncated = true;
-  }
-  res.json({ content, truncated, size: stat.size });
+  const content = run.logContent ?? "";
+  const size = Buffer.byteLength(content, "utf8");
+  const truncated = size >= RUN_LOG_MAX_BYTES;
+  res.json({ content, truncated, size });
 });

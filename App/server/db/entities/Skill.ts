@@ -15,6 +15,14 @@ export class Skill {
   @Column({ type: "varchar" })
   slug!: string;
 
+  /**
+   * Markdown playbook — what used to live at `skills/<slug>/README.md` on
+   * disk. Round-trips through `/api/.../skills/:sid/readme` and is folded
+   * into the employee's prompt by chat / runner.
+   */
+  @Column({ type: "text", default: "" })
+  body!: string;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

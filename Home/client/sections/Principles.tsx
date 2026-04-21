@@ -3,8 +3,8 @@ import { FileCode2, GitBranch, Server } from "lucide-react";
 const PRINCIPLES = [
   {
     icon: FileCode2,
-    title: "Markdown is the source of truth.",
-    body: "Soul, skills, routines — readable, diffable, committable. The database is the index, not the truth.",
+    title: "One database, one source of truth.",
+    body: "Souls, skills, routines, and run logs all live in one database. Back it up, restore it, migrate SQLite → Postgres without losing a line.",
   },
   {
     icon: GitBranch,

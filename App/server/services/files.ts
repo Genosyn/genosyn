@@ -1,16 +1,13 @@
 import fs from "node:fs";
-import path from "node:path";
-import { ensureDir } from "./paths.js";
 
-export function readText(file: string): string {
-  if (!fs.existsSync(file)) return "";
-  return fs.readFileSync(file, "utf8");
-}
-
-export function writeText(file: string, content: string): void {
-  ensureDir(path.dirname(file));
-  fs.writeFileSync(file, content, "utf8");
-}
+/**
+ * Starter markdown for Soul, Skills, and Routines.
+ *
+ * These bodies live in the DB (see `AIEmployee.soulBody`, `Skill.body`,
+ * `Routine.body`). The generators live here so both the create-flow routes
+ * and the template materializer share one source of truth for what a fresh
+ * doc looks like. Editing them does not require a migration.
+ */
 
 export function removeDir(dir: string): void {
   if (fs.existsSync(dir)) {
@@ -22,8 +19,8 @@ export function soulTemplate(name: string, role: string): string {
   return `# ${name}'s Soul
 
 > This is the constitution of **${name}** (${role}). Fill it in like you'd brief
-> a brand-new teammate on their first day. Markdown is the source of truth —
-> edit freely, commit often.
+> a brand-new teammate on their first day. Editable from the Soul tab — the
+> DB is the source of truth.
 
 ## Who you are
 A short paragraph in the first person about who ${name} is, what ${name} cares

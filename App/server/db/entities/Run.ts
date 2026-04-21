@@ -24,8 +24,16 @@ export class Run {
   @Column({ type: "varchar" })
   status!: RunStatus;
 
-  @Column({ type: "varchar", nullable: true })
-  logsPath!: string | null;
+  /**
+   * Captured stdout+stderr from the provider CLI, plus runner framing lines
+   * (headers, timeouts, errors). Previously this was a path to a log file on
+   * disk; the DB is now the source of truth and the runner buffers output in
+   * memory until the child closes. Hard-capped at {@link RUN_LOG_MAX_BYTES}
+   * to keep a runaway CLI from blowing up the row — we keep the first N
+   * bytes and append a truncation marker once the cap is hit.
+   */
+  @Column({ type: "text", default: "" })
+  logContent!: string;
 
   /**
    * CLI exit code when the child closed under its own power. Null for runs

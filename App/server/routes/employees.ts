@@ -12,21 +12,13 @@ import { McpServer } from "../db/entities/McpServer.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
-import path from "node:path";
-import {
-  employeeDir,
-  ensureDir,
-  soulPath,
-} from "../services/paths.js";
+import { employeeDir, ensureDir } from "../services/paths.js";
 import { isModelConnected } from "../services/providers.js";
-import { readText, removeDir, soulTemplate, writeText } from "../services/files.js";
-import { unregisterRoutine } from "../services/cron.js";
+import { removeDir, soulTemplate, skillTemplate, routineTemplate } from "../services/files.js";
+import { unregisterRoutine, registerRoutine } from "../services/cron.js";
 import { deleteEmployeeConversations } from "./employeeSurface.js";
 import { recordAudit } from "../services/audit.js";
 import { findTemplate } from "../services/templates.js";
-import { skillReadme, routineReadme, routineDir } from "../services/paths.js";
-import { skillTemplate as skillTemplateMd } from "../services/files.js";
-import { registerRoutine } from "../services/cron.js";
 
 export const employeesRouter = Router({ mergeParams: true });
 employeesRouter.use(requireAuth);
@@ -87,19 +79,6 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
   if (!co) return res.status(404).json({ error: "Company not found" });
   const repo = AppDataSource.getRepository(AIEmployee);
   const slug = await uniqueEmpSlug(co.id, toSlug(body.name));
-  const emp = repo.create({
-    companyId: co.id,
-    name: body.name,
-    role: body.role,
-    slug,
-  });
-  await repo.save(emp);
-  const dir = employeeDir(co.slug, slug);
-  ensureDir(dir);
-  // Scaffold the expected directory structure so the Workspace view shows
-  // `skills/` and `routines/` from day one, even before any are created.
-  ensureDir(path.join(dir, "skills"));
-  ensureDir(path.join(dir, "routines"));
   const template = body.templateId ? findTemplate(body.templateId) : undefined;
   if (body.templateId && !template) {
     return res.status(400).json({ error: "Unknown template" });
@@ -111,11 +90,25 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
         body.name,
       )
     : soulTemplate(body.name, body.role);
-  writeText(soulPath(co.slug, slug), soulBody);
 
-  // Materialize template's skills + routines. Skills and routines are small
-  // enough that we write them synchronously; a template with dozens would
-  // warrant a background job.
+  const emp = repo.create({
+    companyId: co.id,
+    name: body.name,
+    role: body.role,
+    slug,
+    soulBody,
+  });
+  await repo.save(emp);
+
+  // Employee cwd is still needed on disk — the CLI spawns there, writes
+  // artifacts, and resolves `.mcp.json` + credentials. Soul / Skills /
+  // Routines themselves live in the DB now, so no subdirectories are
+  // pre-created.
+  ensureDir(employeeDir(co.slug, slug));
+
+  // Materialize template's skills + routines directly as DB rows. Skill and
+  // routine bodies land in their respective `body` columns; no filesystem
+  // writes beyond the already-created employee directory.
   if (template) {
     const skillRepo = AppDataSource.getRepository(Skill);
     for (const s of template.skills) {
@@ -124,12 +117,9 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
         employeeId: emp.id,
         name: s.name,
         slug: sSlug,
+        body: s.readme || skillTemplate(s.name),
       });
       await skillRepo.save(skillRow);
-      writeText(
-        skillReadme(co.slug, slug, sSlug),
-        s.readme || skillTemplateMd(s.name),
-      );
     }
     const routineRepo = AppDataSource.getRepository(Routine);
     for (const r of template.routines) {
@@ -141,10 +131,9 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
         cronExpr: r.cronExpr,
         enabled: true,
         lastRunAt: null,
+        body: r.readme || routineTemplate(r.name, r.cronExpr),
       });
       await routineRepo.save(rRow);
-      writeText(routineReadme(co.slug, slug, rSlug), r.readme);
-      ensureDir(routineDir(co.slug, slug, rSlug));
       registerRoutine(rRow);
     }
   }
@@ -230,28 +219,26 @@ employeesRouter.delete("/:eid", async (req, res) => {
   res.json({ ok: true });
 });
 
-// SOUL
+// Soul — stored on the AIEmployee row as `soulBody`.
 employeesRouter.get("/:eid/soul", async (req, res) => {
   const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
     id: req.params.eid,
     companyId: (req.params as Record<string, string>).cid,
   });
   if (!emp) return res.status(404).json({ error: "Not found" });
-  const co = await loadCompany((req.params as Record<string, string>).cid);
-  if (!co) return res.status(404).json({ error: "Company not found" });
-  res.json({ content: readText(soulPath(co.slug, emp.slug)) });
+  res.json({ content: emp.soulBody });
 });
 
 const soulSchema = z.object({ content: z.string() });
 
 employeesRouter.put("/:eid/soul", validateBody(soulSchema), async (req, res) => {
-  const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
+  const repo = AppDataSource.getRepository(AIEmployee);
+  const emp = await repo.findOneBy({
     id: req.params.eid,
     companyId: (req.params as Record<string, string>).cid,
   });
   if (!emp) return res.status(404).json({ error: "Not found" });
-  const co = await loadCompany((req.params as Record<string, string>).cid);
-  if (!co) return res.status(404).json({ error: "Company not found" });
-  writeText(soulPath(co.slug, emp.slug), (req.body as z.infer<typeof soulSchema>).content);
+  emp.soulBody = (req.body as z.infer<typeof soulSchema>).content;
+  await repo.save(emp);
   res.json({ ok: true });
 });

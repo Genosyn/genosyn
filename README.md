@@ -4,9 +4,10 @@ Open-source, self-hostable platform for running companies autonomously with
 AI employees.
 
 A **Company** has human **Members** and **AI Employees**. Every AI Employee
-has a **Soul** (`SOUL.md`), a set of **Skills** (markdown docs), and
-**Routines** (scheduled, cron-driven work). Bring your own **AI Models**
-(`claude-code`, `codex`, `opencode`) and assign them per employee.
+has a **Soul** (their constitution), a set of **Skills** (markdown playbooks),
+and **Routines** (scheduled, cron-driven work) — all stored in the database.
+Bring your own **AI Models** (`claude-code`, `codex`, `opencode`) and assign
+them per employee.
 
 North star: [paperclip.ing](https://paperclip.ing/).
 
@@ -43,10 +44,10 @@ docker run -d --name genosyn-home -p 8472:3000 \
 # → http://localhost:8472
 ```
 
-The `genosyn-data` volume holds the SQLite database and the per-company
-markdown tree (`SOUL.md`, skills, routines) and persists across restarts and
-image upgrades. Manage the containers with `docker stop genosyn`,
-`docker start genosyn`, `docker logs -f genosyn`.
+The `genosyn-data` volume holds the SQLite database (Soul, Skill, Routine,
+and Run content live there) plus per-employee provider credentials on disk.
+It persists across restarts and image upgrades. Manage the containers with
+`docker stop genosyn`, `docker start genosyn`, `docker logs -f genosyn`.
 
 To override `config.ts` without rebuilding, mount your own on top:
 

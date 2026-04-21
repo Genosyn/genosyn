@@ -12,8 +12,10 @@ Genosyn is an **open-source, self-hostable platform for running companies
 autonomously with AI employees**. North star: [paperclip.ing](https://paperclip.ing/).
 
 - A **Company** has human **Members** and **AI Employees**.
-- Every **AI Employee** has a **Soul** (`SOUL.md`), a set of **Skills** (markdown
-  docs), and **Routines** (scheduled cron-driven work).
+- Every **AI Employee** has a **Soul** (the employee's constitution), a set of
+  **Skills** (playbooks), and **Routines** (scheduled cron-driven work). All
+  three are plain markdown stored on the employee / skill / routine DB rows —
+  there are no `SOUL.md` / `README.md` files on disk any more.
 - Each company can register multiple **AI Models** (`claude-code`, `codex`,
   `opencode` with custom model) and assign them to employees.
 
@@ -46,8 +48,8 @@ code, UI copy, commits, and docs.
 | ✅ Use | ❌ Do not use |
 | --- | --- |
 | **Routine** (scheduled recurring AI work) | Task, Job, Cron, Workflow |
-| **Soul** / `SOUL.md` (employee constitution) | Persona, Prompt, System prompt |
-| **Skill** (`README.md` under `skills/<slug>/`) | Tool, Capability, Function |
+| **Soul** (employee constitution — `AIEmployee.soulBody` in the DB) | Persona, Prompt, System prompt |
+| **Skill** (playbook — `Skill.body` in the DB) | Tool, Capability, Function |
 | **AI Employee** | Agent, Bot, Assistant (in product copy) |
 | **AI Model** (backend brain record) | Provider, LLM config |
 | **Member** (human user in a company) | User (in product copy; `User` is fine as the DB entity name) |
@@ -100,17 +102,22 @@ Everything user-generated lives under `config.dataDir` (default `./data`):
 data/
 ├── app.sqlite
 └── companies/<company-slug>/employees/<emp-slug>/
-    ├── SOUL.md
-    ├── skills/<skill-slug>/README.md
-    └── routines/<routine-slug>/README.md
+    ├── .claude/  .codex/  .opencode/   # per-employee provider credentials
+    ├── .mcp.json                        # materialized before every spawn
+    └── …                                # whatever the CLI writes into cwd
 ```
 
-- **Markdown files on disk are the source of truth** for Soul / Skill /
-  Routine prose. The DB stores metadata (ids, cron exprs, timestamps,
-  enabled flags) and acts as the index.
+- **The database is the source of truth** for Soul, Skill, and Routine prose
+  (`AIEmployee.soulBody`, `Skill.body`, `Routine.body`) and for captured
+  Run logs (`Run.logContent`). Do not reintroduce `SOUL.md` /
+  `skills/<slug>/README.md` / `routines/<slug>/README.md` on disk.
+- What stays on disk is the runtime surface the provider CLI needs: the
+  per-employee credentials directories (`.claude`, `.codex`, `.opencode`),
+  the `.mcp.json` we materialize from the MCP server rows before each spawn,
+  and any artifacts the CLI writes into its cwd.
 - The `data/` directory is gitignored. Never commit anything inside it.
 - Slugs are derived once at create-time via `slugify`; renames update the
-  display name but not the slug (rename = new slug would orphan files).
+  display name but not the slug (so URLs and credential paths stay stable).
 
 ---
 
@@ -172,7 +179,7 @@ milestone is done, drive the happy path in a browser (via the `browse` /
 
 - Signup → login → logout round-trip
 - Create company → switch company → invite member
-- Create AI employee → edit SOUL.md → add skill → add routine → assign model
+- Create AI employee → edit Soul → add skill → add routine → assign model
 - Forgot password flow (when SMTP unset, check that the reset link logs to
   server console)
 
@@ -198,7 +205,10 @@ milestone is done, drive the happy path in a browser (via the `browse` /
 - Using "Task" to mean a scheduled AI routine.
 - Committing files under `data/`.
 - Writing business logic inside route handlers.
-- Storing Soul/Skill/Routine prose in the database instead of on disk.
+- Reintroducing on-disk `SOUL.md` / skill / routine markdown files. Soul,
+  skill, and routine bodies live on their DB rows; run logs live on the
+  Run row. The filesystem under `data/` is only for provider credentials,
+  `.mcp.json`, and CLI artifacts.
 - Skipping the zod schema on a new endpoint.
 - Adding a feature that isn't on the roadmap without adding it to the
   roadmap first.
