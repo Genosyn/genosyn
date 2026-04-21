@@ -214,7 +214,22 @@ function buildInvocation(
 ): { cmd: string; args: string[] } {
   switch (provider) {
     case "claude-code":
-      return { cmd: "claude", args: ["-p", prompt, "--model", modelStr] };
+      // `--allowedTools "mcp__genosyn"` pre-approves every tool the built-in
+      // Genosyn MCP server exposes. Without it, `claude -p` silently skips
+      // MCP servers from `.mcp.json` (the interactive approval prompt can't
+      // fire in headless mode) and the model hallucinates actions it never
+      // actually performed.
+      return {
+        cmd: "claude",
+        args: [
+          "-p",
+          prompt,
+          "--model",
+          modelStr,
+          "--allowedTools",
+          "mcp__genosyn",
+        ],
+      };
     case "codex":
       return { cmd: "codex", args: ["exec", "--model", modelStr, prompt] };
     case "opencode":

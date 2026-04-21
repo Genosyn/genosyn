@@ -303,7 +303,20 @@ function buildInvocation(
 ): { cmd: string; args: string[] } {
   switch (provider) {
     case "claude-code":
-      return { cmd: "claude", args: ["-p", prompt, "--model", modelStr] };
+      // See the mirror in `chat.ts` — `--allowedTools "mcp__genosyn"`
+      // pre-approves the built-in MCP tools so `claude -p` actually attaches
+      // them instead of silently dropping the server.
+      return {
+        cmd: "claude",
+        args: [
+          "-p",
+          prompt,
+          "--model",
+          modelStr,
+          "--allowedTools",
+          "mcp__genosyn",
+        ],
+      };
     case "codex":
       return { cmd: "codex", args: ["exec", "--model", modelStr, prompt] };
     case "opencode":
