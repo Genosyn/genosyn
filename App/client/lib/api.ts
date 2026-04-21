@@ -14,12 +14,84 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
   return data as T;
 }
 
+/**
+ * Consume a server-sent event stream from a POST endpoint. `onEvent` is
+ * called with each `(event, data)` pair as they arrive. Resolves when the
+ * server closes the stream. Throws on non-OK responses or on `abort`.
+ *
+ * Uses `fetch` + ReadableStream rather than EventSource so we can POST a
+ * JSON body and send credentials — EventSource is GET-only.
+ */
+export async function streamPost(
+  url: string,
+  body: unknown,
+  onEvent: (event: string, data: unknown) => void,
+  opts: { signal?: AbortSignal } = {},
+): Promise<void> {
+  const res = await fetch(url, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json", accept: "text/event-stream" },
+    body: JSON.stringify(body),
+    signal: opts.signal,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    let msg = res.statusText;
+    if (text) {
+      try {
+        const data = JSON.parse(text);
+        msg = data.error ?? data.message ?? msg;
+      } catch {
+        msg = text;
+      }
+    }
+    throw new Error(msg);
+  }
+  if (!res.body) throw new Error("Stream response had no body");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    // SSE frames are separated by a blank line. Split on that boundary and
+    // keep the trailing (possibly-incomplete) frame in the buffer.
+    const frames = buf.split("\n\n");
+    buf = frames.pop() ?? "";
+    for (const frame of frames) {
+      if (!frame.trim()) continue;
+      let event = "message";
+      let dataLines: string[] = [];
+      for (const line of frame.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+        // ignore comments and id/retry fields — we don't use them
+      }
+      const raw = dataLines.join("\n");
+      let data: unknown = null;
+      if (raw) {
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          data = raw;
+        }
+      }
+      onEvent(event, data);
+    }
+  }
+}
+
 export const api = {
   get: <T>(url: string) => request<T>("GET", url),
   post: <T>(url: string, body?: unknown) => request<T>("POST", url, body),
   put: <T>(url: string, body?: unknown) => request<T>("PUT", url, body),
   patch: <T>(url: string, body?: unknown) => request<T>("PATCH", url, body),
   del: <T>(url: string) => request<T>("DELETE", url),
+  stream: streamPost,
 };
 
 export type Me = { id: string; email: string; name: string };

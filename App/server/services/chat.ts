@@ -11,13 +11,18 @@ import { materializeMcpConfig } from "./mcp.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 
 /**
- * One-shot chat seam.
+ * Chat seam.
  *
  * The product surface is: a human sits at a keyboard and types at an AI
  * employee. We translate that into a single headless CLI invocation with a
  * prompt that carries the employee's Soul + skill bodies + recent conversation
- * turns + the latest user message — all pulled from the DB. No streaming for
- * v1 — we wait for the CLI to exit and return stdout.
+ * turns + the latest user message — all pulled from the DB.
+ *
+ * Streaming: `streamChatWithEmployee` forwards the CLI's stdout byte-for-byte
+ * through an `onChunk` callback so the HTTP layer can push deltas over SSE
+ * and the UI can paint tokens as they arrive instead of staring at a spinner
+ * for 5-10s. `chatWithEmployee` wraps the streaming seam for callers that
+ * only want the full final reply (kept for tests / any non-HTTP caller).
  *
  * Same degradation rules as `runner.ts`:
  *  - no model connected → `skipped` with an explanatory reply
@@ -32,11 +37,28 @@ export type ChatResult =
   | { status: "skipped"; reply: string }
   | { status: "error"; reply: string };
 
+/** Non-streaming wrapper. Equivalent to the old `chatWithEmployee`. */
 export async function chatWithEmployee(
   companyId: string,
   employeeId: string,
   message: string,
   history: ChatTurn[],
+): Promise<ChatResult> {
+  return streamChatWithEmployee(companyId, employeeId, message, history, () => {});
+}
+
+/**
+ * Streaming chat. Same contract as `chatWithEmployee` except stdout is also
+ * surfaced chunk-by-chunk via `onChunk` as it arrives from the CLI. The
+ * returned ChatResult's `reply` still contains the full accumulated text so
+ * callers don't have to buffer on their own.
+ */
+export async function streamChatWithEmployee(
+  companyId: string,
+  employeeId: string,
+  message: string,
+  history: ChatTurn[],
+  onChunk: (chunk: string) => void,
 ): Promise<ChatResult> {
   const empRepo = AppDataSource.getRepository(AIEmployee);
   const coRepo = AppDataSource.getRepository(Company);
@@ -77,9 +99,10 @@ export async function chatWithEmployee(
 
   const invocation = buildInvocation(model.provider, model.model, prompt);
   try {
-    const stdout = await spawnAndCollect(invocation.cmd, invocation.args, {
+    const stdout = await spawnAndStream(invocation.cmd, invocation.args, {
       cwd,
       env: childEnv,
+      onChunk,
     });
     return { status: "ok", reply: stdout.trim() || "(no reply)" };
   } catch (err) {
@@ -180,16 +203,23 @@ function buildInvocation(
 }
 
 /**
- * Spawn the CLI and collect stdout. stderr is surfaced via the rejection so
- * the UI can show it without us needing a second field on the response.
+ * Spawn the CLI, forward stdout chunks via `onChunk` as they arrive, and
+ * resolve with the full accumulated text on clean exit. stderr is surfaced
+ * via the rejection so the UI can show it without a second response field.
  *
- * Cap at ~30s and 1MB to keep a stuck CLI from holding a request socket
+ * Cap at ~60s and 1MB to keep a stuck CLI from holding a request socket
  * open forever — chat is interactive, long-running work belongs in Routines.
+ * The timeout is wider than the non-streaming version because users now
+ * *see* the reply land and will tolerate longer generations gracefully.
  */
-function spawnAndCollect(
+function spawnAndStream(
   cmd: string,
   args: string[],
-  opts: { cwd: string; env: NodeJS.ProcessEnv },
+  opts: {
+    cwd: string;
+    env: NodeJS.ProcessEnv;
+    onChunk: (chunk: string) => void;
+  },
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env });
@@ -198,10 +228,20 @@ function spawnAndCollect(
     const cap = 1024 * 1024;
     const timeout = setTimeout(() => {
       child.kill("SIGKILL");
-      reject(new Error("Chat timed out after 30s."));
-    }, 30_000);
+      reject(new Error("Chat timed out after 60s."));
+    }, 60_000);
     child.stdout.on("data", (b: Buffer) => {
-      if (out.length < cap) out += b.toString("utf8");
+      const text = b.toString("utf8");
+      if (out.length < cap) {
+        out += text;
+        // Forward to the streaming seam even once we hit the cap — the UI
+        // would rather see the final bytes than silently truncate.
+        try {
+          opts.onChunk(text);
+        } catch {
+          // Never let a consumer callback take down the CLI stream.
+        }
+      }
     });
     child.stderr.on("data", (b: Buffer) => {
       if (err.length < cap) err += b.toString("utf8");

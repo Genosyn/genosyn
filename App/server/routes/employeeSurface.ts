@@ -8,7 +8,7 @@ import { ConversationMessage } from "../db/entities/ConversationMessage.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
-import { chatWithEmployee } from "../services/chat.js";
+import { streamChatWithEmployee } from "../services/chat.js";
 import {
   buildTree,
   readWorkspaceFile,
@@ -134,21 +134,61 @@ const sendSchema = z.object({
   message: z.string().min(1).max(8000),
 });
 
+/**
+ * Streamed send. Responds with Server-Sent Events so the browser can paint
+ * the reply token-by-token as it arrives from the CLI instead of blocking
+ * on a single JSON response for 5-10s per message.
+ *
+ * Event shape:
+ *   event: user       — persisted user message row (first, so the client can
+ *                       swap its optimistic bubble)
+ *   event: chunk      — raw stdout delta from the CLI (`{ text: "..." }`)
+ *   event: assistant  — persisted assistant message row (final reply text,
+ *                       or an error/skipped body)
+ *   event: conversation — updated conversation row (for sidebar refresh)
+ *   event: done       — stream end marker; client closes the reader
+ *
+ * Errors from the CLI seam are still serialized as a normal `assistant`
+ * event with `status: "error"` so the client rendering stays uniform.
+ */
 employeeSurfaceRouter.post(
   "/:eid/conversations/:convId/messages",
   validateBody(sendSchema),
   async (req, res, next) => {
+    const { cid, eid, convId } = req.params as Record<string, string>;
+    const body = req.body as z.infer<typeof sendSchema>;
+
+    // Open the SSE channel early so errors below can also be reported to
+    // the client via an `assistant` event instead of an HTTP error code the
+    // fetch reader would struggle to surface.
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders?.();
+
+    const writeEvent = (event: string, data: unknown) => {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
     try {
-      const { cid, eid, convId } = req.params as Record<string, string>;
-      const body = req.body as z.infer<typeof sendSchema>;
       const loaded = await loadEmpAndCompany(cid, eid);
-      if (!loaded) return res.status(404).json({ error: "Not found" });
+      if (!loaded) {
+        writeEvent("error", { message: "Not found" });
+        writeEvent("done", {});
+        return res.end();
+      }
 
       const convRepo = AppDataSource.getRepository(Conversation);
       const msgRepo = AppDataSource.getRepository(ConversationMessage);
 
       const conv = await convRepo.findOneBy({ id: convId, employeeId: eid });
-      if (!conv) return res.status(404).json({ error: "Conversation not found" });
+      if (!conv) {
+        writeEvent("error", { message: "Conversation not found" });
+        writeEvent("done", {});
+        return res.end();
+      }
 
       // Persist the user turn first so it survives a CLI crash / timeout.
       const userMsg = await msgRepo.save(
@@ -165,10 +205,10 @@ employeeSurfaceRouter.post(
       if (!conv.title) {
         conv.title = deriveTitle(body.message);
       }
-      // Bump updatedAt explicitly in case we don't change any other column —
-      // @UpdateDateColumn only fires when something changes.
       conv.updatedAt = new Date();
       await convRepo.save(conv);
+
+      writeEvent("user", serializeMessage(userMsg));
 
       // Replay the tail of the thread (excluding the just-saved user msg)
       // to the CLI so it has recent context.
@@ -181,7 +221,13 @@ employeeSurfaceRouter.post(
         .slice(-MAX_REPLAY_TURNS)
         .map((m) => ({ role: m.role, content: m.content }));
 
-      const result = await chatWithEmployee(cid, eid, body.message, replay);
+      const result = await streamChatWithEmployee(
+        cid,
+        eid,
+        body.message,
+        replay,
+        (chunk) => writeEvent("chunk", { text: chunk }),
+      );
 
       const assistantMsg = await msgRepo.save(
         msgRepo.create({
@@ -192,17 +238,25 @@ employeeSurfaceRouter.post(
         }),
       );
 
-      // Second save to refresh updatedAt for the assistant reply.
       conv.updatedAt = new Date();
       await convRepo.save(conv);
 
-      res.json({
-        conversation: serializeConversation(conv, conv.updatedAt),
-        userMessage: serializeMessage(userMsg),
-        assistantMessage: serializeMessage(assistantMsg),
-      });
+      writeEvent("assistant", serializeMessage(assistantMsg));
+      writeEvent("conversation", serializeConversation(conv, conv.updatedAt));
+      writeEvent("done", {});
+      res.end();
     } catch (e) {
-      next(e);
+      // If the stream is still open, surface the error over SSE; otherwise
+      // fall back to the normal Express error handler.
+      if (!res.writableEnded) {
+        writeEvent("error", {
+          message: e instanceof Error ? e.message : String(e),
+        });
+        writeEvent("done", {});
+        res.end();
+      } else {
+        next(e);
+      }
     }
   },
 );

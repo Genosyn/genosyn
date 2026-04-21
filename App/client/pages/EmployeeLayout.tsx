@@ -138,20 +138,29 @@ export default function EmployeeLayout({ company }: { company: Company }) {
     tabCrumbs.push({ label, to: isLast ? undefined : acc });
   });
 
+  // Chat gets the full main pane — it has its own header with breadcrumb
+  // context (avatar + name + thread title), so the app breadcrumb is
+  // redundant and the max-w wrapper just wastes horizontal space.
+  const fullBleed = location.pathname.endsWith("/chat");
+
   return (
     <ContextualLayout sidebar={sidebar}>
-      <div className="mx-auto max-w-5xl p-8">
-        <div className="mb-4">
-          <Breadcrumbs
-            items={[
-              { label: "Employees", to: `/c/${company.slug}` },
-              { label: emp.name, to: tabCrumbs.length ? base : undefined },
-              ...tabCrumbs,
-            ]}
-          />
-        </div>
+      {fullBleed ? (
         <Outlet context={{ company, emp }} />
-      </div>
+      ) : (
+        <div className="mx-auto max-w-5xl p-8">
+          <div className="mb-4">
+            <Breadcrumbs
+              items={[
+                { label: "Employees", to: `/c/${company.slug}` },
+                { label: emp.name, to: tabCrumbs.length ? base : undefined },
+                ...tabCrumbs,
+              ]}
+            />
+          </div>
+          <Outlet context={{ company, emp }} />
+        </div>
+      )}
     </ContextualLayout>
   );
 }
