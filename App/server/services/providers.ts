@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import type { AIModel, Provider } from "../db/entities/AIModel.js";
 import type { AIEmployee } from "../db/entities/AIEmployee.js";
 import type { Company } from "../db/entities/Company.js";
@@ -41,8 +42,46 @@ export type ProviderSpec = {
 };
 
 /**
+ * True if a subscription login has landed in the provider's config dir.
+ *
+ * Claude Code's on-disk footprint varies by platform: on Linux it drops
+ * `.credentials.json` next to `.claude.json`; on macOS it writes the OAuth
+ * token to the Keychain under a service like `Claude Code-credentials-<hash>`
+ * and never creates `.credentials.json`. What it *does* write on every
+ * platform is `.claude.json` with a populated `oauthAccount` — so we treat
+ * that (or the legacy `.credentials.json`) as the canonical signal.
+ *
+ * Codex and opencode write their creds files directly, so the simple file
+ * check still holds for them.
+ */
+export function isSubscriptionConnected(
+  provider: Provider,
+  companySlug: string,
+  employeeSlug: string,
+): boolean {
+  const spec = PROVIDERS[provider];
+  try {
+    if (fs.existsSync(spec.credsPath(companySlug, employeeSlug))) return true;
+  } catch {
+    // fall through
+  }
+  if (provider === "claude-code") {
+    try {
+      const p = path.join(spec.configDir(companySlug, employeeSlug), ".claude.json");
+      if (!fs.existsSync(p)) return false;
+      const raw = fs.readFileSync(p, "utf8");
+      const parsed = JSON.parse(raw) as { oauthAccount?: { accountUuid?: unknown } };
+      return typeof parsed.oauthAccount?.accountUuid === "string";
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+/**
  * A Model is "connected" if credentials are actually usable:
- *  - subscription: creds file exists on disk at the provider's config dir
+ *  - subscription: provider's on-disk login signal is present
  *  - apikey:      an encrypted key is present in configJson
  */
 export function isModelConnected(m: AIModel, co: Company, emp: AIEmployee): boolean {
@@ -56,11 +95,7 @@ export function isModelConnected(m: AIModel, co: Company, emp: AIEmployee): bool
     }
     return typeof cfg.apiKeyEncrypted === "string" && (cfg.apiKeyEncrypted as string).length > 0;
   }
-  try {
-    return fs.existsSync(PROVIDERS[m.provider].credsPath(co.slug, emp.slug));
-  } catch {
-    return false;
-  }
+  return isSubscriptionConnected(m.provider, co.slug, emp.slug);
 }
 
 export const PROVIDERS: Record<Provider, ProviderSpec> = {

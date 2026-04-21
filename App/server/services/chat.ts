@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import fs from "node:fs";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
@@ -11,7 +10,7 @@ import {
   skillReadme,
   soulPath,
 } from "./paths.js";
-import { PROVIDERS } from "./providers.js";
+import { PROVIDERS, isSubscriptionConnected } from "./providers.js";
 import { readText } from "./files.js";
 import { decryptSecret } from "../lib/secret.js";
 import { materializeMcpConfig } from "./mcp.js";
@@ -143,7 +142,7 @@ function buildProviderEnv(
 
   if (model.authMode === "subscription") {
     const dir = spec.configDir(coSlug, empSlug);
-    if (!fs.existsSync(spec.credsPath(coSlug, empSlug))) {
+    if (!isSubscriptionConnected(model.provider, coSlug, empSlug)) {
       return {
         error: `Subscription credentials not found. Sign ${model.provider} in from the Settings tab first.`,
       };

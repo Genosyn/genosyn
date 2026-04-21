@@ -17,7 +17,7 @@ import {
   skillReadme,
   soulPath,
 } from "./paths.js";
-import { PROVIDERS } from "./providers.js";
+import { PROVIDERS, isSubscriptionConnected } from "./providers.js";
 import { readText } from "./files.js";
 import { decryptSecret } from "../lib/secret.js";
 import { materializeMcpConfig } from "./mcp.js";
@@ -257,7 +257,7 @@ function buildProviderEnv(
 
   if (model.authMode === "subscription") {
     const dir = spec.configDir(coSlug, empSlug);
-    if (!fs.existsSync(spec.credsPath(coSlug, empSlug))) {
+    if (!isSubscriptionConnected(model.provider, coSlug, empSlug)) {
       return {
         error: `Subscription credentials not found. Run \`${spec.configDirEnv}=${dir} ${spec.loginCommand}\` and retry.`,
       };
