@@ -1,6 +1,6 @@
 import React from "react";
-import { Link } from "react-router-dom";
-import { BarChart3, ChevronRight, Pencil, ScrollText, Trash2 } from "lucide-react";
+import { useOutletContext } from "react-router-dom";
+import { Pencil, Trash2 } from "lucide-react";
 import { api, Company, Member, Secret } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -8,159 +8,146 @@ import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
 import { EmptyState } from "../components/ui/EmptyState";
-import { Breadcrumbs, TopBar } from "../components/AppShell";
+import { TopBar } from "../components/AppShell";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
+import type { SettingsOutletCtx } from "./SettingsLayout";
 
-export default function Settings({
-  company,
-  onCompaniesChanged,
-}: {
-  company: Company;
-  onCompaniesChanged: () => void;
-}) {
+/**
+ * Company-level settings split into sidebar-addressable sub-pages. Each page
+ * reads `company` + the companies-changed callback from SettingsLayout's
+ * Outlet context, so pages don't re-fetch the company on mount.
+ */
+
+function useCtx(): SettingsOutletCtx {
+  return useOutletContext<SettingsOutletCtx>();
+}
+
+export function SettingsCompany() {
+  const { company, onCompaniesChanged } = useCtx();
   const [name, setName] = React.useState(company.name);
+  const { toast } = useToast();
+
+  React.useEffect(() => {
+    setName(company.name);
+  }, [company.id, company.name]);
+
+  return (
+    <>
+      <TopBar title="Company" />
+      <Card>
+        <CardHeader>
+          <h2 className="text-sm font-semibold">General</h2>
+        </CardHeader>
+        <CardBody>
+          <form
+            className="flex items-end gap-3"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              try {
+                await api.patch(`/api/companies/${company.id}`, { name });
+                onCompaniesChanged();
+                toast("Company updated", "success");
+              } catch (err) {
+                toast((err as Error).message, "error");
+              }
+            }}
+          >
+            <div className="flex-1">
+              <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <Button type="submit">Save</Button>
+          </form>
+        </CardBody>
+      </Card>
+    </>
+  );
+}
+
+export function SettingsMembers() {
+  const { company } = useCtx();
   const [members, setMembers] = React.useState<Member[] | null>(null);
   const [inviteEmail, setInviteEmail] = React.useState("");
   const { toast } = useToast();
 
-  async function reload() {
-    const m = await api.get<Member[]>(`/api/companies/${company.id}/members`);
-    setMembers(m);
-  }
+  const reload = React.useCallback(async () => {
+    try {
+      const m = await api.get<Member[]>(`/api/companies/${company.id}/members`);
+      setMembers(m);
+    } catch {
+      setMembers([]);
+    }
+  }, [company.id]);
 
   React.useEffect(() => {
-    setName(company.name);
-    reload().catch(() => setMembers([]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [company.id]);
+    reload();
+  }, [reload]);
 
   return (
     <>
-      <div className="mb-3">
-        <Breadcrumbs items={[{ label: "Settings" }]} />
-      </div>
-      <TopBar title="Settings" />
-      <div className="flex flex-col gap-6">
-        <Card>
-          <CardHeader>
-            <h2 className="text-sm font-semibold">Company</h2>
-          </CardHeader>
-          <CardBody>
-            <form
-              className="flex items-end gap-3"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                try {
-                  await api.patch(`/api/companies/${company.id}`, { name });
-                  onCompaniesChanged();
-                  toast("Company updated", "success");
-                } catch (err) {
-                  toast((err as Error).message, "error");
-                }
-              }}
-            >
-              <div className="flex-1">
-                <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
-              </div>
-              <Button type="submit">Save</Button>
-            </form>
-          </CardBody>
-        </Card>
+      <TopBar title="Members" />
+      <Card>
+        <CardBody className="flex flex-col gap-4">
+          {members === null ? (
+            <Spinner />
+          ) : members.length === 0 ? (
+            <EmptyState
+              title="No members yet"
+              description="Invite teammates by email to collaborate on this company."
+            />
+          ) : (
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+              {members.map((m) => (
+                <li key={m.userId} className="flex items-center justify-between py-2 text-sm">
+                  <div>
+                    <div className="font-medium">{m.name ?? "(unknown)"}</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">{m.email}</div>
+                  </div>
+                  <span className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                    {m.role}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <form
+            className="flex items-end gap-3 border-t border-slate-100 pt-4 dark:border-slate-800"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              try {
+                await api.post(`/api/companies/${company.id}/invitations`, {
+                  email: inviteEmail,
+                });
+                setInviteEmail("");
+                toast("Invite sent", "success");
+              } catch (err) {
+                toast((err as Error).message, "error");
+              }
+            }}
+          >
+            <div className="flex-1">
+              <Input
+                label="Invite by email"
+                type="email"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                required
+              />
+            </div>
+            <Button type="submit">Send invite</Button>
+          </form>
+        </CardBody>
+      </Card>
+    </>
+  );
+}
 
-        <Card>
-          <CardHeader>
-            <h2 className="text-sm font-semibold">Members</h2>
-          </CardHeader>
-          <CardBody className="flex flex-col gap-4">
-            {members === null ? (
-              <Spinner />
-            ) : (
-              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                {members.map((m) => (
-                  <li key={m.userId} className="flex items-center justify-between py-2 text-sm">
-                    <div>
-                      <div className="font-medium">{m.name ?? "(unknown)"}</div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">{m.email}</div>
-                    </div>
-                    <span className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                      {m.role}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <form
-              className="flex items-end gap-3 border-t border-slate-100 pt-4 dark:border-slate-800"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                try {
-                  await api.post(`/api/companies/${company.id}/invitations`, {
-                    email: inviteEmail,
-                  });
-                  setInviteEmail("");
-                  toast("Invite sent", "success");
-                } catch (err) {
-                  toast((err as Error).message, "error");
-                }
-              }}
-            >
-              <div className="flex-1">
-                <Input
-                  label="Invite by email"
-                  type="email"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  required
-                />
-              </div>
-              <Button type="submit">Send invite</Button>
-            </form>
-          </CardBody>
-        </Card>
-
-        <SecretsCard company={company} />
-
-        <Card>
-          <CardBody>
-            <Link
-              to={`/c/${company.slug}/usage`}
-              className="flex items-center gap-3 text-sm"
-            >
-              <div className="rounded-md bg-slate-100 p-2 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                <BarChart3 size={16} />
-              </div>
-              <div className="flex-1">
-                <div className="font-medium text-slate-900 dark:text-slate-100">Usage</div>
-                <div className="text-xs text-slate-500 dark:text-slate-400">
-                  Run counts, compute time, and success rate per employee and routine.
-                </div>
-              </div>
-              <ChevronRight size={16} className="text-slate-400 dark:text-slate-500" />
-            </Link>
-          </CardBody>
-        </Card>
-
-        <Card>
-          <CardBody>
-            <Link
-              to={`/c/${company.slug}/audit`}
-              className="flex items-center gap-3 text-sm"
-            >
-              <div className="rounded-md bg-slate-100 p-2 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                <ScrollText size={16} />
-              </div>
-              <div className="flex-1">
-                <div className="font-medium text-slate-900 dark:text-slate-100">Audit log</div>
-                <div className="text-xs text-slate-500 dark:text-slate-400">
-                  Who did what, across employees, routines, secrets, approvals, and models.
-                </div>
-              </div>
-              <ChevronRight size={16} className="text-slate-400 dark:text-slate-500" />
-            </Link>
-          </CardBody>
-        </Card>
-      </div>
+export function SettingsSecrets() {
+  const { company } = useCtx();
+  return (
+    <>
+      <TopBar title="Secrets" />
+      <SecretsCard company={company} />
     </>
   );
 }
@@ -197,7 +184,7 @@ function SecretsCard({ company }: { company: Company }) {
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-semibold">Secrets</h2>
+            <h2 className="text-sm font-semibold">Vault</h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
               Encrypted at rest. Injected into every employee run and chat as environment variables.
             </p>

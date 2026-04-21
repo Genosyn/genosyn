@@ -1,3 +1,5 @@
+import { useId } from "react";
+
 type LogoMarkProps = {
   className?: string;
   variant?: "tile" | "plain";
@@ -8,17 +10,20 @@ type LogoProps = {
 };
 
 /**
- * Genosyn mark — "Block G".
+ * Genosyn mark — geometric G on a rounded indigo tile.
  *
- * The icon-only form: a heavy geometric G on a rounded indigo tile. Uniform
- * 6-unit weight, flat butt-cut terminals, crossbar whose right edge traces
- * the bowl's inner wall so the two shapes merge into one glyph.
+ * Two rounded strokes of equal weight (a near-full arc and a short crossbar)
+ * form the letterform. A small filled node caps the crossbar as a quiet nod
+ * to the "-syn" (synthesis) in the name. The tile carries a subtle diagonal
+ * gradient from indigo-500 to indigo-700 for depth.
  *
- * Use `<LogoMark>` only where the mark must stand alone (favicons, tight
- * slots). For headers, footers, and auth shells, prefer `<Logo>` — the full
- * lockup with the wordmark.
+ * Use `<LogoMark>` where the mark must stand alone (favicons, tight slots).
+ * Prefer `<Logo>` for headers, footers, and auth shells — the full lockup
+ * with the wordmark.
  */
 export function LogoMark({ className = "", variant = "tile" }: LogoMarkProps) {
+  const rawId = useId();
+  const gradId = `g-${rawId.replace(/:/g, "")}`;
   const fg = variant === "tile" ? "#ffffff" : "currentColor";
 
   const Mark = (
@@ -27,13 +32,17 @@ export function LogoMark({ className = "", variant = "tile" }: LogoMarkProps) {
         d="M 23.79 11.5 A 9 9 0 1 0 23.79 20.5"
         fill="none"
         stroke={fg}
-        strokeWidth="6"
-        strokeLinecap="butt"
+        strokeWidth="3.8"
+        strokeLinecap="round"
       />
       <path
-        d="M 12 13 L 21.2 13 A 6 6 0 0 1 21.2 19 L 12 19 Z"
-        fill={fg}
+        d="M 16 16 L 21.5 16"
+        fill="none"
+        stroke={fg}
+        strokeWidth="3.8"
+        strokeLinecap="round"
       />
+      <circle cx="22.5" cy="16" r="1.9" fill={fg} />
     </>
   );
 
@@ -45,7 +54,20 @@ export function LogoMark({ className = "", variant = "tile" }: LogoMarkProps) {
         className={className}
         aria-hidden="true"
       >
-        <rect width="32" height="32" rx="7" fill="#4f46e5" />
+        <defs>
+          <linearGradient
+            id={gradId}
+            x1="0"
+            y1="0"
+            x2="32"
+            y2="32"
+            gradientUnits="userSpaceOnUse"
+          >
+            <stop offset="0%" stopColor="#6366f1" />
+            <stop offset="100%" stopColor="#4338ca" />
+          </linearGradient>
+        </defs>
+        <rect width="32" height="32" rx="8" fill={`url(#${gradId})`} />
         {Mark}
       </svg>
     );
@@ -66,15 +88,15 @@ export function LogoMark({ className = "", variant = "tile" }: LogoMarkProps) {
 /**
  * Genosyn full logo — mark + wordmark lockup, as one SVG.
  *
- * The wordmark is set in Inter ExtraBold (800) with tightened tracking so the
- * letterforms read as a single solid block beside the mark, not as body
- * copy. Cap height is tuned to the mark's crossbar so both elements share a
- * common optical center line (y=16).
- *
- * The tile stays indigo/white; the wordmark uses `currentColor` so it
- * inherits the surrounding text color (slate-900 on light, white on dark).
+ * Inter ExtraBold (800) with tightened tracking so the letterforms read as a
+ * single block beside the mark. Cap height is tuned to the mark's crossbar
+ * so both elements share an optical center line (y=16). The tile stays
+ * indigo/white; the wordmark uses `currentColor` so it inherits the
+ * surrounding text color (slate-900 on light, white on dark).
  */
 export function Logo({ className = "" }: LogoProps) {
+  const rawId = useId();
+  const gradId = `g-${rawId.replace(/:/g, "")}`;
   return (
     <svg
       viewBox="0 0 148 32"
@@ -83,27 +105,42 @@ export function Logo({ className = "" }: LogoProps) {
       role="img"
       aria-label="Genosyn"
     >
-      {/* Mark — same block G as <LogoMark>, locked to the left */}
-      <rect width="32" height="32" rx="7" fill="#4f46e5" />
+      <defs>
+        <linearGradient
+          id={gradId}
+          x1="0"
+          y1="0"
+          x2="32"
+          y2="32"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop offset="0%" stopColor="#6366f1" />
+          <stop offset="100%" stopColor="#4338ca" />
+        </linearGradient>
+      </defs>
+      <rect width="32" height="32" rx="8" fill={`url(#${gradId})`} />
       <path
         d="M 23.79 11.5 A 9 9 0 1 0 23.79 20.5"
         fill="none"
         stroke="#ffffff"
-        strokeWidth="6"
-        strokeLinecap="butt"
+        strokeWidth="3.8"
+        strokeLinecap="round"
       />
       <path
-        d="M 12 13 L 21.2 13 A 6 6 0 0 1 21.2 19 L 12 19 Z"
-        fill="#ffffff"
+        d="M 16 16 L 21.5 16"
+        fill="none"
+        stroke="#ffffff"
+        strokeWidth="3.8"
+        strokeLinecap="round"
       />
-      {/* Wordmark — Inter 800, tight tracking, cap-height centered on mark */}
+      <circle cx="22.5" cy="16" r="1.9" fill="#ffffff" />
       <text
         x="43"
         y="23.5"
         fontFamily="Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
         fontSize="22"
         fontWeight="800"
-        letterSpacing="-0.7"
+        letterSpacing="-0.6"
         fill="currentColor"
       >
         Genosyn

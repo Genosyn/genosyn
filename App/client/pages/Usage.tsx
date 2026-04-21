@@ -1,12 +1,13 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link, useOutletContext } from "react-router-dom";
 import { api, Company, UsageSummary } from "../lib/api";
-import { Breadcrumbs, TopBar } from "../components/AppShell";
+import { TopBar } from "../components/AppShell";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { EmptyState } from "../components/ui/EmptyState";
 import { useToast } from "../components/ui/Toast";
+import type { SettingsOutletCtx } from "./SettingsLayout";
 
 /**
  * Compute-time + run-count visibility per company. We don't have provider
@@ -21,7 +22,8 @@ const WINDOW_OPTIONS = [
   { label: "Last 90 days", value: 90 },
 ];
 
-export default function Usage({ company }: { company: Company }) {
+export default function Usage() {
+  const { company } = useOutletContext<SettingsOutletCtx>();
   const [days, setDays] = React.useState(30);
   const [summary, setSummary] = React.useState<UsageSummary | null>(null);
   const { toast } = useToast();
@@ -41,43 +43,38 @@ export default function Usage({ company }: { company: Company }) {
   }, [company.id, days, toast]);
 
   return (
-    <main className="min-w-0 flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-900">
-      <div className="mx-auto max-w-5xl p-8">
-        <div className="mb-3">
-          <Breadcrumbs items={[{ label: "Usage" }]} />
-        </div>
-        <TopBar
-          title="Usage"
-          right={
-            <Select value={days} onChange={(e) => setDays(parseInt(e.target.value, 10))}>
-              {WINDOW_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </Select>
-          }
+    <>
+      <TopBar
+        title="Usage"
+        right={
+          <Select value={days} onChange={(e) => setDays(parseInt(e.target.value, 10))}>
+            {WINDOW_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </Select>
+        }
+      />
+      <p className="mb-6 text-xs text-slate-500 dark:text-slate-400">
+        Measured from routine runs. Token counts and dollar costs aren't tracked yet — the
+        provider CLIs don't surface that metadata in a stable way.
+      </p>
+      {summary === null ? (
+        <Spinner />
+      ) : summary.totals.runs === 0 ? (
+        <EmptyState
+          title="No runs yet in this window"
+          description="Runs are recorded when a routine executes on its schedule, is triggered by webhook, or is run manually."
         />
-        <p className="mb-6 text-xs text-slate-500 dark:text-slate-400">
-          Measured from routine runs. Token counts and dollar costs aren't tracked yet — the
-          provider CLIs don't surface that metadata in a stable way.
-        </p>
-        {summary === null ? (
-          <Spinner />
-        ) : summary.totals.runs === 0 ? (
-          <EmptyState
-            title="No runs yet in this window"
-            description="Runs are recorded when a routine executes on its schedule, is triggered by webhook, or is run manually."
-          />
-        ) : (
-          <div className="flex flex-col gap-6">
-            <TotalsCards summary={summary} />
-            <ByEmployeeTable summary={summary} company={company} />
-            <ByRoutineTable summary={summary} company={company} />
-          </div>
-        )}
-      </div>
-    </main>
+      ) : (
+        <div className="flex flex-col gap-6">
+          <TotalsCards summary={summary} />
+          <ByEmployeeTable summary={summary} company={company} />
+          <ByRoutineTable summary={summary} company={company} />
+        </div>
+      )}
+    </>
   );
 }
 

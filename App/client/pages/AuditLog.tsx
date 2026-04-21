@@ -1,18 +1,21 @@
 import React from "react";
+import { useOutletContext } from "react-router-dom";
 import { ChevronDown, ChevronRight, ScrollText } from "lucide-react";
-import { api, AuditEvent, Company } from "../lib/api";
-import { Breadcrumbs, TopBar } from "../components/AppShell";
+import { api, AuditEvent } from "../lib/api";
+import { TopBar } from "../components/AppShell";
 import { Card, CardBody } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
 import { EmptyState } from "../components/ui/EmptyState";
 import { useToast } from "../components/ui/Toast";
+import type { SettingsOutletCtx } from "./SettingsLayout";
 
 /**
  * Append-only audit trail for a company. Server writes events at mutation
  * points via `recordAudit`. Here we just render them, newest-first, with a
  * friendly summary line and an expandable raw-JSON payload for forensics.
  */
-export default function AuditLog({ company }: { company: Company }) {
+export default function AuditLog() {
+  const { company } = useOutletContext<SettingsOutletCtx>();
   const [rows, setRows] = React.useState<AuditEvent[] | null>(null);
   const { toast } = useToast();
 
@@ -29,32 +32,27 @@ export default function AuditLog({ company }: { company: Company }) {
   }, [company.id, toast]);
 
   return (
-    <main className="min-w-0 flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-900">
-      <div className="mx-auto max-w-4xl p-8">
-        <div className="mb-3">
-          <Breadcrumbs items={[{ label: "Audit log" }]} />
-        </div>
-        <TopBar title="Audit log" />
-        {rows === null ? (
-          <Spinner />
-        ) : rows.length === 0 ? (
-          <EmptyState
-            title="No audit events yet"
-            description="Mutations across employees, routines, secrets, approvals, and models will show up here."
-          />
-        ) : (
-          <Card>
-            <CardBody>
-              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                {rows.map((e) => (
-                  <AuditRow key={e.id} event={e} />
-                ))}
-              </ul>
-            </CardBody>
-          </Card>
-        )}
-      </div>
-    </main>
+    <>
+      <TopBar title="Audit log" />
+      {rows === null ? (
+        <Spinner />
+      ) : rows.length === 0 ? (
+        <EmptyState
+          title="No audit events yet"
+          description="Mutations across employees, routines, secrets, approvals, and models will show up here."
+        />
+      ) : (
+        <Card>
+          <CardBody>
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+              {rows.map((e) => (
+                <AuditRow key={e.id} event={e} />
+              ))}
+            </ul>
+          </CardBody>
+        </Card>
+      )}
+    </>
   );
 }
 

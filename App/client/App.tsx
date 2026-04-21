@@ -26,7 +26,8 @@ import {
   SkillsPage,
   SoulSettingsPage,
 } from "./pages/employeeTabs";
-import Settings from "./pages/Settings";
+import SettingsLayout from "./pages/SettingsLayout";
+import { SettingsCompany, SettingsMembers, SettingsSecrets } from "./pages/Settings";
 import Invite from "./pages/Invite";
 import TasksLayout from "./pages/TasksLayout";
 import TasksIndex from "./pages/TasksIndex";
@@ -184,43 +185,34 @@ function CompanyRoutes({
         </Route>
 
         <Route path="approvals" element={<Approvals company={company} />} />
-        <Route path="audit" element={<AuditLog company={company} />} />
-        <Route path="usage" element={<Usage company={company} />} />
 
-        {/* Company-level settings */}
+        {/* Company-level settings — own sidebar, like Employees/Tasks/Bases. */}
         <Route
           path="settings"
           element={
-            <CompanySettingsPane
-              company={company}
-              onCompaniesChanged={onChanged}
-            />
+            <SettingsLayout company={company} onCompaniesChanged={onChanged} />
           }
+        >
+          <Route index element={<Navigate to="company" replace />} />
+          <Route path="company" element={<SettingsCompany />} />
+          <Route path="members" element={<SettingsMembers />} />
+          <Route path="secrets" element={<SettingsSecrets />} />
+          <Route path="usage" element={<Usage />} />
+          <Route path="audit" element={<AuditLog />} />
+        </Route>
+
+        {/* Legacy redirects: Usage / Audit used to live at the top level. */}
+        <Route
+          path="usage"
+          element={<Navigate to={`/c/${company.slug}/settings/usage`} replace />}
+        />
+        <Route
+          path="audit"
+          element={<Navigate to={`/c/${company.slug}/settings/audit`} replace />}
         />
 
         <Route path="*" element={<Navigate to="" replace />} />
       </Routes>
     </AppShell>
-  );
-}
-
-/**
- * Wrap Settings with a plain full-pane layout (no sidebar). In the future
- * this could sprout a sub-nav of its own (Company, Members, Billing) — the
- * `<ContextualLayout sidebar={...}>` plumbing is ready for it.
- */
-function CompanySettingsPane({
-  company,
-  onCompaniesChanged,
-}: {
-  company: Company;
-  onCompaniesChanged: () => void;
-}) {
-  return (
-    <main className="min-w-0 flex-1 overflow-y-auto bg-slate-50">
-      <div className="mx-auto max-w-4xl p-8">
-        <Settings company={company} onCompaniesChanged={onCompaniesChanged} />
-      </div>
-    </main>
   );
 }
