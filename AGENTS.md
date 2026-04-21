@@ -113,11 +113,16 @@ data/
   `skills/<slug>/README.md` / `routines/<slug>/README.md` on disk.
 - What stays on disk is the runtime surface the provider CLI needs: the
   per-employee credentials directories (`.claude`, `.codex`, `.opencode`),
-  the `.mcp.json` we materialize from the MCP server rows before each spawn,
-  and any artifacts the CLI writes into its cwd. The `.mcp.json` we write
-  always includes a built-in `genosyn` entry in addition to any external
-  MCP servers the user configured — that's how AI employees call back into
-  Genosyn to create Routines, Todos, journal notes, etc.
+  the provider-specific MCP config we materialize before each spawn, and
+  any artifacts the CLI writes into its cwd. Each provider has its own
+  config shape and file location; all three always include a built-in
+  `genosyn` server so the employee can call back into Genosyn to create
+  Routines, Todos, journal notes, etc.:
+    * **claude-code** → `.mcp.json` at the employee's cwd
+    * **codex** → `$CODEX_HOME/config.toml` with `[mcp_servers.<name>]`
+      blocks (HTTP-transport external servers are skipped with a note,
+      since codex only supports stdio)
+    * **opencode** → `opencode.json` at the cwd with `mcp.<name>` entries
 - The `data/` directory is gitignored. Never commit anything inside it.
 - Slugs are derived once at create-time via `slugify`; renames update the
   display name but not the slug (so URLs and credential paths stay stable).

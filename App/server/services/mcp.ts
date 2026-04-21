@@ -3,14 +3,29 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { AppDataSource } from "../db/datasource.js";
 import { McpServer } from "../db/entities/McpServer.js";
+import type { Provider } from "../db/entities/AIModel.js";
 import { config } from "../../config.js";
+import { employeeCodexDir } from "./paths.js";
 
 /**
- * Shape of Claude Code's `.mcp.json` — also recognized by most MCP-aware
- * CLIs. Writing this at the employee's workspace root lets the CLI pick up
- * tools without provider-specific plumbing.
+ * Each provider CLI has its own way of declaring MCP servers. We centralize
+ * the materialization here so the runner / chat seam just says "write the
+ * config for this provider, employee, cwd" and this module picks the right
+ * shape:
+ *
+ *   - claude-code → `.mcp.json` at cwd (standard Claude Code schema)
+ *   - codex       → `$CODEX_HOME/config.toml` with `[mcp_servers.<name>]`
+ *   - opencode    → `opencode.json` at cwd with `mcp.<name>` entries
+ *
+ * Every provider gets the built-in `genosyn` server (read/write access to
+ * Genosyn's own Routines / Todos / Journal / ...) merged with whatever the
+ * user configured per-employee in the McpServer DB table. The mapping from
+ * the DB schema to each provider's JSON/TOML shape is provider-specific.
  */
-type McpServersFile = {
+
+// ---------- Claude Code ----------
+
+type ClaudeMcpFile = {
   mcpServers: Record<
     string,
     | {
@@ -21,6 +36,26 @@ type McpServersFile = {
     | {
         type: "http";
         url: string;
+      }
+  >;
+};
+
+// ---------- opencode ----------
+
+type OpenCodeConfigFile = {
+  $schema?: string;
+  mcp?: Record<
+    string,
+    | {
+        type: "local";
+        command: string[];
+        environment?: Record<string, string>;
+        enabled?: boolean;
+      }
+    | {
+        type: "remote";
+        url: string;
+        enabled?: boolean;
       }
   >;
 };
@@ -49,59 +84,130 @@ function internalApiBase(): string {
   return `http://127.0.0.1:${config.port}/api/internal/mcp`;
 }
 
+/** Normalized view of a user-configured MCP server ready for serialization. */
+type NormalizedServer =
+  | {
+      name: string;
+      transport: "stdio";
+      command: string;
+      args: string[];
+      env: Record<string, string>;
+    }
+  | {
+      name: string;
+      transport: "http";
+      url: string;
+    };
+
+/** Load + normalize user-configured servers for an employee. */
+async function loadUserServers(employeeId: string): Promise<NormalizedServer[]> {
+  const rows = await AppDataSource.getRepository(McpServer).find({
+    where: { employeeId, enabled: true },
+  });
+  const out: NormalizedServer[] = [];
+  for (const s of rows) {
+    // "genosyn" is reserved for the built-in entry so users can't
+    // accidentally shadow it from the UI.
+    if (s.name === "genosyn") continue;
+    if (s.transport === "http" && s.url) {
+      out.push({ name: s.name, transport: "http", url: s.url });
+    } else if (s.transport === "stdio" && s.command) {
+      const args = parseJsonArray(s.argsJson) ?? [];
+      const env = parseJsonRecord(s.envJson) ?? {};
+      out.push({
+        name: s.name,
+        transport: "stdio",
+        command: s.command,
+        args,
+        env,
+      });
+    }
+  }
+  return out;
+}
+
 /**
- * Write `.mcp.json` at the employee's cwd so the provider CLI picks up both
- * the built-in Genosyn tools and any external MCP servers the user has
- * configured. Called before every spawn so edits in the UI take effect on
- * the next run without a restart.
+ * Materialize the correct MCP config file(s) for the provider we're about
+ * to spawn. Called before every chat turn / routine run so edits in the UI
+ * take effect on the next invocation without a restart.
  *
  * `genosynToken` is the short-lived Bearer credential issued by
- * {@link issueMcpToken}. When present, we stamp in a `genosyn` entry that
- * lets the employee call Genosyn's own API (Routines, Todos, Journal, ...).
- * Callers that don't want tool access (e.g., future read-only previews) can
- * omit the token and the `genosyn` entry is left out.
+ * {@link issueMcpToken}. When present, the built-in `genosyn` server is
+ * stamped into the provider's config so the employee can call Genosyn's own
+ * API (Routines, Todos, Journal, ...). Callers that don't want tool access
+ * (e.g., future read-only previews) can omit the token.
  */
 export async function materializeMcpConfig(
   employeeId: string,
   cwd: string,
-  options: { genosynToken?: string } = {},
+  options: {
+    genosynToken?: string;
+    provider?: Provider;
+    companySlug?: string;
+    employeeSlug?: string;
+  } = {},
 ): Promise<void> {
-  const servers = await AppDataSource.getRepository(McpServer).find({
-    where: { employeeId, enabled: true },
-  });
+  const provider = options.provider ?? "claude-code";
+  const userServers = await loadUserServers(employeeId);
+
+  switch (provider) {
+    case "claude-code":
+      writeClaudeConfig(cwd, userServers, options.genosynToken);
+      return;
+    case "codex": {
+      if (!options.companySlug || !options.employeeSlug) {
+        // Without slugs we can't locate the employee's CODEX_HOME, so fall
+        // back to the claude-shaped `.mcp.json` which codex also ignores —
+        // same end result as before the multi-provider work.
+        writeClaudeConfig(cwd, userServers, options.genosynToken);
+        return;
+      }
+      writeCodexConfig(
+        employeeCodexDir(options.companySlug, options.employeeSlug),
+        userServers,
+        options.genosynToken,
+      );
+      return;
+    }
+    case "opencode":
+      writeOpencodeConfig(cwd, userServers, options.genosynToken);
+      return;
+  }
+}
+
+// ---------- writers ----------
+
+function writeClaudeConfig(
+  cwd: string,
+  userServers: NormalizedServer[],
+  token: string | undefined,
+): void {
   const target = path.join(cwd, ".mcp.json");
+  const file: ClaudeMcpFile = { mcpServers: {} };
 
-  const file: McpServersFile = { mcpServers: {} };
-
-  if (options.genosynToken) {
+  if (token) {
     file.mcpServers.genosyn = {
       command: process.execPath,
       args: [GENOSYN_MCP_BIN],
       env: {
         GENOSYN_MCP_API: internalApiBase(),
-        GENOSYN_MCP_TOKEN: options.genosynToken,
+        GENOSYN_MCP_TOKEN: token,
       },
     };
   }
 
-  for (const s of servers) {
-    // "genosyn" is reserved for the built-in entry so users can't
-    // accidentally shadow it from the UI.
-    if (s.name === "genosyn") continue;
-    if (s.transport === "http" && s.url) {
+  for (const s of userServers) {
+    if (s.transport === "http") {
       file.mcpServers[s.name] = { type: "http", url: s.url };
-    } else if (s.transport === "stdio" && s.command) {
-      const args = parseJsonArray(s.argsJson) ?? [];
-      const env = parseJsonRecord(s.envJson);
+    } else {
       file.mcpServers[s.name] = {
         command: s.command,
-        ...(args.length > 0 ? { args } : {}),
-        ...(env && Object.keys(env).length > 0 ? { env } : {}),
+        ...(s.args.length > 0 ? { args: s.args } : {}),
+        ...(Object.keys(s.env).length > 0 ? { env: s.env } : {}),
       };
     }
   }
 
-  // Avoid leaving a stale file behind when every entry has been removed.
   if (Object.keys(file.mcpServers).length === 0) {
     if (fs.existsSync(target)) fs.unlinkSync(target);
     return;
@@ -109,6 +215,175 @@ export async function materializeMcpConfig(
 
   fs.writeFileSync(target, JSON.stringify(file, null, 2), "utf8");
 }
+
+/**
+ * Write `$CODEX_HOME/config.toml` with a `[mcp_servers.<name>]` block per
+ * server. Codex's TOML schema only supports stdio servers — HTTP-transport
+ * MCP servers configured in the UI are skipped for this provider, with a
+ * warning in the file so the operator can spot the mismatch.
+ */
+function writeCodexConfig(
+  codexHome: string,
+  userServers: NormalizedServer[],
+  token: string | undefined,
+): void {
+  fs.mkdirSync(codexHome, { recursive: true });
+  const target = path.join(codexHome, "config.toml");
+
+  const blocks: string[] = [];
+
+  if (token) {
+    blocks.push(
+      serializeCodexServer("genosyn", {
+        command: process.execPath,
+        args: [GENOSYN_MCP_BIN],
+        env: {
+          GENOSYN_MCP_API: internalApiBase(),
+          GENOSYN_MCP_TOKEN: token,
+        },
+      }),
+    );
+  }
+
+  const skipped: string[] = [];
+  for (const s of userServers) {
+    if (s.transport === "http") {
+      skipped.push(s.name);
+      continue;
+    }
+    blocks.push(
+      serializeCodexServer(s.name, {
+        command: s.command,
+        args: s.args,
+        env: s.env,
+      }),
+    );
+  }
+
+  if (blocks.length === 0) {
+    if (fs.existsSync(target)) fs.unlinkSync(target);
+    return;
+  }
+
+  const header = [
+    "# Auto-generated by Genosyn — do not edit by hand.",
+    "# Written before every Codex spawn; changes are overwritten.",
+    ...(skipped.length > 0
+      ? [
+          `# Skipped HTTP-transport MCP servers (codex does not support them): ${skipped.join(", ")}`,
+        ]
+      : []),
+    "",
+  ].join("\n");
+
+  fs.writeFileSync(target, header + blocks.join("\n") + "\n", "utf8");
+}
+
+function serializeCodexServer(
+  name: string,
+  spec: { command: string; args: string[]; env: Record<string, string> },
+): string {
+  const lines = [`[mcp_servers.${escapeTomlKey(name)}]`];
+  lines.push(`command = ${tomlString(spec.command)}`);
+  if (spec.args.length > 0) {
+    lines.push(`args = [${spec.args.map(tomlString).join(", ")}]`);
+  }
+  if (Object.keys(spec.env).length > 0) {
+    lines.push(`env = { ${Object.entries(spec.env)
+      .map(([k, v]) => `${tomlString(k)} = ${tomlString(v)}`)
+      .join(", ")} }`);
+  }
+  return lines.join("\n") + "\n";
+}
+
+/**
+ * TOML basic-string serializer. Values are wrapped in `"..."` with the
+ * escape sequences that TOML requires: backslash, quote, and the low-ASCII
+ * control set. We intentionally do not emit literal strings because
+ * env values can reasonably contain single quotes.
+ */
+function tomlString(value: string): string {
+  let out = '"';
+  for (const ch of value) {
+    const code = ch.charCodeAt(0);
+    if (ch === "\\") out += "\\\\";
+    else if (ch === '"') out += '\\"';
+    else if (ch === "\n") out += "\\n";
+    else if (ch === "\r") out += "\\r";
+    else if (ch === "\t") out += "\\t";
+    else if (code < 0x20) out += `\\u${code.toString(16).padStart(4, "0")}`;
+    else out += ch;
+  }
+  return out + '"';
+}
+
+function escapeTomlKey(name: string): string {
+  // Keys that are pure alphanumeric+underscore don't need quoting; otherwise
+  // quote them defensively so names like "some.server" don't collapse into
+  // nested tables.
+  if (/^[A-Za-z0-9_-]+$/.test(name)) return name;
+  return tomlString(name);
+}
+
+/**
+ * Write `opencode.json` at the cwd so `opencode run` sees the MCP servers.
+ * opencode distinguishes local (stdio) from remote (HTTP) transports; both
+ * supported. Command is emitted as an array — opencode's schema does not use
+ * a bare string.
+ */
+function writeOpencodeConfig(
+  cwd: string,
+  userServers: NormalizedServer[],
+  token: string | undefined,
+): void {
+  const target = path.join(cwd, "opencode.json");
+  const file: OpenCodeConfigFile = {
+    $schema: "https://opencode.ai/config.json",
+    mcp: {},
+  };
+
+  if (token) {
+    file.mcp!.genosyn = {
+      type: "local",
+      command: [process.execPath, GENOSYN_MCP_BIN],
+      environment: {
+        GENOSYN_MCP_API: internalApiBase(),
+        GENOSYN_MCP_TOKEN: token,
+      },
+      enabled: true,
+    };
+  }
+
+  for (const s of userServers) {
+    if (s.transport === "http") {
+      file.mcp![s.name] = { type: "remote", url: s.url, enabled: true };
+    } else {
+      // opencode's spec asks for the full argv as a single array; merging
+      // command + args into one list is the canonical form.
+      const entry: {
+        type: "local";
+        command: string[];
+        environment?: Record<string, string>;
+        enabled: boolean;
+      } = {
+        type: "local",
+        command: [s.command, ...s.args],
+        enabled: true,
+      };
+      if (Object.keys(s.env).length > 0) entry.environment = s.env;
+      file.mcp![s.name] = entry;
+    }
+  }
+
+  if (Object.keys(file.mcp!).length === 0) {
+    if (fs.existsSync(target)) fs.unlinkSync(target);
+    return;
+  }
+
+  fs.writeFileSync(target, JSON.stringify(file, null, 2), "utf8");
+}
+
+// ---------- parsing helpers ----------
 
 function parseJsonArray(s: string | null): string[] | null {
   if (!s) return null;

@@ -101,7 +101,12 @@ export async function streamChatWithEmployee(
   // this employee's behalf for the duration of the CLI spawn. Revoked in
   // `finally` so it doesn't linger in memory past the reply.
   const mcpToken = issueMcpToken(emp.id, co.id);
-  await materializeMcpConfig(emp.id, cwd, { genosynToken: mcpToken });
+  await materializeMcpConfig(emp.id, cwd, {
+    genosynToken: mcpToken,
+    provider: model.provider,
+    companySlug: co.slug,
+    employeeSlug: emp.slug,
+  });
 
   const invocation = buildInvocation(model.provider, model.model, prompt);
   try {
@@ -231,7 +236,24 @@ function buildInvocation(
         ],
       };
     case "codex":
-      return { cmd: "codex", args: ["exec", "--model", modelStr, prompt] };
+      // `--ask-for-approval never` keeps codex from blocking on a tty prompt
+      // when the model wants to call an MCP tool; `--sandbox workspace-write`
+      // lets those tools act on files under the employee's cwd without
+      // opening up the broader host. Together they are the non-interactive
+      // equivalent of `codex exec --full-auto`.
+      return {
+        cmd: "codex",
+        args: [
+          "exec",
+          "--model",
+          modelStr,
+          "--ask-for-approval",
+          "never",
+          "--sandbox",
+          "workspace-write",
+          prompt,
+        ],
+      };
     case "opencode":
       return { cmd: "opencode", args: ["run", "--model", modelStr, prompt] };
   }

@@ -122,7 +122,12 @@ export async function runRoutine(routine: Routine): Promise<Run> {
   // this employee's behalf for the duration of the run. Revoked in `finally`
   // so a killed run doesn't leave a usable token behind.
   const mcpToken = issueMcpToken(emp.id, co.id);
-  await materializeMcpConfig(emp.id, cwd, { genosynToken: mcpToken });
+  await materializeMcpConfig(emp.id, cwd, {
+    genosynToken: mcpToken,
+    provider: model.provider,
+    companySlug: co.slug,
+    employeeSlug: emp.slug,
+  });
 
   // Dispatch by provider. The headless invocations below are the documented
   // non-interactive entry points for each CLI. If the CLI binary isn't
@@ -318,7 +323,21 @@ function buildInvocation(
         ],
       };
     case "codex":
-      return { cmd: "codex", args: ["exec", "--model", modelStr, prompt] };
+      // Mirror of chat.ts — run codex non-interactively with tool calls
+      // pre-approved and sandboxed to the employee's cwd.
+      return {
+        cmd: "codex",
+        args: [
+          "exec",
+          "--model",
+          modelStr,
+          "--ask-for-approval",
+          "never",
+          "--sandbox",
+          "workspace-write",
+          prompt,
+        ],
+      };
     case "opencode":
       return { cmd: "opencode", args: ["run", "--model", modelStr, prompt] };
   }
