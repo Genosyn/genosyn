@@ -46,6 +46,7 @@ const TEMPLATE_ICONS: Record<string, React.ReactNode> = {
 type Step = "basics" | "model" | "about" | "soul";
 
 type SoulAnswers = {
+  mission: string;
   tone: string;
   autonomy: string;
   hardNos: string;
@@ -53,11 +54,51 @@ type SoulAnswers = {
 };
 
 const EMPTY_ANSWERS: SoulAnswers = {
+  mission: "",
   tone: "",
   autonomy: "",
   hardNos: "",
   reference: "",
 };
+
+function defaultMission(role: string): string {
+  const beat = role.trim();
+  if (beat) {
+    return `Be the team's ${beat.toLowerCase()} — own the day-to-day so the team can focus on the decisions only humans can make.`;
+  }
+  return `Own the day-to-day so the team can focus on the decisions only humans can make.`;
+}
+
+function defaultTone(): string {
+  return `Calm, concrete, and human. Short sentences, no corporate filler. Write like a person who has done this job for a decade — never "per my last email".`;
+}
+
+function defaultAutonomy(role: string): string {
+  const beat = role.trim().toLowerCase();
+  const area = beat ? `${beat} work` : "your beat";
+  return `Drafting, summarizing, researching, and triaging ${area}. Flag anything ambiguous early. Never send, publish, or commit money without human sign-off.`;
+}
+
+function defaultHardNos(): string {
+  return `Send or publish anything externally without a human sign-off.
+Promise refunds, discounts, timelines, or policy changes on behalf of the team.
+Share private or customer data with anyone who shouldn't have it.`;
+}
+
+function defaultReference(): string {
+  return `https://notion.so/your-company/brand-voice
+https://linear.app/your-company/escalation-matrix`;
+}
+
+function defaultAnswers(role: string): SoulAnswers {
+  return {
+    mission: defaultMission(role),
+    tone: defaultTone(),
+    autonomy: defaultAutonomy(role),
+    hardNos: defaultHardNos(),
+    reference: defaultReference(),
+  };
+}
 
 /**
  * Hiring flow. Four steps:
@@ -131,12 +172,35 @@ export default function EmployeeNew({ company }: { company: Company }) {
     }
   }
 
+  React.useEffect(() => {
+    if (step !== "about") return;
+    const defaults = defaultAnswers(role);
+    setAnswers((prev) => ({
+      mission: prev.mission || defaults.mission,
+      tone: prev.tone || defaults.tone,
+      autonomy: prev.autonomy || defaults.autonomy,
+      hardNos: prev.hardNos || defaults.hardNos,
+      reference: prev.reference || defaults.reference,
+    }));
+  }, [step, role]);
+
   async function openSoulStep() {
     if (!emp) return;
-    // Only regenerate from answers when at least one was filled in. That way
-    // operators who skip "About" get the template's carefully-authored Soul
+    // Only regenerate from answers when the operator actually customized
+    // something beyond the pre-filled defaults. That way operators who click
+    // through without editing get the template's carefully-authored Soul
     // instead of a generic shell.
-    const anyAnswered = Object.values(answers).some((v) => v.trim().length > 0);
+    const defaults = defaultAnswers(role);
+    const isEdited = (key: keyof SoulAnswers) => {
+      const v = answers[key].trim();
+      return v.length > 0 && v !== defaults[key].trim();
+    };
+    const anyAnswered =
+      isEdited("mission") ||
+      isEdited("tone") ||
+      isEdited("autonomy") ||
+      isEdited("hardNos") ||
+      isEdited("reference");
     if (anyAnswered) {
       setSoul(generateSoul(name, role, selectedTemplate, answers));
     } else {
@@ -538,6 +602,14 @@ function AboutStep({
         </CardHeader>
         <CardBody className="flex flex-col gap-5">
           <AnswerField
+            label="Mission"
+            hint={`Why ${name} exists on the team. One or two lines — edit the starter below.`}
+            placeholder={defaultMission(role)}
+            value={answers.mission}
+            onChange={(v) => set("mission", v)}
+            rows={3}
+          />
+          <AnswerField
             label="Tone & voice"
             hint={`How should ${name} sound when writing? One or two lines is enough.`}
             placeholder={`Calm, warm, concrete. Writes short sentences. Never uses "per my last email".`}
@@ -756,25 +828,17 @@ function generateSoul(
   template: EmployeeTemplate | null,
   answers: SoulAnswers,
 ): string {
+  const mission = answers.mission.trim();
   const tone = answers.tone.trim();
   const autonomy = answers.autonomy.trim();
   const hardNos = answers.hardNos.trim();
   const reference = answers.reference.trim();
 
-  const toneLine =
-    tone ||
-    "Calm, concrete, human. You write like a person, not a template — short sentences, no filler.";
-  const autonomyLine =
-    autonomy ||
-    "Small, reversible work — drafts, summaries, triage, research. Never publish or send on your own.";
-  const hardNosList = bulletize(
-    hardNos ||
-      "Send or publish anything externally without a human sign-off.\nPromise refunds, discounts, timelines, or policy changes.\nShare private or customer data with anyone who shouldn't have it.",
-  );
-  const referenceList = bulletize(
-    reference ||
-      "Add links to the playbooks, tone guide, and escalation matrix for this role here.",
-  );
+  const missionLine = mission || defaultMission(role);
+  const toneLine = tone || defaultTone();
+  const autonomyLine = autonomy || defaultAutonomy(role);
+  const hardNosList = bulletize(hardNos || defaultHardNos());
+  const referenceList = bulletize(reference || defaultReference());
 
   const identity = template
     ? `You are **${name}**, our ${role}. ${template.tagline}`
@@ -787,6 +851,9 @@ function generateSoul(
 
 ## Who you are
 ${identity}
+
+## Your mission
+${compact(missionLine)}
 
 ## How you work
 - **Tone & voice:** ${compact(toneLine)}
