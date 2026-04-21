@@ -21,6 +21,7 @@ import { projectsRouter } from "./routes/projects.js";
 import { approvalsRouter } from "./routes/approvals.js";
 import { webhooksRouter } from "./routes/webhooks.js";
 import { mcpRouter } from "./routes/mcp.js";
+import { mcpInternalRouter } from "./routes/mcpInternal.js";
 import { secretsRouter } from "./routes/secrets.js";
 import { auditRouter } from "./routes/audit.js";
 import { usageRouter } from "./routes/usage.js";
@@ -51,6 +52,12 @@ async function main() {
   // Public webhooks (token in URL is the credential). Mounted before auth
   // so session-less POSTs from external systems aren't gated.
   app.use("/api/webhooks", webhooksRouter);
+
+  // Built-in MCP tools called by the Genosyn stdio binary we spawn alongside
+  // every AI employee. Auth is a short-lived Bearer token we issued moments
+  // earlier — session-less on purpose, but mounted before the session router
+  // anyway so no cookie state leaks into these requests.
+  app.use("/api/internal/mcp", mcpInternalRouter);
 
   app.use("/api/auth", authRouter);
   app.use("/api/companies", companiesRouter);

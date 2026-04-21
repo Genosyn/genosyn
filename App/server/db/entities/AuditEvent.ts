@@ -13,7 +13,7 @@ import {
  * routine carries `{from, to}`). The UI renders a friendly sentence from
  * `action` + `targetLabel` and exposes the raw JSON on expand.
  */
-export type AuditActorKind = "user" | "system" | "webhook" | "cron";
+export type AuditActorKind = "user" | "system" | "webhook" | "cron" | "ai";
 
 @Entity("audit_events")
 @Index(["companyId", "createdAt"])
@@ -30,6 +30,14 @@ export class AuditEvent {
   /** Null for non-user actors (system, cron, anonymous webhook). */
   @Column({ type: "varchar", nullable: true })
   actorUserId!: string | null;
+
+  /**
+   * AI Employee that performed this action, when `actorKind === "ai"`. Set
+   * by the built-in Genosyn MCP server when an employee calls a write tool
+   * from within its chat or routine run.
+   */
+  @Column({ type: "varchar", nullable: true })
+  actorEmployeeId!: string | null;
 
   /** Dotted name — `employee.create`, `routine.update`, `approval.approve`. */
   @Column({ type: "varchar" })

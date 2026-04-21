@@ -11,6 +11,7 @@ import { employeeDir, ensureDir } from "./paths.js";
 import { PROVIDERS, isSubscriptionConnected } from "./providers.js";
 import { decryptSecret } from "../lib/secret.js";
 import { materializeMcpConfig } from "./mcp.js";
+import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 
 /**
@@ -116,7 +117,12 @@ export async function runRoutine(routine: Routine): Promise<Run> {
 
   const cwd = employeeDir(co.slug, emp.slug);
   ensureDir(cwd);
-  await materializeMcpConfig(emp.id, cwd);
+
+  // Mint a fresh MCP token so the built-in Genosyn stdio server can act on
+  // this employee's behalf for the duration of the run. Revoked in `finally`
+  // so a killed run doesn't leave a usable token behind.
+  const mcpToken = issueMcpToken(emp.id, co.id);
+  await materializeMcpConfig(emp.id, cwd, { genosynToken: mcpToken });
 
   // Dispatch by provider. The headless invocations below are the documented
   // non-interactive entry points for each CLI. If the CLI binary isn't
@@ -159,6 +165,8 @@ export async function runRoutine(routine: Routine): Promise<Run> {
       saved.status = "failed";
       saved.exitCode = null;
     }
+  } finally {
+    revokeMcpToken(mcpToken);
   }
   saved.logContent = log.value();
   await runRepo.save(saved);
@@ -222,6 +230,9 @@ function composePrompt(args: {
   const parts: string[] = [];
   parts.push(
     `You are ${emp.name}, ${emp.role} at ${co.name}. The following documents are yours — your Soul, your Skills, and today's Routine.`,
+  );
+  parts.push(
+    `\n## Tools\nYou have a \`genosyn\` MCP server attached. Use \`add_journal_entry\` to log what you accomplished, \`create_todo\` or \`create_routine\` to follow up on work, and the \`list_*\` helpers to orient. Reach for tools instead of describing what you would do.`,
   );
   parts.push("\n## Soul\n");
   parts.push(emp.soulBody);

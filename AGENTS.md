@@ -114,7 +114,10 @@ data/
 - What stays on disk is the runtime surface the provider CLI needs: the
   per-employee credentials directories (`.claude`, `.codex`, `.opencode`),
   the `.mcp.json` we materialize from the MCP server rows before each spawn,
-  and any artifacts the CLI writes into its cwd.
+  and any artifacts the CLI writes into its cwd. The `.mcp.json` we write
+  always includes a built-in `genosyn` entry in addition to any external
+  MCP servers the user configured — that's how AI employees call back into
+  Genosyn to create Routines, Todos, journal notes, etc.
 - The `data/` directory is gitignored. Never commit anything inside it.
 - Slugs are derived once at create-time via `slugify`; renames update the
   display name but not the slug (so URLs and credential paths stay stable).
@@ -209,6 +212,9 @@ milestone is done, drive the happy path in a browser (via the `browse` /
   skill, and routine bodies live on their DB rows; run logs live on the
   Run row. The filesystem under `data/` is only for provider credentials,
   `.mcp.json`, and CLI artifacts.
+- Naming a user-configurable MCP server `genosyn`. The name is reserved for
+  the built-in stdio binary at `server/mcp-genosyn/`. User-configured
+  servers with that name are dropped when `.mcp.json` is materialized.
 - Skipping the zod schema on a new endpoint.
 - Adding a feature that isn't on the roadmap without adding it to the
   roadmap first.

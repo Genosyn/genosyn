@@ -8,6 +8,7 @@ import { employeeDir, ensureDir } from "./paths.js";
 import { PROVIDERS, isSubscriptionConnected } from "./providers.js";
 import { decryptSecret } from "../lib/secret.js";
 import { materializeMcpConfig } from "./mcp.js";
+import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 
 /**
@@ -95,7 +96,12 @@ export async function streamChatWithEmployee(
 
   const cwd = employeeDir(co.slug, emp.slug);
   ensureDir(cwd);
-  await materializeMcpConfig(emp.id, cwd);
+
+  // Mint a fresh MCP token so the built-in Genosyn stdio server can act on
+  // this employee's behalf for the duration of the CLI spawn. Revoked in
+  // `finally` so it doesn't linger in memory past the reply.
+  const mcpToken = issueMcpToken(emp.id, co.id);
+  await materializeMcpConfig(emp.id, cwd, { genosynToken: mcpToken });
 
   const invocation = buildInvocation(model.provider, model.model, prompt);
   try {
@@ -114,6 +120,8 @@ export async function streamChatWithEmployee(
       };
     }
     return { status: "error", reply: msg };
+  } finally {
+    revokeMcpToken(mcpToken);
   }
 }
 
@@ -129,6 +137,7 @@ function composeChatPrompt(args: {
   parts.push(
     `You are ${emp.name}, ${emp.role} at ${co.name}. A teammate is chatting with you directly. Reply in your own voice, guided by your Soul and Skills below. Keep replies focused and grounded — ask clarifying questions when needed.`,
   );
+  parts.push(toolsBriefing());
   parts.push("\n## Soul\n");
   parts.push(emp.soulBody);
   for (const s of skills) {
@@ -144,6 +153,17 @@ function composeChatPrompt(args: {
   }
   parts.push(`\n## New message\n**Teammate:** ${message}\n\n**${emp.name}:**`);
   return parts.join("\n");
+}
+
+/**
+ * Short briefing so the model knows the built-in Genosyn MCP tools are real
+ * and should be used. Without this reminder, models tend to acknowledge
+ * requests in prose ("Done — I'll run a revenue check every Monday") without
+ * actually calling `create_routine`. We enumerate the write verbs so the
+ * model has no ambiguity about which actions are available.
+ */
+function toolsBriefing(): string {
+  return `\n## Tools\nYou have a \`genosyn\` MCP server attached with tools that modify this company:\n- \`create_routine\` to schedule recurring AI work (use this whenever someone asks for a recurring report, check-in, or scheduled task — Genosyn calls these **Routines**, never "tasks")\n- \`create_project\` and \`create_todo\` for the task manager (one-off work items)\n- \`update_todo\` to change status, assignee, or details\n- \`add_journal_entry\` to log decisions or observations on your own diary\n- Read-only helpers: \`get_self\`, \`list_employees\`, \`list_routines\`, \`list_projects\`, \`list_todos\`, \`list_skills\`, \`list_journal\`\n\nWhen the teammate asks you to *do* something in Genosyn (schedule work, file a todo, create a project), call the matching tool — don't just describe what you would do. After a successful call, confirm briefly what you did.`;
 }
 
 function buildProviderEnv(

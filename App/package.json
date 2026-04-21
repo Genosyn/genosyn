@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "tsx watch --ignore='**/vite.config.*' --ignore='client/**' --ignore='dist/**' --ignore='data/**' server/index.ts",
     "build": "npm run build:server && npm run build:client",
-    "build:server": "tsc -p tsconfig.server.json",
+    "build:server": "tsc -p tsconfig.server.json && mkdir -p dist/server/mcp-genosyn && cp server/mcp-genosyn/*.mjs dist/server/mcp-genosyn/",
     "build:client": "vite build",
     "start": "node dist/server/index.js",
     "lint": "eslint . --ext .ts,.tsx",

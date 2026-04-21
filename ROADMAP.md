@@ -268,7 +268,12 @@ export const config = {
 - Kanban + list views.
 
 ### Integrations (the employee's real hands)
-- **MCP server support** — employees pick up MCP tools.
+- **MCP server support** — employees pick up MCP tools. *(Shipped:
+  external MCP servers configurable per-employee, plus a built-in
+  `genosyn` stdio server at `App/server/mcp-genosyn/` that exposes
+  Routines / Projects / Todos / Journal writes back into Genosyn's own
+  DB. Auth is a short-lived Bearer token minted per spawn. Writes are
+  recorded in AuditEvent with `actorKind: "ai"`.)*
 - Gmail, Google Calendar, Slack, GitHub, Linear, Notion, generic webhook.
 - **Secrets vault** — encrypted per-company secrets for integrations.
 - **Incoming webhooks** — external events trigger routines.

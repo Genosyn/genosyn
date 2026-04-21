@@ -10,6 +10,7 @@ export async function recordAudit(params: {
   companyId: string;
   actorKind?: AuditActorKind;
   actorUserId?: string | null;
+  actorEmployeeId?: string | null;
   action: string;
   targetType?: string;
   targetId?: string | null;
@@ -18,10 +19,18 @@ export async function recordAudit(params: {
 }): Promise<void> {
   try {
     const repo = AppDataSource.getRepository(AuditEvent);
+    const resolvedKind: AuditActorKind =
+      params.actorKind ??
+      (params.actorEmployeeId
+        ? "ai"
+        : params.actorUserId
+          ? "user"
+          : "system");
     const row = repo.create({
       companyId: params.companyId,
-      actorKind: params.actorKind ?? (params.actorUserId ? "user" : "system"),
+      actorKind: resolvedKind,
       actorUserId: params.actorUserId ?? null,
+      actorEmployeeId: params.actorEmployeeId ?? null,
       action: params.action,
       targetType: params.targetType ?? "",
       targetId: params.targetId ?? null,
