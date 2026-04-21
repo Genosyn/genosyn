@@ -9,7 +9,10 @@
       "Bash(sqlite3 data/app.sqlite \".schema ai_employees\")",
       "Bash(sqlite3 /Users/nawazdhandala/Projects/Genosyn/genosyn/App/data/app.sqlite \".schema skills\")",
       "Bash(sqlite3 /Users/nawazdhandala/Projects/Genosyn/genosyn/App/data/app.sqlite \".schema routines\")",
-      "Bash(sqlite3 /Users/nawazdhandala/Projects/Genosyn/genosyn/App/data/app.sqlite \".schema runs\")"
+      "Bash(sqlite3 /Users/nawazdhandala/Projects/Genosyn/genosyn/App/data/app.sqlite \".schema runs\")",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)"
     ]
   }
 }
