@@ -27,6 +27,8 @@ import { Base } from "./entities/Base.js";
 import { BaseTable } from "./entities/BaseTable.js";
 import { BaseField } from "./entities/BaseField.js";
 import { BaseRecord } from "./entities/BaseRecord.js";
+import { Backup } from "./entities/Backup.js";
+import { BackupSchedule } from "./entities/BackupSchedule.js";
 
 const entities = [
   User,
@@ -52,6 +54,8 @@ const entities = [
   BaseTable,
   BaseField,
   BaseRecord,
+  Backup,
+  BackupSchedule,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

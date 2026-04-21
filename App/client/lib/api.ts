@@ -294,6 +294,31 @@ export type Secret = {
   updatedAt: string;
 };
 
+export type BackupKind = "manual" | "scheduled" | "uploaded";
+export type BackupStatus = "running" | "completed" | "failed";
+export type Backup = {
+  id: string;
+  filename: string;
+  sizeBytes: number;
+  kind: BackupKind;
+  status: BackupStatus;
+  errorMessage: string;
+  createdAt: string;
+  completedAt: string | null;
+};
+
+export type BackupFrequency = "daily" | "weekly" | "monthly";
+export type BackupSchedule = {
+  enabled: boolean;
+  frequency: BackupFrequency;
+  hour: number;
+  dayOfWeek: number;
+  dayOfMonth: number;
+  cronExpr: string;
+  lastRunAt: string | null;
+  updatedAt: string;
+};
+
 export type WorkspaceNode =
   | { type: "dir"; name: string; path: string; children: WorkspaceNode[] }
   | { type: "file"; name: string; path: string; size: number };

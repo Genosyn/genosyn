@@ -27,7 +27,13 @@ import {
   SoulSettingsPage,
 } from "./pages/employeeTabs";
 import SettingsLayout from "./pages/SettingsLayout";
-import { SettingsAccount, SettingsCompany, SettingsMembers, SettingsSecrets } from "./pages/Settings";
+import {
+  SettingsAccount,
+  SettingsBackup,
+  SettingsCompany,
+  SettingsMembers,
+  SettingsSecrets,
+} from "./pages/Settings";
 import Invite from "./pages/Invite";
 import TasksLayout from "./pages/TasksLayout";
 import TasksIndex from "./pages/TasksIndex";
@@ -199,6 +205,7 @@ function CompanyRoutes({
           <Route path="company" element={<SettingsCompany />} />
           <Route path="members" element={<SettingsMembers />} />
           <Route path="secrets" element={<SettingsSecrets />} />
+          <Route path="backup" element={<SettingsBackup />} />
           <Route path="usage" element={<Usage />} />
           <Route path="audit" element={<AuditLog />} />
         </Route>

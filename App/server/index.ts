@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { config } from "../config.js";
 import { initDb } from "./db/datasource.js";
 import { bootCron } from "./services/cron.js";
+import { bootBackups } from "./services/backups.js";
 import { errorHandler } from "./middleware/error.js";
 import { authRouter } from "./routes/auth.js";
 import { companiesRouter } from "./routes/companies.js";
@@ -25,6 +26,7 @@ import { auditRouter } from "./routes/audit.js";
 import { usageRouter } from "./routes/usage.js";
 import { templatesRouter } from "./routes/templates.js";
 import { basesRouter } from "./routes/bases.js";
+import { backupsRouter } from "./routes/backups.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,6 +34,7 @@ const __dirname = path.dirname(__filename);
 async function main() {
   await initDb();
   await bootCron();
+  await bootBackups();
 
   const app = express();
   app.use(express.json({ limit: "1mb" }));
@@ -52,6 +55,7 @@ async function main() {
   app.use("/api/auth", authRouter);
   app.use("/api/companies", companiesRouter);
   app.use("/api/invitations", invitationsRouter);
+  app.use("/api/backups", backupsRouter);
   app.use("/api", templatesRouter);
   // Nested under /api/companies/:cid/...
   app.use("/api/companies/:cid/employees", employeesRouter);

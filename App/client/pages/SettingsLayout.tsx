@@ -1,6 +1,7 @@
 import React from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import {
+  Archive,
   BarChart3,
   Building2,
   KeyRound,
@@ -30,6 +31,7 @@ const SETTINGS_TAB_LABEL: Record<string, string> = {
   company: "Company",
   members: "Members",
   secrets: "Secrets",
+  backup: "Backup",
   usage: "Usage",
   audit: "Audit log",
 };
@@ -64,6 +66,7 @@ export default function SettingsLayout({
         <SidebarLink to={`${base}/company`} icon={<Building2 size={14} />} label="Company" />
         <SidebarLink to={`${base}/members`} icon={<Users size={14} />} label="Members" />
         <SidebarLink to={`${base}/secrets`} icon={<KeyRound size={14} />} label="Secrets" />
+        <SidebarLink to={`${base}/backup`} icon={<Archive size={14} />} label="Backup" />
         <SidebarLink to={`${base}/usage`} icon={<BarChart3 size={14} />} label="Usage" />
         <SidebarLink to={`${base}/audit`} icon={<ScrollText size={14} />} label="Audit log" />
       </nav>
