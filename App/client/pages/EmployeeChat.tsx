@@ -1,5 +1,5 @@
 import React from "react";
-import { useOutletContext } from "react-router-dom";
+import { Link, useOutletContext } from "react-router-dom";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import {
@@ -284,6 +284,8 @@ export default function EmployeeChat() {
                   key={m.id}
                   message={m}
                   authorName={emp.name}
+                  companySlug={company.slug}
+                  employeeSlug={emp.slug}
                   showAvatar={i === 0 || messages[i - 1].role !== m.role}
                 />
               ))}
@@ -440,10 +442,14 @@ function ChatHeader({
 function TurnBubble({
   message,
   authorName,
+  companySlug,
+  employeeSlug,
   showAvatar,
 }: {
   message: ConversationMessage;
   authorName: string;
+  companySlug: string;
+  employeeSlug: string;
   showAvatar: boolean;
 }) {
   const mine = message.role === "user";
@@ -504,7 +510,11 @@ function TurnBubble({
           )}
         </div>
         {message.actions && message.actions.length > 0 && (
-          <ActionPills actions={message.actions} />
+          <ActionPills
+            actions={message.actions}
+            companySlug={companySlug}
+            employeeSlug={employeeSlug}
+          />
         )}
         <div className="mt-1 pl-1 text-[10px] text-slate-400 opacity-0 transition group-hover:opacity-100 dark:text-slate-500">
           {formatTime(message.createdAt)}
@@ -728,21 +738,78 @@ function Composer({
  * AuditEvent table server-side, so the evidence is authoritative: no
  * audit row, no pill.
  */
-function ActionPills({ actions }: { actions: MessageAction[] }) {
+function ActionPills({
+  actions,
+  companySlug,
+  employeeSlug,
+}: {
+  actions: MessageAction[];
+  companySlug: string;
+  employeeSlug: string;
+}) {
   return (
     <div className="mt-2 flex flex-wrap gap-1.5">
-      {actions.map((a, i) => (
-        <span
-          key={`${a.action}-${a.targetId ?? i}`}
-          title={`${a.action}${a.targetLabel ? ` — ${a.targetLabel}` : ""}`}
-          className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
-        >
-          <Check size={11} strokeWidth={3} />
-          <span className="truncate max-w-[22rem]">{describeAction(a)}</span>
-        </span>
-      ))}
+      {actions.map((a, i) => {
+        const href = hrefForAction(a, companySlug, employeeSlug);
+        const content = (
+          <>
+            <Check size={11} strokeWidth={3} />
+            <span className="truncate max-w-[22rem]">{describeAction(a)}</span>
+          </>
+        );
+        const className =
+          "inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:border-emerald-500/50 dark:hover:bg-emerald-500/20";
+        const title = `${a.action}${a.targetLabel ? ` — ${a.targetLabel}` : ""}${
+          href ? "" : " (no link available)"
+        }`;
+        return href ? (
+          <Link
+            key={`${a.action}-${a.targetId ?? i}`}
+            to={href}
+            title={title}
+            className={className}
+          >
+            {content}
+          </Link>
+        ) : (
+          <span
+            key={`${a.action}-${a.targetId ?? i}`}
+            title={title}
+            className={className.replace(
+              "transition hover:border-emerald-300 hover:bg-emerald-100 dark:hover:border-emerald-500/50 dark:hover:bg-emerald-500/20",
+              "",
+            )}
+          >
+            {content}
+          </span>
+        );
+      })}
     </div>
   );
+}
+
+/**
+ * Route the pill should deep-link to. Routines/journal are scoped to the
+ * employee who took the action; project/todo live under the company-wide
+ * Tasks section. We intentionally land on the list view rather than a
+ * detail page — the new row is near the top, so it's easy to spot, and we
+ * don't have to carry the project slug through the action payload.
+ */
+function hrefForAction(
+  a: MessageAction,
+  companySlug: string,
+  employeeSlug: string,
+): string | null {
+  if (a.action.startsWith("routine.")) {
+    return `/c/${companySlug}/employees/${employeeSlug}/routines`;
+  }
+  if (a.action === "journal.create" || a.action.startsWith("journal.")) {
+    return `/c/${companySlug}/employees/${employeeSlug}/journal`;
+  }
+  if (a.action.startsWith("project.") || a.action.startsWith("todo.")) {
+    return `/c/${companySlug}/tasks`;
+  }
+  return null;
 }
 
 /**
