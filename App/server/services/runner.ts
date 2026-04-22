@@ -237,7 +237,12 @@ function composePrompt(args: {
     `You are ${emp.name}, ${emp.role} at ${co.name}. The following documents are yours — your Soul, your Skills, and today's Routine.`,
   );
   parts.push(
-    `\n## Tools\nYou have a \`genosyn\` MCP server attached. Use \`add_journal_entry\` to log what you accomplished, \`create_todo\` or \`create_routine\` to follow up on work, and the \`list_*\` helpers to orient. Reach for tools instead of describing what you would do.`,
+    [
+      "",
+      "## Tools",
+      "You have a `genosyn` MCP server attached. Use `add_journal_entry` to log what you accomplished, `create_todo` or `create_routine` to follow up on work, and the `list_*` helpers to orient.",
+      "Reach for tools instead of describing what you would do — a tool call leaves a visible audit row and an action pill the operator can inspect. Prose-only claims are invisible.",
+    ].join("\n"),
   );
   parts.push("\n## Soul\n");
   parts.push(emp.soulBody);

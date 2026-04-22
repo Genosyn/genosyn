@@ -1,10 +1,15 @@
 import { Router } from "express";
 import { z } from "zod";
+import { MoreThan } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Conversation } from "../db/entities/Conversation.js";
-import { ConversationMessage } from "../db/entities/ConversationMessage.js";
+import {
+  ConversationMessage,
+  MessageAction,
+} from "../db/entities/ConversationMessage.js";
+import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
@@ -72,8 +77,54 @@ function serializeMessage(m: ConversationMessage) {
     role: m.role,
     content: m.content,
     status: m.status,
+    actions: parseActions(m.actionsJson),
     createdAt: m.createdAt,
   };
+}
+
+function parseActions(raw: string | null | undefined): MessageAction[] {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    if (!Array.isArray(v)) return [];
+    return v.filter(
+      (x): x is MessageAction =>
+        !!x &&
+        typeof x === "object" &&
+        typeof (x as MessageAction).action === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Fetch the AuditEvents this employee produced during the chat turn
+ * (after `since`) and project them onto the lean MessageAction shape the
+ * UI renders. Filtered to `actorKind: "ai"` so we don't accidentally
+ * surface mutations from other callers (webhook, cron, human admin) that
+ * happened to land in the same millisecond window.
+ */
+async function captureTurnActions(
+  companyId: string,
+  employeeId: string,
+  since: Date,
+): Promise<MessageAction[]> {
+  const events = await AppDataSource.getRepository(AuditEvent).find({
+    where: {
+      companyId,
+      actorEmployeeId: employeeId,
+      actorKind: "ai",
+      createdAt: MoreThan(since),
+    },
+    order: { createdAt: "ASC" },
+  });
+  return events.map((e) => ({
+    action: e.action,
+    targetType: e.targetType,
+    targetId: e.targetId,
+    targetLabel: e.targetLabel,
+  }));
 }
 
 employeeSurfaceRouter.get("/:eid/conversations", async (req, res) => {
@@ -221,6 +272,11 @@ employeeSurfaceRouter.post(
         .slice(-MAX_REPLAY_TURNS)
         .map((m) => ({ role: m.role, content: m.content }));
 
+      // Watermark just before the spawn — anything the employee audits
+      // after this is attributable to this turn. Subtract a few ms to be
+      // generous with clock skew between SQLite's `datetime('now')` default
+      // and our process clock.
+      const turnStart = new Date(Date.now() - 10);
       const result = await streamChatWithEmployee(
         cid,
         eid,
@@ -229,12 +285,15 @@ employeeSurfaceRouter.post(
         (chunk) => writeEvent("chunk", { text: chunk }),
       );
 
+      const actions = await captureTurnActions(cid, eid, turnStart);
+
       const assistantMsg = await msgRepo.save(
         msgRepo.create({
           conversationId: conv.id,
           role: "assistant",
           content: result.reply,
           status: result.status,
+          actionsJson: actions.length > 0 ? JSON.stringify(actions) : "",
         }),
       );
 

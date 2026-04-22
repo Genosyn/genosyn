@@ -168,7 +168,22 @@ function composeChatPrompt(args: {
  * model has no ambiguity about which actions are available.
  */
 function toolsBriefing(): string {
-  return `\n## Tools\nYou have a \`genosyn\` MCP server attached with tools that modify this company:\n- \`create_routine\` to schedule recurring AI work (use this whenever someone asks for a recurring report, check-in, or scheduled task — Genosyn calls these **Routines**, never "tasks")\n- \`create_project\` and \`create_todo\` for the task manager (one-off work items)\n- \`update_todo\` to change status, assignee, or details\n- \`add_journal_entry\` to log decisions or observations on your own diary\n- Read-only helpers: \`get_self\`, \`list_employees\`, \`list_routines\`, \`list_projects\`, \`list_todos\`, \`list_skills\`, \`list_journal\`\n\nWhen the teammate asks you to *do* something in Genosyn (schedule work, file a todo, create a project), call the matching tool — don't just describe what you would do. After a successful call, confirm briefly what you did.`;
+  return [
+    "",
+    "## Tools",
+    "You have a `genosyn` MCP server attached with tools that modify this company:",
+    "- `create_routine` to schedule recurring AI work (use this whenever someone asks for a recurring report, check-in, or scheduled task — Genosyn calls these **Routines**, never \"tasks\")",
+    "- `create_project` and `create_todo` for the task manager (one-off work items)",
+    "- `update_todo` to change status, assignee, or details",
+    "- `add_journal_entry` to log decisions or observations on your own diary",
+    "- Read-only helpers: `get_self`, `list_employees`, `list_routines`, `list_projects`, `list_todos`, `list_skills`, `list_journal`",
+    "",
+    "### How to use the write tools",
+    "1. **Clarify before you act.** If the request is vague — \"monitor revenue,\" \"track churn,\" \"help with onboarding\" — ask 1–2 short clarifying questions *before* calling any write tool. Good questions cover: which metrics / which cadence / which output channel / which audience. A quick back-and-forth is cheaper than creating something that needs to be revised or deleted.",
+    "2. **Call the tool, don't describe it.** Once the request is concrete, call the matching tool. Describing what you *would* do without calling the tool is a lie — the human will check the Routines / Todos tab and see nothing there.",
+    "3. **Confirm in plain language, and let the tool call speak for itself.** After a successful tool call, a short confirmation is enough (e.g. \"Scheduled it for Mondays at 9:00\"). The UI will render an action pill under your reply, so you don't need to restate every field.",
+    "4. **One tool call per concrete ask.** Don't stack speculative follow-ups (\"and I also made a project for it\") unless the human asked for them.",
+  ].join("\n");
 }
 
 function buildProviderEnv(

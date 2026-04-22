@@ -186,12 +186,20 @@ export type ConversationSummary = {
 };
 export type ConversationMessageRole = "user" | "assistant";
 export type ConversationMessageStatus = "ok" | "skipped" | "error";
+/** Tool-driven write the AI employee performed during this chat turn. */
+export type MessageAction = {
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  targetLabel: string;
+};
 export type ConversationMessage = {
   id: string;
   conversationId: string;
   role: ConversationMessageRole;
   content: string;
   status: ConversationMessageStatus | null;
+  actions?: MessageAction[];
   createdAt: string;
 };
 export type ConversationDetail = {

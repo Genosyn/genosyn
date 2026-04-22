@@ -4,6 +4,7 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 import {
   AlertCircle,
+  Check,
   CircleSlash,
   MessageSquarePlus,
   Send,
@@ -15,6 +16,7 @@ import {
   ConversationDetail,
   ConversationMessage,
   ConversationSummary,
+  MessageAction,
 } from "../lib/api";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
@@ -501,6 +503,9 @@ function TurnBubble({
             <ChatMarkdown content={message.content} />
           )}
         </div>
+        {message.actions && message.actions.length > 0 && (
+          <ActionPills actions={message.actions} />
+        )}
         <div className="mt-1 pl-1 text-[10px] text-slate-400 opacity-0 transition group-hover:opacity-100 dark:text-slate-500">
           {formatTime(message.createdAt)}
         </div>
@@ -710,6 +715,58 @@ function Composer({
       </div>
     </form>
   );
+}
+
+// ───────────────────────────── Action pills ─────────────────────────────
+
+/**
+ * Inline footer under an assistant bubble showing every tool-driven write
+ * the employee performed during that turn (`routine.create`, `todo.create`,
+ * ...). Without this the model's prose is the only signal that anything
+ * happened, which is how we kept getting "Done — I set up a Routine" replies
+ * with no real DB write to back them up. The pills are built from the
+ * AuditEvent table server-side, so the evidence is authoritative: no
+ * audit row, no pill.
+ */
+function ActionPills({ actions }: { actions: MessageAction[] }) {
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {actions.map((a, i) => (
+        <span
+          key={`${a.action}-${a.targetId ?? i}`}
+          title={`${a.action}${a.targetLabel ? ` — ${a.targetLabel}` : ""}`}
+          className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
+        >
+          <Check size={11} strokeWidth={3} />
+          <span className="truncate max-w-[22rem]">{describeAction(a)}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Human sentence for an action pill. Keeps it terse — the hover title
+ * carries the raw action name for anyone who wants to see it.
+ */
+function describeAction(a: MessageAction): string {
+  const label = a.targetLabel || a.targetType || "item";
+  switch (a.action) {
+    case "routine.create":
+      return `Created routine "${label}"`;
+    case "routine.update":
+      return `Updated routine "${label}"`;
+    case "project.create":
+      return `Created project "${label}"`;
+    case "todo.create":
+      return `Created todo ${label}`;
+    case "todo.update":
+      return `Updated todo ${label}`;
+    case "journal.create":
+      return `Added journal entry "${label}"`;
+    default:
+      return `${a.action}${label ? ` — ${label}` : ""}`;
+  }
 }
 
 // ───────────────────────────── Markdown ─────────────────────────────

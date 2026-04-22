@@ -33,6 +33,31 @@ export class ConversationMessage {
   @Column({ type: "varchar", nullable: true })
   status!: ConversationMessageStatus | null;
 
+  /**
+   * JSON-serialized list of {@link MessageAction}s the AI employee performed
+   * during this turn (create_routine, create_todo, ...). Always empty on
+   * user-role rows; on assistant rows it's an empty string when no writes
+   * happened. Drawn from the AuditEvent table at message-save time.
+   */
+  @Column({ type: "text", default: "" })
+  actionsJson!: string;
+
   @CreateDateColumn()
   createdAt!: Date;
 }
+
+/**
+ * Canonical shape for entries inside `actionsJson`. Mirrors the subset of
+ * AuditEvent fields we want to render as chat action pills. Kept small so
+ * reloading a long transcript stays cheap.
+ */
+export type MessageAction = {
+  /** Dotted audit action name — e.g. `routine.create`, `todo.create`. */
+  action: string;
+  /** Kind of entity the action touched. */
+  targetType: string;
+  /** UUID of the created/updated entity, when available. */
+  targetId: string | null;
+  /** Human label at the time of the action — e.g. "Weekly revenue monitor". */
+  targetLabel: string;
+};
