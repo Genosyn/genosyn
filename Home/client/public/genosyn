@@ -1,0 +1,495 @@
+#!/usr/bin/env bash
+# Genosyn — cluster maintainer CLI.
+#
+# Manages a self-hosted Genosyn container (pull, upgrade, start/stop, logs,
+# backup, restore). Thin wrapper around `docker` — no other runtime deps.
+#
+# Env overrides (flags on individual commands take precedence):
+#   GENOSYN_PORT     host port to expose (default: 8471)
+#   GENOSYN_NAME     container name       (default: genosyn)
+#   GENOSYN_VOLUME   data volume name     (default: genosyn-data)
+#   GENOSYN_IMAGE    image reference      (default: ghcr.io/genosyn/app:latest)
+
+set -euo pipefail
+
+CLI_VERSION="0.1.0"
+
+PORT="${GENOSYN_PORT:-8471}"
+NAME="${GENOSYN_NAME:-genosyn}"
+VOLUME="${GENOSYN_VOLUME:-genosyn-data}"
+IMAGE="${GENOSYN_IMAGE:-ghcr.io/genosyn/app:latest}"
+
+# ---------- output helpers ----------
+
+if [ -t 1 ]; then
+  C_RESET=$'\033[0m'
+  C_DIM=$'\033[2m'
+  C_BOLD=$'\033[1m'
+  C_INDIGO=$'\033[38;5;99m'
+  C_GREEN=$'\033[32m'
+  C_YELLOW=$'\033[33m'
+  C_RED=$'\033[31m'
+else
+  C_RESET=""; C_DIM=""; C_BOLD=""; C_INDIGO=""; C_GREEN=""; C_YELLOW=""; C_RED=""
+fi
+
+step() { printf '%s→%s %s\n' "${C_INDIGO}" "${C_RESET}" "$*"; }
+ok()   { printf '%s✓%s %s\n' "${C_GREEN}"  "${C_RESET}" "$*"; }
+warn() { printf '%s!%s %s\n' "${C_YELLOW}" "${C_RESET}" "$*" >&2; }
+die()  { printf '%s✗%s %s\n' "${C_RED}"    "${C_RESET}" "$*" >&2; exit 1; }
+
+# ---------- preconditions ----------
+
+require_docker() {
+  command -v docker >/dev/null 2>&1 \
+    || die "Docker is not installed. Get it at https://docs.docker.com/get-docker/"
+  docker info >/dev/null 2>&1 \
+    || die "Docker daemon is not reachable. Start Docker Desktop (or your daemon) and re-run."
+}
+
+container_exists() {
+  docker ps -a --format '{{.Names}}' | grep -qx "${NAME}"
+}
+
+container_running() {
+  docker ps --format '{{.Names}}' | grep -qx "${NAME}"
+}
+
+volume_exists() {
+  docker volume ls --format '{{.Name}}' | grep -qx "${VOLUME}"
+}
+
+# Wait for the app to answer on its HTTP port from inside the container.
+wait_for_ready() {
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    if docker exec "${NAME}" sh -c "wget -qO- http://127.0.0.1:8471 >/dev/null 2>&1 || curl -fsS http://127.0.0.1:8471 >/dev/null 2>&1"; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+print_post_install() {
+  echo
+  printf '   Open    %shttp://localhost:%s%s\n' "${C_INDIGO}" "${PORT}" "${C_RESET}"
+  printf '   Logs    %sgenosyn logs -f%s\n'     "${C_DIM}"   "${C_RESET}"
+  printf '   Status  %sgenosyn status%s\n'      "${C_DIM}"   "${C_RESET}"
+  printf '   Upgrade %sgenosyn upgrade%s\n'     "${C_DIM}"   "${C_RESET}"
+  echo
+}
+
+# Start a fresh container with the configured name/port/volume/image.
+run_container() {
+  docker run -d \
+    --name "${NAME}" \
+    --restart unless-stopped \
+    -p "${PORT}:8471" \
+    -v "${VOLUME}:/app/data" \
+    "${IMAGE}" >/dev/null
+}
+
+# ---------- flag parsing ----------
+#
+# Every command accepts --port, --name, --volume, --image so operators can
+# override on a per-invocation basis without exporting env vars. Unknown flags
+# fall through to command-specific parsing (see `logs`, `backup`, etc).
+
+parse_common_flags() {
+  REMAINING=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --port)    PORT="$2"; shift 2 ;;
+      --name)    NAME="$2"; shift 2 ;;
+      --volume)  VOLUME="$2"; shift 2 ;;
+      --image)   IMAGE="$2"; shift 2 ;;
+      --port=*)    PORT="${1#*=}"; shift ;;
+      --name=*)    NAME="${1#*=}"; shift ;;
+      --volume=*)  VOLUME="${1#*=}"; shift ;;
+      --image=*)   IMAGE="${1#*=}"; shift ;;
+      *) REMAINING+=("$1"); shift ;;
+    esac
+  done
+}
+
+confirm() {
+  local prompt="${1:-Are you sure?}"
+  if [ ! -t 0 ] || [ ! -t 1 ]; then
+    die "Refusing to run a destructive action without a TTY. Re-run interactively or pass --yes."
+  fi
+  printf '%s [y/N] ' "$prompt"
+  local reply
+  read -r reply
+  case "$reply" in
+    y|Y|yes|YES) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# ---------- commands ----------
+
+cmd_install() {
+  parse_common_flags "$@"
+  require_docker
+
+  printf '%sGenosyn%s %sinstaller%s\n' "${C_BOLD}" "${C_RESET}" "${C_DIM}" "${C_RESET}"
+  printf '%sRun companies autonomously.%s\n\n' "${C_DIM}" "${C_RESET}"
+
+  if container_exists; then
+    warn "Container '${NAME}' already exists — recreating it. Data volume '${VOLUME}' will be preserved."
+    step "Removing existing container '${NAME}'"
+    docker rm -f "${NAME}" >/dev/null
+  fi
+
+  step "Pulling ${IMAGE}"
+  docker pull "${IMAGE}" >/dev/null
+
+  step "Starting '${NAME}' on port ${PORT}"
+  run_container
+
+  wait_for_ready || warn "Container started but did not answer HTTP in time. Check 'genosyn logs'."
+
+  ok "Genosyn is running."
+  print_post_install
+}
+
+cmd_upgrade() {
+  parse_common_flags "$@"
+  require_docker
+
+  if ! container_exists; then
+    die "No container named '${NAME}' found. Run 'genosyn install' first."
+  fi
+
+  step "Pulling ${IMAGE}"
+  local before after
+  before="$(docker image inspect --format '{{.Id}}' "${IMAGE}" 2>/dev/null || true)"
+  docker pull "${IMAGE}" >/dev/null
+  after="$(docker image inspect --format '{{.Id}}' "${IMAGE}")"
+
+  if [ -n "${before}" ] && [ "${before}" = "${after}" ]; then
+    ok "Already on the latest image."
+    if container_running; then
+      return 0
+    fi
+    warn "Container is not running — starting it."
+  fi
+
+  step "Recreating '${NAME}'"
+  docker rm -f "${NAME}" >/dev/null
+  run_container
+
+  wait_for_ready || warn "Upgraded but container did not answer HTTP in time. Check 'genosyn logs'."
+
+  ok "Genosyn upgraded."
+  print_post_install
+}
+
+cmd_start() {
+  parse_common_flags "$@"
+  require_docker
+  container_exists || die "No container named '${NAME}' found. Run 'genosyn install' first."
+  if container_running; then
+    ok "Already running."
+    return 0
+  fi
+  step "Starting '${NAME}'"
+  docker start "${NAME}" >/dev/null
+  ok "Started."
+}
+
+cmd_stop() {
+  parse_common_flags "$@"
+  require_docker
+  container_exists || die "No container named '${NAME}' found."
+  if ! container_running; then
+    ok "Already stopped."
+    return 0
+  fi
+  step "Stopping '${NAME}'"
+  docker stop "${NAME}" >/dev/null
+  ok "Stopped."
+}
+
+cmd_restart() {
+  cmd_stop "$@"
+  cmd_start "$@"
+}
+
+cmd_status() {
+  parse_common_flags "$@"
+  require_docker
+
+  if ! container_exists; then
+    printf '%sNot installed%s — run %sgenosyn install%s\n' "${C_YELLOW}" "${C_RESET}" "${C_BOLD}" "${C_RESET}"
+    return 0
+  fi
+
+  local state image_id image_digest created started health
+  state="$(docker inspect --format '{{.State.Status}}' "${NAME}")"
+  image_id="$(docker inspect --format '{{.Image}}' "${NAME}")"
+  image_digest="$(docker image inspect --format '{{if .RepoDigests}}{{index .RepoDigests 0}}{{else}}<local>{{end}}' "${image_id}" 2>/dev/null || echo '<unknown>')"
+  created="$(docker inspect --format '{{.Created}}' "${NAME}")"
+  started="$(docker inspect --format '{{.State.StartedAt}}' "${NAME}")"
+  health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}n/a{{end}}' "${NAME}")"
+
+  printf '%sContainer%s  %s\n'  "${C_BOLD}" "${C_RESET}" "${NAME}"
+  printf '%sState%s      %s\n'  "${C_DIM}"  "${C_RESET}" "${state}"
+  printf '%sHealth%s     %s\n'  "${C_DIM}"  "${C_RESET}" "${health}"
+  printf '%sImage%s      %s\n'  "${C_DIM}"  "${C_RESET}" "${IMAGE}"
+  printf '%sDigest%s     %s\n'  "${C_DIM}"  "${C_RESET}" "${image_digest}"
+  printf '%sVolume%s     %s\n'  "${C_DIM}"  "${C_RESET}" "${VOLUME}"
+  printf '%sPort%s       %s → 8471\n' "${C_DIM}" "${C_RESET}" "${PORT}"
+  printf '%sCreated%s    %s\n'  "${C_DIM}"  "${C_RESET}" "${created}"
+  printf '%sStarted%s    %s\n'  "${C_DIM}"  "${C_RESET}" "${started}"
+
+  if [ "${state}" = "running" ]; then
+    printf '\n%sOpen%s  %shttp://localhost:%s%s\n' "${C_DIM}" "${C_RESET}" "${C_INDIGO}" "${PORT}" "${C_RESET}"
+  fi
+}
+
+cmd_logs() {
+  parse_common_flags "$@"
+  set -- "${REMAINING[@]-}"
+
+  local follow=0
+  local tail=""
+  local args=()
+  while [ $# -gt 0 ]; do
+    case "${1:-}" in
+      ""       ) shift ;;
+      -f|--follow) follow=1; shift ;;
+      --tail)    tail="$2"; shift 2 ;;
+      --tail=*)  tail="${1#*=}"; shift ;;
+      -n)        tail="$2"; shift 2 ;;
+      *) args+=("$1"); shift ;;
+    esac
+  done
+
+  require_docker
+  container_exists || die "No container named '${NAME}' found."
+
+  local cmd=(docker logs)
+  [ "${follow}" = "1" ] && cmd+=(-f)
+  [ -n "${tail}" ] && cmd+=(--tail "${tail}")
+  cmd+=("${NAME}")
+  "${cmd[@]}"
+}
+
+cmd_backup() {
+  parse_common_flags "$@"
+  set -- "${REMAINING[@]-}"
+
+  local out=""
+  while [ $# -gt 0 ]; do
+    case "${1:-}" in
+      ""       ) shift ;;
+      --out)    out="$2"; shift 2 ;;
+      --out=*)  out="${1#*=}"; shift ;;
+      -o)       out="$2"; shift 2 ;;
+      *) die "Unknown argument to backup: $1" ;;
+    esac
+  done
+
+  require_docker
+  volume_exists || die "Data volume '${VOLUME}' not found. Nothing to back up."
+
+  if [ -z "${out}" ]; then
+    out="genosyn-backup-$(date -u +%Y%m%d-%H%M%S).tar.gz"
+  fi
+
+  local out_abs out_dir out_base
+  out_dir="$(cd "$(dirname "${out}")" && pwd)"
+  out_base="$(basename "${out}")"
+  out_abs="${out_dir}/${out_base}"
+
+  step "Backing up volume '${VOLUME}' → ${out_abs}"
+  # Run a throwaway alpine container with the volume mounted; stream tar to stdout
+  # so we never need a writable mount on the host path. The second mount is the
+  # destination dir, read-write, so tar can write into it.
+  docker run --rm \
+    -v "${VOLUME}:/data:ro" \
+    -v "${out_dir}:/backup" \
+    alpine:3.20 \
+    sh -c "cd /data && tar -czf /backup/${out_base} ." >/dev/null
+
+  ok "Backup written: ${out_abs}"
+}
+
+cmd_restore() {
+  parse_common_flags "$@"
+  set -- "${REMAINING[@]-}"
+
+  local file=""
+  local assume_yes=0
+  while [ $# -gt 0 ]; do
+    case "${1:-}" in
+      ""       ) shift ;;
+      -y|--yes) assume_yes=1; shift ;;
+      -*)       die "Unknown flag: $1" ;;
+      *)        file="$1"; shift ;;
+    esac
+  done
+
+  [ -n "${file}" ] || die "Usage: genosyn restore <backup.tar.gz>"
+  [ -f "${file}" ] || die "Backup file not found: ${file}"
+
+  require_docker
+
+  local file_abs file_dir file_base
+  file_dir="$(cd "$(dirname "${file}")" && pwd)"
+  file_base="$(basename "${file}")"
+  file_abs="${file_dir}/${file_base}"
+
+  if volume_exists; then
+    warn "This will ERASE the current contents of volume '${VOLUME}' and replace them with '${file_abs}'."
+    if [ "${assume_yes}" != "1" ]; then
+      confirm "Continue?" || die "Aborted."
+    fi
+  fi
+
+  if container_running; then
+    step "Stopping '${NAME}' before restore"
+    docker stop "${NAME}" >/dev/null
+  fi
+
+  if ! volume_exists; then
+    step "Creating volume '${VOLUME}'"
+    docker volume create "${VOLUME}" >/dev/null
+  fi
+
+  step "Restoring into volume '${VOLUME}'"
+  docker run --rm \
+    -v "${VOLUME}:/data" \
+    -v "${file_dir}:/backup:ro" \
+    alpine:3.20 \
+    sh -c "cd /data && rm -rf ./* ./.[!.]* ./..?* 2>/dev/null; tar -xzf /backup/${file_base}" >/dev/null
+
+  if container_exists; then
+    step "Starting '${NAME}'"
+    docker start "${NAME}" >/dev/null
+  fi
+
+  ok "Restore complete."
+}
+
+cmd_uninstall() {
+  parse_common_flags "$@"
+  set -- "${REMAINING[@]-}"
+
+  local purge=0
+  local assume_yes=0
+  while [ $# -gt 0 ]; do
+    case "${1:-}" in
+      ""       ) shift ;;
+      --purge) purge=1; shift ;;
+      -y|--yes) assume_yes=1; shift ;;
+      *) die "Unknown argument to uninstall: $1" ;;
+    esac
+  done
+
+  require_docker
+
+  if ! container_exists && ! volume_exists; then
+    ok "Nothing to uninstall."
+    return 0
+  fi
+
+  if [ "${purge}" = "1" ]; then
+    warn "--purge will DELETE the data volume '${VOLUME}' (SQLite DB + per-employee credentials). This is not reversible."
+    if [ "${assume_yes}" != "1" ]; then
+      confirm "Continue?" || die "Aborted."
+    fi
+  fi
+
+  if container_exists; then
+    step "Removing container '${NAME}'"
+    docker rm -f "${NAME}" >/dev/null
+  fi
+
+  if [ "${purge}" = "1" ] && volume_exists; then
+    step "Removing volume '${VOLUME}'"
+    docker volume rm "${VOLUME}" >/dev/null
+  elif volume_exists; then
+    printf '%sKept%s data volume %s (use --purge to delete)\n' "${C_DIM}" "${C_RESET}" "${VOLUME}"
+  fi
+
+  ok "Uninstalled."
+}
+
+cmd_version() {
+  printf 'genosyn cli  %s\n' "${CLI_VERSION}"
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 && container_exists; then
+    local image_ref
+    image_ref="$(docker inspect --format '{{.Config.Image}}' "${NAME}" 2>/dev/null || true)"
+    [ -n "${image_ref}" ] && printf 'container    %s\n' "${image_ref}"
+  fi
+}
+
+cmd_help() {
+  cat <<EOF
+${C_BOLD}genosyn${C_RESET} — cluster maintainer for self-hosted Genosyn.
+
+${C_BOLD}Usage:${C_RESET}
+  genosyn <command> [flags]
+
+${C_BOLD}Commands:${C_RESET}
+  install              Pull the image and start the container (idempotent).
+  upgrade              Pull the latest image and recreate the container.
+  start                Start a stopped container.
+  stop                 Stop the running container.
+  restart              Stop, then start.
+  status               Show container state, image, volume, and URL.
+  logs [-f] [--tail N] Show container logs. -f follows.
+  backup [--out FILE]  Tarball the data volume (default: timestamped file in cwd).
+  restore <FILE> [-y]  Restore a backup tarball. Destructive; prompts unless -y.
+  uninstall [--purge]  Remove the container. --purge also deletes the data volume.
+  version              Print CLI and container image versions.
+  help                 Show this message.
+
+${C_BOLD}Common flags (any command):${C_RESET}
+  --port <n>           Host port (default: 8471, env: GENOSYN_PORT)
+  --name <s>           Container name (default: genosyn, env: GENOSYN_NAME)
+  --volume <s>         Data volume (default: genosyn-data, env: GENOSYN_VOLUME)
+  --image <ref>        Image reference (default: ghcr.io/genosyn/app:latest,
+                       env: GENOSYN_IMAGE)
+
+${C_BOLD}Examples:${C_RESET}
+  genosyn install --port 9000
+  genosyn upgrade
+  genosyn logs -f --tail 100
+  genosyn backup --out ~/backups/genosyn-\$(date +%F).tar.gz
+  genosyn restore ~/backups/genosyn-2026-04-22.tar.gz
+  genosyn uninstall --purge
+
+Docs: https://genosyn.com  •  Source: https://github.com/genosyn/genosyn
+EOF
+}
+
+# ---------- dispatch ----------
+
+main() {
+  if [ $# -eq 0 ]; then
+    cmd_help
+    exit 0
+  fi
+
+  local sub="$1"; shift
+  case "${sub}" in
+    install)           cmd_install   "$@" ;;
+    upgrade|update)    cmd_upgrade   "$@" ;;
+    start)             cmd_start     "$@" ;;
+    stop)              cmd_stop      "$@" ;;
+    restart)           cmd_restart   "$@" ;;
+    status|ps)         cmd_status    "$@" ;;
+    logs|log)          cmd_logs      "$@" ;;
+    backup)            cmd_backup    "$@" ;;
+    restore)           cmd_restore   "$@" ;;
+    uninstall|remove)  cmd_uninstall "$@" ;;
+    version|--version|-v) cmd_version ;;
+    help|--help|-h)    cmd_help ;;
+    *) die "Unknown command: ${sub}. Run 'genosyn help' for usage." ;;
+  esac
+}
+
+main "$@"

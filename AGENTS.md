@@ -30,6 +30,9 @@ duplicate content from ROADMAP.md here** — link to it.
 genosyn/
 ├── App/         # Product app: Express + TypeORM + React + Vite + Tailwind
 ├── Home/        # Standalone marketing site (React + Vite + Tailwind)
+├── CLI/         # `genosyn` cluster-maintainer CLI (bash). Served from the
+│                # Home site at /install.sh and /genosyn via a sync step in
+│                # Home's predev/prebuild scripts.
 ├── ROADMAP.md   # The plan. Edit freely.
 ├── AGENTS.md    # This file.
 └── CLAUDE.md    # Pointer to this file.
@@ -37,6 +40,19 @@ genosyn/
 
 Agents should never invent a new top-level folder without updating this file
 and `ROADMAP.md`.
+
+### About `CLI/`
+
+`CLI/genosyn` and `CLI/install.sh` are the canonical source. Shell is the
+right medium here — the CLI wraps `docker` on the operator's host, runs with
+no Node dependency, and ships as a single file. The TypeScript-only rule
+covers the product code in `App/` and `Home/`; it does not extend to the
+operator CLI.
+
+Both files are copied into `Home/client/public/` by Home's `sync-cli`
+npm script (wired into `predev` and `prebuild`), so editing `CLI/` is the
+single source of truth. Bump `CLI_VERSION` in `CLI/genosyn` when you ship a
+change users should notice.
 
 ---
 

@@ -318,7 +318,14 @@ export const config = {
 - **SSO / Google OAuth login**
 - **2FA** (TOTP)
 - **Dark mode**
-- **CLI** — `genosyn` command for scripting.
+- **CLI** — `genosyn` cluster-maintainer command for self-hosters. *(Shipped:
+  `CLI/genosyn`, a bash wrapper around Docker with `install`, `upgrade`,
+  `start`/`stop`/`restart`, `status`, `logs`, `backup`, `restore`, and
+  `uninstall` subcommands. Installed via
+  `curl -fsSL https://genosyn.com/install.sh | bash`, which also drops the
+  CLI into `/usr/local/bin` — or `~/.local/bin` without sudo. Scripting
+  surface — a second, product-facing CLI for programmatic operations on
+  companies/employees/routines — is still pending.)*
 - **Import/export** — back up a company (entities + filesystem tree).
 
 ### Runner

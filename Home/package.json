@@ -6,6 +6,9 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
+    "sync-cli": "cp ../CLI/genosyn client/public/genosyn && cp ../CLI/install.sh client/public/install.sh && chmod +x client/public/genosyn client/public/install.sh",
+    "predev": "npm run sync-cli",
+    "prebuild": "npm run sync-cli",
     "dev": "vite",
     "build": "tsc -p tsconfig.server.json && vite build",
     "lint": "eslint . --ext .ts,.tsx --max-warnings 0",

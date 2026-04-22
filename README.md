@@ -17,6 +17,7 @@ North star: [paperclip.ing](https://paperclip.ing/).
 genosyn/
 ├── App/         # Product app — Express + TypeORM + React + Vite + Tailwind
 ├── Home/        # Marketing site — React + Vite + Tailwind
+├── CLI/         # `genosyn` cluster-maintainer CLI (bash)
 ├── AGENTS.md    # Instructions for AI coding agents (read this first)
 ├── ROADMAP.md   # Vocabulary, milestones, backlog
 └── CLAUDE.md    # Pointer to AGENTS.md
@@ -24,9 +25,35 @@ genosyn/
 
 ## Quickstart
 
-The App (product) and Home (marketing) are independent. Run either.
+### One-command install (recommended)
 
-### Docker (recommended)
+```bash
+curl -fsSL https://genosyn.com/install.sh | bash
+```
+
+This installs the `genosyn` CLI to `/usr/local/bin` (falls back to
+`~/.local/bin` without sudo), pulls the latest image, and starts a container
+on port `8471` with a persistent `genosyn-data` volume. Re-run it any time to
+upgrade.
+
+Day-to-day management:
+
+```bash
+genosyn status           # show running state, image, volume, port
+genosyn upgrade          # pull latest image and recreate container
+genosyn logs -f          # tail server logs
+genosyn backup           # tarball the data volume
+genosyn restore <file>   # restore a backup
+genosyn stop | start | restart
+genosyn uninstall [--purge]
+genosyn help             # full command reference
+```
+
+Defaults can be overridden with flags (`--port`, `--name`, `--volume`,
+`--image`) or env vars (`GENOSYN_PORT`, `GENOSYN_NAME`, `GENOSYN_VOLUME`,
+`GENOSYN_IMAGE`).
+
+### Docker (manual)
 
 Pre-built images are published to GitHub Container Registry on every push to
 `main`.
@@ -46,8 +73,7 @@ docker run -d --name genosyn-home -p 8472:3000 \
 
 The `genosyn-data` volume holds the SQLite database (Soul, Skill, Routine,
 and Run content live there) plus per-employee provider credentials on disk.
-It persists across restarts and image upgrades. Manage the containers with
-`docker stop genosyn`, `docker start genosyn`, `docker logs -f genosyn`.
+It persists across restarts and image upgrades.
 
 To override `config.ts` without rebuilding, mount your own on top:
 
