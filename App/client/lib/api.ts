@@ -291,6 +291,53 @@ export type AuditEvent = {
   createdAt: string;
 };
 
+export type IntegrationAuthMode = "apikey" | "oauth2";
+export type IntegrationCatalogField = {
+  key: string;
+  label: string;
+  type: "text" | "password" | "url";
+  placeholder?: string;
+  required: boolean;
+  hint?: string;
+};
+export type IntegrationCatalogEntry = {
+  provider: string;
+  name: string;
+  tagline: string;
+  description?: string;
+  icon: string;
+  authMode: IntegrationAuthMode;
+  fields?: IntegrationCatalogField[];
+  oauth?: {
+    app: "google";
+    scopes: string[];
+    setupDocs?: string;
+  };
+  enabled: boolean;
+  disabledReason?: string;
+};
+export type IntegrationConnectionStatus = "connected" | "error" | "expired";
+export type IntegrationConnection = {
+  id: string;
+  companyId: string;
+  provider: string;
+  label: string;
+  authMode: IntegrationAuthMode;
+  accountHint: string;
+  status: IntegrationConnectionStatus;
+  statusMessage: string;
+  lastCheckedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+export type ConnectionGrant = {
+  id: string;
+  employeeId: string;
+  connectionId: string;
+  createdAt: string;
+  connection: IntegrationConnection;
+};
+
 export type Secret = {
   id: string;
   companyId: string;

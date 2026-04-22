@@ -255,6 +255,74 @@ const TOOLS = [
 
 const TOOL_BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));
 
+/**
+ * Integration tools are discovered at runtime: the set depends on which
+ * IntegrationConnection grants the acting employee holds, and a single
+ * company can have multiple Stripe accounts with different tool name
+ * prefixes. On first `tools/list` we fetch them from the server and keep
+ * them in `INTEGRATION_TOOLS`, keyed by MCP tool name in
+ * `INTEGRATION_BY_NAME`.
+ *
+ * Shape returned by the server (see mcpInternal.ts):
+ *   {
+ *     name: "stripe_list_customers",
+ *     description: "...",
+ *     inputSchema: { type: "object", ... },
+ *     connectionId: "…",
+ *     providerToolName: "list_customers"
+ *   }
+ *
+ * @typedef {{
+ *   name: string;
+ *   description: string;
+ *   inputSchema: object;
+ *   connectionId: string;
+ *   providerToolName: string;
+ * }} IntegrationToolSpec
+ */
+
+/** @type {IntegrationToolSpec[]} */
+let INTEGRATION_TOOLS = [];
+/** @type {Map<string, IntegrationToolSpec>} */
+let INTEGRATION_BY_NAME = new Map();
+let integrationsLoaded = false;
+
+async function loadIntegrationTools() {
+  if (integrationsLoaded) return;
+  integrationsLoaded = true;
+  try {
+    const url = API_BASE.replace(/\/+$/, "") + "/integrations/_list";
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${TOKEN}`,
+      },
+      body: "{}",
+    });
+    if (!res.ok) return;
+    const text = await res.text();
+    const parsed = text ? JSON.parse(text) : {};
+    const tools = Array.isArray(parsed?.tools) ? parsed.tools : [];
+    INTEGRATION_TOOLS = tools.filter(
+      (t) =>
+        t &&
+        typeof t.name === "string" &&
+        typeof t.description === "string" &&
+        typeof t.inputSchema === "object" &&
+        typeof t.connectionId === "string" &&
+        typeof t.providerToolName === "string",
+    );
+    INTEGRATION_BY_NAME = new Map(INTEGRATION_TOOLS.map((t) => [t.name, t]));
+  } catch (err) {
+    process.stderr.write(
+      `[genosyn-mcp] failed to load integration tools: ${
+        err instanceof Error ? err.message : String(err)
+      }\n`,
+    );
+  }
+}
+
 /** Minimal MCP server info. `tools` capability is all we advertise. */
 const SERVER_INFO = {
   name: "genosyn",
@@ -293,33 +361,57 @@ async function handle(msg, send) {
       return; // handshake-complete notification, no reply
     }
     if (method === "tools/list") {
+      await loadIntegrationTools();
+      const staticTools = TOOLS.map((t) => ({
+        name: t.name,
+        description: t.description,
+        inputSchema: t.inputSchema,
+      }));
+      const integrationTools = INTEGRATION_TOOLS.map((t) => ({
+        name: t.name,
+        description: t.description,
+        inputSchema: t.inputSchema,
+      }));
       send({
         jsonrpc: "2.0",
         id,
-        result: {
-          tools: TOOLS.map((t) => ({
-            name: t.name,
-            description: t.description,
-            inputSchema: t.inputSchema,
-          })),
-        },
+        result: { tools: staticTools.concat(integrationTools) },
       });
       return;
     }
     if (method === "tools/call") {
       const name = params?.name;
       const args = params?.arguments ?? {};
-      const tool = typeof name === "string" ? TOOL_BY_NAME.get(name) : undefined;
-      if (!tool) {
+      if (typeof name !== "string") {
         send({
           jsonrpc: "2.0",
           id,
-          error: { code: -32602, message: `Unknown tool: ${name}` },
+          error: { code: -32602, message: "Missing tool name" },
         });
         return;
       }
-      const result = await callGenosyn(tool.endpoint, args);
-      send({ jsonrpc: "2.0", id, result });
+      const staticTool = TOOL_BY_NAME.get(name);
+      if (staticTool) {
+        const result = await callGenosyn(staticTool.endpoint, args);
+        send({ jsonrpc: "2.0", id, result });
+        return;
+      }
+      await loadIntegrationTools();
+      const integrationTool = INTEGRATION_BY_NAME.get(name);
+      if (integrationTool) {
+        const result = await callGenosyn("/integrations/invoke", {
+          connectionId: integrationTool.connectionId,
+          toolName: integrationTool.providerToolName,
+          args,
+        });
+        send({ jsonrpc: "2.0", id, result });
+        return;
+      }
+      send({
+        jsonrpc: "2.0",
+        id,
+        error: { code: -32602, message: `Unknown tool: ${name}` },
+      });
       return;
     }
     if (id !== undefined) {

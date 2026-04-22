@@ -28,6 +28,8 @@ import { usageRouter } from "./routes/usage.js";
 import { templatesRouter } from "./routes/templates.js";
 import { basesRouter } from "./routes/bases.js";
 import { backupsRouter } from "./routes/backups.js";
+import { integrationsRouter } from "./routes/integrations.js";
+import { integrationsOauthRouter } from "./routes/integrationsOauth.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -52,6 +54,12 @@ async function main() {
   // Public webhooks (token in URL is the credential). Mounted before auth
   // so session-less POSTs from external systems aren't gated.
   app.use("/api/webhooks", webhooksRouter);
+
+  // Public OAuth callback surface. Google redirects the browser here after
+  // the user clicks "Allow"; auth is the single-use `state` token minted
+  // inside startOauth(). Mounted before session so cross-site-redirect
+  // cookie behavior doesn't matter.
+  app.use("/api/integrations/oauth", integrationsOauthRouter);
 
   // Built-in MCP tools called by the Genosyn stdio binary we spawn alongside
   // every AI employee. Auth is a short-lived Bearer token we issued moments
@@ -83,6 +91,10 @@ async function main() {
   // Per-employee model (one-to-one with AIEmployee). See ROADMAP §5.
   app.use("/api/companies/:cid/employees/:eid/model", modelsRouter);
   app.use("/api/companies/:cid/employees/:eid/mcp", mcpRouter);
+
+  // Integrations + Connections. Company-scoped because connections belong
+  // to the company and are granted out to employees.
+  app.use("/api/companies/:cid/integrations", integrationsRouter);
 
   // Client. Dev: mount Vite as middleware so API + UI share one port and
   // HMR still works. Prod: serve the built SPA from dist/client.

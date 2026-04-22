@@ -141,6 +141,12 @@ genosyn/
 - `Routine` — employeeId, name, slug, cronExpr, enabled, lastRunAt, body (markdown)
 - `Run` — routineId, startedAt, finishedAt, status, exitCode, logContent
   (captured stdout + stderr, capped at 256KB)
+- `IntegrationConnection` — companyId, provider (`stripe`|`gmail`|`metabase`|…),
+  label, authMode (`apikey`|`oauth2`), encryptedConfig (JSON: tokens,
+  refresh tokens, base URL, scopes), status (`connected`|`error`|`expired`),
+  lastCheckedAt
+- `EmployeeConnectionGrant` — employeeId, connectionId (unique pair).
+  Many-to-many between `AIEmployee` and `IntegrationConnection`.
 
 ### `config.ts` shape
 ```ts
@@ -274,7 +280,26 @@ export const config = {
   Routines / Projects / Todos / Journal writes back into Genosyn's own
   DB. Auth is a short-lived Bearer token minted per spawn. Writes are
   recorded in AuditEvent with `actorKind: "ai"`.)*
-- Gmail, Google Calendar, Slack, GitHub, Linear, Notion, generic webhook.
+- **Integrations + Connections.** *(Shipping: Stripe, Gmail, Metabase.)*
+  Framework for connecting third-party data sources. Vocabulary:
+    * **Integration** — a connector type (Stripe, Gmail, Metabase, …).
+      Static catalog defined in `server/integrations/providers/<name>.ts`.
+      Not a DB row.
+    * **Connection** — one authenticated account inside an integration
+      ("Stripe US", "Stripe EU"). Per-company. DB row
+      (`IntegrationConnection`). Multiple connections per integration
+      are supported.
+    * **Grant** — a permission binding one AI employee to one
+      connection (`EmployeeConnectionGrant`). One grant = access to
+      every tool the provider exposes (no per-tool scopes in MVP).
+  Credentials (API keys, OAuth refresh tokens) are encrypted at rest
+  with the existing `sessionSecret`-derived key. AI employees never
+  see raw credentials: the built-in `genosyn` MCP stdio binary lists
+  per-grant tools dynamically and proxies calls through the internal
+  HTTP surface, which decrypts server-side and calls the provider.
+  OAuth providers use `config.integrations.google.{clientId,clientSecret}`
+  and `config.publicUrl` for the redirect URI.
+- Google Calendar, Slack, GitHub, Linear, Notion, generic webhook.
 - **Secrets vault** — encrypted per-company secrets for integrations.
 - **Incoming webhooks** — external events trigger routines.
 

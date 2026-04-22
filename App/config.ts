@@ -23,4 +23,28 @@ export const config = {
     pass: "",
     from: "Genosyn <no-reply@genosyn.local>",
   },
+
+  // Third-party Integrations.
+  //
+  // Each entry configures a Connection *type* (Stripe, Gmail, Metabase, …).
+  // Connections themselves are per-company DB rows; this block only carries
+  // the globally-shared credentials the platform needs to broker OAuth.
+  //
+  // API-key integrations (Stripe, Metabase) need nothing here — the user
+  // pastes their key when they create a Connection and it is encrypted at
+  // rest. OAuth integrations (Gmail and friends) need a shared app ID +
+  // secret registered with the provider, because the user's browser
+  // redirects through *our* server on its way back from Google.
+  //
+  // Redirect URI to register with the provider:
+  //   `${publicUrl}/api/integrations/oauth/callback/google`
+  integrations: {
+    google: {
+      // Google Cloud OAuth client — leave empty to disable Gmail etc.
+      // Create one at console.cloud.google.com under APIs & Services →
+      // Credentials → OAuth 2.0 Client IDs (type: Web application).
+      clientId: "",
+      clientSecret: "",
+    },
+  },
 } as const;

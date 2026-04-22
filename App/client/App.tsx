@@ -34,6 +34,8 @@ import {
   SettingsMembers,
   SettingsSecrets,
 } from "./pages/Settings";
+import { SettingsIntegrations } from "./pages/SettingsIntegrations";
+import { EmployeeConnections } from "./pages/EmployeeConnections";
 import Invite from "./pages/Invite";
 import TasksLayout from "./pages/TasksLayout";
 import TasksIndex from "./pages/TasksIndex";
@@ -164,6 +166,7 @@ function CompanyRoutes({
           <Route path="skills" element={<SkillsPage />} />
           <Route path="routines" element={<RoutinesPage />} />
           <Route path="journal" element={<JournalPage />} />
+          <Route path="connections" element={<EmployeeConnections />} />
           <Route path="mcp" element={<McpPage />} />
           <Route path="settings" element={<SettingsPage />}>
             <Route index element={<Navigate to="soul" replace />} />
@@ -204,6 +207,7 @@ function CompanyRoutes({
           <Route path="profile" element={<SettingsAccount />} />
           <Route path="company" element={<SettingsCompany />} />
           <Route path="members" element={<SettingsMembers />} />
+          <Route path="integrations" element={<SettingsIntegrations />} />
           <Route path="secrets" element={<SettingsSecrets />} />
           <Route path="backup" element={<SettingsBackup />} />
           <Route path="usage" element={<Usage />} />

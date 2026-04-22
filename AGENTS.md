@@ -54,6 +54,9 @@ code, UI copy, commits, and docs.
 | **AI Model** (backend brain record) | Provider, LLM config |
 | **Member** (human user in a company) | User (in product copy; `User` is fine as the DB entity name) |
 | **Run** (one execution of a Routine) | Execution, Invocation |
+| **Integration** (a connector type: Stripe, Gmail, …; static in code) | Provider, Plugin, Service (in product copy) |
+| **Connection** (one authenticated account inside an Integration; DB row) | Account, Instance, Integration (of the DB row) |
+| **Grant** (an AI employee's access to a Connection) | Permission, Attachment, Binding |
 
 **"Tasks" is reserved** for a future task-manager feature (Projects + Todos).
 Do not use "Task" for scheduled AI work, ever.

@@ -15,6 +15,11 @@ import { routineTemplate } from "../services/files.js";
 import { registerRoutine } from "../services/cron.js";
 import { recordAudit } from "../services/audit.js";
 import { resolveMcpToken } from "../services/mcpTokens.js";
+import {
+  invokeConnectionTool,
+  loadEmployeeConnections,
+} from "../services/integrations.js";
+import { getProvider } from "../integrations/index.js";
 
 /**
  * Internal HTTP surface called by the built-in Genosyn MCP server binary.
@@ -622,3 +627,126 @@ mcpInternalRouter.post(
     });
   },
 );
+
+// ----- Integrations (dynamic tools per employee Grant) -----
+
+/**
+ * Return the integration-backed tools available to the calling employee.
+ * Called by the MCP stdio binary on its first `tools/list` so the AI can
+ * see one tool per (granted connection × provider tool it offers).
+ *
+ * Tool names are prefixed:
+ *   - single connection for that provider → `<provider>_<tool>`
+ *     (e.g. `stripe_list_customers`)
+ *   - multiple connections → `<provider>_<connSlug>_<tool>`
+ *     (e.g. `stripe_us_list_customers`, `stripe_eu_list_customers`)
+ */
+mcpInternalRouter.post("/integrations/_list", async (req: McpRequest, res) => {
+  const emp = req.mcpEmployee!;
+  const items = await loadEmployeeConnections(emp);
+
+  // Group by provider so we know when to disambiguate by connection.
+  const byProvider = new Map<string, typeof items>();
+  for (const it of items) {
+    const arr = byProvider.get(it.connection.provider) ?? [];
+    arr.push(it);
+    byProvider.set(it.connection.provider, arr);
+  }
+
+  const out: Array<{
+    name: string;
+    description: string;
+    inputSchema: unknown;
+    connectionId: string;
+    providerToolName: string;
+  }> = [];
+
+  for (const [providerId, group] of byProvider) {
+    const provider = getProvider(providerId);
+    if (!provider) continue;
+    const disambiguate = group.length > 1;
+    for (const { connection } of group) {
+      const connSlug = toolNameSegment(connection.label || connection.id);
+      const prefix = disambiguate
+        ? `${providerId}_${connSlug}`
+        : providerId;
+      for (const tool of provider.tools) {
+        const name = `${prefix}_${tool.name}`;
+        out.push({
+          name,
+          description: integrationToolDescription(
+            provider.catalog.name,
+            connection.label,
+            tool.description,
+          ),
+          inputSchema: tool.inputSchema,
+          connectionId: connection.id,
+          providerToolName: tool.name,
+        });
+      }
+    }
+  }
+
+  res.json({ tools: out });
+});
+
+const invokeToolSchema = z
+  .object({
+    connectionId: z.string().uuid(),
+    toolName: z.string().min(1).max(80),
+    args: z.record(z.unknown()).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/integrations/invoke",
+  validateBody(invokeToolSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof invokeToolSchema>;
+    const emp = req.mcpEmployee!;
+    try {
+      const result = await invokeConnectionTool({
+        employee: emp,
+        connectionId: body.connectionId,
+        toolName: body.toolName,
+        toolArgs: body.args ?? {},
+      });
+      await recordAudit({
+        companyId: req.mcpCompany!.id,
+        actorEmployeeId: emp.id,
+        action: "integration.invoke",
+        targetType: "connection",
+        targetId: body.connectionId,
+        targetLabel: body.toolName,
+        metadata: { via: "mcp" },
+      });
+      res.json({ result });
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  },
+);
+
+/**
+ * Sanitize a connection label for use in an MCP tool name. MCP tool names
+ * live in the same namespace as function names on most hosts — letters,
+ * digits, underscores only. We lowercase, replace non-alphanum with `_`,
+ * collapse repeats, and trim.
+ */
+function toolNameSegment(label: string): string {
+  const cleaned = label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return cleaned || "conn";
+}
+
+function integrationToolDescription(
+  providerName: string,
+  connectionLabel: string,
+  inner: string,
+): string {
+  return `[${providerName} · ${connectionLabel}] ${inner}`;
+}

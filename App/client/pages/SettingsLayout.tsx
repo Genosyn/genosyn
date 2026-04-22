@@ -5,6 +5,7 @@ import {
   BarChart3,
   Building2,
   KeyRound,
+  Plug,
   ScrollText,
   Settings as SettingsIcon,
   User,
@@ -30,6 +31,7 @@ const SETTINGS_TAB_LABEL: Record<string, string> = {
   profile: "Profile",
   company: "Company",
   members: "Members",
+  integrations: "Integrations",
   secrets: "Secrets",
   backup: "Backup",
   usage: "Usage",
@@ -65,6 +67,7 @@ export default function SettingsLayout({
         </div>
         <SidebarLink to={`${base}/company`} icon={<Building2 size={14} />} label="Company" />
         <SidebarLink to={`${base}/members`} icon={<Users size={14} />} label="Members" />
+        <SidebarLink to={`${base}/integrations`} icon={<Plug size={14} />} label="Integrations" />
         <SidebarLink to={`${base}/secrets`} icon={<KeyRound size={14} />} label="Secrets" />
         <SidebarLink to={`${base}/backup`} icon={<Archive size={14} />} label="Backup" />
         <SidebarLink to={`${base}/usage`} icon={<BarChart3 size={14} />} label="Usage" />
