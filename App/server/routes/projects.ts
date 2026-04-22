@@ -95,6 +95,38 @@ function deriveKey(name: string): string {
   return parts[0].slice(0, 4);
 }
 
+// ----- Review queue -----
+
+/**
+ * Cross-project inbox of everything currently `in_review`. Returns each todo
+ * hydrated with assignee + reviewer (see hydrateTodos) plus a `project` stub
+ * (id, key, name, slug) so the UI can render "{key}-{number}" + a jump link
+ * without a second fetch.
+ *
+ * Intended consumer: the human reviewer queue page. Sorted by oldest first,
+ * so work that's been sitting longest rises to the top.
+ */
+projectsRouter.get("/reviews", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const projects = await AppDataSource.getRepository(Project).find({
+    where: { companyId: cid },
+    select: ["id", "key", "name", "slug"],
+  });
+  if (projects.length === 0) return res.json({ todos: [] });
+  const todos = await AppDataSource.getRepository(Todo).find({
+    where: { projectId: In(projects.map((p) => p.id)), status: "in_review" },
+    order: { updatedAt: "ASC" },
+  });
+  const hydrated = await hydrateTodos(cid, todos);
+  const projectById = new Map(projects.map((p) => [p.id, p]));
+  res.json({
+    todos: hydrated.map((t) => ({
+      ...t,
+      project: projectById.get(t.projectId) ?? null,
+    })),
+  });
+});
+
 // ----- Projects -----
 
 projectsRouter.get("/projects", async (req, res) => {
@@ -111,11 +143,12 @@ projectsRouter.get("/projects", async (req, res) => {
         where: { projectId: In(projects.map((p) => p.id)) },
       })
     : [];
-  const counts = new Map<string, { total: number; open: number }>();
+  const counts = new Map<string, { total: number; open: number; review: number }>();
   for (const t of todos) {
-    const c = counts.get(t.projectId) ?? { total: 0, open: 0 };
+    const c = counts.get(t.projectId) ?? { total: 0, open: 0, review: 0 };
     c.total += 1;
     if (t.status !== "done" && t.status !== "cancelled") c.open += 1;
+    if (t.status === "in_review") c.review += 1;
     counts.set(t.projectId, c);
   }
   res.json(
@@ -123,6 +156,7 @@ projectsRouter.get("/projects", async (req, res) => {
       ...p,
       totalTodos: counts.get(p.id)?.total ?? 0,
       openTodos: counts.get(p.id)?.open ?? 0,
+      reviewTodos: counts.get(p.id)?.review ?? 0,
     })),
   );
 });

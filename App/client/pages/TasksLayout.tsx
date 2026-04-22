@@ -1,6 +1,6 @@
 import React from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { FolderKanban, Plus, Search } from "lucide-react";
+import { FolderKanban, Plus, Search, ShieldCheck } from "lucide-react";
 import { api, Company, Project } from "../lib/api";
 import { ContextualLayout } from "../components/AppShell";
 import { Spinner } from "../components/ui/Spinner";
@@ -55,8 +55,34 @@ export default function TasksLayout({ company }: { company: Company }) {
     );
   }, [projects, query]);
 
+  // Cross-project count for the "Review queue" badge. Derived from the same
+  // list we fetch for the project sidebar — no extra round-trip.
+  const reviewCount = React.useMemo(
+    () => (projects ?? []).reduce((sum, p) => sum + (p.reviewTodos ?? 0), 0),
+    [projects],
+  );
+
   const sidebar = (
     <div className="flex h-full flex-col">
+      <div className="border-b border-slate-100 px-2 py-2 dark:border-slate-800">
+        <NavLink
+          to={`/c/${company.slug}/tasks/review`}
+          className={({ isActive }) =>
+            "flex items-center gap-2 rounded-md px-3 py-2 text-sm " +
+            (isActive
+              ? "bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:text-violet-200"
+              : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800")
+          }
+        >
+          <ShieldCheck size={14} />
+          <span className="flex-1 truncate font-medium">Review queue</span>
+          {reviewCount > 0 && (
+            <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-500/15 dark:text-violet-200">
+              {reviewCount}
+            </span>
+          )}
+        </NavLink>
+      </div>
       <div className="flex items-center justify-between border-b border-slate-100 px-3 py-3 dark:border-slate-800">
         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
           <FolderKanban size={14} /> Projects

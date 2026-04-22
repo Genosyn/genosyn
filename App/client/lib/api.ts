@@ -435,6 +435,7 @@ export type Project = {
   createdAt: string;
   totalTodos?: number;
   openTodos?: number;
+  reviewTodos?: number;
 };
 export type TodoAssignee =
   | { kind: "ai"; id: string; name: string; slug: string; role: string }
@@ -463,6 +464,15 @@ export type Todo = {
   updatedAt: string;
   assignee: TodoAssignee | null;
   reviewer: TodoReviewer | null;
+};
+
+/**
+ * Todo hydrated with its project stub — returned by the `/reviews` endpoint
+ * so the reviewer queue can render "{project key}-{number}" and deep-link
+ * without an extra fetch per row.
+ */
+export type ReviewItem = Todo & {
+  project: { id: string; key: string; name: string; slug: string } | null;
 };
 
 export type TodoCommentAuthor =

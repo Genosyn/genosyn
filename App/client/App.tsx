@@ -40,6 +40,7 @@ import { EmployeeConnections } from "./pages/EmployeeConnections";
 import Invite from "./pages/Invite";
 import TasksLayout from "./pages/TasksLayout";
 import TasksIndex from "./pages/TasksIndex";
+import TasksReview from "./pages/TasksReview";
 import ProjectNew from "./pages/ProjectNew";
 import ProjectDetail from "./pages/ProjectDetail";
 import Approvals from "./pages/Approvals";
@@ -180,6 +181,7 @@ function CompanyRoutes({
         {/* Tasks (Projects + Todos) — task manager. */}
         <Route path="tasks" element={<TasksLayout company={company} />}>
           <Route index element={<TasksIndex company={company} />} />
+          <Route path="review" element={<TasksReview company={company} />} />
           <Route path="new" element={<ProjectNew company={company} />} />
           <Route path="p/:pSlug" element={<ProjectDetail company={company} />} />
         </Route>
