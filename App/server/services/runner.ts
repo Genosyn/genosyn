@@ -13,6 +13,7 @@ import { decryptSecret } from "../lib/secret.js";
 import { materializeMcpConfig } from "./mcp.js";
 import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
+import { composeMemoryContext } from "./employeeMemory.js";
 
 /**
  * Run seam.
@@ -88,7 +89,8 @@ export async function runRoutine(routine: Routine): Promise<Run> {
     return saved;
   }
 
-  const prompt = composePrompt({ co, emp, routine, skills });
+  const memoryContext = await composeMemoryContext(emp.id);
+  const prompt = composePrompt({ co, emp, routine, skills, memoryContext });
 
   const env = buildProviderEnv(co.slug, emp.slug, model);
   if (!("error" in env)) {
@@ -230,22 +232,24 @@ function composePrompt(args: {
   emp: AIEmployee;
   routine: Routine;
   skills: Skill[];
+  memoryContext: string;
 }): string {
-  const { co, emp, routine, skills } = args;
+  const { co, emp, routine, skills, memoryContext } = args;
   const parts: string[] = [];
   parts.push(
-    `You are ${emp.name}, ${emp.role} at ${co.name}. The following documents are yours — your Soul, your Skills, and today's Routine.`,
+    `You are ${emp.name}, ${emp.role} at ${co.name}. The following documents are yours — your Soul, your Memory, your Skills, and today's Routine.`,
   );
   parts.push(
     [
       "",
       "## Tools",
-      "You have a `genosyn` MCP server attached. Use `add_journal_entry` to log what you accomplished, `create_todo` or `create_routine` to follow up on work, and the `list_*` helpers to orient.",
+      "You have a `genosyn` MCP server attached. Use `add_journal_entry` to log what you accomplished, `add_memory` to capture durable facts worth recalling next time, `create_todo` or `create_routine` to follow up on work, and the `list_*` helpers to orient.",
       "Reach for tools instead of describing what you would do — a tool call leaves a visible audit row and an action pill the operator can inspect. Prose-only claims are invisible.",
     ].join("\n"),
   );
   parts.push("\n## Soul\n");
   parts.push(emp.soulBody);
+  if (memoryContext) parts.push(memoryContext);
   for (const s of skills) {
     parts.push(`\n## Skill: ${s.name}\n`);
     parts.push(s.body);

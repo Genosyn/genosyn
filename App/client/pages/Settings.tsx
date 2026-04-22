@@ -180,14 +180,29 @@ export function SettingsAccount() {
   );
 }
 
+function normalizeSlugInput(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 export function SettingsCompany() {
   const { company, onCompaniesChanged } = useCtx();
   const [name, setName] = React.useState(company.name);
+  const [slug, setSlug] = React.useState(company.slug);
+  const [saving, setSaving] = React.useState(false);
   const { toast } = useToast();
 
   React.useEffect(() => {
     setName(company.name);
-  }, [company.id, company.name]);
+    setSlug(company.slug);
+  }, [company.id, company.name, company.slug]);
+
+  const normalizedSlug = normalizeSlugInput(slug);
+  const dirty =
+    name.trim() !== company.name ||
+    (normalizedSlug.length > 0 && normalizedSlug !== company.slug);
 
   return (
     <>
@@ -195,25 +210,64 @@ export function SettingsCompany() {
       <Card>
         <CardHeader>
           <h2 className="text-sm font-semibold">General</h2>
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+            Renaming the slug updates every URL for this company and renames its
+            directory under <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">data/companies/</code>.
+          </p>
         </CardHeader>
         <CardBody>
           <form
-            className="flex items-end gap-3"
+            className="flex flex-col gap-3"
             onSubmit={async (e) => {
               e.preventDefault();
+              if (!dirty || saving) return;
+              const patch: { name?: string; slug?: string } = {};
+              if (name.trim() !== company.name) patch.name = name.trim();
+              if (normalizedSlug && normalizedSlug !== company.slug) {
+                patch.slug = normalizedSlug;
+              }
+              setSaving(true);
               try {
-                await api.patch(`/api/companies/${company.id}`, { name });
+                const updated = await api.patch<Company>(
+                  `/api/companies/${company.id}`,
+                  patch,
+                );
+                if (updated.slug !== company.slug) {
+                  // URL / workspace paths changed — reload at the new slug so
+                  // every open tab + route lines up with the renamed company.
+                  window.location.assign(`/c/${updated.slug}/settings/company`);
+                  return;
+                }
                 onCompaniesChanged();
                 toast("Company updated", "success");
               } catch (err) {
                 toast((err as Error).message, "error");
+              } finally {
+                setSaving(false);
               }
             }}
           >
-            <div className="flex-1">
-              <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+            <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+            <div>
+              <Input
+                label="Slug"
+                value={slug}
+                onChange={(e) => setSlug(e.target.value)}
+                onBlur={() => setSlug((s) => normalizeSlugInput(s))}
+                placeholder="acme"
+                pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+                title="Lowercase letters, digits, and single dashes"
+                required
+              />
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                URL: <code className="font-mono">/c/{normalizedSlug || "…"}</code>
+              </p>
             </div>
-            <Button type="submit">Save</Button>
+            <div className="flex justify-end pt-1">
+              <Button type="submit" disabled={!dirty || saving}>
+                {saving ? "Saving…" : "Save"}
+              </Button>
+            </div>
           </form>
         </CardBody>
       </Card>

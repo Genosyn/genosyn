@@ -62,9 +62,13 @@ export class Todo {
   @Column({ type: "varchar", default: "none" })
   priority!: TodoPriority;
 
-  /** AIEmployee assignee. Null = unassigned. */
+  /** AIEmployee assignee. Null = unassigned. Mutually exclusive with assigneeUserId. */
   @Column({ type: "varchar", nullable: true })
   assigneeEmployeeId!: string | null;
+
+  /** Human Member assignee. Null = unassigned. Mutually exclusive with assigneeEmployeeId. */
+  @Column({ type: "varchar", nullable: true })
+  assigneeUserId!: string | null;
 
   @Column({ type: "varchar", nullable: true })
   createdById!: string | null;

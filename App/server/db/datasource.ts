@@ -31,6 +31,8 @@ import { Backup } from "./entities/Backup.js";
 import { BackupSchedule } from "./entities/BackupSchedule.js";
 import { IntegrationConnection } from "./entities/IntegrationConnection.js";
 import { EmployeeConnectionGrant } from "./entities/EmployeeConnectionGrant.js";
+import { EmployeeBaseGrant } from "./entities/EmployeeBaseGrant.js";
+import { EmployeeMemory } from "./entities/EmployeeMemory.js";
 
 const entities = [
   User,
@@ -60,6 +62,8 @@ const entities = [
   BackupSchedule,
   IntegrationConnection,
   EmployeeConnectionGrant,
+  EmployeeBaseGrant,
+  EmployeeMemory,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

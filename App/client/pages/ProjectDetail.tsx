@@ -34,6 +34,7 @@ import {
   api,
   Company,
   Employee,
+  Member,
   Project,
   Todo,
   TodoComment,
@@ -41,6 +42,8 @@ import {
   TodoRecurrence,
   TodoStatus,
 } from "../lib/api";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Spinner } from "../components/ui/Spinner";
@@ -164,16 +167,54 @@ function initials(name: string): string {
   );
 }
 
-function Avatar({ name, size = 22 }: { name: string; size?: number }) {
+function Avatar({
+  name,
+  size = 22,
+  kind = "human",
+}: {
+  name: string;
+  size?: number;
+  kind?: "human" | "ai";
+}) {
+  const palette =
+    kind === "ai"
+      ? "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-200"
+      : "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-200";
   return (
     <div
       style={{ width: size, height: size, fontSize: Math.round(size * 0.42) }}
-      className="flex items-center justify-center rounded-full bg-indigo-100 font-semibold text-indigo-700 dark:text-indigo-300"
+      className={clsx(
+        "flex shrink-0 items-center justify-center rounded-full font-semibold",
+        palette,
+      )}
       title={name}
     >
-      {initials(name)}
+      {kind === "ai" ? <Bot size={Math.round(size * 0.55)} /> : initials(name)}
     </div>
   );
+}
+
+/**
+ * Client-side reference to a todo assignee. `null` = unassigned. The picker
+ * operates on this; the route layer decides which DB column to write to.
+ */
+export type AssigneeRef =
+  | { kind: "ai"; id: string }
+  | { kind: "human"; id: string }
+  | null;
+
+function refFromTodo(t: Todo): AssigneeRef {
+  if (t.assigneeEmployeeId) return { kind: "ai", id: t.assigneeEmployeeId };
+  if (t.assigneeUserId) return { kind: "human", id: t.assigneeUserId };
+  return null;
+}
+
+function patchForRef(ref: AssigneeRef): Partial<Todo> {
+  if (ref === null) return { assigneeEmployeeId: null, assigneeUserId: null };
+  if (ref.kind === "ai") {
+    return { assigneeEmployeeId: ref.id, assigneeUserId: null };
+  }
+  return { assigneeUserId: ref.id, assigneeEmployeeId: null };
 }
 
 function formatDue(iso: string | null): { label: string; cls: string } | null {
@@ -301,19 +342,44 @@ function PriorityPicker({
 function AssigneePicker({
   value,
   employees,
+  members,
   onChange,
   compact,
 }: {
-  value: string | null;
+  value: AssigneeRef;
   employees: Employee[];
-  onChange: (id: string | null) => void;
+  members: Member[];
+  onChange: (ref: AssigneeRef) => void;
   compact?: boolean;
 }) {
   const [query, setQuery] = React.useState("");
-  const current = employees.find((e) => e.id === value) ?? null;
-  const filtered = query
-    ? employees.filter((e) => e.name.toLowerCase().includes(query.toLowerCase()))
-    : employees;
+  const current = React.useMemo(() => {
+    if (!value) return null;
+    if (value.kind === "ai") {
+      const e = employees.find((x) => x.id === value.id);
+      return e ? { kind: "ai" as const, id: e.id, name: e.name, role: e.role } : null;
+    }
+    const m = members.find((x) => x.userId === value.id);
+    return m
+      ? {
+          kind: "human" as const,
+          id: m.userId,
+          name: m.name ?? m.email ?? "Member",
+          role: m.role,
+        }
+      : null;
+  }, [value, employees, members]);
+
+  const q = query.trim().toLowerCase();
+  const matchEmp = (e: Employee) => !q || e.name.toLowerCase().includes(q);
+  const matchMem = (m: Member) =>
+    !q ||
+    (m.name ?? "").toLowerCase().includes(q) ||
+    (m.email ?? "").toLowerCase().includes(q);
+
+  const filteredEmps = employees.filter(matchEmp);
+  const filteredMems = members.filter(matchMem);
+  const totalMatches = filteredEmps.length + filteredMems.length;
 
   return (
     <Menu
@@ -328,11 +394,13 @@ function AssigneePicker({
           className={clsx(
             "flex items-center gap-1.5 rounded-md text-xs",
             compact ? "p-0.5" : "px-1.5 py-1",
-            open ? "bg-slate-100 dark:bg-slate-800" : "hover:bg-slate-100 dark:hover:bg-slate-800",
+            open
+              ? "bg-slate-100 dark:bg-slate-800"
+              : "hover:bg-slate-100 dark:hover:bg-slate-800",
           )}
         >
           {current ? (
-            <Avatar name={current.name} size={compact ? 20 : 22} />
+            <Avatar name={current.name} size={compact ? 20 : 22} kind={current.kind} />
           ) : (
             <div
               className="flex items-center justify-center rounded-full border border-dashed border-slate-300 text-slate-400 dark:border-slate-600 dark:text-slate-500"
@@ -342,7 +410,7 @@ function AssigneePicker({
             </div>
           )}
           {!compact && (
-            <span className="text-slate-700 dark:text-slate-200">
+            <span className="truncate text-slate-700 dark:text-slate-200">
               {current ? current.name : "Unassigned"}
             </span>
           )}
@@ -351,7 +419,7 @@ function AssigneePicker({
       onOpenChange={(o) => {
         if (!o) setQuery("");
       }}
-      width={240}
+      width={260}
     >
       {(close) => (
         <>
@@ -360,7 +428,7 @@ function AssigneePicker({
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search…"
+              placeholder="Search people or AI employees…"
               className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:outline-none dark:bg-slate-900 dark:border-slate-700"
             />
           </div>
@@ -378,30 +446,69 @@ function AssigneePicker({
               close();
             }}
           />
-          {filtered.length === 0 ? (
+          {filteredMems.length > 0 && (
+            <>
+              <MenuSeparator />
+              <MenuHeader>People</MenuHeader>
+              {filteredMems.map((m) => {
+                const name = m.name ?? m.email ?? "Member";
+                const active = value?.kind === "human" && value.id === m.userId;
+                return (
+                  <MenuItem
+                    key={m.userId}
+                    active={active}
+                    icon={<Avatar name={name} size={20} kind="human" />}
+                    label={
+                      <span className="flex flex-col">
+                        <span className="truncate text-sm">{name}</span>
+                        <span className="truncate text-[11px] text-slate-500 dark:text-slate-400">
+                          {m.email && m.email !== name ? m.email : m.role}
+                        </span>
+                      </span>
+                    }
+                    onSelect={() => {
+                      onChange({ kind: "human", id: m.userId });
+                      close();
+                    }}
+                  />
+                );
+              })}
+            </>
+          )}
+          {filteredEmps.length > 0 && (
+            <>
+              <MenuSeparator />
+              <MenuHeader>AI employees</MenuHeader>
+              {filteredEmps.map((e) => {
+                const active = value?.kind === "ai" && value.id === e.id;
+                return (
+                  <MenuItem
+                    key={e.id}
+                    active={active}
+                    icon={<Avatar name={e.name} size={20} kind="ai" />}
+                    label={
+                      <span className="flex flex-col">
+                        <span className="truncate text-sm">{e.name}</span>
+                        <span className="truncate text-[11px] text-slate-500 dark:text-slate-400">
+                          {e.role}
+                        </span>
+                      </span>
+                    }
+                    onSelect={() => {
+                      onChange({ kind: "ai", id: e.id });
+                      close();
+                    }}
+                  />
+                );
+              })}
+            </>
+          )}
+          {totalMatches === 0 && (
             <div className="px-2 py-3 text-center text-xs text-slate-400 dark:text-slate-500">
-              No employees
+              {employees.length + members.length === 0
+                ? "No people or AI employees yet"
+                : "No matches"}
             </div>
-          ) : (
-            filtered.map((e) => (
-              <MenuItem
-                key={e.id}
-                active={e.id === value}
-                icon={<Avatar name={e.name} size={20} />}
-                label={
-                  <span className="flex flex-col">
-                    <span className="truncate text-sm">{e.name}</span>
-                    <span className="truncate text-[11px] text-slate-500 dark:text-slate-400">
-                      {e.role}
-                    </span>
-                  </span>
-                }
-                onSelect={() => {
-                  onChange(e.id);
-                  close();
-                }}
-              />
-            ))
           )}
         </>
       )}
@@ -478,24 +585,29 @@ function RecurrencePicker({
 
 // ───────────────────────── filter model ──────────────────────────────────────
 
+type AssigneeFilterKey = string; // "unassigned" | `ai:${id}` | `user:${id}`
+
 type Filters = {
   statuses: Set<TodoStatus>;
   priorities: Set<TodoPriority>;
-  assignees: Set<string | "unassigned">;
+  assignees: Set<AssigneeFilterKey>;
 };
 
 function emptyFilters(): Filters {
   return { statuses: new Set(), priorities: new Set(), assignees: new Set() };
 }
 
+function assigneeKey(t: Todo): AssigneeFilterKey {
+  if (t.assigneeEmployeeId) return `ai:${t.assigneeEmployeeId}`;
+  if (t.assigneeUserId) return `user:${t.assigneeUserId}`;
+  return "unassigned";
+}
+
 function applyFilters(todos: Todo[], f: Filters): Todo[] {
   return todos.filter((t) => {
     if (f.statuses.size && !f.statuses.has(t.status)) return false;
     if (f.priorities.size && !f.priorities.has(t.priority)) return false;
-    if (f.assignees.size) {
-      const key = t.assigneeEmployeeId ?? "unassigned";
-      if (!f.assignees.has(key)) return false;
-    }
+    if (f.assignees.size && !f.assignees.has(assigneeKey(t))) return false;
     return true;
   });
 }
@@ -515,6 +627,7 @@ export default function ProjectDetail({ company }: { company: Company }) {
 
   const [data, setData] = React.useState<ProjectTodos | null>(null);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
+  const [members, setMembers] = React.useState<Member[]>([]);
   const [view, setView] = React.useState<"list" | "board">("list");
   const [peekId, setPeekId] = React.useState<string | null>(null);
   const [showSettings, setShowSettings] = React.useState(false);
@@ -543,6 +656,10 @@ export default function ProjectDetail({ company }: { company: Company }) {
       .get<Employee[]>(`/api/companies/${company.id}/employees`)
       .then(setEmployees)
       .catch(() => setEmployees([]));
+    api
+      .get<Member[]>(`/api/companies/${company.id}/members`)
+      .then(setMembers)
+      .catch(() => setMembers([]));
   }, [company.id]);
 
   // Reset peek when navigating away from the project.
@@ -682,6 +799,7 @@ export default function ProjectDetail({ company }: { company: Company }) {
           filters={filters}
           setFilters={setFilters}
           employees={employees}
+          members={members}
           todos={todos}
         />
 
@@ -690,6 +808,7 @@ export default function ProjectDetail({ company }: { company: Company }) {
           companyId={company.id}
           projectSlug={project.slug}
           employees={employees}
+          members={members}
           inputRef={addInputRef}
           onCreated={(t) => {
             setData((d) => (d ? { ...d, todos: [...d.todos, t] } : d));
@@ -705,6 +824,7 @@ export default function ProjectDetail({ company }: { company: Company }) {
               totalBeforeFilter={todos.length}
               project={project}
               employees={employees}
+              members={members}
               activePeekId={peekId}
               onOpen={setPeekId}
               onPatch={patchTodo}
@@ -729,6 +849,7 @@ export default function ProjectDetail({ company }: { company: Company }) {
           todo={peekTodo}
           project={project}
           employees={employees}
+          members={members}
           companyId={company.id}
           onClose={() => setPeekId(null)}
           onPatch={(patch) => patchTodo(peekTodo, patch)}
@@ -806,11 +927,13 @@ function FilterBar({
   filters,
   setFilters,
   employees,
+  members,
   todos,
 }: {
   filters: Filters;
   setFilters: (f: Filters) => void;
   employees: Employee[];
+  members: Member[];
   todos: Todo[];
 }) {
   function toggleStatus(s: TodoStatus) {
@@ -823,15 +946,13 @@ function FilterBar({
     next.has(p) ? next.delete(p) : next.add(p);
     setFilters({ ...filters, priorities: next });
   }
-  function toggleAssignee(id: string | "unassigned") {
+  function toggleAssignee(key: AssigneeFilterKey) {
     const next = new Set(filters.assignees);
-    next.has(id) ? next.delete(id) : next.add(id);
+    next.has(key) ? next.delete(key) : next.add(key);
     setFilters({ ...filters, assignees: next });
   }
 
-  const assigneeIds = new Set(
-    todos.map((t) => t.assigneeEmployeeId ?? "unassigned"),
-  );
+  const keysInUse = new Set(todos.map(assigneeKey));
   const active = countActive(filters);
 
   return (
@@ -904,48 +1025,88 @@ function FilterBar({
       <FilterChip
         label="Assignee"
         count={filters.assignees.size}
-        render={(close) => (
-          <>
-            <MenuHeader>Assignee</MenuHeader>
-            <MenuItem
-              active={filters.assignees.has("unassigned")}
-              icon={
-                filters.assignees.has("unassigned") ? (
-                  <Check size={12} className="text-indigo-600 dark:text-indigo-400" />
-                ) : (
-                  <UserIcon size={12} className="text-slate-400 dark:text-slate-500" />
-                )
-              }
-              label="Unassigned"
-              onSelect={() => toggleAssignee("unassigned")}
-            />
-            {employees
-              .filter((e) => assigneeIds.has(e.id) || filters.assignees.has(e.id))
-              .map((e) => (
-                <MenuItem
-                  key={e.id}
-                  active={filters.assignees.has(e.id)}
-                  icon={
-                    filters.assignees.has(e.id) ? (
-                      <Check size={12} className="text-indigo-600 dark:text-indigo-400" />
-                    ) : (
-                      <Avatar name={e.name} size={20} />
-                    )
-                  }
-                  label={e.name}
-                  onSelect={() => toggleAssignee(e.id)}
-                />
-              ))}
-            <MenuSeparator />
-            <MenuItem
-              label="Clear"
-              onSelect={() => {
-                setFilters({ ...filters, assignees: new Set() });
-                close();
-              }}
-            />
-          </>
-        )}
+        render={(close) => {
+          const peopleInUse = members.filter(
+            (m) => keysInUse.has(`user:${m.userId}`) || filters.assignees.has(`user:${m.userId}`),
+          );
+          const empsInUse = employees.filter(
+            (e) => keysInUse.has(`ai:${e.id}`) || filters.assignees.has(`ai:${e.id}`),
+          );
+          return (
+            <>
+              <MenuHeader>Assignee</MenuHeader>
+              <MenuItem
+                active={filters.assignees.has("unassigned")}
+                icon={
+                  filters.assignees.has("unassigned") ? (
+                    <Check size={12} className="text-indigo-600 dark:text-indigo-400" />
+                  ) : (
+                    <UserIcon size={12} className="text-slate-400 dark:text-slate-500" />
+                  )
+                }
+                label="Unassigned"
+                onSelect={() => toggleAssignee("unassigned")}
+              />
+              {peopleInUse.length > 0 && (
+                <>
+                  <MenuSeparator />
+                  <MenuHeader>People</MenuHeader>
+                  {peopleInUse.map((m) => {
+                    const name = m.name ?? m.email ?? "Member";
+                    const key = `user:${m.userId}`;
+                    return (
+                      <MenuItem
+                        key={key}
+                        active={filters.assignees.has(key)}
+                        icon={
+                          filters.assignees.has(key) ? (
+                            <Check size={12} className="text-indigo-600 dark:text-indigo-400" />
+                          ) : (
+                            <Avatar name={name} size={20} kind="human" />
+                          )
+                        }
+                        label={name}
+                        onSelect={() => toggleAssignee(key)}
+                      />
+                    );
+                  })}
+                </>
+              )}
+              {empsInUse.length > 0 && (
+                <>
+                  <MenuSeparator />
+                  <MenuHeader>AI employees</MenuHeader>
+                  {empsInUse.map((e) => {
+                    const key = `ai:${e.id}`;
+                    return (
+                      <MenuItem
+                        key={key}
+                        active={filters.assignees.has(key)}
+                        icon={
+                          filters.assignees.has(key) ? (
+                            <Check size={12} className="text-indigo-600 dark:text-indigo-400" />
+                          ) : (
+                            <Avatar name={e.name} size={20} kind="ai" />
+                          )
+                        }
+                        label={e.name}
+                        onSelect={() => toggleAssignee(key)}
+                      />
+                    );
+                  })}
+                </>
+              )}
+              <MenuSeparator />
+              <MenuItem
+                label="Clear"
+                onSelect={() => {
+                  setFilters({ ...filters, assignees: new Set() });
+                  close();
+                }}
+              />
+            </>
+          );
+        }}
       />
       {active > 0 && (
         <button
@@ -1002,17 +1163,19 @@ function NewTodoRow({
   companyId,
   projectSlug,
   employees,
+  members,
   inputRef,
   onCreated,
 }: {
   companyId: string;
   projectSlug: string;
   employees: Employee[];
+  members: Member[];
   inputRef: React.RefObject<HTMLInputElement>;
   onCreated: (t: Todo) => void;
 }) {
   const [title, setTitle] = React.useState("");
-  const [assignee, setAssignee] = React.useState<string | null>(null);
+  const [assignee, setAssignee] = React.useState<AssigneeRef>(null);
   const [priority, setPriority] = React.useState<TodoPriority>("none");
   const [status, setStatus] = React.useState<TodoStatus>("todo");
   const [recurrence, setRecurrence] = React.useState<TodoRecurrence>("none");
@@ -1030,7 +1193,8 @@ function NewTodoRow({
           title: title.trim(),
           priority,
           status,
-          assigneeEmployeeId: assignee,
+          assigneeEmployeeId: assignee?.kind === "ai" ? assignee.id : null,
+          assigneeUserId: assignee?.kind === "human" ? assignee.id : null,
           recurrence,
         },
       );
@@ -1064,7 +1228,12 @@ function NewTodoRow({
       <StatusPicker value={status} onChange={setStatus} />
       <PriorityPicker value={priority} onChange={setPriority} />
       <RecurrencePicker value={recurrence} onChange={setRecurrence} />
-      <AssigneePicker value={assignee} employees={employees} onChange={setAssignee} />
+      <AssigneePicker
+        value={assignee}
+        employees={employees}
+        members={members}
+        onChange={setAssignee}
+      />
       <Button type="submit" size="sm" disabled={!title.trim() || busy}>
         {busy ? "…" : "Add"}
       </Button>
@@ -1079,6 +1248,7 @@ function ListView({
   totalBeforeFilter,
   project,
   employees,
+  members,
   activePeekId,
   onOpen,
   onPatch,
@@ -1089,6 +1259,7 @@ function ListView({
   totalBeforeFilter: number;
   project: Project;
   employees: Employee[];
+  members: Member[];
   activePeekId: string | null;
   onOpen: (id: string) => void;
   onPatch: (t: Todo, patch: Partial<Todo>) => void;
@@ -1125,10 +1296,12 @@ function ListView({
         if (items.length === 0) return null;
         return (
           <div key={status} className="border-b border-slate-100 dark:border-slate-800">
-            <div className="flex items-center gap-2 bg-slate-50 px-6 py-1.5 text-xs font-medium text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+            <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50/80 px-6 py-2 text-xs font-medium text-slate-600 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-300">
               <StatusIcon status={status} />
               <span>{STATUS_LABEL[status]}</span>
-              <span className="text-slate-400 dark:text-slate-500">{items.length}</span>
+              <span className="rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+                {items.length}
+              </span>
             </div>
             <ul>
               {items.map((t) => (
@@ -1137,6 +1310,7 @@ function ListView({
                   todo={t}
                   project={project}
                   employees={employees}
+                  members={members}
                   active={activePeekId === t.id}
                   onOpen={() => onOpen(t.id)}
                   onPatch={(patch) => onPatch(t, patch)}
@@ -1156,6 +1330,7 @@ function TodoRow({
   todo,
   project,
   employees,
+  members,
   active,
   onOpen,
   onPatch,
@@ -1165,6 +1340,7 @@ function TodoRow({
   todo: Todo;
   project: Project;
   employees: Employee[];
+  members: Member[];
   active: boolean;
   onOpen: () => void;
   onPatch: (patch: Partial<Todo>) => void;
@@ -1189,8 +1365,10 @@ function TodoRow({
         if (!editing) onOpen();
       }}
       className={clsx(
-        "group flex items-center gap-2 border-b border-slate-100 px-6 py-1.5 last:border-b-0 dark:border-slate-800",
-        active ? "bg-indigo-50/40" : "bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800",
+        "group flex cursor-pointer items-center gap-2 border-b border-slate-100 px-6 py-2 last:border-b-0 dark:border-slate-800",
+        active
+          ? "bg-indigo-50/60 dark:bg-indigo-500/10"
+          : "bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800/60",
       )}
     >
       <StatusPicker
@@ -1239,6 +1417,14 @@ function TodoRow({
           </button>
         )}
       </div>
+      {todo.description.trim() && (
+        <span
+          className="shrink-0 text-slate-300 dark:text-slate-600"
+          title="Has description"
+        >
+          <MessageSquare size={12} />
+        </span>
+      )}
       {due && (
         <span
           className={clsx(
@@ -1260,9 +1446,10 @@ function TodoRow({
         </span>
       )}
       <AssigneePicker
-        value={todo.assigneeEmployeeId}
+        value={refFromTodo(todo)}
         employees={employees}
-        onChange={(id) => onPatch({ assigneeEmployeeId: id })}
+        members={members}
+        onChange={(ref) => onPatch(patchForRef(ref))}
         compact
       />
       <button
@@ -1422,7 +1609,11 @@ function BoardCard({
             )}
           </div>
           {todo.assignee ? (
-            <Avatar name={todo.assignee.name} size={20} />
+            <Avatar
+              name={todo.assignee.name}
+              size={20}
+              kind={todo.assignee.kind === "ai" ? "ai" : "human"}
+            />
           ) : (
             <div className="flex h-5 w-5 items-center justify-center rounded-full border border-dashed border-slate-300 text-slate-300 dark:border-slate-600">
               <UserIcon size={10} />
@@ -1440,6 +1631,7 @@ function TodoPeek({
   todo,
   project,
   employees,
+  members,
   companyId,
   onClose,
   onPatch,
@@ -1448,6 +1640,7 @@ function TodoPeek({
   todo: Todo;
   project: Project;
   employees: Employee[];
+  members: Member[];
   companyId: string;
   onClose: () => void;
   onPatch: (patch: Partial<Todo>) => void;
@@ -1456,10 +1649,12 @@ function TodoPeek({
   const [title, setTitle] = React.useState(todo.title);
   const [desc, setDesc] = React.useState(todo.description);
   const [descDirty, setDescDirty] = React.useState(false);
+  const [descEditing, setDescEditing] = React.useState(false);
   React.useEffect(() => {
     setTitle(todo.title);
     setDesc(todo.description);
     setDescDirty(false);
+    setDescEditing(false);
   }, [todo.id, todo.title, todo.description]);
 
   function commitTitle() {
@@ -1468,9 +1663,13 @@ function TodoPeek({
     else setTitle(todo.title);
   }
   function commitDesc() {
-    if (!descDirty) return;
+    if (!descDirty) {
+      setDescEditing(false);
+      return;
+    }
     onPatch({ description: desc });
     setDescDirty(false);
+    setDescEditing(false);
   }
   const due = todo.dueAt ? todo.dueAt.slice(0, 10) : "";
 
@@ -1492,7 +1691,7 @@ function TodoPeek({
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      <div className="flex-1 overflow-y-auto px-5 py-5">
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
@@ -1502,29 +1701,60 @@ function TodoPeek({
               (e.target as HTMLInputElement).blur();
             }
           }}
-          className="w-full bg-transparent text-lg font-semibold text-slate-900 focus:outline-none dark:text-slate-100"
+          placeholder="Task title"
+          className="w-full bg-transparent text-[17px] font-semibold leading-tight text-slate-900 placeholder:text-slate-300 focus:outline-none dark:text-slate-100 dark:placeholder:text-slate-600"
         />
 
-        <textarea
-          value={desc}
-          placeholder="Add a description…"
-          onChange={(e) => {
-            setDesc(e.target.value);
-            setDescDirty(true);
-          }}
-          onBlur={commitDesc}
-          rows={6}
-          className="mt-3 w-full resize-none rounded-md border border-transparent bg-slate-50 p-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:outline-none dark:bg-slate-900 dark:text-slate-100"
-        />
+        <div className="mt-4">
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+              Description
+            </span>
+            {!descEditing && desc && (
+              <button
+                onClick={() => setDescEditing(true)}
+                className="text-[11px] text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-200"
+              >
+                Edit
+              </button>
+            )}
+          </div>
+          {descEditing ? (
+            <DescriptionEditor
+              value={desc}
+              onChange={(v) => {
+                setDesc(v);
+                setDescDirty(true);
+              }}
+              onDone={commitDesc}
+            />
+          ) : desc ? (
+            <button
+              type="button"
+              onClick={() => setDescEditing(true)}
+              className="block w-full rounded-lg border border-transparent px-3 py-2 text-left hover:border-slate-200 hover:bg-slate-50 dark:hover:border-slate-700 dark:hover:bg-slate-800"
+            >
+              <MarkdownView source={desc} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setDescEditing(true)}
+              className="block w-full rounded-lg border border-dashed border-slate-200 px-3 py-2 text-left text-sm text-slate-400 hover:border-slate-300 hover:text-slate-600 dark:border-slate-700 dark:text-slate-500 dark:hover:border-slate-600 dark:hover:text-slate-300"
+            >
+              Add a description — supports **markdown**, `code`, lists, links…
+            </button>
+          )}
+        </div>
 
-        <div className="mt-6 grid grid-cols-[90px_1fr] items-center gap-y-3 text-sm">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+        <div className="mt-6 grid grid-cols-[88px_1fr] items-center gap-y-2.5 text-sm">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
             Status
           </span>
           <div>
             <StatusPicker value={todo.status} onChange={(s) => onPatch({ status: s })} />
           </div>
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
             Priority
           </span>
           <div>
@@ -1533,17 +1763,18 @@ function TodoPeek({
               onChange={(p) => onPatch({ priority: p })}
             />
           </div>
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
             Assignee
           </span>
           <div>
             <AssigneePicker
-              value={todo.assigneeEmployeeId}
+              value={refFromTodo(todo)}
               employees={employees}
-              onChange={(id) => onPatch({ assigneeEmployeeId: id })}
+              members={members}
+              onChange={(ref) => onPatch(patchForRef(ref))}
             />
           </div>
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
             Due date
           </span>
           <div className="flex items-center gap-2">
@@ -1568,7 +1799,7 @@ function TodoPeek({
               </button>
             )}
           </div>
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
             Repeat
           </span>
           <div>
@@ -2000,7 +2231,7 @@ function MentionPicker({
             <MenuItem
               key={e.id}
               active={value === e.id}
-              icon={<Avatar name={e.name} size={16} />}
+              icon={<Avatar name={e.name} size={16} kind="ai" />}
               label={e.name}
               hint={e.role}
               onSelect={() => {
@@ -2026,6 +2257,125 @@ function formatWhen(iso: string): string {
   const day = Math.round(hr / 24);
   if (day < 7) return `${day}d ago`;
   return d.toLocaleDateString();
+}
+
+/**
+ * Lightweight GFM renderer. DOMPurify strips any script-y bits — task bodies
+ * are user-controlled so we don't trust them. Matches the chat bubble look.
+ */
+function MarkdownView({ source }: { source: string }) {
+  const html = React.useMemo(() => {
+    const raw = marked.parse(source ?? "", {
+      async: false,
+      gfm: true,
+      breaks: true,
+    }) as string;
+    return DOMPurify.sanitize(raw);
+  }, [source]);
+  return (
+    <div
+      className="chat-md break-words text-sm text-slate-800 dark:text-slate-100"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}
+
+/**
+ * Inline description editor with Write/Preview tabs. ⌘/Ctrl+Enter or the
+ * Save button commits; Esc cancels. Stays in the peek panel — no modal.
+ */
+function DescriptionEditor({
+  value,
+  onChange,
+  onDone,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onDone: () => void;
+}) {
+  const [tab, setTab] = React.useState<"write" | "preview">("write");
+  const ref = React.useRef<HTMLTextAreaElement>(null);
+  React.useEffect(() => {
+    if (tab === "write") ref.current?.focus();
+  }, [tab]);
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+      <div className="flex items-center justify-between border-b border-slate-100 px-2 py-1 dark:border-slate-800">
+        <div className="flex items-center gap-0.5">
+          <EditorTab active={tab === "write"} onClick={() => setTab("write")}>
+            Write
+          </EditorTab>
+          <EditorTab active={tab === "preview"} onClick={() => setTab("preview")}>
+            Preview
+          </EditorTab>
+        </div>
+        <div className="flex items-center gap-1 pr-1 text-[11px] text-slate-400 dark:text-slate-500">
+          <span className="hidden sm:inline">Markdown · ⌘↵ to save</span>
+        </div>
+      </div>
+      {tab === "write" ? (
+        <textarea
+          ref={ref}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+              e.preventDefault();
+              onDone();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              onDone();
+            }
+          }}
+          placeholder="Describe the task — supports **markdown**, `code`, lists, links…"
+          rows={8}
+          spellCheck={false}
+          className="block w-full resize-y bg-transparent px-3 py-2 font-mono text-[13px] leading-relaxed text-slate-800 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
+        />
+      ) : (
+        <div className="min-h-[120px] px-3 py-2">
+          {value.trim() ? (
+            <MarkdownView source={value} />
+          ) : (
+            <span className="text-sm text-slate-400 dark:text-slate-500">
+              Nothing to preview yet.
+            </span>
+          )}
+        </div>
+      )}
+      <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-2 py-1.5 dark:border-slate-800">
+        <Button variant="secondary" size="sm" onClick={onDone}>
+          Done
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function EditorTab({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={clsx(
+        "rounded px-2 py-1 text-xs font-medium",
+        active
+          ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
+          : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200",
+      )}
+    >
+      {children}
+    </button>
+  );
 }
 
 

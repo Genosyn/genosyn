@@ -21,6 +21,7 @@ import {
   ModelSettingsPage,
   JournalPage,
   McpPage,
+  MemoryPage,
   RoutinesPage,
   SettingsPage,
   SkillsPage,
@@ -166,6 +167,7 @@ function CompanyRoutes({
           <Route path="skills" element={<SkillsPage />} />
           <Route path="routines" element={<RoutinesPage />} />
           <Route path="journal" element={<JournalPage />} />
+          <Route path="memory" element={<MemoryPage />} />
           <Route path="connections" element={<EmployeeConnections />} />
           <Route path="mcp" element={<McpPage />} />
           <Route path="settings" element={<SettingsPage />}>

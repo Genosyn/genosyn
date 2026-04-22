@@ -14,14 +14,19 @@ import { toSlug } from "../lib/slug.js";
 import { chatWithEmployee } from "../services/chat.js";
 import {
   buildLinkOptionsFor,
+  deleteGrantsForBase,
+  grantBaseAccess,
   hydrateField,
   hydrateRecord,
+  listBaseGrants,
   listTemplates,
+  revokeBaseAccess,
   seedBaseFromTemplate,
   uniqueBaseSlug,
   uniqueTableSlug,
 } from "../services/bases.js";
 import { findBaseTemplate } from "../services/baseTemplates.js";
+import { recordAudit } from "../services/audit.js";
 
 export const basesRouter = Router({ mergeParams: true });
 basesRouter.use(requireAuth);
@@ -179,9 +184,98 @@ basesRouter.delete("/bases/:baseSlug", async (req, res) => {
     await AppDataSource.getRepository(BaseField).delete({ tableId: In(tableIds) });
     await AppDataSource.getRepository(BaseTable).delete({ id: In(tableIds) });
   }
+  await deleteGrantsForBase(b.id);
   await AppDataSource.getRepository(Base).delete({ id: b.id });
   res.json({ ok: true });
 });
+
+// ─────────────────────────── AI employee grants ──────────────────────────────
+
+basesRouter.get("/bases/:baseSlug/grants", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const b = await loadBaseBySlug(cid, req.params.baseSlug);
+  if (!b) return res.status(404).json({ error: "Base not found" });
+  const rows = await listBaseGrants(b.id);
+  res.json(
+    rows
+      .filter((r) => r.employee && r.employee.companyId === cid)
+      .map((r) => ({
+        id: r.id,
+        employeeId: r.employeeId,
+        baseId: r.baseId,
+        createdAt: r.createdAt.toISOString(),
+        employee: {
+          id: r.employee!.id,
+          name: r.employee!.name,
+          slug: r.employee!.slug,
+          role: r.employee!.role,
+        },
+      })),
+  );
+});
+
+const createBaseGrantSchema = z.object({
+  employeeId: z.string().uuid(),
+});
+
+basesRouter.post(
+  "/bases/:baseSlug/grants",
+  validateBody(createBaseGrantSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const b = await loadBaseBySlug(cid, req.params.baseSlug);
+    if (!b) return res.status(404).json({ error: "Base not found" });
+    const body = req.body as z.infer<typeof createBaseGrantSchema>;
+    const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
+      id: body.employeeId,
+      companyId: cid,
+    });
+    if (!emp) return res.status(404).json({ error: "Employee not found" });
+    const grant = await grantBaseAccess(emp.id, b.id);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "base_grant.create",
+      targetType: "base",
+      targetId: b.id,
+      targetLabel: `${b.name} → ${emp.name}`,
+      metadata: { employeeId: emp.id, baseId: b.id },
+    });
+    res.json({
+      id: grant.id,
+      employeeId: grant.employeeId,
+      baseId: grant.baseId,
+      createdAt: grant.createdAt.toISOString(),
+      employee: { id: emp.id, name: emp.name, slug: emp.slug, role: emp.role },
+    });
+  },
+);
+
+basesRouter.delete(
+  "/bases/:baseSlug/grants/:employeeId",
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const b = await loadBaseBySlug(cid, req.params.baseSlug);
+    if (!b) return res.status(404).json({ error: "Base not found" });
+    const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
+      id: req.params.employeeId,
+      companyId: cid,
+    });
+    if (!emp) return res.status(404).json({ error: "Employee not found" });
+    const ok = await revokeBaseAccess(emp.id, b.id);
+    if (!ok) return res.status(404).json({ error: "Grant not found" });
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "base_grant.delete",
+      targetType: "base",
+      targetId: b.id,
+      targetLabel: `${b.name} → ${emp.name}`,
+      metadata: { employeeId: emp.id, baseId: b.id },
+    });
+    res.json({ ok: true });
+  },
+);
 
 // ─────────────────────────── tables ──────────────────────────────────────────
 

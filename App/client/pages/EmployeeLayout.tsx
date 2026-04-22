@@ -3,6 +3,7 @@ import { Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   BookText,
+  Brain,
   Calendar,
   FolderTree,
   MessageSquare,
@@ -33,6 +34,7 @@ const EMP_TAB_LABEL: Record<string, string> = {
   skills: "Skills",
   routines: "Routines",
   journal: "Journal",
+  memory: "Memory",
   connections: "Connections",
   mcp: "MCP",
   settings: "Settings",
@@ -94,6 +96,7 @@ export default function EmployeeLayout({ company }: { company: Company }) {
         <SidebarLink to={`${base}/skills`} icon={<Wrench size={14} />} label="Skills" />
         <SidebarLink to={`${base}/routines`} icon={<Calendar size={14} />} label="Routines" />
         <SidebarLink to={`${base}/journal`} icon={<BookText size={14} />} label="Journal" />
+        <SidebarLink to={`${base}/memory`} icon={<Brain size={14} />} label="Memory" />
         <SidebarLink to={`${base}/connections`} icon={<PlugZap size={14} />} label="Connections" />
         <SidebarLink to={`${base}/mcp`} icon={<Plug size={14} />} label="MCP" />
         <SidebarLink to={`${base}/settings`} icon={<SettingsIcon size={14} />} label="Settings" />

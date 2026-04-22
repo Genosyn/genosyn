@@ -2,8 +2,10 @@ import React from "react";
 import { NavLink, Outlet, useOutletContext } from "react-router-dom";
 import {
   BrainCircuit,
+  Brain,
   Check,
   Copy,
+  Edit3,
   KeyRound,
   Loader2,
   BookText,
@@ -11,9 +13,11 @@ import {
   Play,
   Plug,
   PlugZap,
+  Plus,
   Sparkles,
   Trash2,
   Unplug,
+  X,
 } from "lucide-react";
 import cronstrue from "cronstrue";
 import {
@@ -30,6 +34,7 @@ import {
   Skill,
   JournalEntry as JournalEntryT,
   JournalKind,
+  MemoryItem,
   McpServer,
   McpTransport,
 } from "../lib/api";
@@ -1417,12 +1422,35 @@ export function JournalPage() {
     }
   }
 
+  async function updateEntry(
+    id: string,
+    patch: { title?: string; body?: string },
+  ): Promise<boolean> {
+    try {
+      const updated = await api.patch<JournalEntryT>(`${base}/journal/${id}`, patch);
+      setEntries((prev) =>
+        prev ? prev.map((e) => (e.id === id ? updated : e)) : prev,
+      );
+      return true;
+    } catch (err) {
+      toast((err as Error).message, "error");
+      return false;
+    }
+  }
+
   return (
     <>
       <TopBar title="Journal" />
       <Card>
         <CardBody>
-          <form onSubmit={addNote} className="flex flex-col gap-2">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            A daily diary of what this employee did. Routine runs land here automatically.
+            <strong className="text-slate-700 dark:text-slate-200">
+              {" "}The last 7 days are auto-injected into every chat and routine run
+            </strong>
+            {" "}— they're how the employee remembers what happened yesterday.
+          </p>
+          <form onSubmit={addNote} className="mt-3 flex flex-col gap-2">
             <Input
               label="Add note"
               placeholder="What should this employee remember?"
@@ -1456,46 +1484,400 @@ export function JournalPage() {
         ) : (
           <ul className="flex flex-col gap-2">
             {entries.map((e) => (
-              <li key={e.id}>
-                <Card>
-                  <CardBody className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={
-                            "rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
-                            JOURNAL_KIND_STYLE[e.kind]
-                          }
-                        >
-                          {e.kind}
-                        </span>
-                        <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{e.title}</div>
-                      </div>
-                      {e.body && (
-                        <div className="mt-1 whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-300">
-                          {e.body}
-                        </div>
-                      )}
-                      <div className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-                        {new Date(e.createdAt).toLocaleString()}
-                      </div>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => remove(e.id)}
-                      aria-label="Delete entry"
-                    >
-                      <Trash2 size={12} />
-                    </Button>
-                  </CardBody>
-                </Card>
-              </li>
+              <JournalEntryRow
+                key={e.id}
+                entry={e}
+                onSave={(patch) => updateEntry(e.id, patch)}
+                onDelete={() => remove(e.id)}
+              />
             ))}
           </ul>
         )}
       </div>
     </>
+  );
+}
+
+function JournalEntryRow({
+  entry,
+  onSave,
+  onDelete,
+}: {
+  entry: JournalEntryT;
+  onSave: (patch: { title?: string; body?: string }) => Promise<boolean>;
+  onDelete: () => void;
+}) {
+  const [editing, setEditing] = React.useState(false);
+  const [draftTitle, setDraftTitle] = React.useState(entry.title);
+  const [draftBody, setDraftBody] = React.useState(entry.body);
+  const [saving, setSaving] = React.useState(false);
+
+  function start() {
+    setDraftTitle(entry.title);
+    setDraftBody(entry.body);
+    setEditing(true);
+  }
+
+  async function save() {
+    const t = draftTitle.trim();
+    if (!t) return;
+    setSaving(true);
+    const ok = await onSave({ title: t, body: draftBody });
+    setSaving(false);
+    if (ok) setEditing(false);
+  }
+
+  return (
+    <li>
+      <Card>
+        <CardBody className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span
+                className={
+                  "rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
+                  JOURNAL_KIND_STYLE[entry.kind]
+                }
+              >
+                {entry.kind}
+              </span>
+              {editing ? (
+                <input
+                  autoFocus
+                  value={draftTitle}
+                  onChange={(e) => setDraftTitle(e.target.value)}
+                  className="min-w-0 flex-1 rounded border border-slate-300 bg-white px-2 py-1 text-sm focus:border-indigo-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") save();
+                    if (e.key === "Escape") setEditing(false);
+                  }}
+                />
+              ) : (
+                <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                  {entry.title}
+                </div>
+              )}
+            </div>
+            {editing ? (
+              <textarea
+                value={draftBody}
+                onChange={(e) => setDraftBody(e.target.value)}
+                rows={3}
+                placeholder="Optional detail…"
+                className="mt-2 w-full resize-none rounded border border-slate-300 bg-white px-2 py-1.5 text-xs focus:border-indigo-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+              />
+            ) : (
+              entry.body && (
+                <div className="mt-1 whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-300">
+                  {entry.body}
+                </div>
+              )
+            )}
+            <div className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+              {new Date(entry.createdAt).toLocaleString()}
+            </div>
+            {editing && (
+              <div className="mt-2 flex gap-1.5">
+                <Button
+                  size="sm"
+                  onClick={save}
+                  disabled={saving || !draftTitle.trim()}
+                >
+                  {saving ? "Saving…" : "Save"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setEditing(false)}
+                  disabled={saving}
+                >
+                  Cancel
+                </Button>
+              </div>
+            )}
+          </div>
+          {!editing && (
+            <div className="flex shrink-0 gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={start}
+                aria-label="Edit entry"
+              >
+                <Edit3 size={12} />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={onDelete}
+                aria-label="Delete entry"
+              >
+                <Trash2 size={12} />
+              </Button>
+            </div>
+          )}
+        </CardBody>
+      </Card>
+    </li>
+  );
+}
+
+/**
+ * Per-employee Memory. Durable, short "facts" or "preferences" injected into
+ * every chat and routine run — distinct from the free-form Soul document and
+ * the append-only Journal. Both humans and the AI itself can write here (the
+ * AI via the `add_memory` MCP tool).
+ */
+export function MemoryPage() {
+  const { company, emp } = useCtx();
+  const [items, setItems] = React.useState<MemoryItem[] | null>(null);
+  const [title, setTitle] = React.useState("");
+  const [body, setBody] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const { toast } = useToast();
+  const dialog = useDialog();
+
+  const base = `/api/companies/${company.id}/employees/${emp.id}`;
+
+  const reload = React.useCallback(async () => {
+    try {
+      const list = await api.get<MemoryItem[]>(`${base}/memory`);
+      setItems(list);
+    } catch (err) {
+      toast((err as Error).message, "error");
+      setItems([]);
+    }
+  }, [base, toast]);
+
+  React.useEffect(() => {
+    reload();
+  }, [reload]);
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    const t = title.trim();
+    if (!t || saving) return;
+    setSaving(true);
+    try {
+      const created = await api.post<MemoryItem>(`${base}/memory`, {
+        title: t,
+        body: body.trim(),
+      });
+      setItems((prev) => (prev ? [...prev, created] : [created]));
+      setTitle("");
+      setBody("");
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function update(
+    id: string,
+    patch: { title?: string; body?: string },
+  ): Promise<boolean> {
+    try {
+      const updated = await api.patch<MemoryItem>(`${base}/memory/${id}`, patch);
+      setItems((prev) => (prev ? prev.map((x) => (x.id === id ? updated : x)) : prev));
+      return true;
+    } catch (err) {
+      toast((err as Error).message, "error");
+      return false;
+    }
+  }
+
+  async function remove(id: string) {
+    const ok = await dialog.confirm({
+      title: "Delete this memory?",
+      message: "The employee will stop recalling this fact on their next spawn.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
+    try {
+      await api.del(`${base}/memory/${id}`);
+      setItems((prev) => (prev ? prev.filter((x) => x.id !== id) : prev));
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
+
+  return (
+    <>
+      <TopBar title="Memory" />
+      <Card>
+        <CardBody>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Durable facts and preferences this employee should recall in
+            <strong className="text-slate-700 dark:text-slate-200"> every conversation and routine run</strong>
+            . Unlike the free-form Soul, each memory item is a single short fact you can add, edit, or delete without touching the others. {emp.name} can also curate these themselves via MCP tools.
+          </p>
+          <form onSubmit={add} className="mt-3 flex flex-col gap-2">
+            <Input
+              label="New memory"
+              placeholder="e.g. Prefers ARR over MRR when talking about revenue"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+            <textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={2}
+              placeholder="Optional elaboration…"
+              className="resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600 dark:text-slate-100"
+            />
+            <div>
+              <Button type="submit" size="sm" disabled={saving || title.trim().length === 0}>
+                <Plus size={14} /> {saving ? "Saving…" : "Add memory"}
+              </Button>
+            </div>
+          </form>
+        </CardBody>
+      </Card>
+
+      <div className="mt-4">
+        {items === null ? (
+          <Spinner />
+        ) : items.length === 0 ? (
+          <EmptyState
+            title="No memories yet"
+            description={`Add the first durable fact you want ${emp.name} to recall in every future chat or routine.`}
+          />
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {items.map((m) => (
+              <MemoryRow
+                key={m.id}
+                item={m}
+                onSave={(patch) => update(m.id, patch)}
+                onDelete={() => remove(m.id)}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
+    </>
+  );
+}
+
+function MemoryRow({
+  item,
+  onSave,
+  onDelete,
+}: {
+  item: MemoryItem;
+  onSave: (patch: { title?: string; body?: string }) => Promise<boolean>;
+  onDelete: () => void;
+}) {
+  const [editing, setEditing] = React.useState(false);
+  const [draftTitle, setDraftTitle] = React.useState(item.title);
+  const [draftBody, setDraftBody] = React.useState(item.body);
+  const [saving, setSaving] = React.useState(false);
+
+  function start() {
+    setDraftTitle(item.title);
+    setDraftBody(item.body);
+    setEditing(true);
+  }
+
+  async function save() {
+    const t = draftTitle.trim();
+    if (!t) return;
+    setSaving(true);
+    const ok = await onSave({ title: t, body: draftBody });
+    setSaving(false);
+    if (ok) setEditing(false);
+  }
+
+  return (
+    <li>
+      <Card>
+        <CardBody className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <Brain size={12} className="shrink-0 text-indigo-500 dark:text-indigo-400" />
+              {editing ? (
+                <input
+                  autoFocus
+                  value={draftTitle}
+                  onChange={(e) => setDraftTitle(e.target.value)}
+                  className="min-w-0 flex-1 rounded border border-slate-300 bg-white px-2 py-1 text-sm focus:border-indigo-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") save();
+                    if (e.key === "Escape") setEditing(false);
+                  }}
+                />
+              ) : (
+                <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                  {item.title}
+                </div>
+              )}
+            </div>
+            {editing ? (
+              <textarea
+                value={draftBody}
+                onChange={(e) => setDraftBody(e.target.value)}
+                rows={3}
+                placeholder="Optional elaboration…"
+                className="mt-2 w-full resize-none rounded border border-slate-300 bg-white px-2 py-1.5 text-xs focus:border-indigo-500 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+              />
+            ) : (
+              item.body && (
+                <div className="mt-1 whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-300">
+                  {item.body}
+                </div>
+              )
+            )}
+            <div className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+              Added {new Date(item.createdAt).toLocaleString()}
+              {item.updatedAt && item.updatedAt !== item.createdAt && (
+                <> · updated {new Date(item.updatedAt).toLocaleString()}</>
+              )}
+            </div>
+            {editing && (
+              <div className="mt-2 flex gap-1.5">
+                <Button
+                  size="sm"
+                  onClick={save}
+                  disabled={saving || !draftTitle.trim()}
+                >
+                  {saving ? "Saving…" : "Save"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setEditing(false)}
+                  disabled={saving}
+                >
+                  <X size={12} /> Cancel
+                </Button>
+              </div>
+            )}
+          </div>
+          {!editing && (
+            <div className="flex shrink-0 gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={start}
+                aria-label="Edit memory"
+              >
+                <Edit3 size={12} />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={onDelete}
+                aria-label="Delete memory"
+              >
+                <Trash2 size={12} />
+              </Button>
+            </div>
+          )}
+        </CardBody>
+      </Card>
+    </li>
   );
 }
 

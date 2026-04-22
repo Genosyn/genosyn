@@ -5,7 +5,6 @@ import {
   Trash2,
   Settings as SettingsIcon,
   Sparkles,
-  MoreHorizontal,
   Type,
   AlignLeft,
   Hash,
@@ -17,20 +16,21 @@ import {
   ListChecks,
   Key,
   ChevronDown,
-  Edit3,
   X,
+  Users,
 } from "lucide-react";
 import {
   api,
   Base,
-  BaseDetail as BaseDetailT,
   BaseField,
   BaseFieldType,
+  BaseGrant,
   BaseLinkOption,
   BaseRecord,
   BaseTable,
   BaseTableContent,
   Company,
+  Employee,
   SelectOption,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
@@ -72,14 +72,17 @@ export default function BaseDetail({ company }: { company: Company }) {
   const { baseSlug, tableSlug } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const dialog = useDialog();
-  const { reload: reloadBases } = useBases();
+  const { activeDetail, reloadActive, reload: reloadBases } = useBases();
 
-  const [detail, setDetail] = React.useState<BaseDetailT | null>(null);
   const [content, setContent] = React.useState<BaseTableContent | null>(null);
   const [contentLoading, setContentLoading] = React.useState(false);
   const [showSettings, setShowSettings] = React.useState(false);
   const [showAssistant, setShowAssistant] = React.useState(false);
+
+  // `activeDetail` may belong to the previous base (during nav). Only trust it
+  // once the slug matches the URL.
+  const detail =
+    activeDetail && activeDetail.base.slug === baseSlug ? activeDetail : null;
 
   const currentTable = React.useMemo(() => {
     if (!detail) return null;
@@ -87,29 +90,17 @@ export default function BaseDetail({ company }: { company: Company }) {
     return detail.tables[0] ?? null;
   }, [detail, tableSlug]);
 
-  const loadBase = React.useCallback(async () => {
-    if (!baseSlug) return;
-    try {
-      const d = await api.get<BaseDetailT>(
-        `/api/companies/${company.id}/bases/${baseSlug}`,
-      );
-      setDetail(d);
-      // Route to first table if none specified.
-      if (!tableSlug && d.tables[0]) {
-        navigate(
-          `/c/${company.slug}/bases/${baseSlug}/${d.tables[0].slug}`,
-          { replace: true },
-        );
-      }
-    } catch (err) {
-      toast((err as Error).message, "error");
-      navigate(`/c/${company.slug}/bases`);
-    }
-  }, [baseSlug, company.id, company.slug, navigate, tableSlug, toast]);
-
+  // Route to the first table when landing on the bare base URL.
   React.useEffect(() => {
-    loadBase();
-  }, [loadBase]);
+    if (!detail || tableSlug) return;
+    const first = detail.tables[0];
+    if (first) {
+      navigate(
+        `/c/${company.slug}/bases/${detail.base.slug}/${first.slug}`,
+        { replace: true },
+      );
+    }
+  }, [company.slug, detail, navigate, tableSlug]);
 
   const loadContent = React.useCallback(
     async (silent = false) => {
@@ -146,73 +137,6 @@ export default function BaseDetail({ company }: { company: Company }) {
 
   const { base, tables } = detail;
 
-  async function addTable() {
-    const name = await dialog.prompt({
-      title: "New table",
-      placeholder: "Table name",
-      defaultValue: `Table ${tables.length + 1}`,
-      confirmLabel: "Create",
-    });
-    if (!name) return;
-    try {
-      const t = await api.post<BaseTable>(
-        `/api/companies/${company.id}/bases/${base.slug}/tables`,
-        { name },
-      );
-      await loadBase();
-      await reloadBases();
-      navigate(`/c/${company.slug}/bases/${base.slug}/${t.slug}`);
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
-  }
-
-  async function renameTable(t: BaseTable) {
-    const name = await dialog.prompt({
-      title: "Rename table",
-      defaultValue: t.name,
-      confirmLabel: "Rename",
-    });
-    if (!name || name === t.name) return;
-    try {
-      await api.patch(
-        `/api/companies/${company.id}/bases/${base.slug}/tables/${t.id}`,
-        { name },
-      );
-      await loadBase();
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
-  }
-
-  async function deleteTable(t: BaseTable) {
-    const ok = await dialog.confirm({
-      title: `Delete "${t.name}"?`,
-      message: "This table and all its rows will be removed.",
-      confirmLabel: "Delete table",
-      variant: "danger",
-    });
-    if (!ok) return;
-    try {
-      await api.del(
-        `/api/companies/${company.id}/bases/${base.slug}/tables/${t.id}`,
-      );
-      await loadBase();
-      await reloadBases();
-      // Navigate to first remaining table, or base root.
-      const remaining = tables.filter((x) => x.id !== t.id);
-      if (remaining[0]) {
-        navigate(`/c/${company.slug}/bases/${base.slug}/${remaining[0].slug}`, {
-          replace: true,
-        });
-      } else {
-        navigate(`/c/${company.slug}/bases/${base.slug}`, { replace: true });
-      }
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
-  }
-
   return (
     <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
@@ -230,11 +154,12 @@ export default function BaseDetail({ company }: { company: Company }) {
             <Breadcrumbs
               items={[
                 { label: "Bases", to: `/c/${company.slug}/bases` },
-                { label: base.name },
+                { label: base.name, to: `/c/${company.slug}/bases/${base.slug}` },
+                ...(currentTable ? [{ label: currentTable.name }] : []),
               ]}
             />
             <h1 className="truncate text-base font-semibold text-slate-900 dark:text-slate-100">
-              {base.name}
+              {currentTable ? currentTable.name : base.name}
             </h1>
           </div>
           <button
@@ -258,34 +183,11 @@ export default function BaseDetail({ company }: { company: Company }) {
           </button>
         </div>
 
-        {/* Table tabs */}
-        <div className="flex items-center gap-0.5 overflow-x-auto border-b border-slate-200 bg-white px-2 dark:bg-slate-900 dark:border-slate-700">
-          {tables.map((t) => (
-            <TableTab
-              key={t.id}
-              table={t}
-              active={currentTable?.id === t.id}
-              onClick={() =>
-                navigate(`/c/${company.slug}/bases/${base.slug}/${t.slug}`)
-              }
-              onRename={() => renameTable(t)}
-              onDelete={() => deleteTable(t)}
-              canDelete={tables.length > 1}
-            />
-          ))}
-          <button
-            onClick={addTable}
-            className="ml-1 flex items-center gap-1 rounded-md px-2 py-2 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-          >
-            <Plus size={12} /> Add table
-          </button>
-        </div>
-
         {/* Grid */}
         <div className="min-h-0 flex-1 overflow-auto bg-slate-50 dark:bg-slate-950">
           {!currentTable ? (
             <div className="flex h-full items-center justify-center text-sm text-slate-500 dark:text-slate-400">
-              This base has no tables yet.
+              This base has no tables yet. Add one from the sidebar.
             </div>
           ) : contentLoading && !content ? (
             <div className="flex h-full items-center justify-center">
@@ -298,7 +200,7 @@ export default function BaseDetail({ company }: { company: Company }) {
               tables={tables}
               content={content}
               onReload={() => loadContent(true)}
-              onTablesReload={loadBase}
+              onTablesReload={reloadActive}
               companyId={company.id}
             />
           ) : null}
@@ -319,7 +221,7 @@ export default function BaseDetail({ company }: { company: Company }) {
           company={company}
           base={base}
           onClose={() => setShowSettings(false)}
-          onSaved={loadBase}
+          onSaved={reloadActive}
           onDeleted={() => {
             setShowSettings(false);
             reloadBases();
@@ -327,82 +229,6 @@ export default function BaseDetail({ company }: { company: Company }) {
           }}
         />
       )}
-    </div>
-  );
-}
-
-function TableTab({
-  table,
-  active,
-  onClick,
-  onRename,
-  onDelete,
-  canDelete,
-}: {
-  table: BaseTable;
-  active: boolean;
-  onClick: () => void;
-  onRename: () => void;
-  onDelete: () => void;
-  canDelete: boolean;
-}) {
-  return (
-    <div
-      className={clsx(
-        "group flex items-center gap-1 border-b-2 px-2 py-2 text-xs",
-        active
-          ? "border-indigo-500 text-slate-900 dark:text-slate-100"
-          : "border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-300",
-      )}
-    >
-      <button onClick={onClick} className="font-medium">
-        {table.name}
-      </button>
-      <Menu
-        width={180}
-        trigger={({ ref, onClick: toggle, open }) => (
-          <button
-            ref={ref}
-            onClick={(e) => {
-              e.stopPropagation();
-              toggle();
-            }}
-            className={clsx(
-              "rounded p-0.5 opacity-0 hover:bg-slate-100 dark:hover:bg-slate-800",
-              active || open ? "opacity-100" : "group-hover:opacity-100",
-            )}
-            aria-label="Table actions"
-          >
-            <ChevronDown size={11} />
-          </button>
-        )}
-      >
-        {(close) => (
-          <>
-            <MenuItem
-              icon={<Edit3 size={12} />}
-              label="Rename"
-              onSelect={() => {
-                onRename();
-                close();
-              }}
-            />
-            {canDelete && (
-              <>
-                <MenuSeparator />
-                <MenuItem
-                  icon={<Trash2 size={12} className="text-red-500" />}
-                  label={<span className="text-red-600">Delete</span>}
-                  onSelect={() => {
-                    onDelete();
-                    close();
-                  }}
-                />
-              </>
-            )}
-          </>
-        )}
-      </Menu>
     </div>
   );
 }
@@ -1013,6 +839,7 @@ function BaseSettingsModal({
   const [icon, setIcon] = React.useState(base.icon);
   const [color, setColor] = React.useState(base.color);
   const [busy, setBusy] = React.useState(false);
+  const [tab, setTab] = React.useState<"general" | "access">("general");
 
   async function save() {
     setBusy(true);
@@ -1071,80 +898,346 @@ function BaseSettingsModal({
             <X size={16} />
           </button>
         </div>
-        <div className="flex flex-col gap-4 p-5">
-          <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
-          <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              Description
-            </label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={2}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-            />
-          </div>
+        <div className="flex gap-1 border-b border-slate-100 px-5 dark:border-slate-800">
+          <TabButton active={tab === "general"} onClick={() => setTab("general")}>
+            General
+          </TabButton>
+          <TabButton active={tab === "access"} onClick={() => setTab("access")}>
+            <Users size={12} /> AI access
+          </TabButton>
+        </div>
 
-          <div className="flex flex-col gap-2">
-            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              Icon
-            </span>
-            <div className="flex flex-wrap gap-1.5">
-              {BASE_ICON_NAMES.map((n) => (
-                <button
-                  key={n}
-                  onClick={() => setIcon(n)}
-                  className={clsx(
-                    "flex h-8 w-8 items-center justify-center rounded-md border",
-                    icon === n
-                      ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10"
-                      : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800",
-                  )}
-                  title={n}
-                >
-                  <BaseIcon name={n} size={14} />
-                </button>
-              ))}
+        {tab === "general" ? (
+          <div className="flex flex-col gap-4 p-5">
+            <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Description
+              </label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={2}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              />
             </div>
-          </div>
 
-          <div className="flex flex-col gap-2">
-            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              Color
-            </span>
-            <div className="flex flex-wrap gap-1.5">
-              {BASE_COLORS.map((c) => (
-                <button
-                  key={c}
-                  onClick={() => setColor(c)}
-                  className={clsx(
-                    "flex h-8 w-8 items-center justify-center rounded-md border",
-                    color === c
-                      ? "border-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-800"
-                      : "border-slate-200 dark:border-slate-700",
-                    baseAccent(c, "tile"),
-                  )}
-                  title={c}
-                >
-                  <BaseIcon name={icon} size={12} />
-                </button>
-              ))}
+            <div className="flex flex-col gap-2">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Icon
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {BASE_ICON_NAMES.map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => setIcon(n)}
+                    className={clsx(
+                      "flex h-8 w-8 items-center justify-center rounded-md border",
+                      icon === n
+                        ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10"
+                        : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800",
+                    )}
+                    title={n}
+                  >
+                    <BaseIcon name={n} size={14} />
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
 
-          <div className="mt-2 flex items-center justify-between">
-            <Button variant="danger" onClick={remove} disabled={busy}>
-              <Trash2 size={14} /> Delete base
-            </Button>
-            <div className="flex gap-2">
-              <Button variant="secondary" onClick={onClose} disabled={busy}>
-                Cancel
+            <div className="flex flex-col gap-2">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Color
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {BASE_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setColor(c)}
+                    className={clsx(
+                      "flex h-8 w-8 items-center justify-center rounded-md border",
+                      color === c
+                        ? "border-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-800"
+                        : "border-slate-200 dark:border-slate-700",
+                      baseAccent(c, "tile"),
+                    )}
+                    title={c}
+                  >
+                    <BaseIcon name={icon} size={12} />
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-2 flex items-center justify-between">
+              <Button variant="danger" onClick={remove} disabled={busy}>
+                <Trash2 size={14} /> Delete base
               </Button>
-              <Button onClick={save} disabled={busy || !name.trim()}>
-                {busy ? "Saving…" : "Save"}
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="secondary" onClick={onClose} disabled={busy}>
+                  Cancel
+                </Button>
+                <Button onClick={save} disabled={busy || !name.trim()}>
+                  {busy ? "Saving…" : "Save"}
+                </Button>
+              </div>
             </div>
           </div>
+        ) : (
+          <BaseAccessTab company={company} base={base} onClose={onClose} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={clsx(
+        "flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition",
+        active
+          ? "border-indigo-500 text-indigo-700 dark:text-indigo-300"
+          : "border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function BaseAccessTab({
+  company,
+  base,
+  onClose,
+}: {
+  company: Company;
+  base: Base;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const dialog = useDialog();
+  const [grants, setGrants] = React.useState<BaseGrant[] | null>(null);
+  const [employees, setEmployees] = React.useState<Employee[]>([]);
+  const [picker, setPicker] = React.useState(false);
+
+  const reload = React.useCallback(async () => {
+    try {
+      const [g, emps] = await Promise.all([
+        api.get<BaseGrant[]>(
+          `/api/companies/${company.id}/bases/${base.slug}/grants`,
+        ),
+        api.get<Employee[]>(`/api/companies/${company.id}/employees`),
+      ]);
+      setGrants(g);
+      setEmployees(emps);
+    } catch (err) {
+      toast((err as Error).message, "error");
+      setGrants([]);
+    }
+  }, [base.slug, company.id, toast]);
+
+  React.useEffect(() => {
+    reload();
+  }, [reload]);
+
+  const grantedIds = React.useMemo(
+    () => new Set((grants ?? []).map((g) => g.employeeId)),
+    [grants],
+  );
+  const grantable = React.useMemo(
+    () => employees.filter((e) => !grantedIds.has(e.id)),
+    [employees, grantedIds],
+  );
+
+  async function grant(emp: Employee) {
+    try {
+      await api.post<BaseGrant>(
+        `/api/companies/${company.id}/bases/${base.slug}/grants`,
+        { employeeId: emp.id },
+      );
+      toast(`Granted ${emp.name}`, "success");
+      setPicker(false);
+      reload();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
+
+  async function revoke(g: BaseGrant) {
+    const ok = await dialog.confirm({
+      title: `Revoke ${g.employee?.name ?? "employee"}?`,
+      message: `They lose access to this base on their next spawn.`,
+      confirmLabel: "Revoke",
+      variant: "danger",
+    });
+    if (!ok) return;
+    try {
+      await api.del(
+        `/api/companies/${company.id}/bases/${base.slug}/grants/${g.employeeId}`,
+      );
+      setGrants((prev) => (prev ?? []).filter((x) => x.id !== g.id));
+      toast("Revoked", "success");
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3 p-5">
+      <div>
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+          AI employees with access
+        </h3>
+        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+          Granted employees can read and write records in this base through
+          their MCP tools on their next spawn.
+        </p>
+      </div>
+
+      {grants === null ? (
+        <div className="flex justify-center py-6">
+          <Spinner size={16} />
+        </div>
+      ) : grants.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-slate-200 p-4 text-center dark:border-slate-700">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            No AI employees can access this base yet.
+          </p>
+          <Button
+            size="sm"
+            onClick={() => setPicker(true)}
+            disabled={employees.length === 0}
+            className="mt-2"
+          >
+            Grant access
+          </Button>
+          {employees.length === 0 && (
+            <p className="mt-1 text-[10px] text-slate-400 dark:text-slate-500">
+              Hire an AI employee first.
+            </p>
+          )}
+        </div>
+      ) : (
+        <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-700">
+          {grants.map((g) => (
+            <li key={g.id} className="flex items-center gap-3 px-3 py-2">
+              <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                {(g.employee?.name ?? "?").slice(0, 1).toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                  {g.employee?.name ?? "Unknown"}
+                </div>
+                <div className="truncate text-xs text-slate-500 dark:text-slate-400">
+                  {g.employee?.role ?? ""}
+                </div>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => revoke(g)}>
+                <Trash2 size={12} />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {grants !== null && grants.length > 0 && (
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => setPicker(true)}
+          disabled={grantable.length === 0}
+        >
+          <Plus size={12} /> Grant to another employee
+        </Button>
+      )}
+
+      <div className="flex justify-end border-t border-slate-100 pt-3 dark:border-slate-800">
+        <Button variant="secondary" size="sm" onClick={onClose}>
+          Done
+        </Button>
+      </div>
+
+      {picker && (
+        <EmployeePickerModal
+          employees={grantable}
+          onCancel={() => setPicker(false)}
+          onPick={grant}
+        />
+      )}
+    </div>
+  );
+}
+
+function EmployeePickerModal({
+  employees,
+  onCancel,
+  onPick,
+}: {
+  employees: Employee[];
+  onCancel: () => void;
+  onPick: (e: Employee) => void;
+}) {
+  return (
+    <div
+      onMouseDown={onCancel}
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4 dark:bg-black/60"
+    >
+      <div
+        onMouseDown={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        className="w-full max-w-md overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
+      >
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3 dark:border-slate-800">
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+            Grant access
+          </h3>
+          <button
+            onClick={onCancel}
+            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800"
+          >
+            <X size={14} />
+          </button>
+        </div>
+        <div className="max-h-[60vh] overflow-y-auto p-3">
+          {employees.length === 0 ? (
+            <p className="px-2 py-4 text-center text-xs text-slate-500 dark:text-slate-400">
+              Every AI employee already has access.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-1">
+              {employees.map((e) => (
+                <li key={e.id}>
+                  <button
+                    onClick={() => onPick(e)}
+                    className="flex w-full items-center gap-3 rounded-lg border border-slate-200 p-2.5 text-left hover:border-indigo-300 hover:bg-indigo-50/40 dark:border-slate-700 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/30"
+                  >
+                    <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                      {e.name.slice(0, 1).toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                        {e.name}
+                      </div>
+                      <div className="truncate text-xs text-slate-500 dark:text-slate-400">
+                        {e.role}
+                      </div>
+                    </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
     </div>

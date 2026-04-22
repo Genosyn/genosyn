@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { Router } from "express";
 import { z } from "zod";
 import { AppDataSource } from "../db/datasource.js";
@@ -11,6 +12,7 @@ import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { generateToken } from "../lib/token.js";
 import { sendEmail } from "../services/email.js";
+import { companyDir } from "../services/paths.js";
 import { config } from "../../config.js";
 
 export const companiesRouter = Router();
@@ -66,7 +68,14 @@ companiesRouter.get("/:cid", requireCompanyMember, async (req, res) => {
   res.json({ id: co.id, name: co.name, slug: co.slug });
 });
 
-const patchSchema = z.object({ name: z.string().min(1).max(80) });
+const patchSchema = z
+  .object({
+    name: z.string().min(1).max(80).optional(),
+    slug: z.string().min(1).max(80).optional(),
+  })
+  .refine((v) => v.name !== undefined || v.slug !== undefined, {
+    message: "Provide name or slug",
+  });
 
 companiesRouter.patch("/:cid", requireCompanyMember, validateBody(patchSchema), async (req, res) => {
   const role = (req as unknown as { role: string }).role;
@@ -74,7 +83,38 @@ companiesRouter.patch("/:cid", requireCompanyMember, validateBody(patchSchema), 
   const repo = AppDataSource.getRepository(Company);
   const co = await repo.findOneBy({ id: req.params.cid });
   if (!co) return res.status(404).json({ error: "Not found" });
-  co.name = (req.body as z.infer<typeof patchSchema>).name;
+  const body = req.body as z.infer<typeof patchSchema>;
+
+  if (body.name !== undefined) co.name = body.name;
+
+  if (body.slug !== undefined) {
+    const normalized = toSlug(body.slug);
+    if (!normalized) {
+      return res.status(400).json({ error: "Slug must contain at least one letter or digit" });
+    }
+    if (normalized !== co.slug) {
+      const existing = await repo.findOneBy({ slug: normalized });
+      if (existing && existing.id !== co.id) {
+        return res.status(409).json({ error: "That slug is already taken" });
+      }
+      const oldDir = companyDir(co.slug);
+      const newDir = companyDir(normalized);
+      if (fs.existsSync(newDir)) {
+        return res.status(409).json({ error: "A data directory for that slug already exists" });
+      }
+      if (fs.existsSync(oldDir)) {
+        try {
+          fs.renameSync(oldDir, newDir);
+        } catch (err) {
+          return res
+            .status(500)
+            .json({ error: `Failed to rename data directory: ${(err as Error).message}` });
+        }
+      }
+      co.slug = normalized;
+    }
+  }
+
   await repo.save(co);
   res.json({ id: co.id, name: co.name, slug: co.slug });
 });

@@ -192,6 +192,20 @@ export type MessageAction = {
   targetType: string;
   targetId: string | null;
   targetLabel: string;
+  metadata?: MessageActionMetadata;
+};
+
+export type MessageActionMetadata = {
+  via?: string;
+  provider?: string;
+  connectionId?: string;
+  connectionLabel?: string;
+  toolName?: string;
+  status?: "ok" | "error";
+  durationMs?: number;
+  argsPreview?: string;
+  resultPreview?: string;
+  error?: string;
 };
 export type ConversationMessage = {
   id: string;
@@ -237,6 +251,21 @@ export type JournalEntry = {
   routineId: string | null;
   authorUserId: string | null;
   createdAt: string;
+};
+
+/**
+ * A durable "memory item" — a short fact or preference that is injected
+ * into every chat turn and routine run for this employee. Editable by
+ * humans (via the Memory tab) and by the AI itself (via MCP).
+ */
+export type MemoryItem = {
+  id: string;
+  employeeId: string;
+  title: string;
+  body: string;
+  authorUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type EmployeeTemplate = {
@@ -407,6 +436,10 @@ export type Project = {
   totalTodos?: number;
   openTodos?: number;
 };
+export type TodoAssignee =
+  | { kind: "ai"; id: string; name: string; slug: string; role: string }
+  | { kind: "human"; id: string; name: string; email: string | null };
+
 export type Todo = {
   id: string;
   projectId: string;
@@ -416,6 +449,7 @@ export type Todo = {
   status: TodoStatus;
   priority: TodoPriority;
   assigneeEmployeeId: string | null;
+  assigneeUserId: string | null;
   createdById: string | null;
   dueAt: string | null;
   sortOrder: number;
@@ -424,7 +458,7 @@ export type Todo = {
   recurrenceParentId: string | null;
   createdAt: string;
   updatedAt: string;
-  assignee: { id: string; name: string; slug: string; role: string } | null;
+  assignee: TodoAssignee | null;
 };
 
 export type TodoCommentAuthor =
@@ -544,4 +578,22 @@ export type BaseAssistantResult = {
   status: "ok" | "skipped" | "error";
   reply: string;
   employee?: { id: string; name: string; slug: string };
+};
+
+/**
+ * A grant giving one AI employee read/write access to one Base via their MCP
+ * tools. The server returns the pair plus a lightweight employee snapshot so
+ * the UI can render names without a second request.
+ */
+export type BaseGrant = {
+  id: string;
+  employeeId: string;
+  baseId: string;
+  createdAt: string;
+  employee: {
+    id: string;
+    name: string;
+    slug: string;
+    role: string;
+  } | null;
 };

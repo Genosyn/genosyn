@@ -8,9 +8,11 @@ import { Conversation } from "../db/entities/Conversation.js";
 import {
   ConversationMessage,
   MessageAction,
+  MessageActionMetadata,
 } from "../db/entities/ConversationMessage.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
+import { EmployeeMemory } from "../db/entities/EmployeeMemory.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { streamChatWithEmployee } from "../services/chat.js";
@@ -99,6 +101,44 @@ function parseActions(raw: string | null | undefined): MessageAction[] {
 }
 
 /**
+ * Narrow a persisted `metadataJson` blob down to the specific fields the
+ * chat UI renders. We don't want to leak every field we happen to store
+ * server-side into the client JSON — and fields of unexpected shape
+ * should silently drop so one bad row can't break the pill list.
+ */
+function parseActionMetadata(
+  raw: string | null | undefined,
+): MessageActionMetadata | undefined {
+  if (!raw) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return undefined;
+  }
+  const src = parsed as Record<string, unknown>;
+  const out: MessageActionMetadata = {};
+  if (typeof src.via === "string") out.via = src.via;
+  if (typeof src.provider === "string") out.provider = src.provider;
+  if (typeof src.connectionId === "string") out.connectionId = src.connectionId;
+  if (typeof src.connectionLabel === "string") {
+    out.connectionLabel = src.connectionLabel;
+  }
+  if (typeof src.toolName === "string") out.toolName = src.toolName;
+  if (src.status === "ok" || src.status === "error") out.status = src.status;
+  if (typeof src.durationMs === "number" && Number.isFinite(src.durationMs)) {
+    out.durationMs = src.durationMs;
+  }
+  if (typeof src.argsPreview === "string") out.argsPreview = src.argsPreview;
+  if (typeof src.resultPreview === "string") out.resultPreview = src.resultPreview;
+  if (typeof src.error === "string") out.error = src.error;
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
  * Fetch the AuditEvents this employee produced during the chat turn
  * (after `since`) and project them onto the lean MessageAction shape the
  * UI renders. Filtered to `actorKind: "ai"` so we don't accidentally
@@ -119,12 +159,17 @@ async function captureTurnActions(
     },
     order: { createdAt: "ASC" },
   });
-  return events.map((e) => ({
-    action: e.action,
-    targetType: e.targetType,
-    targetId: e.targetId,
-    targetLabel: e.targetLabel,
-  }));
+  return events.map((e) => {
+    const metadata = parseActionMetadata(e.metadataJson);
+    const action: MessageAction = {
+      action: e.action,
+      targetType: e.targetType,
+      targetId: e.targetId,
+      targetLabel: e.targetLabel,
+    };
+    if (metadata) action.metadata = metadata;
+    return action;
+  });
 }
 
 employeeSurfaceRouter.get("/:eid/conversations", async (req, res) => {
@@ -407,6 +452,33 @@ employeeSurfaceRouter.post(
   },
 );
 
+const journalPatchSchema = z
+  .object({
+    title: z.string().min(1).max(200).optional(),
+    body: z.string().max(10_000).optional(),
+  })
+  .refine((v) => v.title !== undefined || v.body !== undefined, {
+    message: "Provide title or body",
+  });
+
+employeeSurfaceRouter.patch(
+  "/:eid/journal/:entryId",
+  validateBody(journalPatchSchema),
+  async (req, res) => {
+    const { cid, eid, entryId } = req.params as Record<string, string>;
+    const loaded = await loadEmpAndCompany(cid, eid);
+    if (!loaded) return res.status(404).json({ error: "Not found" });
+    const repo = AppDataSource.getRepository(JournalEntry);
+    const entry = await repo.findOneBy({ id: entryId, employeeId: loaded.emp.id });
+    if (!entry) return res.status(404).json({ error: "Not found" });
+    const body = req.body as z.infer<typeof journalPatchSchema>;
+    if (body.title !== undefined) entry.title = body.title;
+    if (body.body !== undefined) entry.body = body.body;
+    await repo.save(entry);
+    res.json(entry);
+  },
+);
+
 employeeSurfaceRouter.delete("/:eid/journal/:entryId", async (req, res) => {
   const { cid, eid, entryId } = req.params as Record<string, string>;
   const loaded = await loadEmpAndCompany(cid, eid);
@@ -415,6 +487,87 @@ employeeSurfaceRouter.delete("/:eid/journal/:entryId", async (req, res) => {
   const entry = await repo.findOneBy({ id: entryId, employeeId: loaded.emp.id });
   if (!entry) return res.status(404).json({ error: "Not found" });
   await repo.delete({ id: entry.id });
+  res.json({ ok: true });
+});
+
+// ---------- Memory ----------
+
+/**
+ * Per-employee memory items. Each is a short durable "fact" the employee
+ * should recall in every chat / routine run. Humans curate via the UI; the
+ * AI can also add/update/remove via MCP so it can take notes on itself.
+ */
+employeeSurfaceRouter.get("/:eid/memory", async (req, res) => {
+  const { cid, eid } = req.params as Record<string, string>;
+  const loaded = await loadEmpAndCompany(cid, eid);
+  if (!loaded) return res.status(404).json({ error: "Not found" });
+  const items = await AppDataSource.getRepository(EmployeeMemory).find({
+    where: { employeeId: loaded.emp.id },
+    order: { createdAt: "ASC" },
+  });
+  res.json(items);
+});
+
+const memoryCreateSchema = z.object({
+  title: z.string().min(1).max(200),
+  body: z.string().max(4000).default(""),
+});
+
+employeeSurfaceRouter.post(
+  "/:eid/memory",
+  validateBody(memoryCreateSchema),
+  async (req, res) => {
+    const { cid, eid } = req.params as Record<string, string>;
+    const loaded = await loadEmpAndCompany(cid, eid);
+    if (!loaded) return res.status(404).json({ error: "Not found" });
+    const body = req.body as z.infer<typeof memoryCreateSchema>;
+    const repo = AppDataSource.getRepository(EmployeeMemory);
+    const row = repo.create({
+      employeeId: loaded.emp.id,
+      title: body.title,
+      body: body.body,
+      authorUserId: req.session?.userId ?? null,
+    });
+    await repo.save(row);
+    res.json(row);
+  },
+);
+
+const memoryPatchSchema = z
+  .object({
+    title: z.string().min(1).max(200).optional(),
+    body: z.string().max(4000).optional(),
+  })
+  .refine((v) => v.title !== undefined || v.body !== undefined, {
+    message: "Provide title or body",
+  });
+
+employeeSurfaceRouter.patch(
+  "/:eid/memory/:itemId",
+  validateBody(memoryPatchSchema),
+  async (req, res) => {
+    const { cid, eid, itemId } = req.params as Record<string, string>;
+    const loaded = await loadEmpAndCompany(cid, eid);
+    if (!loaded) return res.status(404).json({ error: "Not found" });
+    const repo = AppDataSource.getRepository(EmployeeMemory);
+    const row = await repo.findOneBy({ id: itemId, employeeId: loaded.emp.id });
+    if (!row) return res.status(404).json({ error: "Not found" });
+    const body = req.body as z.infer<typeof memoryPatchSchema>;
+    if (body.title !== undefined) row.title = body.title;
+    if (body.body !== undefined) row.body = body.body;
+    await repo.save(row);
+    res.json(row);
+  },
+);
+
+employeeSurfaceRouter.delete("/:eid/memory/:itemId", async (req, res) => {
+  const { cid, eid, itemId } = req.params as Record<string, string>;
+  const loaded = await loadEmpAndCompany(cid, eid);
+  if (!loaded) return res.status(404).json({ error: "Not found" });
+  const repo = AppDataSource.getRepository(EmployeeMemory);
+  const row = await repo.findOneBy({ id: itemId, employeeId: loaded.emp.id });
+  if (!row) return res.status(404).json({ error: "Not found" });
+  await repo.delete({ id: row.id });
   res.json({ ok: true });
 });
 

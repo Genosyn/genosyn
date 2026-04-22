@@ -60,4 +60,33 @@ export type MessageAction = {
   targetId: string | null;
   /** Human label at the time of the action — e.g. "Weekly revenue monitor". */
   targetLabel: string;
+  /**
+   * Optional action-specific context surfaced when the user clicks a pill.
+   * For `integration.invoke` this carries provider/connection identity plus
+   * an args/result preview so humans can audit exactly what the AI did.
+   */
+  metadata?: MessageActionMetadata;
+};
+
+export type MessageActionMetadata = {
+  /** Opaque trail — how the action was recorded (`mcp`, `api`, …). */
+  via?: string;
+  /** Integration provider id, e.g. `metabase`, `stripe`. */
+  provider?: string;
+  /** IntegrationConnection row id. */
+  connectionId?: string;
+  /** Human-readable connection label at the time of the call. */
+  connectionLabel?: string;
+  /** Integration-side tool name (without provider prefix). */
+  toolName?: string;
+  /** Outcome of the call. */
+  status?: "ok" | "error";
+  /** Wall-clock time the call took, in milliseconds. */
+  durationMs?: number;
+  /** Pretty-printed JSON of the arguments the AI passed. Capped ~20 KB. */
+  argsPreview?: string;
+  /** Pretty-printed JSON of the tool response. Capped ~20 KB. */
+  resultPreview?: string;
+  /** Error message on failure; mutually exclusive with `resultPreview`. */
+  error?: string;
 };

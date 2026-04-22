@@ -239,7 +239,7 @@ const TOOLS = [
   {
     name: "add_journal_entry",
     description:
-      "Write a free-form note into your own Journal. Use this to log decisions, observations, or summaries a human might read later.",
+      "Write a free-form note into your own Journal. Use this to log decisions, observations, or summaries a human might read later. The journal is an append-only feed; the last ~7 days are auto-injected into every prompt you receive, so future-you will see this.",
     endpoint: "/tools/add_journal_entry",
     inputSchema: {
       type: "object",
@@ -248,6 +248,153 @@ const TOOLS = [
         body: { type: "string" },
       },
       required: ["title"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_memory",
+    description:
+      "List your own Memory items — durable facts/preferences you previously saved. These are already injected into every prompt; use this tool when you need exact ids to update or delete them.",
+    endpoint: "/tools/list_memory",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "add_memory",
+    description:
+      "Save a durable fact into your own Memory so future prompts automatically recall it. Use this for preferences, stable context about teammates, conventions, or learnings that should influence every future conversation. Keep `title` under ~100 chars — it's the memory headline. `body` is optional elaboration.",
+    endpoint: "/tools/add_memory",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: {
+          type: "string",
+          description: "Short fact headline, e.g. 'Prefers ARR over MRR'.",
+        },
+        body: {
+          type: "string",
+          description: "Optional elaboration or reasoning.",
+        },
+      },
+      required: ["title"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_memory",
+    description:
+      "Update an existing Memory item's title or body. Use when a previously-saved fact has evolved, not for small typo fixes.",
+    endpoint: "/tools/update_memory",
+    inputSchema: {
+      type: "object",
+      properties: {
+        itemId: { type: "string", description: "UUID from list_memory." },
+        title: { type: "string" },
+        body: { type: "string" },
+      },
+      required: ["itemId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_memory",
+    description:
+      "Remove a Memory item. Use sparingly — only when the fact is definitively wrong or obsolete.",
+    endpoint: "/tools/delete_memory",
+    inputSchema: {
+      type: "object",
+      properties: {
+        itemId: { type: "string" },
+      },
+      required: ["itemId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_bases",
+    description:
+      "List every Base (Airtable-style structured data workspace) you have been granted access to. Each base contains tables; use `get_base` to inspect their schema.",
+    endpoint: "/tools/list_bases",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_base",
+    description:
+      "Return the full schema of a Base you have access to — its tables, fields, and field types. Pass `baseSlug` from `list_bases`. Use this before reading or writing rows so you know the field ids.",
+    endpoint: "/tools/get_base",
+    inputSchema: {
+      type: "object",
+      properties: {
+        baseSlug: { type: "string", description: "Slug of the base (e.g. 'crm')." },
+      },
+      required: ["baseSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_base_rows",
+    description:
+      "Read rows from a table inside a Base. Returns fields, records, and link-option labels so you can reason about the data. Defaults to 100 rows; pass `limit` up to 500.",
+    endpoint: "/tools/list_base_rows",
+    inputSchema: {
+      type: "object",
+      properties: {
+        baseSlug: { type: "string" },
+        tableSlug: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 500 },
+      },
+      required: ["baseSlug", "tableSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_base_row",
+    description:
+      "Insert a new row into a Base table. `data` is a map from field id → value. Call `get_base` first if you need field ids. Select/multiselect values use option ids; link values are arrays of target row ids.",
+    endpoint: "/tools/create_base_row",
+    inputSchema: {
+      type: "object",
+      properties: {
+        baseSlug: { type: "string" },
+        tableSlug: { type: "string" },
+        data: {
+          type: "object",
+          description: "Map from field id to cell value.",
+          additionalProperties: true,
+        },
+      },
+      required: ["baseSlug", "tableSlug", "data"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_base_row",
+    description:
+      "Update specific cells on an existing row. `data` is a partial map from field id → value. Setting a value to null/empty clears that cell.",
+    endpoint: "/tools/update_base_row",
+    inputSchema: {
+      type: "object",
+      properties: {
+        baseSlug: { type: "string" },
+        tableSlug: { type: "string" },
+        rowId: { type: "string", description: "UUID of the row." },
+        data: { type: "object", additionalProperties: true },
+      },
+      required: ["baseSlug", "tableSlug", "rowId", "data"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_base_row",
+    description: "Delete a row from a Base table by id.",
+    endpoint: "/tools/delete_base_row",
+    inputSchema: {
+      type: "object",
+      properties: {
+        baseSlug: { type: "string" },
+        tableSlug: { type: "string" },
+        rowId: { type: "string" },
+      },
+      required: ["baseSlug", "tableSlug", "rowId"],
       additionalProperties: false,
     },
   },

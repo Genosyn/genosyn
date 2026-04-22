@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import cron from "node-cron";
 import { z } from "zod";
+import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
@@ -16,9 +17,22 @@ import { registerRoutine } from "../services/cron.js";
 import { recordAudit } from "../services/audit.js";
 import { resolveMcpToken } from "../services/mcpTokens.js";
 import {
+  getGrantWithConnection,
   invokeConnectionTool,
   loadEmployeeConnections,
 } from "../services/integrations.js";
+import {
+  buildLinkOptionsFor,
+  hasBaseGrant,
+  hydrateField,
+  hydrateRecord,
+  listGrantedBasesForEmployee,
+} from "../services/bases.js";
+import { Base } from "../db/entities/Base.js";
+import { BaseTable } from "../db/entities/BaseTable.js";
+import { BaseField } from "../db/entities/BaseField.js";
+import { BaseRecord } from "../db/entities/BaseRecord.js";
+import { EmployeeMemory } from "../db/entities/EmployeeMemory.js";
 import { getProvider } from "../integrations/index.js";
 
 /**
@@ -628,6 +642,381 @@ mcpInternalRouter.post(
   },
 );
 
+// ----- Memory (durable facts injected into every prompt) -----
+
+mcpInternalRouter.post("/tools/list_memory", async (req: McpRequest, res) => {
+  const self = req.mcpEmployee!;
+  const items = await AppDataSource.getRepository(EmployeeMemory).find({
+    where: { employeeId: self.id },
+    order: { createdAt: "ASC" },
+  });
+  res.json({
+    items: items.map((i) => ({
+      id: i.id,
+      title: i.title,
+      body: i.body,
+      createdAt: i.createdAt,
+      updatedAt: i.updatedAt,
+    })),
+  });
+});
+
+const addMemorySchema = z
+  .object({
+    title: z.string().min(1).max(200),
+    body: z.string().max(4000).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/add_memory",
+  validateBody(addMemorySchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof addMemorySchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const repo = AppDataSource.getRepository(EmployeeMemory);
+    const row = repo.create({
+      employeeId: self.id,
+      title: body.title,
+      body: body.body ?? "",
+      authorUserId: null,
+    });
+    await repo.save(row);
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "memory.create",
+      targetType: "memory_item",
+      targetId: row.id,
+      targetLabel: row.title,
+      metadata: { via: "mcp" },
+    });
+    res.json({
+      item: { id: row.id, title: row.title, body: row.body },
+    });
+  },
+);
+
+const updateMemorySchema = z
+  .object({
+    itemId: z.string().uuid(),
+    title: z.string().min(1).max(200).optional(),
+    body: z.string().max(4000).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/update_memory",
+  validateBody(updateMemorySchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof updateMemorySchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const repo = AppDataSource.getRepository(EmployeeMemory);
+    const row = await repo.findOneBy({ id: body.itemId, employeeId: self.id });
+    if (!row) return res.status(404).json({ error: "Memory item not found" });
+    if (body.title !== undefined) row.title = body.title;
+    if (body.body !== undefined) row.body = body.body;
+    await repo.save(row);
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "memory.update",
+      targetType: "memory_item",
+      targetId: row.id,
+      targetLabel: row.title,
+      metadata: { via: "mcp" },
+    });
+    res.json({ item: { id: row.id, title: row.title, body: row.body } });
+  },
+);
+
+const deleteMemorySchema = z.object({ itemId: z.string().uuid() }).strict();
+
+mcpInternalRouter.post(
+  "/tools/delete_memory",
+  validateBody(deleteMemorySchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof deleteMemorySchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const repo = AppDataSource.getRepository(EmployeeMemory);
+    const row = await repo.findOneBy({ id: body.itemId, employeeId: self.id });
+    if (!row) return res.status(404).json({ error: "Memory item not found" });
+    await repo.delete({ id: row.id });
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "memory.delete",
+      targetType: "memory_item",
+      targetId: row.id,
+      targetLabel: row.title,
+      metadata: { via: "mcp" },
+    });
+    res.json({ ok: true });
+  },
+);
+
+// ----- Bases (per-employee grants) -----
+
+/**
+ * Load the base for this slug + assert the calling employee has an active
+ * grant. Returns the base row on success, or `null` + writes a 403/404 and
+ * returns `null` so the caller can early-out.
+ */
+async function loadGrantedBase(
+  req: McpRequest,
+  res: Response,
+  baseSlug: string,
+): Promise<Base | null> {
+  const emp = req.mcpEmployee!;
+  const co = req.mcpCompany!;
+  const b = await AppDataSource.getRepository(Base).findOneBy({
+    companyId: co.id,
+    slug: baseSlug,
+  });
+  if (!b) {
+    res.status(404).json({ error: "Base not found" });
+    return null;
+  }
+  const ok = await hasBaseGrant(emp.id, b.id);
+  if (!ok) {
+    res.status(403).json({
+      error: `No grant: ${emp.name} does not have access to base "${b.name}". Ask a teammate to grant it in Base settings → AI access.`,
+    });
+    return null;
+  }
+  return b;
+}
+
+mcpInternalRouter.post("/tools/list_bases", async (req: McpRequest, res) => {
+  const emp = req.mcpEmployee!;
+  const bases = await listGrantedBasesForEmployee(emp.id);
+  res.json({
+    bases: bases.map((b) => ({
+      id: b.id,
+      slug: b.slug,
+      name: b.name,
+      description: b.description,
+    })),
+  });
+});
+
+const baseRefSchema = z.object({ baseSlug: z.string().min(1).max(120) }).strict();
+
+mcpInternalRouter.post(
+  "/tools/get_base",
+  validateBody(baseRefSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof baseRefSchema>;
+    const b = await loadGrantedBase(req, res, body.baseSlug);
+    if (!b) return;
+    const tables = await AppDataSource.getRepository(BaseTable).find({
+      where: { baseId: b.id },
+      order: { sortOrder: "ASC", createdAt: "ASC" },
+    });
+    const fields = tables.length
+      ? await AppDataSource.getRepository(BaseField).find({
+          where: { tableId: In(tables.map((t) => t.id)) },
+          order: { sortOrder: "ASC", createdAt: "ASC" },
+        })
+      : [];
+    const fieldsByTable = new Map<string, BaseField[]>();
+    for (const f of fields) {
+      if (!fieldsByTable.has(f.tableId)) fieldsByTable.set(f.tableId, []);
+      fieldsByTable.get(f.tableId)!.push(f);
+    }
+    res.json({
+      base: { id: b.id, slug: b.slug, name: b.name, description: b.description },
+      tables: tables.map((t) => ({
+        id: t.id,
+        slug: t.slug,
+        name: t.name,
+        fields: (fieldsByTable.get(t.id) ?? []).map(hydrateField),
+      })),
+    });
+  },
+);
+
+const listRowsSchema = z
+  .object({
+    baseSlug: z.string().min(1).max(120),
+    tableSlug: z.string().min(1).max(120),
+    limit: z.number().int().min(1).max(500).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/list_base_rows",
+  validateBody(listRowsSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof listRowsSchema>;
+    const b = await loadGrantedBase(req, res, body.baseSlug);
+    if (!b) return;
+    const t = await AppDataSource.getRepository(BaseTable).findOneBy({
+      baseId: b.id,
+      slug: body.tableSlug,
+    });
+    if (!t) return res.status(404).json({ error: "Table not found" });
+    const [fields, records] = await Promise.all([
+      AppDataSource.getRepository(BaseField).find({
+        where: { tableId: t.id },
+        order: { sortOrder: "ASC", createdAt: "ASC" },
+      }),
+      AppDataSource.getRepository(BaseRecord).find({
+        where: { tableId: t.id },
+        order: { sortOrder: "ASC", createdAt: "ASC" },
+        take: body.limit ?? 100,
+      }),
+    ]);
+    const linkOptions = await buildLinkOptionsFor(fields);
+    res.json({
+      table: { id: t.id, slug: t.slug, name: t.name },
+      fields: fields.map(hydrateField),
+      records: records.map(hydrateRecord),
+      linkOptions,
+    });
+  },
+);
+
+const writeRowSchema = z
+  .object({
+    baseSlug: z.string().min(1).max(120),
+    tableSlug: z.string().min(1).max(120),
+    data: z.record(z.unknown()),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/create_base_row",
+  validateBody(writeRowSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof writeRowSchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const b = await loadGrantedBase(req, res, body.baseSlug);
+    if (!b) return;
+    const t = await AppDataSource.getRepository(BaseTable).findOneBy({
+      baseId: b.id,
+      slug: body.tableSlug,
+    });
+    if (!t) return res.status(404).json({ error: "Table not found" });
+    const repo = AppDataSource.getRepository(BaseRecord);
+    const last = await repo.findOne({
+      where: { tableId: t.id },
+      order: { sortOrder: "DESC" },
+    });
+    const saved = await repo.save(
+      repo.create({
+        tableId: t.id,
+        dataJson: JSON.stringify(body.data ?? {}),
+        sortOrder: (last?.sortOrder ?? 0) + 1000,
+      }),
+    );
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "base_row.create",
+      targetType: "base_record",
+      targetId: saved.id,
+      targetLabel: `${b.name}/${t.name}`,
+      metadata: { via: "mcp", baseId: b.id, tableId: t.id },
+    });
+    await journal(
+      self.id,
+      `${self.name} added a row to ${b.name}/${t.name}`,
+      "Via the base MCP tool.",
+    );
+    res.json({ row: hydrateRecord(saved) });
+  },
+);
+
+const updateRowSchema = z
+  .object({
+    baseSlug: z.string().min(1).max(120),
+    tableSlug: z.string().min(1).max(120),
+    rowId: z.string().uuid(),
+    data: z.record(z.unknown()),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/update_base_row",
+  validateBody(updateRowSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof updateRowSchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const b = await loadGrantedBase(req, res, body.baseSlug);
+    if (!b) return;
+    const t = await AppDataSource.getRepository(BaseTable).findOneBy({
+      baseId: b.id,
+      slug: body.tableSlug,
+    });
+    if (!t) return res.status(404).json({ error: "Table not found" });
+    const repo = AppDataSource.getRepository(BaseRecord);
+    const r = await repo.findOneBy({ id: body.rowId, tableId: t.id });
+    if (!r) return res.status(404).json({ error: "Row not found" });
+    const data: Record<string, unknown> = JSON.parse(r.dataJson || "{}");
+    for (const [k, v] of Object.entries(body.data)) {
+      if (v === null || v === undefined || v === "") delete data[k];
+      else data[k] = v;
+    }
+    r.dataJson = JSON.stringify(data);
+    await repo.save(r);
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "base_row.update",
+      targetType: "base_record",
+      targetId: r.id,
+      targetLabel: `${b.name}/${t.name}`,
+      metadata: { via: "mcp", baseId: b.id, tableId: t.id },
+    });
+    res.json({ row: hydrateRecord(r) });
+  },
+);
+
+const deleteRowSchema = z
+  .object({
+    baseSlug: z.string().min(1).max(120),
+    tableSlug: z.string().min(1).max(120),
+    rowId: z.string().uuid(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/delete_base_row",
+  validateBody(deleteRowSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof deleteRowSchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const b = await loadGrantedBase(req, res, body.baseSlug);
+    if (!b) return;
+    const t = await AppDataSource.getRepository(BaseTable).findOneBy({
+      baseId: b.id,
+      slug: body.tableSlug,
+    });
+    if (!t) return res.status(404).json({ error: "Table not found" });
+    const repo = AppDataSource.getRepository(BaseRecord);
+    const r = await repo.findOneBy({ id: body.rowId, tableId: t.id });
+    if (!r) return res.status(404).json({ error: "Row not found" });
+    await repo.delete({ id: r.id });
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "base_row.delete",
+      targetType: "base_record",
+      targetId: r.id,
+      targetLabel: `${b.name}/${t.name}`,
+      metadata: { via: "mcp", baseId: b.id, tableId: t.id },
+    });
+    res.json({ ok: true });
+  },
+);
+
 // ----- Integrations (dynamic tools per employee Grant) -----
 
 /**
@@ -704,30 +1093,96 @@ mcpInternalRouter.post(
   async (req: McpRequest, res) => {
     const body = req.body as z.infer<typeof invokeToolSchema>;
     const emp = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+
+    // Pre-read the connection so we can stamp provider + label onto the
+    // audit row even when the invocation throws. The authoritative grant
+    // check still lives inside `invokeConnectionTool`.
+    const pair = await getGrantWithConnection(emp.id, body.connectionId);
+    const connection = pair?.connection ?? null;
+
+    const startedAt = Date.now();
+    const args = body.args ?? {};
     try {
       const result = await invokeConnectionTool({
         employee: emp,
         connectionId: body.connectionId,
         toolName: body.toolName,
-        toolArgs: body.args ?? {},
+        toolArgs: args,
       });
       await recordAudit({
-        companyId: req.mcpCompany!.id,
+        companyId: co.id,
         actorEmployeeId: emp.id,
         action: "integration.invoke",
         targetType: "connection",
         targetId: body.connectionId,
-        targetLabel: body.toolName,
-        metadata: { via: "mcp" },
+        targetLabel: connection?.label
+          ? `${connection.label} · ${body.toolName}`
+          : body.toolName,
+        metadata: {
+          via: "mcp",
+          provider: connection?.provider ?? null,
+          connectionId: body.connectionId,
+          connectionLabel: connection?.label ?? null,
+          toolName: body.toolName,
+          status: "ok",
+          durationMs: Date.now() - startedAt,
+          argsPreview: previewForAudit(args),
+          resultPreview: previewForAudit(result),
+        },
       });
       res.json({ result });
     } catch (err) {
-      res.status(400).json({
-        error: err instanceof Error ? err.message : String(err),
+      const message = err instanceof Error ? err.message : String(err);
+      await recordAudit({
+        companyId: co.id,
+        actorEmployeeId: emp.id,
+        action: "integration.invoke",
+        targetType: "connection",
+        targetId: body.connectionId,
+        targetLabel: connection?.label
+          ? `${connection.label} · ${body.toolName}`
+          : body.toolName,
+        metadata: {
+          via: "mcp",
+          provider: connection?.provider ?? null,
+          connectionId: body.connectionId,
+          connectionLabel: connection?.label ?? null,
+          toolName: body.toolName,
+          status: "error",
+          durationMs: Date.now() - startedAt,
+          argsPreview: previewForAudit(args),
+          error: message,
+        },
       });
+      res.status(400).json({ error: message });
     }
   },
 );
+
+/**
+ * Cap a payload stored in the audit log. Tool results (especially Metabase
+ * dashboards, NocoDB rows) can be large — we want enough to make the "view
+ * logs" modal useful but not so much that the audit row balloons. 20 KB of
+ * pretty JSON is roughly 400 lines, which is plenty for humans to skim.
+ */
+function previewForAudit(value: unknown, capBytes = 20_000): string {
+  let str: string;
+  if (typeof value === "string") {
+    str = value;
+  } else {
+    try {
+      str = JSON.stringify(value, null, 2) ?? String(value);
+    } catch {
+      str = String(value);
+    }
+  }
+  if (str.length <= capBytes) return str;
+  return (
+    str.slice(0, capBytes) +
+    `\n…[truncated, ${str.length.toLocaleString()} chars total]`
+  );
+}
 
 /**
  * Sanitize a connection label for use in an MCP tool name. MCP tool names

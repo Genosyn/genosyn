@@ -10,6 +10,8 @@ import { Base } from "../db/entities/Base.js";
 import { BaseTable } from "../db/entities/BaseTable.js";
 import { BaseField } from "../db/entities/BaseField.js";
 import { BaseRecord } from "../db/entities/BaseRecord.js";
+import { EmployeeBaseGrant } from "../db/entities/EmployeeBaseGrant.js";
+import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { toSlug } from "../lib/slug.js";
 import { In } from "typeorm";
 import {
@@ -321,6 +323,87 @@ export async function buildLinkOptionsFor(
     byTable[r.tableId].push({ id: r.id, label, tableId: r.tableId });
   }
   return byTable;
+}
+
+// ───── Employee → Base access grants ────────────────────────────────────────
+
+/**
+ * Base grants mirror the IntegrationConnection grants: a simple join row
+ * between an AIEmployee and a Base. One grant = full read/write on every
+ * table in the base via MCP tools. Scope tightening is a future concern.
+ */
+
+export async function listBaseGrants(
+  baseId: string,
+): Promise<Array<EmployeeBaseGrant & { employee: AIEmployee | null }>> {
+  const grants = await AppDataSource.getRepository(EmployeeBaseGrant).find({
+    where: { baseId },
+    order: { createdAt: "ASC" },
+  });
+  if (grants.length === 0) return [];
+  const emps = await AppDataSource.getRepository(AIEmployee).find({
+    where: { id: In(grants.map((g) => g.employeeId)) },
+  });
+  const byId = new Map(emps.map((e) => [e.id, e] as const));
+  return grants.map((g) =>
+    Object.assign(g, { employee: byId.get(g.employeeId) ?? null }),
+  );
+}
+
+export async function listGrantedBasesForEmployee(
+  employeeId: string,
+): Promise<Base[]> {
+  const grants = await AppDataSource.getRepository(EmployeeBaseGrant).find({
+    where: { employeeId },
+  });
+  if (grants.length === 0) return [];
+  return AppDataSource.getRepository(Base).find({
+    where: { id: In(grants.map((g) => g.baseId)) },
+    order: { createdAt: "ASC" },
+  });
+}
+
+export async function grantBaseAccess(
+  employeeId: string,
+  baseId: string,
+): Promise<EmployeeBaseGrant> {
+  const repo = AppDataSource.getRepository(EmployeeBaseGrant);
+  const existing = await repo.findOneBy({ employeeId, baseId });
+  if (existing) return existing;
+  const row = repo.create({ employeeId, baseId });
+  await repo.save(row);
+  return row;
+}
+
+export async function revokeBaseAccess(
+  employeeId: string,
+  baseId: string,
+): Promise<boolean> {
+  const repo = AppDataSource.getRepository(EmployeeBaseGrant);
+  const existing = await repo.findOneBy({ employeeId, baseId });
+  if (!existing) return false;
+  await repo.delete({ id: existing.id });
+  return true;
+}
+
+export async function hasBaseGrant(
+  employeeId: string,
+  baseId: string,
+): Promise<boolean> {
+  const row = await AppDataSource.getRepository(EmployeeBaseGrant).findOneBy({
+    employeeId,
+    baseId,
+  });
+  return !!row;
+}
+
+/**
+ * Clean up every grant targeting a base — called on base delete so the
+ * join table doesn't accumulate orphan rows (SQLite FK enforcement is off
+ * by default in our setup).
+ */
+export async function deleteGrantsForBase(baseId: string): Promise<void> {
+  await AppDataSource.getRepository(EmployeeBaseGrant).delete({ baseId });
 }
 
 /** Used by the /new page to preview templates before the user commits. */

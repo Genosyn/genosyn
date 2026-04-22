@@ -3,6 +3,7 @@ import { z } from "zod";
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { Membership } from "../db/entities/Membership.js";
 import { Project } from "../db/entities/Project.js";
 import { Todo, TodoPriority, TodoRecurrence, TodoStatus } from "../db/entities/Todo.js";
 import { TodoComment } from "../db/entities/TodoComment.js";
@@ -210,27 +211,67 @@ projectsRouter.delete("/projects/:pSlug", async (req, res) => {
 
 /**
  * Shape returned to the client. Includes the assignee's display info so the
- * board view can render avatars without a second fetch.
+ * board view can render avatars without a second fetch. An assignee may be
+ * an AI employee OR a human member — the `kind` discriminates.
  */
 async function hydrateTodos(cid: string, todos: Todo[]) {
-  const ids = [
+  const empIds = [
     ...new Set(todos.map((t) => t.assigneeEmployeeId).filter((x): x is string => !!x)),
   ];
-  const emps = ids.length
-    ? await AppDataSource.getRepository(AIEmployee).find({
-        where: { id: In(ids), companyId: cid },
-      })
-    : [];
-  const byId = new Map(emps.map((e) => [e.id, e]));
+  const userIds = [
+    ...new Set(todos.map((t) => t.assigneeUserId).filter((x): x is string => !!x)),
+  ];
+  const [emps, users] = await Promise.all([
+    empIds.length
+      ? AppDataSource.getRepository(AIEmployee).find({
+          where: { id: In(empIds), companyId: cid },
+        })
+      : Promise.resolve([]),
+    userIds.length
+      ? AppDataSource.getRepository(User).find({ where: { id: In(userIds) } })
+      : Promise.resolve([]),
+  ]);
+  const empById = new Map(emps.map((e) => [e.id, e]));
+  const userById = new Map(users.map((u) => [u.id, u]));
   return todos.map((t) => {
-    const e = t.assigneeEmployeeId ? byId.get(t.assigneeEmployeeId) : null;
-    return {
-      ...t,
-      assignee: e
-        ? { id: e.id, name: e.name, slug: e.slug, role: e.role }
-        : null,
-    };
+    let assignee:
+      | { kind: "ai"; id: string; name: string; slug: string; role: string }
+      | { kind: "human"; id: string; name: string; email: string | null }
+      | null = null;
+    if (t.assigneeEmployeeId) {
+      const e = empById.get(t.assigneeEmployeeId);
+      if (e) assignee = { kind: "ai", id: e.id, name: e.name, slug: e.slug, role: e.role };
+    } else if (t.assigneeUserId) {
+      const u = userById.get(t.assigneeUserId);
+      if (u) assignee = { kind: "human", id: u.id, name: u.name, email: u.email };
+    }
+    return { ...t, assignee };
   });
+}
+
+async function validateAssignees(
+  cid: string,
+  assigneeEmployeeId: string | null | undefined,
+  assigneeUserId: string | null | undefined,
+): Promise<string | null> {
+  if (assigneeEmployeeId && assigneeUserId) {
+    return "Cannot assign to both an AI employee and a human at the same time";
+  }
+  if (assigneeEmployeeId) {
+    const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
+      id: assigneeEmployeeId,
+      companyId: cid,
+    });
+    if (!emp) return "Invalid assignee";
+  }
+  if (assigneeUserId) {
+    const mem = await AppDataSource.getRepository(Membership).findOneBy({
+      companyId: cid,
+      userId: assigneeUserId,
+    });
+    if (!mem) return "Invalid assignee";
+  }
+  return null;
 }
 
 projectsRouter.get("/projects/:pSlug/todos", async (req, res) => {
@@ -250,6 +291,7 @@ const createTodoSchema = z.object({
   status: z.enum(STATUSES as [TodoStatus, ...TodoStatus[]]).optional(),
   priority: z.enum(PRIORITIES as [TodoPriority, ...TodoPriority[]]).optional(),
   assigneeEmployeeId: z.string().uuid().nullable().optional(),
+  assigneeUserId: z.string().uuid().nullable().optional(),
   dueAt: z.string().datetime().nullable().optional(),
   recurrence: z.enum(RECURRENCES as [TodoRecurrence, ...TodoRecurrence[]]).optional(),
 });
@@ -263,13 +305,12 @@ projectsRouter.post(
     if (!p) return res.status(404).json({ error: "Project not found" });
     const body = req.body as z.infer<typeof createTodoSchema>;
 
-    if (body.assigneeEmployeeId) {
-      const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
-        id: body.assigneeEmployeeId,
-        companyId: cid,
-      });
-      if (!emp) return res.status(400).json({ error: "Invalid assignee" });
-    }
+    const assigneeErr = await validateAssignees(
+      cid,
+      body.assigneeEmployeeId,
+      body.assigneeUserId,
+    );
+    if (assigneeErr) return res.status(400).json({ error: assigneeErr });
 
     // Bump the per-project sequence atomically-ish. SQLite + better-sqlite3
     // is synchronous so the read-then-write here is safe within a request;
@@ -295,6 +336,7 @@ projectsRouter.post(
       status,
       priority: body.priority ?? "none",
       assigneeEmployeeId: body.assigneeEmployeeId ?? null,
+      assigneeUserId: body.assigneeUserId ?? null,
       createdById: req.userId ?? null,
       dueAt: body.dueAt ? new Date(body.dueAt) : null,
       sortOrder,
@@ -325,6 +367,7 @@ const patchTodoSchema = z.object({
   status: z.enum(STATUSES as [TodoStatus, ...TodoStatus[]]).optional(),
   priority: z.enum(PRIORITIES as [TodoPriority, ...TodoPriority[]]).optional(),
   assigneeEmployeeId: z.string().uuid().nullable().optional(),
+  assigneeUserId: z.string().uuid().nullable().optional(),
   dueAt: z.string().datetime().nullable().optional(),
   sortOrder: z.number().optional(),
   recurrence: z.enum(RECURRENCES as [TodoRecurrence, ...TodoRecurrence[]]).optional(),
@@ -337,18 +380,31 @@ projectsRouter.patch("/todos/:tid", validateBody(patchTodoSchema), async (req, r
   const body = req.body as z.infer<typeof patchTodoSchema>;
   const t = found.todo;
 
-  if (body.assigneeEmployeeId) {
-    const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
-      id: body.assigneeEmployeeId,
-      companyId: cid,
-    });
-    if (!emp) return res.status(400).json({ error: "Invalid assignee" });
-  }
+  // Apply assignee changes together so we can validate "only one kind at a
+  // time" against the resulting state, and clear the other side when one is
+  // set to a non-null value.
+  const nextEmp =
+    body.assigneeEmployeeId !== undefined ? body.assigneeEmployeeId : t.assigneeEmployeeId;
+  const nextUser =
+    body.assigneeUserId !== undefined ? body.assigneeUserId : t.assigneeUserId;
+  const effectiveEmp =
+    body.assigneeUserId ? null : nextEmp;
+  const effectiveUser =
+    body.assigneeEmployeeId ? null : nextUser;
+  const assigneeErr = await validateAssignees(cid, effectiveEmp, effectiveUser);
+  if (assigneeErr) return res.status(400).json({ error: assigneeErr });
 
   if (body.title !== undefined) t.title = body.title;
   if (body.description !== undefined) t.description = body.description;
   if (body.priority !== undefined) t.priority = body.priority;
-  if (body.assigneeEmployeeId !== undefined) t.assigneeEmployeeId = body.assigneeEmployeeId;
+  if (body.assigneeEmployeeId !== undefined) {
+    t.assigneeEmployeeId = body.assigneeEmployeeId;
+    if (body.assigneeEmployeeId) t.assigneeUserId = null;
+  }
+  if (body.assigneeUserId !== undefined) {
+    t.assigneeUserId = body.assigneeUserId;
+    if (body.assigneeUserId) t.assigneeEmployeeId = null;
+  }
   if (body.dueAt !== undefined) t.dueAt = body.dueAt ? new Date(body.dueAt) : null;
   if (body.sortOrder !== undefined) t.sortOrder = body.sortOrder;
   if (body.recurrence !== undefined) t.recurrence = body.recurrence;
@@ -401,6 +457,7 @@ async function spawnNextRecurrence(project: Project, completed: Todo): Promise<v
     status: "todo",
     priority: completed.priority,
     assigneeEmployeeId: completed.assigneeEmployeeId,
+    assigneeUserId: completed.assigneeUserId,
     createdById: completed.createdById,
     dueAt: nextDue,
     sortOrder,

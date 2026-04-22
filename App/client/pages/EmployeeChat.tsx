@@ -7,9 +7,12 @@ import {
   Check,
   CircleSlash,
   MessageSquarePlus,
+  Plug,
   Send,
   Sparkles,
   Trash2,
+  X,
+  Zap,
 } from "lucide-react";
 import {
   api,
@@ -44,6 +47,9 @@ export default function EmployeeChat() {
   /** Running text for the reply currently streaming in. `null` = no stream. */
   const [streamingReply, setStreamingReply] = React.useState<string | null>(null);
   const [loadingConv, setLoadingConv] = React.useState(false);
+  /** Action whose details are open in the logs modal; null when closed. */
+  const [inspectAction, setInspectAction] =
+    React.useState<MessageAction | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
 
@@ -287,6 +293,7 @@ export default function EmployeeChat() {
                   companySlug={company.slug}
                   employeeSlug={emp.slug}
                   showAvatar={i === 0 || messages[i - 1].role !== m.role}
+                  onInspectAction={setInspectAction}
                 />
               ))}
               {sending && streamingReply !== null && streamingReply.length > 0 && (
@@ -312,6 +319,13 @@ export default function EmployeeChat() {
           empName={emp.name}
         />
       </section>
+
+      {inspectAction && (
+        <ActionDetailModal
+          action={inspectAction}
+          onClose={() => setInspectAction(null)}
+        />
+      )}
     </div>
   );
 }
@@ -445,12 +459,14 @@ function TurnBubble({
   companySlug,
   employeeSlug,
   showAvatar,
+  onInspectAction,
 }: {
   message: ConversationMessage;
   authorName: string;
   companySlug: string;
   employeeSlug: string;
   showAvatar: boolean;
+  onInspectAction: (a: MessageAction) => void;
 }) {
   const mine = message.role === "user";
 
@@ -514,6 +530,7 @@ function TurnBubble({
             actions={message.actions}
             companySlug={companySlug}
             employeeSlug={employeeSlug}
+            onInspect={onInspectAction}
           />
         )}
         <div className="mt-1 pl-1 text-[10px] text-slate-400 opacity-0 transition group-hover:opacity-100 dark:text-slate-500">
@@ -737,55 +754,122 @@ function Composer({
  * with no real DB write to back them up. The pills are built from the
  * AuditEvent table server-side, so the evidence is authoritative: no
  * audit row, no pill.
+ *
+ * `integration.invoke` pills open a logs modal (args + result + status)
+ * instead of navigating — there is no list page for tool calls, and the
+ * audit metadata carries everything we can show.
  */
 function ActionPills({
   actions,
   companySlug,
   employeeSlug,
+  onInspect,
 }: {
   actions: MessageAction[];
   companySlug: string;
   employeeSlug: string;
+  onInspect: (a: MessageAction) => void;
 }) {
   return (
     <div className="mt-2 flex flex-wrap gap-1.5">
-      {actions.map((a, i) => {
-        const href = hrefForAction(a, companySlug, employeeSlug);
-        const content = (
-          <>
-            <Check size={11} strokeWidth={3} />
-            <span className="truncate max-w-[22rem]">{describeAction(a)}</span>
-          </>
-        );
-        const className =
-          "inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:border-emerald-500/50 dark:hover:bg-emerald-500/20";
-        const title = `${a.action}${a.targetLabel ? ` — ${a.targetLabel}` : ""}${
-          href ? "" : " (no link available)"
-        }`;
-        return href ? (
-          <Link
-            key={`${a.action}-${a.targetId ?? i}`}
-            to={href}
-            title={title}
-            className={className}
-          >
-            {content}
-          </Link>
-        ) : (
-          <span
-            key={`${a.action}-${a.targetId ?? i}`}
-            title={title}
-            className={className.replace(
-              "transition hover:border-emerald-300 hover:bg-emerald-100 dark:hover:border-emerald-500/50 dark:hover:bg-emerald-500/20",
-              "",
-            )}
-          >
-            {content}
-          </span>
-        );
-      })}
+      {actions.map((a, i) => (
+        <ActionPill
+          key={`${a.action}-${a.targetId ?? i}`}
+          action={a}
+          companySlug={companySlug}
+          employeeSlug={employeeSlug}
+          onInspect={onInspect}
+        />
+      ))}
     </div>
   );
+}
+
+function ActionPill({
+  action,
+  companySlug,
+  employeeSlug,
+  onInspect,
+}: {
+  action: MessageAction;
+  companySlug: string;
+  employeeSlug: string;
+  onInspect: (a: MessageAction) => void;
+}) {
+  const isIntegration = action.action === "integration.invoke";
+  const isError =
+    isIntegration && action.metadata?.status === "error";
+  const href = isIntegration
+    ? null
+    : hrefForAction(action, companySlug, employeeSlug);
+
+  const palette = isError
+    ? "border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-300 hover:bg-rose-100 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300 dark:hover:border-rose-500/50 dark:hover:bg-rose-500/20"
+    : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:border-emerald-500/50 dark:hover:bg-emerald-500/20";
+  const base =
+    "inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition";
+  const className = `${base} ${palette}`;
+  const title = buildPillTitle(action);
+
+  const icon = isIntegration ? (
+    isError ? (
+      <AlertCircle size={11} strokeWidth={2.5} />
+    ) : (
+      <Zap size={11} strokeWidth={2.5} />
+    )
+  ) : (
+    <Check size={11} strokeWidth={3} />
+  );
+  const content = (
+    <>
+      {icon}
+      <span className="truncate max-w-[22rem]">{describeAction(action)}</span>
+    </>
+  );
+
+  if (isIntegration) {
+    return (
+      <button
+        type="button"
+        onClick={() => onInspect(action)}
+        title={title}
+        className={`${className} cursor-pointer`}
+      >
+        {content}
+      </button>
+    );
+  }
+  if (href) {
+    return (
+      <Link to={href} title={title} className={className}>
+        {content}
+      </Link>
+    );
+  }
+  // Action has no detail surface (e.g. unknown kind). Render a static chip.
+  const staticClass = className.replace(
+    /\s+hover:[^\s]+/g,
+    "",
+  );
+  return (
+    <span title={`${title} (no link available)`} className={staticClass}>
+      {content}
+    </span>
+  );
+}
+
+function buildPillTitle(a: MessageAction): string {
+  const parts: string[] = [a.action];
+  if (a.targetLabel) parts.push(a.targetLabel);
+  if (a.metadata?.status === "error" && a.metadata.error) {
+    parts.push(`error: ${a.metadata.error}`);
+  } else if (
+    a.action === "integration.invoke" &&
+    typeof a.metadata?.durationMs === "number"
+  ) {
+    parts.push(`${formatDuration(a.metadata.durationMs)}`);
+  }
+  return parts.join(" — ");
 }
 
 /**
@@ -831,9 +915,230 @@ function describeAction(a: MessageAction): string {
       return `Updated todo ${label}`;
     case "journal.create":
       return `Added journal entry "${label}"`;
+    case "integration.invoke": {
+      const tool = a.metadata?.toolName ?? "";
+      const conn = a.metadata?.connectionLabel ?? a.metadata?.provider ?? "";
+      if (tool && conn) return `${conn} · ${tool}`;
+      if (tool) return tool;
+      return label;
+    }
     default:
       return `${a.action}${label ? ` — ${label}` : ""}`;
   }
+}
+
+function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(ms < 10_000 ? 2 : 1)}s`;
+  const mins = Math.floor(ms / 60_000);
+  const secs = Math.round((ms % 60_000) / 1000);
+  return `${mins}m ${secs}s`;
+}
+
+// ───────────────────────────── Action detail modal ─────────────────────────────
+
+/**
+ * Tool-call inspector. Opens when the user clicks an `integration.invoke`
+ * pill. Shows the connection we dispatched to, the exact args the AI
+ * supplied, and the raw response (or error). This is the "complete
+ * visibility" guarantee — if a pill claims the Metabase revenue dashboard
+ * was fetched, the human can verify by reading the same JSON the AI saw.
+ */
+function ActionDetailModal({
+  action,
+  onClose,
+}: {
+  action: MessageAction;
+  onClose: () => void;
+}) {
+  React.useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const meta = action.metadata ?? {};
+  const isError = meta.status === "error";
+  const isIntegration = action.action === "integration.invoke";
+  const providerLabel =
+    meta.connectionLabel ?? meta.provider ?? action.targetLabel ?? "Tool call";
+  const toolName = meta.toolName ?? null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4 dark:bg-black/60"
+      onMouseDown={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        onMouseDown={(e) => e.stopPropagation()}
+        className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
+      >
+        <div className="flex items-start gap-3 border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+          <div
+            className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
+              isError
+                ? "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300"
+                : "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300"
+            }`}
+          >
+            {isIntegration ? <Plug size={18} /> : <Zap size={18} />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-base font-semibold text-slate-900 dark:text-slate-100">
+              {providerLabel}
+              {toolName && (
+                <span className="text-slate-400 dark:text-slate-500">
+                  {" · "}
+                  <span className="font-mono text-[13px] font-medium text-slate-700 dark:text-slate-300">
+                    {toolName}
+                  </span>
+                </span>
+              )}
+            </h2>
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+              <StatusChip status={meta.status} />
+              {meta.provider && (
+                <span>
+                  Provider{" "}
+                  <span className="font-medium text-slate-700 dark:text-slate-300">
+                    {meta.provider}
+                  </span>
+                </span>
+              )}
+              {typeof meta.durationMs === "number" && (
+                <span>
+                  Took{" "}
+                  <span className="font-medium text-slate-700 dark:text-slate-300">
+                    {formatDuration(meta.durationMs)}
+                  </span>
+                </span>
+              )}
+              {meta.via && (
+                <span>
+                  via{" "}
+                  <span className="font-medium text-slate-700 dark:text-slate-300">
+                    {meta.via}
+                  </span>
+                </span>
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            aria-label="Close"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
+          <LogSection
+            title="Arguments"
+            body={meta.argsPreview ?? ""}
+            empty="No arguments sent."
+          />
+          {isError ? (
+            <LogSection
+              title="Error"
+              body={meta.error ?? "Integration call failed."}
+              tone="error"
+              empty=""
+            />
+          ) : (
+            <LogSection
+              title="Result"
+              body={meta.resultPreview ?? ""}
+              empty="The tool returned no body."
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatusChip({ status }: { status: "ok" | "error" | undefined }) {
+  if (status === "ok") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+        <Check size={10} strokeWidth={3} /> ok
+      </span>
+    );
+  }
+  if (status === "error") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
+        <AlertCircle size={10} /> error
+      </span>
+    );
+  }
+  return null;
+}
+
+function LogSection({
+  title,
+  body,
+  empty,
+  tone = "default",
+}: {
+  title: string;
+  body: string;
+  empty: string;
+  tone?: "default" | "error";
+}) {
+  const pretty = formatJsonish(body);
+  const show = pretty.trim().length > 0 ? pretty : empty;
+  const frame =
+    tone === "error"
+      ? "border-rose-200 bg-rose-50/70 text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100"
+      : "border-slate-200 bg-slate-50 text-slate-800 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200";
+  return (
+    <section>
+      <div className="mb-1.5 flex items-center justify-between">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          {title}
+        </h3>
+      </div>
+      <pre
+        className={`max-h-64 overflow-auto rounded-lg border px-3 py-2 text-[12px] leading-relaxed ${frame} whitespace-pre-wrap break-words font-mono`}
+      >
+        {show}
+      </pre>
+    </section>
+  );
+}
+
+/**
+ * The server writes args/result as already-pretty-printed JSON strings,
+ * but old rows (or single-string payloads like Stripe's error messages)
+ * may be plain text. Try to re-parse + re-indent JSON for readability,
+ * fall back to the raw text.
+ */
+function formatJsonish(raw: string): string {
+  if (!raw) return "";
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  if (
+    (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+    (trimmed.startsWith("[") && trimmed.endsWith("]"))
+  ) {
+    try {
+      return JSON.stringify(JSON.parse(trimmed), null, 2);
+    } catch {
+      return raw;
+    }
+  }
+  return raw;
 }
 
 // ───────────────────────────── Markdown ─────────────────────────────

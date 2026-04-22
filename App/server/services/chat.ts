@@ -10,6 +10,7 @@ import { decryptSecret } from "../lib/secret.js";
 import { materializeMcpConfig } from "./mcp.js";
 import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
+import { composeMemoryContext } from "./employeeMemory.js";
 
 /**
  * Chat seam.
@@ -80,7 +81,8 @@ export async function streamChatWithEmployee(
     };
   }
 
-  const prompt = composeChatPrompt({ co, emp, skills, history, message });
+  const memoryContext = await composeMemoryContext(emp.id);
+  const prompt = composeChatPrompt({ co, emp, skills, history, message, memoryContext });
   const envResult = buildProviderEnv(co.slug, emp.slug, model);
   if (envResult.error !== undefined) return { status: "error", reply: envResult.error };
   const childEnv = envResult.env;
@@ -136,15 +138,17 @@ function composeChatPrompt(args: {
   skills: Skill[];
   history: ChatTurn[];
   message: string;
+  memoryContext: string;
 }): string {
-  const { co, emp, skills, history, message } = args;
+  const { co, emp, skills, history, message, memoryContext } = args;
   const parts: string[] = [];
   parts.push(
-    `You are ${emp.name}, ${emp.role} at ${co.name}. A teammate is chatting with you directly. Reply in your own voice, guided by your Soul and Skills below. Keep replies focused and grounded — ask clarifying questions when needed.`,
+    `You are ${emp.name}, ${emp.role} at ${co.name}. A teammate is chatting with you directly. Reply in your own voice, guided by your Soul, Memory, and Skills below. Keep replies focused and grounded — ask clarifying questions when needed.`,
   );
   parts.push(toolsBriefing());
   parts.push("\n## Soul\n");
   parts.push(emp.soulBody);
+  if (memoryContext) parts.push(memoryContext);
   for (const s of skills) {
     parts.push(`\n## Skill: ${s.name}\n`);
     parts.push(s.body);
@@ -175,8 +179,10 @@ function toolsBriefing(): string {
     "- `create_routine` to schedule recurring AI work (use this whenever someone asks for a recurring report, check-in, or scheduled task — Genosyn calls these **Routines**, never \"tasks\")",
     "- `create_project` and `create_todo` for the task manager (one-off work items)",
     "- `update_todo` to change status, assignee, or details",
-    "- `add_journal_entry` to log decisions or observations on your own diary",
-    "- Read-only helpers: `get_self`, `list_employees`, `list_routines`, `list_projects`, `list_todos`, `list_skills`, `list_journal`",
+    "- `add_journal_entry` to log decisions or observations on your own diary (the last ~7 days of your journal are auto-injected into every prompt you receive)",
+    "- `add_memory`, `update_memory`, `delete_memory` to curate durable facts that are auto-injected into every prompt — preferences, conventions, stable teammate context",
+    "- Bases (Airtable-style data, only the ones a teammate granted you): `list_bases`, `get_base`, `list_base_rows`, `create_base_row`, `update_base_row`, `delete_base_row`",
+    "- Read-only helpers: `get_self`, `list_employees`, `list_routines`, `list_projects`, `list_todos`, `list_skills`, `list_journal`, `list_memory`",
     "",
     "### Mandatory pre-write checklist",
     "Before you call any write tool (`create_routine`, `create_project`, `create_todo`, `update_todo`), write down — privately in your head — the answers to these questions:",
@@ -295,11 +301,16 @@ function buildInvocation(
  * resolve with the full accumulated text on clean exit. stderr is surfaced
  * via the rejection so the UI can show it without a second response field.
  *
- * Cap at ~60s and 1MB to keep a stuck CLI from holding a request socket
- * open forever — chat is interactive, long-running work belongs in Routines.
- * The timeout is wider than the non-streaming version because users now
- * *see* the reply land and will tolerate longer generations gracefully.
+ * Two-stage liveness: a hard ceiling on the whole turn and a sliding idle
+ * window that resets on every stdout chunk. The idle window catches a CLI
+ * that has wedged mid-generation; the hard ceiling catches one that keeps
+ * dribbling bytes forever. A tight single timeout (the old 60s cap) would
+ * cut off legit multi-tool turns — e.g. the AI listing Metabase dashboards
+ * and then fetching one — which is what was timing out in practice.
  */
+const CHAT_HARD_TIMEOUT_MS = 10 * 60_000;
+const CHAT_IDLE_TIMEOUT_MS = 3 * 60_000;
+
 function spawnAndStream(
   cmd: string,
   args: string[],
@@ -313,12 +324,47 @@ function spawnAndStream(
     const child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env });
     let out = "";
     let err = "";
+    let settled = false;
     const cap = 1024 * 1024;
-    const timeout = setTimeout(() => {
+
+    const settle = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(hardTimer);
+      clearTimeout(idleTimer);
+      fn();
+    };
+
+    const hardTimer = setTimeout(() => {
       child.kill("SIGKILL");
-      reject(new Error("Chat timed out after 60s."));
-    }, 60_000);
+      settle(() =>
+        reject(
+          new Error(
+            `Chat exceeded ${Math.round(CHAT_HARD_TIMEOUT_MS / 60_000)}-minute limit.`,
+          ),
+        ),
+      );
+    }, CHAT_HARD_TIMEOUT_MS);
+
+    let idleTimer: NodeJS.Timeout = setTimeout(() => {}, 0);
+    clearTimeout(idleTimer);
+    const resetIdle = () => {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        child.kill("SIGKILL");
+        settle(() =>
+          reject(
+            new Error(
+              `Chat stalled — no output for ${Math.round(CHAT_IDLE_TIMEOUT_MS / 60_000)} minutes.`,
+            ),
+          ),
+        );
+      }, CHAT_IDLE_TIMEOUT_MS);
+    };
+    resetIdle();
+
     child.stdout.on("data", (b: Buffer) => {
+      resetIdle();
       const text = b.toString("utf8");
       if (out.length < cap) {
         out += text;
@@ -332,16 +378,17 @@ function spawnAndStream(
       }
     });
     child.stderr.on("data", (b: Buffer) => {
+      resetIdle();
       if (err.length < cap) err += b.toString("utf8");
     });
     child.on("error", (e) => {
-      clearTimeout(timeout);
-      reject(e);
+      settle(() => reject(e));
     });
     child.on("close", (code) => {
-      clearTimeout(timeout);
-      if (code === 0) resolve(out);
-      else reject(new Error(err.trim() || `${cmd} exited with code ${code}`));
+      settle(() => {
+        if (code === 0) resolve(out);
+        else reject(new Error(err.trim() || `${cmd} exited with code ${code}`));
+      });
     });
   });
 }
