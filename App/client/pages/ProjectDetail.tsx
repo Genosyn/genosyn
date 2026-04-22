@@ -29,6 +29,8 @@ import {
   Sparkles,
   Repeat,
   RefreshCw,
+  ShieldCheck,
+  CornerUpLeft,
 } from "lucide-react";
 import {
   api,
@@ -195,7 +197,7 @@ function Avatar({
 }
 
 /**
- * Client-side reference to a todo assignee. `null` = unassigned. The picker
+ * Client-side reference to an assignee or reviewer. `null` = unset. The picker
  * operates on this; the route layer decides which DB column to write to.
  */
 export type AssigneeRef =
@@ -209,12 +211,26 @@ function refFromTodo(t: Todo): AssigneeRef {
   return null;
 }
 
+function reviewerRefFromTodo(t: Todo): AssigneeRef {
+  if (t.reviewerEmployeeId) return { kind: "ai", id: t.reviewerEmployeeId };
+  if (t.reviewerUserId) return { kind: "human", id: t.reviewerUserId };
+  return null;
+}
+
 function patchForRef(ref: AssigneeRef): Partial<Todo> {
   if (ref === null) return { assigneeEmployeeId: null, assigneeUserId: null };
   if (ref.kind === "ai") {
     return { assigneeEmployeeId: ref.id, assigneeUserId: null };
   }
   return { assigneeUserId: ref.id, assigneeEmployeeId: null };
+}
+
+function patchForReviewerRef(ref: AssigneeRef): Partial<Todo> {
+  if (ref === null) return { reviewerEmployeeId: null, reviewerUserId: null };
+  if (ref.kind === "ai") {
+    return { reviewerEmployeeId: ref.id, reviewerUserId: null };
+  }
+  return { reviewerUserId: ref.id, reviewerEmployeeId: null };
 }
 
 function formatDue(iso: string | null): { label: string; cls: string } | null {
@@ -345,14 +361,20 @@ function AssigneePicker({
   members,
   onChange,
   compact,
+  role = "assignee",
 }: {
   value: AssigneeRef;
   employees: Employee[];
   members: Member[];
   onChange: (ref: AssigneeRef) => void;
   compact?: boolean;
+  role?: "assignee" | "reviewer";
 }) {
   const [query, setQuery] = React.useState("");
+  const unsetLabel = role === "reviewer" ? "No reviewer" : "Unassigned";
+  const unsetTitle = role === "reviewer" ? "No reviewer" : "Unassigned";
+  const header = role === "reviewer" ? "Reviewer" : "Assignee";
+  const currentPrefix = role === "reviewer" ? "Reviewer" : "Assigned";
   const current = React.useMemo(() => {
     if (!value) return null;
     if (value.kind === "ai") {
@@ -390,7 +412,7 @@ function AssigneePicker({
             e.stopPropagation();
             onClick();
           }}
-          title={current ? `Assigned: ${current.name}` : "Unassigned"}
+          title={current ? `${currentPrefix}: ${current.name}` : unsetTitle}
           className={clsx(
             "flex items-center gap-1.5 rounded-md text-xs",
             compact ? "p-0.5" : "px-1.5 py-1",
@@ -411,7 +433,7 @@ function AssigneePicker({
           )}
           {!compact && (
             <span className="truncate text-slate-700 dark:text-slate-200">
-              {current ? current.name : "Unassigned"}
+              {current ? current.name : unsetLabel}
             </span>
           )}
         </button>
@@ -423,6 +445,7 @@ function AssigneePicker({
     >
       {(close) => (
         <>
+          <MenuHeader>{header}</MenuHeader>
           <div className="p-1">
             <input
               autoFocus
@@ -440,7 +463,7 @@ function AssigneePicker({
                 <UserIcon size={10} />
               </div>
             }
-            label="Unassigned"
+            label={unsetLabel}
             onSelect={() => {
               onChange(null);
               close();
@@ -1176,6 +1199,7 @@ function NewTodoRow({
 }) {
   const [title, setTitle] = React.useState("");
   const [assignee, setAssignee] = React.useState<AssigneeRef>(null);
+  const [reviewer, setReviewer] = React.useState<AssigneeRef>(null);
   const [priority, setPriority] = React.useState<TodoPriority>("none");
   const [status, setStatus] = React.useState<TodoStatus>("todo");
   const [recurrence, setRecurrence] = React.useState<TodoRecurrence>("none");
@@ -1195,6 +1219,8 @@ function NewTodoRow({
           status,
           assigneeEmployeeId: assignee?.kind === "ai" ? assignee.id : null,
           assigneeUserId: assignee?.kind === "human" ? assignee.id : null,
+          reviewerEmployeeId: reviewer?.kind === "ai" ? reviewer.id : null,
+          reviewerUserId: reviewer?.kind === "human" ? reviewer.id : null,
           recurrence,
         },
       );
@@ -1202,6 +1228,7 @@ function NewTodoRow({
       setTitle("");
       setPriority("none");
       setAssignee(null);
+      setReviewer(null);
       setStatus("todo");
       setRecurrence("none");
       inputRef.current?.focus();
@@ -1233,6 +1260,14 @@ function NewTodoRow({
         employees={employees}
         members={members}
         onChange={setAssignee}
+      />
+      <AssigneePicker
+        value={reviewer}
+        employees={employees}
+        members={members}
+        onChange={setReviewer}
+        role="reviewer"
+        compact
       />
       <Button type="submit" size="sm" disabled={!title.trim() || busy}>
         {busy ? "…" : "Add"}
@@ -1445,6 +1480,29 @@ function TodoRow({
           <span className="hidden sm:inline">{RECURRENCE_SHORT[todo.recurrence]}</span>
         </span>
       )}
+      {todo.status === "in_review" && (
+        <span
+          className="flex shrink-0 items-center gap-1 rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-500/15 dark:text-violet-200"
+          title={
+            todo.reviewer
+              ? `Awaiting review by ${todo.reviewer.name}`
+              : "Awaiting reviewer"
+          }
+        >
+          <ShieldCheck size={10} />
+          <span className="hidden sm:inline">Review</span>
+        </span>
+      )}
+      {(todo.status === "in_review" || todo.reviewer) && (
+        <AssigneePicker
+          value={reviewerRefFromTodo(todo)}
+          employees={employees}
+          members={members}
+          onChange={(ref) => onPatch(patchForReviewerRef(ref))}
+          role="reviewer"
+          compact
+        />
+      )}
       <AssigneePicker
         value={refFromTodo(todo)}
         employees={employees}
@@ -1503,6 +1561,7 @@ function BoardView({
       {BOARD_COLUMNS.map((status) => {
         const items = byStatus.get(status)!;
         const isOver = overCol === status;
+        const isReview = status === "in_review";
         return (
           <div
             key={status}
@@ -1519,8 +1578,12 @@ function BoardView({
               setDragId(null);
             }}
             className={clsx(
-              "flex w-72 shrink-0 flex-col rounded-lg border bg-slate-50 transition-colors dark:bg-slate-900",
-              isOver ? "border-indigo-400 bg-indigo-50/50" : "border-slate-200 dark:border-slate-700",
+              "flex w-72 shrink-0 flex-col rounded-lg border transition-colors",
+              isOver
+                ? "border-indigo-400 bg-indigo-50/50"
+                : isReview
+                  ? "border-violet-200 bg-violet-50/40 dark:border-violet-500/30 dark:bg-violet-500/5"
+                  : "border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900",
             )}
           >
             <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300">
@@ -1570,6 +1633,7 @@ function BoardCard({
   onDragEnd: () => void;
 }) {
   const due = formatDue(todo.dueAt);
+  const isReview = todo.status === "in_review";
   return (
     <div
       draggable
@@ -1578,7 +1642,11 @@ function BoardCard({
       onClick={onClick}
       className={clsx(
         "group relative cursor-pointer overflow-hidden rounded-lg border bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow dark:bg-slate-900",
-        active ? "border-indigo-400 ring-2 ring-indigo-100" : "border-slate-200 dark:border-slate-700",
+        active
+          ? "border-indigo-400 ring-2 ring-indigo-100"
+          : isReview
+            ? "border-violet-300 dark:border-violet-500/40"
+            : "border-slate-200 dark:border-slate-700",
       )}
     >
       <div
@@ -1590,6 +1658,18 @@ function BoardCard({
             {project.key}-{todo.number}
           </span>
           <PriorityIcon priority={todo.priority} size={11} />
+          {isReview && (
+            <span
+              className="ml-auto flex items-center gap-1 rounded bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-500/15 dark:text-violet-200"
+              title={
+                todo.reviewer
+                  ? `Awaiting review by ${todo.reviewer.name}`
+                  : "Awaiting reviewer"
+              }
+            >
+              <ShieldCheck size={10} /> Review
+            </span>
+          )}
         </div>
         <div className="mt-1 line-clamp-3 text-sm text-slate-900 dark:text-slate-100">{todo.title}</div>
         <div className="mt-2 flex items-center justify-between gap-2">
@@ -1608,17 +1688,31 @@ function BoardCard({
               </span>
             )}
           </div>
-          {todo.assignee ? (
-            <Avatar
-              name={todo.assignee.name}
-              size={20}
-              kind={todo.assignee.kind === "ai" ? "ai" : "human"}
-            />
-          ) : (
-            <div className="flex h-5 w-5 items-center justify-center rounded-full border border-dashed border-slate-300 text-slate-300 dark:border-slate-600">
-              <UserIcon size={10} />
-            </div>
-          )}
+          <div className="flex items-center gap-1">
+            {isReview && todo.reviewer && (
+              <span
+                title={`Reviewer: ${todo.reviewer.name}`}
+                className="flex items-center"
+              >
+                <Avatar
+                  name={todo.reviewer.name}
+                  size={20}
+                  kind={todo.reviewer.kind === "ai" ? "ai" : "human"}
+                />
+              </span>
+            )}
+            {todo.assignee ? (
+              <Avatar
+                name={todo.assignee.name}
+                size={20}
+                kind={todo.assignee.kind === "ai" ? "ai" : "human"}
+              />
+            ) : (
+              <div className="flex h-5 w-5 items-center justify-center rounded-full border border-dashed border-slate-300 text-slate-300 dark:border-slate-600">
+                <UserIcon size={10} />
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -1682,6 +1776,11 @@ function TodoPeek({
         <span className="text-xs text-slate-500 dark:text-slate-400">
           {STATUS_LABEL[todo.status]}
         </span>
+        {todo.status === "in_review" && (
+          <span className="flex items-center gap-1 rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-500/15 dark:text-violet-200">
+            <ShieldCheck size={10} /> Review
+          </span>
+        )}
         <button
           onClick={onClose}
           className="ml-auto rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
@@ -1775,6 +1874,18 @@ function TodoPeek({
             />
           </div>
           <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+            Reviewer
+          </span>
+          <div>
+            <AssigneePicker
+              value={reviewerRefFromTodo(todo)}
+              employees={employees}
+              members={members}
+              onChange={(ref) => onPatch(patchForReviewerRef(ref))}
+              role="reviewer"
+            />
+          </div>
+          <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
             Due date
           </span>
           <div className="flex items-center gap-2">
@@ -1810,6 +1921,10 @@ function TodoPeek({
           </div>
         </div>
 
+        {todo.status === "in_review" && (
+          <ReviewPanel todo={todo} onPatch={onPatch} />
+        )}
+
         {todo.recurrence !== "none" && (
           <div className="mt-4 flex items-start gap-2 rounded-lg border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-xs text-indigo-800 dark:border-indigo-500/20 dark:bg-indigo-500/10 dark:text-indigo-200">
             <RefreshCw size={13} className="mt-0.5 shrink-0" />
@@ -1833,6 +1948,71 @@ function TodoPeek({
         </Button>
       </div>
     </aside>
+  );
+}
+
+// ───────────────────────── review panel ─────────────────────────────────────
+
+/**
+ * Shown on the todo peek when `status === "in_review"`. Makes it obvious
+ * a reviewer needs to act, and gives two one-click resolutions:
+ *   - Approve → mark the todo done
+ *   - Push back → send it back to the assignee (status: in_progress)
+ */
+function ReviewPanel({
+  todo,
+  onPatch,
+}: {
+  todo: Todo;
+  onPatch: (patch: Partial<Todo>) => void;
+}) {
+  const assigneeName = todo.assignee?.name ?? "the assignee";
+  const reviewerName = todo.reviewer?.name;
+  const assigneeIsAi = todo.assignee?.kind === "ai";
+
+  return (
+    <div className="mt-4 rounded-lg border border-violet-200 bg-violet-50/70 p-3 text-violet-900 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-100">
+      <div className="flex items-start gap-2">
+        <ShieldCheck size={14} className="mt-0.5 shrink-0" />
+        <div className="min-w-0 flex-1 text-xs">
+          <div className="font-semibold">Under review</div>
+          <div className="mt-0.5 text-violet-800/90 dark:text-violet-200/90">
+            {reviewerName ? (
+              <>
+                Waiting on <b>{reviewerName}</b> to sign off on work by{" "}
+                <b>{assigneeName}</b>.
+              </>
+            ) : (
+              <>
+                <b>{assigneeName}</b> finished this task. Pick a reviewer above
+                to assign sign-off, or approve it below.
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          onClick={() => onPatch({ status: "done" })}
+          title="Approve and mark this todo done"
+        >
+          <Check size={13} /> Approve &amp; mark done
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => onPatch({ status: "in_progress" })}
+          title={
+            assigneeIsAi
+              ? "Send back to the AI assignee for another pass"
+              : "Send back to the assignee for another pass"
+          }
+        >
+          <CornerUpLeft size={13} /> Push back {assigneeIsAi ? "to AI" : "to assignee"}
+        </Button>
+      </div>
+    </div>
   );
 }
 

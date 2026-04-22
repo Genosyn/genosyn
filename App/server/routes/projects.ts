@@ -209,17 +209,29 @@ projectsRouter.delete("/projects/:pSlug", async (req, res) => {
 
 // ----- Todos -----
 
+type PersonRef =
+  | { kind: "ai"; id: string; name: string; slug: string; role: string }
+  | { kind: "human"; id: string; name: string; email: string | null };
+
 /**
- * Shape returned to the client. Includes the assignee's display info so the
- * board view can render avatars without a second fetch. An assignee may be
- * an AI employee OR a human member — the `kind` discriminates.
+ * Shape returned to the client. Includes the assignee + reviewer display info
+ * so the board view can render avatars without a second fetch. An assignee
+ * or reviewer may be an AI employee OR a human member — the `kind` discriminates.
  */
 async function hydrateTodos(cid: string, todos: Todo[]) {
   const empIds = [
-    ...new Set(todos.map((t) => t.assigneeEmployeeId).filter((x): x is string => !!x)),
+    ...new Set(
+      todos
+        .flatMap((t) => [t.assigneeEmployeeId, t.reviewerEmployeeId])
+        .filter((x): x is string => !!x),
+    ),
   ];
   const userIds = [
-    ...new Set(todos.map((t) => t.assigneeUserId).filter((x): x is string => !!x)),
+    ...new Set(
+      todos
+        .flatMap((t) => [t.assigneeUserId, t.reviewerUserId])
+        .filter((x): x is string => !!x),
+    ),
   ];
   const [emps, users] = await Promise.all([
     empIds.length
@@ -233,20 +245,52 @@ async function hydrateTodos(cid: string, todos: Todo[]) {
   ]);
   const empById = new Map(emps.map((e) => [e.id, e]));
   const userById = new Map(users.map((u) => [u.id, u]));
-  return todos.map((t) => {
-    let assignee:
-      | { kind: "ai"; id: string; name: string; slug: string; role: string }
-      | { kind: "human"; id: string; name: string; email: string | null }
-      | null = null;
-    if (t.assigneeEmployeeId) {
-      const e = empById.get(t.assigneeEmployeeId);
-      if (e) assignee = { kind: "ai", id: e.id, name: e.name, slug: e.slug, role: e.role };
-    } else if (t.assigneeUserId) {
-      const u = userById.get(t.assigneeUserId);
-      if (u) assignee = { kind: "human", id: u.id, name: u.name, email: u.email };
+
+  function refFor(
+    employeeId: string | null,
+    userId: string | null,
+  ): PersonRef | null {
+    if (employeeId) {
+      const e = empById.get(employeeId);
+      if (e) return { kind: "ai", id: e.id, name: e.name, slug: e.slug, role: e.role };
+    } else if (userId) {
+      const u = userById.get(userId);
+      if (u) return { kind: "human", id: u.id, name: u.name, email: u.email };
     }
-    return { ...t, assignee };
-  });
+    return null;
+  }
+
+  return todos.map((t) => ({
+    ...t,
+    assignee: refFor(t.assigneeEmployeeId, t.assigneeUserId),
+    reviewer: refFor(t.reviewerEmployeeId, t.reviewerUserId),
+  }));
+}
+
+async function validatePersonPair(
+  cid: string,
+  employeeId: string | null | undefined,
+  userId: string | null | undefined,
+  label: string,
+): Promise<string | null> {
+  if (employeeId && userId) {
+    return `Cannot set both an AI employee and a human as ${label} at the same time`;
+  }
+  if (employeeId) {
+    const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
+      id: employeeId,
+      companyId: cid,
+    });
+    if (!emp) return `Invalid ${label}`;
+  }
+  if (userId) {
+    const mem = await AppDataSource.getRepository(Membership).findOneBy({
+      companyId: cid,
+      userId,
+    });
+    if (!mem) return `Invalid ${label}`;
+  }
+  return null;
 }
 
 async function validateAssignees(
@@ -254,24 +298,15 @@ async function validateAssignees(
   assigneeEmployeeId: string | null | undefined,
   assigneeUserId: string | null | undefined,
 ): Promise<string | null> {
-  if (assigneeEmployeeId && assigneeUserId) {
-    return "Cannot assign to both an AI employee and a human at the same time";
-  }
-  if (assigneeEmployeeId) {
-    const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
-      id: assigneeEmployeeId,
-      companyId: cid,
-    });
-    if (!emp) return "Invalid assignee";
-  }
-  if (assigneeUserId) {
-    const mem = await AppDataSource.getRepository(Membership).findOneBy({
-      companyId: cid,
-      userId: assigneeUserId,
-    });
-    if (!mem) return "Invalid assignee";
-  }
-  return null;
+  return validatePersonPair(cid, assigneeEmployeeId, assigneeUserId, "assignee");
+}
+
+async function validateReviewers(
+  cid: string,
+  reviewerEmployeeId: string | null | undefined,
+  reviewerUserId: string | null | undefined,
+): Promise<string | null> {
+  return validatePersonPair(cid, reviewerEmployeeId, reviewerUserId, "reviewer");
 }
 
 projectsRouter.get("/projects/:pSlug/todos", async (req, res) => {
@@ -292,6 +327,8 @@ const createTodoSchema = z.object({
   priority: z.enum(PRIORITIES as [TodoPriority, ...TodoPriority[]]).optional(),
   assigneeEmployeeId: z.string().uuid().nullable().optional(),
   assigneeUserId: z.string().uuid().nullable().optional(),
+  reviewerEmployeeId: z.string().uuid().nullable().optional(),
+  reviewerUserId: z.string().uuid().nullable().optional(),
   dueAt: z.string().datetime().nullable().optional(),
   recurrence: z.enum(RECURRENCES as [TodoRecurrence, ...TodoRecurrence[]]).optional(),
 });
@@ -311,6 +348,12 @@ projectsRouter.post(
       body.assigneeUserId,
     );
     if (assigneeErr) return res.status(400).json({ error: assigneeErr });
+    const reviewerErr = await validateReviewers(
+      cid,
+      body.reviewerEmployeeId,
+      body.reviewerUserId,
+    );
+    if (reviewerErr) return res.status(400).json({ error: reviewerErr });
 
     // Bump the per-project sequence atomically-ish. SQLite + better-sqlite3
     // is synchronous so the read-then-write here is safe within a request;
@@ -337,6 +380,8 @@ projectsRouter.post(
       priority: body.priority ?? "none",
       assigneeEmployeeId: body.assigneeEmployeeId ?? null,
       assigneeUserId: body.assigneeUserId ?? null,
+      reviewerEmployeeId: body.reviewerEmployeeId ?? null,
+      reviewerUserId: body.reviewerUserId ?? null,
       createdById: req.userId ?? null,
       dueAt: body.dueAt ? new Date(body.dueAt) : null,
       sortOrder,
@@ -368,6 +413,8 @@ const patchTodoSchema = z.object({
   priority: z.enum(PRIORITIES as [TodoPriority, ...TodoPriority[]]).optional(),
   assigneeEmployeeId: z.string().uuid().nullable().optional(),
   assigneeUserId: z.string().uuid().nullable().optional(),
+  reviewerEmployeeId: z.string().uuid().nullable().optional(),
+  reviewerUserId: z.string().uuid().nullable().optional(),
   dueAt: z.string().datetime().nullable().optional(),
   sortOrder: z.number().optional(),
   recurrence: z.enum(RECURRENCES as [TodoRecurrence, ...TodoRecurrence[]]).optional(),
@@ -380,19 +427,34 @@ projectsRouter.patch("/todos/:tid", validateBody(patchTodoSchema), async (req, r
   const body = req.body as z.infer<typeof patchTodoSchema>;
   const t = found.todo;
 
-  // Apply assignee changes together so we can validate "only one kind at a
-  // time" against the resulting state, and clear the other side when one is
-  // set to a non-null value.
-  const nextEmp =
+  // Apply assignee + reviewer changes together so we can validate "only one
+  // kind at a time" against the resulting state, and clear the other side
+  // when one is set to a non-null value.
+  const nextAssigneeEmp =
     body.assigneeEmployeeId !== undefined ? body.assigneeEmployeeId : t.assigneeEmployeeId;
-  const nextUser =
+  const nextAssigneeUser =
     body.assigneeUserId !== undefined ? body.assigneeUserId : t.assigneeUserId;
-  const effectiveEmp =
-    body.assigneeUserId ? null : nextEmp;
-  const effectiveUser =
-    body.assigneeEmployeeId ? null : nextUser;
-  const assigneeErr = await validateAssignees(cid, effectiveEmp, effectiveUser);
+  const effectiveAssigneeEmp = body.assigneeUserId ? null : nextAssigneeEmp;
+  const effectiveAssigneeUser = body.assigneeEmployeeId ? null : nextAssigneeUser;
+  const assigneeErr = await validateAssignees(
+    cid,
+    effectiveAssigneeEmp,
+    effectiveAssigneeUser,
+  );
   if (assigneeErr) return res.status(400).json({ error: assigneeErr });
+
+  const nextReviewerEmp =
+    body.reviewerEmployeeId !== undefined ? body.reviewerEmployeeId : t.reviewerEmployeeId;
+  const nextReviewerUser =
+    body.reviewerUserId !== undefined ? body.reviewerUserId : t.reviewerUserId;
+  const effectiveReviewerEmp = body.reviewerUserId ? null : nextReviewerEmp;
+  const effectiveReviewerUser = body.reviewerEmployeeId ? null : nextReviewerUser;
+  const reviewerErr = await validateReviewers(
+    cid,
+    effectiveReviewerEmp,
+    effectiveReviewerUser,
+  );
+  if (reviewerErr) return res.status(400).json({ error: reviewerErr });
 
   if (body.title !== undefined) t.title = body.title;
   if (body.description !== undefined) t.description = body.description;
@@ -404,6 +466,14 @@ projectsRouter.patch("/todos/:tid", validateBody(patchTodoSchema), async (req, r
   if (body.assigneeUserId !== undefined) {
     t.assigneeUserId = body.assigneeUserId;
     if (body.assigneeUserId) t.assigneeEmployeeId = null;
+  }
+  if (body.reviewerEmployeeId !== undefined) {
+    t.reviewerEmployeeId = body.reviewerEmployeeId;
+    if (body.reviewerEmployeeId) t.reviewerUserId = null;
+  }
+  if (body.reviewerUserId !== undefined) {
+    t.reviewerUserId = body.reviewerUserId;
+    if (body.reviewerUserId) t.reviewerEmployeeId = null;
   }
   if (body.dueAt !== undefined) t.dueAt = body.dueAt ? new Date(body.dueAt) : null;
   if (body.sortOrder !== undefined) t.sortOrder = body.sortOrder;
@@ -458,6 +528,8 @@ async function spawnNextRecurrence(project: Project, completed: Todo): Promise<v
     priority: completed.priority,
     assigneeEmployeeId: completed.assigneeEmployeeId,
     assigneeUserId: completed.assigneeUserId,
+    reviewerEmployeeId: completed.reviewerEmployeeId,
+    reviewerUserId: completed.reviewerUserId,
     createdById: completed.createdById,
     dueAt: nextDue,
     sortOrder,

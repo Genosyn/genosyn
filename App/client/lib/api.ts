@@ -439,6 +439,7 @@ export type Project = {
 export type TodoAssignee =
   | { kind: "ai"; id: string; name: string; slug: string; role: string }
   | { kind: "human"; id: string; name: string; email: string | null };
+export type TodoReviewer = TodoAssignee;
 
 export type Todo = {
   id: string;
@@ -450,6 +451,8 @@ export type Todo = {
   priority: TodoPriority;
   assigneeEmployeeId: string | null;
   assigneeUserId: string | null;
+  reviewerEmployeeId: string | null;
+  reviewerUserId: string | null;
   createdById: string | null;
   dueAt: string | null;
   sortOrder: number;
@@ -459,6 +462,7 @@ export type Todo = {
   createdAt: string;
   updatedAt: string;
   assignee: TodoAssignee | null;
+  reviewer: TodoReviewer | null;
 };
 
 export type TodoCommentAuthor =

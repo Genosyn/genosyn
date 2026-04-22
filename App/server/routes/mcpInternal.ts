@@ -143,6 +143,7 @@ function serializeTodo(t: Todo) {
     status: t.status,
     priority: t.priority,
     assigneeEmployeeId: t.assigneeEmployeeId,
+    reviewerEmployeeId: t.reviewerEmployeeId,
     dueAt: t.dueAt,
     recurrence: t.recurrence,
   };
@@ -415,6 +416,7 @@ const createTodoSchema = z
     status: z.enum(TODO_STATUSES).optional(),
     priority: z.enum(TODO_PRIORITIES).optional(),
     assigneeEmployeeSlug: z.string().min(1).max(120).nullable().optional(),
+    reviewerEmployeeSlug: z.string().min(1).max(120).nullable().optional(),
     dueAt: z.string().datetime().nullable().optional(),
     recurrence: z.enum(TODO_RECURRENCES).optional(),
   })
@@ -446,6 +448,16 @@ mcpInternalRouter.post(
       assigneeId = other.id;
     }
 
+    let reviewerId: string | null = null;
+    if (body.reviewerEmployeeSlug) {
+      const rv = await AppDataSource.getRepository(AIEmployee).findOneBy({
+        companyId: co.id,
+        slug: body.reviewerEmployeeSlug,
+      });
+      if (!rv) return res.status(400).json({ error: "Unknown reviewer" });
+      reviewerId = rv.id;
+    }
+
     project.todoCounter += 1;
     await projRepo.save(project);
 
@@ -465,6 +477,7 @@ mcpInternalRouter.post(
       status,
       priority: body.priority ?? "none",
       assigneeEmployeeId: assigneeId,
+      reviewerEmployeeId: reviewerId,
       createdById: null,
       dueAt: body.dueAt ? new Date(body.dueAt) : null,
       sortOrder,
@@ -505,6 +518,7 @@ const updateTodoSchema = z
     status: z.enum(TODO_STATUSES).optional(),
     priority: z.enum(TODO_PRIORITIES).optional(),
     assigneeEmployeeSlug: z.string().min(1).max(120).nullable().optional(),
+    reviewerEmployeeSlug: z.string().min(1).max(120).nullable().optional(),
     dueAt: z.string().datetime().nullable().optional(),
   })
   .strict();
@@ -536,6 +550,20 @@ mcpInternalRouter.post(
         });
         if (!other) return res.status(400).json({ error: "Unknown assignee" });
         t.assigneeEmployeeId = other.id;
+        t.assigneeUserId = null;
+      }
+    }
+    if (body.reviewerEmployeeSlug !== undefined) {
+      if (body.reviewerEmployeeSlug === null) {
+        t.reviewerEmployeeId = null;
+      } else {
+        const rv = await AppDataSource.getRepository(AIEmployee).findOneBy({
+          companyId: co.id,
+          slug: body.reviewerEmployeeSlug,
+        });
+        if (!rv) return res.status(400).json({ error: "Unknown reviewer" });
+        t.reviewerEmployeeId = rv.id;
+        t.reviewerUserId = null;
       }
     }
     if (body.title !== undefined) t.title = body.title;

@@ -163,7 +163,7 @@ const TOOLS = [
   {
     name: "create_todo",
     description:
-      "Add a Todo to a Project. Defaults the assignee to yourself so you can take ownership of follow-through; pass `assigneeEmployeeSlug` to delegate, or `null` to leave it unassigned.",
+      "Add a Todo to a Project. Defaults the assignee to yourself so you can take ownership of follow-through; pass `assigneeEmployeeSlug` to delegate, or `null` to leave it unassigned. Pass `reviewerEmployeeSlug` to nominate a reviewer — when the assignee marks the todo `in_review`, that reviewer is expected to sign it off.",
     endpoint: "/tools/create_todo",
     inputSchema: {
       type: "object",
@@ -183,6 +183,11 @@ const TOOLS = [
           type: ["string", "null"],
           description: "Slug of the assignee employee, or null to unassign.",
         },
+        reviewerEmployeeSlug: {
+          type: ["string", "null"],
+          description:
+            "Slug of the AI employee who should review this todo when it moves to in_review. Null = no reviewer yet.",
+        },
         dueAt: {
           type: ["string", "null"],
           description: "Due date as an ISO-8601 timestamp, or null.",
@@ -199,7 +204,7 @@ const TOOLS = [
   {
     name: "update_todo",
     description:
-      "Update a Todo by id — change status, priority, title, description, assignee, or due date. Useful for moving todos across the board or re-assigning work.",
+      "Update a Todo by id — change status, priority, title, description, assignee, reviewer, or due date. When you finish work on a todo assigned to you, set `status: \"in_review\"` (and optionally set `reviewerEmployeeSlug`) so a reviewer can sign it off instead of marking it done yourself.",
     endpoint: "/tools/update_todo",
     inputSchema: {
       type: "object",
@@ -216,6 +221,11 @@ const TOOLS = [
           enum: ["none", "low", "medium", "high", "urgent"],
         },
         assigneeEmployeeSlug: { type: ["string", "null"] },
+        reviewerEmployeeSlug: {
+          type: ["string", "null"],
+          description:
+            "Slug of the AI employee who should review this todo, or null to clear. Set this when you move a todo to `in_review`.",
+        },
         dueAt: { type: ["string", "null"] },
       },
       required: ["todoId"],

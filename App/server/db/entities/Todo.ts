@@ -70,6 +70,18 @@ export class Todo {
   @Column({ type: "varchar", nullable: true })
   assigneeUserId!: string | null;
 
+  /**
+   * AI Employee reviewer. When an assignee moves the todo to `in_review`,
+   * the reviewer is the one expected to sign it off. Mutually exclusive
+   * with reviewerUserId; either column being null means "no reviewer yet".
+   */
+  @Column({ type: "varchar", nullable: true })
+  reviewerEmployeeId!: string | null;
+
+  /** Human Member reviewer. Mutually exclusive with reviewerEmployeeId. */
+  @Column({ type: "varchar", nullable: true })
+  reviewerUserId!: string | null;
+
   @Column({ type: "varchar", nullable: true })
   createdById!: string | null;
 
