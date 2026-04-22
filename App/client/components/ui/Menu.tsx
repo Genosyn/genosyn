@@ -32,8 +32,11 @@ export function Menu({
   const [uncontrolled, setUncontrolled] = React.useState(false);
   const open = controlledOpen ?? uncontrolled;
   const setOpen = (v: boolean) => {
-    if (onOpenChange) onOpenChange(v);
-    else setUncontrolled(v);
+    // Only skip the internal state when the parent is fully controlling `open`.
+    // Passing just `onOpenChange` (as AssigneePicker does to clear its search
+    // on close) should still drive the Menu's own open state.
+    if (controlledOpen === undefined) setUncontrolled(v);
+    onOpenChange?.(v);
   };
 
   const triggerRef = React.useRef<HTMLButtonElement>(null);
