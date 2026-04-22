@@ -5,6 +5,7 @@ import type {
 import { stripeProvider } from "./providers/stripe.js";
 import { gmailProvider, googleOauthConfigured } from "./providers/gmail.js";
 import { metabaseProvider } from "./providers/metabase.js";
+import { nocodbProvider } from "./providers/nocodb.js";
 
 /**
  * Provider registry. Adding a new integration means:
@@ -16,6 +17,7 @@ const PROVIDERS: Record<string, IntegrationProvider> = {
   [stripeProvider.catalog.provider]: stripeProvider,
   [gmailProvider.catalog.provider]: gmailProvider,
   [metabaseProvider.catalog.provider]: metabaseProvider,
+  [nocodbProvider.catalog.provider]: nocodbProvider,
 };
 
 export function getProvider(id: string): IntegrationProvider | null {

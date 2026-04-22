@@ -5,6 +5,7 @@ import {
   BarChart3,
   CheckCircle2,
   CreditCard,
+  Database,
   Mail,
   Plug,
   Trash2,
@@ -36,6 +37,7 @@ import type { EmployeeOutletCtx } from "./EmployeeLayout";
 const ICONS: Record<string, LucideIcon> = {
   CreditCard,
   BarChart3,
+  Database,
   Mail,
   Plug,
 };

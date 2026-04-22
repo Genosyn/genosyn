@@ -5,6 +5,7 @@ import {
   BarChart3,
   CheckCircle2,
   CreditCard,
+  Database,
   Mail,
   Plug,
   RefreshCw,
@@ -43,6 +44,7 @@ import type { SettingsOutletCtx } from "./SettingsLayout";
 const ICONS: Record<string, LucideIcon> = {
   CreditCard,
   BarChart3,
+  Database,
   Mail,
   Plug,
 };
