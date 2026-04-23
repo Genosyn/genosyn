@@ -51,6 +51,7 @@ import BasesLayout from "./pages/BasesLayout";
 import BasesIndex from "./pages/BasesIndex";
 import BaseNew from "./pages/BaseNew";
 import BaseDetail from "./pages/BaseDetail";
+import Workspace from "./pages/Workspace";
 
 type AuthState =
   | { status: "loading" }
@@ -200,6 +201,13 @@ function CompanyRoutes({
         </Route>
 
         <Route path="approvals" element={<Approvals company={company} />} />
+
+        {/* Workspace chat — Slack-style channels and DMs (M9). */}
+        <Route path="workspace" element={<Workspace company={company} me={me} />} />
+        <Route
+          path="workspace/:channelId"
+          element={<Workspace company={company} me={me} />}
+        />
 
         {/* Settings — own sidebar, like Employees/Tasks/Bases. Holds both
             personal-account pages and company-level pages. */}

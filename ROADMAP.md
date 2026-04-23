@@ -251,6 +251,30 @@ export const config = {
 - [ ] Empty states, loading states, error toasts
 - [ ] README.md with self-host instructions
 
+### M9 — Workspace Chat (Slack-style)
+- [x] `Channel`, `ChannelMember`, `ChannelMessage`, `MessageReaction`,
+      `Attachment` entities + migration
+- [x] Public + private channels, scoped per-company
+- [x] Direct messages (1:1) to other humans or AI employees — idempotent
+      pairing, so re-opening a DM lands on the same channel row
+- [x] Realtime via a single in-process WebSocket hub (`ws`), mounted at
+      `/api/ws` on the same HTTP server as REST. Auth is a one-shot
+      short-lived token minted via `POST .../workspace/ws-token` to avoid
+      decoding cookie-session inside the upgrade handler.
+- [x] Emoji picker (curated unicode grid, no new dep) + emoji reactions
+      on messages, toggling via `POST .../messages/:id/reactions`
+- [x] File uploads via `multer` with 25 MB cap; bytes on disk under
+      `data/companies/<slug>/attachments/<uuid>.<ext>`, metadata row in
+      DB. Images render inline, anything else as a download chip.
+- [x] `@employee-slug` mentions auto-invite the AI to public channels and
+      trigger a reply via the existing chat seam (`streamChatWithEmployee`)
+- [x] DMs with an AI counterparty reply on every message (no `@` needed)
+- [x] Unread badges, read markers (`ChannelMember.lastReadAt`)
+- [x] Edit / soft-delete own messages, broadcast over WS
+- [ ] Typing indicators (plumbing lands with WS, UI deferred)
+- [ ] Threaded replies (column exists, UI deferred)
+- [ ] Search, link unfurls, desktop notifications
+
 ---
 
 ## V1 backlog (post-MVP)

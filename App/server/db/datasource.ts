@@ -33,6 +33,11 @@ import { IntegrationConnection } from "./entities/IntegrationConnection.js";
 import { EmployeeConnectionGrant } from "./entities/EmployeeConnectionGrant.js";
 import { EmployeeBaseGrant } from "./entities/EmployeeBaseGrant.js";
 import { EmployeeMemory } from "./entities/EmployeeMemory.js";
+import { Channel } from "./entities/Channel.js";
+import { ChannelMember } from "./entities/ChannelMember.js";
+import { ChannelMessage } from "./entities/ChannelMessage.js";
+import { MessageReaction } from "./entities/MessageReaction.js";
+import { Attachment } from "./entities/Attachment.js";
 
 const entities = [
   User,
@@ -64,6 +69,11 @@ const entities = [
   EmployeeConnectionGrant,
   EmployeeBaseGrant,
   EmployeeMemory,
+  Channel,
+  ChannelMember,
+  ChannelMessage,
+  MessageReaction,
+  Attachment,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

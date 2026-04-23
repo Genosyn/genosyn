@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import express from "express";
 import cookieSession from "cookie-session";
+import http from "node:http";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -8,6 +9,7 @@ import { config } from "../config.js";
 import { initDb } from "./db/datasource.js";
 import { bootCron } from "./services/cron.js";
 import { bootBackups } from "./services/backups.js";
+import { attachRealtime } from "./services/realtime.js";
 import { errorHandler } from "./middleware/error.js";
 import { authRouter } from "./routes/auth.js";
 import { companiesRouter } from "./routes/companies.js";
@@ -30,6 +32,7 @@ import { basesRouter } from "./routes/bases.js";
 import { backupsRouter } from "./routes/backups.js";
 import { integrationsRouter } from "./routes/integrations.js";
 import { integrationsOauthRouter } from "./routes/integrationsOauth.js";
+import { workspaceRouter } from "./routes/workspace.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -96,6 +99,10 @@ async function main() {
   // to the company and are granted out to employees.
   app.use("/api/companies/:cid/integrations", integrationsRouter);
 
+  // Workspace chat — Slack-style channels, DMs, file uploads, reactions.
+  // Mounted under companies so `requireCompanyMember` gates every route.
+  app.use("/api/companies/:cid/workspace", workspaceRouter);
+
   // Client. Dev: mount Vite as middleware so API + UI share one port and
   // HMR still works. Prod: serve the built SPA from dist/client.
   // Layout-wise, dev __dirname=App/server → clientDir=App/client;
@@ -123,7 +130,12 @@ async function main() {
 
   app.use(errorHandler);
 
-  app.listen(config.port, () => {
+  // Wrap Express in an http.Server so we can attach the WebSocket upgrade
+  // listener for the realtime workspace-chat surface. REST and WS share the
+  // same port so `/api/*` and `/api/ws` proxy identically in dev and prod.
+  const server = http.createServer(app);
+  attachRealtime(server);
+  server.listen(config.port, () => {
     // eslint-disable-next-line no-console
     console.log(`[genosyn] listening on :${config.port}`);
   });
