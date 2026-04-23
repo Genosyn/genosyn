@@ -180,6 +180,7 @@ export type ConversationSummary = {
   id: string;
   employeeId: string;
   title: string | null;
+  archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
   lastMessageAt: string | null;

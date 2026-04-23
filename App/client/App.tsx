@@ -6,6 +6,7 @@ import { Spinner } from "./components/ui/Spinner";
 import { ToastProvider } from "./components/ui/Toast";
 import { DialogProvider } from "./components/ui/Dialog";
 import { ThemeProvider } from "./components/Theme";
+import { ChatSessionsProvider } from "./lib/chatSessions";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Forgot from "./pages/Forgot";
@@ -150,6 +151,7 @@ function CompanyRoutes({
 
   return (
     <AppShell me={me} companies={companies} current={company} onCompaniesChanged={onChanged}>
+      <ChatSessionsProvider key={company.id}>
       <Routes>
         {/* Employees section — sidebar = roster */}
         <Route element={<EmployeesLayout company={company} />}>
@@ -230,6 +232,7 @@ function CompanyRoutes({
 
         <Route path="*" element={<Navigate to="" replace />} />
       </Routes>
+      </ChatSessionsProvider>
     </AppShell>
   );
 }

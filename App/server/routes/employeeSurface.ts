@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { MoreThan } from "typeorm";
+import { IsNull, MoreThan, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
@@ -66,6 +66,7 @@ function serializeConversation(c: Conversation, lastMessageAt: Date | null = nul
     id: c.id,
     employeeId: c.employeeId,
     title: c.title,
+    archivedAt: c.archivedAt,
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
     lastMessageAt,
@@ -176,8 +177,14 @@ employeeSurfaceRouter.get("/:eid/conversations", async (req, res) => {
   const { cid, eid } = req.params as Record<string, string>;
   const loaded = await loadEmpAndCompany(cid, eid);
   if (!loaded) return res.status(404).json({ error: "Not found" });
+  // `?archived=1` returns only archived threads, default returns only
+  // active ones. The sidebar flips between the two via a disclosure.
+  const wantsArchived = req.query.archived === "1";
   const rows = await AppDataSource.getRepository(Conversation).find({
-    where: { employeeId: eid },
+    where: {
+      employeeId: eid,
+      archivedAt: wantsArchived ? Not(IsNull()) : IsNull(),
+    },
     order: { updatedAt: "DESC" },
   });
   res.json(rows.map((r) => serializeConversation(r, r.updatedAt)));
@@ -211,6 +218,40 @@ employeeSurfaceRouter.get("/:eid/conversations/:convId", async (req, res) => {
     messages: messages.map(serializeMessage),
   });
 });
+
+employeeSurfaceRouter.post(
+  "/:eid/conversations/:convId/archive",
+  async (req, res) => {
+    const { cid, eid, convId } = req.params as Record<string, string>;
+    const loaded = await loadEmpAndCompany(cid, eid);
+    if (!loaded) return res.status(404).json({ error: "Not found" });
+    const repo = AppDataSource.getRepository(Conversation);
+    const conv = await repo.findOneBy({ id: convId, employeeId: eid });
+    if (!conv) return res.status(404).json({ error: "Not found" });
+    if (!conv.archivedAt) {
+      conv.archivedAt = new Date();
+      await repo.save(conv);
+    }
+    res.json(serializeConversation(conv, conv.updatedAt));
+  },
+);
+
+employeeSurfaceRouter.post(
+  "/:eid/conversations/:convId/unarchive",
+  async (req, res) => {
+    const { cid, eid, convId } = req.params as Record<string, string>;
+    const loaded = await loadEmpAndCompany(cid, eid);
+    if (!loaded) return res.status(404).json({ error: "Not found" });
+    const repo = AppDataSource.getRepository(Conversation);
+    const conv = await repo.findOneBy({ id: convId, employeeId: eid });
+    if (!conv) return res.status(404).json({ error: "Not found" });
+    if (conv.archivedAt) {
+      conv.archivedAt = null;
+      await repo.save(conv);
+    }
+    res.json(serializeConversation(conv, conv.updatedAt));
+  },
+);
 
 employeeSurfaceRouter.delete("/:eid/conversations/:convId", async (req, res) => {
   const { cid, eid, convId } = req.params as Record<string, string>;

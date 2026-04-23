@@ -27,6 +27,14 @@ export class Conversation {
   @Column({ type: "varchar", nullable: true })
   title!: string | null;
 
+  /**
+   * Set when a human archives the thread from the sidebar. Archived
+   * conversations are hidden from the default list but kept intact so
+   * they can be restored without data loss.
+   */
+  @Column({ type: "datetime", nullable: true })
+  archivedAt!: Date | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 

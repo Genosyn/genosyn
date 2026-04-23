@@ -4,7 +4,11 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 import {
   AlertCircle,
+  Archive,
+  ArchiveRestore,
   Check,
+  ChevronDown,
+  ChevronRight,
   CircleSlash,
   MessageSquarePlus,
   Plug,
@@ -15,84 +19,66 @@ import {
   Zap,
 } from "lucide-react";
 import {
-  api,
-  ConversationDetail,
   ConversationMessage,
   ConversationSummary,
   MessageAction,
 } from "../lib/api";
+import { useEmployeeSession } from "../lib/chatSessions";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import type { EmployeeOutletCtx } from "./EmployeeLayout";
 
 /**
- * Chat with the selected employee. Threads are persisted server-side as
- * {@link ConversationSummary} rows; the left rail lists them newest-first
- * and the main panel shows the selected thread. A "New" button creates an
- * empty conversation locally (not persisted until first send) so switching
- * employees never lands on a stale thread.
+ * Chat with the selected employee. Threads are persisted server-side; the
+ * left rail lists them newest-first and the main panel shows the selected
+ * thread. Durable state (messages, the in-flight streaming reply, the typed
+ * input, the selected thread) lives in `ChatSessionsProvider` so navigating
+ * to another page mid-conversation and returning keeps the turn intact.
  */
 
 export default function EmployeeChat() {
   const { company, emp } = useOutletContext<EmployeeOutletCtx>();
-  const base = `/api/companies/${company.id}/employees/${emp.id}`;
   const { toast } = useToast();
   const dialog = useDialog();
+  const { session, actions } = useEmployeeSession(emp.id);
+  const {
+    activeConvId,
+    loadedConvId,
+    messages,
+    streamingReply,
+    sending,
+    input,
+    convs,
+    convsLoaded,
+    convLoading,
+  } = session;
 
-  const [convs, setConvs] = React.useState<ConversationSummary[]>([]);
-  const [activeId, setActiveId] = React.useState<string | null>(null);
-  const [messages, setMessages] = React.useState<ConversationMessage[]>([]);
-  const [input, setInput] = React.useState("");
-  const [sending, setSending] = React.useState(false);
-  /** Running text for the reply currently streaming in. `null` = no stream. */
-  const [streamingReply, setStreamingReply] = React.useState<string | null>(null);
-  const [loadingConv, setLoadingConv] = React.useState(false);
   /** Action whose details are open in the logs modal; null when closed. */
   const [inspectAction, setInspectAction] =
     React.useState<MessageAction | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
 
-  // Load the conversation list whenever the selected employee changes.
+  // Fetch the conversation list for this employee the first time we mount.
+  // `initEmployee` is a no-op once `convsLoaded` is true, so coming back to
+  // this tab keeps whatever the user had selected.
   React.useEffect(() => {
-    setActiveId(null);
-    setMessages([]);
-    setInput("");
-    (async () => {
-      try {
-        const list = await api.get<ConversationSummary[]>(`${base}/conversations`);
-        setConvs(list);
-        if (list.length > 0) {
-          setActiveId(list[0].id);
-        }
-      } catch (err) {
-        toast((err as Error).message, "error");
-      }
-    })();
+    actions
+      .initEmployee(company.id, emp.id)
+      .catch((err) => toast((err as Error).message, "error"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [emp.id]);
 
-  // Load the active conversation's messages whenever the selection changes.
+  // Load the selected conversation's messages whenever the pointer drifts
+  // from what's loaded. Skipped if we already hold the messages for it.
   React.useEffect(() => {
-    if (!activeId) {
-      setMessages([]);
-      return;
-    }
-    setLoadingConv(true);
-    (async () => {
-      try {
-        const detail = await api.get<ConversationDetail>(
-          `${base}/conversations/${activeId}`,
-        );
-        setMessages(detail.messages);
-      } catch (err) {
-        toast((err as Error).message, "error");
-      } finally {
-        setLoadingConv(false);
-      }
-    })();
+    if (!activeConvId) return;
+    if (loadedConvId === activeConvId) return;
+    actions
+      .selectConversation(company.id, emp.id, activeConvId)
+      .catch((err) => toast((err as Error).message, "error"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId]);
+  }, [activeConvId, loadedConvId, emp.id]);
 
   // Auto-scroll to bottom on new messages or while the reply streams in.
   React.useEffect(() => {
@@ -109,18 +95,9 @@ export default function EmployeeChat() {
     el.style.height = Math.min(el.scrollHeight, 200) + "px";
   }, [input]);
 
-  async function createConversation(): Promise<ConversationSummary> {
-    const created = await api.post<ConversationSummary>(`${base}/conversations`, {});
-    setConvs((prev) => [created, ...prev]);
-    return created;
-  }
-
   async function handleNewClick() {
     try {
-      const created = await createConversation();
-      setActiveId(created.id);
-      setMessages([]);
-      setInput("");
+      await actions.newConversation(company.id, emp.id);
       inputRef.current?.focus();
     } catch (err) {
       toast((err as Error).message, "error");
@@ -136,134 +113,64 @@ export default function EmployeeChat() {
     });
     if (!ok) return;
     try {
-      await api.del(`${base}/conversations/${convId}`);
-      setConvs((prev) => prev.filter((c) => c.id !== convId));
-      if (activeId === convId) {
-        setActiveId(null);
-        setMessages([]);
-      }
+      await actions.deleteConversation(company.id, emp.id, convId);
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
+
+  async function handleArchive(convId: string) {
+    try {
+      await actions.archiveConversation(company.id, emp.id, convId);
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
+
+  async function handleUnarchive(convId: string) {
+    try {
+      await actions.unarchiveConversation(company.id, emp.id, convId);
     } catch (err) {
       toast((err as Error).message, "error");
     }
   }
 
   async function send(messageOverride?: string) {
+    if (sending) return;
     const msg = (messageOverride ?? input).trim();
-    if (!msg || sending) return;
-    if (!messageOverride) setInput("");
-    setSending(true);
-    setStreamingReply("");
-
-    // Optimistic user bubble. The server sends back the persisted row as the
-    // first SSE event; we swap this temp entry out at that point.
-    const tempId = `temp-${Date.now()}`;
-    const tempUser: ConversationMessage = {
-      id: tempId,
-      conversationId: activeId ?? "",
-      role: "user",
-      content: msg,
-      status: null,
-      createdAt: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, tempUser]);
-
-    let accumulated = "";
-    let gotAssistant = false;
-    try {
-      // Lazily create a conversation on first send so the sidebar stays
-      // empty for employees you've never chatted with.
-      let convId = activeId;
-      if (!convId) {
-        const created = await createConversation();
-        convId = created.id;
-        setActiveId(convId);
-      }
-
-      await api.stream(
-        `${base}/conversations/${convId}/messages`,
-        { message: msg },
-        (event, data) => {
-          if (event === "user") {
-            const userMsg = data as ConversationMessage;
-            setMessages((prev) =>
-              prev.map((m) => (m.id === tempId ? userMsg : m)),
-            );
-          } else if (event === "chunk") {
-            const text = (data as { text?: string } | null)?.text ?? "";
-            accumulated += text;
-            setStreamingReply(accumulated);
-          } else if (event === "assistant") {
-            const assistantMsg = data as ConversationMessage;
-            gotAssistant = true;
-            setMessages((prev) => [...prev, assistantMsg]);
-            setStreamingReply(null);
-          } else if (event === "conversation") {
-            const conv = data as ConversationSummary;
-            setConvs((prev) => {
-              const idx = prev.findIndex((c) => c.id === conv.id);
-              const next = [...prev];
-              if (idx >= 0) next.splice(idx, 1);
-              return [conv, ...next];
-            });
-          } else if (event === "error") {
-            throw new Error(
-              ((data as { message?: string } | null)?.message) ||
-                "Chat stream failed",
-            );
-          }
-          // "done" is a no-op — the reader loop exits when the server closes
-          // the stream.
-        },
-      );
-
-      // If the server closed the stream without sending an assistant event
-      // (shouldn't happen in the normal path), synthesize a fallback from
-      // what we accumulated so the user isn't left staring at a ghost bubble.
-      if (!gotAssistant) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `local-${Date.now()}`,
-            conversationId: activeId ?? "",
-            role: "assistant",
-            content: accumulated.trim() || "(no reply)",
-            status: accumulated.trim() ? "ok" : "error",
-            createdAt: new Date().toISOString(),
-          },
-        ]);
-        setStreamingReply(null);
-      }
-    } catch (err) {
-      const m = (err as Error).message;
-      toast(m, "error");
-      setStreamingReply(null);
-      setMessages((prev) => [
-        ...prev.filter((x) => x.id !== tempId),
-        tempUser,
-        {
-          id: `err-${Date.now()}`,
-          conversationId: activeId ?? "",
-          role: "assistant",
-          content: accumulated.trim() ? accumulated + "\n\n" + m : m,
-          status: "error",
-          createdAt: new Date().toISOString(),
-        },
-      ]);
-    } finally {
-      setSending(false);
-      inputRef.current?.focus();
-    }
+    if (!msg) return;
+    const err = await actions.send(company.id, emp.id, msg, {
+      clearInput: !messageOverride,
+    });
+    if (err) toast(err, "error");
+    inputRef.current?.focus();
   }
 
-  const activeConv = convs.find((c) => c.id === activeId) ?? null;
+  const activeConv = convs.find((c) => c.id === activeConvId) ?? null;
+  // Show a skeleton while bootstrapping or while the active thread is still
+  // loading — otherwise there's a visible EmptyState flash between the
+  // conv-list fetch and the messages fetch.
+  const isLoadingMessages =
+    !convsLoaded ||
+    convLoading ||
+    (!!activeConvId && loadedConvId !== activeConvId);
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden bg-white dark:bg-slate-950">
       <ConversationList
         convs={convs}
-        activeId={activeId}
-        onSelect={setActiveId}
+        archivedConvs={session.archivedConvs}
+        archivedLoaded={session.archivedLoaded}
+        activeId={activeConvId}
+        onSelect={(id) => actions.update(emp.id, { activeConvId: id })}
         onDelete={handleDelete}
+        onArchive={handleArchive}
+        onUnarchive={handleUnarchive}
+        onLoadArchived={() =>
+          actions
+            .loadArchived(company.id, emp.id)
+            .catch((err) => toast((err as Error).message, "error"))
+        }
         onNew={handleNewClick}
       />
 
@@ -279,7 +186,7 @@ export default function EmployeeChat() {
           ref={scrollRef}
           className="flex-1 overflow-y-auto bg-slate-50/50 px-4 py-6 dark:bg-slate-900/40 sm:px-8"
         >
-          {loadingConv ? (
+          {isLoadingMessages ? (
             <MessageSkeleton />
           ) : messages.length === 0 ? (
             <EmptyState empName={emp.name} empRole={emp.role} onPick={(t) => send(t)} />
@@ -313,7 +220,7 @@ export default function EmployeeChat() {
         <Composer
           inputRef={inputRef}
           value={input}
-          onChange={setInput}
+          onChange={(v) => actions.update(emp.id, { input: v })}
           onSubmit={() => send()}
           disabled={sending}
           empName={emp.name}
@@ -334,17 +241,37 @@ export default function EmployeeChat() {
 
 function ConversationList({
   convs,
+  archivedConvs,
+  archivedLoaded,
   activeId,
   onSelect,
   onDelete,
+  onArchive,
+  onUnarchive,
+  onLoadArchived,
   onNew,
 }: {
   convs: ConversationSummary[];
+  archivedConvs: ConversationSummary[];
+  archivedLoaded: boolean;
   activeId: string | null;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
+  onArchive: (id: string) => void;
+  onUnarchive: (id: string) => void;
+  onLoadArchived: () => void;
   onNew: () => void;
 }) {
+  const [archivedOpen, setArchivedOpen] = React.useState(false);
+
+  function toggleArchived() {
+    const next = !archivedOpen;
+    setArchivedOpen(next);
+    // Fetch lazily — the archived list is a secondary view most people
+    // won't open, so we don't want to pay for it on every Chat mount.
+    if (next && !archivedLoaded) onLoadArchived();
+  }
+
   return (
     <aside className="hidden w-64 shrink-0 flex-col border-r border-slate-200 bg-slate-50/60 dark:border-slate-800 dark:bg-slate-950 md:flex">
       <div className="flex items-center justify-between border-b border-slate-200 px-3 py-3 dark:border-slate-800">
@@ -368,46 +295,136 @@ function ConversationList({
         ) : (
           <ul className="flex flex-col gap-0.5">
             {convs.map((c) => (
-              <li key={c.id}>
-                <div
-                  className={
-                    "group flex items-center gap-1 rounded-md px-2 py-1.5 text-sm " +
-                    (c.id === activeId
-                      ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-700"
-                      : "text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800/70")
-                  }
-                >
+              <ConversationRow
+                key={c.id}
+                conv={c}
+                active={c.id === activeId}
+                onSelect={onSelect}
+                actions={
                   <button
-                    onClick={() => onSelect(c.id)}
-                    className="flex-1 min-w-0 text-left"
-                    title={c.title ?? "New conversation"}
+                    onClick={() => onArchive(c.id)}
+                    className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                    aria-label="Archive conversation"
+                    title="Archive"
                   >
-                    <div className="truncate text-[13px] font-medium">
-                      {c.title ?? (
-                        <span className="italic text-slate-400 dark:text-slate-500">
-                          New conversation
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-0.5 truncate text-[11px] text-slate-400 dark:text-slate-500">
-                      {formatRelative(c.lastMessageAt ?? c.updatedAt)}
-                    </div>
+                    <Archive size={12} />
                   </button>
-                  <button
-                    onClick={() => onDelete(c.id)}
-                    className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-rose-600 group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-rose-400"
-                    aria-label="Delete conversation"
-                    title="Delete"
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                </div>
-              </li>
+                }
+              />
             ))}
           </ul>
         )}
+
+        <div className="mt-3 border-t border-slate-200 pt-2 dark:border-slate-800">
+          <button
+            onClick={toggleArchived}
+            className="flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            aria-expanded={archivedOpen}
+          >
+            {archivedOpen ? (
+              <ChevronDown size={12} />
+            ) : (
+              <ChevronRight size={12} />
+            )}
+            <span className="flex-1 text-left">Archived</span>
+            {archivedLoaded && archivedConvs.length > 0 && (
+              <span className="text-slate-400 dark:text-slate-500">
+                {archivedConvs.length}
+              </span>
+            )}
+          </button>
+          {archivedOpen &&
+            (!archivedLoaded ? (
+              <div className="px-2 py-2 text-[11px] text-slate-400 dark:text-slate-500">
+                Loading…
+              </div>
+            ) : archivedConvs.length === 0 ? (
+              <div className="px-2 py-2 text-[11px] text-slate-400 dark:text-slate-500">
+                Nothing archived.
+              </div>
+            ) : (
+              <ul className="flex flex-col gap-0.5 pt-1">
+                {archivedConvs.map((c) => (
+                  <ConversationRow
+                    key={c.id}
+                    conv={c}
+                    active={c.id === activeId}
+                    onSelect={onSelect}
+                    muted
+                    actions={
+                      <>
+                        <button
+                          onClick={() => onUnarchive(c.id)}
+                          className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-emerald-600 group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-emerald-400"
+                          aria-label="Unarchive conversation"
+                          title="Unarchive"
+                        >
+                          <ArchiveRestore size={12} />
+                        </button>
+                        <button
+                          onClick={() => onDelete(c.id)}
+                          className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-rose-600 group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-rose-400"
+                          aria-label="Delete conversation"
+                          title="Delete"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </>
+                    }
+                  />
+                ))}
+              </ul>
+            ))}
+        </div>
       </div>
     </aside>
+  );
+}
+
+function ConversationRow({
+  conv,
+  active,
+  muted,
+  onSelect,
+  actions,
+}: {
+  conv: ConversationSummary;
+  active: boolean;
+  muted?: boolean;
+  onSelect: (id: string) => void;
+  actions: React.ReactNode;
+}) {
+  return (
+    <li>
+      <div
+        className={
+          "group flex items-center gap-1 rounded-md px-2 py-1.5 text-sm " +
+          (active
+            ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-700"
+            : (muted
+                ? "text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800/70"
+                : "text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800/70"))
+        }
+      >
+        <button
+          onClick={() => onSelect(conv.id)}
+          className="flex-1 min-w-0 text-left"
+          title={conv.title ?? "New conversation"}
+        >
+          <div className="truncate text-[13px] font-medium">
+            {conv.title ?? (
+              <span className="italic text-slate-400 dark:text-slate-500">
+                New conversation
+              </span>
+            )}
+          </div>
+          <div className="mt-0.5 truncate text-[11px] text-slate-400 dark:text-slate-500">
+            {formatRelative(conv.lastMessageAt ?? conv.updatedAt)}
+          </div>
+        </button>
+        {actions}
+      </div>
+    </li>
   );
 }
 
