@@ -82,6 +82,19 @@ async function uniqueProjectSlug(companyId: string, base: string): Promise<strin
   return slug;
 }
 
+async function findProjectByName(
+  companyId: string,
+  name: string,
+  excludeId?: string,
+): Promise<Project | null> {
+  const qb = AppDataSource.getRepository(Project)
+    .createQueryBuilder("p")
+    .where("p.companyId = :companyId", { companyId })
+    .andWhere("LOWER(p.name) = LOWER(:name)", { name: name.trim() });
+  if (excludeId) qb.andWhere("p.id != :excludeId", { excludeId });
+  return qb.getOne();
+}
+
 function deriveKey(name: string): string {
   const cleaned = name
     .toUpperCase()
@@ -175,6 +188,9 @@ const createProjectSchema = z.object({
 projectsRouter.post("/projects", validateBody(createProjectSchema), async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const body = req.body as z.infer<typeof createProjectSchema>;
+  if (await findProjectByName(cid, body.name)) {
+    return res.status(409).json({ error: "A project with that name already exists" });
+  }
   const repo = AppDataSource.getRepository(Project);
   const slug = await uniqueProjectSlug(cid, toSlug(body.name));
   const key = (body.key ?? deriveKey(body.name)).toUpperCase();
@@ -224,7 +240,14 @@ projectsRouter.patch(
     const p = await loadProjectBySlug(cid, req.params.pSlug);
     if (!p) return res.status(404).json({ error: "Project not found" });
     const body = req.body as z.infer<typeof patchProjectSchema>;
-    if (body.name !== undefined) p.name = body.name;
+    if (body.name !== undefined) {
+      if (await findProjectByName(cid, body.name, p.id)) {
+        return res
+          .status(409)
+          .json({ error: "A project with that name already exists" });
+      }
+      p.name = body.name;
+    }
     if (body.description !== undefined) p.description = body.description;
     if (body.key !== undefined) p.key = body.key.toUpperCase();
     await AppDataSource.getRepository(Project).save(p);

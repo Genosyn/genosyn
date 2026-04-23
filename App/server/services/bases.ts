@@ -33,6 +33,38 @@ export async function uniqueBaseSlug(companyId: string, base: string): Promise<s
   return slug;
 }
 
+/**
+ * Case-insensitive lookup of a base by display name within a company. Used to
+ * reject duplicates at create/rename time so the sidebar stays unambiguous.
+ * Pass `excludeId` when renaming to ignore the row being edited.
+ */
+export async function findBaseByName(
+  companyId: string,
+  name: string,
+  excludeId?: string,
+): Promise<Base | null> {
+  const qb = AppDataSource.getRepository(Base)
+    .createQueryBuilder("b")
+    .where("b.companyId = :companyId", { companyId })
+    .andWhere("LOWER(b.name) = LOWER(:name)", { name: name.trim() });
+  if (excludeId) qb.andWhere("b.id != :excludeId", { excludeId });
+  return qb.getOne();
+}
+
+/** Same shape as {@link findBaseByName}, scoped to a single base's tables. */
+export async function findBaseTableByName(
+  baseId: string,
+  name: string,
+  excludeId?: string,
+): Promise<BaseTable | null> {
+  const qb = AppDataSource.getRepository(BaseTable)
+    .createQueryBuilder("t")
+    .where("t.baseId = :baseId", { baseId })
+    .andWhere("LOWER(t.name) = LOWER(:name)", { name: name.trim() });
+  if (excludeId) qb.andWhere("t.id != :excludeId", { excludeId });
+  return qb.getOne();
+}
+
 export async function uniqueTableSlug(baseId: string, base: string): Promise<string> {
   const repo = AppDataSource.getRepository(BaseTable);
   const seed = base || "table";

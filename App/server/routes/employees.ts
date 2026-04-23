@@ -39,6 +39,19 @@ async function uniqueEmpSlug(companyId: string, base: string): Promise<string> {
   return slug;
 }
 
+async function findEmployeeByName(
+  companyId: string,
+  name: string,
+  excludeId?: string,
+): Promise<AIEmployee | null> {
+  const qb = AppDataSource.getRepository(AIEmployee)
+    .createQueryBuilder("e")
+    .where("e.companyId = :companyId", { companyId })
+    .andWhere("LOWER(e.name) = LOWER(:name)", { name: name.trim() });
+  if (excludeId) qb.andWhere("e.id != :excludeId", { excludeId });
+  return qb.getOne();
+}
+
 employeesRouter.get("/", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const co = await loadCompany(cid);
@@ -77,6 +90,11 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
   const body = req.body as z.infer<typeof createSchema>;
   const co = await loadCompany((req.params as Record<string, string>).cid);
   if (!co) return res.status(404).json({ error: "Company not found" });
+  if (await findEmployeeByName(co.id, body.name)) {
+    return res
+      .status(409)
+      .json({ error: "An employee with that name already exists" });
+  }
   const repo = AppDataSource.getRepository(AIEmployee);
   const slug = await uniqueEmpSlug(co.id, toSlug(body.name));
   const template = body.templateId ? findTemplate(body.templateId) : undefined;
@@ -170,7 +188,14 @@ employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
   const emp = await repo.findOneBy({ id: req.params.eid, companyId: (req.params as Record<string, string>).cid });
   if (!emp) return res.status(404).json({ error: "Not found" });
   const before = { name: emp.name, role: emp.role };
-  if (body.name !== undefined) emp.name = body.name;
+  if (body.name !== undefined) {
+    if (await findEmployeeByName(emp.companyId, body.name, emp.id)) {
+      return res
+        .status(409)
+        .json({ error: "An employee with that name already exists" });
+    }
+    emp.name = body.name;
+  }
   if (body.role !== undefined) emp.role = body.role;
   await repo.save(emp);
   await recordAudit({

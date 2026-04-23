@@ -23,6 +23,8 @@ import {
 } from "../services/integrations.js";
 import {
   buildLinkOptionsFor,
+  findBaseByName,
+  findBaseTableByName,
   grantBaseAccess,
   hasBaseGrant,
   hydrateField,
@@ -249,6 +251,16 @@ mcpInternalRouter.post(
     if (!target) return res.status(404).json({ error: "Employee not found" });
 
     const repo = AppDataSource.getRepository(Routine);
+    const dup = await repo
+      .createQueryBuilder("r")
+      .where("r.employeeId = :eid", { eid: target.id })
+      .andWhere("LOWER(r.name) = LOWER(:name)", { name: body.name.trim() })
+      .getOne();
+    if (dup) {
+      return res.status(409).json({
+        error: `A routine named "${body.name}" already exists for ${target.name}`,
+      });
+    }
     const baseSlug = toSlug(body.name) || "routine";
     let slug = baseSlug;
     let n = 1;
@@ -330,6 +342,16 @@ mcpInternalRouter.post(
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
     const repo = AppDataSource.getRepository(Project);
+    const dup = await repo
+      .createQueryBuilder("p")
+      .where("p.companyId = :cid", { cid: co.id })
+      .andWhere("LOWER(p.name) = LOWER(:name)", { name: body.name.trim() })
+      .getOne();
+    if (dup) {
+      return res.status(409).json({
+        error: `A project named "${body.name}" already exists in this company`,
+      });
+    }
     const baseSlug = toSlug(body.name) || "project";
     let slug = baseSlug;
     let n = 1;
@@ -1109,6 +1131,12 @@ mcpInternalRouter.post(
       return res.status(400).json({ error: `Unknown template: ${body.templateId}` });
     }
 
+    if (await findBaseByName(co.id, body.name)) {
+      return res
+        .status(409)
+        .json({ error: `A base named "${body.name}" already exists in this company` });
+    }
+
     const slug = await uniqueBaseSlug(co.id, toSlug(body.name));
     const repo = AppDataSource.getRepository(Base);
     const b = await repo.save(
@@ -1165,6 +1193,11 @@ mcpInternalRouter.post(
     const b = await loadGrantedBase(req, res, body.baseSlug);
     if (!b) return;
 
+    if (await findBaseTableByName(b.id, body.name)) {
+      return res.status(409).json({
+        error: `A table named "${body.name}" already exists in base "${b.name}"`,
+      });
+    }
     const slug = await uniqueTableSlug(b.id, toSlug(body.name));
     const last = await AppDataSource.getRepository(BaseTable).findOne({
       where: { baseId: b.id },
@@ -1228,6 +1261,11 @@ mcpInternalRouter.post(
     const t = await tableRepo.findOneBy({ baseId: b.id, slug: body.tableSlug });
     if (!t) return res.status(404).json({ error: "Table not found" });
 
+    if (await findBaseTableByName(b.id, body.name, t.id)) {
+      return res.status(409).json({
+        error: `A table named "${body.name}" already exists in base "${b.name}"`,
+      });
+    }
     const prevName = t.name;
     t.name = body.name;
     await tableRepo.save(t);

@@ -38,6 +38,19 @@ async function uniqueSlug(employeeId: string, base: string): Promise<string> {
   return slug;
 }
 
+async function findRoutineByName(
+  employeeId: string,
+  name: string,
+  excludeId?: string,
+): Promise<Routine | null> {
+  const qb = AppDataSource.getRepository(Routine)
+    .createQueryBuilder("r")
+    .where("r.employeeId = :employeeId", { employeeId })
+    .andWhere("LOWER(r.name) = LOWER(:name)", { name: name.trim() });
+  if (excludeId) qb.andWhere("r.id != :excludeId", { excludeId });
+  return qb.getOne();
+}
+
 routinesRouter.get("/employees/:eid/routines", async (req, res) => {
   const emp = await loadEmp((req.params as Record<string, string>).cid, req.params.eid);
   if (!emp) return res.status(404).json({ error: "Employee not found" });
@@ -61,6 +74,11 @@ routinesRouter.post(
     const co = await loadCo((req.params as Record<string, string>).cid);
     if (!co) return res.status(404).json({ error: "Company not found" });
     const body = req.body as z.infer<typeof createSchema>;
+    if (await findRoutineByName(emp.id, body.name)) {
+      return res
+        .status(409)
+        .json({ error: "A routine with that name already exists for this employee" });
+    }
     const slug = await uniqueSlug(emp.id, toSlug(body.name));
     const repo = AppDataSource.getRepository(Routine);
     const r = repo.create({
@@ -119,7 +137,14 @@ routinesRouter.patch(
     if (!found) return res.status(404).json({ error: "Not found" });
     const body = req.body as z.infer<typeof patchSchema>;
     const r = found.routine;
-    if (body.name !== undefined) r.name = body.name;
+    if (body.name !== undefined) {
+      if (await findRoutineByName(r.employeeId, body.name, r.id)) {
+        return res
+          .status(409)
+          .json({ error: "A routine with that name already exists for this employee" });
+      }
+      r.name = body.name;
+    }
     if (body.cronExpr !== undefined) r.cronExpr = body.cronExpr;
     if (body.enabled !== undefined) r.enabled = body.enabled;
     if (body.timeoutSec !== undefined) r.timeoutSec = body.timeoutSec;

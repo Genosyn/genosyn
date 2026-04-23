@@ -15,6 +15,8 @@ import { chatWithEmployee } from "../services/chat.js";
 import {
   buildLinkOptionsFor,
   deleteGrantsForBase,
+  findBaseByName,
+  findBaseTableByName,
   grantBaseAccess,
   hydrateField,
   hydrateRecord,
@@ -121,6 +123,10 @@ basesRouter.post("/bases", validateBody(createBaseSchema), async (req, res) => {
     return res.status(400).json({ error: "Unknown template" });
   }
 
+  if (await findBaseByName(cid, body.name)) {
+    return res.status(409).json({ error: "A base with that name already exists" });
+  }
+
   const slug = await uniqueBaseSlug(cid, toSlug(body.name));
   const repo = AppDataSource.getRepository(Base);
   const b = await repo.save(
@@ -161,7 +167,14 @@ basesRouter.patch(
     const b = await loadBaseBySlug(cid, req.params.baseSlug);
     if (!b) return res.status(404).json({ error: "Base not found" });
     const body = req.body as z.infer<typeof patchBaseSchema>;
-    if (body.name !== undefined) b.name = body.name;
+    if (body.name !== undefined) {
+      if (await findBaseByName(cid, body.name, b.id)) {
+        return res
+          .status(409)
+          .json({ error: "A base with that name already exists" });
+      }
+      b.name = body.name;
+    }
     if (body.description !== undefined) b.description = body.description;
     if (body.icon !== undefined) b.icon = body.icon;
     if (body.color !== undefined) b.color = body.color;
@@ -291,6 +304,11 @@ basesRouter.post(
     const b = await loadBaseBySlug(cid, req.params.baseSlug);
     if (!b) return res.status(404).json({ error: "Base not found" });
     const body = req.body as z.infer<typeof createTableSchema>;
+    if (await findBaseTableByName(b.id, body.name)) {
+      return res
+        .status(409)
+        .json({ error: "A table with that name already exists in this base" });
+    }
     const slug = await uniqueTableSlug(b.id, toSlug(body.name));
     const last = await AppDataSource.getRepository(BaseTable).findOne({
       where: { baseId: b.id },
@@ -334,7 +352,14 @@ basesRouter.patch(
     const t = await loadTable(b.id, req.params.tableId);
     if (!t) return res.status(404).json({ error: "Table not found" });
     const body = req.body as z.infer<typeof patchTableSchema>;
-    if (body.name !== undefined) t.name = body.name;
+    if (body.name !== undefined) {
+      if (await findBaseTableByName(b.id, body.name, t.id)) {
+        return res
+          .status(409)
+          .json({ error: "A table with that name already exists in this base" });
+      }
+      t.name = body.name;
+    }
     if (body.sortOrder !== undefined) t.sortOrder = body.sortOrder;
     await AppDataSource.getRepository(BaseTable).save(t);
     res.json(t);

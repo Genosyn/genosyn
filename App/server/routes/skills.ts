@@ -31,6 +31,17 @@ async function uniqueSlug(employeeId: string, base: string): Promise<string> {
   return slug;
 }
 
+async function findSkillByName(
+  employeeId: string,
+  name: string,
+): Promise<Skill | null> {
+  return AppDataSource.getRepository(Skill)
+    .createQueryBuilder("s")
+    .where("s.employeeId = :employeeId", { employeeId })
+    .andWhere("LOWER(s.name) = LOWER(:name)", { name: name.trim() })
+    .getOne();
+}
+
 skillsRouter.get("/employees/:eid/skills", async (req, res) => {
   const emp = await loadEmp((req.params as Record<string, string>).cid, req.params.eid);
   if (!emp) return res.status(404).json({ error: "Employee not found" });
@@ -51,6 +62,11 @@ skillsRouter.post(
     const co = await loadCo((req.params as Record<string, string>).cid);
     if (!co) return res.status(404).json({ error: "Company not found" });
     const { name } = req.body as z.infer<typeof createSchema>;
+    if (await findSkillByName(emp.id, name)) {
+      return res
+        .status(409)
+        .json({ error: "A skill with that name already exists" });
+    }
     const slug = await uniqueSlug(emp.id, toSlug(name));
     const repo = AppDataSource.getRepository(Skill);
     const s = repo.create({
