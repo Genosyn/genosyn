@@ -116,6 +116,7 @@ export async function streamChatWithEmployee(
       cwd,
       env: childEnv,
       onChunk,
+      parser: invocation.parser,
     });
     return { status: "ok", reply: stdout.trim() || "(no reply)" };
   } catch (err) {
@@ -249,11 +250,13 @@ function buildProviderEnv(
   return { env: { ...base, [spec.apiKeyEnv]: key } };
 }
 
+type StreamParser = "text" | "claude-jsonl";
+
 function buildInvocation(
   provider: AIModel["provider"],
   modelStr: string,
   prompt: string,
-): { cmd: string; args: string[] } {
+): { cmd: string; args: string[]; parser: StreamParser } {
   switch (provider) {
     case "claude-code":
       // `--allowedTools "mcp__genosyn"` pre-approves every tool the built-in
@@ -261,6 +264,16 @@ function buildInvocation(
       // MCP servers from `.mcp.json` (the interactive approval prompt can't
       // fire in headless mode) and the model hallucinates actions it never
       // actually performed.
+      //
+      // `--output-format stream-json --verbose --include-partial-messages`
+      // flips claude into line-delimited JSON events. The default text
+      // format stays silent on stdout while claude is in a tool-use loop —
+      // all MCP traffic runs over a separate stdio pipe to the mcp-genosyn
+      // child — which made multi-tool turns (e.g. creating a base plus
+      // dozens of rows) trip the 3-minute no-output watchdog even while
+      // real work was happening. With stream-json we see an event per
+      // message, tool_use, tool_result, and per-token text delta, so the
+      // idle timer only fires when claude is genuinely wedged.
       return {
         cmd: "claude",
         args: [
@@ -270,7 +283,12 @@ function buildInvocation(
           modelStr,
           "--allowedTools",
           "mcp__genosyn",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--include-partial-messages",
         ],
+        parser: "claude-jsonl",
       };
     case "codex":
       // `--ask-for-approval never` keeps codex from blocking on a tty prompt
@@ -290,16 +308,21 @@ function buildInvocation(
           "workspace-write",
           prompt,
         ],
+        parser: "text",
       };
     case "opencode":
-      return { cmd: "opencode", args: ["run", "--model", modelStr, prompt] };
+      return {
+        cmd: "opencode",
+        args: ["run", "--model", modelStr, prompt],
+        parser: "text",
+      };
   }
 }
 
 /**
- * Spawn the CLI, forward stdout chunks via `onChunk` as they arrive, and
- * resolve with the full accumulated text on clean exit. stderr is surfaced
- * via the rejection so the UI can show it without a second response field.
+ * Spawn the CLI, forward reply text via `onChunk` as it arrives, and resolve
+ * with the full accumulated text on clean exit. stderr is surfaced via the
+ * rejection so the UI can show it without a second response field.
  *
  * Two-stage liveness: a hard ceiling on the whole turn and a sliding idle
  * window that resets on every stdout chunk. The idle window catches a CLI
@@ -307,6 +330,21 @@ function buildInvocation(
  * dribbling bytes forever. A tight single timeout (the old 60s cap) would
  * cut off legit multi-tool turns — e.g. the AI listing Metabase dashboards
  * and then fetching one — which is what was timing out in practice.
+ *
+ * Two parser modes:
+ *  - "text"         raw stdout bytes are the reply; what claude used to emit
+ *                   under `--output-format text`, and what codex/opencode
+ *                   emit natively.
+ *  - "claude-jsonl" stdout is newline-delimited JSON events from
+ *                   `claude -p --output-format stream-json --verbose
+ *                   --include-partial-messages`. We extract text deltas from
+ *                   `stream_event` entries to drive the UI stream, and take
+ *                   the final `result` event's `result` field as the
+ *                   authoritative reply body. Tool-use and tool-result
+ *                   events don't carry reply text but still reset the idle
+ *                   timer, which is the whole point of switching — the
+ *                   default text format stays silent on stdout while claude
+ *                   is in a tool-call loop.
  */
 const CHAT_HARD_TIMEOUT_MS = 10 * 60_000;
 const CHAT_IDLE_TIMEOUT_MS = 3 * 60_000;
@@ -318,11 +356,14 @@ function spawnAndStream(
     cwd: string;
     env: NodeJS.ProcessEnv;
     onChunk: (chunk: string) => void;
+    parser: StreamParser;
   },
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env });
-    let out = "";
+    let reply = "";
+    let finalResult: string | null = null;
+    let jsonlTail = "";
     let err = "";
     let settled = false;
     const cap = 1024 * 1024;
@@ -363,18 +404,70 @@ function spawnAndStream(
     };
     resetIdle();
 
-    child.stdout.on("data", (b: Buffer) => {
-      resetIdle();
-      const text = b.toString("utf8");
-      if (out.length < cap) {
-        out += text;
-        // Forward to the streaming seam even once we hit the cap — the UI
-        // would rather see the final bytes than silently truncate.
+    const forwardText = (text: string) => {
+      if (!text) return;
+      if (reply.length < cap) {
+        reply += text;
         try {
           opts.onChunk(text);
         } catch {
           // Never let a consumer callback take down the CLI stream.
         }
+      }
+    };
+
+    const handleClaudeEvent = (evt: unknown) => {
+      if (!evt || typeof evt !== "object") return;
+      const e = evt as Record<string, unknown>;
+      if (e.type === "stream_event") {
+        // Per-token deltas (from --include-partial-messages). text_delta is
+        // the only variant that carries human-visible reply prose; thinking
+        // and input_json deltas aren't for the UI bubble.
+        const inner = e.event as Record<string, unknown> | undefined;
+        if (inner?.type === "content_block_delta") {
+          const delta = inner.delta as Record<string, unknown> | undefined;
+          if (delta?.type === "text_delta" && typeof delta.text === "string") {
+            forwardText(delta.text);
+          }
+        }
+        return;
+      }
+      if (e.type === "result" && typeof e.result === "string") {
+        // Authoritative final reply. Replaces whatever we streamed so the
+        // saved assistant row matches what claude actually concluded with.
+        finalResult = e.result;
+      }
+      // Everything else (system init, assistant/user envelopes, tool_use,
+      // tool_result) is metadata for us. Reaching this function at all has
+      // already reset the idle timer via the stdout handler.
+    };
+
+    const consumeJsonl = (chunk: string) => {
+      jsonlTail += chunk;
+      let nl = jsonlTail.indexOf("\n");
+      while (nl !== -1) {
+        const line = jsonlTail.slice(0, nl).trim();
+        jsonlTail = jsonlTail.slice(nl + 1);
+        if (line) {
+          try {
+            handleClaudeEvent(JSON.parse(line));
+          } catch {
+            // Malformed line — skip rather than aborting the whole turn.
+            // claude shouldn't emit these, but a partial flush at EOF is
+            // possible and not worth killing the stream over.
+          }
+        }
+        nl = jsonlTail.indexOf("\n");
+      }
+    };
+
+    child.stdout.on("data", (b: Buffer) => {
+      resetIdle();
+      const text = b.toString("utf8");
+      if (opts.parser === "claude-jsonl") {
+        consumeJsonl(text);
+      } else {
+        forwardText(text);
       }
     });
     child.stderr.on("data", (b: Buffer) => {
@@ -386,7 +479,7 @@ function spawnAndStream(
     });
     child.on("close", (code) => {
       settle(() => {
-        if (code === 0) resolve(out);
+        if (code === 0) resolve(finalResult ?? reply);
         else reject(new Error(err.trim() || `${cmd} exited with code ${code}`));
       });
     });
