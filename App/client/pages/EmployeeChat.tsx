@@ -301,14 +301,24 @@ function ConversationList({
                 active={c.id === activeId}
                 onSelect={onSelect}
                 actions={
-                  <button
-                    onClick={() => onArchive(c.id)}
-                    className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                    aria-label="Archive conversation"
-                    title="Archive"
-                  >
-                    <Archive size={12} />
-                  </button>
+                  <>
+                    <button
+                      onClick={() => onArchive(c.id)}
+                      className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                      aria-label="Archive conversation"
+                      title="Archive"
+                    >
+                      <Archive size={12} />
+                    </button>
+                    <button
+                      onClick={() => onDelete(c.id)}
+                      className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-rose-600 group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-rose-400"
+                      aria-label="Delete conversation"
+                      title="Delete"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </>
                 }
               />
             ))}
