@@ -34,12 +34,59 @@ type AppShellProps = {
 };
 
 export function AppShell({ me, companies, current, onCompaniesChanged, children }: AppShellProps) {
+  const attention = useAttention(current.id);
   return (
     <div className="flex h-full flex-col">
-      <TopNav me={me} companies={companies} current={current} onCompaniesChanged={onCompaniesChanged} />
+      <TopNav
+        me={me}
+        companies={companies}
+        current={current}
+        onCompaniesChanged={onCompaniesChanged}
+        attention={attention}
+      />
       <div className="flex min-h-0 flex-1">{children}</div>
     </div>
   );
+}
+
+type AttentionSummary = { reviewCount: number; mentionCount: number };
+
+/**
+ * Polls the per-company "needs your attention" summary. Drives the counter
+ * pills on the Workspace / Tasks top-nav tabs so the UI can nudge the viewer
+ * toward pending reviews and unread @mentions without them hunting for it.
+ *
+ * Re-fetches on focus and every 30s — short enough that badges feel live,
+ * long enough that an idle tab doesn't hammer the API.
+ */
+function useAttention(companyId: string): AttentionSummary {
+  const [state, setState] = React.useState<AttentionSummary>({
+    reviewCount: 0,
+    mentionCount: 0,
+  });
+  React.useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const data = await api.get<AttentionSummary>(
+          `/api/companies/${companyId}/attention`,
+        );
+        if (!cancelled) setState(data);
+      } catch {
+        // Swallow — a failed poll shouldn't clobber the stale badge value.
+      }
+    }
+    load();
+    const interval = window.setInterval(load, 30_000);
+    const onFocus = () => load();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [companyId]);
+  return state;
 }
 
 function TopNav({
@@ -47,11 +94,13 @@ function TopNav({
   companies,
   current,
   onCompaniesChanged,
+  attention,
 }: {
   me: Me;
   companies: Company[];
   current: Company;
   onCompaniesChanged: () => void;
+  attention: AttentionSummary;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -136,9 +185,31 @@ function TopNav({
       </div>
 
       <nav className="flex items-center gap-1">
-        <TopTab to={`/c/${current.slug}/workspace`} active={section === "workspace"} label="Workspace" />
+        <TopTab
+          to={`/c/${current.slug}/workspace`}
+          active={section === "workspace"}
+          label="Workspace"
+          badge={attention.mentionCount}
+          badgeTitle={
+            attention.mentionCount === 1
+              ? "1 unread mention"
+              : `${attention.mentionCount} unread mentions`
+          }
+          badgeTone="rose"
+        />
         <TopTab to={`/c/${current.slug}`} active={section === "employees"} label="Employees" />
-        <TopTab to={`/c/${current.slug}/tasks`} active={section === "tasks"} label="Tasks" />
+        <TopTab
+          to={`/c/${current.slug}/tasks`}
+          active={section === "tasks"}
+          label="Tasks"
+          badge={attention.reviewCount}
+          badgeTitle={
+            attention.reviewCount === 1
+              ? "1 task in review"
+              : `${attention.reviewCount} tasks in review`
+          }
+          badgeTone="violet"
+        />
         <TopTab to={`/c/${current.slug}/bases`} active={section === "bases"} label="Bases" />
         <TopTab
           to={`/c/${current.slug}/approvals`}
@@ -190,18 +261,48 @@ function TopNav({
   );
 }
 
-function TopTab({ to, active, label }: { to: string; active: boolean; label: string }) {
+type BadgeTone = "rose" | "violet";
+
+function TopTab({
+  to,
+  active,
+  label,
+  badge,
+  badgeTitle,
+  badgeTone = "violet",
+}: {
+  to: string;
+  active: boolean;
+  label: string;
+  badge?: number;
+  badgeTitle?: string;
+  badgeTone?: BadgeTone;
+}) {
+  const show = typeof badge === "number" && badge > 0;
   return (
     <Link
       to={to}
       className={
-        "rounded-md px-3 py-1.5 text-sm font-medium " +
+        "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium " +
         (active
           ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
           : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800")
       }
     >
-      {label}
+      <span>{label}</span>
+      {show && (
+        <span
+          title={badgeTitle}
+          className={
+            "inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-[10px] font-semibold tabular-nums " +
+            (badgeTone === "rose"
+              ? "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-200"
+              : "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-200")
+          }
+        >
+          {badge! > 99 ? "99+" : badge}
+        </span>
+      )}
     </Link>
   );
 }

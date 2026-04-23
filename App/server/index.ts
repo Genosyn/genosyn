@@ -20,6 +20,7 @@ import { routinesRouter } from "./routes/routines.js";
 import { modelsRouter } from "./routes/models.js";
 import { employeeSurfaceRouter } from "./routes/employeeSurface.js";
 import { projectsRouter } from "./routes/projects.js";
+import { attentionRouter } from "./routes/attention.js";
 import { approvalsRouter } from "./routes/approvals.js";
 import { webhooksRouter } from "./routes/webhooks.js";
 import { mcpRouter } from "./routes/mcp.js";
@@ -85,6 +86,8 @@ async function main() {
   app.use("/api/companies/:cid", routinesRouter);
   // Projects + Todos (task manager). See ROADMAP.md V1 backlog.
   app.use("/api/companies/:cid", projectsRouter);
+  // Notification-badge summary (review queue + workspace mentions).
+  app.use("/api/companies/:cid", attentionRouter);
   // Bases (Airtable-style workspaces) — companion to Tasks.
   app.use("/api/companies/:cid", basesRouter);
   app.use("/api/companies/:cid", approvalsRouter);
