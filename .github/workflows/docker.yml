@@ -34,8 +34,12 @@ jobs:
         include:
           - project: App
             image: app
+            context: ./App
           - project: Home
+            # Build from repo root so Home's prebuild (sync-cli) can reach
+            # ../CLI/. See Home/Dockerfile for details.
             image: home
+            context: .
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -87,7 +91,7 @@ jobs:
         if: steps.exists.outputs.ready == 'true'
         uses: docker/build-push-action@v6
         with:
-          context: ./${{ matrix.project }}
+          context: ${{ matrix.context }}
           file: ./${{ matrix.project }}/Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}

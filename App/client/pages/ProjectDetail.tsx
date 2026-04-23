@@ -961,17 +961,20 @@ function FilterBar({
 }) {
   function toggleStatus(s: TodoStatus) {
     const next = new Set(filters.statuses);
-    next.has(s) ? next.delete(s) : next.add(s);
+    if (next.has(s)) next.delete(s);
+    else next.add(s);
     setFilters({ ...filters, statuses: next });
   }
   function togglePriority(p: TodoPriority) {
     const next = new Set(filters.priorities);
-    next.has(p) ? next.delete(p) : next.add(p);
+    if (next.has(p)) next.delete(p);
+    else next.add(p);
     setFilters({ ...filters, priorities: next });
   }
   function toggleAssignee(key: AssigneeFilterKey) {
     const next = new Set(filters.assignees);
-    next.has(key) ? next.delete(key) : next.add(key);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
     setFilters({ ...filters, assignees: next });
   }
 

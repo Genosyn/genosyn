@@ -21,7 +21,7 @@ export default function BasesIndex({ company }: { company: Company }) {
               Bases
             </h1>
             <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-              Airtable-style workspaces for your company's data — contacts, deals,
+              Airtable-style workspaces for your company&apos;s data — contacts, deals,
               hiring pipelines, content calendars.
             </p>
           </div>

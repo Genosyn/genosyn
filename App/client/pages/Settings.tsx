@@ -123,7 +123,7 @@ export function SettingsAccount() {
           <CardHeader>
             <h2 className="text-sm font-semibold">Change password</h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              At least 8 characters. You'll stay signed in after changing it.
+              At least 8 characters. You&apos;ll stay signed in after changing it.
             </p>
           </CardHeader>
           <CardBody>

@@ -54,7 +54,7 @@ export async function streamPost(
   const decoder = new TextDecoder();
   let buf = "";
 
-  while (true) {
+  for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
     buf += decoder.decode(value, { stream: true });
@@ -65,7 +65,7 @@ export async function streamPost(
     for (const frame of frames) {
       if (!frame.trim()) continue;
       let event = "message";
-      let dataLines: string[] = [];
+      const dataLines: string[] = [];
       for (const line of frame.split("\n")) {
         if (line.startsWith("event:")) event = line.slice(6).trim();
         else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());

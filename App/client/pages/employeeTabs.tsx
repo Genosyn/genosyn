@@ -722,7 +722,7 @@ function RoutineEditor({
             Require approval before each scheduled run
           </label>
           <div className="-mt-2 text-xs text-slate-500 dark:text-slate-400">
-            Manual "Run now" still runs immediately — a human is already in the loop.
+            Manual &quot;Run now&quot; still runs immediately — a human is already in the loop.
           </div>
           <WebhookField
             enabled={webhookEnabled}
@@ -1448,7 +1448,7 @@ export function JournalPage() {
             <strong className="text-slate-700 dark:text-slate-200">
               {" "}The last 7 days are auto-injected into every chat and routine run
             </strong>
-            {" "}— they're how the employee remembers what happened yesterday.
+            {" "}— they&apos;re how the employee remembers what happened yesterday.
           </p>
           <form onSubmit={addNote} className="mt-3 flex flex-col gap-2">
             <Input

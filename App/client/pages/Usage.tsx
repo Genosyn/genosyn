@@ -57,8 +57,8 @@ export default function Usage() {
         }
       />
       <p className="mb-6 text-xs text-slate-500 dark:text-slate-400">
-        Measured from routine runs. Token counts and dollar costs aren't tracked yet — the
-        provider CLIs don't surface that metadata in a stable way.
+        Measured from routine runs. Token counts and dollar costs aren&apos;t tracked yet — the
+        provider CLIs don&apos;t surface that metadata in a stable way.
       </p>
       {summary === null ? (
         <Spinner />

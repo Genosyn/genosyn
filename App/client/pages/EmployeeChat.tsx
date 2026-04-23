@@ -669,8 +669,8 @@ function EmptyState({
       </h2>
       <div className="text-sm text-slate-500 dark:text-slate-400">{empRole}</div>
       <p className="mt-3 max-w-md text-sm text-slate-500 dark:text-slate-400">
-        Messages use {empName}'s Soul and Skills as context. Each send spawns the
-        employee's CLI, so the first reply can take a few seconds.
+        Messages use {empName}&apos;s Soul and Skills as context. Each send spawns the
+        employee&apos;s CLI, so the first reply can take a few seconds.
       </p>
       <div className="mt-6 flex w-full flex-col gap-2">
         {suggestions.map((s) => (

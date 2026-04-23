@@ -1,0 +1,17 @@
+# Keep the Docker build context small. Home's image uses the repo root
+# as its context (so ../CLI can be copied into the build). The Dockerfile
+# only COPYs Home/ and CLI/, but anything not ignored here still gets
+# uploaded to the Docker daemon on every build.
+.git
+.github
+node_modules
+**/node_modules
+**/dist
+**/.next
+**/.vite
+**/.turbo
+**/.cache
+**/coverage
+App/data
+Home/client/public/genosyn
+Home/client/public/install.sh

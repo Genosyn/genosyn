@@ -165,8 +165,8 @@ function IntroTips({ onPick }: { onPick: (p: string) => void }) {
         <Bot size={14} className="text-violet-500" /> Ask your AI employees
       </div>
       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-        The first employee with a connected model reads this base's schema and
-        answers. Try:
+        The first employee with a connected model reads this base&apos;s schema
+        and answers. Try:
       </p>
       <div className="mt-3 flex flex-col gap-1">
         {prompts.map((p) => (

@@ -54,6 +54,14 @@ npm script (wired into `predev` and `prebuild`), so editing `CLI/` is the
 single source of truth. Bump `CLI_VERSION` in `CLI/genosyn` when you ship a
 change users should notice.
 
+Because `sync-cli` reads from `../CLI/`, **Home's Docker image must be built
+with the repo root as the build context** (not `./Home`). `Home/Dockerfile`
+mirrors the repo layout inside the image at `/build/Home` + `/build/CLI` so
+the relative path resolves the same way as local dev.
+`.github/workflows/docker.yml` sets `context: .` for the Home matrix entry
+and `context: ./App` for App. If you rename `CLI/`, update **all three**:
+the sync script, the Dockerfile, and the workflow matrix.
+
 ---
 
 ## 3. Naming — get this right
@@ -164,8 +172,22 @@ data/
 - **Icons**: `lucide-react` only.
 - **Imports**: absolute paths from `@/` (set up in `tsconfig.json` +
   `vite.config.ts`).
-- **Lint/format**: project ships with ESLint + Prettier defaults; run them
-  before commit.
+- **Lint/format**: project ships with ESLint + Prettier defaults. **Run
+  `npm run lint` in both `App/` and `Home/` before you commit** — CI runs
+  the same command and rejects any errors. Warnings are tolerated; errors
+  are not. Recurring traps that keep breaking CI:
+  - **JSX text with `'` or `"`** trips `react/no-unescaped-entities`. Use
+    `&apos;` / `&quot;` (or wrap the text in a `{"..."}` JS expression).
+    Applies to apostrophes in contractions (`you'll`, `don't`) and quoted
+    phrases inside JSX children.
+  - **`while (true)`** trips `no-constant-condition`. Use `for (;;)` for
+    intentional infinite loops.
+  - **Ternary used as a statement** (`cond ? a() : b();`) trips
+    `@typescript-eslint/no-unused-expressions`. Use `if (cond) a(); else b();`.
+  - **Arrays built with `.push()`** should be declared `const`, not `let`.
+    The `prefer-const` rule fires on any binding that is never reassigned.
+  - Unused imports / args — either remove them or rename to `_name` (the
+    unused-vars rule allows `^_` prefix).
 - **Required npm scripts** (both `App/` and `Home/` must implement these,
   CI depends on them): `dev`, `build`, `lint`, `typecheck`, `start`.
   App additionally exposes: `typeorm`, `migration:generate`,
@@ -242,6 +264,9 @@ milestone is done, drive the happy path in a browser (via the `browse` /
 - Skipping the zod schema on a new endpoint.
 - Adding a feature that isn't on the roadmap without adding it to the
   roadmap first.
+- Pushing a commit that breaks `npm run lint` or `npm run build` in either
+  `App/` or `Home/`. CI runs both on every push to `main`; run them locally
+  first. See section 7 for the ESLint rules that keep biting.
 
 ---
 
