@@ -12,7 +12,8 @@
       "Bash(sqlite3 /Users/nawazdhandala/Projects/Genosyn/genosyn/App/data/app.sqlite \".schema runs\")",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(git check-ignore *)"
     ]
   }
 }
