@@ -61,7 +61,7 @@ const TOOLS = [
   {
     name: "list_skills",
     description:
-      "List the Skill playbooks attached to an AI employee. Pass `employeeSlug` to inspect a teammate; omit it to list your own.",
+      "List the Skill playbooks attached to an AI employee. Pass `employeeSlug` to inspect a teammate; omit it to list your own. The returned `body` is the full markdown playbook.",
     endpoint: "/tools/list_skills",
     inputSchema: {
       type: "object",
@@ -71,6 +71,62 @@ const TOOLS = [
           description: "Slug of the target employee. Defaults to yourself.",
         },
       },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_skill",
+    description:
+      "Create a new Skill (playbook) for an AI employee. Use this when a teammate asks you to codify a reusable recipe — e.g. 'Record Revenue', 'Triage Bug Report', 'Weekly Report' — so it can be referenced by name later instead of re-explained each time. `body` is the markdown playbook (triggers, steps, notes). If omitted a starter template is written in. Genosyn uses 'Skill' — never 'Tool' or 'Capability' — for these.",
+    endpoint: "/tools/create_skill",
+    inputSchema: {
+      type: "object",
+      properties: {
+        employeeSlug: {
+          type: "string",
+          description: "Slug of the employee who will own the skill. Defaults to yourself.",
+        },
+        name: {
+          type: "string",
+          description: "Short human-readable name, e.g. 'Record Revenue'.",
+        },
+        body: {
+          type: "string",
+          description:
+            "Optional markdown playbook. Convention: `## When to use it`, `## Steps`, `## Notes`.",
+        },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_skill",
+    description:
+      "Update an existing Skill's name or body. Use this to revise a playbook after learning something new, not for trivial typo fixes. Pass the `skillId` UUID from `list_skills`.",
+    endpoint: "/tools/update_skill",
+    inputSchema: {
+      type: "object",
+      properties: {
+        skillId: { type: "string", description: "UUID from `list_skills`." },
+        name: { type: "string" },
+        body: { type: "string", description: "Replacement markdown playbook." },
+      },
+      required: ["skillId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_skill",
+    description:
+      "Remove a Skill from an AI employee. Use sparingly — only when the playbook is definitively obsolete. Pass the `skillId` UUID from `list_skills`.",
+    endpoint: "/tools/delete_skill",
+    inputSchema: {
+      type: "object",
+      properties: {
+        skillId: { type: "string" },
+      },
+      required: ["skillId"],
       additionalProperties: false,
     },
   },

@@ -12,7 +12,7 @@ import { Todo, TodoPriority, TodoRecurrence, TodoStatus } from "../db/entities/T
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { validateBody } from "../middleware/validate.js";
 import { toSlug } from "../lib/slug.js";
-import { routineTemplate } from "../services/files.js";
+import { routineTemplate, skillTemplate } from "../services/files.js";
 import { registerRoutine } from "../services/cron.js";
 import { recordAudit } from "../services/audit.js";
 import { resolveMcpToken } from "../services/mcpTokens.js";
@@ -208,6 +208,164 @@ mcpInternalRouter.post(
       order: { createdAt: "ASC" },
     });
     res.json({ employee: serializeEmployee(target), skills: skills.map(serializeSkill) });
+  },
+);
+
+const createSkillSchema = z
+  .object({
+    employeeSlug: z.string().min(1).max(120).optional(),
+    name: z.string().min(1).max(80),
+    body: z.string().max(20_000).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/create_skill",
+  validateBody(createSkillSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof createSkillSchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const target = await resolveEmployee(co, self, body.employeeSlug);
+    if (!target) return res.status(404).json({ error: "Employee not found" });
+
+    const repo = AppDataSource.getRepository(Skill);
+    const dup = await repo
+      .createQueryBuilder("s")
+      .where("s.employeeId = :eid", { eid: target.id })
+      .andWhere("LOWER(s.name) = LOWER(:name)", { name: body.name.trim() })
+      .getOne();
+    if (dup) {
+      return res.status(409).json({
+        error: `A skill named "${body.name}" already exists for ${target.name}`,
+      });
+    }
+    const baseSlug = toSlug(body.name) || "skill";
+    let slug = baseSlug;
+    let n = 1;
+    while (await repo.findOneBy({ employeeId: target.id, slug })) {
+      n += 1;
+      slug = `${baseSlug}-${n}`;
+    }
+
+    const s = repo.create({
+      employeeId: target.id,
+      name: body.name,
+      slug,
+      body: body.body?.trim() ? body.body : skillTemplate(body.name),
+    });
+    await repo.save(s);
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "skill.create",
+      targetType: "skill",
+      targetId: s.id,
+      targetLabel: s.name,
+      metadata: { via: "mcp", employeeId: target.id },
+    });
+    await journal(
+      target.id,
+      `${self.name} added a skill: "${s.name}"`,
+      "Created via the built-in MCP tool.",
+    );
+
+    res.json({ skill: serializeSkill(s) });
+  },
+);
+
+const updateSkillSchema = z
+  .object({
+    skillId: z.string().uuid(),
+    name: z.string().min(1).max(80).optional(),
+    body: z.string().max(20_000).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/update_skill",
+  validateBody(updateSkillSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof updateSkillSchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+
+    const repo = AppDataSource.getRepository(Skill);
+    const skill = await repo.findOneBy({ id: body.skillId });
+    if (!skill) return res.status(404).json({ error: "Skill not found" });
+    const owner = await AppDataSource.getRepository(AIEmployee).findOneBy({
+      id: skill.employeeId,
+      companyId: co.id,
+    });
+    if (!owner) return res.status(404).json({ error: "Skill not found" });
+
+    if (body.name !== undefined && body.name.trim() !== skill.name) {
+      const dup = await repo
+        .createQueryBuilder("s")
+        .where("s.employeeId = :eid", { eid: owner.id })
+        .andWhere("LOWER(s.name) = LOWER(:name)", { name: body.name.trim() })
+        .andWhere("s.id != :sid", { sid: skill.id })
+        .getOne();
+      if (dup) {
+        return res.status(409).json({
+          error: `A skill named "${body.name}" already exists for ${owner.name}`,
+        });
+      }
+      skill.name = body.name;
+    }
+    if (body.body !== undefined) skill.body = body.body;
+    await repo.save(skill);
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "skill.update",
+      targetType: "skill",
+      targetId: skill.id,
+      targetLabel: skill.name,
+      metadata: { via: "mcp", employeeId: owner.id, changes: body },
+    });
+    res.json({ skill: serializeSkill(skill) });
+  },
+);
+
+const deleteSkillSchema = z.object({ skillId: z.string().uuid() }).strict();
+
+mcpInternalRouter.post(
+  "/tools/delete_skill",
+  validateBody(deleteSkillSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof deleteSkillSchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+
+    const repo = AppDataSource.getRepository(Skill);
+    const skill = await repo.findOneBy({ id: body.skillId });
+    if (!skill) return res.status(404).json({ error: "Skill not found" });
+    const owner = await AppDataSource.getRepository(AIEmployee).findOneBy({
+      id: skill.employeeId,
+      companyId: co.id,
+    });
+    if (!owner) return res.status(404).json({ error: "Skill not found" });
+
+    await repo.delete({ id: skill.id });
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "skill.delete",
+      targetType: "skill",
+      targetId: skill.id,
+      targetLabel: skill.name,
+      metadata: { via: "mcp", employeeId: owner.id },
+    });
+    await journal(
+      owner.id,
+      `${self.name} removed the skill "${skill.name}"`,
+      "Deleted via the built-in MCP tool.",
+    );
+    res.json({ ok: true });
   },
 );
 
