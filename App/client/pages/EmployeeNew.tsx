@@ -26,6 +26,7 @@ import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
 import { Breadcrumbs, TopBar } from "../components/AppShell";
 import { useToast } from "../components/ui/Toast";
+import { FormError } from "../components/ui/FormError";
 import { clsx } from "../components/ui/clsx";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { EmployeeModelSection } from "./employeeTabs";
@@ -128,6 +129,8 @@ export default function EmployeeNew({ company }: { company: Company }) {
   const [emp, setEmp] = React.useState<Employee | null>(null);
   const [answers, setAnswers] = React.useState<SoulAnswers>(EMPTY_ANSWERS);
   const [soul, setSoul] = React.useState<string>("");
+  const [basicsError, setBasicsError] = React.useState<string | null>(null);
+  const [finishError, setFinishError] = React.useState<string | null>(null);
   const navigate = useNavigate();
   const { companySlug } = useParams();
   const { toast } = useToast();
@@ -156,6 +159,7 @@ export default function EmployeeNew({ company }: { company: Company }) {
       setStep("model");
       return;
     }
+    setBasicsError(null);
     setCreating(true);
     try {
       const created = await api.post<Employee>(`/api/companies/${company.id}/employees`, {
@@ -166,7 +170,7 @@ export default function EmployeeNew({ company }: { company: Company }) {
       setEmp(created);
       setStep("model");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setBasicsError((err as Error).message);
     } finally {
       setCreating(false);
     }
@@ -218,6 +222,7 @@ export default function EmployeeNew({ company }: { company: Company }) {
 
   async function finish() {
     if (!emp) return;
+    setFinishError(null);
     setFinishing(true);
     try {
       await api.put(`/api/companies/${company.id}/employees/${emp.id}/soul`, {
@@ -226,7 +231,7 @@ export default function EmployeeNew({ company }: { company: Company }) {
       toast(`${emp.name} hired`, "success");
       navigate(`/c/${companySlug}/employees/${emp.slug}`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setFinishError((err as Error).message);
     } finally {
       setFinishing(false);
     }
@@ -259,6 +264,7 @@ export default function EmployeeNew({ company }: { company: Company }) {
           role={role}
           creating={creating}
           locked={!!emp}
+          error={basicsError}
           onPick={pick}
           onName={setName}
           onRole={setRole}
@@ -291,6 +297,7 @@ export default function EmployeeNew({ company }: { company: Company }) {
         <SoulStep
           name={name}
           soul={soul}
+          error={finishError}
           onChange={setSoul}
           onRegenerate={() =>
             setSoul(generateSoul(name, role, selectedTemplate, answers))
@@ -390,6 +397,7 @@ function BasicsStep({
   role,
   creating,
   locked,
+  error,
   onPick,
   onName,
   onRole,
@@ -403,6 +411,7 @@ function BasicsStep({
   role: string;
   creating: boolean;
   locked: boolean;
+  error: string | null;
   onPick: (t: EmployeeTemplate | null) => void;
   onName: (v: string) => void;
   onRole: (v: string) => void;
@@ -497,6 +506,7 @@ function BasicsStep({
         </CardHeader>
         <CardBody>
           <form className="flex flex-col gap-4" onSubmit={onSubmit}>
+            <FormError message={error} />
             <Input
               label="Name"
               value={name}
@@ -685,6 +695,7 @@ function AnswerField({
 function SoulStep({
   name,
   soul,
+  error,
   onChange,
   onRegenerate,
   onBack,
@@ -693,6 +704,7 @@ function SoulStep({
 }: {
   name: string;
   soul: string;
+  error: string | null;
   onChange: (v: string) => void;
   onRegenerate: () => void;
   onBack: () => void;
@@ -716,7 +728,8 @@ function SoulStep({
             </Button>
           </div>
         </CardHeader>
-        <CardBody>
+        <CardBody className="flex flex-col gap-3">
+          <FormError message={error} />
           <MarkdownEditor value={soul} onChange={onChange} rows={20} />
         </CardBody>
       </Card>

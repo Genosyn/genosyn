@@ -4,9 +4,9 @@ import { Check } from "lucide-react";
 import { api, Base, BaseTemplateSummary, Company } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
+import { FormError } from "../components/ui/FormError";
 import { Breadcrumbs } from "../components/AppShell";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
 import { useBases } from "./BasesLayout";
 import { BaseIcon, baseAccent } from "../components/BaseIcons";
 import { clsx } from "../components/ui/clsx";
@@ -14,7 +14,6 @@ import { clsx } from "../components/ui/clsx";
 export default function BaseNew({ company }: { company: Company }) {
   const navigate = useNavigate();
   const { reload } = useBases();
-  const { toast } = useToast();
 
   const [templates, setTemplates] = React.useState<BaseTemplateSummary[] | null>(
     null,
@@ -22,6 +21,7 @@ export default function BaseNew({ company }: { company: Company }) {
   const [templateId, setTemplateId] = React.useState<string>("blank");
   const [name, setName] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
   const touched = React.useRef(false);
 
   React.useEffect(() => {
@@ -41,6 +41,7 @@ export default function BaseNew({ company }: { company: Company }) {
   async function create() {
     const n = name.trim();
     if (!n) return;
+    setError(null);
     setBusy(true);
     try {
       const b = await api.post<Base>(`/api/companies/${company.id}/bases`, {
@@ -50,7 +51,7 @@ export default function BaseNew({ company }: { company: Company }) {
       await reload();
       navigate(`/c/${company.slug}/bases/${b.slug}`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError((err as Error).message);
     } finally {
       setBusy(false);
     }
@@ -142,6 +143,11 @@ export default function BaseNew({ company }: { company: Company }) {
           )}
 
           <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
+            {error && (
+              <div className="mb-3">
+                <FormError message={error} />
+              </div>
+            )}
             <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
               <Input
                 label="Base name"

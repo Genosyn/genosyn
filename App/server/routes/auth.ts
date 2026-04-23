@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { Router } from "express";
 import { z } from "zod";
 import bcrypt from "bcrypt";
@@ -9,6 +10,13 @@ import { validateBody } from "../middleware/validate.js";
 import { requireAuth } from "../middleware/auth.js";
 import { sendEmail } from "../services/email.js";
 import { generateToken } from "../lib/token.js";
+import {
+  avatarAbsPath,
+  avatarUploadMiddleware,
+  mimeFromKey,
+  removeAvatarFile,
+  replaceAvatarFile,
+} from "../services/avatars.js";
 import { config } from "../../config.js";
 
 export const authRouter = Router();
@@ -102,7 +110,57 @@ authRouter.post("/reset", validateBody(resetSchema), async (req, res) => {
 
 authRouter.get("/me", requireAuth, async (req, res) => {
   const u = req.user!;
-  res.json({ id: u.id, email: u.email, name: u.name, handle: u.handle ?? null });
+  res.json({
+    id: u.id,
+    email: u.email,
+    name: u.name,
+    handle: u.handle ?? null,
+    avatarKey: u.avatarKey ?? null,
+  });
+});
+
+// ─────────────────── Profile avatar (current user) ──────────────────────
+//
+// GET serves `req.user`'s own avatar by bytes. POST accepts a multipart
+// `file` and swaps it in; DELETE clears both the row and the on-disk blob.
+// For peeking at *another* user's avatar, the company-scoped route on the
+// companies router handles authorization via `requireCompanyMember`.
+
+authRouter.get("/me/avatar", requireAuth, async (req, res) => {
+  const u = req.user!;
+  if (!u.avatarKey) return res.status(404).json({ error: "Not found" });
+  const abs = avatarAbsPath(u.avatarKey);
+  if (!abs || !fs.existsSync(abs)) {
+    return res.status(404).json({ error: "Not found" });
+  }
+  res.setHeader("Content-Type", mimeFromKey(u.avatarKey));
+  res.setHeader("Cache-Control", "private, max-age=60");
+  res.sendFile(abs);
+});
+
+authRouter.post(
+  "/me/avatar",
+  requireAuth,
+  avatarUploadMiddleware.single("file"),
+  async (req, res) => {
+    const file = (req as unknown as { file?: Express.Multer.File }).file;
+    if (!file) return res.status(400).json({ error: "No file uploaded" });
+    const user = req.user!;
+    const previous = user.avatarKey;
+    user.avatarKey = file.filename;
+    await AppDataSource.getRepository(User).save(user);
+    replaceAvatarFile(previous, file.filename);
+    res.json({ avatarKey: user.avatarKey });
+  },
+);
+
+authRouter.delete("/me/avatar", requireAuth, async (req, res) => {
+  const user = req.user!;
+  const previous = user.avatarKey;
+  user.avatarKey = null;
+  await AppDataSource.getRepository(User).save(user);
+  removeAvatarFile(previous);
+  res.json({ ok: true });
 });
 
 const HANDLE_RE = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;

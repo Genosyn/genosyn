@@ -4,6 +4,7 @@ import { Plus, Users } from "lucide-react";
 import { api, Company, Employee } from "../lib/api";
 import { ContextualLayout, SidebarLink } from "../components/AppShell";
 import { Spinner } from "../components/ui/Spinner";
+import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { EmployeesContext } from "./employeesContext";
 
 /**
@@ -26,6 +27,17 @@ export default function EmployeesLayout({ company }: { company: Company }) {
 
   React.useEffect(() => {
     reload();
+  }, [reload]);
+
+  // Sub-pages (e.g. the employee General settings form) fire this when the
+  // employee's display fields change — refresh the roster so sidebar names
+  // and avatars reflect the edit without a full page reload.
+  React.useEffect(() => {
+    const handler = () => {
+      reload();
+    };
+    window.addEventListener("genosyn:employee-updated", handler);
+    return () => window.removeEventListener("genosyn:employee-updated", handler);
   }, [reload]);
 
   const ctx = React.useMemo(() => ({ employees: employees ?? [], reload }), [employees, reload]);
@@ -59,6 +71,14 @@ export default function EmployeesLayout({ company }: { company: Company }) {
               <li key={e.id}>
                 <SidebarLink
                   to={`/c/${company.slug}/employees/${e.slug}`}
+                  icon={
+                    <Avatar
+                      name={e.name}
+                      kind="ai"
+                      size="sm"
+                      src={employeeAvatarUrl(company.id, e.id, e.avatarKey)}
+                    />
+                  }
                   label={
                     <span className="flex flex-col">
                       <span className="truncate text-sm font-medium">{e.name}</span>

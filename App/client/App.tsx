@@ -19,6 +19,7 @@ import EmployeeNew from "./pages/EmployeeNew";
 import EmployeeChat from "./pages/EmployeeChat";
 import EmployeeWorkspace from "./pages/EmployeeWorkspace";
 import {
+  GeneralSettingsPage,
   ModelSettingsPage,
   JournalPage,
   McpPage,
@@ -175,7 +176,8 @@ function CompanyRoutes({
           <Route path="connections" element={<EmployeeConnections />} />
           <Route path="mcp" element={<McpPage />} />
           <Route path="settings" element={<SettingsPage />}>
-            <Route index element={<Navigate to="soul" replace />} />
+            <Route index element={<Navigate to="general" replace />} />
+            <Route path="general" element={<GeneralSettingsPage />} />
             <Route path="soul" element={<SoulSettingsPage />} />
             <Route path="model" element={<ModelSettingsPage />} />
           </Route>

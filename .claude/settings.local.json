@@ -13,7 +13,8 @@
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
       "Bash(git push *)",
-      "Bash(git check-ignore *)"
+      "Bash(git check-ignore *)",
+      "Bash(find /Users/nawazdhandala/Projects/Genosyn/genosyn/App -type f \\\\\\( -name \"*.ts\" -o -name \"*.tsx\" \\\\\\) -exec grep -l \"WebSocket\\\\|realtime\\\\|broadcast\" {} \\\\;)"
     ]
   }
 }

@@ -1,6 +1,6 @@
 import React from "react";
 import { useOutletContext } from "react-router-dom";
-import { Download, Pencil, RotateCcw, Trash2, Upload } from "lucide-react";
+import { Camera, Download, Pencil, RotateCcw, Trash2, Upload } from "lucide-react";
 import {
   api,
   Backup,
@@ -13,6 +13,8 @@ import {
 } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
+import { FormError } from "../components/ui/FormError";
+import { Avatar, meAvatarUrl, memberAvatarUrl } from "../components/ui/Avatar";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
@@ -38,10 +40,12 @@ export function SettingsAccount() {
   const [email, setEmail] = React.useState(me.email);
   const [handle, setHandle] = React.useState(me.handle ?? "");
   const [savingProfile, setSavingProfile] = React.useState(false);
+  const [profileError, setProfileError] = React.useState<string | null>(null);
   const [currentPassword, setCurrentPassword] = React.useState("");
   const [newPassword, setNewPassword] = React.useState("");
   const [confirmPassword, setConfirmPassword] = React.useState("");
   const [savingPassword, setSavingPassword] = React.useState(false);
+  const [passwordError, setPasswordError] = React.useState<string | null>(null);
   const { toast } = useToast();
 
   React.useEffect(() => {
@@ -59,6 +63,7 @@ export function SettingsAccount() {
     <>
       <TopBar title="Profile" />
       <div className="flex flex-col gap-4">
+        <ProfileAvatarCard me={me} onCompaniesChanged={onCompaniesChanged} />
         <Card>
           <CardHeader>
             <h2 className="text-sm font-semibold">Personal details</h2>
@@ -72,6 +77,7 @@ export function SettingsAccount() {
               onSubmit={async (e) => {
                 e.preventDefault();
                 if (!profileDirty) return;
+                setProfileError(null);
                 setSavingProfile(true);
                 try {
                   const nextHandle = handle.trim().toLowerCase();
@@ -83,12 +89,13 @@ export function SettingsAccount() {
                   onCompaniesChanged();
                   toast("Profile updated", "success");
                 } catch (err) {
-                  toast((err as Error).message, "error");
+                  setProfileError((err as Error).message);
                 } finally {
                   setSavingProfile(false);
                 }
               }}
             >
+              <FormError message={profileError} />
               <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
               <Input
                 label="Email"
@@ -132,13 +139,14 @@ export function SettingsAccount() {
               onSubmit={async (e) => {
                 e.preventDefault();
                 if (newPassword.length < 8) {
-                  toast("New password must be at least 8 characters", "error");
+                  setPasswordError("New password must be at least 8 characters");
                   return;
                 }
                 if (newPassword !== confirmPassword) {
-                  toast("New passwords don't match", "error");
+                  setPasswordError("New passwords don't match");
                   return;
                 }
+                setPasswordError(null);
                 setSavingPassword(true);
                 try {
                   await api.post("/api/auth/password", { currentPassword, newPassword });
@@ -147,12 +155,13 @@ export function SettingsAccount() {
                   setConfirmPassword("");
                   toast("Password changed", "success");
                 } catch (err) {
-                  toast((err as Error).message, "error");
+                  setPasswordError((err as Error).message);
                 } finally {
                   setSavingPassword(false);
                 }
               }}
             >
+              <FormError message={passwordError} />
               <Input
                 label="Current password"
                 type="password"
@@ -200,6 +209,115 @@ export function SettingsAccount() {
   );
 }
 
+function ProfileAvatarCard({
+  me,
+  onCompaniesChanged,
+}: {
+  me: Me;
+  onCompaniesChanged: () => void;
+}) {
+  const [avatarKey, setAvatarKey] = React.useState<string | null>(
+    me.avatarKey ?? null,
+  );
+  const [uploading, setUploading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const fileRef = React.useRef<HTMLInputElement | null>(null);
+
+  React.useEffect(() => {
+    setAvatarKey(me.avatarKey ?? null);
+  }, [me.id, me.avatarKey]);
+
+  async function upload(file: File) {
+    setError(null);
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/auth/me/avatar", {
+        method: "POST",
+        credentials: "same-origin",
+        body: fd,
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        let msg = res.statusText;
+        try {
+          msg = JSON.parse(text).error ?? msg;
+        } catch {
+          if (text) msg = text;
+        }
+        throw new Error(msg);
+      }
+      const data = (await res.json()) as { avatarKey: string };
+      setAvatarKey(data.avatarKey);
+      onCompaniesChanged();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  async function remove() {
+    setError(null);
+    try {
+      await api.del("/api/auth/me/avatar");
+      setAvatarKey(null);
+      onCompaniesChanged();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <h2 className="text-sm font-semibold">Profile picture</h2>
+        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+          Shown next to your name in workspace chat and the top bar. PNG, JPEG,
+          GIF, or WebP up to 5&nbsp;MB.
+        </p>
+      </CardHeader>
+      <CardBody className="flex flex-col gap-3">
+        <FormError message={error} />
+        <div className="flex items-center gap-4">
+          <Avatar
+            name={me.name || me.email}
+            size="xl"
+            src={meAvatarUrl(avatarKey)}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) upload(f);
+              }}
+            />
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+            >
+              <Camera size={12} /> {uploading ? "Uploading…" : "Upload new"}
+            </Button>
+            {avatarKey && (
+              <Button size="sm" variant="ghost" onClick={remove} disabled={uploading}>
+                Remove
+              </Button>
+            )}
+          </div>
+        </div>
+      </CardBody>
+    </Card>
+  );
+}
+
 function normalizeSlugInput(raw: string): string {
   return raw
     .toLowerCase()
@@ -212,6 +330,7 @@ export function SettingsCompany() {
   const [name, setName] = React.useState(company.name);
   const [slug, setSlug] = React.useState(company.slug);
   const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
   const { toast } = useToast();
 
   React.useEffect(() => {
@@ -246,6 +365,7 @@ export function SettingsCompany() {
               if (normalizedSlug && normalizedSlug !== company.slug) {
                 patch.slug = normalizedSlug;
               }
+              setError(null);
               setSaving(true);
               try {
                 const updated = await api.patch<Company>(
@@ -261,12 +381,13 @@ export function SettingsCompany() {
                 onCompaniesChanged();
                 toast("Company updated", "success");
               } catch (err) {
-                toast((err as Error).message, "error");
+                setError((err as Error).message);
               } finally {
                 setSaving(false);
               }
             }}
           >
+            <FormError message={error} />
             <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
             <div>
               <Input
@@ -299,6 +420,7 @@ export function SettingsMembers() {
   const { company } = useCtx();
   const [members, setMembers] = React.useState<Member[] | null>(null);
   const [inviteEmail, setInviteEmail] = React.useState("");
+  const [inviteError, setInviteError] = React.useState<string | null>(null);
   const { toast } = useToast();
 
   const reload = React.useCallback(async () => {
@@ -329,10 +451,17 @@ export function SettingsMembers() {
           ) : (
             <ul className="divide-y divide-slate-100 dark:divide-slate-800">
               {members.map((m) => (
-                <li key={m.userId} className="flex items-center justify-between py-2 text-sm">
-                  <div>
-                    <div className="font-medium">{m.name ?? "(unknown)"}</div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400">{m.email}</div>
+                <li key={m.userId} className="flex items-center justify-between gap-3 py-2 text-sm">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <Avatar
+                      name={m.name ?? m.email ?? "unknown"}
+                      size="md"
+                      src={memberAvatarUrl(company.id, m.userId, m.avatarKey)}
+                    />
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">{m.name ?? "(unknown)"}</div>
+                      <div className="truncate text-xs text-slate-500 dark:text-slate-400">{m.email}</div>
+                    </div>
                   </div>
                   <span className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">
                     {m.role}
@@ -342,9 +471,10 @@ export function SettingsMembers() {
             </ul>
           )}
           <form
-            className="flex items-end gap-3 border-t border-slate-100 pt-4 dark:border-slate-800"
+            className="flex flex-col gap-3 border-t border-slate-100 pt-4 dark:border-slate-800"
             onSubmit={async (e) => {
               e.preventDefault();
+              setInviteError(null);
               try {
                 await api.post(`/api/companies/${company.id}/invitations`, {
                   email: inviteEmail,
@@ -352,20 +482,23 @@ export function SettingsMembers() {
                 setInviteEmail("");
                 toast("Invite sent", "success");
               } catch (err) {
-                toast((err as Error).message, "error");
+                setInviteError((err as Error).message);
               }
             }}
           >
-            <div className="flex-1">
-              <Input
-                label="Invite by email"
-                type="email"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                required
-              />
+            <FormError message={inviteError} />
+            <div className="flex items-end gap-3">
+              <div className="flex-1">
+                <Input
+                  label="Invite by email"
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  required
+                />
+              </div>
+              <Button type="submit">Send invite</Button>
             </div>
-            <Button type="submit">Send invite</Button>
           </form>
         </CardBody>
       </Card>
@@ -521,13 +654,14 @@ function SecretModal({
   const [value, setValue] = React.useState("");
   const [description, setDescription] = React.useState(secret?.description ?? "");
   const [busy, setBusy] = React.useState(false);
-  const { toast } = useToast();
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (open) {
       setName(secret?.name ?? "");
       setValue("");
       setDescription(secret?.description ?? "");
+      setError(null);
     }
   }, [open, secret]);
 
@@ -537,6 +671,7 @@ function SecretModal({
         className="flex flex-col gap-3"
         onSubmit={async (e) => {
           e.preventDefault();
+          setError(null);
           setBusy(true);
           try {
             if (isEdit) {
@@ -552,12 +687,13 @@ function SecretModal({
             }
             onSaved();
           } catch (err) {
-            toast((err as Error).message, "error");
+            setError((err as Error).message);
           } finally {
             setBusy(false);
           }
         }}
       >
+        <FormError message={error} />
         {!isEdit && (
           <Input
             label="Name"

@@ -3,24 +3,25 @@ import { useNavigate } from "react-router-dom";
 import { api, Company } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
+import { FormError } from "../components/ui/FormError";
 import { AuthShell } from "./Login";
-import { useToast } from "../components/ui/Toast";
 
 export default function Onboarding({ onDone }: { onDone: () => void }) {
   const [name, setName] = React.useState("");
   const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
   const navigate = useNavigate();
-  const { toast } = useToast();
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    setError(null);
     setLoading(true);
     try {
       const c = await api.post<Company>("/api/companies", { name });
       onDone();
       navigate(`/c/${c.slug}`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError((err as Error).message);
     } finally {
       setLoading(false);
     }
@@ -28,6 +29,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
   return (
     <AuthShell title="Name your company">
       <form className="flex flex-col gap-4" onSubmit={submit}>
+        <FormError message={error} />
         <p className="text-sm text-slate-500 dark:text-slate-400">
           A company is your Genosyn tenant — it holds your team of humans and AI employees.
         </p>

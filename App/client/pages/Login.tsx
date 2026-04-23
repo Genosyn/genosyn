@@ -3,18 +3,19 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
+import { FormError } from "../components/ui/FormError";
 import { Logo } from "../components/Logo";
-import { useToast } from "../components/ui/Toast";
 
 export default function Login({ onAuth }: { onAuth: () => Promise<void> }) {
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
   const navigate = useNavigate();
-  const { toast } = useToast();
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    setError(null);
     setLoading(true);
     try {
       await api.post("/api/auth/login", { email, password });
@@ -23,7 +24,7 @@ export default function Login({ onAuth }: { onAuth: () => Promise<void> }) {
       await onAuth();
       navigate("/");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError((err as Error).message);
     } finally {
       setLoading(false);
     }
@@ -32,6 +33,7 @@ export default function Login({ onAuth }: { onAuth: () => Promise<void> }) {
   return (
     <AuthShell title="Welcome back">
       <form className="flex flex-col gap-4" onSubmit={submit}>
+        <FormError message={error} />
         <Input
           label="Email"
           type="email"

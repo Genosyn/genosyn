@@ -99,6 +99,7 @@ export type Me = {
   email: string;
   name: string;
   handle: string | null;
+  avatarKey: string | null;
 };
 export type Company = { id: string; name: string; slug: string; role?: string };
 export type Employee = {
@@ -107,6 +108,7 @@ export type Employee = {
   name: string;
   slug: string;
   role: string;
+  avatarKey?: string | null;
   /** Lightweight model summary, present only on the list endpoint. */
   model?: {
     provider: Provider;
@@ -174,7 +176,13 @@ export type AIModel = {
   apiKeyEnv: string | null;
   supportsApiKey: boolean;
 };
-export type Member = { userId: string; role: string; email: string | null; name: string | null };
+export type Member = {
+  userId: string;
+  role: string;
+  email: string | null;
+  name: string | null;
+  avatarKey?: string | null;
+};
 
 export type ChatResult =
   | { status: "ok"; reply: string }

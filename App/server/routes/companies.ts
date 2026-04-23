@@ -13,6 +13,7 @@ import { toSlug } from "../lib/slug.js";
 import { generateToken } from "../lib/token.js";
 import { sendEmail } from "../services/email.js";
 import { companyDir } from "../services/paths.js";
+import { avatarAbsPath, mimeFromKey } from "../services/avatars.js";
 import { config } from "../../config.js";
 
 export const companiesRouter = Router();
@@ -173,6 +174,39 @@ companiesRouter.get("/:cid/members", requireCompanyMember, async (req, res) => {
       role: m.role,
       email: byId.get(m.userId)?.email ?? null,
       name: byId.get(m.userId)?.name ?? null,
+      avatarKey: byId.get(m.userId)?.avatarKey ?? null,
     })),
   );
 });
+
+/**
+ * Serve a teammate's avatar inside a company scope. Mounted on the companies
+ * router (not auth) because the authorization we want is "you must share
+ * this company with that user" — `requireCompanyMember` already checks the
+ * caller; the membership lookup on the target ensures the caller can't
+ * enumerate random user ids.
+ */
+companiesRouter.get(
+  "/:cid/members/:uid/avatar",
+  requireCompanyMember,
+  async (req, res) => {
+    const targetMembership = await AppDataSource.getRepository(Membership).findOneBy({
+      companyId: req.params.cid,
+      userId: req.params.uid,
+    });
+    if (!targetMembership) return res.status(404).json({ error: "Not found" });
+    const user = await AppDataSource.getRepository(User).findOneBy({
+      id: req.params.uid,
+    });
+    if (!user || !user.avatarKey) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    const abs = avatarAbsPath(user.avatarKey);
+    if (!abs || !fs.existsSync(abs)) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    res.setHeader("Content-Type", mimeFromKey(user.avatarKey));
+    res.setHeader("Cache-Control", "private, max-age=60");
+    res.sendFile(abs);
+  },
+);

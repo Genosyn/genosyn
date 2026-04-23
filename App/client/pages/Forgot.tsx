@@ -3,23 +3,24 @@ import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
+import { FormError } from "../components/ui/FormError";
 import { AuthShell } from "./Login";
-import { useToast } from "../components/ui/Toast";
 
 export default function Forgot() {
   const [email, setEmail] = React.useState("");
   const [sent, setSent] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
-  const { toast } = useToast();
+  const [error, setError] = React.useState<string | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    setError(null);
     setLoading(true);
     try {
       await api.post("/api/auth/forgot", { email });
       setSent(true);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError((err as Error).message);
     } finally {
       setLoading(false);
     }
@@ -33,6 +34,7 @@ export default function Forgot() {
         </div>
       ) : (
         <form className="flex flex-col gap-4" onSubmit={submit}>
+          <FormError message={error} />
           <Input
             label="Email"
             type="email"

@@ -30,6 +30,14 @@ export class User {
   @Column({ type: "datetime", nullable: true })
   resetExpiresAt!: Date | null;
 
+  /**
+   * Basename of the profile image on disk (e.g. `<uuid>.jpg`), stored under
+   * `data/avatars/`. Null when the user hasn't uploaded one — the UI falls
+   * back to initials in that case.
+   */
+  @Column({ type: "varchar", nullable: true })
+  avatarKey!: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

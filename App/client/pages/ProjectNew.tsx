@@ -3,9 +3,9 @@ import { useNavigate, useParams } from "react-router-dom";
 import { api, Company, Project } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
+import { FormError } from "../components/ui/FormError";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Breadcrumbs, TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
 import { useTasks } from "./TasksLayout";
 
 export default function ProjectNew({ company }: { company: Company }) {
@@ -13,13 +13,14 @@ export default function ProjectNew({ company }: { company: Company }) {
   const [key, setKey] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
   const navigate = useNavigate();
   const { companySlug } = useParams();
-  const { toast } = useToast();
   const { reload } = useTasks();
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    setError(null);
     setLoading(true);
     try {
       const p = await api.post<Project>(`/api/companies/${company.id}/projects`, {
@@ -30,7 +31,7 @@ export default function ProjectNew({ company }: { company: Company }) {
       await reload();
       navigate(`/c/${companySlug}/tasks/p/${p.slug}`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError((err as Error).message);
     } finally {
       setLoading(false);
     }
@@ -58,6 +59,7 @@ export default function ProjectNew({ company }: { company: Company }) {
         </CardHeader>
         <CardBody>
           <form className="flex flex-col gap-4" onSubmit={submit}>
+            <FormError message={error} />
             <Input
               label="Name"
               value={name}

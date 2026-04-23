@@ -27,6 +27,15 @@ export class AIEmployee {
   @Column({ type: "text", default: "" })
   soulBody!: string;
 
+  /**
+   * Basename of the avatar image file on disk (e.g. `<uuid>.png`). Null when
+   * no avatar is set, in which case the UI falls back to initials. Files
+   * live under `data/avatars/`, outside the employee cwd so a slug rename
+   * doesn't move them.
+   */
+  @Column({ type: "varchar", nullable: true })
+  avatarKey!: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

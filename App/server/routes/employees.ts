@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { Router } from "express";
 import { z } from "zod";
 import { AppDataSource } from "../db/datasource.js";
@@ -19,6 +20,13 @@ import { registerRoutine } from "../services/cron.js";
 import { deleteEmployeeConversations } from "./employeeSurface.js";
 import { recordAudit } from "../services/audit.js";
 import { findTemplate } from "../services/templates.js";
+import {
+  avatarAbsPath,
+  avatarUploadMiddleware,
+  mimeFromKey,
+  removeAvatarFile,
+  replaceAvatarFile,
+} from "../services/avatars.js";
 
 export const employeesRouter = Router({ mergeParams: true });
 employeesRouter.use(requireAuth);
@@ -180,6 +188,7 @@ employeesRouter.get("/:eid", async (req, res) => {
 const patchSchema = z.object({
   name: z.string().min(1).max(80).optional(),
   role: z.string().min(1).max(80).optional(),
+  slug: z.string().min(1).max(80).optional(),
 });
 
 employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
@@ -187,7 +196,9 @@ employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
   const repo = AppDataSource.getRepository(AIEmployee);
   const emp = await repo.findOneBy({ id: req.params.eid, companyId: (req.params as Record<string, string>).cid });
   if (!emp) return res.status(404).json({ error: "Not found" });
-  const before = { name: emp.name, role: emp.role };
+  const co = await loadCompany(emp.companyId);
+  if (!co) return res.status(404).json({ error: "Company not found" });
+  const before = { name: emp.name, role: emp.role, slug: emp.slug };
   if (body.name !== undefined) {
     if (await findEmployeeByName(emp.companyId, body.name, emp.id)) {
       return res
@@ -197,6 +208,40 @@ employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
     emp.name = body.name;
   }
   if (body.role !== undefined) emp.role = body.role;
+  if (body.slug !== undefined) {
+    const normalized = toSlug(body.slug);
+    if (!normalized) {
+      return res
+        .status(400)
+        .json({ error: "Slug must contain at least one letter or digit" });
+    }
+    if (normalized !== emp.slug) {
+      const taken = await repo.findOneBy({ companyId: emp.companyId, slug: normalized });
+      if (taken && taken.id !== emp.id) {
+        return res.status(409).json({ error: "That slug is already taken" });
+      }
+      // Credentials + CLI artifacts live under the employee's directory; rename
+      // it alongside the slug so relative paths (`.mcp.json`, `.claude`, …)
+      // keep resolving after the rename.
+      const oldDir = employeeDir(co.slug, emp.slug);
+      const newDir = employeeDir(co.slug, normalized);
+      if (fs.existsSync(newDir)) {
+        return res
+          .status(409)
+          .json({ error: "A data directory for that slug already exists" });
+      }
+      if (fs.existsSync(oldDir)) {
+        try {
+          fs.renameSync(oldDir, newDir);
+        } catch (err) {
+          return res.status(500).json({
+            error: `Failed to rename employee directory: ${(err as Error).message}`,
+          });
+        }
+      }
+      emp.slug = normalized;
+    }
+  }
   await repo.save(emp);
   await recordAudit({
     companyId: emp.companyId,
@@ -205,7 +250,10 @@ employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
     targetType: "employee",
     targetId: emp.id,
     targetLabel: emp.name,
-    metadata: { before, after: { name: emp.name, role: emp.role } },
+    metadata: {
+      before,
+      after: { name: emp.name, role: emp.role, slug: emp.slug },
+    },
   });
   res.json(emp);
 });
@@ -261,3 +309,64 @@ employeesRouter.put("/:eid/soul", validateBody(soulSchema), async (req, res) => 
   await repo.save(emp);
   res.json({ ok: true });
 });
+
+// ───────────────────────────── Avatar ──────────────────────────────
+//
+// GET is public-to-company-members (requireCompanyMember above already gates)
+// so the UI can embed a bare `<img src>` without wiring headers. POST accepts
+// a single `file` multipart field; DELETE clears the avatar on disk + DB.
+
+employeesRouter.get("/:eid/avatar", async (req, res) => {
+  const repo = AppDataSource.getRepository(AIEmployee);
+  const emp = await repo.findOneBy({
+    id: req.params.eid,
+    companyId: (req.params as Record<string, string>).cid,
+  });
+  if (!emp || !emp.avatarKey) return res.status(404).json({ error: "Not found" });
+  const abs = avatarAbsPath(emp.avatarKey);
+  if (!abs || !fs.existsSync(abs)) {
+    return res.status(404).json({ error: "Not found" });
+  }
+  res.setHeader("Content-Type", mimeFromKey(emp.avatarKey));
+  res.setHeader("Cache-Control", "private, max-age=60");
+  res.sendFile(abs);
+});
+
+employeesRouter.post(
+  "/:eid/avatar",
+  avatarUploadMiddleware.single("file"),
+  async (req, res) => {
+    const file = (req as unknown as { file?: Express.Multer.File }).file;
+    if (!file) return res.status(400).json({ error: "No file uploaded" });
+    const repo = AppDataSource.getRepository(AIEmployee);
+    const emp = await repo.findOneBy({
+      id: req.params.eid,
+      companyId: (req.params as Record<string, string>).cid,
+    });
+    if (!emp) {
+      // Row missing — drop the freshly-written file so we don't orphan it.
+      removeAvatarFile(file.filename);
+      return res.status(404).json({ error: "Not found" });
+    }
+    const previousKey = emp.avatarKey;
+    emp.avatarKey = file.filename;
+    await repo.save(emp);
+    replaceAvatarFile(previousKey, file.filename);
+    res.json({ avatarKey: emp.avatarKey });
+  },
+);
+
+employeesRouter.delete("/:eid/avatar", async (req, res) => {
+  const repo = AppDataSource.getRepository(AIEmployee);
+  const emp = await repo.findOneBy({
+    id: req.params.eid,
+    companyId: (req.params as Record<string, string>).cid,
+  });
+  if (!emp) return res.status(404).json({ error: "Not found" });
+  const previous = emp.avatarKey;
+  emp.avatarKey = null;
+  await repo.save(emp);
+  removeAvatarFile(previous);
+  res.json({ ok: true });
+});
+

@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, LogOut, Monitor, Moon, Sun, UserCog } from "
 import { api, Company, Me } from "../lib/api";
 import { useToast } from "./ui/Toast";
 import { useDialog } from "./ui/Dialog";
+import { Avatar, meAvatarUrl } from "./ui/Avatar";
 import { LogoMark } from "./Logo";
 import { useTheme, Theme } from "./Theme";
 
@@ -226,9 +227,11 @@ function TopNav({
             onClick={() => setUserOpen((d) => !d)}
             className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
           >
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700">
-              {initials(me.name || me.email)}
-            </div>
+            <Avatar
+              name={me.name || me.email}
+              src={meAvatarUrl(me.avatarKey)}
+              size="sm"
+            />
             <span className="max-w-[12rem] truncate text-slate-700 dark:text-slate-200">{me.name || me.email}</span>
           </button>
           {userOpen && (
@@ -352,13 +355,6 @@ function ThemeToggle() {
       )}
     </div>
   );
-}
-
-function initials(s: string): string {
-  const parts = s.trim().split(/\s+/);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 /**

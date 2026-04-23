@@ -1,8 +1,9 @@
 import React from "react";
-import { NavLink, Outlet, useOutletContext } from "react-router-dom";
+import { NavLink, Outlet, useNavigate, useOutletContext } from "react-router-dom";
 import {
   BrainCircuit,
   Brain,
+  Camera,
   Check,
   Copy,
   Edit3,
@@ -17,6 +18,7 @@ import {
   Sparkles,
   Trash2,
   Unplug,
+  UserRound,
   X,
 } from "lucide-react";
 import cronstrue from "cronstrue";
@@ -49,6 +51,8 @@ import { Modal } from "../components/ui/Modal";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { Select } from "../components/ui/Select";
+import { FormError } from "../components/ui/FormError";
+import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import type { EmployeeOutletCtx } from "./EmployeeLayout";
 
 /**
@@ -800,6 +804,7 @@ function SettingsSideNav() {
   return (
     <nav className="w-44 shrink-0">
       <ul className="flex flex-col gap-0.5">
+        <SettingsNavItem to="general" icon={<UserRound size={14} />} label="General" />
         <SettingsNavItem to="soul" icon={<Sparkles size={14} />} label="Soul" />
         <SettingsNavItem to="model" icon={<BrainCircuit size={14} />} label="Model" />
       </ul>
@@ -837,6 +842,233 @@ function SettingsNavItem({
 export function SoulSettingsPage() {
   const { company, emp } = useCtx();
   return <SoulCard company={company} emp={emp} />;
+}
+
+/**
+ * General settings for an employee — name, role, slug, and profile picture.
+ * Slug edits rename the on-disk employee directory (so credential paths
+ * stay stable) and bounce the URL once the PATCH lands. The avatar uploader
+ * round-trips through the multipart POST on `/employees/:eid/avatar`.
+ */
+export function GeneralSettingsPage() {
+  const { company, emp } = useCtx();
+  return (
+    <div className="flex flex-col gap-4">
+      <EmployeeAvatarCard company={company} emp={emp} />
+      <EmployeeBasicsCard company={company} emp={emp} />
+    </div>
+  );
+}
+
+function EmployeeAvatarCard({ company, emp }: { company: Company; emp: Employee }) {
+  const [avatarKey, setAvatarKey] = React.useState<string | null>(
+    emp.avatarKey ?? null,
+  );
+  const [uploading, setUploading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const fileRef = React.useRef<HTMLInputElement | null>(null);
+
+  React.useEffect(() => {
+    setAvatarKey(emp.avatarKey ?? null);
+  }, [emp.id, emp.avatarKey]);
+
+  async function upload(file: File) {
+    setError(null);
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(
+        `/api/companies/${company.id}/employees/${emp.id}/avatar`,
+        { method: "POST", credentials: "same-origin", body: fd },
+      );
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        let msg = res.statusText;
+        try {
+          msg = JSON.parse(text).error ?? msg;
+        } catch {
+          if (text) msg = text;
+        }
+        throw new Error(msg);
+      }
+      const data = (await res.json()) as { avatarKey: string };
+      setAvatarKey(data.avatarKey);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  async function remove() {
+    setError(null);
+    try {
+      await api.del(`/api/companies/${company.id}/employees/${emp.id}/avatar`);
+      setAvatarKey(null);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  return (
+    <Card>
+      <CardBody className="flex flex-col gap-4">
+        <div>
+          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            Profile picture
+          </div>
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            Shown in the sidebar, employee list, and workspace chat. PNG, JPEG,
+            GIF, or WebP up to 5&nbsp;MB.
+          </div>
+        </div>
+        <FormError message={error} />
+        <div className="flex items-center gap-4">
+          <Avatar
+            name={emp.name}
+            kind="ai"
+            size="xl"
+            src={employeeAvatarUrl(company.id, emp.id, avatarKey)}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) upload(f);
+              }}
+            />
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+            >
+              <Camera size={12} /> {uploading ? "Uploading…" : "Upload new"}
+            </Button>
+            {avatarKey && (
+              <Button size="sm" variant="ghost" onClick={remove} disabled={uploading}>
+                Remove
+              </Button>
+            )}
+          </div>
+        </div>
+      </CardBody>
+    </Card>
+  );
+}
+
+function EmployeeBasicsCard({ company, emp }: { company: Company; emp: Employee }) {
+  const navigate = useNavigate();
+  const [name, setName] = React.useState(emp.name);
+  const [role, setRole] = React.useState(emp.role);
+  const [slug, setSlug] = React.useState(emp.slug);
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const { toast } = useToast();
+
+  React.useEffect(() => {
+    setName(emp.name);
+    setRole(emp.role);
+    setSlug(emp.slug);
+  }, [emp.id, emp.name, emp.role, emp.slug]);
+
+  const normalizedSlug = normalizeSlug(slug);
+  const dirty =
+    name.trim() !== emp.name ||
+    role.trim() !== emp.role ||
+    (normalizedSlug.length > 0 && normalizedSlug !== emp.slug);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!dirty || saving) return;
+    const patch: { name?: string; role?: string; slug?: string } = {};
+    if (name.trim() !== emp.name) patch.name = name.trim();
+    if (role.trim() !== emp.role) patch.role = role.trim();
+    if (normalizedSlug && normalizedSlug !== emp.slug) patch.slug = normalizedSlug;
+    setError(null);
+    setSaving(true);
+    try {
+      const updated = await api.patch<Employee>(
+        `/api/companies/${company.id}/employees/${emp.id}`,
+        patch,
+      );
+      toast("Employee updated", "success");
+      if (updated.slug !== emp.slug) {
+        navigate(`/c/${company.slug}/employees/${updated.slug}/settings/general`, {
+          replace: true,
+        });
+        // Force a soft reload so EmployeeLayout refetches with the new slug.
+        window.location.reload();
+        return;
+      }
+      // Reflect new name/role in the sidebar without a full reload.
+      window.dispatchEvent(new CustomEvent("genosyn:employee-updated"));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardBody className="flex flex-col gap-3">
+        <div>
+          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            Basics
+          </div>
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            Renaming the slug updates the URL for this employee and renames its
+            directory under{" "}
+            <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
+              data/companies/{company.slug}/employees/
+            </code>
+            .
+          </div>
+        </div>
+        <form className="flex flex-col gap-3" onSubmit={submit}>
+          <FormError message={error} />
+          <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+          <Input label="Role" value={role} onChange={(e) => setRole(e.target.value)} />
+          <div>
+            <Input
+              label="Slug"
+              value={slug}
+              onChange={(e) => setSlug(e.target.value)}
+              onBlur={() => setSlug((s) => normalizeSlug(s))}
+              pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+              title="Lowercase letters, digits, and single dashes"
+              required
+            />
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              URL:{" "}
+              <code className="font-mono">
+                /c/{company.slug}/employees/{normalizedSlug || "…"}
+              </code>
+            </p>
+          </div>
+          <div className="flex justify-end pt-1">
+            <Button type="submit" disabled={!dirty || saving}>
+              {saving ? "Saving…" : "Save changes"}
+            </Button>
+          </div>
+        </form>
+      </CardBody>
+    </Card>
+  );
+}
+
+function normalizeSlug(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 export function ModelSettingsPage() {

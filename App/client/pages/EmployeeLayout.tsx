@@ -19,6 +19,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
+import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 
 /**
  * Sidebar + layout for a single selected employee. The sidebar switches from
@@ -38,6 +39,7 @@ const EMP_TAB_LABEL: Record<string, string> = {
   connections: "Connections",
   mcp: "MCP",
   settings: "Settings",
+  general: "General",
   soul: "Soul",
   model: "Model",
 };
@@ -50,17 +52,27 @@ export default function EmployeeLayout({ company }: { company: Company }) {
   const dialog = useDialog();
   const [emp, setEmp] = React.useState<Employee | null | undefined>(undefined);
 
-  React.useEffect(() => {
-    (async () => {
-      try {
-        const list = await api.get<Employee[]>(`/api/companies/${company.id}/employees`);
-        const found = list.find((x) => x.slug === empSlug) ?? null;
-        setEmp(found);
-      } catch {
-        setEmp(null);
-      }
-    })();
+  const refreshEmp = React.useCallback(async () => {
+    try {
+      const list = await api.get<Employee[]>(`/api/companies/${company.id}/employees`);
+      const found = list.find((x) => x.slug === empSlug) ?? null;
+      setEmp(found);
+    } catch {
+      setEmp(null);
+    }
   }, [company.id, empSlug]);
+
+  React.useEffect(() => {
+    refreshEmp();
+  }, [refreshEmp]);
+
+  React.useEffect(() => {
+    const handler = () => {
+      refreshEmp();
+    };
+    window.addEventListener("genosyn:employee-updated", handler);
+    return () => window.removeEventListener("genosyn:employee-updated", handler);
+  }, [refreshEmp]);
 
   if (emp === undefined) {
     return (
@@ -87,8 +99,22 @@ export default function EmployeeLayout({ company }: { company: Company }) {
         >
           <ArrowLeft size={12} /> All employees
         </button>
-        <div className="mt-2 text-sm font-semibold text-slate-900 dark:text-slate-100">{emp.name}</div>
-        <div className="text-xs text-slate-500 dark:text-slate-400">{emp.role}</div>
+        <div className="mt-2 flex items-center gap-2">
+          <Avatar
+            name={emp.name}
+            kind="ai"
+            size="lg"
+            src={employeeAvatarUrl(company.id, emp.id, emp.avatarKey)}
+          />
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+              {emp.name}
+            </div>
+            <div className="truncate text-xs text-slate-500 dark:text-slate-400">
+              {emp.role}
+            </div>
+          </div>
+        </div>
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
         <SidebarLink to={`${base}/chat`} icon={<MessageSquare size={14} />} label="Chat" />
