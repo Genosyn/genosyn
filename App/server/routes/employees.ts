@@ -15,7 +15,7 @@ import { toSlug } from "../lib/slug.js";
 import { employeeDir, ensureDir } from "../services/paths.js";
 import { isModelConnected } from "../services/providers.js";
 import { removeDir, soulTemplate, skillTemplate, routineTemplate } from "../services/files.js";
-import { unregisterRoutine, registerRoutine } from "../services/cron.js";
+import { registerRoutine } from "../services/cron.js";
 import { deleteEmployeeConversations } from "./employeeSurface.js";
 import { recordAudit } from "../services/audit.js";
 import { findTemplate } from "../services/templates.js";
@@ -151,8 +151,8 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
         lastRunAt: null,
         body: r.readme || routineTemplate(r.name, r.cronExpr),
       });
-      await routineRepo.save(rRow);
       registerRoutine(rRow);
+      await routineRepo.save(rRow);
     }
   }
 
@@ -215,12 +215,6 @@ employeesRouter.delete("/:eid", async (req, res) => {
   const emp = await empRepo.findOneBy({ id: req.params.eid, companyId: (req.params as Record<string, string>).cid });
   if (!emp) return res.status(404).json({ error: "Not found" });
   const co = await loadCompany((req.params as Record<string, string>).cid);
-
-  // Unregister any cron tasks for routines belonging to this employee.
-  const routines = await AppDataSource.getRepository(Routine).find({
-    where: { employeeId: emp.id },
-  });
-  for (const r of routines) unregisterRoutine(r.id);
 
   await AppDataSource.getRepository(Approval).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(Routine).delete({ employeeId: emp.id });

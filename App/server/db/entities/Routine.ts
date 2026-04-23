@@ -25,6 +25,16 @@ export class Routine {
   lastRunAt!: Date | null;
 
   /**
+   * The next wall-clock time this routine is scheduled to fire, derived from
+   * `cronExpr`. The heartbeat in `services/cron.ts` looks for enabled routines
+   * whose `nextRunAt` is due and runs them. Null when disabled, when the cron
+   * expression fails to parse, or briefly on fresh rows before the schedule is
+   * computed. See `registerRoutine()` / `nextRunFor()` for the write seam.
+   */
+  @Column({ type: "datetime", nullable: true })
+  nextRunAt!: Date | null;
+
+  /**
    * Markdown brief — what used to live at `routines/<slug>/README.md` on
    * disk. The runner folds this into the prompt each time the routine fires;
    * the Routine editor round-trips through `/api/.../routines/:rid/readme`.

@@ -8,6 +8,7 @@ import { AIModel } from "../db/entities/AIModel.js";
 import { Skill } from "../db/entities/Skill.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { employeeDir, ensureDir } from "./paths.js";
+import { nextRunFor } from "./cron.js";
 import { PROVIDERS, isSubscriptionConnected } from "./providers.js";
 import { decryptSecret } from "../lib/secret.js";
 import { materializeMcpConfig } from "./mcp.js";
@@ -224,6 +225,15 @@ async function touchRoutine(
   repo: ReturnType<typeof AppDataSource.getRepository<Routine>>,
 ) {
   routine.lastRunAt = at;
+  // Recompute nextRunAt from the moment the run finished. Collapses any
+  // missed slots that elapsed during a long-running invocation into a single
+  // future tick, so the heartbeat doesn't immediately refire the stale slot.
+  // Manual "Run now" and webhook fires land here too — the worst case is that
+  // the next scheduled tick moves forward by one slot, which is the
+  // fire-at-most-once behavior we want project-wide.
+  if (routine.enabled) {
+    routine.nextRunAt = nextRunFor(routine.cronExpr, at ?? new Date());
+  }
   await repo.save(routine);
 }
 

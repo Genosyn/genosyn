@@ -1,4 +1,5 @@
-import cron, { ScheduledTask } from "node-cron";
+import parser from "cron-parser";
+import { IsNull, LessThanOrEqual } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Routine } from "../db/entities/Routine.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -6,13 +7,50 @@ import { Approval } from "../db/entities/Approval.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { runRoutine } from "./runner.js";
 
-const tasks = new Map<string, ScheduledTask>();
+/**
+ * Heartbeat-based routine scheduler.
+ *
+ * Instead of holding one in-memory `node-cron` timer per routine, we persist
+ * the next due time on each `Routine` row (`nextRunAt`) and poll every
+ * {@link HEARTBEAT_INTERVAL_MS}. Due rows get advanced + fired.
+ *
+ * Catch-up after downtime is **fire-at-most-once**: if the server was down
+ * across many scheduled ticks, the routine fires once on the next heartbeat
+ * (not N times). This is implemented by advancing `nextRunAt` from *now*
+ * rather than from the stale `nextRunAt`, so we skip past all missed slots.
+ */
+
+const HEARTBEAT_INTERVAL_MS = 30 * 1000;
+let heartbeat: NodeJS.Timeout | null = null;
+let ticking = false;
 
 /**
- * When a cron tick fires for a routine marked `requiresApproval`, we don't
- * run — we insert a pending {@link Approval} and emit a journal entry so
- * the human operator can decide from the Approvals inbox.
+ * Compute the next scheduled fire time for a cron expression, or null if the
+ * expression is invalid. `from` defaults to now; callers pass a specific
+ * moment when they want "next after this run" semantics.
  */
+export function nextRunFor(cronExpr: string, from: Date = new Date()): Date | null {
+  try {
+    const interval = parser.parseExpression(cronExpr, { currentDate: from });
+    return interval.next().toDate();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Mutate a routine's `nextRunAt` based on its current cron/enabled state.
+ * Callers save the row afterward. When disabled or when the expression is
+ * unparseable we clear `nextRunAt` so the heartbeat ignores the row.
+ */
+export function registerRoutine(routine: Routine): void {
+  if (!routine.enabled) {
+    routine.nextRunAt = null;
+    return;
+  }
+  routine.nextRunAt = nextRunFor(routine.cronExpr);
+}
+
 async function tickRoutine(routineId: string): Promise<void> {
   // Re-fetch each tick so edits (including flipping requiresApproval or
   // disabling the routine) take effect without restarting the process.
@@ -48,33 +86,73 @@ async function tickRoutine(routineId: string): Promise<void> {
   await runRoutine(fresh);
 }
 
-export function registerRoutine(routine: Routine): void {
-  unregisterRoutine(routine.id);
-  if (!routine.enabled) return;
-  if (!cron.validate(routine.cronExpr)) {
-    // eslint-disable-next-line no-console
-    console.warn(`[cron] invalid expression for routine ${routine.id}: ${routine.cronExpr}`);
-    return;
-  }
-  const task = cron.schedule(routine.cronExpr, () => {
-    tickRoutine(routine.id).catch((err) => {
-      // eslint-disable-next-line no-console
-      console.error(`[cron] routine ${routine.id} failed:`, err);
+/**
+ * One heartbeat pass. Finds enabled routines whose `nextRunAt` has come due,
+ * advances their schedule past now (fire-at-most-once), saves, and fires the
+ * run in the background.
+ *
+ * The outer guard (`ticking`) prevents overlapping passes if a heartbeat
+ * interval fires while the previous pass is still writing rows — cheap
+ * insurance, since a single SQLite connection serializes writes anyway.
+ */
+async function tick(): Promise<void> {
+  if (ticking) return;
+  ticking = true;
+  try {
+    const repo = AppDataSource.getRepository(Routine);
+    const now = new Date();
+    const due = await repo.find({
+      where: { enabled: true, nextRunAt: LessThanOrEqual(now) },
     });
-  });
-  tasks.set(routine.id, task);
+    for (const r of due) {
+      // Advance BEFORE firing so a long-running routine doesn't re-trigger
+      // on the next heartbeat. Compute from `now` (not r.nextRunAt) so we
+      // collapse missed slots into a single catch-up run.
+      r.nextRunAt = nextRunFor(r.cronExpr, now);
+      await repo.save(r);
+      tickRoutine(r.id).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error(`[cron] routine ${r.id} failed:`, err);
+      });
+    }
+  } finally {
+    ticking = false;
+  }
 }
 
-export function unregisterRoutine(routineId: string): void {
-  const task = tasks.get(routineId);
-  if (task) {
-    task.stop();
-    tasks.delete(routineId);
+/**
+ * Fill in `nextRunAt` for any enabled routine that doesn't have one. Runs on
+ * boot to handle (a) rows created before this column existed, and (b) rows
+ * where a prior boot failed to compute a schedule (e.g. transient parse
+ * error). Sets the next time relative to *now* so we don't try to fabricate
+ * a missed history.
+ */
+async function initialSweep(): Promise<void> {
+  const repo = AppDataSource.getRepository(Routine);
+  const orphans = await repo.find({
+    where: { enabled: true, nextRunAt: IsNull() },
+  });
+  if (orphans.length === 0) return;
+  const now = new Date();
+  for (const r of orphans) {
+    r.nextRunAt = nextRunFor(r.cronExpr, now);
+    await repo.save(r);
   }
 }
 
 export async function bootCron(): Promise<void> {
-  const repo = AppDataSource.getRepository(Routine);
-  const routines = await repo.find({ where: { enabled: true } });
-  for (const r of routines) registerRoutine(r);
+  await initialSweep();
+  if (heartbeat) clearInterval(heartbeat);
+  heartbeat = setInterval(() => {
+    tick().catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error("[cron] heartbeat failed:", err);
+    });
+  }, HEARTBEAT_INTERVAL_MS);
+  // Kick an immediate pass so a just-rebooted server catches up without
+  // waiting a full heartbeat interval first.
+  tick().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[cron] initial tick failed:", err);
+  });
 }

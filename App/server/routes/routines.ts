@@ -12,7 +12,7 @@ import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { routineTemplate } from "../services/files.js";
-import { registerRoutine, unregisterRoutine } from "../services/cron.js";
+import { registerRoutine } from "../services/cron.js";
 import { runRoutine, RUN_LOG_MAX_BYTES } from "../services/runner.js";
 import { recordAudit } from "../services/audit.js";
 
@@ -90,8 +90,8 @@ routinesRouter.post(
       lastRunAt: null,
       body: routineTemplate(body.name, body.cronExpr),
     });
-    await repo.save(r);
     registerRoutine(r);
+    await repo.save(r);
     await recordAudit({
       companyId: co.id,
       actorUserId: req.userId ?? null,
@@ -149,8 +149,8 @@ routinesRouter.patch(
     if (body.enabled !== undefined) r.enabled = body.enabled;
     if (body.timeoutSec !== undefined) r.timeoutSec = body.timeoutSec;
     if (body.requiresApproval !== undefined) r.requiresApproval = body.requiresApproval;
-    await AppDataSource.getRepository(Routine).save(r);
     registerRoutine(r);
+    await AppDataSource.getRepository(Routine).save(r);
     await recordAudit({
       companyId: found.co.id,
       actorUserId: req.userId ?? null,
@@ -167,7 +167,6 @@ routinesRouter.patch(
 routinesRouter.delete("/routines/:rid", async (req, res) => {
   const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
   if (!found) return res.status(404).json({ error: "Not found" });
-  unregisterRoutine(found.routine.id);
   await AppDataSource.getRepository(Approval).delete({ routineId: found.routine.id });
   await AppDataSource.getRepository(Run).delete({ routineId: found.routine.id });
   await AppDataSource.getRepository(Routine).delete({ id: found.routine.id });

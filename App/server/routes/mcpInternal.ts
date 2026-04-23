@@ -278,8 +278,8 @@ mcpInternalRouter.post(
       lastRunAt: null,
       body: body.brief?.trim() ? body.brief : routineTemplate(body.name, body.cronExpr),
     });
-    await repo.save(r);
     registerRoutine(r);
+    await repo.save(r);
 
     await recordAudit({
       companyId: co.id,
