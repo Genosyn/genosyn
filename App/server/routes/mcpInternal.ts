@@ -23,14 +23,19 @@ import {
 } from "../services/integrations.js";
 import {
   buildLinkOptionsFor,
+  grantBaseAccess,
   hasBaseGrant,
   hydrateField,
   hydrateRecord,
   listGrantedBasesForEmployee,
+  seedBaseFromTemplate,
+  uniqueBaseSlug,
+  uniqueTableSlug,
 } from "../services/bases.js";
+import { findBaseTemplate } from "../services/baseTemplates.js";
 import { Base } from "../db/entities/Base.js";
 import { BaseTable } from "../db/entities/BaseTable.js";
-import { BaseField } from "../db/entities/BaseField.js";
+import { BaseField, BaseFieldType } from "../db/entities/BaseField.js";
 import { BaseRecord } from "../db/entities/BaseRecord.js";
 import { EmployeeMemory } from "../db/entities/EmployeeMemory.js";
 import { getProvider } from "../integrations/index.js";
@@ -1039,6 +1044,484 @@ mcpInternalRouter.post(
       targetType: "base_record",
       targetId: r.id,
       targetLabel: `${b.name}/${t.name}`,
+      metadata: { via: "mcp", baseId: b.id, tableId: t.id },
+    });
+    res.json({ ok: true });
+  },
+);
+
+// ----- Base schema writes (create base / table / field) -----
+
+const BASE_COLORS = ["indigo", "emerald", "amber", "rose", "sky", "violet", "slate"] as const;
+const FIELD_TYPES_ENUM: [BaseFieldType, ...BaseFieldType[]] = [
+  "text",
+  "longtext",
+  "number",
+  "checkbox",
+  "date",
+  "datetime",
+  "email",
+  "url",
+  "select",
+  "multiselect",
+  "link",
+];
+
+function randOptionId(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+function hydrateBase(b: Base) {
+  return {
+    id: b.id,
+    slug: b.slug,
+    name: b.name,
+    description: b.description,
+    icon: b.icon,
+    color: b.color,
+  };
+}
+
+function hydrateTable(t: BaseTable) {
+  return { id: t.id, slug: t.slug, name: t.name, sortOrder: t.sortOrder };
+}
+
+const createBaseSchema = z
+  .object({
+    name: z.string().min(1).max(80),
+    description: z.string().max(500).optional(),
+    icon: z.string().max(40).optional(),
+    color: z.enum(BASE_COLORS).optional(),
+    templateId: z.string().min(1).max(120).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/create_base",
+  validateBody(createBaseSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof createBaseSchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+
+    const template = body.templateId ? findBaseTemplate(body.templateId) : null;
+    if (body.templateId && !template) {
+      return res.status(400).json({ error: `Unknown template: ${body.templateId}` });
+    }
+
+    const slug = await uniqueBaseSlug(co.id, toSlug(body.name));
+    const repo = AppDataSource.getRepository(Base);
+    const b = await repo.save(
+      repo.create({
+        companyId: co.id,
+        name: body.name,
+        slug,
+        description: body.description ?? template?.description ?? "",
+        icon: body.icon ?? template?.icon ?? "Database",
+        color: body.color ?? template?.color ?? "indigo",
+        createdById: null,
+      }),
+    );
+    if (template) await seedBaseFromTemplate(b.id, template);
+
+    // Auto-grant the creating employee so the base shows up in list_bases
+    // without a second human-driven step.
+    await grantBaseAccess(self.id, b.id);
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "base.create",
+      targetType: "base",
+      targetId: b.id,
+      targetLabel: b.name,
+      metadata: { via: "mcp", templateId: template?.id ?? null, autoGranted: true },
+    });
+    await journal(
+      self.id,
+      `${self.name} created base "${b.name}"`,
+      template
+        ? `Seeded from template \`${template.id}\`. Access granted to self.`
+        : "Empty base. Access granted to self.",
+    );
+    res.json({ base: hydrateBase(b) });
+  },
+);
+
+const createBaseTableSchema = z
+  .object({
+    baseSlug: z.string().min(1).max(120),
+    name: z.string().min(1).max(80),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/create_base_table",
+  validateBody(createBaseTableSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof createBaseTableSchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const b = await loadGrantedBase(req, res, body.baseSlug);
+    if (!b) return;
+
+    const slug = await uniqueTableSlug(b.id, toSlug(body.name));
+    const last = await AppDataSource.getRepository(BaseTable).findOne({
+      where: { baseId: b.id },
+      order: { sortOrder: "DESC" },
+    });
+    const saved = await AppDataSource.getRepository(BaseTable).save(
+      AppDataSource.getRepository(BaseTable).create({
+        baseId: b.id,
+        name: body.name,
+        slug,
+        sortOrder: (last?.sortOrder ?? 0) + 1000,
+      }),
+    );
+    const primary = await AppDataSource.getRepository(BaseField).save(
+      AppDataSource.getRepository(BaseField).create({
+        tableId: saved.id,
+        name: "Name",
+        type: "text",
+        configJson: "{}",
+        isPrimary: true,
+        sortOrder: 1000,
+      }),
+    );
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "base_table.create",
+      targetType: "base_table",
+      targetId: saved.id,
+      targetLabel: `${b.name}/${saved.name}`,
+      metadata: { via: "mcp", baseId: b.id },
+    });
+    await journal(
+      self.id,
+      `${self.name} added table "${saved.name}" to ${b.name}`,
+      "Seeded with a primary `Name` text field.",
+    );
+    res.json({ table: hydrateTable(saved), primaryField: hydrateField(primary) });
+  },
+);
+
+const updateBaseTableSchema = z
+  .object({
+    baseSlug: z.string().min(1).max(120),
+    tableSlug: z.string().min(1).max(120),
+    name: z.string().min(1).max(80),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/update_base_table",
+  validateBody(updateBaseTableSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof updateBaseTableSchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const b = await loadGrantedBase(req, res, body.baseSlug);
+    if (!b) return;
+    const tableRepo = AppDataSource.getRepository(BaseTable);
+    const t = await tableRepo.findOneBy({ baseId: b.id, slug: body.tableSlug });
+    if (!t) return res.status(404).json({ error: "Table not found" });
+
+    const prevName = t.name;
+    t.name = body.name;
+    await tableRepo.save(t);
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "base_table.update",
+      targetType: "base_table",
+      targetId: t.id,
+      targetLabel: `${b.name}/${t.name}`,
+      metadata: { via: "mcp", baseId: b.id, prevName },
+    });
+    res.json({ table: hydrateTable(t) });
+  },
+);
+
+const deleteBaseTableSchema = z
+  .object({
+    baseSlug: z.string().min(1).max(120),
+    tableSlug: z.string().min(1).max(120),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/delete_base_table",
+  validateBody(deleteBaseTableSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof deleteBaseTableSchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const b = await loadGrantedBase(req, res, body.baseSlug);
+    if (!b) return;
+    const tableRepo = AppDataSource.getRepository(BaseTable);
+    const t = await tableRepo.findOneBy({ baseId: b.id, slug: body.tableSlug });
+    if (!t) return res.status(404).json({ error: "Table not found" });
+
+    await AppDataSource.getRepository(BaseRecord).delete({ tableId: t.id });
+    await AppDataSource.getRepository(BaseField).delete({ tableId: t.id });
+    await tableRepo.delete({ id: t.id });
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "base_table.delete",
+      targetType: "base_table",
+      targetId: t.id,
+      targetLabel: `${b.name}/${t.name}`,
+      metadata: { via: "mcp", baseId: b.id },
+    });
+    await journal(
+      self.id,
+      `${self.name} deleted table "${t.name}" from ${b.name}`,
+      "All fields and rows removed.",
+    );
+    res.json({ ok: true });
+  },
+);
+
+const fieldOptionSchema = z
+  .object({
+    id: z.string().min(1).max(40).optional(),
+    label: z.string().min(1).max(80),
+    color: z.enum(BASE_COLORS).optional(),
+  })
+  .strict();
+
+const addBaseFieldSchema = z
+  .object({
+    baseSlug: z.string().min(1).max(120),
+    tableSlug: z.string().min(1).max(120),
+    name: z.string().min(1).max(80),
+    type: z.enum(FIELD_TYPES_ENUM),
+    options: z.array(fieldOptionSchema).max(100).optional(),
+    linkTargetTableSlug: z.string().min(1).max(120).optional(),
+    isPrimary: z.boolean().optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/add_base_field",
+  validateBody(addBaseFieldSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof addBaseFieldSchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const b = await loadGrantedBase(req, res, body.baseSlug);
+    if (!b) return;
+    const t = await AppDataSource.getRepository(BaseTable).findOneBy({
+      baseId: b.id,
+      slug: body.tableSlug,
+    });
+    if (!t) return res.status(404).json({ error: "Table not found" });
+
+    let config: Record<string, unknown> = {};
+    if (body.type === "select" || body.type === "multiselect") {
+      const opts = body.options ?? [];
+      config = {
+        options: opts.map((o) => ({
+          id: o.id && o.id.length > 0 ? o.id : randOptionId(),
+          label: o.label,
+          color: o.color ?? "slate",
+        })),
+      };
+    } else if (body.type === "link") {
+      if (!body.linkTargetTableSlug) {
+        return res.status(400).json({
+          error: "link fields require `linkTargetTableSlug` pointing at a table in the same base",
+        });
+      }
+      const target = await AppDataSource.getRepository(BaseTable).findOneBy({
+        baseId: b.id,
+        slug: body.linkTargetTableSlug,
+      });
+      if (!target) {
+        return res.status(400).json({
+          error: `Link target table not found in base: ${body.linkTargetTableSlug}`,
+        });
+      }
+      config = { targetTableId: target.id };
+    }
+
+    const fieldRepo = AppDataSource.getRepository(BaseField);
+    const last = await fieldRepo.findOne({
+      where: { tableId: t.id },
+      order: { sortOrder: "DESC" },
+    });
+    const saved = await fieldRepo.save(
+      fieldRepo.create({
+        tableId: t.id,
+        name: body.name,
+        type: body.type,
+        configJson: JSON.stringify(config),
+        isPrimary: !!body.isPrimary,
+        sortOrder: (last?.sortOrder ?? 0) + 1000,
+      }),
+    );
+    if (body.isPrimary) {
+      await fieldRepo
+        .createQueryBuilder()
+        .update()
+        .set({ isPrimary: false })
+        .where("tableId = :tid AND id != :sid", { tid: t.id, sid: saved.id })
+        .execute();
+    }
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "base_field.create",
+      targetType: "base_field",
+      targetId: saved.id,
+      targetLabel: `${b.name}/${t.name}.${saved.name}`,
+      metadata: { via: "mcp", baseId: b.id, tableId: t.id, type: saved.type },
+    });
+    res.json({ field: hydrateField(saved) });
+  },
+);
+
+const updateBaseFieldSchema = z
+  .object({
+    baseSlug: z.string().min(1).max(120),
+    tableSlug: z.string().min(1).max(120),
+    fieldId: z.string().uuid(),
+    name: z.string().min(1).max(80).optional(),
+    isPrimary: z.boolean().optional(),
+    options: z.array(fieldOptionSchema).max(100).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/update_base_field",
+  validateBody(updateBaseFieldSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof updateBaseFieldSchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const b = await loadGrantedBase(req, res, body.baseSlug);
+    if (!b) return;
+    const t = await AppDataSource.getRepository(BaseTable).findOneBy({
+      baseId: b.id,
+      slug: body.tableSlug,
+    });
+    if (!t) return res.status(404).json({ error: "Table not found" });
+    const fieldRepo = AppDataSource.getRepository(BaseField);
+    const f = await fieldRepo.findOneBy({ id: body.fieldId, tableId: t.id });
+    if (!f) return res.status(404).json({ error: "Field not found" });
+
+    if (body.name !== undefined) f.name = body.name;
+
+    if (body.options !== undefined) {
+      if (f.type !== "select" && f.type !== "multiselect") {
+        return res.status(400).json({
+          error: `options can only be set on select or multiselect fields (this one is ${f.type})`,
+        });
+      }
+      const config: Record<string, unknown> = (() => {
+        try {
+          return JSON.parse(f.configJson || "{}");
+        } catch {
+          return {};
+        }
+      })();
+      config.options = body.options.map((o) => ({
+        id: o.id && o.id.length > 0 ? o.id : randOptionId(),
+        label: o.label,
+        color: o.color ?? "slate",
+      }));
+      f.configJson = JSON.stringify(config);
+    }
+
+    if (body.isPrimary === true) {
+      f.isPrimary = true;
+    }
+
+    await fieldRepo.save(f);
+    if (body.isPrimary === true) {
+      await fieldRepo
+        .createQueryBuilder()
+        .update()
+        .set({ isPrimary: false })
+        .where("tableId = :tid AND id != :fid", { tid: t.id, fid: f.id })
+        .execute();
+    }
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "base_field.update",
+      targetType: "base_field",
+      targetId: f.id,
+      targetLabel: `${b.name}/${t.name}.${f.name}`,
+      metadata: { via: "mcp", baseId: b.id, tableId: t.id, changes: body },
+    });
+    res.json({ field: hydrateField(f) });
+  },
+);
+
+const deleteBaseFieldSchema = z
+  .object({
+    baseSlug: z.string().min(1).max(120),
+    tableSlug: z.string().min(1).max(120),
+    fieldId: z.string().uuid(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/delete_base_field",
+  validateBody(deleteBaseFieldSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof deleteBaseFieldSchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const b = await loadGrantedBase(req, res, body.baseSlug);
+    if (!b) return;
+    const t = await AppDataSource.getRepository(BaseTable).findOneBy({
+      baseId: b.id,
+      slug: body.tableSlug,
+    });
+    if (!t) return res.status(404).json({ error: "Table not found" });
+    const fieldRepo = AppDataSource.getRepository(BaseField);
+    const f = await fieldRepo.findOneBy({ id: body.fieldId, tableId: t.id });
+    if (!f) return res.status(404).json({ error: "Field not found" });
+    if (f.isPrimary) {
+      return res.status(400).json({
+        error: "Promote another field to primary via update_base_field before deleting this one",
+      });
+    }
+
+    await fieldRepo.delete({ id: f.id });
+    // Strip this field id from every row's dataJson so row payloads stay clean.
+    const recordRepo = AppDataSource.getRepository(BaseRecord);
+    const rows = await recordRepo.find({ where: { tableId: t.id } });
+    for (const r of rows) {
+      let data: Record<string, unknown>;
+      try {
+        data = JSON.parse(r.dataJson || "{}");
+      } catch {
+        continue;
+      }
+      if (f.id in data) {
+        delete data[f.id];
+        r.dataJson = JSON.stringify(data);
+        await recordRepo.save(r);
+      }
+    }
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "base_field.delete",
+      targetType: "base_field",
+      targetId: f.id,
+      targetLabel: `${b.name}/${t.name}.${f.name}`,
       metadata: { via: "mcp", baseId: b.id, tableId: t.id },
     });
     res.json({ ok: true });

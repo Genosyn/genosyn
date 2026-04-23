@@ -341,6 +341,193 @@ const TOOLS = [
     },
   },
   {
+    name: "create_base",
+    description:
+      "Create a new Base (Airtable-style structured-data workspace) in this company. Use this when a teammate asks for a new place to store tabular data — CRM, revenue tracker, content calendar, etc. The base starts empty; add tables with `create_base_table` and fields with `add_base_field`. Access is auto-granted to you (the creator) so the base appears in your `list_bases` immediately.",
+    endpoint: "/tools/create_base",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "Human-readable name, e.g. 'Revenue' or 'CRM'.",
+        },
+        description: {
+          type: "string",
+          description: "One-line description shown on the base card.",
+        },
+        icon: {
+          type: "string",
+          description: "Optional lucide-react icon name (e.g. 'LineChart'). Defaults to 'Database'.",
+        },
+        color: {
+          type: "string",
+          enum: ["indigo", "emerald", "amber", "rose", "sky", "violet", "slate"],
+          description: "Accent color. Defaults to 'indigo'.",
+        },
+        templateId: {
+          type: "string",
+          description:
+            "Optional template id (e.g. 'blank', 'crm'). Seeds starter tables, fields, and sample rows. Omit to start empty.",
+        },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_base_table",
+    description:
+      "Add a new table to a Base you have access to. A seed primary 'Name' text field is created automatically so the table is immediately writable; add more fields with `add_base_field`. Returns the new table's slug.",
+    endpoint: "/tools/create_base_table",
+    inputSchema: {
+      type: "object",
+      properties: {
+        baseSlug: { type: "string", description: "Slug of the target base." },
+        name: {
+          type: "string",
+          description: "Human-readable table name, e.g. 'Snapshots' or 'Customers'.",
+        },
+      },
+      required: ["baseSlug", "name"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_base_table",
+    description: "Rename a table inside a Base.",
+    endpoint: "/tools/update_base_table",
+    inputSchema: {
+      type: "object",
+      properties: {
+        baseSlug: { type: "string" },
+        tableSlug: { type: "string", description: "Current slug of the table." },
+        name: { type: "string", description: "New display name." },
+      },
+      required: ["baseSlug", "tableSlug", "name"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_base_table",
+    description:
+      "Delete a table from a Base, along with all of its fields and rows. Irreversible — confirm with a human first when uncertain.",
+    endpoint: "/tools/delete_base_table",
+    inputSchema: {
+      type: "object",
+      properties: {
+        baseSlug: { type: "string" },
+        tableSlug: { type: "string" },
+      },
+      required: ["baseSlug", "tableSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "add_base_field",
+    description:
+      "Add a field (column) to a table. Supported types: text, longtext, number, checkbox, date, datetime, email, url, select, multiselect, link. For `select` / `multiselect`, pass `options` as an array of `{label, color}` — option ids are generated server-side. For `link`, pass `linkTargetTableSlug` to point at a sibling table in the same base. Set `isPrimary: true` to make this the primary field (demotes any previous primary).",
+    endpoint: "/tools/add_base_field",
+    inputSchema: {
+      type: "object",
+      properties: {
+        baseSlug: { type: "string" },
+        tableSlug: { type: "string" },
+        name: { type: "string", description: "Field display name." },
+        type: {
+          type: "string",
+          enum: [
+            "text",
+            "longtext",
+            "number",
+            "checkbox",
+            "date",
+            "datetime",
+            "email",
+            "url",
+            "select",
+            "multiselect",
+            "link",
+          ],
+        },
+        options: {
+          type: "array",
+          description: "select/multiselect options.",
+          items: {
+            type: "object",
+            properties: {
+              label: { type: "string" },
+              color: {
+                type: "string",
+                enum: ["indigo", "emerald", "amber", "rose", "sky", "violet", "slate"],
+              },
+            },
+            required: ["label"],
+            additionalProperties: false,
+          },
+        },
+        linkTargetTableSlug: {
+          type: "string",
+          description: "For link fields: slug of the target table in the same base.",
+        },
+        isPrimary: { type: "boolean" },
+      },
+      required: ["baseSlug", "tableSlug", "name", "type"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_base_field",
+    description:
+      "Rename a field, mark it as the primary field, or replace its `options` (select/multiselect). Changing field `type` is not supported — delete and recreate if needed. Replacing options removes any option ids not present in the new list; existing row cells referencing removed options are silently orphaned.",
+    endpoint: "/tools/update_base_field",
+    inputSchema: {
+      type: "object",
+      properties: {
+        baseSlug: { type: "string" },
+        tableSlug: { type: "string" },
+        fieldId: { type: "string", description: "UUID from `get_base`." },
+        name: { type: "string" },
+        isPrimary: { type: "boolean" },
+        options: {
+          type: "array",
+          description: "Replacement select/multiselect options. Include existing ids to preserve them.",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string", description: "Existing option id. Omit to create a new one." },
+              label: { type: "string" },
+              color: {
+                type: "string",
+                enum: ["indigo", "emerald", "amber", "rose", "sky", "violet", "slate"],
+              },
+            },
+            required: ["label"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["baseSlug", "tableSlug", "fieldId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_base_field",
+    description:
+      "Delete a field from a table. Fails if the field is the table's primary field — promote another field first via `update_base_field`. Values stored in that field are stripped from every row.",
+    endpoint: "/tools/delete_base_field",
+    inputSchema: {
+      type: "object",
+      properties: {
+        baseSlug: { type: "string" },
+        tableSlug: { type: "string" },
+        fieldId: { type: "string" },
+      },
+      required: ["baseSlug", "tableSlug", "fieldId"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_base_rows",
     description:
       "Read rows from a table inside a Base. Returns fields, records, and link-option labels so you can reason about the data. Defaults to 100 rows; pass `limit` up to 500.",
