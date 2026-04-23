@@ -1,5 +1,7 @@
 import { Nav } from "@/sections/Nav";
 import { Hero } from "@/sections/Hero";
+import { Primitives } from "@/sections/Primitives";
+import { DayInTheLife } from "@/sections/DayInTheLife";
 import { Features } from "@/sections/Features";
 import { HowItWorks } from "@/sections/HowItWorks";
 import { CliShowcase } from "@/sections/CliShowcase";
@@ -12,6 +14,8 @@ export function App() {
       <Nav />
       <main>
         <Hero />
+        <Primitives />
+        <DayInTheLife />
         <Features />
         <HowItWorks />
         <CliShowcase />

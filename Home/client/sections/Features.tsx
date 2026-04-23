@@ -1,89 +1,91 @@
-import {
-  BookOpen,
-  CalendarClock,
-  Cpu,
-  Server,
-  Sparkles,
-  Users,
-  type LucideIcon,
-} from "lucide-react";
+import { Cpu, Database, GitBranch, KeyRound, Server, Users } from "lucide-react";
 
-type Feature = {
-  icon: LucideIcon;
-  title: string;
-  tagline: string;
-  body: string;
-};
-
-const FEATURES: Feature[] = [
+const PLATFORM = [
   {
     icon: Users,
-    title: "AI Employees",
-    tagline: "Hire a roster.",
-    body: "Persistent personas with a name, a role, and a home in your company. Build the team you wish you had.",
-  },
-  {
-    icon: BookOpen,
-    title: "Soul",
-    tagline: "A written constitution every employee lives by.",
-    body: "The Soul holds values, tone, and decision-making. Edit markdown in the app, audit the history, ship a new version.",
-  },
-  {
-    icon: Sparkles,
-    title: "Skills",
-    tagline: "Documented capabilities, reusable and versionable.",
-    body: "Each skill is a markdown playbook attached to an employee. Compose them in routines; share them across teams.",
-  },
-  {
-    icon: CalendarClock,
-    title: "Routines",
-    tagline: "Scheduled recurring work on a cron.",
-    body: "Morning digests, hourly triage, Friday reports. Every run is logged and auditable.",
+    title: "Build a roster, not a single agent.",
+    body: "Hire as many employees as you need. Each has their own credentials, working directory, and audit trail — no shared prompts, no session bleed.",
   },
   {
     icon: Cpu,
-    title: "AI Models",
-    tagline: "Claude, Codex, opencode — you pick the brain.",
-    body: "Register multiple models per company and assign them per employee or override per routine.",
+    title: "Bring your own brain.",
+    body: "Plug in claude-code, codex, or opencode per employee. Assign a different model per routine. Costs show up on the provider's dashboard, not ours.",
   },
   {
     icon: Server,
-    title: "Self-hostable",
-    tagline: "SQLite on a laptop, Postgres in prod.",
-    body: "One config file, one process, your data on your server. Flip a flag to scale up.",
+    title: "SQLite today, Postgres tomorrow.",
+    body: "One config file, one process, one database. Flip a flag when you outgrow SQLite. No migrations needed for your workflow.",
   },
+];
+
+const STATS = [
+  { icon: Database, label: "One database", value: "SQLite → Postgres" },
+  { icon: GitBranch, label: "Open source", value: "MIT · fork it" },
+  { icon: KeyRound, label: "Your keys", value: "Stored on your disk" },
 ];
 
 export function Features() {
   return (
-    <section className="mx-auto max-w-6xl px-6 py-20 sm:py-24">
+    <section id="platform" className="mx-auto max-w-6xl px-6 py-20 sm:py-24">
       <div className="mx-auto max-w-2xl text-center">
-        <h2 className="text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">
-          An operating model for AI workers.
+        <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
+          The platform
+        </div>
+        <h2 className="mt-5 text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">
+          Opinionated where it matters.
+          <br className="hidden sm:block" /> Flexible where you need it.
         </h2>
         <p className="mt-4 text-base leading-relaxed text-slate-600">
-          Everything an employee needs to do real work, written down and kept in your repo.
+          One runtime for a whole company. The defaults get you going in a
+          minute; the escape hatches are there when you grow.
         </p>
       </div>
-      <div className="mt-14 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {FEATURES.map((feature) => (
-          <FeatureCard key={feature.title} feature={feature} />
-        ))}
+
+      <div className="mt-14 grid grid-cols-1 gap-5 md:grid-cols-3">
+        {PLATFORM.map((f) => {
+          const Icon = f.icon;
+          return (
+            <div
+              key={f.title}
+              className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
+            >
+              <div
+                aria-hidden
+                className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-indigo-50 opacity-0 blur-2xl transition group-hover:opacity-80"
+              />
+              <div className="relative">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 text-white">
+                  <Icon className="h-5 w-5" />
+                </div>
+                <h3 className="mt-5 text-base font-semibold text-slate-900">{f.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-600">{f.body}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-2 sm:grid-cols-3">
+        {STATS.map((s) => {
+          const Icon = s.icon;
+          return (
+            <div
+              key={s.label}
+              className="flex items-center gap-3 rounded-xl bg-white px-4 py-3 shadow-sm ring-1 ring-slate-100"
+            >
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+                <Icon className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">
+                  {s.label}
+                </div>
+                <div className="truncate text-sm font-medium text-slate-900">{s.value}</div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </section>
-  );
-}
-
-function FeatureCard({ feature }: { feature: Feature }) {
-  const Icon = feature.icon;
-  return (
-    <div className="group rounded-xl border border-slate-200 bg-white p-6 shadow-sm transition hover:border-slate-300 hover:shadow-md">
-      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
-        <Icon className="h-5 w-5" />
-      </div>
-      <h3 className="mt-5 text-base font-semibold text-slate-900">{feature.title}</h3>
-      <p className="mt-1 text-sm font-medium text-slate-700">{feature.tagline}</p>
-      <p className="mt-3 text-sm leading-relaxed text-slate-600">{feature.body}</p>
-    </div>
   );
 }

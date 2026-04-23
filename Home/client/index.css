@@ -6,6 +6,11 @@
   color-scheme: light;
 }
 
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 5rem;
+}
+
 html,
 body {
   @apply bg-white text-slate-900 antialiased;
