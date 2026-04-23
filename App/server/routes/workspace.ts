@@ -13,10 +13,12 @@ import {
   getChannel,
   listChannelsForUser,
   listCompanyDirectory,
+  listCompanyMentionables,
   listMessages,
   markChannelRead,
   postMessage,
   removeChannelMember,
+  renameChannel,
   softDeleteMessage,
   toggleReaction,
   userHasChannelAccess,
@@ -65,6 +67,16 @@ workspaceRouter.get("/directory", async (req, res) => {
   const co = companyOf(req as unknown as { company?: Company });
   const dir = await listCompanyDirectory(co.id);
   res.json(dir);
+});
+
+// Flat list of everything @-mentionable from the composer — users by handle,
+// AI by slug, channels, bases, base tables, connections. The client filters
+// by handle prefix as the user types; each entry carries the `href` the
+// clickable pill should navigate to.
+workspaceRouter.get("/mentionables", async (req, res) => {
+  const co = companyOf(req as unknown as { company?: Company });
+  const list = await listCompanyMentionables(co.id, co.slug);
+  res.json(list);
 });
 
 // ───────────────────────── Realtime token ────────────────────────────────
@@ -127,6 +139,39 @@ workspaceRouter.post(
       res
         .status(400)
         .json({ error: err instanceof Error ? err.message : "Create failed" });
+    }
+  },
+);
+
+const renameChannelSchema = z.object({
+  name: z.string().min(1).max(80).optional(),
+  topic: z.string().max(280).optional(),
+});
+workspaceRouter.patch(
+  "/channels/:channelId",
+  validateBody(renameChannelSchema),
+  async (req, res) => {
+    const co = companyOf(req as unknown as { company?: Company });
+    const ok = await userHasChannelAccess({
+      channelId: req.params.channelId,
+      userId: req.userId!,
+      companyId: co.id,
+    });
+    if (!ok) return res.status(404).json({ error: "Channel not found" });
+    const body = (req as unknown as { validated: z.infer<typeof renameChannelSchema> })
+      .validated;
+    try {
+      await renameChannel({
+        channelId: req.params.channelId,
+        name: body.name,
+        topic: body.topic,
+      });
+      const hydrated = await getChannel(req.params.channelId, co.id, req.userId!);
+      res.json(hydrated);
+    } catch (err) {
+      res
+        .status(400)
+        .json({ error: err instanceof Error ? err.message : "Rename failed" });
     }
   },
 );

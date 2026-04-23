@@ -59,8 +59,27 @@ export type WorkspaceChannel = {
 };
 
 export type WorkspaceDirectory = {
-  members: { id: string; name: string; email: string }[];
+  members: {
+    id: string;
+    name: string;
+    email: string;
+    handle: string | null;
+  }[];
   employees: { id: string; name: string; slug: string; role: string }[];
+};
+
+/**
+ * A single @-mentionable thing in the company — user, AI employee, channel,
+ * base, base table, or connection. The client filters this flat list by
+ * handle prefix as the user types. `href` is the relative URL the clickable
+ * pill in a rendered message should navigate to.
+ */
+export type Mentionable = {
+  kind: "user" | "ai" | "base" | "base_table" | "connection" | "channel";
+  handle: string;
+  label: string;
+  sublabel?: string;
+  href: string;
 };
 
 // ──────────────────────── REST wrappers ──────────────────────────────────
@@ -70,6 +89,9 @@ const base = (companyId: string) => `/api/companies/${companyId}/workspace`;
 export const workspaceApi = {
   directory: (companyId: string) =>
     api.get<WorkspaceDirectory>(`${base(companyId)}/directory`),
+
+  mentionables: (companyId: string) =>
+    api.get<Mentionable[]>(`${base(companyId)}/mentionables`),
 
   listChannels: (companyId: string) =>
     api.get<WorkspaceChannel[]>(`${base(companyId)}/channels`),

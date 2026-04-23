@@ -94,7 +94,12 @@ export const api = {
   stream: streamPost,
 };
 
-export type Me = { id: string; email: string; name: string };
+export type Me = {
+  id: string;
+  email: string;
+  name: string;
+  handle: string | null;
+};
 export type Company = { id: string; name: string; slug: string; role?: string };
 export type Employee = {
   id: string;

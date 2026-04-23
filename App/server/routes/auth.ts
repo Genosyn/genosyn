@@ -3,6 +3,8 @@ import { z } from "zod";
 import bcrypt from "bcrypt";
 import { AppDataSource } from "../db/datasource.js";
 import { User } from "../db/entities/User.js";
+import { Membership } from "../db/entities/Membership.js";
+import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth } from "../middleware/auth.js";
 import { sendEmail } from "../services/email.js";
@@ -100,20 +102,27 @@ authRouter.post("/reset", validateBody(resetSchema), async (req, res) => {
 
 authRouter.get("/me", requireAuth, async (req, res) => {
   const u = req.user!;
-  res.json({ id: u.id, email: u.email, name: u.name });
+  res.json({ id: u.id, email: u.email, name: u.name, handle: u.handle ?? null });
 });
+
+const HANDLE_RE = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
 
 const updateMeSchema = z
   .object({
     name: z.string().min(1).max(200).optional(),
     email: z.string().email().optional(),
+    // `null` → user explicitly wants to clear their handle;
+    // undefined → leave it alone. Validation of the format below.
+    handle: z.string().nullable().optional(),
   })
-  .refine((v) => v.name !== undefined || v.email !== undefined, {
-    message: "Nothing to update",
-  });
+  .refine(
+    (v) =>
+      v.name !== undefined || v.email !== undefined || v.handle !== undefined,
+    { message: "Nothing to update" },
+  );
 
 authRouter.patch("/me", requireAuth, validateBody(updateMeSchema), async (req, res) => {
-  const { name, email } = req.body as z.infer<typeof updateMeSchema>;
+  const { name, email, handle } = req.body as z.infer<typeof updateMeSchema>;
   const user = req.user!;
   const repo = AppDataSource.getRepository(User);
   if (typeof name === "string") user.name = name.trim();
@@ -127,8 +136,53 @@ authRouter.patch("/me", requireAuth, validateBody(updateMeSchema), async (req, r
       user.email = next;
     }
   }
+  if (handle !== undefined) {
+    if (handle === null || handle.trim() === "") {
+      user.handle = null;
+    } else {
+      const next = handle.trim().toLowerCase();
+      if (!HANDLE_RE.test(next)) {
+        return res.status(400).json({
+          error:
+            "Handle must be 2–32 chars, lowercase letters/digits/hyphens, starting and ending with a letter or digit.",
+        });
+      }
+      if (next !== user.handle) {
+        const taken = await repo.findOneBy({ handle: next });
+        if (taken && taken.id !== user.id) {
+          return res.status(409).json({ error: "Handle is already taken" });
+        }
+        // Also reject a handle that collides with an AI-employee slug in
+        // any company this user is a member of — otherwise `@next` in a
+        // workspace chat can't resolve uniquely.
+        const mems = await AppDataSource.getRepository(Membership).findBy({
+          userId: user.id,
+        });
+        if (mems.length > 0) {
+          const collision = await AppDataSource.getRepository(AIEmployee)
+            .createQueryBuilder("e")
+            .where("e.companyId IN (:...companyIds)", {
+              companyIds: mems.map((m) => m.companyId),
+            })
+            .andWhere("e.slug = :slug", { slug: next })
+            .getOne();
+          if (collision) {
+            return res.status(409).json({
+              error: `Handle conflicts with an AI employee named "${collision.name}" — pick something else.`,
+            });
+          }
+        }
+        user.handle = next;
+      }
+    }
+  }
   await repo.save(user);
-  res.json({ id: user.id, email: user.email, name: user.name });
+  res.json({
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    handle: user.handle ?? null,
+  });
 });
 
 const passwordSchema = z.object({

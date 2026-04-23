@@ -651,6 +651,75 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: "list_workspace_channels",
+    description:
+      "List the workspace-chat channels you can see in this company (public channels, plus any private channels you're a member of). DMs are excluded.",
+    endpoint: "/tools/list_workspace_channels",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "create_workspace_channel",
+    description:
+      "Create a new workspace channel. You'll be added as a member on create. Default is `public` — everyone in the company can join. Pass `kind: 'private'` if the conversation should be invite-only. Use this when a teammate asks you to spin up a space for a project or topic.",
+    endpoint: "/tools/create_workspace_channel",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "Short channel name, e.g. 'revenue-weekly'.",
+        },
+        topic: {
+          type: "string",
+          description: "Optional one-line topic shown in the channel header.",
+        },
+        kind: {
+          type: "string",
+          enum: ["public", "private"],
+          description: "Defaults to 'public'.",
+        },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "rename_workspace_channel",
+    description:
+      "Rename a workspace channel and/or update its topic. `channel` accepts either the channel slug (preferred) or its UUID. Pass at least one of `name` or `topic`. DMs can't be renamed.",
+    endpoint: "/tools/rename_workspace_channel",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channel: {
+          type: "string",
+          description: "Channel slug (e.g. 'revenue') or UUID from list_workspace_channels.",
+        },
+        name: { type: "string" },
+        topic: { type: "string" },
+      },
+      required: ["channel"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "archive_workspace_channel",
+    description:
+      "Archive a workspace channel. It's hidden from the sidebar but the history is preserved. Use for abandoned or completed projects; don't archive active discussions.",
+    endpoint: "/tools/archive_workspace_channel",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channel: {
+          type: "string",
+          description: "Channel slug or UUID.",
+        },
+      },
+      required: ["channel"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 const TOOL_BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));

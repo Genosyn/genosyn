@@ -12,6 +12,9 @@ import { Attachment } from "../db/entities/Attachment.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { User } from "../db/entities/User.js";
 import { Membership } from "../db/entities/Membership.js";
+import { Base } from "../db/entities/Base.js";
+import { BaseTable } from "../db/entities/BaseTable.js";
+import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { broadcastToCompany } from "./realtime.js";
 import { attachmentsForMessages, bindAttachmentsToMessage } from "./uploads.js";
 import { streamChatWithEmployee, ChatTurn } from "./chat.js";
@@ -135,7 +138,9 @@ export async function createChannel(params: {
   name: string;
   topic: string;
   kind: "public" | "private";
-  createdByUserId: string;
+  /** userId of the creator. Null when an AI employee creates via MCP and the
+   *  company has no owner to attribute to (rare). */
+  createdByUserId: string | null;
   initialMemberUserIds: string[];
   initialEmployeeIds: string[];
 }): Promise<Channel> {
@@ -175,7 +180,7 @@ export async function createChannel(params: {
       }),
     );
   };
-  addUser(params.createdByUserId);
+  if (params.createdByUserId) addUser(params.createdByUserId);
   for (const uid of params.initialMemberUserIds) addUser(uid);
   for (const eid of params.initialEmployeeIds) {
     const k = `e:${eid}`;
@@ -289,7 +294,51 @@ export async function findOrCreateDM(params: {
 
 export async function archiveChannel(channelId: string): Promise<void> {
   const { channels } = repos();
+  const c = await channels.findOneBy({ id: channelId });
+  if (!c) return;
   await channels.update({ id: channelId }, { archivedAt: new Date() });
+  broadcastToCompany(c.companyId, { type: "channel.archive", channelId });
+}
+
+/**
+ * Rename a channel and/or update its topic. `name` is normalized to a new
+ * slug. Throws if the slug collides with another non-archived channel in
+ * the same company (DMs don't have slugs so they're skipped in the check).
+ */
+export async function renameChannel(params: {
+  channelId: string;
+  name?: string;
+  topic?: string;
+}): Promise<Channel> {
+  const { channels } = repos();
+  const c = await channels.findOneBy({ id: params.channelId });
+  if (!c) throw new Error("Channel not found");
+  if (c.kind === "dm") throw new Error("DMs cannot be renamed");
+
+  if (params.name !== undefined && params.name.trim()) {
+    const nextName = params.name.trim();
+    const nextSlug =
+      slugify(nextName, { lower: true, strict: true }) || "channel";
+    if (nextSlug !== c.slug) {
+      const clash = await channels.findOneBy({
+        companyId: c.companyId,
+        slug: nextSlug,
+      });
+      if (clash && clash.id !== c.id) {
+        throw new Error(`A channel named "${nextName}" already exists.`);
+      }
+      c.slug = nextSlug;
+    }
+    c.name = nextName;
+  }
+  if (params.topic !== undefined) c.topic = params.topic;
+  await channels.save(c);
+  broadcastToCompany(c.companyId, {
+    type: "channel.update",
+    channelId: c.id,
+    channel: c,
+  });
+  return c;
 }
 
 export async function addChannelMembers(params: {
@@ -760,7 +809,7 @@ async function hydrateMessages(
 
 // ──────────────────────── @mention → AI reply ────────────────────────────
 
-const MENTION_RE = /(^|\s)@([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)/gi;
+const MENTION_RE = /(^|[\s(])@([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)/gi;
 
 function parseMentionSlugs(content: string): string[] {
   const slugs = new Set<string>();
@@ -853,13 +902,30 @@ async function handleMentions(args: {
     const userLabel = await userLabelFor(args.triggeringUserId);
     const framed = framedMention(args.message.content, userLabel);
 
-    const result = await streamChatWithEmployee(
-      args.channel.companyId,
-      emp.id,
-      framed,
-      history,
-      () => {},
-    );
+    // Broadcast typing every 3 s while the CLI is thinking so teammates
+    // see a "{name} is typing..." pill instead of silence. The interval
+    // clears in the finally so a CLI crash still stops the indicator.
+    const emitTyping = () => {
+      broadcastToCompany(args.channel.companyId, {
+        type: "typing",
+        channelId: args.channel.id,
+        by: { kind: "ai", id: emp.id, name: emp.name },
+      });
+    };
+    emitTyping();
+    const typingTimer = setInterval(emitTyping, 3_000);
+    let result;
+    try {
+      result = await streamChatWithEmployee(
+        args.channel.companyId,
+        emp.id,
+        framed,
+        history,
+        () => {},
+      );
+    } finally {
+      clearInterval(typingTimer);
+    }
 
     const reply = await msgRepo.save(
       msgRepo.create({
@@ -944,7 +1010,7 @@ function framedMention(content: string, userLabel: string): string {
 export async function listCompanyDirectory(
   companyId: string,
 ): Promise<{
-  members: { id: string; name: string; email: string }[];
+  members: { id: string; name: string; email: string; handle: string | null }[];
   employees: { id: string; name: string; slug: string; role: string }[];
 }> {
   const { memberships, users, employees } = repos();
@@ -959,11 +1025,122 @@ export async function listCompanyDirectory(
       id: u.id,
       name: u.name || u.email,
       email: u.email,
+      handle: u.handle ?? null,
     })),
     employees: empRows
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((e) => ({ id: e.id, name: e.name, slug: e.slug, role: e.role })),
   };
+}
+
+/**
+ * Everything in the company that can be @-mentioned from the workspace
+ * composer. Returned as a flat list so the client can filter in one pass;
+ * each entry carries `kind` for icon + click-target routing and `href`
+ * relative to `/c/<slug>/…` for the target page. Users without a handle
+ * are skipped — mentions need a stable token.
+ */
+export type Mentionable = {
+  kind: "user" | "ai" | "base" | "base_table" | "connection" | "channel";
+  handle: string;
+  label: string;
+  sublabel?: string;
+  href: string;
+};
+
+export async function listCompanyMentionables(
+  companyId: string,
+  companySlug: string,
+): Promise<Mentionable[]> {
+  const { memberships, users, employees, channels } = repos();
+  const [mems, empRows, channelRows] = await Promise.all([
+    memberships.findBy({ companyId }),
+    employees.findBy({ companyId }),
+    channels.findBy({ companyId }),
+  ]);
+
+  const userRows = mems.length
+    ? await users.findBy({ id: In(mems.map((m) => m.userId)) })
+    : [];
+
+  const bases = await AppDataSource.getRepository(Base).findBy({ companyId });
+
+  const baseTables = bases.length
+    ? await AppDataSource.getRepository(BaseTable).findBy({
+        baseId: In(bases.map((b) => b.id)),
+      })
+    : [];
+
+  const baseById = new Map(bases.map((b) => [b.id, b]));
+
+  const connections = await AppDataSource.getRepository(
+    IntegrationConnection,
+  ).findBy({ companyId });
+
+  const base = `/c/${companySlug}`;
+  const out: Mentionable[] = [];
+  for (const u of userRows) {
+    if (!u.handle) continue;
+    out.push({
+      kind: "user",
+      handle: u.handle,
+      label: u.name || u.email,
+      sublabel: u.email,
+      href: `${base}/settings/members?user=${u.id}`,
+    });
+  }
+  for (const e of empRows) {
+    out.push({
+      kind: "ai",
+      handle: e.slug,
+      label: e.name,
+      sublabel: e.role,
+      href: `${base}/employees/${e.slug}/chat`,
+    });
+  }
+  for (const ch of channelRows) {
+    if (ch.kind === "dm" || !ch.slug) continue;
+    if (ch.archivedAt) continue;
+    out.push({
+      kind: "channel",
+      handle: `#${ch.slug}`,
+      label: ch.name ?? ch.slug,
+      sublabel: ch.topic || undefined,
+      href: `${base}/workspace/${ch.id}`,
+    });
+  }
+  for (const b of bases) {
+    out.push({
+      kind: "base",
+      handle: `#base/${b.slug}`,
+      label: b.name,
+      sublabel: "base",
+      href: `${base}/bases/${b.slug}`,
+    });
+  }
+  for (const t of baseTables) {
+    const b = baseById.get(t.baseId);
+    if (!b) continue;
+    out.push({
+      kind: "base_table",
+      handle: `#base/${b.slug}/${t.slug}`,
+      label: `${b.name} · ${t.name}`,
+      sublabel: "table",
+      href: `${base}/bases/${b.slug}/${t.slug}`,
+    });
+  }
+  for (const c of connections) {
+    const slug = slugify(c.label, { lower: true, strict: true });
+    if (!slug) continue;
+    out.push({
+      kind: "connection",
+      handle: `#conn/${slug}`,
+      label: c.label,
+      sublabel: c.provider,
+      href: `${base}/settings/integrations?connection=${c.id}`,
+    });
+  }
+  return out;
 }
 
 export async function userHasChannelAccess(params: {
@@ -994,4 +1171,57 @@ export async function getChannel(
   const c = await channels.findOneBy({ id: channelId, companyId });
   if (!c) return null;
   return hydrateChannel(c, viewerUserId);
+}
+
+/**
+ * List public (and optionally private, if the actor belongs to them)
+ * channels for an AI employee acting via MCP. Never exposes DMs — those
+ * are 1:1 human threads.
+ */
+export async function listChannelsForEmployee(
+  companyId: string,
+  employeeId: string,
+): Promise<
+  { id: string; name: string | null; slug: string | null; kind: ChannelKind; topic: string; archivedAt: string | null; memberCount: number }[]
+> {
+  const { channels, members } = repos();
+  const rows = await channels.find({ where: { companyId } });
+  const visible: typeof rows = [];
+  for (const c of rows) {
+    if (c.kind === "dm") continue;
+    if (c.kind === "public") {
+      visible.push(c);
+      continue;
+    }
+    const m = await members.findOneBy({
+      channelId: c.id,
+      memberKind: "ai",
+      employeeId,
+    });
+    if (m) visible.push(c);
+  }
+  const out = [];
+  for (const c of visible) {
+    const count = await members.count({ where: { channelId: c.id } });
+    out.push({
+      id: c.id,
+      name: c.name,
+      slug: c.slug,
+      kind: c.kind,
+      topic: c.topic,
+      archivedAt: c.archivedAt?.toISOString() ?? null,
+      memberCount: count,
+    });
+  }
+  return out;
+}
+
+export async function findChannelBySlugOrId(
+  companyId: string,
+  idOrSlug: string,
+): Promise<Channel | null> {
+  const { channels } = repos();
+  const byId = await channels.findOneBy({ id: idOrSlug, companyId });
+  if (byId) return byId;
+  return channels.findOneBy({ companyId, slug: idOrSlug });
 }

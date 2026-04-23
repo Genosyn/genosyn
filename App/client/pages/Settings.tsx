@@ -36,6 +36,7 @@ export function SettingsAccount() {
   const { me, onCompaniesChanged } = useCtx();
   const [name, setName] = React.useState(me.name);
   const [email, setEmail] = React.useState(me.email);
+  const [handle, setHandle] = React.useState(me.handle ?? "");
   const [savingProfile, setSavingProfile] = React.useState(false);
   const [currentPassword, setCurrentPassword] = React.useState("");
   const [newPassword, setNewPassword] = React.useState("");
@@ -46,9 +47,13 @@ export function SettingsAccount() {
   React.useEffect(() => {
     setName(me.name);
     setEmail(me.email);
-  }, [me.id, me.name, me.email]);
+    setHandle(me.handle ?? "");
+  }, [me.id, me.name, me.email, me.handle]);
 
-  const profileDirty = name.trim() !== me.name || email.trim().toLowerCase() !== me.email;
+  const profileDirty =
+    name.trim() !== me.name ||
+    email.trim().toLowerCase() !== me.email ||
+    handle.trim().toLowerCase() !== (me.handle ?? "");
 
   return (
     <>
@@ -69,9 +74,11 @@ export function SettingsAccount() {
                 if (!profileDirty) return;
                 setSavingProfile(true);
                 try {
+                  const nextHandle = handle.trim().toLowerCase();
                   await api.patch<Me>("/api/auth/me", {
                     name: name.trim(),
                     email: email.trim().toLowerCase(),
+                    handle: nextHandle === "" ? null : nextHandle,
                   });
                   onCompaniesChanged();
                   toast("Profile updated", "success");
@@ -90,6 +97,19 @@ export function SettingsAccount() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
               />
+              <div>
+                <Input
+                  label="Handle"
+                  value={handle}
+                  onChange={(e) => setHandle(e.target.value.toLowerCase())}
+                  placeholder="e.g. jami"
+                  pattern="[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?"
+                  autoComplete="off"
+                />
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  Your @handle for workspace-chat mentions. 2–32 chars, lowercase letters/digits/hyphens.
+                </p>
+              </div>
               <div className="flex justify-end pt-1">
                 <Button type="submit" disabled={!profileDirty || savingProfile}>
                   {savingProfile ? "Saving…" : "Save changes"}

@@ -41,6 +41,13 @@ import { BaseField, BaseFieldType } from "../db/entities/BaseField.js";
 import { BaseRecord } from "../db/entities/BaseRecord.js";
 import { EmployeeMemory } from "../db/entities/EmployeeMemory.js";
 import { getProvider } from "../integrations/index.js";
+import {
+  archiveChannel,
+  createChannel,
+  findChannelBySlugOrId,
+  listChannelsForEmployee,
+  renameChannel,
+} from "../services/workspaceChat.js";
 
 /**
  * Internal HTTP surface called by the built-in Genosyn MCP server binary.
@@ -1911,4 +1918,180 @@ function integrationToolDescription(
   inner: string,
 ): string {
   return `[${providerName} · ${connectionLabel}] ${inner}`;
+}
+
+// ─────────────────── Workspace channels (AI-admin) ──────────────────────
+
+const listChannelsSchema = z.object({}).strict();
+mcpInternalRouter.post(
+  "/tools/list_workspace_channels",
+  validateBody(listChannelsSchema),
+  async (req: McpRequest, res) => {
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const channels = await listChannelsForEmployee(co.id, self.id);
+    res.json({ channels });
+  },
+);
+
+const createChannelMcpSchema = z
+  .object({
+    name: z.string().min(1).max(80),
+    topic: z.string().max(280).optional(),
+    kind: z.enum(["public", "private"]).optional(),
+  })
+  .strict();
+mcpInternalRouter.post(
+  "/tools/create_workspace_channel",
+  validateBody(createChannelMcpSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof createChannelMcpSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    try {
+      const channel = await createChannel({
+        companyId: co.id,
+        name: body.name,
+        topic: body.topic ?? "",
+        kind: body.kind ?? "public",
+        // Credit the creator as the company's owner rather than a fake
+        // userId. Falls back to null if the company has no owner row.
+        createdByUserId: await companyOwnerId(co.id),
+        initialMemberUserIds: [],
+        initialEmployeeIds: [self.id],
+      });
+      await recordAudit({
+        companyId: co.id,
+        actorEmployeeId: self.id,
+        action: "channel.create",
+        targetType: "channel",
+        targetId: channel.id,
+        targetLabel: channel.name ?? channel.slug ?? "channel",
+        metadata: { via: "mcp", kind: channel.kind },
+      });
+      await journal(
+        self.id,
+        `${self.name} created channel #${channel.slug}`,
+        `Kind: ${channel.kind}. Topic: ${channel.topic || "(none)"}.`,
+      );
+      res.json({
+        channel: {
+          id: channel.id,
+          name: channel.name,
+          slug: channel.slug,
+          kind: channel.kind,
+          topic: channel.topic,
+        },
+      });
+    } catch (err) {
+      res
+        .status(400)
+        .json({ error: err instanceof Error ? err.message : "Create failed" });
+    }
+  },
+);
+
+const renameChannelMcpSchema = z
+  .object({
+    channel: z.string().min(1).max(120),
+    name: z.string().min(1).max(80).optional(),
+    topic: z.string().max(280).optional(),
+  })
+  .strict();
+mcpInternalRouter.post(
+  "/tools/rename_workspace_channel",
+  validateBody(renameChannelMcpSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof renameChannelMcpSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const ch = await findChannelBySlugOrId(co.id, body.channel);
+    if (!ch) return res.status(404).json({ error: "Channel not found" });
+    if (body.name === undefined && body.topic === undefined) {
+      return res
+        .status(400)
+        .json({ error: "Pass at least one of `name` or `topic`." });
+    }
+    try {
+      const updated = await renameChannel({
+        channelId: ch.id,
+        name: body.name,
+        topic: body.topic,
+      });
+      await recordAudit({
+        companyId: co.id,
+        actorEmployeeId: self.id,
+        action: "channel.rename",
+        targetType: "channel",
+        targetId: updated.id,
+        targetLabel: updated.name ?? updated.slug ?? "channel",
+        metadata: {
+          via: "mcp",
+          previousSlug: ch.slug,
+          nextSlug: updated.slug,
+        },
+      });
+      await journal(
+        self.id,
+        `${self.name} renamed channel #${ch.slug} → #${updated.slug}`,
+        body.topic !== undefined ? `Topic: ${body.topic}` : "",
+      );
+      res.json({
+        channel: {
+          id: updated.id,
+          name: updated.name,
+          slug: updated.slug,
+          kind: updated.kind,
+          topic: updated.topic,
+        },
+      });
+    } catch (err) {
+      res
+        .status(400)
+        .json({ error: err instanceof Error ? err.message : "Rename failed" });
+    }
+  },
+);
+
+const archiveChannelMcpSchema = z
+  .object({
+    channel: z.string().min(1).max(120),
+  })
+  .strict();
+mcpInternalRouter.post(
+  "/tools/archive_workspace_channel",
+  validateBody(archiveChannelMcpSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof archiveChannelMcpSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const ch = await findChannelBySlugOrId(co.id, body.channel);
+    if (!ch) return res.status(404).json({ error: "Channel not found" });
+    if (ch.kind === "dm") {
+      return res.status(400).json({ error: "DMs cannot be archived via MCP." });
+    }
+    await archiveChannel(ch.id);
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "channel.archive",
+      targetType: "channel",
+      targetId: ch.id,
+      targetLabel: ch.name ?? ch.slug ?? "channel",
+      metadata: { via: "mcp" },
+    });
+    await journal(
+      self.id,
+      `${self.name} archived channel #${ch.slug}`,
+      "Via the built-in MCP tool.",
+    );
+    res.json({ ok: true });
+  },
+);
+
+async function companyOwnerId(companyId: string): Promise<string | null> {
+  const co = await AppDataSource.getRepository(Company).findOneBy({
+    id: companyId,
+  });
+  return co?.ownerId ?? null;
 }

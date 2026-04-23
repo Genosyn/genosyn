@@ -183,6 +183,7 @@ function toolsBriefing(): string {
     "- `add_journal_entry` to log decisions or observations on your own diary (the last ~7 days of your journal are auto-injected into every prompt you receive)",
     "- `add_memory`, `update_memory`, `delete_memory` to curate durable facts that are auto-injected into every prompt — preferences, conventions, stable teammate context",
     "- Bases (Airtable-style data, only the ones a teammate granted you): `list_bases`, `get_base`, `list_base_rows`, `create_base_row`, `update_base_row`, `delete_base_row`",
+    "- Workspace chat admin: `list_workspace_channels`, `create_workspace_channel`, `rename_workspace_channel`, `archive_workspace_channel`. Use these when a teammate asks to spin up or tidy a channel.",
     "- Read-only helpers: `get_self`, `list_employees`, `list_routines`, `list_projects`, `list_todos`, `list_skills`, `list_journal`, `list_memory`",
     "",
     "### Mandatory pre-write checklist",

@@ -1,5 +1,7 @@
 import React from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import {
   AtSign,
   Bot,
@@ -19,6 +21,7 @@ import {
 } from "lucide-react";
 import { Company, Me } from "../lib/api";
 import {
+  Mentionable,
   WorkspaceAttachment,
   WorkspaceAuthor,
   WorkspaceChannel,
@@ -68,10 +71,14 @@ export default function Workspace({ company, me }: WorkspaceProps) {
     urlChannelId ?? null,
   );
   const [directory, setDirectory] = React.useState<WorkspaceDirectory | null>(null);
+  const [mentionables, setMentionables] = React.useState<Mentionable[]>([]);
   const [messages, setMessages] = React.useState<Record<string, WorkspaceMessage[]>>(
     {},
   );
   const [onlineUsers, setOnlineUsers] = React.useState<Set<string>>(new Set());
+  const [typing, setTyping] = React.useState<
+    Record<string, { kind: "user" | "ai"; id: string; name: string; until: number }[]>
+  >({});
   const [showNewChannel, setShowNewChannel] = React.useState(false);
   const [showNewDM, setShowNewDM] = React.useState(false);
 
@@ -83,13 +90,15 @@ export default function Workspace({ company, me }: WorkspaceProps) {
     let cancelled = false;
     (async () => {
       try {
-        const [list, dir] = await Promise.all([
+        const [list, dir, ments] = await Promise.all([
           workspaceApi.listChannels(company.id),
           workspaceApi.directory(company.id),
+          workspaceApi.mentionables(company.id),
         ]);
         if (cancelled) return;
         setChannels(list);
         setDirectory(dir);
+        setMentionables(ments);
         // Land on the first channel if no URL channel provided.
         if (!urlChannelId && list.length > 0) {
           setActiveChannelId(list[0].id);
@@ -139,6 +148,19 @@ export default function Workspace({ company, me }: WorkspaceProps) {
             };
           });
         });
+        // Clear the typing pill for the author — their message just landed.
+        const author = ev.message.author;
+        if (author && author.kind !== "system") {
+          setTyping((prev) => {
+            const cur = prev[ev.channelId];
+            if (!cur || cur.length === 0) return prev;
+            const pruned = cur.filter(
+              (t) => !(t.kind === author.kind && t.id === author.id),
+            );
+            if (pruned.length === cur.length) return prev;
+            return { ...prev, [ev.channelId]: pruned };
+          });
+        }
         return;
       }
       case "message.edit": {
@@ -235,6 +257,30 @@ export default function Workspace({ company, me }: WorkspaceProps) {
         });
         return;
       }
+      case "typing": {
+        // Self-typing echoes back over the WS; suppress those so the user
+        // doesn't see their own name in the "Alice is typing…" pill.
+        if (ev.by.kind === "user" && ev.by.id === me.id) return;
+        setTyping((prev) => {
+          const cur = prev[ev.channelId] ?? [];
+          const without = cur.filter(
+            (t) => !(t.kind === ev.by.kind && t.id === ev.by.id),
+          );
+          return {
+            ...prev,
+            [ev.channelId]: [
+              ...without,
+              {
+                kind: ev.by.kind,
+                id: ev.by.id,
+                name: ev.by.name,
+                until: Date.now() + 6_000,
+              },
+            ],
+          };
+        });
+        return;
+      }
       default:
         return;
     }
@@ -262,6 +308,26 @@ export default function Workspace({ company, me }: WorkspaceProps) {
       prev ? prev.map((c) => (c.id === activeChannelId ? { ...c, unreadCount: 0 } : c)) : prev,
     );
   }, [activeChannelId, company.id]);
+
+  // Sweep expired typing entries every second so pills fade out when a
+  // typer stops sending the event. Runs on the outer component to keep one
+  // timer for all channels.
+  React.useEffect(() => {
+    const t = setInterval(() => {
+      const now = Date.now();
+      setTyping((prev) => {
+        let changed = false;
+        const next: typeof prev = {};
+        for (const [cid, arr] of Object.entries(prev)) {
+          const alive = arr.filter((t) => t.until > now);
+          if (alive.length !== arr.length) changed = true;
+          if (alive.length > 0) next[cid] = alive;
+        }
+        return changed ? next : prev;
+      });
+    }, 1_000);
+    return () => clearInterval(t);
+  }, []);
 
   function selectChannel(id: string) {
     setActiveChannelId(id);
@@ -293,6 +359,8 @@ export default function Workspace({ company, me }: WorkspaceProps) {
             channel={activeChannel}
             messages={messages[activeChannel.id] ?? null}
             directory={directory}
+            mentionables={mentionables}
+            typing={typing[activeChannel.id] ?? []}
             onAttachmentUrl={(id) => workspaceApi.attachmentUrl(company.id, id)}
             onChannelUpdated={(updated) => {
               setChannels((prev) =>
@@ -535,6 +603,8 @@ function ChannelView({
   channel,
   messages,
   directory,
+  mentionables,
+  typing,
   onAttachmentUrl,
   onChannelUpdated,
 }: {
@@ -543,6 +613,8 @@ function ChannelView({
   channel: WorkspaceChannel;
   messages: WorkspaceMessage[] | null;
   directory: WorkspaceDirectory | null;
+  mentionables: Mentionable[];
+  typing: { kind: "user" | "ai"; id: string; name: string; until: number }[];
   onAttachmentUrl: (id: string) => string;
   onChannelUpdated: (c: WorkspaceChannel) => void;
 }) {
@@ -596,6 +668,7 @@ function ChannelView({
           <MessageList
             messages={messages}
             meId={me.id}
+            mentionables={mentionables}
             onAttachmentUrl={onAttachmentUrl}
             onEdit={async (m, content) => {
               await workspaceApi.editMessage(company.id, m.id, content);
@@ -611,10 +684,13 @@ function ChannelView({
         <div ref={endRef} />
       </div>
 
+      {typing.length > 0 && <TypingPill typers={typing} />}
+
       <Composer
         company={company}
         channel={channel}
         directory={directory}
+        mentionables={mentionables}
       />
 
       <MembersModal
@@ -656,6 +732,7 @@ function channelTitle(c: WorkspaceChannel, meId: string): string {
 function MessageList({
   messages,
   meId,
+  mentionables,
   onAttachmentUrl,
   onEdit,
   onDelete,
@@ -663,6 +740,7 @@ function MessageList({
 }: {
   messages: WorkspaceMessage[];
   meId: string;
+  mentionables: Mentionable[];
   onAttachmentUrl: (id: string) => string;
   onEdit: (m: WorkspaceMessage, content: string) => Promise<void>;
   onDelete: (m: WorkspaceMessage) => Promise<void>;
@@ -683,6 +761,7 @@ function MessageList({
             message={m}
             bundled={bundled}
             meId={meId}
+            mentionables={mentionables}
             onAttachmentUrl={onAttachmentUrl}
             onEdit={onEdit}
             onDelete={onDelete}
@@ -714,6 +793,7 @@ function MessageRow({
   message,
   bundled,
   meId,
+  mentionables,
   onAttachmentUrl,
   onEdit,
   onDelete,
@@ -722,6 +802,7 @@ function MessageRow({
   message: WorkspaceMessage;
   bundled: boolean;
   meId: string;
+  mentionables: Mentionable[];
   onAttachmentUrl: (id: string) => string;
   onEdit: (m: WorkspaceMessage, content: string) => Promise<void>;
   onDelete: (m: WorkspaceMessage) => Promise<void>;
@@ -821,7 +902,7 @@ function MessageRow({
             This message was deleted.
           </div>
         ) : (
-          <MessageBody content={message.content} />
+          <MessageBody content={message.content} mentionables={mentionables} />
         )}
 
         {!isDeleted && message.attachments.length > 0 && (
@@ -959,51 +1040,138 @@ function initials(s: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function MessageBody({ content }: { content: string }) {
-  // Very simple linkification + mention highlighting. Markdown stays out of
-  // the v1 workspace surface so the composer interaction matches what you
-  // see (Slack doesn't render full markdown either).
-  const parts: React.ReactNode[] = [];
-  const lines = content.split(/\n/);
-  lines.forEach((line, li) => {
-    const tokens = line.split(
-      /(\s)|(@[a-z0-9-]+)|(https?:\/\/[^\s]+)/gi,
-    );
-    tokens.forEach((t, ti) => {
-      if (!t) return;
-      if (/^https?:\/\//i.test(t)) {
-        parts.push(
-          <a
-            key={`${li}-${ti}`}
-            href={t}
-            target="_blank"
-            rel="noreferrer"
-            className="text-indigo-600 underline hover:text-indigo-700"
-          >
-            {t}
-          </a>,
-        );
-      } else if (t.startsWith("@")) {
-        parts.push(
-          <span
-            key={`${li}-${ti}`}
-            className="rounded bg-indigo-50 px-1 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
-          >
-            {t}
-          </span>,
-        );
-      } else {
-        parts.push(<React.Fragment key={`${li}-${ti}`}>{t}</React.Fragment>);
-      }
-    });
-    if (li < lines.length - 1)
-      parts.push(<br key={`br-${li}`} />);
-  });
+function MessageBody({
+  content,
+  mentionables,
+}: {
+  content: string;
+  mentionables: Mentionable[];
+}) {
+  // Full GitHub-flavored markdown (bold, lists, code fences, tables, links)
+  // via marked + DOMPurify — same pipeline as the 1:1 EmployeeChat. We
+  // post-process the sanitized HTML to wrap `@handle` and `#base/foo`
+  // tokens in clickable pills backed by the mentionables directory. The
+  // walker skips inside <code>/<pre>/<a> so code samples and already-linked
+  // text aren't corrupted.
+  const html = React.useMemo(() => {
+    const raw = marked.parse(content ?? "", {
+      async: false,
+      gfm: true,
+      breaks: true,
+    }) as string;
+    const safe = DOMPurify.sanitize(raw);
+    return linkifyMentions(safe, mentionables);
+  }, [content, mentionables]);
+
   return (
-    <div className="mt-0.5 whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-200">
-      {parts}
-    </div>
+    <div
+      className="chat-md mt-0.5 break-words text-sm text-slate-700 dark:text-slate-200"
+      dangerouslySetInnerHTML={{ __html: html }}
+      onClick={handleMentionClickCapture}
+    />
   );
+}
+
+/**
+ * Intercept clicks on mention pills: we render them as anchors with
+ * `data-mention-href` so React Router's link click interception still
+ * delegates through the normal page-level handler. Using an anchor + href
+ * keeps middle-click / cmd-click working too (opens in a new tab).
+ */
+function handleMentionClickCapture(_e: React.MouseEvent<HTMLDivElement>): void {
+  // The anchors already have the right href — no extra JS needed here. The
+  // handler is kept as a hook point for a future "jump to channel" action
+  // that we might want to intercept without a full page nav.
+}
+
+const MENTION_RE =
+  /(^|[\s(])([@#][a-z0-9][a-z0-9/_-]{0,80}[a-z0-9])/gi;
+
+function linkifyMentions(html: string, mentionables: Mentionable[]): string {
+  if (typeof document === "undefined") return html;
+  // "First wins" — listCompanyMentionables emits users first, then AI, so a
+  // human handle is preferred over a colliding AI slug when both exist in
+  // the directory (the server's handle guard normally prevents this, but
+  // older data can still collide).
+  const byHandle = new Map<string, Mentionable>();
+  for (const m of mentionables) {
+    const k = m.handle.toLowerCase();
+    if (!byHandle.has(k)) byHandle.set(k, m);
+  }
+  const container = document.createElement("div");
+  container.innerHTML = html;
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  const skip = new Set(["CODE", "PRE", "A"]);
+  const nodes: Text[] = [];
+  let node: Node | null = walker.nextNode();
+  while (node) {
+    let p: Node | null = node.parentNode;
+    let safeToWrap = true;
+    while (p && p !== container) {
+      if (p instanceof HTMLElement && skip.has(p.tagName)) {
+        safeToWrap = false;
+        break;
+      }
+      p = p.parentNode;
+    }
+    if (safeToWrap) nodes.push(node as Text);
+    node = walker.nextNode();
+  }
+  for (const t of nodes) {
+    const text = t.nodeValue ?? "";
+    if (!/[@#]/.test(text)) continue;
+    const frag = document.createDocumentFragment();
+    let last = 0;
+    let m: RegExpExecArray | null;
+    MENTION_RE.lastIndex = 0;
+    while ((m = MENTION_RE.exec(text))) {
+      const start = m.index + m[1].length;
+      if (start > last) {
+        frag.appendChild(document.createTextNode(text.slice(last, start)));
+      }
+      const token = m[2];
+      const hit = byHandle.get(token.toLowerCase());
+      if (hit) {
+        const a = document.createElement("a");
+        a.href = hit.href;
+        a.className = mentionPillClass(hit.kind);
+        a.title = hit.label + (hit.sublabel ? ` · ${hit.sublabel}` : "");
+        a.textContent = token;
+        frag.appendChild(a);
+      } else {
+        // Unresolved — render as a greyed pill so the author notices the
+        // typo instead of it silently looking like normal text.
+        const span = document.createElement("span");
+        span.className =
+          "rounded bg-slate-100 px-1 text-slate-500 dark:bg-slate-800 dark:text-slate-400";
+        span.textContent = token;
+        frag.appendChild(span);
+      }
+      last = start + token.length;
+    }
+    if (last < text.length) {
+      frag.appendChild(document.createTextNode(text.slice(last)));
+    }
+    if (frag.childNodes.length > 0) t.parentNode?.replaceChild(frag, t);
+  }
+  return container.innerHTML;
+}
+
+function mentionPillClass(kind: Mentionable["kind"]): string {
+  const core = "rounded px-1 no-underline hover:underline ";
+  switch (kind) {
+    case "user":
+      return core + "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300";
+    case "ai":
+      return core + "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300";
+    case "channel":
+      return core + "bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300";
+    case "base":
+    case "base_table":
+      return core + "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300";
+    case "connection":
+      return core + "bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300";
+  }
 }
 
 function AttachmentPreview({
@@ -1052,10 +1220,12 @@ function Composer({
   company,
   channel,
   directory,
+  mentionables,
 }: {
   company: Company;
   channel: WorkspaceChannel;
   directory: WorkspaceDirectory | null;
+  mentionables: Mentionable[];
 }) {
   const [draft, setDraft] = React.useState("");
   const [attachments, setAttachments] = React.useState<WorkspaceAttachment[]>([]);
@@ -1113,30 +1283,36 @@ function Composer({
     }
   }
 
+  // Autocomplete fires as soon as the caret sits right after `@` or `#`.
+  // `mentionPrefix` carries the trigger char so the matcher can stay
+  // simple — `@` hits users+AI, `#` hits channels/bases/tables/connections.
+  const [mentionPrefix, setMentionPrefix] = React.useState<"@" | "#" | null>(null);
+
   function updateDraft(next: string) {
     setDraft(next);
     autoResize(textRef.current);
-    // Trigger @mention autocomplete when the cursor sits just after "@xxx".
     const el = textRef.current;
     if (!el) return;
     const caret = el.selectionStart ?? next.length;
     const head = next.slice(0, caret);
-    const m = head.match(/@([a-z0-9-]*)$/i);
+    const m = head.match(/([@#])([a-z0-9/_-]*)$/i);
     if (m) {
       setMentionOpen(true);
-      setMentionQuery(m[1].toLowerCase());
+      setMentionPrefix(m[1] as "@" | "#");
+      setMentionQuery(m[2].toLowerCase());
     } else {
       setMentionOpen(false);
+      setMentionPrefix(null);
     }
   }
 
-  function insertMention(slug: string) {
+  function insertMention(handle: string) {
     const el = textRef.current;
     if (!el) return;
     const caret = el.selectionStart ?? draft.length;
     const head = draft.slice(0, caret);
     const tail = draft.slice(caret);
-    const replaced = head.replace(/@([a-z0-9-]*)$/i, `@${slug} `);
+    const replaced = head.replace(/[@#][a-z0-9/_-]*$/i, `${handle} `);
     setDraft(replaced + tail);
     setMentionOpen(false);
     requestAnimationFrame(() => {
@@ -1148,14 +1324,23 @@ function Composer({
   }
 
   const mentionCandidates = React.useMemo(() => {
-    if (!directory) return [] as { slug: string; name: string; role: string }[];
-    return directory.employees.filter(
-      (e) =>
-        !mentionQuery ||
-        e.slug.toLowerCase().includes(mentionQuery) ||
-        e.name.toLowerCase().includes(mentionQuery),
-    );
-  }, [directory, mentionQuery]);
+    if (!mentionPrefix) return [] as Mentionable[];
+    const kinds =
+      mentionPrefix === "@"
+        ? new Set(["user", "ai"])
+        : new Set(["channel", "base", "base_table", "connection"]);
+    return mentionables
+      .filter((x) => kinds.has(x.kind))
+      .filter((x) => {
+        if (!mentionQuery) return true;
+        const q = mentionQuery;
+        return (
+          x.handle.toLowerCase().includes(q) ||
+          x.label.toLowerCase().includes(q)
+        );
+      })
+      .slice(0, 30);
+  }, [mentionables, mentionPrefix, mentionQuery]);
 
   return (
     <div className="shrink-0 border-t border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
@@ -1236,26 +1421,27 @@ function Composer({
         </Button>
 
         {mentionOpen && mentionCandidates.length > 0 && (
-          <div className="absolute bottom-full left-12 z-20 mb-2 w-64 rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
+          <div className="absolute bottom-full left-12 z-20 mb-2 w-72 rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
             <div className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-              AI employees
+              {mentionPrefix === "@" ? "People" : "Resources"}
             </div>
             <div className="max-h-64 overflow-y-auto">
-              {mentionCandidates.map((e) => (
+              {mentionCandidates.map((x) => (
                 <button
-                  key={e.slug}
+                  key={`${x.kind}-${x.handle}`}
                   onMouseDown={(ev) => {
                     ev.preventDefault();
-                    insertMention(e.slug);
+                    insertMention(x.handle);
                   }}
                   className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
                 >
-                  <Bot size={14} className="text-indigo-500" />
+                  <MentionIcon kind={x.kind} />
                   <span className="font-medium text-slate-900 dark:text-slate-100">
-                    @{e.slug}
+                    {x.handle}
                   </span>
                   <span className="ml-auto truncate text-xs text-slate-500 dark:text-slate-400">
-                    {e.name} · {e.role}
+                    {x.label}
+                    {x.sublabel ? ` · ${x.sublabel}` : ""}
                   </span>
                 </button>
               ))}
@@ -1264,15 +1450,65 @@ function Composer({
         )}
       </div>
       <div className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-        Press <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">Enter</kbd> to send · <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">Shift+Enter</kbd> newline · @employee to loop in AI
+        Press <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">Enter</kbd> to send · <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">Shift+Enter</kbd> newline · <span className="font-mono">@</span> for people · <span className="font-mono">#</span> for channels, bases &amp; connections
       </div>
     </div>
   );
 }
 
+function MentionIcon({ kind }: { kind: Mentionable["kind"] }) {
+  const cls = "shrink-0";
+  switch (kind) {
+    case "user":
+      return <UserIcon size={14} className={cls + " text-emerald-500"} />;
+    case "ai":
+      return <Bot size={14} className={cls + " text-indigo-500"} />;
+    case "channel":
+      return <Hash size={14} className={cls + " text-sky-500"} />;
+    case "base":
+    case "base_table":
+      return <Hash size={14} className={cls + " text-amber-500"} />;
+    case "connection":
+      return <Hash size={14} className={cls + " text-violet-500"} />;
+  }
+}
+
 function channelPlaceholder(c: WorkspaceChannel): string {
   if (c.kind === "dm") return "your recipient";
   return `#${c.name ?? "channel"}`;
+}
+
+function TypingPill({
+  typers,
+}: {
+  typers: { kind: "user" | "ai"; id: string; name: string; until: number }[];
+}) {
+  const names = typers.map((t) => t.name).filter(Boolean);
+  if (names.length === 0) return null;
+  const label =
+    names.length === 1
+      ? `${names[0]} is typing`
+      : names.length === 2
+        ? `${names[0]} and ${names[1]} are typing`
+        : `${names.length} people are typing`;
+  return (
+    <div className="shrink-0 border-t border-slate-100 px-6 py-1.5 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
+      <span className="inline-flex items-center gap-1">
+        <TypingDots />
+        {label}…
+      </span>
+    </div>
+  );
+}
+
+function TypingDots() {
+  return (
+    <span className="inline-flex items-center gap-0.5">
+      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-slate-400 [animation-delay:-0.3s]" />
+      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-slate-400 [animation-delay:-0.15s]" />
+      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-slate-400" />
+    </span>
+  );
 }
 
 // ────────────────────────── Empty state ─────────────────────────────────

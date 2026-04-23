@@ -136,8 +136,8 @@ function TopNav({
       </div>
 
       <nav className="flex items-center gap-1">
+        <TopTab to={`/c/${current.slug}/workspace`} active={section === "workspace"} label="Workspace" />
         <TopTab to={`/c/${current.slug}`} active={section === "employees"} label="Employees" />
-        <TopTab to={`/c/${current.slug}/workspace`} active={section === "workspace"} label="Chat" />
         <TopTab to={`/c/${current.slug}/tasks`} active={section === "tasks"} label="Tasks" />
         <TopTab to={`/c/${current.slug}/bases`} active={section === "bases"} label="Bases" />
         <TopTab
