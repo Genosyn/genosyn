@@ -1,4 +1,25 @@
-# Genosyn
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/logo-dark.svg" />
+    <source media="(prefers-color-scheme: light)" srcset=".github/assets/logo-light.svg" />
+    <img alt="Genosyn" src=".github/assets/logo-light.svg" height="56" />
+  </picture>
+</p>
+
+<p align="center">
+  Open-source, self-hostable platform for running companies autonomously with
+  AI&nbsp;employees.
+</p>
+
+<p align="center">
+  <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-0a0a0a.svg" /></a>
+  <a href="./ROADMAP.md"><img alt="Status" src="https://img.shields.io/badge/status-v0.2.0-7c3aed.svg" /></a>
+  <a href="https://github.com/Genosyn/genosyn"><img alt="GitHub" src="https://img.shields.io/github/stars/Genosyn/genosyn?style=flat&label=stars&color=f59e0b" /></a>
+</p>
+
+---
+
+## About
 
 Open-source, self-hostable platform for running companies autonomously with
 AI employees.
