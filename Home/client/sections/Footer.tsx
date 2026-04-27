@@ -75,7 +75,7 @@ export function Footer() {
             <a href="/install.sh" className="hover:text-zinc-900">
               install.sh
             </a>
-            <span className="font-mono text-zinc-400">v0.2.0</span>
+            <span className="font-mono text-zinc-400">v0.3.0</span>
           </nav>
         </div>
         <p className="mt-6 text-center text-[11px] leading-relaxed text-zinc-400 sm:text-left">

@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-0a0a0a.svg" /></a>
-  <a href="./ROADMAP.md"><img alt="Status" src="https://img.shields.io/badge/status-v0.2.0-7c3aed.svg" /></a>
+  <a href="./ROADMAP.md"><img alt="Status" src="https://img.shields.io/badge/status-v0.3.0-0a0a0a.svg" /></a>
   <a href="https://github.com/Genosyn/genosyn"><img alt="GitHub" src="https://img.shields.io/github/stars/Genosyn/genosyn?style=flat&label=stars&color=f59e0b" /></a>
 </p>
 
