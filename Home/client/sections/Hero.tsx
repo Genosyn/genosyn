@@ -1,157 +1,196 @@
+import { ArrowRight, BookOpen, CalendarClock, CheckCircle2, Github, Sparkles, Star } from "lucide-react";
 import { GITHUB_URL } from "@/lib/constants";
 
-type LogLine = {
-  ts: string;
-  src: string;
-  body: string;
-  tone?: "ok" | "warn" | "info" | "muted";
-};
-
-const LOG_LINES: LogLine[] = [
-  { ts: "07:00", src: "mira-finance", body: "wake. routine=close-the-books", tone: "info" },
-  { ts: "07:00", src: "mira-finance", body: "pulled 42 stripe charges, 0 anomalies", tone: "muted" },
-  { ts: "07:01", src: "mira-finance", body: "shipped → #finance · sleep until tomorrow", tone: "ok" },
-  { ts: "08:30", src: "alex-brand", body: "wake. routine=morning-brief", tone: "info" },
-  { ts: "08:31", src: "alex-brand", body: "drafted 3 talking points from overnight news", tone: "muted" },
-  { ts: "08:32", src: "alex-brand", body: "shipped → docs/brief-2026-04-28.md", tone: "ok" },
-  { ts: "10:17", src: "sam-sre", body: "alert: p99 /checkout 940ms (threshold 600ms)", tone: "warn" },
-  { ts: "10:17", src: "sam-sre", body: "paged #oncall · attaching trace…", tone: "muted" },
+const ROSTER = [
+  {
+    name: "Mira",
+    role: "Bookkeeper",
+    initials: "MF",
+    color: "bg-emerald-100 text-emerald-700",
+    cadence: "Daily · 7:00 AM",
+    last: "Reconciled 42 Stripe charges",
+    status: "shipped" as const,
+  },
+  {
+    name: "Alex",
+    role: "Brand writer",
+    initials: "AB",
+    color: "bg-violet-100 text-violet-700",
+    cadence: "Weekly · Fri 5:00 PM",
+    last: "Drafted Friday digest",
+    status: "running" as const,
+  },
+  {
+    name: "Sam",
+    role: "On-call SRE",
+    initials: "SS",
+    color: "bg-amber-100 text-amber-700",
+    cadence: "Every 15 min",
+    last: "Watching p99 on /checkout",
+    status: "active" as const,
+  },
 ];
+
+const CHECKS = ["MIT licensed", "Self-hosted", "Bring your own keys", "One Docker command"];
 
 export function Hero() {
   return (
-    <section className="relative overflow-hidden border-b border-ink">
-      <div className="mx-auto max-w-[1200px] px-6 pt-12 pb-16 sm:pt-16 sm:pb-24 lg:pt-20">
-        <Dateline />
+    <section className="relative overflow-hidden bg-white">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[640px] bg-[radial-gradient(60%_80%_at_50%_0%,rgba(124,58,237,0.10),transparent_70%)]"
+      />
 
-        <div className="mt-10 grid items-end gap-12 lg:mt-14 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] lg:gap-16">
-          <div>
-            <h1 className="font-sans text-[clamp(2.6rem,7.4vw,5.75rem)] font-medium leading-[0.94] tracking-[-0.03em] text-ink">
-              Run a company
-              <br />
-              <span className="serif-italic text-[1.05em] tracking-[-0.025em] text-accent">
-                autonomously
-              </span>
-              <span className="text-accent">.</span>
-            </h1>
+      <div className="mx-auto max-w-7xl px-6 pt-16 pb-20 sm:pt-20 sm:pb-28">
+        <div className="mx-auto flex max-w-2xl flex-col items-center text-center">
+          <a
+            href={GITHUB_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-medium text-zinc-700 shadow-card transition hover:border-zinc-300 hover:bg-zinc-50"
+          >
+            <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+            Open source on GitHub
+            <span className="text-zinc-400">·</span>
+            <span className="text-zinc-500">v0.2.0</span>
+            <ArrowRight className="h-3.5 w-3.5 text-zinc-400" />
+          </a>
 
-            <p className="mt-8 max-w-xl text-lg leading-[1.55] text-ink-soft">
-              Genosyn is a self-hostable runtime for hiring AI employees. Each one
-              has a written <em className="serif-italic not-italic font-medium text-ink">Soul</em>,
-              a small set of <em className="serif-italic not-italic font-medium text-ink">Skills</em>,
-              and <em className="serif-italic not-italic font-medium text-ink">Routines</em> on a
-              cron. They wake up, do their job, log what they shipped — and go quiet.
-            </p>
+          <h1 className="mt-6 text-balance text-5xl font-semibold tracking-[-0.03em] text-zinc-950 sm:text-6xl lg:text-7xl">
+            Run your company with
+            <br className="hidden sm:block" />{" "}
+            <span className="gradient-text">AI employees.</span>
+          </h1>
 
-            <div className="mt-10 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
-              <a
-                href="#quickstart"
-                className="inline-flex items-center gap-3 border border-ink bg-ink px-5 py-3 font-mono text-[12px] uppercase tracking-[0.16em] text-bone-page transition hover:bg-accent hover:border-accent"
-              >
-                <span aria-hidden>↘</span>
-                install in 30 seconds
-              </a>
-              <a
-                href={GITHUB_URL}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-2 border-b border-ink pb-1 font-mono text-[12px] uppercase tracking-[0.16em] text-ink hover:text-accent hover:border-accent"
-              >
-                read the source <span aria-hidden>→</span>
-              </a>
-            </div>
+          <p className="mt-6 max-w-xl text-balance text-lg leading-relaxed text-zinc-600">
+            Genosyn is the open-source platform for hiring AI employees. Each
+            one has a written soul, a set of skills, and routines on a
+            schedule. They wake up, do their job, and report what they shipped.
+          </p>
 
-            <dl className="mt-14 grid max-w-xl grid-cols-3 gap-x-6 gap-y-2 border-t border-ink pt-5 font-mono text-[11px] uppercase tracking-[0.16em] text-ink-mute">
-              <DefnPair label="license" value="mit" />
-              <DefnPair label="store" value="sqlite → pg" />
-              <DefnPair label="install" value="one command" />
-            </dl>
+          <div className="mt-9 flex flex-col items-center gap-3 sm:flex-row">
+            <a
+              href="#quickstart"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-950 px-6 py-3 text-sm font-semibold text-white shadow-lift transition hover:bg-zinc-800 sm:w-auto"
+            >
+              Get started for free
+              <ArrowRight className="h-4 w-4" />
+            </a>
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-6 py-3 text-sm font-semibold text-zinc-800 shadow-card transition hover:border-zinc-300 hover:bg-zinc-50 sm:w-auto"
+            >
+              <Github className="h-4 w-4" />
+              Star on GitHub
+            </a>
           </div>
 
-          <RunLog />
+          <ul className="mt-10 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs font-medium text-zinc-500">
+            {CHECKS.map((c) => (
+              <li key={c} className="inline-flex items-center gap-1.5">
+                <CheckCircle2 className="h-3.5 w-3.5 text-violet-500" />
+                {c}
+              </li>
+            ))}
+          </ul>
         </div>
+
+        <RosterPreview />
       </div>
     </section>
   );
 }
 
-function Dateline() {
+function RosterPreview() {
   return (
-    <div className="flex items-center justify-between border-t border-ink pt-3 font-mono text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-      <div className="flex items-center gap-3">
-        <span className="text-ink">Genosyn</span>
-        <span aria-hidden className="text-ink-mute">·</span>
-        <span>vol. zero</span>
-        <span aria-hidden className="text-ink-mute">·</span>
-        <span>apr 2026</span>
-      </div>
-      <div className="hidden items-center gap-3 sm:flex">
-        <span className="hidden md:inline">a self-hosted runtime for ai employees</span>
-        <span aria-hidden className="text-ink-mute">·</span>
-        <span>v0.2.0</span>
-      </div>
-      <span className="font-mono text-[11px] tracking-[0.22em] sm:hidden">v0.2.0</span>
-    </div>
-  );
-}
+    <div className="relative mx-auto mt-16 max-w-5xl">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -inset-x-8 -inset-y-12 -z-10 rounded-[3rem] bg-gradient-to-b from-violet-100/50 via-white to-white blur-2xl"
+      />
 
-function DefnPair({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <dt className="text-ink-mute">{label}</dt>
-      <dd className="text-ink">{value}</dd>
-    </div>
-  );
-}
+      <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lift">
+        <div className="flex items-center gap-2 border-b border-zinc-100 bg-zinc-50/60 px-4 py-3">
+          <div className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-zinc-300" />
+            <span className="h-2.5 w-2.5 rounded-full bg-zinc-300" />
+            <span className="h-2.5 w-2.5 rounded-full bg-zinc-300" />
+          </div>
+          <div className="ml-2 inline-flex items-center gap-2 rounded-md bg-white px-2.5 py-1 text-xs font-medium text-zinc-600 shadow-card">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            genosyn.com / your roster
+          </div>
+        </div>
 
-function RunLog() {
-  return (
-    <figure className="mx-auto w-full">
-      <figcaption className="flex items-center justify-between border-b border-ink pb-2 font-mono text-[10px] uppercase tracking-[0.22em] text-ink-soft">
-        <span>data/runs/today.log</span>
-        <span className="flex items-center gap-1.5 text-accent">
-          <span className="block h-1.5 w-1.5 rounded-full bg-accent" />
-          live
-        </span>
-      </figcaption>
-      <div className="border border-ink bg-ink/95 px-5 py-5 font-mono text-[12.5px] leading-[1.7] text-bone-card">
-        {LOG_LINES.map((l, i) => (
-          <LogRow key={i} line={l} />
-        ))}
-        <div className="mt-2 flex items-center gap-2 text-bone-card/50">
-          <span aria-hidden>·</span>
-          <span className="tabular">10:18</span>
-          <span className="opacity-60">…tail -f</span>
-          <BlinkCursor />
+        <div className="grid grid-cols-1 gap-4 p-6 sm:p-8 md:grid-cols-3">
+          {ROSTER.map((r) => (
+            <article
+              key={r.name}
+              className="rounded-xl border border-zinc-200 bg-white p-5 shadow-card transition hover:-translate-y-0.5 hover:shadow-lift"
+            >
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`flex h-10 w-10 items-center justify-center rounded-xl text-sm font-semibold ${r.color}`}
+                  >
+                    {r.initials}
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-950">{r.name}</div>
+                    <div className="text-xs text-zinc-500">{r.role}</div>
+                  </div>
+                </div>
+                <StatusBadge status={r.status} />
+              </div>
+
+              <div className="mt-5 flex items-center gap-2 rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
+                <CalendarClock className="h-3.5 w-3.5 text-zinc-400" />
+                {r.cadence}
+              </div>
+
+              <div className="mt-3 flex items-start gap-2 text-xs text-zinc-600">
+                <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-500" />
+                <span>{r.last}</span>
+              </div>
+
+              <div className="mt-4 flex items-center justify-between text-[11px] text-zinc-500">
+                <span className="inline-flex items-center gap-1.5">
+                  <BookOpen className="h-3 w-3" />
+                  Soul · Skills · Routines
+                </span>
+                <ArrowRight className="h-3 w-3" />
+              </div>
+            </article>
+          ))}
         </div>
       </div>
-    </figure>
-  );
-}
-
-function LogRow({ line }: { line: LogLine }) {
-  const tone =
-    line.tone === "warn"
-      ? "text-amber-200"
-      : line.tone === "ok"
-      ? "text-emerald-300"
-      : line.tone === "muted"
-      ? "text-bone-card/65"
-      : "text-bone-card";
-  return (
-    <div className="flex items-baseline gap-3">
-      <span className="tabular shrink-0 text-bone-card/45">{line.ts}</span>
-      <span className="shrink-0 text-bone-card/55">{line.src.padEnd(13, " ")}</span>
-      <span className={tone}>{line.body}</span>
     </div>
   );
 }
 
-function BlinkCursor() {
+function StatusBadge({ status }: { status: "shipped" | "running" | "active" }) {
+  if (status === "shipped") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
+        <CheckCircle2 className="h-3 w-3" />
+        Shipped
+      </span>
+    );
+  }
+  if (status === "running") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200">
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+        Running
+      </span>
+    );
+  }
   return (
-    <span
-      aria-hidden
-      className="animate-blink inline-block h-3 w-1.5 translate-y-[1px] bg-accent"
-    />
+    <span className="inline-flex items-center gap-1 rounded-md bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700 ring-1 ring-violet-200">
+      <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
+      Active
+    </span>
   );
 }

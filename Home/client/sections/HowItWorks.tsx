@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Check, Copy } from "lucide-react";
+import { ArrowRight, Check, Copy, Terminal } from "lucide-react";
+import { SectionEyebrow } from "@/sections/Primitives";
 
 type Step = {
   number: string;
@@ -10,18 +11,18 @@ type Step = {
 const STEPS: Step[] = [
   {
     number: "01",
-    title: "Hire your first employee.",
-    body: "Open the app at localhost:8471, give them a name, and pick a model. Genosyn opens the Soul editor and seeds a starter constitution you can tear up.",
+    title: "Hire your first employee",
+    body: "Open the app, give them a name, pick a model. Genosyn opens the Soul editor and seeds a starter constitution you can tear up.",
   },
   {
     number: "02",
-    title: "Write their Soul.",
-    body: "Tell them how they think, what they value, what they will refuse. Add skills as named markdown playbooks. Save. There is no other prompt to discover.",
+    title: "Write their Soul",
+    body: "Tell them how they think, what they value, and what they will refuse. Add skills as named markdown playbooks. Save.",
   },
   {
     number: "03",
-    title: "Schedule their first routine.",
-    body: "Point a cron expression at a brief. Genosyn registers the job, fires it on time, and writes the captured run to a log you can read line by line.",
+    title: "Schedule a routine",
+    body: "Point a cron expression at a brief. Genosyn registers the job, runs it on time, and writes a Run log you can review.",
   },
 ];
 
@@ -29,37 +30,29 @@ const INSTALL_COMMAND = "curl -fsSL https://genosyn.com/install.sh | bash";
 
 export function HowItWorks() {
   return (
-    <section id="quickstart" className="border-b border-ink bg-bone">
-      <div className="mx-auto max-w-[1200px] px-6 pt-20 pb-20 sm:pb-24">
-        <div className="grid items-end gap-10 md:grid-cols-[minmax(0,1fr)_minmax(0,2.4fr)]">
-          <div className="flex items-baseline gap-4 font-mono text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-            <span className="text-ink">§ 04</span>
-            <span className="text-ink-mute">/</span>
-            <span>quickstart</span>
-          </div>
-          <div>
-            <h2 className="text-[clamp(2rem,4.4vw,3.5rem)] font-medium leading-[1] tracking-[-0.025em] text-ink">
-              One command.
-              <br />
-              <span className="serif-italic text-accent">A whole company on your laptop.</span>
-            </h2>
-            <p className="mt-6 max-w-2xl text-lg leading-[1.55] text-ink-soft">
-              The installer pulls the latest image and starts Genosyn on{" "}
-              <code className="font-mono text-ink">localhost:8471</code>. Re-run any
-              time to upgrade. Your data stays in a Docker volume on{" "}
-              <em className="serif-italic not-italic font-medium text-ink">your</em>{" "}
-              machine.
-            </p>
-          </div>
+    <section id="quickstart" className="relative border-t border-zinc-100 bg-white">
+      <div className="mx-auto max-w-7xl px-6 py-24 sm:py-28">
+        <div className="mx-auto max-w-2xl text-center">
+          <SectionEyebrow>Quickstart</SectionEyebrow>
+          <h2 className="mt-4 text-balance text-4xl font-semibold tracking-[-0.02em] text-zinc-950 sm:text-5xl">
+            One command. A whole company.
+          </h2>
+          <p className="mt-5 text-lg leading-relaxed text-zinc-600">
+            The installer pulls the latest Docker image and starts Genosyn on{" "}
+            <code className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[13px] text-zinc-800">
+              localhost:8471
+            </code>
+            . Re-run any time to upgrade.
+          </p>
         </div>
 
-        <div className="mt-12">
+        <div className="mx-auto mt-12 max-w-3xl">
           <InstallTerminal />
-          <p className="mt-3 text-center font-mono text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+          <p className="mt-3 text-center text-xs text-zinc-500">
             Requires Docker.{" "}
             <a
               href="/install.sh"
-              className="text-ink underline-offset-4 hover:text-accent hover:underline"
+              className="font-medium text-zinc-700 underline-offset-2 hover:underline"
             >
               Read the script
             </a>{" "}
@@ -67,26 +60,30 @@ export function HowItWorks() {
           </p>
         </div>
 
-        <ol className="mt-16 grid grid-cols-1 gap-0 border-t border-ink md:grid-cols-3">
+        <ol className="mx-auto mt-16 grid max-w-5xl grid-cols-1 gap-5 md:grid-cols-3">
           {STEPS.map((step, i) => (
-            <li
-              key={step.number}
-              className={`relative flex flex-col gap-4 border-b border-ink px-6 py-10 md:border-b-0 ${
-                i < STEPS.length - 1 ? "md:border-r md:border-ink" : ""
-              }`}
-            >
-              <div className="flex items-baseline gap-4">
-                <span className="serif-italic text-[3rem] leading-none text-accent">
-                  {step.number}
-                </span>
-                <span className="font-mono text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                  step
-                </span>
+            <li key={step.number} className="relative">
+              {i < STEPS.length - 1 && (
+                <div
+                  aria-hidden
+                  className="absolute left-full top-12 hidden h-px w-full -translate-x-1/2 md:block"
+                >
+                  <div className="h-px w-full bg-gradient-to-r from-violet-200 to-transparent" />
+                </div>
+              )}
+              <div className="relative h-full rounded-2xl border border-zinc-200 bg-white p-6 shadow-card transition hover:-translate-y-0.5 hover:shadow-lift">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-600 font-mono text-sm font-semibold text-white shadow-card">
+                    {step.number}
+                  </div>
+                  <h3 className="text-base font-semibold text-zinc-950">
+                    {step.title}
+                  </h3>
+                </div>
+                <p className="mt-4 text-sm leading-relaxed text-zinc-600">
+                  {step.body}
+                </p>
               </div>
-              <h3 className="font-serif text-2xl leading-[1.1] text-ink">
-                {step.title}
-              </h3>
-              <p className="text-base leading-[1.6] text-ink-soft">{step.body}</p>
             </li>
           ))}
         </ol>
@@ -104,54 +101,68 @@ function InstallTerminal() {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1600);
     } catch {
-      // Clipboard may be blocked in non-secure contexts; the visible command
-      // is still selectable as a fallback.
+      // Clipboard may be blocked; the command stays selectable.
     }
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl">
-      <div className="flex items-center justify-between border-b border-ink pb-2 font-mono text-[10px] uppercase tracking-[0.22em] text-ink-soft">
-        <span className="text-ink">$ install</span>
+    <div className="overflow-hidden rounded-2xl border border-zinc-900 bg-zinc-950 shadow-lift">
+      <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
+        <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
+        <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
+        <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
+        <div className="ml-3 inline-flex items-center gap-1.5 text-xs font-medium text-zinc-400">
+          <Terminal className="h-3.5 w-3.5" />
+          install
+        </div>
         <button
           type="button"
           onClick={handleCopy}
+          className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-medium text-zinc-300 transition hover:border-white/20 hover:text-white"
           aria-label="Copy install command"
-          className="inline-flex items-center gap-1.5 text-ink-soft hover:text-accent"
         >
           {copied ? (
             <>
-              <Check className="h-3 w-3" />
-              copied
+              <Check className="h-3.5 w-3.5 text-emerald-400" />
+              Copied
             </>
           ) : (
             <>
-              <Copy className="h-3 w-3" />
-              copy
+              <Copy className="h-3.5 w-3.5" />
+              Copy
             </>
           )}
         </button>
       </div>
-      <pre className="overflow-x-auto border border-ink bg-ink px-6 py-6 font-mono text-[14px] leading-[1.7] text-bone-card">
+      <pre className="overflow-x-auto px-6 py-5 font-mono text-[13.5px] leading-7 text-zinc-200">
         <code>
-          <span className="text-bone-card/45">$ </span>
-          <span className="text-bone-card">curl -fsSL </span>
-          <span className="text-amber-200">https://genosyn.com/install.sh</span>
-          <span className="text-bone-card"> | bash</span>
+          <span className="text-zinc-500">$ </span>
+          <span className="text-zinc-100">curl -fsSL </span>
+          <span className="text-violet-300">https://genosyn.com/install.sh</span>
+          <span className="text-zinc-100"> | bash</span>
           {"\n\n"}
-          <span className="text-bone-card/45">→ </span>
-          <span className="text-bone-card/85">pulling ghcr.io/genosyn/app:latest</span>
+          <span className="text-zinc-500">→ </span>
+          <span className="text-zinc-300">Pulling ghcr.io/genosyn/app:latest</span>
           {"\n"}
-          <span className="text-bone-card/45">→ </span>
-          <span className="text-bone-card/85">starting &lsquo;genosyn&rsquo; on port 8471</span>
+          <span className="text-zinc-500">→ </span>
+          <span className="text-zinc-300">Starting genosyn on port 8471</span>
           {"\n"}
-          <span className="text-emerald-300">✓ </span>
-          <span className="text-bone-card/85">genosyn is running.</span>
+          <span className="text-emerald-400">✓ </span>
+          <span className="text-zinc-300">Genosyn is running.</span>
           {"\n\n"}
-          <span className="text-bone-card/45">   open  </span>
-          <span className="text-amber-200">http://localhost:8471</span>
+          <span className="text-zinc-500">   Open  </span>
+          <span className="text-violet-300 underline-offset-2">http://localhost:8471</span>
+          <ArrowIcon />
         </code>
       </pre>
     </div>
+  );
+}
+
+function ArrowIcon() {
+  return (
+    <span className="ml-2 inline-flex translate-y-[2px] items-center text-zinc-500">
+      <ArrowRight className="h-3 w-3" />
+    </span>
   );
 }

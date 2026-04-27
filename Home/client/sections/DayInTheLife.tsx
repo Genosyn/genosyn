@@ -1,166 +1,162 @@
+import { CheckCircle2, Clock, Loader2 } from "lucide-react";
+import { SectionEyebrow } from "@/sections/Primitives";
+
 type Entry = {
-  ts: string;
+  time: string;
   who: string;
+  initials: string;
+  color: string;
   routine: string;
   output: string;
-  status: "shipped" | "running" | "queued";
+  status: "shipped" | "running" | "scheduled";
 };
 
 const ENTRIES: Entry[] = [
   {
-    ts: "06:59:58",
-    who: "mira-finance",
-    routine: "close-the-books",
-    output: "wake. last run +24h",
+    time: "07:00",
+    who: "Mira",
+    initials: "MF",
+    color: "bg-emerald-100 text-emerald-700",
+    routine: "Daily bookkeeping",
+    output: "Reconciled 42 Stripe charges · 0 anomalies",
     status: "shipped",
   },
   {
-    ts: "07:00:14",
-    who: "mira-finance",
-    routine: "close-the-books",
-    output: "stripe → 42 charges, 0 anomalies, $18,420.00 settled",
+    time: "08:30",
+    who: "Alex",
+    initials: "AB",
+    color: "bg-violet-100 text-violet-700",
+    routine: "Morning brief",
+    output: "Drafted 3 talking points from overnight news",
     status: "shipped",
   },
   {
-    ts: "08:30:01",
-    who: "alex-brand",
-    routine: "morning-brief",
-    output: "wake. routine triggered by cron 30 8 * * 1-5",
-    status: "shipped",
-  },
-  {
-    ts: "08:31:47",
-    who: "alex-brand",
-    routine: "morning-brief",
-    output: "drafted 3 talking points → docs/brief-2026-04-28.md",
-    status: "shipped",
-  },
-  {
-    ts: "10:17:22",
-    who: "sam-sre",
-    routine: "watch-p99",
-    output: "alert: p99 /checkout 940ms (threshold 600ms)",
+    time: "10:17",
+    who: "Sam",
+    initials: "SS",
+    color: "bg-amber-100 text-amber-700",
+    routine: "Watch p99",
+    output: "Paged #oncall — elevated p99 on /checkout",
     status: "running",
   },
   {
-    ts: "10:17:23",
-    who: "sam-sre",
-    routine: "watch-p99",
-    output: "paged #oncall · attaching trace abc123…",
-    status: "running",
+    time: "14:00",
+    who: "Alex",
+    initials: "AB",
+    color: "bg-violet-100 text-violet-700",
+    routine: "Docs freshness pass",
+    output: "Queued · waiting on slot",
+    status: "scheduled",
   },
   {
-    ts: "14:00:00",
-    who: "alex-brand",
-    routine: "docs-freshness",
-    output: "queued · waiting on slot",
-    status: "queued",
-  },
-  {
-    ts: "17:00:00",
-    who: "alex-brand",
-    routine: "weekly-digest",
-    output: "scheduled · fires friday 17:00",
-    status: "queued",
+    time: "17:00",
+    who: "Alex",
+    initials: "AB",
+    color: "bg-violet-100 text-violet-700",
+    routine: "Weekly digest",
+    output: "Scheduled · fires Friday 5:00 PM",
+    status: "scheduled",
   },
 ];
 
 export function DayInTheLife() {
   return (
-    <section id="day" className="border-b border-ink bg-bone">
-      <div className="mx-auto max-w-[1200px] px-6 pt-20 pb-20 sm:pb-24">
-        <div className="grid items-end gap-10 md:grid-cols-[minmax(0,1fr)_minmax(0,2.4fr)]">
-          <div className="flex items-baseline gap-4 font-mono text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-            <span className="text-ink">§ 02</span>
-            <span className="text-ink-mute">/</span>
-            <span>a typical tuesday</span>
-          </div>
+    <section
+      id="day"
+      className="relative border-t border-zinc-100 bg-gradient-to-b from-zinc-50/60 to-white"
+    >
+      <div className="mx-auto max-w-7xl px-6 py-24 sm:py-28">
+        <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] lg:gap-16">
           <div>
-            <h2 className="text-[clamp(2rem,4.4vw,3.5rem)] font-medium leading-[1] tracking-[-0.025em] text-ink">
+            <SectionEyebrow>A typical Tuesday</SectionEyebrow>
+            <h2 className="mt-4 text-balance text-4xl font-semibold tracking-[-0.02em] text-zinc-950 sm:text-5xl">
               Scheduled, not chatty.
-              <br />
-              <span className="serif-italic text-accent">Quiet until something needs you.</span>
             </h2>
-            <p className="mt-6 max-w-2xl text-lg leading-[1.55] text-ink-soft">
-              Your roster works on crons. You see what ran, what shipped, what is
-              queued. Open the log when you want to know what happened. Close it
-              when you don&apos;t.
+            <p className="mt-5 max-w-md text-lg leading-relaxed text-zinc-600">
+              Your roster works on crons. You see what ran, what shipped, what
+              is queued. Open the timeline when you want to know what
+              happened. Close it when you don&apos;t.
             </p>
+            <ul className="mt-8 space-y-3">
+              {[
+                "Cron-driven routines, not chat threads",
+                "Every run logged and auditable",
+                "Quiet until something needs you",
+              ].map((b) => (
+                <li key={b} className="flex items-start gap-2 text-sm text-zinc-700">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-violet-500" />
+                  {b}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lift">
+            <div className="flex items-center justify-between border-b border-zinc-100 bg-zinc-50/60 px-5 py-3 text-xs">
+              <div className="flex items-center gap-2 font-medium text-zinc-700">
+                <span className="flex h-2 w-2 rounded-full bg-emerald-500" />
+                Live · 3 employees on duty
+              </div>
+              <div className="font-mono text-[11px] text-zinc-500">tue · apr 28</div>
+            </div>
+            <ol className="divide-y divide-zinc-100">
+              {ENTRIES.map((e) => (
+                <Row key={`${e.time}-${e.routine}`} entry={e} />
+              ))}
+            </ol>
           </div>
         </div>
-
-        <figure className="mt-12">
-          <figcaption className="flex flex-wrap items-center justify-between gap-3 border-b border-ink pb-2 font-mono text-[10px] uppercase tracking-[0.22em] text-ink-soft">
-            <div className="flex items-center gap-3">
-              <span className="text-ink">$ tail -f data/runs/today.log</span>
-              <span aria-hidden className="text-ink-mute">·</span>
-              <span>tue · apr 28 · 2026</span>
-            </div>
-            <div className="flex items-center gap-2 text-accent">
-              <span className="block h-1.5 w-1.5 rounded-full bg-accent" />
-              <span>3 employees on duty</span>
-            </div>
-          </figcaption>
-
-          <div className="border border-ink bg-ink/95 font-mono text-[12.5px] text-bone-card">
-            <div className="hidden grid-cols-[100px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,2.5fr)_70px] gap-3 border-b border-bone-card/15 px-5 py-2 text-[10px] uppercase tracking-[0.18em] text-bone-card/55 md:grid">
-              <span>time</span>
-              <span>employee</span>
-              <span>routine</span>
-              <span>line</span>
-              <span className="text-right">state</span>
-            </div>
-            {ENTRIES.map((e, i) => (
-              <Row key={i} entry={e} last={i === ENTRIES.length - 1} />
-            ))}
-            <div className="flex items-center gap-2 border-t border-bone-card/10 px-5 py-3 text-bone-card/55">
-              <span className="tabular">17:00:01</span>
-              <span aria-hidden>·</span>
-              <span className="opacity-75">…tail -f</span>
-              <span aria-hidden className="animate-blink inline-block h-3 w-1.5 translate-y-[1px] bg-accent" />
-            </div>
-          </div>
-        </figure>
       </div>
     </section>
   );
 }
 
-function Row({ entry, last }: { entry: Entry; last: boolean }) {
-  const stateColor =
-    entry.status === "shipped"
-      ? "text-emerald-300"
-      : entry.status === "running"
-      ? "text-amber-200"
-      : "text-bone-card/55";
-  const lineColor =
-    entry.status === "queued" ? "text-bone-card/55" : "text-bone-card";
+function Row({ entry }: { entry: Entry }) {
   return (
-    <div
-      className={`grid grid-cols-[80px_minmax(0,1fr)] gap-3 px-5 py-2 md:grid-cols-[100px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,2.5fr)_70px] ${
-        last ? "" : "border-b border-bone-card/10"
-      }`}
-    >
-      <span className="tabular text-bone-card/45">{entry.ts}</span>
-      <div className="flex flex-col gap-0.5 md:hidden">
-        <div className="flex items-center gap-2">
-          <span className="text-bone-card/85">{entry.who}</span>
-          <span aria-hidden className="text-bone-card/30">·</span>
-          <span className="text-accent">{entry.routine}</span>
+    <li className="grid grid-cols-[60px_minmax(0,1fr)_auto] items-center gap-4 px-5 py-4">
+      <div className="font-mono text-sm tabular text-zinc-500">{entry.time}</div>
+      <div className="flex min-w-0 items-center gap-3">
+        <div
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[11px] font-semibold ${entry.color}`}
+        >
+          {entry.initials}
         </div>
-        <div className={`${lineColor} truncate`}>{entry.output}</div>
-        <div className={`text-[10px] uppercase tracking-[0.16em] ${stateColor}`}>
-          {entry.status}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <span className="truncate text-sm font-semibold text-zinc-950">
+              {entry.who}
+            </span>
+            <span className="truncate text-xs text-zinc-500">{entry.routine}</span>
+          </div>
+          <div className="mt-0.5 truncate text-xs text-zinc-500">{entry.output}</div>
         </div>
       </div>
-      <span className="hidden truncate text-bone-card/85 md:inline">{entry.who}</span>
-      <span className="hidden truncate text-accent md:inline">{entry.routine}</span>
-      <span className={`hidden truncate md:inline ${lineColor}`}>{entry.output}</span>
-      <span
-        className={`hidden text-right text-[10px] uppercase tracking-[0.18em] md:inline ${stateColor}`}
-      >
-        {entry.status}
+      <StatusPill status={entry.status} />
+    </li>
+  );
+}
+
+function StatusPill({ status }: { status: Entry["status"] }) {
+  if (status === "shipped") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 ring-1 ring-emerald-200">
+        <CheckCircle2 className="h-3 w-3" />
+        Shipped
       </span>
-    </div>
+    );
+  }
+  if (status === "running") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700 ring-1 ring-amber-200">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Running
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-600 ring-1 ring-zinc-200">
+      <Clock className="h-3 w-3" />
+      Queued
+    </span>
   );
 }

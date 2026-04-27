@@ -1,249 +1,177 @@
 import { type ReactNode } from "react";
+import { BookHeart, CalendarClock, FileText, Sparkles } from "lucide-react";
 
 export function Primitives() {
   return (
-    <section id="primitives" className="border-b border-ink bg-bone-page">
-      <SectionHeader
-        index="§ 01"
-        kicker="primitives"
-        title={
-          <>
-            Three things an employee needs.
-            <br />
-            <span className="serif-italic text-accent">All of them, in markdown.</span>
-          </>
-        }
-        body="Soul says who they are. Skills describe what they know. Routines are when they work. The whole employee fits in three editable text fields — no opaque prompt, no hidden config."
-      />
+    <section id="primitives" className="border-t border-zinc-100 bg-white">
+      <div className="mx-auto max-w-7xl px-6 py-24 sm:py-28">
+        <SectionEyebrow>The building blocks</SectionEyebrow>
+        <h2 className="mt-4 max-w-3xl text-balance text-4xl font-semibold tracking-[-0.02em] text-zinc-950 sm:text-5xl">
+          Three things every employee needs.{" "}
+          <span className="text-zinc-400">All of them, in markdown.</span>
+        </h2>
+        <p className="mt-5 max-w-2xl text-lg leading-relaxed text-zinc-600">
+          Soul says who they are. Skills describe what they know. Routines are
+          when they work. The whole employee fits in three editable text
+          fields you can read, diff, and own.
+        </p>
 
-      <div className="border-t border-ink">
-        <PrimitiveRow
-          number="01"
-          name="Soul"
-          tag="constitution"
-          headline="A constitution, not a prompt."
-          body="One document the whole roster lives by — values, voice, what the employee will refuse. Edit it like you would a job description. There is no other prompt."
-          artifact={<SoulArtifact />}
-        />
-        <PrimitiveRow
-          number="02"
-          name="Skills"
-          tag="playbooks"
-          headline="Reusable playbooks."
-          body="A skill is a markdown file the employee reads when its name comes up. Compose them across employees, share them between teams, version them in git."
-          artifact={<SkillsArtifact />}
-          flip
-        />
-        <PrimitiveRow
-          number="03"
-          name="Routines"
-          tag="cron"
-          headline="Work, on a cron."
-          body="A routine is a brief plus a schedule. Genosyn fires it on time, captures every word the employee said, and writes the output to a Run log you can read line by line."
-          artifact={<RoutinesArtifact />}
-        />
+        <div className="mt-14 grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <Card
+            icon={<BookHeart className="h-5 w-5" />}
+            tag="Soul"
+            title="A constitution, not a prompt"
+            body="One markdown document that describes how the employee thinks, what they value, and what they refuse. Edit it like a job description."
+          >
+            <SoulPreview />
+          </Card>
+
+          <Card
+            icon={<Sparkles className="h-5 w-5" />}
+            tag="Skills"
+            title="Reusable playbooks"
+            body="Each skill is a named markdown file. Compose them across your team, version them in git, and share them between employees."
+          >
+            <SkillsPreview />
+          </Card>
+
+          <Card
+            icon={<CalendarClock className="h-5 w-5" />}
+            tag="Routines"
+            title="Work, on a schedule"
+            body="Pair a brief with a cron expression. Genosyn runs it on time, captures the output, and saves it as a Run you can read line by line."
+          >
+            <RoutinesPreview />
+          </Card>
+        </div>
       </div>
     </section>
   );
 }
 
-function SectionHeader({
-  index,
-  kicker,
-  title,
-  body,
-}: {
-  index: string;
-  kicker: string;
-  title: ReactNode;
-  body: string;
-}) {
+export function SectionEyebrow({ children }: { children: ReactNode }) {
   return (
-    <div className="mx-auto max-w-[1200px] px-6 pt-20 pb-14">
-      <div className="grid items-end gap-10 md:grid-cols-[minmax(0,1fr)_minmax(0,2.4fr)]">
-        <div className="flex items-baseline gap-4 font-mono text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-          <span className="text-ink">{index}</span>
-          <span className="text-ink-mute">/</span>
-          <span>{kicker}</span>
-        </div>
-        <div>
-          <h2 className="text-[clamp(2rem,4.4vw,3.5rem)] font-medium leading-[1] tracking-[-0.025em] text-ink">
-            {title}
-          </h2>
-          <p className="mt-6 max-w-2xl text-lg leading-[1.55] text-ink-soft">{body}</p>
-        </div>
-      </div>
+    <div className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-medium text-zinc-600 shadow-card">
+      <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
+      {children}
     </div>
   );
 }
 
-function PrimitiveRow({
-  number,
-  name,
+function Card({
+  icon,
   tag,
-  headline,
+  title,
   body,
-  artifact,
-  flip,
+  children,
 }: {
-  number: string;
-  name: string;
+  icon: ReactNode;
   tag: string;
-  headline: string;
+  title: string;
   body: string;
-  artifact: ReactNode;
-  flip?: boolean;
+  children: ReactNode;
 }) {
   return (
-    <article className="border-b border-ink last:border-b-0">
-      <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-10 px-6 py-16 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] md:gap-14 md:py-20">
-        <div className={flip ? "md:order-2" : undefined}>
-          <div className="flex items-baseline gap-3 font-mono text-[11px] uppercase tracking-[0.22em] text-accent">
-            <span className="tabular text-[40px] font-normal leading-none text-ink">
-              {number}
-            </span>
-            <span className="text-ink">/ {name}</span>
-            <span aria-hidden className="text-ink-mute">·</span>
-            <span className="text-ink-soft">{tag}</span>
-          </div>
-          <h3 className="mt-6 max-w-md font-serif text-[clamp(1.75rem,3vw,2.5rem)] leading-[1.05] text-ink">
-            {headline}
-          </h3>
-          <p className="mt-4 max-w-md text-base leading-[1.65] text-ink-soft">{body}</p>
+    <article className="group flex flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-card transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lift">
+      <div className="flex items-center gap-3 px-6 pt-6">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50 text-violet-600 ring-1 ring-violet-100">
+          {icon}
         </div>
-        <div className={flip ? "md:order-1" : undefined}>{artifact}</div>
+        <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          {tag}
+        </span>
       </div>
+      <div className="px-6 pt-4">
+        <h3 className="text-xl font-semibold text-zinc-950">{title}</h3>
+        <p className="mt-2 text-sm leading-relaxed text-zinc-600">{body}</p>
+      </div>
+      <div className="mt-6 px-6 pb-6">{children}</div>
     </article>
   );
 }
 
-function ArtifactFrame({
-  filename,
-  children,
-  light,
-}: {
-  filename: string;
-  children: ReactNode;
-  light?: boolean;
-}) {
+function SoulPreview() {
   return (
-    <figure className="w-full">
-      <figcaption className="flex items-center justify-between border-b border-ink pb-2 font-mono text-[10px] uppercase tracking-[0.22em] text-ink-soft">
-        <span>{filename}</span>
-        <span className="text-ink-mute">markdown</span>
-      </figcaption>
-      <div
-        className={
-          light
-            ? "border border-ink bg-bone-card px-5 py-5 font-mono text-[12.5px] leading-[1.7]"
-            : "border border-ink bg-ink px-5 py-5 font-mono text-[12.5px] leading-[1.7] text-bone-card"
-        }
-      >
-        {children}
+    <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 font-mono text-[12px] leading-6 text-zinc-700">
+      <div className="flex items-center gap-1.5 pb-2 text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
+        <FileText className="h-3 w-3" />
+        soul.md
       </div>
-    </figure>
+      <div className="text-zinc-950"># Alex Brand</div>
+      <div className="text-zinc-500">Senior brand writer.</div>
+      <div className="mt-2 font-semibold text-zinc-950">## Voice</div>
+      <div>- Concrete over clever.</div>
+      <div>- Shorter is braver.</div>
+      <div className="mt-2 font-semibold text-zinc-950">## Never</div>
+      <div>- Promise features that haven&apos;t shipped.</div>
+    </div>
   );
 }
 
-function SoulArtifact() {
-  return (
-    <ArtifactFrame filename="alex-brand · soul.md" light>
-      <div className="text-ink">
-        <span className="text-accent"># </span>Alex Brand
-      </div>
-      <div className="text-ink-soft">Senior brand writer. Late-thirties energy. Reads the room.</div>
-      <div className="mt-3 text-ink">
-        <span className="text-accent">## </span>Voice
-      </div>
-      <div className="text-ink-soft">- Concrete over clever.</div>
-      <div className="text-ink-soft">- Shorter is braver.</div>
-      <div className="text-ink-soft">- One specific noun per sentence, please.</div>
-      <div className="mt-3 text-ink">
-        <span className="text-accent">## </span>Never
-      </div>
-      <div className="text-ink-soft">- Promise features that have not shipped.</div>
-      <div className="text-ink-soft">
-        - Use the word <span className="text-ink">&ldquo;robust&rdquo;</span>. Ever.
-      </div>
-      <div className="mt-3 text-ink">
-        <span className="text-accent">## </span>When unsure
-      </div>
-      <div className="text-ink-soft">Ask a member. Do not guess on legal copy.</div>
-    </ArtifactFrame>
-  );
-}
-
-function SkillsArtifact() {
-  const rows = [
-    { file: "write-weekly-digest.md", size: "1.2k", who: "alex-brand", tag: "writing" },
-    { file: "triage-inbox.md", size: "640b", who: "shared", tag: "ops" },
-    { file: "draft-release-notes.md", size: "2.1k", who: "alex-brand", tag: "writing" },
-    { file: "reconcile-stripe.md", size: "3.0k", who: "mira-finance", tag: "finance" },
-    { file: "page-oncall.md", size: "812b", who: "sam-sre", tag: "ops" },
+function SkillsPreview() {
+  const skills = [
+    { name: "write-weekly-digest", tag: "writing", color: "bg-violet-50 text-violet-700 ring-violet-200" },
+    { name: "triage-inbox", tag: "ops", color: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
+    { name: "reconcile-stripe", tag: "finance", color: "bg-amber-50 text-amber-700 ring-amber-200" },
+    { name: "page-oncall", tag: "ops", color: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
   ];
   return (
-    <figure className="w-full">
-      <figcaption className="flex items-center justify-between border-b border-ink pb-2 font-mono text-[10px] uppercase tracking-[0.22em] text-ink-soft">
-        <span>data/skills/</span>
-        <span className="text-ink-mute">5 files · 7.7kb</span>
-      </figcaption>
-      <div className="border border-ink bg-bone-card font-mono text-[12.5px]">
-        <div className="grid grid-cols-[minmax(0,1.6fr)_60px_minmax(0,1fr)_70px] gap-3 border-b border-ink/15 px-4 py-2 text-[10px] uppercase tracking-[0.16em] text-ink-mute">
-          <span>file</span>
-          <span className="text-right">size</span>
-          <span>owner</span>
-          <span>tag</span>
-        </div>
-        {rows.map((r, i) => (
-          <div
-            key={r.file}
-            className={`grid grid-cols-[minmax(0,1.6fr)_60px_minmax(0,1fr)_70px] gap-3 px-4 py-2 ${
-              i < rows.length - 1 ? "border-b border-ink/10" : ""
-            }`}
-          >
-            <span className="truncate text-ink">{r.file}</span>
-            <span className="tabular text-right text-ink-soft">{r.size}</span>
-            <span className="truncate text-ink-soft">{r.who}</span>
-            <span className="text-accent">{r.tag}</span>
+    <div className="space-y-2">
+      {skills.map((s) => (
+        <div
+          key={s.name}
+          className="flex items-center justify-between rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+        >
+          <div className="flex min-w-0 items-center gap-2">
+            <Sparkles className="h-3.5 w-3.5 shrink-0 text-violet-500" />
+            <span className="truncate font-mono text-[12px] text-zinc-700">
+              {s.name}
+            </span>
           </div>
-        ))}
-      </div>
-    </figure>
+          <span className={`ml-2 shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium ring-1 ${s.color}`}>
+            {s.tag}
+          </span>
+        </div>
+      ))}
+    </div>
   );
 }
 
-function RoutinesArtifact() {
-  const rows = [
-    { cron: "0 7 * * *", who: "mira-finance", brief: "close the books" },
-    { cron: "30 8 * * 1-5", who: "alex-brand", brief: "morning brief" },
-    { cron: "*/15 * * * *", who: "sam-sre", brief: "watch p99" },
-    { cron: "0 17 * * 5", who: "alex-brand", brief: "weekly digest" },
+function RoutinesPreview() {
+  const routines = [
+    { name: "Morning brief", cron: "30 8 * * 1-5", state: "running" as const },
+    { name: "Reconcile Stripe", cron: "0 7 * * *", state: "scheduled" as const },
+    { name: "Weekly digest", cron: "0 17 * * 5", state: "scheduled" as const },
   ];
+  const styles: Record<string, string> = {
+    running: "bg-amber-50 text-amber-700 ring-amber-200",
+    scheduled: "bg-zinc-100 text-zinc-600 ring-zinc-200",
+  };
   return (
-    <figure className="w-full">
-      <figcaption className="flex items-center justify-between border-b border-ink pb-2 font-mono text-[10px] uppercase tracking-[0.22em] text-ink-soft">
-        <span>$ genosyn routines list</span>
-        <span className="text-ink-mute">crontab</span>
-      </figcaption>
-      <div className="border border-ink bg-ink font-mono text-[12.5px] text-bone-card">
-        <div className="grid grid-cols-[140px_minmax(0,1fr)_minmax(0,1.4fr)] gap-3 border-b border-bone-card/15 px-4 py-2 text-[10px] uppercase tracking-[0.16em] text-bone-card/55">
-          <span>cron</span>
-          <span>employee</span>
-          <span>brief</span>
-        </div>
-        {rows.map((r, i) => (
-          <div
-            key={r.brief}
-            className={`grid grid-cols-[140px_minmax(0,1fr)_minmax(0,1.4fr)] gap-3 px-4 py-2 ${
-              i < rows.length - 1 ? "border-b border-bone-card/10" : ""
-            }`}
-          >
-            <span className="tabular text-amber-200">{r.cron}</span>
-            <span className="truncate text-bone-card/85">{r.who}</span>
-            <span className="truncate">{r.brief}</span>
+    <div className="space-y-2">
+      {routines.map((r) => (
+        <div
+          key={r.name}
+          className="rounded-lg border border-zinc-200 bg-white px-3 py-2.5"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <CalendarClock className="h-3.5 w-3.5 shrink-0 text-violet-500" />
+              <span className="truncate text-sm font-medium text-zinc-800">
+                {r.name}
+              </span>
+            </div>
+            <span
+              className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider ring-1 ${styles[r.state]}`}
+            >
+              {r.state}
+            </span>
           </div>
-        ))}
-      </div>
-    </figure>
+          <div className="mt-1 pl-5 font-mono text-[11px] text-zinc-500">
+            {r.cron}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }

@@ -1,5 +1,14 @@
 import { useState } from "react";
-import { ArrowUpRight } from "lucide-react";
+import {
+  ArchiveRestore,
+  ArrowUpRight,
+  Download,
+  RefreshCw,
+  ScrollText,
+  Terminal,
+  type LucideIcon,
+} from "lucide-react";
+import { SectionEyebrow } from "@/sections/Primitives";
 
 type CommandRow = {
   command: string;
@@ -8,17 +17,17 @@ type CommandRow = {
 };
 
 const COMMANDS: CommandRow[] = [
-  { command: "install", description: "pull the image and start the container." },
-  { command: "upgrade", description: "pull the latest image and recreate. volume preserved." },
-  { command: "status", description: "show state, image digest, volume, and url." },
-  { command: "logs", arg: "-f", description: "tail the server log from the running container." },
-  { command: "backup", arg: "--out FILE", description: "tarball the data volume for safekeeping." },
-  { command: "restore", arg: "FILE", description: "roll the volume back to a previous snapshot." },
-  { command: "uninstall", arg: "--purge", description: "stop and remove. --purge wipes the volume." },
+  { command: "install", description: "Pull the image and start the container." },
+  { command: "upgrade", description: "Pull the latest image and recreate. Volume preserved." },
+  { command: "status", description: "Show state, image digest, volume, and URL." },
+  { command: "logs", arg: "-f", description: "Tail the server log from the running container." },
+  { command: "backup", arg: "--out FILE", description: "Tarball the data volume for safekeeping." },
+  { command: "restore", arg: "FILE", description: "Roll the volume back to a previous snapshot." },
+  { command: "uninstall", arg: "--purge", description: "Stop and remove. --purge wipes the volume too." },
 ];
 
 type Workflow = {
-  step: string;
+  icon: LucideIcon;
   tag: string;
   title: string;
   body: string;
@@ -27,25 +36,25 @@ type Workflow = {
 
 const WORKFLOWS: Workflow[] = [
   {
-    step: "i",
-    tag: "upgrade",
-    title: "Zero-drama upgrades.",
-    body: "Pulls the newest image and swaps the container. Your volume is never touched. Roll back with --image=previous-tag when you need to.",
+    icon: RefreshCw,
+    tag: "Upgrade",
+    title: "Zero-drama upgrades",
+    body: "Pulls the newest image and swaps the container. Your volume is never touched. Roll back any time.",
     code: "$ genosyn upgrade",
   },
   {
-    step: "ii",
-    tag: "back up",
-    title: "A tarball you can trust.",
-    body: "Snapshots the database and every employee's credentials into a single .tar.gz. Cron it. Sync to S3. Keep thirty days. It is just a file.",
-    code: "$ genosyn backup --out /b/g-$(date +%F).tar.gz",
+    icon: Download,
+    tag: "Back up",
+    title: "A tarball you can trust",
+    body: "Snapshots the database and every employee's credentials into one .tar.gz. Cron it. Sync to S3.",
+    code: "$ genosyn backup --out backup.tar.gz",
   },
   {
-    step: "iii",
-    tag: "restore",
-    title: "Walk back any incident.",
-    body: "Stop, restore, start. The CLI prompts before overwriting so a typo never costs you production. Pass --yes only when you mean it.",
-    code: "$ genosyn restore ~/backups/g-2026-04-22.tar.gz",
+    icon: ArchiveRestore,
+    tag: "Restore",
+    title: "Walk back any incident",
+    body: "Stop, restore, start. The CLI prompts before overwriting so a typo never costs you production.",
+    code: "$ genosyn restore backup.tar.gz",
   },
 ];
 
@@ -55,84 +64,61 @@ export function CliShowcase() {
   const [tab, setTab] = useState<TabKey>("help");
 
   return (
-    <section id="cli" className="border-b border-ink bg-bone-page">
-      <div className="mx-auto max-w-[1200px] px-6 pt-20 pb-20 sm:pb-24">
-        <div className="grid items-end gap-10 md:grid-cols-[minmax(0,1fr)_minmax(0,2.4fr)]">
-          <div className="flex items-baseline gap-4 font-mono text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-            <span className="text-ink">§ 05</span>
-            <span className="text-ink-mute">/</span>
-            <span>the cli</span>
-          </div>
-          <div>
-            <h2 className="text-[clamp(2rem,4.4vw,3.5rem)] font-medium leading-[1] tracking-[-0.025em] text-ink">
-              Your cluster,
-              <br />
-              <span className="serif-italic text-accent">at your command.</span>
-            </h2>
-            <p className="mt-6 max-w-2xl text-lg leading-[1.55] text-ink-soft">
-              One bash binary handles install, upgrade, status, logs, and disaster
-              recovery. Reads as plain shell — no Docker flags to memorise.
-            </p>
-          </div>
+    <section id="cli" className="border-t border-zinc-100 bg-gradient-to-b from-white to-zinc-50/60">
+      <div className="mx-auto max-w-7xl px-6 py-24 sm:py-28">
+        <div className="mx-auto max-w-2xl text-center">
+          <SectionEyebrow>The CLI</SectionEyebrow>
+          <h2 className="mt-4 text-balance text-4xl font-semibold tracking-[-0.02em] text-zinc-950 sm:text-5xl">
+            Your cluster, at your command.
+          </h2>
+          <p className="mt-5 text-lg leading-relaxed text-zinc-600">
+            One binary handles install, upgrade, status, logs, and disaster
+            recovery. No Docker flags to memorize.
+          </p>
         </div>
 
-        <div className="mt-12 border border-ink bg-ink">
-          <div className="flex flex-wrap items-center gap-2 border-b border-bone-card/15 px-4 py-3 font-mono text-[10px] uppercase tracking-[0.22em] text-bone-card/55">
-            <button
-              type="button"
-              onClick={() => setTab("help")}
-              className={`px-3 py-1 transition ${
-                tab === "help"
-                  ? "border border-bone-card/30 text-bone-card"
-                  : "text-bone-card/55 hover:text-bone-card"
-              }`}
-            >
-              genosyn help
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("status")}
-              className={`px-3 py-1 transition ${
-                tab === "status"
-                  ? "border border-bone-card/30 text-bone-card"
-                  : "text-bone-card/55 hover:text-bone-card"
-              }`}
-            >
-              genosyn status
-            </button>
+        <div className="mx-auto mt-12 max-w-5xl overflow-hidden rounded-2xl border border-zinc-900 bg-zinc-950 shadow-lift">
+          <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
+            <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
+            <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
+            <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
+            <div className="ml-3 flex items-center gap-1 rounded-lg bg-white/5 p-0.5 text-xs">
+              <TabButton active={tab === "help"} onClick={() => setTab("help")} icon={ScrollText} label="genosyn help" />
+              <TabButton active={tab === "status"} onClick={() => setTab("status")} icon={Terminal} label="genosyn status" />
+            </div>
             <a
               href="https://github.com/Genosyn/genosyn/blob/main/CLI/genosyn"
               target="_blank"
               rel="noreferrer"
-              className="ml-auto inline-flex items-center gap-1.5 text-bone-card/55 hover:text-amber-200"
+              className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-medium text-zinc-300 transition hover:border-white/20 hover:text-white"
             >
-              read source
+              Source
               <ArrowUpRight className="h-3 w-3" />
             </a>
           </div>
           {tab === "help" ? <HelpPane /> : <StatusPane />}
         </div>
 
-        <div className="mt-14 grid grid-cols-1 gap-0 border-t border-ink md:grid-cols-3">
-          {WORKFLOWS.map((w, i) => (
+        <div className="mt-10 grid grid-cols-1 gap-5 md:grid-cols-3">
+          {WORKFLOWS.map((w) => (
             <article
               key={w.tag}
-              className={`flex flex-col gap-5 border-b border-ink px-6 py-10 md:border-b-0 ${
-                i < WORKFLOWS.length - 1 ? "md:border-r md:border-ink" : ""
-              }`}
+              className="group flex flex-col rounded-2xl border border-zinc-200 bg-white p-6 shadow-card transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lift"
             >
-              <div className="flex items-baseline gap-3 font-mono text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-                <span className="serif-italic text-3xl leading-none text-accent">
-                  {w.step}.
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50 text-violet-600 ring-1 ring-violet-100">
+                  <w.icon className="h-4 w-4" />
+                </div>
+                <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  {w.tag}
                 </span>
-                <span className="text-ink">{w.tag}</span>
               </div>
-              <h3 className="font-serif text-2xl leading-[1.1] text-ink">
-                {w.title}
-              </h3>
-              <p className="text-base leading-[1.6] text-ink-soft">{w.body}</p>
-              <pre className="mt-auto overflow-x-auto border border-ink bg-ink px-4 py-3 font-mono text-[12.5px] leading-[1.6] text-bone-card">
-                <code>{w.code}</code>
+              <h3 className="mt-4 text-base font-semibold text-zinc-950">{w.title}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-zinc-600">{w.body}</p>
+              <pre className="mt-auto pt-4 font-mono text-[12px] leading-5">
+                <code className="block overflow-x-auto rounded-lg bg-zinc-950 px-3 py-2 text-zinc-200">
+                  {w.code}
+                </code>
               </pre>
             </article>
           ))}
@@ -142,15 +128,41 @@ export function CliShowcase() {
   );
 }
 
+function TabButton({
+  active,
+  onClick,
+  icon: Icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: LucideIcon;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 transition ${
+        active
+          ? "bg-white/10 text-white shadow-sm"
+          : "text-zinc-400 hover:text-zinc-200"
+      }`}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {label}
+    </button>
+  );
+}
+
 function HelpPane() {
   return (
-    <div className="px-6 py-6 font-mono text-[13px] leading-[1.7] text-bone-card/85">
-      <div>
-        <span className="text-bone-card">genosyn</span>{" "}
-        <span className="text-bone-card/55">— cluster maintainer for self-hosted Genosyn.</span>
+    <div className="px-6 py-6 font-mono text-[13px] leading-7 text-zinc-300">
+      <div className="text-zinc-500">
+        <span className="text-zinc-100">genosyn</span> — cluster maintainer for self-hosted Genosyn.
       </div>
-      <div className="mt-5 text-[10px] font-medium uppercase tracking-[0.22em] text-bone-card/45">
-        commands
+      <div className="mt-5 text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+        Commands
       </div>
       <div className="mt-3 grid grid-cols-1 gap-x-10 gap-y-1.5 md:grid-cols-2">
         {COMMANDS.map((row) => (
@@ -159,17 +171,12 @@ function HelpPane() {
             className="grid grid-cols-[8.5rem_minmax(0,1fr)] items-baseline gap-3"
           >
             <div className="truncate">
-              <span className="text-amber-200">{row.command}</span>
-              {row.arg && (
-                <span className="ml-1.5 text-bone-card/45">{row.arg}</span>
-              )}
+              <span className="text-violet-300">{row.command}</span>
+              {row.arg && <span className="ml-1.5 text-zinc-500">{row.arg}</span>}
             </div>
-            <div className="truncate text-bone-card/65">{row.description}</div>
+            <div className="truncate text-zinc-400">{row.description}</div>
           </div>
         ))}
-      </div>
-      <div className="mt-6 text-[10px] font-medium uppercase tracking-[0.22em] text-bone-card/45">
-        $ genosyn help &lt;command&gt; for details
       </div>
     </div>
   );
@@ -177,34 +184,34 @@ function HelpPane() {
 
 function StatusPane() {
   return (
-    <pre className="overflow-x-auto px-6 py-6 font-mono text-[13px] leading-[1.7] text-bone-card">
+    <pre className="overflow-x-auto px-6 py-6 font-mono text-[13px] leading-7 text-zinc-200">
       <code>
-        <span className="text-bone-card/45">$ </span>
-        <span className="text-bone-card">genosyn status</span>
+        <span className="text-zinc-500">$ </span>
+        <span className="text-zinc-100">genosyn status</span>
         {"\n\n"}
-        <span className="text-bone-card/45">container  </span>
-        <span className="text-bone-card">genosyn</span>
+        <span className="text-zinc-500">Container  </span>
+        <span className="text-zinc-100">genosyn</span>
         {"\n"}
-        <span className="text-bone-card/45">state      </span>
-        <span className="text-emerald-300">running</span>
+        <span className="text-zinc-500">State      </span>
+        <span className="text-emerald-400">running</span>
         {"\n"}
-        <span className="text-bone-card/45">image      </span>
-        <span className="text-amber-200">ghcr.io/genosyn/app:latest</span>
+        <span className="text-zinc-500">Image      </span>
+        <span className="text-violet-300">ghcr.io/genosyn/app:latest</span>
         {"\n"}
-        <span className="text-bone-card/45">digest     </span>
-        <span className="text-bone-card/65">sha256:a1f3…b20e</span>
+        <span className="text-zinc-500">Digest     </span>
+        <span className="text-zinc-400">sha256:a1f3…b20e</span>
         {"\n"}
-        <span className="text-bone-card/45">volume     </span>
-        <span className="text-bone-card/85">genosyn-data (412 MB)</span>
+        <span className="text-zinc-500">Volume     </span>
+        <span className="text-zinc-300">genosyn-data (412 MB)</span>
         {"\n"}
-        <span className="text-bone-card/45">port       </span>
-        <span className="text-bone-card/85">8471 → 8471</span>
+        <span className="text-zinc-500">Port       </span>
+        <span className="text-zinc-300">8471 → 8471</span>
         {"\n"}
-        <span className="text-bone-card/45">uptime     </span>
-        <span className="text-bone-card/85">17d 4h 22m</span>
+        <span className="text-zinc-500">Uptime     </span>
+        <span className="text-zinc-300">17d 4h 22m</span>
         {"\n\n"}
-        <span className="text-bone-card/45">open  </span>
-        <span className="text-amber-200">http://localhost:8471</span>
+        <span className="text-zinc-500">Open  </span>
+        <span className="text-violet-300">http://localhost:8471</span>
       </code>
     </pre>
   );

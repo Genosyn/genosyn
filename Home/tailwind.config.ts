@@ -14,14 +14,6 @@ export default {
           "Roboto",
           "sans-serif",
         ],
-        serif: [
-          "'Instrument Serif'",
-          "ui-serif",
-          "Georgia",
-          "Cambria",
-          "'Times New Roman'",
-          "serif",
-        ],
         mono: [
           "'JetBrains Mono'",
           "ui-monospace",
@@ -31,21 +23,10 @@ export default {
           "monospace",
         ],
       },
-      colors: {
-        ink: {
-          DEFAULT: "#0e0d0c",
-          soft: "#3a3733",
-          mute: "#7a766f",
-        },
-        bone: {
-          DEFAULT: "#f4efe6",
-          page: "#f7f3ec",
-          card: "#fbf8f1",
-        },
-        accent: {
-          DEFAULT: "#cc3a14",
-          ink: "#a82e0c",
-        },
+      boxShadow: {
+        card: "0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 1px rgba(15, 23, 42, 0.03)",
+        lift: "0 12px 32px -12px rgba(15, 23, 42, 0.12), 0 2px 8px -2px rgba(15, 23, 42, 0.06)",
+        ring: "0 0 0 1px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04)",
       },
     },
   },

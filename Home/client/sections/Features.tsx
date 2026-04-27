@@ -1,98 +1,108 @@
-type Spec = {
-  field: string;
-  value: string;
-  note: string;
+import { Cpu, Database, GitBranch, KeyRound, Lock, Server, Users, Zap } from "lucide-react";
+import { type LucideIcon } from "lucide-react";
+import { SectionEyebrow } from "@/sections/Primitives";
+
+type Feature = {
+  icon: LucideIcon;
+  title: string;
+  body: string;
 };
 
-const SPECS: Spec[] = [
+const FEATURES: Feature[] = [
   {
-    field: "language",
-    value: "TypeScript, end to end",
-    note: "App and home are React + Express + TypeORM. No JS files, no transpile-only deps.",
+    icon: Users,
+    title: "A roster, not a single agent",
+    body: "Hire as many AI employees as you need. Each has their own credentials, working directory, and audit trail.",
   },
   {
-    field: "database",
-    value: "SQLite today, Postgres tomorrow",
-    note: "One config flag. Same entities, same migrations, same queries — pick the driver that fits your scale.",
+    icon: Cpu,
+    title: "Bring your own brain",
+    body: "Plug in claude-code, codex, or opencode per employee. Costs land on the provider's invoice, not ours.",
   },
   {
-    field: "auth",
-    value: "bcrypt + cookie-session",
-    note: "No JWT. No Auth0. No third-party identity vendor with your members in their database.",
+    icon: Database,
+    title: "SQLite today, Postgres tomorrow",
+    body: "One config file, one process, one database. Flip a flag when you outgrow SQLite. No data migration scripts.",
   },
   {
-    field: "ai brain",
-    value: "claude-code · codex · opencode",
-    note: "Bring your own keys. Assign a model per employee or per routine. Costs land on the provider's invoice.",
+    icon: Lock,
+    title: "Self-hosted, always",
+    body: "Runs on your infrastructure. Your keys, your data, your control. No vendor lock-in, no telemetry phone-home.",
   },
   {
-    field: "scheduler",
-    value: "node-cron",
-    note: "Standard cron expressions. Routines fire in-process, write a Run row, and exit. No queue, no broker.",
+    icon: GitBranch,
+    title: "Markdown all the way down",
+    body: "Souls, skills, routines — every document is plain text you can grep, diff, and version in git.",
   },
   {
-    field: "data on disk",
-    value: "./data/",
-    note: "One folder. App.sqlite, employee credentials, run artifacts. Tar it up — that is your backup.",
-  },
-  {
-    field: "deployment",
-    value: "one Docker container",
-    note: "8471/tcp. A volume. Nothing else to wire up. The CLI manages the lifecycle on the operator's host.",
-  },
-  {
-    field: "license",
-    value: "MIT",
-    note: "Read it, fork it, run it on your own iron. No CLA, no premium tier hidden behind a feature flag.",
+    icon: Zap,
+    title: "Boots in 200ms",
+    body: "Single Node process. SQLite under the hood. No queue, no broker, no Kubernetes cluster on day one.",
   },
 ];
 
 export function Features() {
   return (
-    <section id="platform" className="border-b border-ink bg-bone-page">
-      <div className="mx-auto max-w-[1200px] px-6 pt-20 pb-20 sm:pb-24">
-        <div className="grid items-end gap-10 md:grid-cols-[minmax(0,1fr)_minmax(0,2.4fr)]">
-          <div className="flex items-baseline gap-4 font-mono text-[11px] uppercase tracking-[0.22em] text-ink-soft">
-            <span className="text-ink">§ 03</span>
-            <span className="text-ink-mute">/</span>
-            <span>the platform</span>
-          </div>
-          <div>
-            <h2 className="text-[clamp(2rem,4.4vw,3.5rem)] font-medium leading-[1] tracking-[-0.025em] text-ink">
-              No surprises in the spec sheet.
-              <br />
-              <span className="serif-italic text-accent">No vendor in the critical path.</span>
-            </h2>
-            <p className="mt-6 max-w-2xl text-lg leading-[1.55] text-ink-soft">
-              We picked one option for every load-bearing decision. Here&apos;s the
-              full bill of materials. No marketing tier required to read it.
-            </p>
-          </div>
+    <section id="platform" className="border-t border-zinc-100 bg-white">
+      <div className="mx-auto max-w-7xl px-6 py-24 sm:py-28">
+        <div className="mx-auto max-w-2xl text-center">
+          <SectionEyebrow>The platform</SectionEyebrow>
+          <h2 className="mt-4 text-balance text-4xl font-semibold tracking-[-0.02em] text-zinc-950 sm:text-5xl">
+            Opinionated where it matters,{" "}
+            <span className="text-zinc-400">flexible where you need it.</span>
+          </h2>
+          <p className="mt-5 text-lg leading-relaxed text-zinc-600">
+            One runtime for a whole company. The defaults get you running in a
+            minute, the escape hatches are there when you grow.
+          </p>
         </div>
 
-        <div className="mt-12 border-t border-ink">
-          {SPECS.map((s, i) => (
-            <SpecRow key={s.field} spec={s} index={i} />
+        <div className="mt-14 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+          {FEATURES.map((f) => (
+            <article
+              key={f.title}
+              className="group rounded-2xl border border-zinc-200 bg-white p-6 shadow-card transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lift"
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-600 ring-1 ring-violet-100 transition group-hover:bg-violet-100">
+                <f.icon className="h-5 w-5" />
+              </div>
+              <h3 className="mt-5 text-base font-semibold text-zinc-950">{f.title}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-zinc-600">{f.body}</p>
+            </article>
           ))}
+        </div>
+
+        <div className="mt-8 grid grid-cols-2 gap-3 rounded-2xl border border-zinc-200 bg-zinc-50/60 p-3 sm:grid-cols-4">
+          <Stat icon={Database} label="Database" value="SQLite → PG" />
+          <Stat icon={Server} label="Runtime" value="One container" />
+          <Stat icon={KeyRound} label="Auth" value="No JWT" />
+          <Stat icon={GitBranch} label="License" value="MIT" />
         </div>
       </div>
     </section>
   );
 }
 
-function SpecRow({ spec, index }: { spec: Spec; index: number }) {
+function Stat({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+}) {
   return (
-    <div className="grid grid-cols-1 gap-2 border-b border-ink/15 px-0 py-6 transition hover:bg-bone md:grid-cols-[80px_minmax(0,1fr)_minmax(0,1.4fr)] md:gap-8">
-      <div className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.22em] text-ink-soft md:flex-col md:items-start md:gap-1">
-        <span className="tabular text-ink-mute">
-          {String(index + 1).padStart(2, "0")}
-        </span>
-        <span>{spec.field}</span>
+    <div className="flex items-center gap-3 rounded-xl bg-white px-4 py-3 ring-1 ring-zinc-100">
+      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
+        <Icon className="h-4 w-4" />
       </div>
-      <div className="font-serif text-2xl leading-[1.15] text-ink md:text-3xl">
-        {spec.value}
+      <div className="min-w-0">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+          {label}
+        </div>
+        <div className="truncate text-sm font-medium text-zinc-950">{value}</div>
       </div>
-      <p className="max-w-xl text-base leading-[1.6] text-ink-soft">{spec.note}</p>
     </div>
   );
 }

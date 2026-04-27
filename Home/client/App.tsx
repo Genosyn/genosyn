@@ -10,7 +10,7 @@ import { Footer } from "@/sections/Footer";
 
 export function App() {
   return (
-    <div className="min-h-screen bg-bone-page text-ink">
+    <div className="min-h-screen bg-white text-zinc-950">
       <Nav />
       <main>
         <Hero />
