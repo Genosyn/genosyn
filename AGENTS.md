@@ -9,7 +9,7 @@
 ## 1. What Genosyn is
 
 Genosyn is an **open-source, self-hostable platform for running companies
-autonomously with AI employees**. North star: [paperclip.ing](https://paperclip.ing/).
+autonomously with AI employees**.
 
 - A **Company** has human **Members** and **AI Employees**.
 - Every **AI Employee** has a **Soul** (the employee's constitution), a set of

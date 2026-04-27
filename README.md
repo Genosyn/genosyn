@@ -30,8 +30,6 @@ and **Routines** (scheduled, cron-driven work) — all stored in the database.
 Bring your own **AI Models** (`claude-code`, `codex`, `opencode`) and assign
 them per employee.
 
-North star: [paperclip.ing](https://paperclip.ing/).
-
 > **Disclaimer:** This software is AI generated. Use at your own risk. It is
 > open source and provided **without warranty** of any kind — see
 > [`LICENSE`](./LICENSE).
