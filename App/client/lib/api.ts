@@ -416,6 +416,93 @@ export type Secret = {
   updatedAt: string;
 };
 
+// ───────────────────────── Email providers + logs ──────────────────────────
+
+export type EmailProviderKind =
+  | "smtp"
+  | "sendgrid"
+  | "mailgun"
+  | "resend"
+  | "postmark";
+
+export type EmailProviderField = {
+  key: string;
+  label: string;
+  type: "text" | "password" | "number" | "checkbox" | "select";
+  required: boolean;
+  placeholder?: string;
+  hint?: string;
+  options?: { value: string; label: string }[];
+  defaultValue?: string | number | boolean;
+};
+
+export type EmailProviderCatalogEntry = {
+  kind: EmailProviderKind;
+  name: string;
+  tagline: string;
+  description: string;
+  icon: string;
+  fields: EmailProviderField[];
+};
+
+export type EmailProviderTestStatus = "ok" | "failed";
+export type EmailProvider = {
+  id: string;
+  companyId: string;
+  name: string;
+  kind: EmailProviderKind;
+  fromAddress: string;
+  replyTo: string;
+  isDefault: boolean;
+  enabled: boolean;
+  configPreview: Record<string, string>;
+  lastTestedAt: string | null;
+  lastTestStatus: EmailProviderTestStatus | null;
+  lastTestMessage: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EmailLogStatus = "sent" | "failed" | "skipped";
+export type EmailLogTransport =
+  | "smtp"
+  | "sendgrid"
+  | "mailgun"
+  | "resend"
+  | "postmark"
+  | "config_smtp"
+  | "console";
+export type EmailLogPurpose =
+  | "invitation"
+  | "password_reset"
+  | "welcome"
+  | "test"
+  | "other";
+
+export type EmailLog = {
+  id: string;
+  companyId: string | null;
+  providerId: string | null;
+  transport: EmailLogTransport;
+  purpose: EmailLogPurpose;
+  toAddress: string;
+  fromAddress: string;
+  subject: string;
+  bodyPreview: string;
+  status: EmailLogStatus;
+  errorMessage: string;
+  messageId: string;
+  triggeredByUserId: string | null;
+  createdAt: string;
+};
+
+export type EmailLogPage = {
+  total: number;
+  limit: number;
+  offset: number;
+  rows: EmailLog[];
+};
+
 export type BackupKind = "manual" | "scheduled" | "uploaded";
 export type BackupStatus = "running" | "completed" | "failed";
 export type Backup = {

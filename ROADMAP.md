@@ -147,6 +147,15 @@ genosyn/
   lastCheckedAt
 - `EmployeeConnectionGrant` — employeeId, connectionId (unique pair).
   Many-to-many between `AIEmployee` and `IntegrationConnection`.
+- `EmailProvider` — companyId, kind (`smtp`|`sendgrid`|`mailgun`|`resend`|
+  `postmark`), name, fromAddress, replyTo, encryptedConfig, isDefault,
+  enabled, lastTested* fields. One default per company drives outgoing
+  notification emails.
+- `EmailLog` — every notification email Genosyn attempted to deliver:
+  companyId (nullable for system sends), providerId, transport, purpose
+  (`invitation`|`password_reset`|`welcome`|`test`|`other`), to/from,
+  subject, body preview, status (`sent`|`failed`|`skipped`),
+  errorMessage, messageId.
 
 ### `config.ts` shape
 ```ts
@@ -250,6 +259,41 @@ export const config = {
 - [ ] Browser-tested flows: signup → company → employee → skill → routine → model
 - [ ] Empty states, loading states, error toasts
 - [ ] README.md with self-host instructions
+
+### M10 — Pipelines (visual automation, separate from Routines)
+- [ ] `Pipeline` + `PipelineRun` entities + migration. A Pipeline is a DAG of
+      typed nodes (graphJson on the row), per-company, with optional
+      `cronExpr` / `nextRunAt` derived from any Schedule trigger nodes.
+- [ ] Node catalog — three families:
+    * **Triggers**: `trigger.manual`, `trigger.webhook`, `trigger.schedule`
+    * **Genosyn actions**: `action.sendMessage` (workspace channel),
+      `action.createTodo` (todo in a project), `action.createProject`,
+      `action.createBaseRecord`, `action.askEmployee` (chat with an AI
+      employee, capture reply), `action.journalNote`
+    * **Logic / integrations**: `logic.http` (fetch), `logic.set` (compute
+      a variable from a template), `logic.branch` (if/else),
+      `logic.delay`, `integration.invoke` (call any tool on an
+      `IntegrationConnection` — e.g. Stripe / Gmail / Metabase)
+- [ ] Executor service — topo-walks the DAG from the firing trigger node,
+      passes per-node outputs through a shared environment, captures a
+      run log onto `PipelineRun.logContent` (256KB cap, same as Run).
+      Templates: `{{<node-id>.path}}` resolved against upstream outputs.
+- [ ] Triggers wired in: `tickPipelines()` runs alongside the routine
+      heartbeat; webhooks land at `/api/webhooks/pipelines/:pipelineId/:token`
+      with the token embedded in each Webhook node's config.
+- [ ] CRUD + run-history API: `/api/companies/:cid/pipelines`,
+      `…/:pipelineId/runs`, `…/runs/:runId/log`, `…/run` (manual fire).
+- [ ] Visual editor — custom React canvas (no react-flow): drag nodes,
+      drag-link output handles to input handles, side panel for per-node
+      config, save graphJson. Run-history tab shows status + log per run.
+- [ ] Top-nav "Pipelines" tab, between Bases and Approvals. Empty state +
+      "New pipeline" CTA + node-palette helper.
+
+> **Why a separate primitive from Routines.** Routines are *one AI
+> employee doing scheduled work*. Pipelines are *deterministic glue
+> between Genosyn primitives and the outside world* — they may not
+> involve an AI employee at all. Trying to fold them into Routines would
+> blur the employee-first model.
 
 ### M9 — Workspace Chat (Slack-style)
 - [x] `Channel`, `ChannelMember`, `ChannelMessage`, `MessageReaction`,

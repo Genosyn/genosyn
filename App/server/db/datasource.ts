@@ -38,6 +38,10 @@ import { ChannelMember } from "./entities/ChannelMember.js";
 import { ChannelMessage } from "./entities/ChannelMessage.js";
 import { MessageReaction } from "./entities/MessageReaction.js";
 import { Attachment } from "./entities/Attachment.js";
+import { Pipeline } from "./entities/Pipeline.js";
+import { PipelineRun } from "./entities/PipelineRun.js";
+import { EmailProvider } from "./entities/EmailProvider.js";
+import { EmailLog } from "./entities/EmailLog.js";
 
 const entities = [
   User,
@@ -74,6 +78,10 @@ const entities = [
   ChannelMessage,
   MessageReaction,
   Attachment,
+  Pipeline,
+  PipelineRun,
+  EmailProvider,
+  EmailLog,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

@@ -9,6 +9,7 @@ import { config } from "../config.js";
 import { initDb } from "./db/datasource.js";
 import { bootCron } from "./services/cron.js";
 import { bootBackups } from "./services/backups.js";
+import { bootPipelineCron } from "./services/pipelines/index.js";
 import { attachRealtime } from "./services/realtime.js";
 import { errorHandler } from "./middleware/error.js";
 import { authRouter } from "./routes/auth.js";
@@ -34,6 +35,9 @@ import { backupsRouter } from "./routes/backups.js";
 import { integrationsRouter } from "./routes/integrations.js";
 import { integrationsOauthRouter } from "./routes/integrationsOauth.js";
 import { workspaceRouter } from "./routes/workspace.js";
+import { pipelinesRouter } from "./routes/pipelines.js";
+import { emailProvidersRouter } from "./routes/emailProviders.js";
+import { emailLogsRouter } from "./routes/emailLogs.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,6 +46,7 @@ async function main() {
   await initDb();
   await bootCron();
   await bootBackups();
+  await bootPipelineCron();
 
   const app = express();
   app.use(express.json({ limit: "1mb" }));
@@ -105,6 +110,16 @@ async function main() {
   // Workspace chat — Slack-style channels, DMs, file uploads, reactions.
   // Mounted under companies so `requireCompanyMember` gates every route.
   app.use("/api/companies/:cid/workspace", workspaceRouter);
+
+  // Pipelines — n8n-style visual automation, separate primitive from
+  // Routines. Each Pipeline is a DAG of typed nodes; see services/pipelines/.
+  app.use("/api/companies/:cid", pipelinesRouter);
+
+  // Per-company email providers (SMTP / SendGrid / Mailgun / Resend /
+  // Postmark) and the append-only delivery log used by Settings → Email
+  // and Settings → Email Logs.
+  app.use("/api/companies/:cid/email/providers", emailProvidersRouter);
+  app.use("/api/companies/:cid/email/logs", emailLogsRouter);
 
   // Client. Dev: mount Vite as middleware so API + UI share one port and
   // HMR still works. Prod: serve the built SPA from dist/client.
