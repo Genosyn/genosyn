@@ -22,8 +22,8 @@ body {
 }
 
 ::selection {
-  background-color: #ddd6fe;
-  color: #1e1b4b;
+  background-color: #18181b;
+  color: #fafafa;
 }
 
 .tabular {
@@ -66,9 +66,3 @@ body {
   background-size: 36px 36px;
 }
 
-.gradient-text {
-  background: linear-gradient(135deg, #7c3aed 0%, #4338ca 60%, #0f172a 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}

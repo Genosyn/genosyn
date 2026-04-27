@@ -51,7 +51,7 @@ export function Principles() {
               key={p.title}
               className="group flex gap-5 rounded-2xl border border-zinc-200 bg-white p-6 shadow-card transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lift"
             >
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-600 ring-1 ring-violet-100 transition group-hover:bg-violet-100">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-zinc-100 text-zinc-700 ring-1 ring-zinc-200 transition group-hover:bg-zinc-200">
                 <p.icon className="h-5 w-5" />
               </div>
               <div className="min-w-0">

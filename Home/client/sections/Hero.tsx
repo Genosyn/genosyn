@@ -15,7 +15,7 @@ const ROSTER = [
     name: "Alex",
     role: "Brand writer",
     initials: "AB",
-    color: "bg-violet-100 text-violet-700",
+    color: "bg-sky-100 text-sky-700",
     cadence: "Weekly · Fri 5:00 PM",
     last: "Drafted Friday digest",
     status: "running" as const,
@@ -38,33 +38,32 @@ export function Hero() {
     <section className="relative overflow-hidden bg-white">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[640px] bg-[radial-gradient(60%_80%_at_50%_0%,rgba(124,58,237,0.10),transparent_70%)]"
+        className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[640px] bg-[radial-gradient(60%_80%_at_50%_0%,rgba(15,23,42,0.05),transparent_70%)]"
       />
 
-      <div className="mx-auto max-w-7xl px-6 pt-16 pb-20 sm:pt-20 sm:pb-28">
-        <div className="mx-auto flex max-w-2xl flex-col items-center text-center">
+      <div className="mx-auto max-w-7xl px-6 pt-14 pb-20 sm:pt-20 sm:pb-28">
+        <div className="mx-auto flex max-w-3xl flex-col items-center text-center">
           <a
             href={GITHUB_URL}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-medium text-zinc-700 shadow-card transition hover:border-zinc-300 hover:bg-zinc-50"
+            className="group inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-xs font-medium text-zinc-700 shadow-card transition hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 hover:shadow-lift"
           >
             <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
             Open source on GitHub
             <span className="text-zinc-400">·</span>
             <span className="text-zinc-500">v0.2.0</span>
-            <ArrowRight className="h-3.5 w-3.5 text-zinc-400" />
+            <ArrowRight className="h-3.5 w-3.5 text-zinc-400 transition group-hover:translate-x-0.5 group-hover:text-zinc-700" />
           </a>
 
-          <h1 className="mt-6 text-balance text-5xl font-semibold tracking-[-0.03em] text-zinc-950 sm:text-6xl lg:text-7xl">
-            Run your company with
-            <br className="hidden sm:block" />{" "}
-            <span className="gradient-text">AI employees.</span>
+          <h1 className="mt-7 text-balance font-semibold leading-[1.04] tracking-[-0.035em] text-zinc-950 text-[2.75rem] sm:text-[3.5rem] lg:text-[4.25rem]">
+            Run your company with AI employees.
           </h1>
 
-          <p className="mt-6 max-w-xl text-balance text-lg leading-relaxed text-zinc-600">
-            Genosyn is the open-source platform for hiring AI employees. Each
-            one has a written soul, a set of skills, and routines on a
+          <p className="mt-6 max-w-xl text-balance text-lg leading-[1.6] text-zinc-600">
+            Genosyn is the open-source platform for hiring{" "}
+            <span className="font-medium text-zinc-900">AI employees</span>.
+            Each one has a written soul, a set of skills, and routines on a
             schedule. They wake up, do their job, and report what they shipped.
           </p>
 
@@ -90,7 +89,7 @@ export function Hero() {
           <ul className="mt-10 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs font-medium text-zinc-500">
             {CHECKS.map((c) => (
               <li key={c} className="inline-flex items-center gap-1.5">
-                <CheckCircle2 className="h-3.5 w-3.5 text-violet-500" />
+                <CheckCircle2 className="h-3.5 w-3.5 text-zinc-700" />
                 {c}
               </li>
             ))}
@@ -108,7 +107,7 @@ function RosterPreview() {
     <div className="relative mx-auto mt-16 max-w-5xl">
       <div
         aria-hidden
-        className="pointer-events-none absolute -inset-x-8 -inset-y-12 -z-10 rounded-[3rem] bg-gradient-to-b from-violet-100/50 via-white to-white blur-2xl"
+        className="pointer-events-none absolute -inset-x-8 -inset-y-12 -z-10 rounded-[3rem] bg-gradient-to-b from-zinc-100/60 via-white to-white blur-2xl"
       />
 
       <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lift">
@@ -151,7 +150,7 @@ function RosterPreview() {
               </div>
 
               <div className="mt-3 flex items-start gap-2 text-xs text-zinc-600">
-                <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-500" />
+                <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-700" />
                 <span>{r.last}</span>
               </div>
 
@@ -188,8 +187,8 @@ function StatusBadge({ status }: { status: "shipped" | "running" | "active" }) {
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-md bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700 ring-1 ring-violet-200">
-      <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
+    <span className="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-700 ring-1 ring-zinc-200">
+      <span className="h-1.5 w-1.5 rounded-full bg-zinc-500" />
       Active
     </span>
   );

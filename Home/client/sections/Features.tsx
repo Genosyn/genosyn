@@ -49,7 +49,7 @@ export function Features() {
           <SectionEyebrow>The platform</SectionEyebrow>
           <h2 className="mt-4 text-balance text-4xl font-semibold tracking-[-0.02em] text-zinc-950 sm:text-5xl">
             Opinionated where it matters,{" "}
-            <span className="text-zinc-400">flexible where you need it.</span>
+            <span className="text-zinc-500">flexible where you need it.</span>
           </h2>
           <p className="mt-5 text-lg leading-relaxed text-zinc-600">
             One runtime for a whole company. The defaults get you running in a
@@ -63,7 +63,7 @@ export function Features() {
               key={f.title}
               className="group rounded-2xl border border-zinc-200 bg-white p-6 shadow-card transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lift"
             >
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-600 ring-1 ring-violet-100 transition group-hover:bg-violet-100">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-100 text-zinc-700 ring-1 ring-zinc-200 transition group-hover:bg-zinc-200">
                 <f.icon className="h-5 w-5" />
               </div>
               <h3 className="mt-5 text-base font-semibold text-zinc-950">{f.title}</h3>
@@ -94,7 +94,7 @@ function Stat({
 }) {
   return (
     <div className="flex items-center gap-3 rounded-xl bg-white px-4 py-3 ring-1 ring-zinc-100">
-      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
+      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-100 text-zinc-700">
         <Icon className="h-4 w-4" />
       </div>
       <div className="min-w-0">

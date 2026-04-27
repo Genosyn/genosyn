@@ -11,7 +11,7 @@ export function Footer() {
         <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 px-8 py-14 text-center sm:px-12 sm:py-20">
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(circle_at_top,rgba(167,139,250,0.45),transparent_60%)]"
+            className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.18),transparent_65%)]"
           />
           <div
             aria-hidden
@@ -31,7 +31,7 @@ export function Footer() {
             </p>
 
             <div className="mx-auto mt-8 flex max-w-xl items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-left font-mono text-[13px] text-zinc-200 shadow-card">
-              <Terminal className="h-4 w-4 text-violet-300" />
+              <Terminal className="h-4 w-4 text-zinc-300" />
               <span className="text-zinc-500">$</span>
               <span className="truncate">curl -fsSL genosyn.com/install.sh | bash</span>
             </div>

@@ -25,7 +25,7 @@ const ENTRIES: Entry[] = [
     time: "08:30",
     who: "Alex",
     initials: "AB",
-    color: "bg-violet-100 text-violet-700",
+    color: "bg-sky-100 text-sky-700",
     routine: "Morning brief",
     output: "Drafted 3 talking points from overnight news",
     status: "shipped",
@@ -43,7 +43,7 @@ const ENTRIES: Entry[] = [
     time: "14:00",
     who: "Alex",
     initials: "AB",
-    color: "bg-violet-100 text-violet-700",
+    color: "bg-sky-100 text-sky-700",
     routine: "Docs freshness pass",
     output: "Queued · waiting on slot",
     status: "scheduled",
@@ -52,7 +52,7 @@ const ENTRIES: Entry[] = [
     time: "17:00",
     who: "Alex",
     initials: "AB",
-    color: "bg-violet-100 text-violet-700",
+    color: "bg-sky-100 text-sky-700",
     routine: "Weekly digest",
     output: "Scheduled · fires Friday 5:00 PM",
     status: "scheduled",
@@ -84,7 +84,7 @@ export function DayInTheLife() {
                 "Quiet until something needs you",
               ].map((b) => (
                 <li key={b} className="flex items-start gap-2 text-sm text-zinc-700">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-violet-500" />
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-zinc-700" />
                   {b}
                 </li>
               ))}

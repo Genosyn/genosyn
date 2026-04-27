@@ -8,7 +8,7 @@ export function Primitives() {
         <SectionEyebrow>The building blocks</SectionEyebrow>
         <h2 className="mt-4 max-w-3xl text-balance text-4xl font-semibold tracking-[-0.02em] text-zinc-950 sm:text-5xl">
           Three things every employee needs.{" "}
-          <span className="text-zinc-400">All of them, in markdown.</span>
+          <span className="text-zinc-500">All of them, in markdown.</span>
         </h2>
         <p className="mt-5 max-w-2xl text-lg leading-relaxed text-zinc-600">
           Soul says who they are. Skills describe what they know. Routines are
@@ -52,7 +52,7 @@ export function Primitives() {
 export function SectionEyebrow({ children }: { children: ReactNode }) {
   return (
     <div className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-medium text-zinc-600 shadow-card">
-      <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
+      <span className="h-1.5 w-1.5 rounded-full bg-zinc-900" />
       {children}
     </div>
   );
@@ -74,7 +74,7 @@ function Card({
   return (
     <article className="group flex flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-card transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lift">
       <div className="flex items-center gap-3 px-6 pt-6">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50 text-violet-600 ring-1 ring-violet-100">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-zinc-100 text-zinc-700 ring-1 ring-zinc-200">
           {icon}
         </div>
         <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
@@ -110,7 +110,7 @@ function SoulPreview() {
 
 function SkillsPreview() {
   const skills = [
-    { name: "write-weekly-digest", tag: "writing", color: "bg-violet-50 text-violet-700 ring-violet-200" },
+    { name: "write-weekly-digest", tag: "writing", color: "bg-sky-50 text-sky-700 ring-sky-200" },
     { name: "triage-inbox", tag: "ops", color: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
     { name: "reconcile-stripe", tag: "finance", color: "bg-amber-50 text-amber-700 ring-amber-200" },
     { name: "page-oncall", tag: "ops", color: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
@@ -123,7 +123,7 @@ function SkillsPreview() {
           className="flex items-center justify-between rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
         >
           <div className="flex min-w-0 items-center gap-2">
-            <Sparkles className="h-3.5 w-3.5 shrink-0 text-violet-500" />
+            <Sparkles className="h-3.5 w-3.5 shrink-0 text-zinc-700" />
             <span className="truncate font-mono text-[12px] text-zinc-700">
               {s.name}
             </span>
@@ -156,7 +156,7 @@ function RoutinesPreview() {
         >
           <div className="flex items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-2">
-              <CalendarClock className="h-3.5 w-3.5 shrink-0 text-violet-500" />
+              <CalendarClock className="h-3.5 w-3.5 shrink-0 text-zinc-700" />
               <span className="truncate text-sm font-medium text-zinc-800">
                 {r.name}
               </span>

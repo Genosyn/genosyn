@@ -106,7 +106,7 @@ export function CliShowcase() {
               className="group flex flex-col rounded-2xl border border-zinc-200 bg-white p-6 shadow-card transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lift"
             >
               <div className="flex items-center gap-2.5">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50 text-violet-600 ring-1 ring-violet-100">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-zinc-100 text-zinc-700 ring-1 ring-zinc-200">
                   <w.icon className="h-4 w-4" />
                 </div>
                 <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
@@ -171,7 +171,7 @@ function HelpPane() {
             className="grid grid-cols-[8.5rem_minmax(0,1fr)] items-baseline gap-3"
           >
             <div className="truncate">
-              <span className="text-violet-300">{row.command}</span>
+              <span className="text-emerald-300">{row.command}</span>
               {row.arg && <span className="ml-1.5 text-zinc-500">{row.arg}</span>}
             </div>
             <div className="truncate text-zinc-400">{row.description}</div>
@@ -196,7 +196,7 @@ function StatusPane() {
         <span className="text-emerald-400">running</span>
         {"\n"}
         <span className="text-zinc-500">Image      </span>
-        <span className="text-violet-300">ghcr.io/genosyn/app:latest</span>
+        <span className="text-emerald-300">ghcr.io/genosyn/app:latest</span>
         {"\n"}
         <span className="text-zinc-500">Digest     </span>
         <span className="text-zinc-400">sha256:a1f3…b20e</span>
@@ -211,7 +211,7 @@ function StatusPane() {
         <span className="text-zinc-300">17d 4h 22m</span>
         {"\n\n"}
         <span className="text-zinc-500">Open  </span>
-        <span className="text-violet-300">http://localhost:8471</span>
+        <span className="text-emerald-300">http://localhost:8471</span>
       </code>
     </pre>
   );

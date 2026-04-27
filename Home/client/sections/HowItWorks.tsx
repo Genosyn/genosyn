@@ -68,12 +68,12 @@ export function HowItWorks() {
                   aria-hidden
                   className="absolute left-full top-12 hidden h-px w-full -translate-x-1/2 md:block"
                 >
-                  <div className="h-px w-full bg-gradient-to-r from-violet-200 to-transparent" />
+                  <div className="h-px w-full bg-gradient-to-r from-zinc-200 to-transparent" />
                 </div>
               )}
               <div className="relative h-full rounded-2xl border border-zinc-200 bg-white p-6 shadow-card transition hover:-translate-y-0.5 hover:shadow-lift">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-600 font-mono text-sm font-semibold text-white shadow-card">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-950 font-mono text-sm font-semibold text-white shadow-card">
                     {step.number}
                   </div>
                   <h3 className="text-base font-semibold text-zinc-950">
@@ -138,7 +138,7 @@ function InstallTerminal() {
         <code>
           <span className="text-zinc-500">$ </span>
           <span className="text-zinc-100">curl -fsSL </span>
-          <span className="text-violet-300">https://genosyn.com/install.sh</span>
+          <span className="text-emerald-300">https://genosyn.com/install.sh</span>
           <span className="text-zinc-100"> | bash</span>
           {"\n\n"}
           <span className="text-zinc-500">→ </span>
@@ -151,7 +151,7 @@ function InstallTerminal() {
           <span className="text-zinc-300">Genosyn is running.</span>
           {"\n\n"}
           <span className="text-zinc-500">   Open  </span>
-          <span className="text-violet-300 underline-offset-2">http://localhost:8471</span>
+          <span className="text-emerald-300 underline-offset-2">http://localhost:8471</span>
           <ArrowIcon />
         </code>
       </pre>
