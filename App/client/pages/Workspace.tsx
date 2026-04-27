@@ -95,6 +95,12 @@ export default function Workspace({ company, me }: WorkspaceProps) {
 
   // ──────────────── Initial load + realtime wiring ─────────────────────
 
+  // Load channels / directory / mentionables once per company. Do NOT
+  // depend on urlChannelId here: the previous version refetched on every
+  // channel switch, and the response (with server-side unreadCount that
+  // races the markRead request) would clobber the local optimistic
+  // "I just read this" state, leaving stale unread badges on channels the
+  // user had already opened.
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -108,11 +114,6 @@ export default function Workspace({ company, me }: WorkspaceProps) {
         setChannels(list);
         setDirectory(dir);
         setMentionables(ments);
-        // Land on the first channel if no URL channel provided.
-        if (!urlChannelId && list.length > 0) {
-          setActiveChannelId(list[0].id);
-          navigate(`/c/${company.slug}/workspace/${list[0].id}`, { replace: true });
-        }
       } catch (e) {
         toast((e as Error).message, "error");
       }
@@ -120,7 +121,25 @@ export default function Workspace({ company, me }: WorkspaceProps) {
     return () => {
       cancelled = true;
     };
-  }, [company.id, company.slug, navigate, urlChannelId, toast]);
+  }, [company.id, toast]);
+
+  // Land on the first channel if the URL has no channel and channels
+  // have loaded. Separate from the data load so we don't refetch.
+  React.useEffect(() => {
+    if (urlChannelId || !channels || channels.length === 0) return;
+    if (activeChannelId) return;
+    const first = channels[0];
+    setActiveChannelId(first.id);
+    navigate(`/c/${company.slug}/workspace/${first.id}`, { replace: true });
+  }, [urlChannelId, channels, activeChannelId, company.slug, navigate]);
+
+  // Keep activeChannelId in sync with the URL (e.g. browser back/forward
+  // or deep-linking after channels have loaded).
+  React.useEffect(() => {
+    if (!urlChannelId) return;
+    if (urlChannelId === activeChannelId) return;
+    setActiveChannelId(urlChannelId);
+  }, [urlChannelId, activeChannelId]);
 
   React.useEffect(() => {
     const sock = connectWorkspace(company.id, (ev) => handleWsEvent(ev));
