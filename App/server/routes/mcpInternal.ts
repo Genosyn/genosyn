@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import cron from "node-cron";
 import { z } from "zod";
-import { In } from "typeorm";
+import { In, IsNull } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
@@ -48,6 +48,7 @@ import {
   listChannelsForEmployee,
   renameChannel,
 } from "../services/workspaceChat.js";
+import { Note } from "../db/entities/Note.js";
 
 /**
  * Internal HTTP surface called by the built-in Genosyn MCP server binary.
@@ -2088,6 +2089,330 @@ mcpInternalRouter.post(
     res.json({ ok: true });
   },
 );
+
+// ----- Notes (Notion-style company-wide knowledge base) -----
+
+function serializeNote(n: Note) {
+  return {
+    id: n.id,
+    slug: n.slug,
+    title: n.title,
+    body: n.body,
+    icon: n.icon,
+    parentId: n.parentId,
+    archived: n.archivedAt !== null,
+    createdAt: n.createdAt,
+    updatedAt: n.updatedAt,
+  };
+}
+
+async function uniqueNoteSlug(companyId: string, base: string): Promise<string> {
+  const repo = AppDataSource.getRepository(Note);
+  let slug = base || "note";
+  let n = 1;
+  while (await repo.findOneBy({ companyId, slug })) {
+    n += 1;
+    slug = `${base}-${n}`;
+  }
+  return slug;
+}
+
+const listNotesSchema = z
+  .object({
+    parentSlug: z.string().min(1).max(160).optional(),
+    includeArchived: z.boolean().optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/list_notes",
+  validateBody(listNotesSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof listNotesSchema>;
+    const co = req.mcpCompany!;
+    const repo = AppDataSource.getRepository(Note);
+    let parentId: string | null | undefined = undefined;
+    if (body.parentSlug) {
+      const parent = await repo.findOneBy({ companyId: co.id, slug: body.parentSlug });
+      if (!parent) return res.status(404).json({ error: "Parent note not found" });
+      parentId = parent.id;
+    }
+    const where: Record<string, unknown> = { companyId: co.id };
+    if (parentId !== undefined) where.parentId = parentId;
+    if (!body.includeArchived) where.archivedAt = IsNull();
+    const notes = await repo.find({
+      where,
+      order: { sortOrder: "ASC", updatedAt: "DESC" },
+    });
+    res.json({ notes: notes.map(serializeNote) });
+  },
+);
+
+const searchNotesSchema = z
+  .object({
+    query: z.string().min(1).max(200),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/search_notes",
+  validateBody(searchNotesSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof searchNotesSchema>;
+    const co = req.mcpCompany!;
+    const term = `%${body.query.replace(/[%_]/g, (c) => "\\" + c)}%`;
+    const rows = await AppDataSource.getRepository(Note)
+      .createQueryBuilder("n")
+      .where("n.companyId = :cid", { cid: co.id })
+      .andWhere("n.archivedAt IS NULL")
+      .andWhere(
+        "(n.title LIKE :term ESCAPE '\\' OR n.body LIKE :term ESCAPE '\\')",
+        { term },
+      )
+      .orderBy("n.updatedAt", "DESC")
+      .limit(50)
+      .getMany();
+    res.json({ notes: rows.map(serializeNote) });
+  },
+);
+
+const getNoteSchema = z
+  .object({
+    noteSlug: z.string().min(1).max(160),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/get_note",
+  validateBody(getNoteSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof getNoteSchema>;
+    const co = req.mcpCompany!;
+    const note = await AppDataSource.getRepository(Note).findOneBy({
+      companyId: co.id,
+      slug: body.noteSlug,
+    });
+    if (!note) return res.status(404).json({ error: "Note not found" });
+    res.json({ note: serializeNote(note) });
+  },
+);
+
+const createNoteMcpSchema = z
+  .object({
+    title: z.string().min(1).max(200),
+    body: z.string().max(200_000).optional(),
+    icon: z.string().max(40).optional(),
+    parentSlug: z.string().min(1).max(160).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/create_note",
+  validateBody(createNoteMcpSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof createNoteMcpSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const repo = AppDataSource.getRepository(Note);
+
+    let parentId: string | null = null;
+    if (body.parentSlug) {
+      const parent = await repo.findOneBy({
+        companyId: co.id,
+        slug: body.parentSlug,
+      });
+      if (!parent) return res.status(400).json({ error: "Unknown parent note" });
+      parentId = parent.id;
+    }
+
+    const slug = await uniqueNoteSlug(co.id, toSlug(body.title));
+    const siblings = await repo.find({
+      where: {
+        companyId: co.id,
+        parentId: parentId ?? IsNull(),
+      },
+      order: { sortOrder: "DESC" },
+      take: 1,
+    });
+    const sortOrder = (siblings[0]?.sortOrder ?? 0) + 1000;
+
+    const note = repo.create({
+      companyId: co.id,
+      title: body.title,
+      slug,
+      body: body.body ?? "",
+      icon: body.icon ?? "",
+      parentId,
+      sortOrder,
+      createdById: null,
+      createdByEmployeeId: self.id,
+      lastEditedById: null,
+      lastEditedByEmployeeId: self.id,
+      archivedAt: null,
+    });
+    await repo.save(note);
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "note.create",
+      targetType: "note",
+      targetId: note.id,
+      targetLabel: note.title,
+      metadata: { via: "mcp", parentId },
+    });
+    await journal(
+      self.id,
+      `${self.name} created note "${note.title}"`,
+      `Slug: \`${note.slug}\`. Created via the built-in MCP tool.`,
+    );
+
+    res.json({ note: serializeNote(note) });
+  },
+);
+
+const updateNoteMcpSchema = z
+  .object({
+    noteSlug: z.string().min(1).max(160),
+    title: z.string().min(1).max(200).optional(),
+    body: z.string().max(200_000).optional(),
+    icon: z.string().max(40).optional(),
+    parentSlug: z.string().min(1).max(160).nullable().optional(),
+    archived: z.boolean().optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/update_note",
+  validateBody(updateNoteMcpSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof updateNoteMcpSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const repo = AppDataSource.getRepository(Note);
+
+    const note = await repo.findOneBy({ companyId: co.id, slug: body.noteSlug });
+    if (!note) return res.status(404).json({ error: "Note not found" });
+
+    if (body.parentSlug !== undefined) {
+      if (body.parentSlug === null) {
+        note.parentId = null;
+      } else {
+        const parent = await repo.findOneBy({
+          companyId: co.id,
+          slug: body.parentSlug,
+        });
+        if (!parent) return res.status(400).json({ error: "Unknown parent note" });
+        if (parent.id === note.id) {
+          return res
+            .status(400)
+            .json({ error: "A note cannot be its own parent" });
+        }
+        if (await isNoteDescendant(co.id, parent.id, note.id)) {
+          return res
+            .status(400)
+            .json({ error: "Cannot move a note under one of its own descendants" });
+        }
+        note.parentId = parent.id;
+      }
+    }
+
+    if (body.title !== undefined) note.title = body.title;
+    if (body.body !== undefined) note.body = body.body;
+    if (body.icon !== undefined) note.icon = body.icon;
+    if (body.archived !== undefined) {
+      note.archivedAt = body.archived ? new Date() : null;
+    }
+    note.lastEditedById = null;
+    note.lastEditedByEmployeeId = self.id;
+    await repo.save(note);
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "note.update",
+      targetType: "note",
+      targetId: note.id,
+      targetLabel: note.title,
+      metadata: {
+        via: "mcp",
+        archived: note.archivedAt !== null,
+      },
+    });
+    await journal(
+      self.id,
+      `${self.name} updated note "${note.title}"`,
+      "Via the built-in MCP tool.",
+    );
+
+    res.json({ note: serializeNote(note) });
+  },
+);
+
+const deleteNoteSchema = z
+  .object({
+    noteSlug: z.string().min(1).max(160),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/delete_note",
+  validateBody(deleteNoteSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof deleteNoteSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const repo = AppDataSource.getRepository(Note);
+
+    const note = await repo.findOneBy({ companyId: co.id, slug: body.noteSlug });
+    if (!note) return res.status(404).json({ error: "Note not found" });
+
+    await repo.update({ companyId: co.id, parentId: note.id }, { parentId: note.parentId });
+    await repo.delete({ id: note.id });
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "note.delete",
+      targetType: "note",
+      targetId: note.id,
+      targetLabel: note.title,
+      metadata: { via: "mcp" },
+    });
+    await journal(
+      self.id,
+      `${self.name} deleted note "${note.title}"`,
+      "Permanent delete via the built-in MCP tool.",
+    );
+
+    res.json({ ok: true });
+  },
+);
+
+/**
+ * Walk children breadth-first to detect parent-cycles before re-parenting.
+ */
+async function isNoteDescendant(
+  companyId: string,
+  rootId: string,
+  descendantId: string,
+): Promise<boolean> {
+  const repo = AppDataSource.getRepository(Note);
+  const queue: string[] = [rootId];
+  const seen = new Set<string>();
+  while (queue.length) {
+    const id = queue.shift()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    if (id === descendantId) return true;
+    const children = await repo.find({
+      where: { companyId, parentId: id },
+      select: ["id"],
+    });
+    for (const c of children) queue.push(c.id);
+  }
+  return false;
+}
 
 async function companyOwnerId(companyId: string): Promise<string | null> {
   const co = await AppDataSource.getRepository(Company).findOneBy({

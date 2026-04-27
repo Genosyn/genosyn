@@ -38,6 +38,7 @@ import { workspaceRouter } from "./routes/workspace.js";
 import { pipelinesRouter } from "./routes/pipelines.js";
 import { emailProvidersRouter } from "./routes/emailProviders.js";
 import { emailLogsRouter } from "./routes/emailLogs.js";
+import { notesRouter } from "./routes/notes.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -114,6 +115,10 @@ async function main() {
   // Pipelines — n8n-style visual automation, separate primitive from
   // Routines. Each Pipeline is a DAG of typed nodes; see services/pipelines/.
   app.use("/api/companies/:cid", pipelinesRouter);
+
+  // Notes — Notion-style company-wide markdown knowledge base. Both human
+  // members and AI employees (via the built-in MCP server) can read/write.
+  app.use("/api/companies/:cid", notesRouter);
 
   // Per-company email providers (SMTP / SendGrid / Mailgun / Resend /
   // Postmark) and the append-only delivery log used by Settings → Email

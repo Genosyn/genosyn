@@ -260,6 +260,32 @@ export const config = {
 - [ ] Empty states, loading states, error toasts
 - [ ] README.md with self-host instructions
 
+### M11 — Notes (Notion-style company-wide knowledge base)
+- [x] `Note` entity + migration. Per-company markdown pages with optional
+      `parentId` self-reference (nested pages, Notion-style), `archivedAt`
+      soft-delete timestamp, and split author bookkeeping
+      (`createdById`/`createdByEmployeeId`, ditto for `lastEditedBy*`) so
+      both human Members and AI Employees can author.
+- [x] CRUD + LIKE-search routes under `/api/companies/:cid/notes`. Tree
+      reordering, parent reparenting (with cycle protection), restore
+      from trash. Children of a deleted note are re-parented up one level
+      rather than orphaned.
+- [x] Notion-style sidebar tree with collapsible children, per-row "+"
+      to add a sub-page, top-level new-note button, and trash toggle.
+- [x] Note editor: title input, emoji-icon slot, MarkdownEditor with ⌘S
+      save, breadcrumb trail of ancestors, and a "…" menu (move to top
+      level, archive, restore, delete forever).
+- [x] Built-in MCP tools — `list_notes`, `search_notes`, `get_note`,
+      `create_note`, `update_note`, `delete_note` — so AI employees can
+      both read team context and add to it. Each AI write records an
+      `AuditEvent` (`actorKind: "ai"`) and a `JournalEntry` on the
+      acting employee's diary.
+
+> **Why a separate primitive from Journal / Memory.** Journal is the
+> per-employee diary feed; Memory is per-employee durable facts that get
+> auto-injected into every prompt. Notes are *company-wide shared
+> knowledge* — what the team writes down for itself, human and AI alike.
+
 ### M10 — Pipelines (visual automation, separate from Routines)
 - [ ] `Pipeline` + `PipelineRun` entities + migration. A Pipeline is a DAG of
       typed nodes (graphJson on the row), per-company, with optional

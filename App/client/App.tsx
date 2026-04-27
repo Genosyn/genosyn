@@ -56,6 +56,9 @@ import PipelinesLayout from "./pages/PipelinesLayout";
 import PipelinesIndex from "./pages/PipelinesIndex";
 import PipelineNew from "./pages/PipelineNew";
 import PipelineDetail from "./pages/PipelineDetail";
+import NotesLayout from "./pages/NotesLayout";
+import NotesIndex from "./pages/NotesIndex";
+import NoteDetail from "./pages/NoteDetail";
 
 type AuthState =
   | { status: "loading" }
@@ -209,6 +212,12 @@ function CompanyRoutes({
           <Route index element={<PipelinesIndex company={company} />} />
           <Route path="new" element={<PipelineNew company={company} />} />
           <Route path=":pSlug" element={<PipelineDetail company={company} />} />
+        </Route>
+
+        {/* Notes — Notion-style company-wide markdown knowledge base. */}
+        <Route path="notes" element={<NotesLayout company={company} />}>
+          <Route index element={<NotesIndex company={company} />} />
+          <Route path=":noteSlug" element={<NoteDetail company={company} />} />
         </Route>
 
         <Route path="approvals" element={<Approvals company={company} />} />

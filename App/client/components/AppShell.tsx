@@ -125,11 +125,13 @@ function TopNav({
         ? "tasks"
         : location.pathname.includes("/bases")
           ? "bases"
-          : location.pathname.includes("/pipelines")
-            ? "pipelines"
-            : location.pathname.includes("/approvals")
-              ? "approvals"
-              : "employees";
+          : location.pathname.includes("/notes")
+            ? "notes"
+            : location.pathname.includes("/pipelines")
+              ? "pipelines"
+              : location.pathname.includes("/approvals")
+                ? "approvals"
+                : "employees";
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-6 border-b border-slate-200 bg-white px-4 dark:border-slate-800 dark:bg-slate-950">
@@ -214,6 +216,7 @@ function TopNav({
           badgeTone="violet"
         />
         <TopTab to={`/c/${current.slug}/bases`} active={section === "bases"} label="Bases" />
+        <TopTab to={`/c/${current.slug}/notes`} active={section === "notes"} label="Notes" />
         <TopTab
           to={`/c/${current.slug}/pipelines`}
           active={section === "pipelines"}

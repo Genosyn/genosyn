@@ -820,3 +820,29 @@ export type PipelineRunDetail = PipelineRunSummary & {
   logContent: string;
   truncated: boolean;
 };
+
+// ───────────────────────── Notes (Notion-style knowledge base) ───────────────
+
+export type NoteAuthor =
+  | { kind: "human"; id: string; name: string; email: string | null }
+  | { kind: "ai"; id: string; name: string; slug: string; role: string };
+
+export type Note = {
+  id: string;
+  companyId: string;
+  title: string;
+  slug: string;
+  body: string;
+  icon: string;
+  parentId: string | null;
+  sortOrder: number;
+  createdById: string | null;
+  createdByEmployeeId: string | null;
+  lastEditedById: string | null;
+  lastEditedByEmployeeId: string | null;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: NoteAuthor | null;
+  lastEditedBy: NoteAuthor | null;
+};

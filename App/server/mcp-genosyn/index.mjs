@@ -720,6 +720,130 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: "list_notes",
+    description:
+      "List Notes (Notion-style markdown pages) for this company. Notes are a shared knowledge base — both humans and AI employees can read and write. Use this to discover what context the team has captured before answering a question, or to find a page to update. Archived (trashed) notes are excluded by default; pass `includeArchived: true` to include them. Pass `parentSlug` to list direct children of a specific page.",
+    endpoint: "/tools/list_notes",
+    inputSchema: {
+      type: "object",
+      properties: {
+        parentSlug: {
+          type: "string",
+          description:
+            "Optional. Slug of a parent note — only direct children are returned.",
+        },
+        includeArchived: {
+          type: "boolean",
+          description: "Defaults to false.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "search_notes",
+    description:
+      "Search Notes by title and body using a substring match (case-insensitive). Use this when you need to find an existing page on a topic before creating a new one — duplicating notes makes the knowledge base noisy. Returns up to 50 hits ordered by most recently edited.",
+    endpoint: "/tools/search_notes",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Substring to look for in titles and bodies.",
+        },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_note",
+    description:
+      "Read a single Note by its slug, including the full markdown body. Use this when you've found a relevant note via list/search and want to read its contents in full before answering or editing.",
+    endpoint: "/tools/get_note",
+    inputSchema: {
+      type: "object",
+      properties: {
+        noteSlug: {
+          type: "string",
+          description: "Slug from list_notes / search_notes.",
+        },
+      },
+      required: ["noteSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_note",
+    description:
+      "Create a new Note (Notion-style markdown page) in this company. Use this to capture decisions, runbooks, project context, design rationale, or anything a teammate (human or AI) might want to read later. Markdown headings, lists, and links are encouraged. Pass `parentSlug` to nest the new page underneath an existing one — useful for grouping a related cluster of pages. The note will appear in the sidebar for everyone in the company.",
+    endpoint: "/tools/create_note",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: {
+          type: "string",
+          description: "Page title, e.g. 'Onboarding runbook' or 'Q1 plan'.",
+        },
+        body: {
+          type: "string",
+          description: "Markdown body. Optional — empty pages are allowed.",
+        },
+        icon: {
+          type: "string",
+          description:
+            "Optional emoji or short string shown in the sidebar (e.g. '📘').",
+        },
+        parentSlug: {
+          type: "string",
+          description: "Optional. Slug of the parent page for nested pages.",
+        },
+      },
+      required: ["title"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_note",
+    description:
+      "Update an existing Note's title, body, icon, parent, or archived state. Use this to revise a page after learning something new — prefer editing over creating duplicates. Pass `archived: true` to move it to the trash, `archived: false` to restore. Set `parentSlug: null` to move the page back to the top level.",
+    endpoint: "/tools/update_note",
+    inputSchema: {
+      type: "object",
+      properties: {
+        noteSlug: { type: "string", description: "Slug from list/search." },
+        title: { type: "string" },
+        body: { type: "string" },
+        icon: { type: "string" },
+        parentSlug: {
+          type: ["string", "null"],
+          description: "New parent slug, or null to move to the top level.",
+        },
+        archived: {
+          type: "boolean",
+          description: "true → move to trash; false → restore.",
+        },
+      },
+      required: ["noteSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_note",
+    description:
+      "Permanently delete a Note. Use sparingly — prefer `update_note` with `archived: true` so a human can restore it from the trash if you were wrong. Direct children of the deleted note are re-parented one level up so they aren't orphaned.",
+    endpoint: "/tools/delete_note",
+    inputSchema: {
+      type: "object",
+      properties: {
+        noteSlug: { type: "string" },
+      },
+      required: ["noteSlug"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 const TOOL_BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));
