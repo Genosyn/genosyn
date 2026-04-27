@@ -3,12 +3,12 @@ import { getProvider } from "../integrations/index.js";
 import {
   buildGoogleAuthorizeUrl,
   exchangeGoogleCode,
-} from "../integrations/providers/gmail.js";
+} from "../integrations/providers/google.js";
 
 /**
  * OAuth state store + provider dispatch.
  *
- * Flow for Gmail (and any future Google-backed integration):
+ * Flow for Google Workspace (and any future Google-backed integration):
  *
  *   1. UI posts `startOauth({ companyId, userId, provider, label })` and
  *      receives `{ authorizeUrl }` to redirect the browser to.

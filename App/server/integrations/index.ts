@@ -3,7 +3,7 @@ import type {
   IntegrationProvider,
 } from "./types.js";
 import { stripeProvider } from "./providers/stripe.js";
-import { gmailProvider, googleOauthConfigured } from "./providers/gmail.js";
+import { googleProvider, googleOauthConfigured } from "./providers/google.js";
 import { metabaseProvider } from "./providers/metabase.js";
 import { nocodbProvider } from "./providers/nocodb.js";
 
@@ -15,7 +15,7 @@ import { nocodbProvider } from "./providers/nocodb.js";
  */
 const PROVIDERS: Record<string, IntegrationProvider> = {
   [stripeProvider.catalog.provider]: stripeProvider,
-  [gmailProvider.catalog.provider]: gmailProvider,
+  [googleProvider.catalog.provider]: googleProvider,
   [metabaseProvider.catalog.provider]: metabaseProvider,
   [nocodbProvider.catalog.provider]: nocodbProvider,
 };

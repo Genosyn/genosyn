@@ -131,7 +131,7 @@ export function EmployeeConnections() {
         ) : pool.length === 0 ? (
           <EmptyState
             title="No connections in this company yet"
-            description="Connect Stripe, Gmail, or Metabase in Settings → Integrations before granting access."
+            description="Connect Stripe, Google Workspace, or Metabase in Settings → Integrations before granting access."
             action={
               <Link
                 to={`/c/${company.slug}/settings/integrations`}

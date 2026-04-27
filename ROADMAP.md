@@ -141,7 +141,7 @@ genosyn/
 - `Routine` — employeeId, name, slug, cronExpr, enabled, lastRunAt, body (markdown)
 - `Run` — routineId, startedAt, finishedAt, status, exitCode, logContent
   (captured stdout + stderr, capped at 256KB)
-- `IntegrationConnection` — companyId, provider (`stripe`|`gmail`|`metabase`|…),
+- `IntegrationConnection` — companyId, provider (`stripe`|`google`|`metabase`|…),
   label, authMode (`apikey`|`oauth2`), encryptedConfig (JSON: tokens,
   refresh tokens, base URL, scopes), status (`connected`|`error`|`expired`),
   lastCheckedAt

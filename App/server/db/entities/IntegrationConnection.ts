@@ -40,7 +40,7 @@ export class IntegrationConnection {
   @Column({ type: "varchar" })
   companyId!: string;
 
-  /** Matches a key from the static provider catalog ("stripe" | "gmail" | …). */
+  /** Matches a key from the static provider catalog ("stripe" | "google" | …). */
   @Column({ type: "varchar" })
   provider!: string;
 
