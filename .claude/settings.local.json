@@ -15,7 +15,8 @@
       "Bash(git push *)",
       "Bash(git check-ignore *)",
       "Bash(find /Users/nawazdhandala/Projects/Genosyn/genosyn/App -type f \\\\\\( -name \"*.ts\" -o -name \"*.tsx\" \\\\\\) -exec grep -l \"WebSocket\\\\|realtime\\\\|broadcast\" {} \\\\;)",
-      "Bash(echo \"exit=$?\")"
+      "Bash(echo \"exit=$?\")",
+      "mcp__Claude_Preview__preview_start"
     ]
   }
 }
