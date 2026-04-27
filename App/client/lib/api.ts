@@ -334,7 +334,7 @@ export type AuditEvent = {
   createdAt: string;
 };
 
-export type IntegrationAuthMode = "apikey" | "oauth2";
+export type IntegrationAuthMode = "apikey" | "oauth2" | "service_account";
 export type IntegrationCatalogField = {
   key: string;
   label: string;
@@ -354,6 +354,11 @@ export type IntegrationCatalogEntry = {
   oauth?: {
     app: "google";
     scopes: string[];
+    setupDocs?: string;
+  };
+  serviceAccount?: {
+    scopes: string[];
+    impersonation: boolean;
     setupDocs?: string;
   };
   enabled: boolean;

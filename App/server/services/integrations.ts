@@ -26,7 +26,7 @@ export type ConnectionDTO = {
   companyId: string;
   provider: string;
   label: string;
-  authMode: "apikey" | "oauth2";
+  authMode: "apikey" | "oauth2" | "service_account";
   accountHint: string;
   status: "connected" | "error" | "expired";
   statusMessage: string;
@@ -133,8 +133,8 @@ export async function createOauthConnection(args: {
 }): Promise<IntegrationConnection> {
   const provider = getProvider(args.provider);
   if (!provider) throw new Error(`Unknown integration: ${args.provider}`);
-  if (provider.catalog.authMode !== "oauth2") {
-    throw new Error(`${provider.catalog.name} is not an OAuth integration`);
+  if (!provider.catalog.oauth) {
+    throw new Error(`${provider.catalog.name} does not support OAuth`);
   }
   const repo = AppDataSource.getRepository(IntegrationConnection);
   const row = repo.create({
@@ -144,6 +144,49 @@ export async function createOauthConnection(args: {
     authMode: "oauth2",
     encryptedConfig: encryptConnectionConfig(args.config),
     accountHint: args.accountHint,
+    status: "connected",
+    statusMessage: "",
+    lastCheckedAt: new Date(),
+  });
+  await repo.save(row);
+  return row;
+}
+
+/**
+ * Create a Connection from a service-account JSON key. The provider
+ * validates the JSON shape, mints a sample access token (so the user gets
+ * an immediate error if the key is rejected), and returns the config blob
+ * to persist.
+ */
+export async function createServiceAccountConnection(args: {
+  companyId: string;
+  provider: string;
+  label: string;
+  keyJson: Record<string, unknown>;
+  impersonationEmail?: string;
+}): Promise<IntegrationConnection> {
+  const provider = getProvider(args.provider);
+  if (!provider) throw new Error(`Unknown integration: ${args.provider}`);
+  if (!provider.catalog.serviceAccount) {
+    throw new Error(`${provider.catalog.name} does not support service accounts`);
+  }
+  if (!provider.buildServiceAccountConfig) {
+    throw new Error(
+      `${provider.catalog.name} declared service-account support but has no validator`,
+    );
+  }
+  const { config, accountHint } = await provider.buildServiceAccountConfig({
+    keyJson: args.keyJson,
+    impersonationEmail: args.impersonationEmail,
+  });
+  const repo = AppDataSource.getRepository(IntegrationConnection);
+  const row = repo.create({
+    companyId: args.companyId,
+    provider: args.provider,
+    label: args.label.trim() || provider.catalog.name,
+    authMode: "service_account",
+    encryptedConfig: encryptConnectionConfig(config),
+    accountHint,
     status: "connected",
     statusMessage: "",
     lastCheckedAt: new Date(),
@@ -195,6 +238,7 @@ export async function refreshConnectionStatus(
   }
   let refreshed: IntegrationConfig | null = null;
   const ctx: IntegrationRuntimeContext = {
+    authMode: conn.authMode,
     config: cfg,
     setConfig(next) {
       refreshed = next;
@@ -334,6 +378,7 @@ export async function invokeConnectionTool(args: {
   const cfg = decryptConnectionConfig(pair.connection);
   let refreshed: IntegrationConfig | null = null;
   const ctx: IntegrationRuntimeContext = {
+    authMode: pair.connection.authMode,
     config: cfg,
     setConfig(next) {
       refreshed = next;

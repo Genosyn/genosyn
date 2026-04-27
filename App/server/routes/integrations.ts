@@ -7,6 +7,7 @@ import { validateBody } from "../middleware/validate.js";
 import { getProvider, listCatalog } from "../integrations/index.js";
 import {
   createApiKeyConnection,
+  createServiceAccountConnection,
   deleteConnection,
   getConnection,
   grantAccess,
@@ -124,6 +125,8 @@ integrationsRouter.delete("/connections/:connId", async (req, res) => {
 const oauthStartSchema = z.object({
   provider: z.string().min(1).max(64),
   label: z.string().min(1).max(80),
+  clientId: z.string().min(1).max(512),
+  clientSecret: z.string().min(1).max(512),
 });
 
 integrationsRouter.post(
@@ -138,11 +141,76 @@ integrationsRouter.post(
         userId: req.userId!,
         provider: body.provider,
         label: body.label,
+        clientId: body.clientId.trim(),
+        clientSecret: body.clientSecret.trim(),
       });
       res.json(out);
     } catch (err) {
       res.status(400).json({
         error: err instanceof Error ? err.message : "Failed to start OAuth",
+      });
+    }
+  },
+);
+
+const serviceAccountSchema = z.object({
+  provider: z.string().min(1).max(64),
+  label: z.string().min(1).max(80),
+  // The full JSON the user downloaded from Google Cloud Console. Pasted as
+  // a string and parsed server-side so we can reject malformed JSON with a
+  // clean error.
+  keyJson: z.string().min(1).max(20_000),
+  impersonationEmail: z.string().email().max(254).optional(),
+});
+
+integrationsRouter.post(
+  "/connections/service-account",
+  validateBody(serviceAccountSchema),
+  async (req, res) => {
+    const { cid } = req.params as Record<string, string>;
+    const body = req.body as z.infer<typeof serviceAccountSchema>;
+    let keyJson: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(body.keyJson);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("expected an object");
+      }
+      keyJson = parsed as Record<string, unknown>;
+    } catch (err) {
+      return res.status(400).json({
+        error: `Could not parse service-account JSON: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+    const provider = getProvider(body.provider);
+    if (!provider) {
+      return res.status(400).json({ error: "Unknown integration" });
+    }
+    if (!provider.catalog.serviceAccount) {
+      return res.status(400).json({
+        error: `${provider.catalog.name} does not support service accounts.`,
+      });
+    }
+    try {
+      const row = await createServiceAccountConnection({
+        companyId: cid,
+        provider: body.provider,
+        label: body.label,
+        keyJson,
+        impersonationEmail: body.impersonationEmail,
+      });
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "connection.create",
+        targetType: "connection",
+        targetId: row.id,
+        targetLabel: `${provider.catalog.name} · ${row.label}`,
+        metadata: { provider: row.provider, authMode: "service_account" },
+      });
+      res.json(serializeConnection(row));
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : "Failed to add service account",
       });
     }
   },

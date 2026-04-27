@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   CreditCard,
   Database,
+  Github,
   Mail,
   Plug,
   RefreshCw,
@@ -45,6 +46,7 @@ const ICONS: Record<string, LucideIcon> = {
   CreditCard,
   BarChart3,
   Database,
+  Github,
   Mail,
   Plug,
 };
@@ -60,7 +62,8 @@ export function SettingsIntegrations() {
 
   const [catalog, setCatalog] = React.useState<IntegrationCatalogEntry[] | null>(null);
   const [connections, setConnections] = React.useState<IntegrationConnection[] | null>(null);
-  const [adding, setAdding] = React.useState<IntegrationCatalogEntry | null>(null);
+  const [addingApiKey, setAddingApiKey] = React.useState<IntegrationCatalogEntry | null>(null);
+  const [addingGoogle, setAddingGoogle] = React.useState<IntegrationCatalogEntry | null>(null);
   const [refreshingId, setRefreshingId] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
@@ -119,22 +122,14 @@ export function SettingsIntegrations() {
       toast(entry.disabledReason ?? "Integration not enabled", "error");
       return;
     }
-    if (entry.authMode === "oauth2") {
-      try {
-        const { authorizeUrl } = await api.post<{ authorizeUrl: string }>(
-          `/api/companies/${company.id}/integrations/oauth/start`,
-          { provider: entry.provider, label: defaultLabel(entry) },
-        );
-        const popup = window.open(authorizeUrl, "genosyn-oauth", "width=520,height=700");
-        if (!popup) {
-          toast("Popup blocked — allow popups for this site and try again.", "error");
-        }
-      } catch (err) {
-        toast((err as Error).message, "error");
-      }
+    // OAuth integrations now collect clientId / secret per Connection,
+    // and Google additionally supports service-account JSON. Both flows
+    // open a unified modal; API-key integrations keep their old form.
+    if (entry.oauth || entry.serviceAccount) {
+      setAddingGoogle(entry);
       return;
     }
-    setAdding(entry);
+    setAddingApiKey(entry);
   }
 
   async function refreshStatus(conn: IntegrationConnection) {
@@ -209,6 +204,7 @@ export function SettingsIntegrations() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 text-sm font-medium">
                           <span className="truncate">{c.label}</span>
+                          <AuthModeBadge mode={c.authMode} />
                           <StatusBadge status={c.status} message={c.statusMessage} />
                         </div>
                         <div className="truncate text-xs text-slate-500 dark:text-slate-400">
@@ -296,12 +292,22 @@ export function SettingsIntegrations() {
       </section>
 
       <ApiKeyModal
-        open={adding !== null}
-        entry={adding}
+        open={addingApiKey !== null}
+        entry={addingApiKey}
         companyId={company.id}
-        onClose={() => setAdding(null)}
+        onClose={() => setAddingApiKey(null)}
         onSaved={async () => {
-          setAdding(null);
+          setAddingApiKey(null);
+          await reload();
+        }}
+      />
+      <OauthOrServiceAccountModal
+        open={addingGoogle !== null}
+        entry={addingGoogle}
+        companyId={company.id}
+        onClose={() => setAddingGoogle(null)}
+        onSaved={async () => {
+          setAddingGoogle(null);
           await reload();
         }}
       />
@@ -311,6 +317,20 @@ export function SettingsIntegrations() {
 
 function defaultLabel(entry: IntegrationCatalogEntry): string {
   return entry.name;
+}
+
+function AuthModeBadge({ mode }: { mode: IntegrationConnection["authMode"] }) {
+  const label =
+    mode === "oauth2"
+      ? "OAuth"
+      : mode === "service_account"
+        ? "Service account"
+        : "API key";
+  return (
+    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+      {label}
+    </span>
+  );
 }
 
 function StatusBadge({
@@ -426,6 +446,256 @@ function ApiKeyModal({
           </Button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+type ConnectMode = "oauth" | "service_account";
+
+function OauthOrServiceAccountModal({
+  open,
+  entry,
+  companyId,
+  onClose,
+  onSaved,
+}: {
+  open: boolean;
+  entry: IntegrationCatalogEntry | null;
+  companyId: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const supportsOauth = !!entry?.oauth;
+  const supportsSa = !!entry?.serviceAccount;
+  const [mode, setMode] = React.useState<ConnectMode>("oauth");
+  const [label, setLabel] = React.useState("");
+  const [clientId, setClientId] = React.useState("");
+  const [clientSecret, setClientSecret] = React.useState("");
+  const [keyJson, setKeyJson] = React.useState("");
+  const [impersonationEmail, setImpersonationEmail] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    if (open && entry) {
+      setMode(supportsOauth ? "oauth" : "service_account");
+      setLabel(defaultLabel(entry));
+      setClientId("");
+      setClientSecret("");
+      setKeyJson("");
+      setImpersonationEmail("");
+    }
+  }, [open, entry, supportsOauth]);
+
+  if (!entry) return null;
+
+  async function submitOauth(e: React.FormEvent) {
+    e.preventDefault();
+    if (!entry) return;
+    setBusy(true);
+    try {
+      const { authorizeUrl } = await api.post<{ authorizeUrl: string }>(
+        `/api/companies/${companyId}/integrations/oauth/start`,
+        {
+          provider: entry.provider,
+          label: label.trim() || entry.name,
+          clientId: clientId.trim(),
+          clientSecret: clientSecret.trim(),
+        },
+      );
+      const popup = window.open(authorizeUrl, "genosyn-oauth", "width=520,height=700");
+      if (!popup) {
+        toast("Popup blocked — allow popups for this site and try again.", "error");
+      } else {
+        // Close modal optimistically; the parent listens for the popup's
+        // postMessage and refreshes the connection list on success.
+        onSaved();
+      }
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitServiceAccount(e: React.FormEvent) {
+    e.preventDefault();
+    if (!entry) return;
+    setBusy(true);
+    try {
+      await api.post(
+        `/api/companies/${companyId}/integrations/connections/service-account`,
+        {
+          provider: entry.provider,
+          label: label.trim() || entry.name,
+          keyJson,
+          impersonationEmail: impersonationEmail.trim() || undefined,
+        },
+      );
+      toast(`${entry.name} connected`, "success");
+      onSaved();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const redirectUri =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/api/integrations/oauth/callback/google`
+      : "";
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Connect ${entry.name}`} size="lg">
+      <div className="flex flex-col gap-4">
+        {entry.description && (
+          <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            {entry.description}
+          </p>
+        )}
+
+        {supportsOauth && supportsSa && (
+          <div className="flex gap-1 rounded-lg bg-slate-100 p-1 text-xs dark:bg-slate-800">
+            <button
+              type="button"
+              onClick={() => setMode("oauth")}
+              className={`flex-1 rounded-md px-3 py-1.5 font-medium transition ${
+                mode === "oauth"
+                  ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                  : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+              }`}
+            >
+              OAuth
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("service_account")}
+              className={`flex-1 rounded-md px-3 py-1.5 font-medium transition ${
+                mode === "service_account"
+                  ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                  : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+              }`}
+            >
+              Service account
+            </button>
+          </div>
+        )}
+
+        {mode === "oauth" && supportsOauth ? (
+          <form className="flex flex-col gap-3" onSubmit={submitOauth}>
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+              <p className="font-medium">Set up an OAuth Client ID first</p>
+              <ol className="mt-1 list-decimal space-y-0.5 pl-4">
+                <li>
+                  Google Cloud Console → APIs &amp; Services → Credentials → <em>Create OAuth Client ID</em> (Web application).
+                </li>
+                <li>
+                  Add this redirect URI under <em>Authorized redirect URIs</em>:
+                  <code className="ml-1 break-all rounded bg-amber-100 px-1 py-0.5 font-mono dark:bg-amber-900/40">
+                    {redirectUri}
+                  </code>
+                </li>
+                <li>Paste the resulting Client ID and Client Secret below.</li>
+              </ol>
+            </div>
+            <Input
+              label="Label"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder={entry.name}
+              required
+            />
+            <Input
+              label="OAuth Client ID"
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+              placeholder="123456789-abcdef.apps.googleusercontent.com"
+              required
+            />
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                OAuth Client Secret <span className="ml-1 text-red-500">*</span>
+              </label>
+              <input
+                type="password"
+                required
+                value={clientSecret}
+                onChange={(e) => setClientSecret(e.target.value)}
+                placeholder="GOCSPX-…"
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-mono shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
+              />
+              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                Encrypted at rest with the app&apos;s session secret. Used to refresh access tokens.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={busy || !clientId.trim() || !clientSecret.trim()}>
+                {busy ? "Starting…" : `Connect with ${entry.name}`}
+              </Button>
+            </div>
+          </form>
+        ) : null}
+
+        {mode === "service_account" && supportsSa ? (
+          <form className="flex flex-col gap-3" onSubmit={submitServiceAccount}>
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300">
+              <p className="font-medium">Service account JSON key</p>
+              <p className="mt-1">
+                Google Cloud Console → IAM &amp; Admin → Service Accounts → pick or create one → Keys → Add key → JSON. Paste the entire downloaded file below.
+              </p>
+              {entry.serviceAccount?.impersonation && (
+                <p className="mt-2">
+                  Service accounts can&apos;t read personal Gmail. To act on a Workspace user&apos;s mailbox, set <em>domain-wide delegation</em> in the Workspace Admin Console (Security → API controls) and provide the user&apos;s email below.
+                </p>
+              )}
+            </div>
+            <Input
+              label="Label"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder={entry.name}
+              required
+            />
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                Service account JSON <span className="ml-1 text-red-500">*</span>
+              </label>
+              <textarea
+                required
+                value={keyJson}
+                onChange={(e) => setKeyJson(e.target.value)}
+                placeholder='{ "type": "service_account", "project_id": "…", "private_key": "…", "client_email": "…", … }'
+                rows={8}
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-[11px] shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
+              />
+              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                Encrypted at rest. The private key never leaves the server.
+              </p>
+            </div>
+            {entry.serviceAccount?.impersonation && (
+              <Input
+                label="Impersonate user (optional)"
+                value={impersonationEmail}
+                onChange={(e) => setImpersonationEmail(e.target.value)}
+                placeholder="user@yourcompany.com"
+                type="email"
+              />
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={busy || !keyJson.trim()}>
+                {busy ? "Validating…" : "Save service account"}
+              </Button>
+            </div>
+          </form>
+        ) : null}
+      </div>
     </Modal>
   );
 }

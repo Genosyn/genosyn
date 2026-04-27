@@ -3,20 +3,26 @@ import { getProvider } from "../integrations/index.js";
 import {
   buildGoogleAuthorizeUrl,
   exchangeGoogleCode,
+  googleRedirectUri,
 } from "../integrations/providers/google.js";
 
 /**
  * OAuth state store + provider dispatch.
  *
- * Flow for Google Workspace (and any future Google-backed integration):
+ * Each Connection carries its own `clientId` + `clientSecret`, so the start
+ * handshake takes them as parameters, stashes them in the in-memory state
+ * map, and the callback uses them to (a) exchange the auth code and
+ * (b) embed them in the persisted Connection so future refreshes work
+ * without reaching back to config.ts.
  *
- *   1. UI posts `startOauth({ companyId, userId, provider, label })` and
- *      receives `{ authorizeUrl }` to redirect the browser to.
+ *   1. UI posts `startOauth({ companyId, userId, provider, label,
+ *      clientId, clientSecret })` and receives `{ authorizeUrl }`.
  *   2. Google bounces the browser back to our shared callback:
  *      `${publicUrl}/api/integrations/oauth/callback/google?code=…&state=…`.
- *   3. The callback resolves `state` → the original company/provider/label,
- *      exchanges the code for tokens, asks the provider to shape them into
- *      a config blob, and creates the Connection.
+ *   3. The callback resolves `state` → the original company/provider/
+ *      label/clientId/clientSecret, exchanges the code for tokens, asks
+ *      the provider to shape them into a config blob, and creates the
+ *      Connection.
  *
  * State tokens are kept in-process — same philosophy as the short-lived MCP
  * tokens. 10-minute TTL is plenty for a human to click "Allow"; if they
@@ -30,6 +36,8 @@ type OauthState = {
   companyId: string;
   provider: string;
   label: string;
+  clientId: string;
+  clientSecret: string;
   expiresAt: number;
 };
 
@@ -48,15 +56,17 @@ export function startOauth(args: {
   userId: string;
   provider: string;
   label: string;
+  clientId: string;
+  clientSecret: string;
 }): { authorizeUrl: string } {
   sweep();
   const provider = getProvider(args.provider);
   if (!provider) throw new Error(`Unknown integration: ${args.provider}`);
-  if (provider.catalog.authMode !== "oauth2") {
-    throw new Error(`${provider.catalog.name} is not an OAuth integration`);
-  }
   const oauth = provider.catalog.oauth;
   if (!oauth) throw new Error(`${provider.catalog.name} has no OAuth metadata`);
+  if (!args.clientId || !args.clientSecret) {
+    throw new Error("clientId and clientSecret are required");
+  }
 
   const state = crypto.randomBytes(24).toString("hex");
   states.set(state, {
@@ -65,13 +75,20 @@ export function startOauth(args: {
     companyId: args.companyId,
     provider: args.provider,
     label: args.label,
+    clientId: args.clientId,
+    clientSecret: args.clientSecret,
     expiresAt: Date.now() + STATE_TTL_MS,
   });
 
   let authorizeUrl: string;
   switch (oauth.app) {
     case "google":
-      authorizeUrl = buildGoogleAuthorizeUrl(state, oauth.scopes);
+      authorizeUrl = buildGoogleAuthorizeUrl({
+        state,
+        scopes: oauth.scopes,
+        clientId: args.clientId,
+        redirectUri: googleRedirectUri(),
+      });
       break;
     default:
       throw new Error(`Unsupported OAuth app: ${oauth.app}`);
@@ -112,10 +129,17 @@ export async function finishOauth(args: {
       if (!provider || !provider.buildOauthConfig) {
         throw new Error(`Provider ${args.state.provider} cannot finish OAuth`);
       }
-      const { tokens, userInfo } = await exchangeGoogleCode(args.code);
+      const { tokens, userInfo } = await exchangeGoogleCode({
+        code: args.code,
+        clientId: args.state.clientId,
+        clientSecret: args.state.clientSecret,
+        redirectUri: googleRedirectUri(),
+      });
       const { config, accountHint } = provider.buildOauthConfig({
         tokens,
         userInfo,
+        clientId: args.state.clientId,
+        clientSecret: args.state.clientSecret,
       });
       return {
         provider: args.state.provider,

@@ -7,7 +7,7 @@ import {
   Index,
 } from "typeorm";
 
-export type IntegrationAuthMode = "apikey" | "oauth2";
+export type IntegrationAuthMode = "apikey" | "oauth2" | "service_account";
 export type IntegrationConnectionStatus = "connected" | "error" | "expired";
 
 /**
@@ -23,9 +23,15 @@ export type IntegrationConnectionStatus = "connected" | "error" | "expired";
  * `encryptedConfig` is an AES-256-GCM ciphertext (shared helper in
  * `server/lib/secret.ts`, keyed from `config.sessionSecret`) wrapping a
  * JSON blob whose shape is provider-specific:
- *   - apikey  : { apiKey: string, baseUrl?: string, ...providerMeta }
- *   - oauth2  : { accessToken, refreshToken, expiresAt, scope,
- *                 accountEmail, ... }
+ *   - apikey          : { apiKey, baseUrl?, ...providerMeta }
+ *   - oauth2          : { clientId, clientSecret, accessToken, refreshToken,
+ *                         expiresAt, scope, email, ... } — the OAuth client
+ *                         credentials live on each Connection so different
+ *                         Connections can use different Google projects.
+ *   - service_account : { clientEmail, privateKey, privateKeyId, projectId,
+ *                         scopes, impersonationEmail?, accessToken?,
+ *                         expiresAt? } — JWT-bearer auth; access tokens are
+ *                         re-minted on demand (no refresh token concept).
  *
  * AI employees access a Connection via an `EmployeeConnectionGrant`; the
  * raw credential never leaves the server.

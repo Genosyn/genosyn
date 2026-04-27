@@ -3,9 +3,10 @@ import type {
   IntegrationProvider,
 } from "./types.js";
 import { stripeProvider } from "./providers/stripe.js";
-import { googleProvider, googleOauthConfigured } from "./providers/google.js";
+import { googleProvider } from "./providers/google.js";
 import { metabaseProvider } from "./providers/metabase.js";
 import { nocodbProvider } from "./providers/nocodb.js";
+import { githubProvider } from "./providers/github.js";
 
 /**
  * Provider registry. Adding a new integration means:
@@ -18,6 +19,7 @@ const PROVIDERS: Record<string, IntegrationProvider> = {
   [googleProvider.catalog.provider]: googleProvider,
   [metabaseProvider.catalog.provider]: metabaseProvider,
   [nocodbProvider.catalog.provider]: nocodbProvider,
+  [githubProvider.catalog.provider]: githubProvider,
 };
 
 export function getProvider(id: string): IntegrationProvider | null {
@@ -29,23 +31,13 @@ export function listProviderIds(): string[] {
 }
 
 /**
- * Return the catalog entries with `enabled`/`disabledReason` reflecting the
- * current `config.ts`. Static catalog fields come straight from the provider;
- * dynamic fields (OAuth gating) are injected here so provider modules stay
- * pure.
+ * Return the static catalog entries verbatim. With per-Connection
+ * credentials there is no global "is this integration configured?" check —
+ * each Connection brings its own clientId/secret (OAuth) or service-account
+ * key, so Google is always available to add.
  */
 export function listCatalog(): IntegrationCatalogEntry[] {
-  return Object.values(PROVIDERS).map((p) => {
-    const base = { ...p.catalog };
-    if (base.oauth?.app === "google") {
-      const ok = googleOauthConfigured();
-      base.enabled = ok;
-      base.disabledReason = ok
-        ? undefined
-        : "Set `config.integrations.google.clientId` and `clientSecret` in App/config.ts to enable.";
-    }
-    return base;
-  });
+  return Object.values(PROVIDERS).map((p) => ({ ...p.catalog }));
 }
 
 export type { IntegrationProvider, IntegrationCatalogEntry } from "./types.js";

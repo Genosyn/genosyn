@@ -1,4 +1,6 @@
+import crypto from "node:crypto";
 import type {
+  IntegrationConfig,
   IntegrationProvider,
   IntegrationRuntimeContext,
   OauthTokenSet,
@@ -9,54 +11,77 @@ import { driveTools, invokeDriveTool } from "./google/drive-tools.js";
 import { safeJson } from "./google/util.js";
 
 /**
- * Google Workspace — umbrella OAuth integration.
+ * Google Workspace — umbrella OAuth + Service Account integration.
  *
- * One `IntegrationConnection` row covers a single Google account and exposes
- * tools from multiple Google products (Gmail + Drive today; Calendar, Docs,
- * etc. later). The user grants all scopes in a single consent dance, and the
- * AI sees a unified tool list scoped to whichever products we currently
- * support.
+ * One `IntegrationConnection` row covers a single Google account (or a
+ * single service account) and exposes tools from multiple Google products
+ * (Gmail + Drive today; Calendar, Docs, etc. later).
  *
- * Flow:
- *  1. User clicks "Connect Google Workspace" in the UI.
- *  2. Frontend hits `POST /api/companies/:cid/integrations/oauth/start` with
- *     `provider: "google"` and gets back Google's consent URL to redirect to.
- *  3. Google calls back to
- *     `${publicUrl}/api/integrations/oauth/callback/google` — a public route
- *     (auth via the `state` token it carries). We exchange the auth code for
- *     {access, refresh} tokens and create the Connection row.
+ * Two auth modes are supported, picked at create-time:
  *
- * Scopes requested:
+ *   • OAuth (`authMode="oauth2"`): each Connection brings its own
+ *     `clientId` + `clientSecret` (registered with Google Cloud) and runs
+ *     the standard 3-legged consent dance. Tokens refresh via the stored
+ *     refresh_token. Works for any Google account, including personal
+ *     `@gmail.com`.
+ *
+ *   • Service account (`authMode="service_account"`): each Connection
+ *     uploads a Google Cloud service-account JSON key. Access tokens are
+ *     minted on demand via the JWT-bearer grant (RS256). With an optional
+ *     `impersonationEmail`, the SA acts on a Workspace user's behalf via
+ *     domain-wide delegation. Does not work with personal `@gmail.com`.
+ *
+ * Scopes requested are the same in both modes:
  *   - `gmail.modify`     — read, draft, send, label.
- *   - `drive.readonly`   — search and read files across the user's Drive.
- *   - `userinfo.email`   — so we know which account just authorised.
- *   - `openid`           — required when userinfo.email is requested.
- *
- * Access tokens are short-lived; `ensureFreshToken` refreshes on demand via
- * the refresh token. If the refresh itself fails (user revoked access), the
- * connection flips to `status=expired` and the UI prompts a reconnect.
+ *   - `drive.readonly`   — search and read files across Drive.
+ *   - `userinfo.email`   — so we know which account just authorised (OAuth).
+ *   - `openid`           — required when userinfo.email is requested (OAuth).
  */
 
 const GOOGLE_TOKEN = "https://oauth2.googleapis.com/token";
 const GOOGLE_USERINFO = "https://openidconnect.googleapis.com/v1/userinfo";
 
-export type GoogleConfig = {
+const GOOGLE_OAUTH_SCOPES = [
+  "https://www.googleapis.com/auth/gmail.modify",
+  "https://www.googleapis.com/auth/drive.readonly",
+  "https://www.googleapis.com/auth/userinfo.email",
+  "openid",
+];
+
+const GOOGLE_SERVICE_ACCOUNT_SCOPES = [
+  "https://www.googleapis.com/auth/gmail.modify",
+  "https://www.googleapis.com/auth/drive.readonly",
+];
+
+// ---------- Config shapes (what's stored encrypted on each Connection) ----------
+
+export type GoogleOauthConfig = {
+  clientId: string;
+  clientSecret: string;
   accessToken: string;
   refreshToken: string;
   /** ms epoch. Renewed on refresh. */
   expiresAt: number;
-  /** Space-separated granted scopes — used to gate per-product tools. */
+  /** Space-separated granted scopes. */
   scope: string;
   email: string;
 };
 
-export function googleOauthConfigured(): boolean {
-  return !!(
-    config.integrations.google.clientId && config.integrations.google.clientSecret
-  );
-}
+export type GoogleServiceAccountConfig = {
+  clientEmail: string;
+  privateKey: string;
+  privateKeyId: string;
+  projectId: string;
+  scopes: string[];
+  /** When set, the SA impersonates this Workspace user (domain-wide
+   * delegation). Required for Gmail since SAs cannot read mail otherwise. */
+  impersonationEmail?: string;
+  /** Cached short-lived access token; re-minted by `ensureFreshToken`. */
+  accessToken?: string;
+  expiresAt?: number;
+};
 
-function redirectUri(): string {
+export function googleRedirectUri(): string {
   const base = config.publicUrl.replace(/\/+$/, "");
   return `${base}/api/integrations/oauth/callback/google`;
 }
@@ -69,46 +94,83 @@ export const googleProvider: IntegrationProvider = {
   catalog: {
     provider: "google",
     name: "Google Workspace",
-    tagline: "Connect Gmail + Drive in one click — search, read, send.",
+    tagline: "Connect Gmail + Drive — search, read, send.",
     description:
-      "Connect a Google account so AI employees can triage email, search Drive, and send replies on the team's behalf. Requires a Google Cloud OAuth client configured in `App/config.ts` under `integrations.google`.",
+      "Connect a Google account so AI employees can triage email, search Drive, and send replies. Each Connection brings its own credentials: an OAuth client (recommended for personal Gmail or small teams) or a service account JSON key (Workspace admin / programmatic access).",
     icon: "Mail",
     authMode: "oauth2",
     oauth: {
       app: "google",
-      scopes: [
-        "https://www.googleapis.com/auth/gmail.modify",
-        "https://www.googleapis.com/auth/drive.readonly",
-        "https://www.googleapis.com/auth/userinfo.email",
-        "openid",
-      ],
+      scopes: GOOGLE_OAUTH_SCOPES,
       setupDocs:
         "https://developers.google.com/identity/protocols/oauth2/web-server",
     },
-    // `enabled` / `disabledReason` are injected by the catalog service at
-    // list-time based on `config.integrations.google.clientId`.
+    serviceAccount: {
+      scopes: GOOGLE_SERVICE_ACCOUNT_SCOPES,
+      // Gmail SAs can't read a mailbox without DWD impersonation, so we
+      // surface the field. Drive-only access works without it.
+      impersonation: true,
+      setupDocs:
+        "https://cloud.google.com/iam/docs/service-account-creds#key-types",
+    },
     enabled: true,
   },
 
   tools: ALL_TOOLS,
 
-  buildOauthConfig({ tokens, userInfo }) {
+  buildOauthConfig({ tokens, userInfo, clientId, clientSecret }) {
     const email = typeof userInfo.email === "string" ? userInfo.email : "";
     if (!tokens.refreshToken) {
-      // Google only returns a refresh token on the FIRST consent unless we
-      // pass `prompt=consent`. See buildGoogleAuthorizeUrl below.
       throw new Error(
         "Google did not return a refresh token. Make sure the consent screen requested offline access and retry.",
       );
     }
-    const cfg: GoogleConfig = {
+    const cfg: GoogleOauthConfig = {
+      clientId,
+      clientSecret,
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       expiresAt: tokens.expiresAt ?? Date.now() + 60 * 60 * 1000,
       scope: tokens.scope ?? "",
       email,
     };
-    return { config: cfg, accountHint: email || "Google account" };
+    return { config: cfg as unknown as IntegrationConfig, accountHint: email || "Google account" };
+  },
+
+  async buildServiceAccountConfig({ keyJson, impersonationEmail }) {
+    const clientEmail = strField(keyJson, "client_email");
+    const privateKey = strField(keyJson, "private_key");
+    const privateKeyId = strField(keyJson, "private_key_id");
+    const projectId = strField(keyJson, "project_id");
+    const type = typeof keyJson.type === "string" ? keyJson.type : "";
+    if (type !== "service_account") {
+      throw new Error(
+        `Expected a service-account JSON key (type="service_account"), got "${type || "missing"}". This looks like a different credential type — make sure you downloaded the key from IAM & Admin → Service Accounts.`,
+      );
+    }
+    if (!privateKey.includes("BEGIN") || !privateKey.includes("PRIVATE KEY")) {
+      throw new Error(
+        "private_key looks malformed. Paste the JSON file verbatim — newlines must be `\\n` inside the quoted string.",
+      );
+    }
+    const trimmedImpersonation = impersonationEmail?.trim() || undefined;
+    const cfg: GoogleServiceAccountConfig = {
+      clientEmail,
+      privateKey,
+      privateKeyId,
+      projectId,
+      scopes: GOOGLE_SERVICE_ACCOUNT_SCOPES,
+      impersonationEmail: trimmedImpersonation,
+    };
+    // Mint once eagerly so the user sees a clear error during connect rather
+    // than the first time the AI tries to use it.
+    const minted = await mintServiceAccountToken(cfg);
+    cfg.accessToken = minted.accessToken;
+    cfg.expiresAt = minted.expiresAt;
+    const hint = trimmedImpersonation
+      ? `${clientEmail} → ${trimmedImpersonation}`
+      : clientEmail;
+    return { config: cfg as unknown as IntegrationConfig, accountHint: hint };
   },
 
   async checkStatus(ctx) {
@@ -125,14 +187,15 @@ export const googleProvider: IntegrationProvider = {
 
   async invokeTool(name, args, ctx) {
     await ensureFreshToken(ctx);
-    const cfg = ctx.config as GoogleConfig;
+    const accessToken = currentAccessToken(ctx);
+    const grantedScope = currentGrantedScope(ctx);
     if (GMAIL_TOOL_NAMES.has(name)) {
-      assertScope(cfg.scope, "gmail", name);
-      return invokeGmailTool(name, args, cfg.accessToken);
+      assertScope(grantedScope, "gmail", name);
+      return invokeGmailTool(name, args, accessToken);
     }
     if (DRIVE_TOOL_NAMES.has(name)) {
-      assertScope(cfg.scope, "drive", name);
-      return invokeDriveTool(name, args, cfg.accessToken);
+      assertScope(grantedScope, "drive", name);
+      return invokeDriveTool(name, args, accessToken);
     }
     throw new Error(`Unknown Google tool: ${name}`);
   },
@@ -140,39 +203,42 @@ export const googleProvider: IntegrationProvider = {
 
 // ---------- OAuth helpers (used by services/oauth.ts) ----------
 
-export function buildGoogleAuthorizeUrl(state: string, scopes: string[]): string {
-  if (!googleOauthConfigured()) {
-    throw new Error(
-      "Google OAuth is not configured. Set config.integrations.google.clientId and clientSecret first.",
-    );
-  }
+export function buildGoogleAuthorizeUrl(args: {
+  state: string;
+  scopes: string[];
+  clientId: string;
+  redirectUri: string;
+}): string {
+  if (!args.clientId) throw new Error("clientId is required");
   const u = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-  u.searchParams.set("client_id", config.integrations.google.clientId);
-  u.searchParams.set("redirect_uri", redirectUri());
+  u.searchParams.set("client_id", args.clientId);
+  u.searchParams.set("redirect_uri", args.redirectUri);
   u.searchParams.set("response_type", "code");
-  u.searchParams.set("scope", scopes.join(" "));
+  u.searchParams.set("scope", args.scopes.join(" "));
   u.searchParams.set("access_type", "offline");
   // `prompt=consent` forces Google to return a refresh_token even if the user
-  // has already authorised our app once — otherwise we'd silently get only
-  // an access token on subsequent connects and fail buildOauthConfig.
+  // has already authorised this client once — otherwise we'd silently get
+  // only an access token on subsequent connects and fail buildOauthConfig.
   u.searchParams.set("prompt", "consent");
   u.searchParams.set("include_granted_scopes", "true");
-  u.searchParams.set("state", state);
+  u.searchParams.set("state", args.state);
   return u.toString();
 }
 
-export async function exchangeGoogleCode(code: string): Promise<{
+export async function exchangeGoogleCode(args: {
+  code: string;
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+}): Promise<{
   tokens: OauthTokenSet;
   userInfo: Record<string, unknown>;
 }> {
-  if (!googleOauthConfigured()) {
-    throw new Error("Google OAuth is not configured.");
-  }
   const body = new URLSearchParams({
-    code,
-    client_id: config.integrations.google.clientId,
-    client_secret: config.integrations.google.clientSecret,
-    redirect_uri: redirectUri(),
+    code: args.code,
+    client_id: args.clientId,
+    client_secret: args.clientSecret,
+    redirect_uri: args.redirectUri,
     grant_type: "authorization_code",
   });
   const tokRes = await fetch(GOOGLE_TOKEN, {
@@ -183,15 +249,7 @@ export async function exchangeGoogleCode(code: string): Promise<{
   const tokText = await tokRes.text();
   const tok = safeJson(tokText) as Record<string, unknown> | null;
   if (!tokRes.ok || !tok) {
-    const msg =
-      (tok && typeof tok === "object" && "error_description" in tok
-        ? String((tok as { error_description?: unknown }).error_description)
-        : null) ??
-      (tok && typeof tok === "object" && "error" in tok
-        ? String((tok as { error?: unknown }).error)
-        : null) ??
-      `Token exchange failed: ${tokRes.status}`;
-    throw new Error(msg);
+    throw new Error(googleErrorMessage(tok, `Token exchange failed: ${tokRes.status}`));
   }
   const access = typeof tok.access_token === "string" ? tok.access_token : "";
   const refresh =
@@ -217,19 +275,83 @@ export async function exchangeGoogleCode(code: string): Promise<{
   };
 }
 
-// ---------- internal helpers ----------
+// ---------- Service-account token minting (JWT-bearer / RS256) ----------
+
+export async function mintServiceAccountToken(
+  cfg: GoogleServiceAccountConfig,
+): Promise<{ accessToken: string; expiresAt: number }> {
+  const now = Math.floor(Date.now() / 1000);
+  const exp = now + 60 * 60; // Google ignores anything > 1h anyway.
+  const header = {
+    alg: "RS256",
+    typ: "JWT",
+    kid: cfg.privateKeyId || undefined,
+  };
+  const claim: Record<string, unknown> = {
+    iss: cfg.clientEmail,
+    scope: cfg.scopes.join(" "),
+    aud: GOOGLE_TOKEN,
+    iat: now,
+    exp,
+  };
+  if (cfg.impersonationEmail) claim.sub = cfg.impersonationEmail;
+
+  const headerSeg = b64url(JSON.stringify(header));
+  const claimSeg = b64url(JSON.stringify(claim));
+  const signingInput = `${headerSeg}.${claimSeg}`;
+
+  let signature: Buffer;
+  try {
+    signature = crypto.sign("RSA-SHA256", Buffer.from(signingInput), cfg.privateKey);
+  } catch (err) {
+    throw new Error(
+      `Could not sign with the service-account private key — make sure the key was pasted intact. (${err instanceof Error ? err.message : String(err)})`,
+    );
+  }
+  const assertion = `${signingInput}.${b64urlBuf(signature)}`;
+
+  const body = new URLSearchParams({
+    grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+    assertion,
+  });
+  const res = await fetch(GOOGLE_TOKEN, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  const parsed = safeJson(await res.text()) as Record<string, unknown> | null;
+  if (!res.ok || !parsed) {
+    throw new Error(googleErrorMessage(parsed, `Service-account token request failed: ${res.status}`));
+  }
+  const access = typeof parsed.access_token === "string" ? parsed.access_token : "";
+  const expiresIn = typeof parsed.expires_in === "number" ? parsed.expires_in : 3600;
+  if (!access) throw new Error("Google did not return an access token (service account)");
+  return { accessToken: access, expiresAt: Date.now() + expiresIn * 1000 };
+}
+
+// ---------- Internal helpers: token lifecycle ----------
 
 async function ensureFreshToken(ctx: IntegrationRuntimeContext): Promise<void> {
-  const cfg = ctx.config as GoogleConfig;
-  // 60s safety margin so a token doesn't expire mid-request.
-  if (cfg.expiresAt > Date.now() + 60_000) return;
+  if (ctx.authMode === "oauth2") {
+    return refreshOauthToken(ctx);
+  }
+  if (ctx.authMode === "service_account") {
+    return refreshServiceAccountToken(ctx);
+  }
+  throw new Error(`Google connector does not support authMode "${ctx.authMode}"`);
+}
 
-  if (!googleOauthConfigured()) {
-    throw new Error("Google OAuth is not configured.");
+async function refreshOauthToken(ctx: IntegrationRuntimeContext): Promise<void> {
+  const cfg = ctx.config as GoogleOauthConfig;
+  if (cfg.expiresAt > Date.now() + 60_000) return;
+  if (!cfg.clientId || !cfg.clientSecret) {
+    throw new Error(
+      "Connection is missing OAuth client credentials — disconnect and reconnect.",
+    );
   }
   const body = new URLSearchParams({
-    client_id: config.integrations.google.clientId,
-    client_secret: config.integrations.google.clientSecret,
+    client_id: cfg.clientId,
+    client_secret: cfg.clientSecret,
     refresh_token: cfg.refreshToken,
     grant_type: "refresh_token",
   });
@@ -240,33 +362,102 @@ async function ensureFreshToken(ctx: IntegrationRuntimeContext): Promise<void> {
   });
   const parsed = safeJson(await res.text()) as Record<string, unknown> | null;
   if (!res.ok || !parsed) {
-    const msg =
-      (parsed && typeof parsed === "object" && "error_description" in parsed
-        ? String((parsed as { error_description?: unknown }).error_description)
-        : null) ?? `Google token refresh failed: ${res.status}`;
-    throw new Error(msg);
+    throw new Error(googleErrorMessage(parsed, `Google token refresh failed: ${res.status}`));
   }
   const access = typeof parsed.access_token === "string" ? parsed.access_token : "";
   const expiresIn = typeof parsed.expires_in === "number" ? parsed.expires_in : 3600;
   if (!access) throw new Error("Google refresh did not return an access token");
-  const next: GoogleConfig = {
+  const next: GoogleOauthConfig = {
     ...cfg,
     accessToken: access,
     expiresAt: Date.now() + expiresIn * 1000,
   };
-  ctx.setConfig?.(next as unknown as Record<string, unknown>);
-  // Mutate locally too so the current request sees the new token.
-  ctx.config = next as unknown as Record<string, unknown>;
+  ctx.setConfig?.(next as unknown as IntegrationConfig);
+  ctx.config = next as unknown as IntegrationConfig;
+}
+
+async function refreshServiceAccountToken(
+  ctx: IntegrationRuntimeContext,
+): Promise<void> {
+  const cfg = ctx.config as GoogleServiceAccountConfig;
+  if (cfg.accessToken && cfg.expiresAt && cfg.expiresAt > Date.now() + 60_000) {
+    return;
+  }
+  const minted = await mintServiceAccountToken(cfg);
+  const next: GoogleServiceAccountConfig = {
+    ...cfg,
+    accessToken: minted.accessToken,
+    expiresAt: minted.expiresAt,
+  };
+  ctx.setConfig?.(next as unknown as IntegrationConfig);
+  ctx.config = next as unknown as IntegrationConfig;
+}
+
+function currentAccessToken(ctx: IntegrationRuntimeContext): string {
+  if (ctx.authMode === "oauth2") {
+    return (ctx.config as GoogleOauthConfig).accessToken;
+  }
+  const access = (ctx.config as GoogleServiceAccountConfig).accessToken;
+  if (!access) throw new Error("Service-account access token is missing");
+  return access;
+}
+
+function currentGrantedScope(ctx: IntegrationRuntimeContext): string {
+  if (ctx.authMode === "oauth2") {
+    return (ctx.config as GoogleOauthConfig).scope;
+  }
+  // Service accounts always receive exactly the scopes they minted with —
+  // no consent screen narrows them down.
+  return (ctx.config as GoogleServiceAccountConfig).scopes.join(" ");
 }
 
 function assertScope(grantedScope: string, product: "gmail" | "drive", toolName: string): void {
-  // `scope` from Google is a space-separated list of full scope URLs. We
-  // check the substring "gmail." or "drive." so any granted gmail/drive
-  // scope (modify, readonly, …) unlocks the matching tool family.
+  // `scope` is a space-separated list of full scope URLs. We check the
+  // substring "gmail." or "drive." so any granted gmail/drive scope
+  // (modify, readonly, …) unlocks the matching tool family.
   const needle = `auth/${product}.`;
   if (!grantedScope.includes(needle)) {
     throw new Error(
-      `Tool "${toolName}" requires ${product} access. Reconnect Google with ${product} scope.`,
+      `Tool "${toolName}" requires ${product} access. Reconnect with ${product} scope.`,
     );
   }
+}
+
+// ---------- low-level helpers ----------
+
+function b64url(s: string): string {
+  return Buffer.from(s, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function b64urlBuf(b: Buffer): string {
+  return b
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function strField(o: Record<string, unknown>, key: string): string {
+  const v = o[key];
+  if (typeof v !== "string" || !v.trim()) {
+    throw new Error(`Service-account JSON is missing "${key}".`);
+  }
+  return v;
+}
+
+function googleErrorMessage(parsed: Record<string, unknown> | null, fallback: string): string {
+  if (!parsed || typeof parsed !== "object") return fallback;
+  const desc = parsed.error_description;
+  if (typeof desc === "string" && desc) return desc;
+  const err = parsed.error;
+  if (typeof err === "string" && err) return err;
+  if (err && typeof err === "object") {
+    const m = (err as { message?: unknown }).message;
+    if (typeof m === "string" && m) return m;
+  }
+  return fallback;
 }

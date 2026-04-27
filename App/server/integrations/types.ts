@@ -15,7 +15,7 @@
  * surface to this module's `invokeTool` hook.
  */
 
-export type IntegrationAuthMode = "apikey" | "oauth2";
+export type IntegrationAuthMode = "apikey" | "oauth2" | "service_account";
 
 /** A single form field collected during Connection creation (API-key mode). */
 export type IntegrationCatalogField = {
@@ -40,18 +40,32 @@ export type IntegrationCatalogEntry = {
   description?: string;
   /** Lucide icon name to render on the catalog card. */
   icon: string;
+  /** Primary auth mode the connect button defaults to. */
   authMode: IntegrationAuthMode;
   /** API-key providers declare their input form here. */
   fields?: IntegrationCatalogField[];
-  /** OAuth providers declare their scopes + underlying oauth app here. */
+  /** OAuth providers declare scopes + underlying oauth app. Each Connection
+   * supplies its own `clientId` + `clientSecret` at create-time, so this
+   * block is purely metadata for the connect form. */
   oauth?: {
-    /** Identifies which shared OAuth app in config.integrations.* to use. */
     app: "google";
     scopes: string[];
     /** Link to docs explaining how to register the app. */
     setupDocs?: string;
   };
-  /** Whether this integration can be used right now (e.g. OAuth app configured). */
+  /** When set, this integration also accepts a service-account credential.
+   * The connect modal renders a second tab for it. */
+  serviceAccount?: {
+    /** Required scopes the SA token will be minted with. */
+    scopes: string[];
+    /** When true, the connect form asks for an `impersonationEmail` so the
+     * SA can act on a Workspace user's behalf via domain-wide delegation. */
+    impersonation: boolean;
+    setupDocs?: string;
+  };
+  /** Whether this integration can be used right now. With the move to
+   * per-Connection credentials, OAuth integrations are always enabled —
+   * the user supplies clientId/secret per Connection. */
   enabled: boolean;
   /** When `enabled=false`, why. Rendered on the card. */
   disabledReason?: string;
@@ -74,6 +88,9 @@ export type IntegrationConfig = Record<string, unknown>;
 
 /** Runtime context handed to a tool handler. */
 export type IntegrationRuntimeContext = {
+  /** Auth mode of the Connection — providers that support multiple modes
+   * (e.g. Google's OAuth + service account) dispatch on this. */
+  authMode: IntegrationAuthMode;
   /** Decrypted config — provider shape. */
   config: IntegrationConfig;
   /**
@@ -110,13 +127,26 @@ export type IntegrationProvider = {
 
   /**
    * OAuth providers call this after the handshake to hand back the final
-   * config blob. The caller already has access+refresh tokens and (if the
+   * config blob. The caller already has access+refresh tokens, the OAuth
+   * client credentials (so the provider can refresh later), and (if the
    * provider returns one) a userinfo payload.
    */
   buildOauthConfig?(args: {
     tokens: OauthTokenSet;
     userInfo: Record<string, unknown>;
+    clientId: string;
+    clientSecret: string;
   }): { config: IntegrationConfig; accountHint: string };
+
+  /**
+   * Service-account providers implement this. Receives the parsed JSON key
+   * file + optional impersonation email; returns the persisted config blob.
+   * Throw with a user-friendly message if the JSON shape is invalid.
+   */
+  buildServiceAccountConfig?(args: {
+    keyJson: Record<string, unknown>;
+    impersonationEmail?: string;
+  }): Promise<{ config: IntegrationConfig; accountHint: string }>;
 
   /**
    * Cheap read-only health check. Called on demand from the UI and when the

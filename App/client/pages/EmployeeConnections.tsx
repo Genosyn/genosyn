@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   CreditCard,
   Database,
+  Github,
   Mail,
   Plug,
   Trash2,
@@ -38,6 +39,7 @@ const ICONS: Record<string, LucideIcon> = {
   CreditCard,
   BarChart3,
   Database,
+  Github,
   Mail,
   Plug,
 };
