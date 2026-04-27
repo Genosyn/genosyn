@@ -49,6 +49,12 @@ import {
   renameChannel,
 } from "../services/workspaceChat.js";
 import { Note } from "../db/entities/Note.js";
+import { EmployeeNoteGrant } from "../db/entities/EmployeeNoteGrant.js";
+import {
+  hasNoteAccess,
+  listAccessibleNoteIds,
+  upsertNoteGrant,
+} from "../services/notes.js";
 
 /**
  * Internal HTTP surface called by the built-in Genosyn MCP server binary.
@@ -2130,14 +2136,27 @@ mcpInternalRouter.post(
   async (req: McpRequest, res) => {
     const body = req.body as z.infer<typeof listNotesSchema>;
     const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
     const repo = AppDataSource.getRepository(Note);
+
     let parentId: string | null | undefined = undefined;
     if (body.parentSlug) {
       const parent = await repo.findOneBy({ companyId: co.id, slug: body.parentSlug });
       if (!parent) return res.status(404).json({ error: "Parent note not found" });
+      // The employee can only inspect children of a parent they can see.
+      if (!(await hasNoteAccess(self.id, parent.id, "read"))) {
+        return res.status(403).json({ error: "No access to that note" });
+      }
       parentId = parent.id;
     }
-    const where: Record<string, unknown> = { companyId: co.id };
+
+    const accessible = await listAccessibleNoteIds(co.id, self.id);
+    if (accessible.size === 0) return res.json({ notes: [] });
+
+    const where: Record<string, unknown> = {
+      companyId: co.id,
+      id: In([...accessible]),
+    };
     if (parentId !== undefined) where.parentId = parentId;
     if (!body.includeArchived) where.archivedAt = IsNull();
     const notes = await repo.find({
@@ -2160,11 +2179,16 @@ mcpInternalRouter.post(
   async (req: McpRequest, res) => {
     const body = req.body as z.infer<typeof searchNotesSchema>;
     const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const accessible = await listAccessibleNoteIds(co.id, self.id);
+    if (accessible.size === 0) return res.json({ notes: [] });
+
     const term = `%${body.query.replace(/[%_]/g, (c) => "\\" + c)}%`;
     const rows = await AppDataSource.getRepository(Note)
       .createQueryBuilder("n")
       .where("n.companyId = :cid", { cid: co.id })
       .andWhere("n.archivedAt IS NULL")
+      .andWhere("n.id IN (:...ids)", { ids: [...accessible] })
       .andWhere(
         "(n.title LIKE :term ESCAPE '\\' OR n.body LIKE :term ESCAPE '\\')",
         { term },
@@ -2188,11 +2212,15 @@ mcpInternalRouter.post(
   async (req: McpRequest, res) => {
     const body = req.body as z.infer<typeof getNoteSchema>;
     const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
     const note = await AppDataSource.getRepository(Note).findOneBy({
       companyId: co.id,
       slug: body.noteSlug,
     });
     if (!note) return res.status(404).json({ error: "Note not found" });
+    if (!(await hasNoteAccess(self.id, note.id, "read"))) {
+      return res.status(403).json({ error: "No access to that note" });
+    }
     res.json({ note: serializeNote(note) });
   },
 );
@@ -2222,6 +2250,11 @@ mcpInternalRouter.post(
         slug: body.parentSlug,
       });
       if (!parent) return res.status(400).json({ error: "Unknown parent note" });
+      // Creating a child requires write on the parent — the new note will
+      // inherit that access via the cascade so we don't add a fresh grant.
+      if (!(await hasNoteAccess(self.id, parent.id, "write"))) {
+        return res.status(403).json({ error: "Need write access on the parent note" });
+      }
       parentId = parent.id;
     }
 
@@ -2251,6 +2284,13 @@ mcpInternalRouter.post(
       archivedAt: null,
     });
     await repo.save(note);
+
+    // Top-level notes have no ancestor chain to inherit access from, so the
+    // creating AI gets an explicit write grant on its own page. Without
+    // this it would lose visibility on the page it just authored.
+    if (!parentId) {
+      await upsertNoteGrant(self.id, note.id, "write");
+    }
 
     await recordAudit({
       companyId: co.id,
@@ -2293,6 +2333,9 @@ mcpInternalRouter.post(
 
     const note = await repo.findOneBy({ companyId: co.id, slug: body.noteSlug });
     if (!note) return res.status(404).json({ error: "Note not found" });
+    if (!(await hasNoteAccess(self.id, note.id, "write"))) {
+      return res.status(403).json({ error: "No write access on that note" });
+    }
 
     if (body.parentSlug !== undefined) {
       if (body.parentSlug === null) {
@@ -2366,8 +2409,12 @@ mcpInternalRouter.post(
 
     const note = await repo.findOneBy({ companyId: co.id, slug: body.noteSlug });
     if (!note) return res.status(404).json({ error: "Note not found" });
+    if (!(await hasNoteAccess(self.id, note.id, "write"))) {
+      return res.status(403).json({ error: "No write access on that note" });
+    }
 
     await repo.update({ companyId: co.id, parentId: note.id }, { parentId: note.parentId });
+    await AppDataSource.getRepository(EmployeeNoteGrant).delete({ noteId: note.id });
     await repo.delete({ id: note.id });
 
     await recordAudit({

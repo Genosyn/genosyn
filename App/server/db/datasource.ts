@@ -43,6 +43,7 @@ import { PipelineRun } from "./entities/PipelineRun.js";
 import { EmailProvider } from "./entities/EmailProvider.js";
 import { EmailLog } from "./entities/EmailLog.js";
 import { Note } from "./entities/Note.js";
+import { EmployeeNoteGrant } from "./entities/EmployeeNoteGrant.js";
 
 const entities = [
   User,
@@ -84,6 +85,7 @@ const entities = [
   EmailProvider,
   EmailLog,
   Note,
+  EmployeeNoteGrant,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

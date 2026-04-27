@@ -5,9 +5,19 @@ import { AppDataSource } from "../db/datasource.js";
 import { Note } from "../db/entities/Note.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { User } from "../db/entities/User.js";
+import {
+  EmployeeNoteGrant,
+  NoteAccessLevel,
+} from "../db/entities/EmployeeNoteGrant.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
+import {
+  deleteGrantsForNote,
+  listDirectGrants,
+  listInheritedGrants,
+  upsertNoteGrant,
+} from "../services/notes.js";
 
 export const notesRouter = Router({ mergeParams: true });
 notesRouter.use(requireAuth);
@@ -278,6 +288,177 @@ notesRouter.delete("/notes/:noteSlug", async (req, res) => {
   const repo = AppDataSource.getRepository(Note);
   // Re-parent direct children up one level rather than orphaning them.
   await repo.update({ companyId: cid, parentId: note.id }, { parentId: note.parentId });
+  await deleteGrantsForNote(note.id);
   await repo.delete({ id: note.id });
   res.json({ ok: true });
+});
+
+// ----- AI access grants -----
+
+const ACCESS_LEVELS: [NoteAccessLevel, ...NoteAccessLevel[]] = ["read", "write"];
+
+type GrantWithEmployee = EmployeeNoteGrant & {
+  employee: { id: string; name: string; slug: string; role: string; avatarKey: string | null } | null;
+};
+
+/**
+ * Hydrate a batch of grants with the employee's display info so the access
+ * bar can render avatars + names without an extra round-trip per grant.
+ */
+async function hydrateGrants(
+  companyId: string,
+  grants: EmployeeNoteGrant[],
+): Promise<GrantWithEmployee[]> {
+  if (grants.length === 0) return [];
+  const empIds = [...new Set(grants.map((g) => g.employeeId))];
+  const emps = await AppDataSource.getRepository(AIEmployee).find({
+    where: { id: In(empIds), companyId },
+  });
+  const byId = new Map(emps.map((e) => [e.id, e]));
+  return grants.map((g) => {
+    const e = byId.get(g.employeeId);
+    return Object.assign(g, {
+      employee: e
+        ? {
+            id: e.id,
+            name: e.name,
+            slug: e.slug,
+            role: e.role,
+            avatarKey: e.avatarKey ?? null,
+          }
+        : null,
+    });
+  });
+}
+
+/**
+ * Return the access surface for one note: direct grants on this note, plus
+ * inherited grants from any ancestor with a `source` pointer back to the
+ * granting note so the UI can render "inherited from <title>" with a
+ * deep-link.
+ */
+notesRouter.get("/notes/:noteSlug/grants", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const note = await loadNoteBySlug(cid, req.params.noteSlug);
+  if (!note) return res.status(404).json({ error: "Note not found" });
+  const [direct, inherited] = await Promise.all([
+    listDirectGrants(note.id),
+    listInheritedGrants(note.id),
+  ]);
+  // Build a lookup of source-note titles so the UI can show
+  // "inherited from <title>" without an N+1 fetch.
+  const sourceIds = [...new Set(inherited.map((g) => g.sourceNoteId))];
+  const sources = sourceIds.length
+    ? await AppDataSource.getRepository(Note).find({
+        where: { id: In(sourceIds), companyId: cid },
+        select: ["id", "slug", "title"],
+      })
+    : [];
+  const sourceById = new Map(sources.map((s) => [s.id, s]));
+  const [hydratedDirect, hydratedInherited] = await Promise.all([
+    hydrateGrants(cid, direct),
+    hydrateGrants(cid, inherited),
+  ]);
+  res.json({
+    direct: hydratedDirect,
+    inherited: hydratedInherited.map((g) => {
+      const source = sourceById.get(g.noteId);
+      return {
+        ...g,
+        source: source
+          ? { id: source.id, slug: source.slug, title: source.title }
+          : null,
+      };
+    }),
+  });
+});
+
+const createGrantSchema = z.object({
+  employeeId: z.string().uuid(),
+  accessLevel: z.enum(ACCESS_LEVELS).optional(),
+});
+
+notesRouter.post(
+  "/notes/:noteSlug/grants",
+  validateBody(createGrantSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const note = await loadNoteBySlug(cid, req.params.noteSlug);
+    if (!note) return res.status(404).json({ error: "Note not found" });
+    const body = req.body as z.infer<typeof createGrantSchema>;
+    const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
+      id: body.employeeId,
+      companyId: cid,
+    });
+    if (!emp) return res.status(400).json({ error: "Unknown employee" });
+    const grant = await upsertNoteGrant(
+      emp.id,
+      note.id,
+      body.accessLevel ?? "write",
+    );
+    const [hydrated] = await hydrateGrants(cid, [grant]);
+    res.json(hydrated);
+  },
+);
+
+const patchGrantSchema = z.object({
+  accessLevel: z.enum(ACCESS_LEVELS),
+});
+
+notesRouter.patch(
+  "/notes/:noteSlug/grants/:grantId",
+  validateBody(patchGrantSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const note = await loadNoteBySlug(cid, req.params.noteSlug);
+    if (!note) return res.status(404).json({ error: "Note not found" });
+    const repo = AppDataSource.getRepository(EmployeeNoteGrant);
+    const grant = await repo.findOneBy({ id: req.params.grantId, noteId: note.id });
+    if (!grant) return res.status(404).json({ error: "Grant not found" });
+    const body = req.body as z.infer<typeof patchGrantSchema>;
+    grant.accessLevel = body.accessLevel;
+    await repo.save(grant);
+    const [hydrated] = await hydrateGrants(cid, [grant]);
+    res.json(hydrated);
+  },
+);
+
+notesRouter.delete("/notes/:noteSlug/grants/:grantId", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const note = await loadNoteBySlug(cid, req.params.noteSlug);
+  if (!note) return res.status(404).json({ error: "Note not found" });
+  const repo = AppDataSource.getRepository(EmployeeNoteGrant);
+  const grant = await repo.findOneBy({ id: req.params.grantId, noteId: note.id });
+  if (!grant) return res.status(404).json({ error: "Grant not found" });
+  await repo.delete({ id: grant.id });
+  res.json({ ok: true });
+});
+
+/**
+ * Helper for the "+ add access" modal: list AI employees in this company
+ * with a flag for which already have a direct grant on the note. Saves the
+ * client a separate /employees fetch.
+ */
+notesRouter.get("/notes/:noteSlug/grant-candidates", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const note = await loadNoteBySlug(cid, req.params.noteSlug);
+  if (!note) return res.status(404).json({ error: "Note not found" });
+  const [emps, direct] = await Promise.all([
+    AppDataSource.getRepository(AIEmployee).find({
+      where: { companyId: cid },
+      order: { createdAt: "ASC" },
+    }),
+    listDirectGrants(note.id),
+  ]);
+  const grantedSet = new Set(direct.map((g) => g.employeeId));
+  res.json(
+    emps.map((e) => ({
+      id: e.id,
+      name: e.name,
+      slug: e.slug,
+      role: e.role,
+      avatarKey: e.avatarKey ?? null,
+      alreadyGranted: grantedSet.has(e.id),
+    })),
+  );
 });

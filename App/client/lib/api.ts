@@ -846,3 +846,37 @@ export type Note = {
   createdBy: NoteAuthor | null;
   lastEditedBy: NoteAuthor | null;
 };
+
+/** Per-note access an AI employee can hold. Humans always have full access. */
+export type NoteAccessLevel = "read" | "write";
+
+export type NoteGrantEmployee = {
+  id: string;
+  name: string;
+  slug: string;
+  role: string;
+  avatarKey: string | null;
+};
+
+export type NoteGrant = {
+  id: string;
+  employeeId: string;
+  noteId: string;
+  accessLevel: NoteAccessLevel;
+  createdAt: string;
+  employee: NoteGrantEmployee | null;
+};
+
+/** A grant inherited from an ancestor note — read-only on this page. */
+export type InheritedNoteGrant = NoteGrant & {
+  source: { id: string; slug: string; title: string } | null;
+};
+
+export type NoteGrantsResponse = {
+  direct: NoteGrant[];
+  inherited: InheritedNoteGrant[];
+};
+
+export type NoteGrantCandidate = NoteGrantEmployee & {
+  alreadyGranted: boolean;
+};
