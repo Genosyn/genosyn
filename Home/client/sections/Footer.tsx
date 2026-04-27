@@ -79,7 +79,7 @@ export function Footer() {
           </nav>
         </div>
         <p className="mt-6 text-center text-[11px] leading-relaxed text-zinc-400 sm:text-left">
-          Disclaimer: this software is vibecoded. Use at your own risk. Open source and provided without warranty of any kind.
+          Disclaimer: this software is AI generated. Use at your own risk. Open source and provided without warranty of any kind.
         </p>
       </div>
     </footer>
