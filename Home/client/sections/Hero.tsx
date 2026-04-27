@@ -57,7 +57,7 @@ export function Hero() {
           </a>
 
           <h1 className="mt-7 text-balance font-semibold leading-[1.04] tracking-[-0.035em] text-zinc-950 text-[2.75rem] sm:text-[3.5rem] lg:text-[4.25rem]">
-            Run your company with AI employees.
+            Run autonomous companies.
           </h1>
 
           <p className="mt-6 max-w-xl text-balance text-lg leading-[1.6] text-zinc-600">
