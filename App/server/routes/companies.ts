@@ -154,6 +154,9 @@ companiesRouter.post(
       to: email,
       subject: "You're invited to a Genosyn company",
       text: `Accept the invite: ${link}`,
+      companyId: req.params.cid,
+      purpose: "invitation",
+      triggeredByUserId: req.userId ?? null,
     });
     res.json({ id: inv.id, email: inv.email, token: inv.token });
   },

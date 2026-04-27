@@ -16,16 +16,11 @@ import { EmployeeMemory } from "../db/entities/EmployeeMemory.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { streamChatWithEmployee } from "../services/chat.js";
-import {
-  buildTree,
-  readWorkspaceFile,
-  writeWorkspaceFile,
-} from "../services/workspace.js";
 
 /**
- * Chat + workspace endpoints. Split from `employees.ts` to keep the employee
- * CRUD file focused — these two surfaces reach into the runner seam and the
- * filesystem respectively, which is a different concern from DB bookkeeping.
+ * Chat + per-employee surface endpoints. Split from `employees.ts` to keep
+ * the employee CRUD file focused — these reach into the runner seam (chat
+ * streaming) and the journal/memory tables.
  */
 export const employeeSurfaceRouter = Router({ mergeParams: true });
 employeeSurfaceRouter.use(requireAuth);
@@ -403,45 +398,6 @@ employeeSurfaceRouter.post(
         next(e);
       }
     }
-  },
-);
-
-// ---------- Workspace ----------
-
-employeeSurfaceRouter.get("/:eid/workspace/tree", async (req, res) => {
-  const { cid, eid } = req.params as Record<string, string>;
-  const loaded = await loadEmpAndCompany(cid, eid);
-  if (!loaded) return res.status(404).json({ error: "Not found" });
-  res.json(buildTree(loaded.co.slug, loaded.emp.slug));
-});
-
-employeeSurfaceRouter.get("/:eid/workspace/file", async (req, res) => {
-  const { cid, eid } = req.params as Record<string, string>;
-  const rel = typeof req.query.path === "string" ? req.query.path : "";
-  if (!rel) return res.status(400).json({ error: "Missing path" });
-  const loaded = await loadEmpAndCompany(cid, eid);
-  if (!loaded) return res.status(404).json({ error: "Not found" });
-  const file = readWorkspaceFile(loaded.co.slug, loaded.emp.slug, rel);
-  if (file === null) return res.status(400).json({ error: "Invalid path" });
-  res.json(file);
-});
-
-const writeSchema = z.object({
-  path: z.string().min(1).max(1024),
-  content: z.string(),
-});
-
-employeeSurfaceRouter.put(
-  "/:eid/workspace/file",
-  validateBody(writeSchema),
-  async (req, res) => {
-    const { cid, eid } = req.params as Record<string, string>;
-    const body = req.body as z.infer<typeof writeSchema>;
-    const loaded = await loadEmpAndCompany(cid, eid);
-    if (!loaded) return res.status(404).json({ error: "Not found" });
-    const result = writeWorkspaceFile(loaded.co.slug, loaded.emp.slug, body.path, body.content);
-    if ("error" in result) return res.status(400).json({ error: result.error });
-    res.json({ ok: true });
   },
 );
 

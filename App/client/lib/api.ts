@@ -441,10 +441,6 @@ export type BackupSchedule = {
   updatedAt: string;
 };
 
-export type WorkspaceNode =
-  | { type: "dir"; name: string; path: string; children: WorkspaceNode[] }
-  | { type: "file"; name: string; path: string; size: number };
-
 export type TodoStatus =
   | "backlog"
   | "todo"
@@ -528,11 +524,6 @@ export type TodoComment = {
   updatedAt: string;
   author: TodoCommentAuthor | null;
 };
-
-export type WorkspaceFile =
-  | { type: "text"; path: string; size: number; content: string }
-  | { type: "binary"; path: string; size: number; reason: string }
-  | { type: "missing"; path: string };
 
 // ───────────────────────── Bases (Airtable-style) ───────────────────────────
 
@@ -648,4 +639,97 @@ export type BaseGrant = {
     slug: string;
     role: string;
   } | null;
+};
+
+// ───────────────────────── Pipelines (n8n-style automation) ──────────────────
+
+export type PipelineNodeFamily = "trigger" | "action" | "logic" | "integration";
+export type PipelineNodeFieldType =
+  | "text"
+  | "longtext"
+  | "number"
+  | "boolean"
+  | "select"
+  | "code";
+
+export type PipelineNodeField = {
+  key: string;
+  label: string;
+  type: PipelineNodeFieldType;
+  options?: { value: string; label: string }[];
+  placeholder?: string;
+  hint?: string;
+  required?: boolean;
+  default?: unknown;
+};
+
+export type PipelineNodeCatalogEntry = {
+  type: string;
+  family: PipelineNodeFamily;
+  label: string;
+  icon: string;
+  description: string;
+  fields: PipelineNodeField[];
+  outputs?: string[];
+};
+
+export type PipelineNode = {
+  id: string;
+  type: string;
+  label?: string;
+  x: number;
+  y: number;
+  config: Record<string, unknown>;
+};
+
+export type PipelineEdge = {
+  id: string;
+  fromNodeId: string;
+  toNodeId: string;
+  fromHandle?: string;
+};
+
+export type PipelineGraph = {
+  nodes: PipelineNode[];
+  edges: PipelineEdge[];
+};
+
+export type Pipeline = {
+  id: string;
+  companyId: string;
+  name: string;
+  slug: string;
+  description: string;
+  enabled: boolean;
+  graph: PipelineGraph;
+  cronExpr: string | null;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PipelineRunStatus =
+  | "running"
+  | "completed"
+  | "failed"
+  | "skipped";
+export type PipelineTriggerKind = "manual" | "schedule" | "webhook";
+
+export type PipelineRunSummary = {
+  id: string;
+  pipelineId: string;
+  startedAt: string;
+  finishedAt: string | null;
+  status: PipelineRunStatus;
+  triggerKind: PipelineTriggerKind;
+  triggerNodeId: string | null;
+  errorMessage: string | null;
+};
+
+export type PipelineRunDetail = PipelineRunSummary & {
+  inputJson: string;
+  outputJson: string;
+  logContent: string;
+  truncated: boolean;
 };

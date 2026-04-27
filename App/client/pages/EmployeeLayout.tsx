@@ -5,7 +5,6 @@ import {
   BookText,
   Brain,
   Calendar,
-  FolderTree,
   MessageSquare,
   Plug,
   PlugZap,
@@ -24,14 +23,13 @@ import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 /**
  * Sidebar + layout for a single selected employee. The sidebar switches from
  * the employee-list view to the employee's own sub-navigation:
- *   Chat · Workspace · Soul · Skills · Routines · Settings
+ *   Chat · Skills · Routines · Journal · Memory · Connections · MCP · Settings
  *
  * Child routes read the loaded `Employee` via Outlet context so they don't
  * each re-fetch on mount.
  */
 const EMP_TAB_LABEL: Record<string, string> = {
   chat: "Chat",
-  workspace: "Workspace",
   skills: "Skills",
   routines: "Routines",
   journal: "Journal",
@@ -118,7 +116,6 @@ export default function EmployeeLayout({ company }: { company: Company }) {
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
         <SidebarLink to={`${base}/chat`} icon={<MessageSquare size={14} />} label="Chat" />
-        <SidebarLink to={`${base}/workspace`} icon={<FolderTree size={14} />} label="Workspace" />
         <SidebarLink to={`${base}/skills`} icon={<Wrench size={14} />} label="Skills" />
         <SidebarLink to={`${base}/routines`} icon={<Calendar size={14} />} label="Routines" />
         <SidebarLink to={`${base}/journal`} icon={<BookText size={14} />} label="Journal" />

@@ -17,7 +17,6 @@ import EmployeesIndex from "./pages/EmployeesIndex";
 import EmployeeLayout from "./pages/EmployeeLayout";
 import EmployeeNew from "./pages/EmployeeNew";
 import EmployeeChat from "./pages/EmployeeChat";
-import EmployeeWorkspace from "./pages/EmployeeWorkspace";
 import {
   GeneralSettingsPage,
   ModelSettingsPage,
@@ -53,6 +52,10 @@ import BasesIndex from "./pages/BasesIndex";
 import BaseNew from "./pages/BaseNew";
 import BaseDetail from "./pages/BaseDetail";
 import Workspace from "./pages/Workspace";
+import PipelinesLayout from "./pages/PipelinesLayout";
+import PipelinesIndex from "./pages/PipelinesIndex";
+import PipelineNew from "./pages/PipelineNew";
+import PipelineDetail from "./pages/PipelineDetail";
 
 type AuthState =
   | { status: "loading" }
@@ -168,7 +171,6 @@ function CompanyRoutes({
         >
           <Route index element={<Navigate to="chat" replace />} />
           <Route path="chat" element={<EmployeeChat />} />
-          <Route path="workspace" element={<EmployeeWorkspace />} />
           <Route path="skills" element={<SkillsPage />} />
           <Route path="routines" element={<RoutinesPage />} />
           <Route path="journal" element={<JournalPage />} />
@@ -200,6 +202,13 @@ function CompanyRoutes({
             path=":baseSlug/:tableSlug"
             element={<BaseDetail company={company} />}
           />
+        </Route>
+
+        {/* Pipelines (M10) — n8n-style visual automation, separate from Routines. */}
+        <Route path="pipelines" element={<PipelinesLayout company={company} />}>
+          <Route index element={<PipelinesIndex company={company} />} />
+          <Route path="new" element={<PipelineNew company={company} />} />
+          <Route path=":pSlug" element={<PipelineDetail company={company} />} />
         </Route>
 
         <Route path="approvals" element={<Approvals company={company} />} />

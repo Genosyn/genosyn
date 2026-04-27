@@ -45,6 +45,8 @@ authRouter.post("/signup", validateBody(signupSchema), async (req, res) => {
     to: user.email,
     subject: "Welcome to Genosyn",
     text: `Welcome aboard, ${user.name}. Genosyn is ready when you are.`,
+    purpose: "welcome",
+    triggeredByUserId: user.id,
   });
   res.json({ id: user.id, email: user.email, name: user.name });
 });
@@ -84,6 +86,8 @@ authRouter.post("/forgot", validateBody(forgotSchema), async (req, res) => {
       to: user.email,
       subject: "Reset your Genosyn password",
       text: `Reset link (valid 1 hour): ${link}`,
+      purpose: "password_reset",
+      triggeredByUserId: user.id,
     });
   }
   res.json({ ok: true });

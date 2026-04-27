@@ -97,8 +97,11 @@ Do not use "Task" for scheduled AI work, ever.
   Do **not** introduce Next.js, Remix, Redux, MUI, Chakra, shadcn-as-a-dep
   (copying a few primitives is fine), or CSS-in-JS.
 - **Auth:** bcrypt + `cookie-session`. No JWT libraries, no Auth0/Clerk.
-- **Email:** `nodemailer` with SMTP from `config.ts`. Console fallback when
-  SMTP host is empty.
+- **Email:** per-company `EmailProvider` rows pick the transport (SMTP via
+  `nodemailer`, or SendGrid / Mailgun / Resend / Postmark via REST). Falls
+  back to the global SMTP block in `config.ts` for system-level sends, then
+  to the console. Every send appends an `EmailLog` row visible at
+  Settings → Email Logs.
 - **Cron:** `node-cron`.
 - **Validation:** `zod` at the API boundary.
 - **No Next.js.** Listed twice because agents keep reaching for it.

@@ -6,6 +6,8 @@ import { Approval } from "../db/entities/Approval.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { runRoutine } from "../services/runner.js";
 import { recordAudit } from "../services/audit.js";
+import { findPipelineByWebhook } from "../services/pipelines/index.js";
+import { runPipeline } from "../services/pipelines/executor.js";
 
 /**
  * Unauthenticated trigger surface. The URL itself is the credential — each
@@ -82,6 +84,40 @@ webhooksRouter.post("/r/:routineId/:token", async (req, res) => {
   runRoutine(routine).catch((err) => {
     // eslint-disable-next-line no-console
     console.error(`[webhook] routine ${routine.id} failed:`, err);
+  });
+  res.json({ status: "accepted" });
+});
+
+/**
+ * Pipeline webhook trigger. Each Webhook trigger node in a pipeline carries
+ * its own random token; the URL is the only credential. The request body is
+ * exposed to the rest of the pipeline as `trigger.payload`.
+ */
+webhooksRouter.post("/pipelines/:pipelineId/:token", async (req, res) => {
+  const { pipelineId, token } = req.params;
+  const found = await findPipelineByWebhook(pipelineId, token);
+  if (!found) return res.status(404).json({ error: "Not found" });
+  const { pipeline, nodeId } = found;
+
+  await recordAudit({
+    companyId: pipeline.companyId,
+    actorKind: "webhook",
+    action: "pipeline.run.webhook",
+    targetType: "pipeline",
+    targetId: pipeline.id,
+    targetLabel: pipeline.name,
+    metadata: { nodeId },
+  });
+
+  // Fire-and-forget so external systems get a fast 202.
+  runPipeline({
+    pipeline,
+    triggerKind: "webhook",
+    triggerNodeId: nodeId,
+    payload: req.body ?? {},
+  }).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error(`[webhook] pipeline ${pipeline.id} failed:`, err);
   });
   res.json({ status: "accepted" });
 });
