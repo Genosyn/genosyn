@@ -83,6 +83,15 @@ export default function Workspace({ company, me }: WorkspaceProps) {
   const [showNewDM, setShowNewDM] = React.useState(false);
 
   const socketRef = React.useRef<WorkspaceSocket | null>(null);
+  // Mirrors activeChannelId so the long-lived WS handler reads the latest
+  // value instead of the one captured when the socket was opened. Without
+  // this, a message arriving in the channel the user is currently viewing
+  // would still bump unreadCount because the closure saw activeChannelId
+  // as null/stale.
+  const activeChannelIdRef = React.useRef<string | null>(activeChannelId);
+  React.useEffect(() => {
+    activeChannelIdRef.current = activeChannelId;
+  }, [activeChannelId]);
 
   // ──────────────── Initial load + realtime wiring ─────────────────────
 
@@ -130,15 +139,15 @@ export default function Workspace({ company, me }: WorkspaceProps) {
           if (cur.some((m) => m.id === ev.message.id)) return prev;
           return { ...prev, [ev.channelId]: [...cur, ev.message] };
         });
+        const isActiveChannel = ev.channelId === activeChannelIdRef.current;
         setChannels((prev) => {
           if (!prev) return prev;
           return prev.map((c) => {
             if (c.id !== ev.channelId) return c;
-            const isActive = ev.channelId === activeChannelId;
             const unreadDelta =
               ev.message.author?.kind === "user" && ev.message.author.id === me.id
                 ? 0
-                : isActive
+                : isActiveChannel
                   ? 0
                   : 1;
             return {
@@ -148,6 +157,11 @@ export default function Workspace({ company, me }: WorkspaceProps) {
             };
           });
         });
+        // If the message landed in the channel the user is viewing, push
+        // lastReadAt forward server-side so a reload doesn't re-surface it.
+        if (isActiveChannel) {
+          workspaceApi.markRead(company.id, ev.channelId).catch(() => {});
+        }
         // Clear the typing pill for the author — their message just landed.
         const author = ev.message.author;
         if (author && author.kind !== "system") {
@@ -301,13 +315,20 @@ export default function Workspace({ company, me }: WorkspaceProps) {
     })();
   }, [activeChannelId, company.id, messages, toast]);
 
+  // Mark the active channel read whenever it changes, AND once the channel
+  // list finishes loading (depending on `channelsLoaded`). Without the
+  // load-time trigger, navigating directly to /workspace/:channelId left a
+  // stale unread badge: the optimistic local clear ran before `channels`
+  // existed, then the listChannels response arrived with the server-side
+  // unreadCount and re-painted the badge.
+  const channelsLoaded = channels !== null;
   React.useEffect(() => {
-    if (!activeChannelId) return;
+    if (!activeChannelId || !channelsLoaded) return;
     workspaceApi.markRead(company.id, activeChannelId).catch(() => {});
     setChannels((prev) =>
       prev ? prev.map((c) => (c.id === activeChannelId ? { ...c, unreadCount: 0 } : c)) : prev,
     );
-  }, [activeChannelId, company.id]);
+  }, [activeChannelId, company.id, channelsLoaded]);
 
   // Sweep expired typing entries every second so pills fade out when a
   // typer stops sending the event. Runs on the outer component to keep one
