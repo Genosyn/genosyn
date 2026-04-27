@@ -13,10 +13,53 @@ html {
 
 html,
 body {
-  @apply bg-white text-slate-900 antialiased;
-  font-feature-settings: "cv11", "ss01", "ss03";
+  @apply bg-bone-page text-ink antialiased;
+  font-feature-settings: "cv11", "ss01", "ss03", "calt", "ss04";
 }
 
 body {
   @apply font-sans;
+}
+
+::selection {
+  background-color: #0e0d0c;
+  color: #f7f3ec;
+}
+
+.serif-italic {
+  font-family: "Instrument Serif", ui-serif, Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+.rule-thick {
+  border-top: 1.5px solid #0e0d0c;
+}
+
+.dotted-rule {
+  background-image: linear-gradient(to right, #0e0d0c 1px, transparent 1px);
+  background-size: 8px 1px;
+  background-repeat: repeat-x;
+  background-position: 0 50%;
+  height: 1px;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums slashed-zero;
+}
+
+@keyframes blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.animate-blink {
+  animation: blink 1.1s steps(2) infinite;
 }

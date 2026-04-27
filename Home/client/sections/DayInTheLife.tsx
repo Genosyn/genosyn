@@ -1,166 +1,166 @@
-import { CheckCircle2, Clock, Loader2 } from "lucide-react";
-
-type TimelineEntry = {
-  time: string;
-  employee: string;
-  initials: string;
-  accent: string;
+type Entry = {
+  ts: string;
+  who: string;
   routine: string;
   output: string;
-  status: "done" | "running" | "scheduled";
+  status: "shipped" | "running" | "queued";
 };
 
-const TIMELINE: TimelineEntry[] = [
+const ENTRIES: Entry[] = [
   {
-    time: "07:00",
-    employee: "Mira Finance",
-    initials: "MF",
-    accent: "bg-emerald-100 text-emerald-700",
-    routine: "Daily bookkeeping",
-    output: "Reconciled 42 Stripe charges · 0 anomalies",
-    status: "done",
+    ts: "06:59:58",
+    who: "mira-finance",
+    routine: "close-the-books",
+    output: "wake. last run +24h",
+    status: "shipped",
   },
   {
-    time: "08:30",
-    employee: "Alex Brand",
-    initials: "AB",
-    accent: "bg-indigo-100 text-indigo-700",
-    routine: "Morning brief",
-    output: "Drafted 3 talking points from overnight news",
-    status: "done",
+    ts: "07:00:14",
+    who: "mira-finance",
+    routine: "close-the-books",
+    output: "stripe → 42 charges, 0 anomalies, $18,420.00 settled",
+    status: "shipped",
   },
   {
-    time: "10:17",
-    employee: "Sam SRE",
-    initials: "SS",
-    accent: "bg-amber-100 text-amber-700",
-    routine: "Alert triage",
-    output: "Paged #oncall · elevated p99 on /checkout",
+    ts: "08:30:01",
+    who: "alex-brand",
+    routine: "morning-brief",
+    output: "wake. routine triggered by cron 30 8 * * 1-5",
+    status: "shipped",
+  },
+  {
+    ts: "08:31:47",
+    who: "alex-brand",
+    routine: "morning-brief",
+    output: "drafted 3 talking points → docs/brief-2026-04-28.md",
+    status: "shipped",
+  },
+  {
+    ts: "10:17:22",
+    who: "sam-sre",
+    routine: "watch-p99",
+    output: "alert: p99 /checkout 940ms (threshold 600ms)",
     status: "running",
   },
   {
-    time: "14:00",
-    employee: "Alex Brand",
-    initials: "AB",
-    accent: "bg-indigo-100 text-indigo-700",
-    routine: "Docs freshness pass",
-    output: "Queued · waiting on slot",
-    status: "scheduled",
+    ts: "10:17:23",
+    who: "sam-sre",
+    routine: "watch-p99",
+    output: "paged #oncall · attaching trace abc123…",
+    status: "running",
   },
   {
-    time: "17:00",
-    employee: "Alex Brand",
-    initials: "AB",
-    accent: "bg-indigo-100 text-indigo-700",
-    routine: "Friday weekly report",
-    output: "Scheduled · fires on Friday",
-    status: "scheduled",
+    ts: "14:00:00",
+    who: "alex-brand",
+    routine: "docs-freshness",
+    output: "queued · waiting on slot",
+    status: "queued",
+  },
+  {
+    ts: "17:00:00",
+    who: "alex-brand",
+    routine: "weekly-digest",
+    output: "scheduled · fires friday 17:00",
+    status: "queued",
   },
 ];
 
 export function DayInTheLife() {
   return (
-    <section
-      id="day-in-the-life"
-      className="relative border-t border-slate-200 bg-slate-50/60"
-    >
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,theme(colors.slate.200/35)_1px,transparent_1px)] bg-[size:48px_100%] [mask-image:linear-gradient(to_bottom,transparent,black_20%,black_80%,transparent)]"
-      />
-      <div className="relative mx-auto max-w-6xl px-6 py-20 sm:py-24">
-        <div className="mx-auto max-w-2xl text-center">
-          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
-            <Clock className="h-3.5 w-3.5 text-indigo-500" />
-            A typical Tuesday
+    <section id="day" className="border-b border-ink bg-bone">
+      <div className="mx-auto max-w-[1200px] px-6 pt-20 pb-20 sm:pb-24">
+        <div className="grid items-end gap-10 md:grid-cols-[minmax(0,1fr)_minmax(0,2.4fr)]">
+          <div className="flex items-baseline gap-4 font-mono text-[11px] uppercase tracking-[0.22em] text-ink-soft">
+            <span className="text-ink">§ 02</span>
+            <span className="text-ink-mute">/</span>
+            <span>a typical tuesday</span>
           </div>
-          <h2 className="mt-5 text-balance text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">
-            Scheduled, not chatty.
-          </h2>
-          <p className="mt-4 text-base leading-relaxed text-slate-600">
-            Your roster works on crons. You see what ran, what shipped, what is
-            queued. No Slack noise. No &ldquo;just checking in.&rdquo;
-          </p>
+          <div>
+            <h2 className="text-[clamp(2rem,4.4vw,3.5rem)] font-medium leading-[1] tracking-[-0.025em] text-ink">
+              Scheduled, not chatty.
+              <br />
+              <span className="serif-italic text-accent">Quiet until something needs you.</span>
+            </h2>
+            <p className="mt-6 max-w-2xl text-lg leading-[1.55] text-ink-soft">
+              Your roster works on crons. You see what ran, what shipped, what is
+              queued. Open the log when you want to know what happened. Close it
+              when you don&apos;t.
+            </p>
+          </div>
         </div>
 
-        <div className="mx-auto mt-14 max-w-3xl">
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3 text-xs text-slate-500">
-              <div className="flex items-center gap-2 font-medium">
-                <span className="flex h-2 w-2 rounded-full bg-emerald-500" />
-                Live · 3 employees on duty
-              </div>
-              <div className="font-mono text-[11px]">tue · apr 23</div>
+        <figure className="mt-12">
+          <figcaption className="flex flex-wrap items-center justify-between gap-3 border-b border-ink pb-2 font-mono text-[10px] uppercase tracking-[0.22em] text-ink-soft">
+            <div className="flex items-center gap-3">
+              <span className="text-ink">$ tail -f data/runs/today.log</span>
+              <span aria-hidden className="text-ink-mute">·</span>
+              <span>tue · apr 28 · 2026</span>
             </div>
-            <ol className="divide-y divide-slate-100">
-              {TIMELINE.map((entry) => (
-                <TimelineRow key={`${entry.time}-${entry.routine}`} entry={entry} />
-              ))}
-            </ol>
+            <div className="flex items-center gap-2 text-accent">
+              <span className="block h-1.5 w-1.5 rounded-full bg-accent" />
+              <span>3 employees on duty</span>
+            </div>
+          </figcaption>
+
+          <div className="border border-ink bg-ink/95 font-mono text-[12.5px] text-bone-card">
+            <div className="hidden grid-cols-[100px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,2.5fr)_70px] gap-3 border-b border-bone-card/15 px-5 py-2 text-[10px] uppercase tracking-[0.18em] text-bone-card/55 md:grid">
+              <span>time</span>
+              <span>employee</span>
+              <span>routine</span>
+              <span>line</span>
+              <span className="text-right">state</span>
+            </div>
+            {ENTRIES.map((e, i) => (
+              <Row key={i} entry={e} last={i === ENTRIES.length - 1} />
+            ))}
+            <div className="flex items-center gap-2 border-t border-bone-card/10 px-5 py-3 text-bone-card/55">
+              <span className="tabular">17:00:01</span>
+              <span aria-hidden>·</span>
+              <span className="opacity-75">…tail -f</span>
+              <span aria-hidden className="animate-blink inline-block h-3 w-1.5 translate-y-[1px] bg-accent" />
+            </div>
           </div>
-        </div>
+        </figure>
       </div>
     </section>
   );
 }
 
-function TimelineRow({ entry }: { entry: TimelineEntry }) {
+function Row({ entry, last }: { entry: Entry; last: boolean }) {
+  const stateColor =
+    entry.status === "shipped"
+      ? "text-emerald-300"
+      : entry.status === "running"
+      ? "text-amber-200"
+      : "text-bone-card/55";
+  const lineColor =
+    entry.status === "queued" ? "text-bone-card/55" : "text-bone-card";
   return (
-    <li className="flex items-start gap-3 px-4 py-4 sm:grid sm:grid-cols-[5.5rem_minmax(0,1fr)_auto] sm:items-center sm:gap-4 sm:px-6">
-      <div className="w-14 shrink-0 pt-1 font-mono text-sm tabular-nums text-slate-500 sm:w-auto sm:pt-0">
-        {entry.time}
-      </div>
-
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        <div
-          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-semibold ${entry.accent}`}
-        >
-          {entry.initials}
+    <div
+      className={`grid grid-cols-[80px_minmax(0,1fr)] gap-3 px-5 py-2 md:grid-cols-[100px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,2.5fr)_70px] ${
+        last ? "" : "border-b border-bone-card/10"
+      }`}
+    >
+      <span className="tabular text-bone-card/45">{entry.ts}</span>
+      <div className="flex flex-col gap-0.5 md:hidden">
+        <div className="flex items-center gap-2">
+          <span className="text-bone-card/85">{entry.who}</span>
+          <span aria-hidden className="text-bone-card/30">·</span>
+          <span className="text-accent">{entry.routine}</span>
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline gap-x-2">
-            <div className="truncate text-sm font-semibold text-slate-900">
-              {entry.employee}
-            </div>
-            <div className="truncate text-xs text-slate-500">{entry.routine}</div>
-          </div>
-          <div className="mt-0.5 line-clamp-2 text-xs text-slate-500 sm:truncate">
-            {entry.output}
-          </div>
-          <div className="mt-2 sm:hidden">
-            <StatusPill status={entry.status} />
-          </div>
+        <div className={`${lineColor} truncate`}>{entry.output}</div>
+        <div className={`text-[10px] uppercase tracking-[0.16em] ${stateColor}`}>
+          {entry.status}
         </div>
       </div>
-
-      <div className="hidden sm:block">
-        <StatusPill status={entry.status} />
-      </div>
-    </li>
-  );
-}
-
-function StatusPill({ status }: { status: TimelineEntry["status"] }) {
-  if (status === "done") {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 ring-1 ring-emerald-200">
-        <CheckCircle2 className="h-3 w-3" />
-        Shipped
+      <span className="hidden truncate text-bone-card/85 md:inline">{entry.who}</span>
+      <span className="hidden truncate text-accent md:inline">{entry.routine}</span>
+      <span className={`hidden truncate md:inline ${lineColor}`}>{entry.output}</span>
+      <span
+        className={`hidden text-right text-[10px] uppercase tracking-[0.18em] md:inline ${stateColor}`}
+      >
+        {entry.status}
       </span>
-    );
-  }
-  if (status === "running") {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700 ring-1 ring-amber-200">
-        <Loader2 className="h-3 w-3 animate-spin" />
-        Running
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-600 ring-1 ring-slate-200">
-      <Clock className="h-3 w-3" />
-      Queued
-    </span>
+    </div>
   );
 }

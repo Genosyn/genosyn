@@ -1,50 +1,46 @@
-import { Github } from "lucide-react";
 import { GITHUB_URL } from "@/lib/constants";
 import { Logo } from "@/components/Logo";
 
 const LINKS = [
-  { href: "#primitives", label: "Primitives" },
-  { href: "#day-in-the-life", label: "A day" },
-  { href: "#platform", label: "Platform" },
-  { href: "#quickstart", label: "Quickstart" },
-  { href: "#cli", label: "CLI" },
+  { href: "#primitives", label: "primitives" },
+  { href: "#day", label: "tuesday" },
+  { href: "#platform", label: "platform" },
+  { href: "#quickstart", label: "install" },
+  { href: "#cli", label: "cli" },
+  { href: "#house-rules", label: "rules" },
 ];
 
 export function Nav() {
   return (
-    <header className="sticky top-0 z-40 border-b border-slate-200/70 bg-white/75 backdrop-blur">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-6 px-6">
-        <a href="/" className="flex items-center text-slate-900" aria-label="Genosyn">
-          <Logo className="h-7 w-auto" />
+    <header className="sticky top-0 z-40 border-b border-ink bg-bone-page">
+      <div className="mx-auto flex h-14 max-w-[1200px] items-center justify-between gap-6 px-6">
+        <a href="/" className="flex items-center text-ink" aria-label="Genosyn">
+          <Logo className="h-6 w-auto" />
         </a>
 
-        <nav className="hidden items-center gap-6 md:flex">
+        <nav className="hidden items-center gap-7 font-mono text-[11px] uppercase tracking-[0.18em] text-ink-soft md:flex">
           {LINKS.map((l) => (
-            <a
-              key={l.href}
-              href={l.href}
-              className="text-sm font-medium text-slate-600 transition hover:text-slate-900"
-            >
+            <a key={l.href} href={l.href} className="hover:text-accent">
               {l.label}
             </a>
           ))}
         </nav>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.18em]">
           <a
             href={GITHUB_URL}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:text-slate-900"
+            className="hidden text-ink-soft hover:text-accent sm:inline"
           >
-            <Github className="h-4 w-4" />
-            <span className="hidden sm:inline">GitHub</span>
+            github
           </a>
           <a
             href="#quickstart"
-            className="hidden items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 sm:inline-flex"
+            className="inline-flex items-center gap-2 border border-ink bg-ink px-3 py-1.5 text-[10px] text-bone-page hover:bg-accent hover:border-accent"
           >
-            Get started
+            install
+            <span aria-hidden>↘</span>
           </a>
         </div>
       </div>
