@@ -12,6 +12,7 @@ import {
   getConnection,
   grantAccess,
   listConnections,
+  listGrantsForConnection,
   listGrantsForEmployee,
   refreshConnectionStatus,
   revokeAccess,
@@ -31,6 +32,7 @@ import { recordAudit } from "../services/audit.js";
  *   POST /connections/:connId/check             — refresh status
  *   DELETE /connections/:connId                 — remove connection + grants
  *   POST /oauth/start                           — begin OAuth handshake
+ *   GET  /connections/:connId/grants            — list employees granted on a connection
  *   GET  /employees/:eid/grants                 — list an employee's grants
  *   POST /employees/:eid/grants                 — grant connection to employee
  *   DELETE /employees/:eid/grants/:connId       — revoke grant
@@ -224,6 +226,30 @@ async function loadEmployee(companyId: string, eid: string) {
     companyId,
   });
 }
+
+integrationsRouter.get("/connections/:connId/grants", async (req, res) => {
+  const { cid, connId } = req.params as Record<string, string>;
+  const conn = await getConnection(cid, connId);
+  if (!conn) return res.status(404).json({ error: "Connection not found" });
+  const rows = await listGrantsForConnection(conn.id);
+  res.json(
+    rows
+      .filter((r) => r.employee.companyId === cid)
+      .map((r) => ({
+        id: r.id,
+        employeeId: r.employeeId,
+        connectionId: r.connectionId,
+        createdAt: r.createdAt.toISOString(),
+        employee: {
+          id: r.employee.id,
+          name: r.employee.name,
+          slug: r.employee.slug,
+          role: r.employee.role,
+          avatarKey: r.employee.avatarKey,
+        },
+      })),
+  );
+});
 
 integrationsRouter.get("/employees/:eid/grants", async (req, res) => {
   const { cid, eid } = req.params as Record<string, string>;

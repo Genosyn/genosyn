@@ -386,6 +386,25 @@ export type ConnectionGrant = {
   connection: IntegrationConnection;
 };
 
+/**
+ * Inverse shape of `ConnectionGrant`. Returned by the per-connection grants
+ * endpoint so the Settings → Integrations page can show which employees
+ * already have access without a second roundtrip per row.
+ */
+export type ConnectionGrantWithEmployee = {
+  id: string;
+  employeeId: string;
+  connectionId: string;
+  createdAt: string;
+  employee: {
+    id: string;
+    name: string;
+    slug: string;
+    role: string;
+    avatarKey: string | null;
+  };
+};
+
 export type Secret = {
   id: string;
   companyId: string;

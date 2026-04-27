@@ -1,8 +1,9 @@
 import React from "react";
-import { useOutletContext } from "react-router-dom";
+import { Link, useOutletContext } from "react-router-dom";
 import {
   AlertCircle,
   BarChart3,
+  Check,
   CheckCircle2,
   CreditCard,
   Database,
@@ -11,15 +12,19 @@ import {
   Plug,
   RefreshCw,
   Trash2,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 import {
   api,
   Company,
+  ConnectionGrantWithEmployee,
+  Employee,
   IntegrationCatalogEntry,
   IntegrationCatalogField,
   IntegrationConnection,
 } from "../lib/api";
+import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
@@ -65,6 +70,7 @@ export function SettingsIntegrations() {
   const [addingApiKey, setAddingApiKey] = React.useState<IntegrationCatalogEntry | null>(null);
   const [addingGoogle, setAddingGoogle] = React.useState<IntegrationCatalogEntry | null>(null);
   const [refreshingId, setRefreshingId] = React.useState<string | null>(null);
+  const [managing, setManaging] = React.useState<IntegrationConnection | null>(null);
 
   const reload = React.useCallback(async () => {
     try {
@@ -215,6 +221,14 @@ export function SettingsIntegrations() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          onClick={() => setManaging(c)}
+                          title="Manage employee access"
+                        >
+                          <Users size={12} /> Access
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => refreshStatus(c)}
                           disabled={refreshingId === c.id}
                           title="Check status"
@@ -228,6 +242,7 @@ export function SettingsIntegrations() {
                           variant="ghost"
                           size="sm"
                           onClick={() => removeConnection(c)}
+                          title="Disconnect"
                         >
                           <Trash2 size={12} />
                         </Button>
@@ -311,12 +326,239 @@ export function SettingsIntegrations() {
           await reload();
         }}
       />
+      <ManageAccessModal
+        open={managing !== null}
+        connection={managing}
+        company={company}
+        catalog={catalog ?? []}
+        onClose={() => setManaging(null)}
+      />
     </>
   );
 }
 
 function defaultLabel(entry: IntegrationCatalogEntry): string {
   return entry.name;
+}
+
+/**
+ * Per-connection grant manager. Shows every AI employee in the company and
+ * lets the user toggle access on/off without leaving the Integrations page.
+ * Mirrors the per-employee `EmployeeConnections` flow with the axes flipped.
+ */
+function ManageAccessModal({
+  open,
+  connection,
+  company,
+  catalog,
+  onClose,
+}: {
+  open: boolean;
+  connection: IntegrationConnection | null;
+  company: Company;
+  catalog: IntegrationCatalogEntry[];
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [employees, setEmployees] = React.useState<Employee[] | null>(null);
+  const [grants, setGrants] = React.useState<ConnectionGrantWithEmployee[] | null>(null);
+  const [busyId, setBusyId] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!open || !connection) return;
+    let cancelled = false;
+    setEmployees(null);
+    setGrants(null);
+    (async () => {
+      try {
+        const [emps, gs] = await Promise.all([
+          api.get<Employee[]>(`/api/companies/${company.id}/employees`),
+          api.get<ConnectionGrantWithEmployee[]>(
+            `/api/companies/${company.id}/integrations/connections/${connection.id}/grants`,
+          ),
+        ]);
+        if (cancelled) return;
+        setEmployees(emps);
+        setGrants(gs);
+      } catch (err) {
+        if (cancelled) return;
+        toast((err as Error).message, "error");
+        setEmployees([]);
+        setGrants([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, connection, company.id, toast]);
+
+  const grantedIds = React.useMemo(
+    () => new Set((grants ?? []).map((g) => g.employeeId)),
+    [grants],
+  );
+
+  async function grant(emp: Employee) {
+    if (!connection) return;
+    setBusyId(emp.id);
+    try {
+      const created = await api.post<ConnectionGrantWithEmployee>(
+        `/api/companies/${company.id}/integrations/employees/${emp.id}/grants`,
+        { connectionId: connection.id },
+      );
+      // The /employees/:eid/grants response embeds `connection`, not
+      // `employee` — synthesize the employee shape locally so the row
+      // updates without a refetch.
+      setGrants((prev) => [
+        ...(prev ?? []),
+        {
+          id: created.id,
+          employeeId: emp.id,
+          connectionId: connection.id,
+          createdAt: created.createdAt,
+          employee: {
+            id: emp.id,
+            name: emp.name,
+            slug: emp.slug,
+            role: emp.role,
+            avatarKey: emp.avatarKey ?? null,
+          },
+        },
+      ]);
+      toast(`Granted ${emp.name}`, "success");
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function revoke(emp: Employee) {
+    if (!connection) return;
+    setBusyId(emp.id);
+    try {
+      await api.del(
+        `/api/companies/${company.id}/integrations/employees/${emp.id}/grants/${connection.id}`,
+      );
+      setGrants((prev) => (prev ?? []).filter((g) => g.employeeId !== emp.id));
+      toast(`Revoked ${emp.name}`, "success");
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  if (!connection) return null;
+
+  const entry = catalog.find((e) => e.provider === connection.provider);
+  const Icon = entry ? ICONS[entry.icon] ?? Plug : Plug;
+  const ready = employees !== null && grants !== null;
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`Manage access · ${connection.label}`}
+      size="lg"
+    >
+      <div className="flex flex-col gap-4">
+        <div className="flex items-start gap-3 rounded-lg bg-slate-50 p-3 dark:bg-slate-800/60">
+          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-slate-700 shadow-sm dark:bg-slate-900 dark:text-slate-200">
+            <Icon size={16} />
+          </div>
+          <div className="min-w-0 flex-1 text-xs text-slate-600 dark:text-slate-300">
+            <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+              {entry?.name ?? connection.provider}
+              {connection.accountHint && (
+                <span className="ml-1 font-normal text-slate-500 dark:text-slate-400">
+                  · {connection.accountHint}
+                </span>
+              )}
+            </div>
+            <p className="mt-0.5">
+              Pick which AI employees can use this connection through their MCP tools on the next spawn.
+            </p>
+          </div>
+        </div>
+
+        {!ready ? (
+          <div className="flex justify-center py-6">
+            <Spinner />
+          </div>
+        ) : employees!.length === 0 ? (
+          <EmptyState
+            title="No AI employees yet"
+            description="Create an AI employee before granting connection access."
+            action={
+              <Link
+                to={`/c/${company.slug}/employees`}
+                className="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+              >
+                Open Employees →
+              </Link>
+            }
+          />
+        ) : (
+          <ul className="flex flex-col gap-1.5">
+            {employees!.map((emp) => {
+              const isGranted = grantedIds.has(emp.id);
+              const isBusy = busyId === emp.id;
+              return (
+                <li
+                  key={emp.id}
+                  className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900"
+                >
+                  <Avatar
+                    name={emp.name}
+                    kind="ai"
+                    size="md"
+                    src={employeeAvatarUrl(company.id, emp.id, emp.avatarKey ?? null)}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                      {emp.name}
+                    </div>
+                    <div className="truncate text-xs text-slate-500 dark:text-slate-400">
+                      {emp.role}
+                    </div>
+                  </div>
+                  {isGranted ? (
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                        <Check size={10} /> Granted
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => revoke(emp)}
+                        disabled={isBusy}
+                      >
+                        Revoke
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      size="sm"
+                      onClick={() => grant(emp)}
+                      disabled={isBusy}
+                    >
+                      Grant access
+                    </Button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        <div className="flex justify-end pt-1">
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Done
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
 }
 
 function AuthModeBadge({ mode }: { mode: IntegrationConnection["authMode"] }) {

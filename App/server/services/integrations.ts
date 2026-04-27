@@ -287,6 +287,28 @@ export async function listGrantsForEmployee(
     .map((g) => Object.assign(g, { connection: byId.get(g.connectionId)! }));
 }
 
+/**
+ * Inverse of `listGrantsForEmployee`: every employee that currently has an
+ * active grant on this connection. The Settings → Integrations page uses
+ * this to render a per-connection "Manage access" view.
+ */
+export async function listGrantsForConnection(
+  connectionId: string,
+): Promise<Array<EmployeeConnectionGrant & { employee: AIEmployee }>> {
+  const grants = await AppDataSource.getRepository(EmployeeConnectionGrant).find({
+    where: { connectionId },
+    order: { createdAt: "ASC" },
+  });
+  if (grants.length === 0) return [];
+  const emps = await AppDataSource.getRepository(AIEmployee).find({
+    where: { id: In(grants.map((g) => g.employeeId)) },
+  });
+  const byId = new Map(emps.map((e) => [e.id, e] as const));
+  return grants
+    .filter((g) => byId.has(g.employeeId))
+    .map((g) => Object.assign(g, { employee: byId.get(g.employeeId)! }));
+}
+
 export async function grantAccess(
   employeeId: string,
   connectionId: string,
