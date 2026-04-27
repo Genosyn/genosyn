@@ -11,6 +11,10 @@ them per employee.
 
 North star: [paperclip.ing](https://paperclip.ing/).
 
+> **Disclaimer:** This software is vibecoded. Use at your own risk. It is
+> open source and provided **without warranty** of any kind — see
+> [`LICENSE`](./LICENSE).
+
 ## Repo layout
 
 ```

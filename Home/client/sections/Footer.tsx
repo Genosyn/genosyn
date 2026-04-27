@@ -69,9 +69,12 @@ export function Footer() {
             <a href={ISSUES_URL} target="_blank" rel="noreferrer" className="hover:text-slate-900">
               Issues
             </a>
-            <span className="font-mono">v0.0.1</span>
+            <span className="font-mono">v0.2.0</span>
           </nav>
         </div>
+        <p className="mt-6 text-center text-[11px] leading-relaxed text-slate-400 sm:text-left">
+          Disclaimer: this software is vibecoded. Use at your own risk. Open source and provided without warranty of any kind.
+        </p>
       </div>
     </footer>
   );

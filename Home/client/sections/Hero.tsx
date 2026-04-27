@@ -72,7 +72,7 @@ export function Hero() {
                 <span className="absolute inset-0 animate-ping rounded-full bg-indigo-400 opacity-60" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-indigo-500" />
               </span>
-              v0.0.1 · Building in the open
+              v0.2.0 · Building in the open
             </div>
             <h1 className="mt-6 text-[2.5rem] font-semibold leading-[1.05] tracking-tight text-slate-900 sm:text-6xl lg:text-[4.25rem] lg:leading-[1.04]">
               Run companies
