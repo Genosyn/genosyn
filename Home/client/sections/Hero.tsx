@@ -52,7 +52,7 @@ export function Hero() {
             <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
             Open source on GitHub
             <span className="text-zinc-400">·</span>
-            <span className="text-zinc-500">v0.3.0</span>
+            <span className="text-zinc-500">v0.3.1</span>
             <ArrowRight className="h-3.5 w-3.5 text-zinc-400 transition group-hover:translate-x-0.5 group-hover:text-zinc-700" />
           </a>
 
