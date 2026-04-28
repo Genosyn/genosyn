@@ -15,6 +15,9 @@ WORKDIR /app
 # pull in python3 + build-base + linux-headers for the npm install step.
 RUN apk add --no-cache python3 make g++ linux-headers libstdc++
 COPY package.json package-lock.json* ./
+# scripts/ holds the postinstall hook (`rebuild-node-pty.mjs`); without it
+# `npm ci` would fail when npm tries to run our postinstall here.
+COPY scripts ./scripts
 RUN npm ci
 
 # ---------- build ----------

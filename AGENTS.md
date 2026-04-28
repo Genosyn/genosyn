@@ -252,6 +252,13 @@ milestone is done, drive the happy path in a browser (via the `browse` /
 - PR descriptions reference the milestone (`M3 — AI Employees + Soul`) from
   `ROADMAP.md` and list the manual test steps you ran.
 
+### Releases
+
+Cutting a release is a separate, tightly-scripted ritual — see
+[`RELEASING.md`](./RELEASING.md). Short version: bump `VERSION`, push
+`main` to `release`, the workflow tags + publishes GHCR images for you.
+Don't tag manually, don't edit version numbers in `package.json` files.
+
 ---
 
 ## 11. Things that will get your PR rejected

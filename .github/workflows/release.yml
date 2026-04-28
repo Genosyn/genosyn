@@ -20,6 +20,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Needed for the final step to call `gh workflow run docker.yml`.
+      # Without this we can create the GitHub release but can't dispatch the
+      # docker.yml run for the new tag (HTTP 403 from the dispatch API).
+      actions: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
