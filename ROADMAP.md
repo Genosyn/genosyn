@@ -286,6 +286,34 @@ export const config = {
 > auto-injected into every prompt. Notes are *company-wide shared
 > knowledge* — what the team writes down for itself, human and AI alike.
 
+### M11.5 — Base record detail (form + comments + files)
+- [x] `BaseRecordComment` entity + migration. Per-record discussion thread
+      with split author bookkeeping (`authorUserId` / `authorEmployeeId`)
+      so humans and AI employees post into one stream.
+- [x] `BaseRecordAttachment` entity + migration. Files live on disk under
+      `data/companies/<slug>/base-attachments/<uuid>.<ext>`; metadata-only
+      sqlite row carries filename, mime type, size, storage key, and
+      uploader (human or AI).
+- [x] CRUD routes under `/api/companies/:cid/bases/:slug/tables/:tid/rows/:rid/comments`
+      and `…/attachments`, plus a download endpoint at
+      `…/base-attachments/:id`. Multer caps human uploads at 25 MB and
+      stores under per-company dir. Row / table / base delete cascades
+      strip orphan comments + on-disk bytes.
+- [x] Side drawer in `BaseDetail.tsx` opens a record like a form: every
+      field is editable inline (reusing `CellEditor`), a comment thread
+      sits below with a composer, and an attachments list lets the user
+      pick / download / delete files. Hover the row index in the grid to
+      get the expand affordance.
+- [x] Built-in MCP tools — `get_base_record`, `list_record_comments`,
+      `create_record_comment`, `delete_record_comment`,
+      `list_record_attachments`, `attach_file_to_record`,
+      `read_record_attachment`, `delete_record_attachment` — so AI
+      employees can read a record in full, discuss it, drop a generated
+      file (text or base64), and read teammates' uploads. AI writes
+      record an `AuditEvent` (`actorKind: "ai"`) plus a `JournalEntry`
+      on the acting employee's diary, mirroring the Notes pattern.
+      Per-AI uploads are capped at 5 MB.
+
 ### M10 — Pipelines (visual automation, separate from Routines)
 - [ ] `Pipeline` + `PipelineRun` entities + migration. A Pipeline is a DAG of
       typed nodes (graphJson on the row), per-company, with optional

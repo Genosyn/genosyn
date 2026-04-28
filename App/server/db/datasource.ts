@@ -27,6 +27,8 @@ import { Base } from "./entities/Base.js";
 import { BaseTable } from "./entities/BaseTable.js";
 import { BaseField } from "./entities/BaseField.js";
 import { BaseRecord } from "./entities/BaseRecord.js";
+import { BaseRecordComment } from "./entities/BaseRecordComment.js";
+import { BaseRecordAttachment } from "./entities/BaseRecordAttachment.js";
 import { Backup } from "./entities/Backup.js";
 import { BackupSchedule } from "./entities/BackupSchedule.js";
 import { IntegrationConnection } from "./entities/IntegrationConnection.js";
@@ -69,6 +71,8 @@ const entities = [
   BaseTable,
   BaseField,
   BaseRecord,
+  BaseRecordComment,
+  BaseRecordAttachment,
   Backup,
   BackupSchedule,
   IntegrationConnection,

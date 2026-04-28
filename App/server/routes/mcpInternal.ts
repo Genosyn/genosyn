@@ -29,6 +29,8 @@ import {
   hasBaseGrant,
   hydrateField,
   hydrateRecord,
+  hydrateRecordAttachments,
+  hydrateRecordComments,
   listGrantedBasesForEmployee,
   seedBaseFromTemplate,
   uniqueBaseSlug,
@@ -39,6 +41,15 @@ import { Base } from "../db/entities/Base.js";
 import { BaseTable } from "../db/entities/BaseTable.js";
 import { BaseField, BaseFieldType } from "../db/entities/BaseField.js";
 import { BaseRecord } from "../db/entities/BaseRecord.js";
+import { BaseRecordComment } from "../db/entities/BaseRecordComment.js";
+import { BaseRecordAttachment } from "../db/entities/BaseRecordAttachment.js";
+import {
+  BASE_ATTACHMENTS_AI_MAX_BYTES,
+  recordEmployeeAttachment,
+  readBaseAttachmentText,
+  resolveBaseAttachmentFile,
+  deleteBaseAttachmentBytes,
+} from "../services/baseRecordUploads.js";
 import { EmployeeMemory } from "../db/entities/EmployeeMemory.js";
 import { getProvider } from "../integrations/index.js";
 import {
@@ -1239,6 +1250,399 @@ mcpInternalRouter.post(
       targetId: r.id,
       targetLabel: `${b.name}/${t.name}`,
       metadata: { via: "mcp", baseId: b.id, tableId: t.id },
+    });
+    res.json({ ok: true });
+  },
+);
+
+// ----- Record detail (comments + attachments) -----
+
+/**
+ * Walk a row id back up through table → base, asserting the calling employee
+ * holds a grant on the owning base. Returns `null` plus a 403/404 response on
+ * failure so the route handler can early-out with a single check.
+ */
+async function loadGrantedRecord(
+  req: McpRequest,
+  res: Response,
+  rowId: string,
+): Promise<
+  | { record: BaseRecord; table: BaseTable; base: Base }
+  | null
+> {
+  const emp = req.mcpEmployee!;
+  const co = req.mcpCompany!;
+  const record = await AppDataSource.getRepository(BaseRecord).findOneBy({
+    id: rowId,
+  });
+  if (!record) {
+    res.status(404).json({ error: "Record not found" });
+    return null;
+  }
+  const table = await AppDataSource.getRepository(BaseTable).findOneBy({
+    id: record.tableId,
+  });
+  if (!table) {
+    res.status(404).json({ error: "Table not found" });
+    return null;
+  }
+  const base = await AppDataSource.getRepository(Base).findOneBy({
+    id: table.baseId,
+    companyId: co.id,
+  });
+  if (!base) {
+    res.status(404).json({ error: "Base not found" });
+    return null;
+  }
+  const ok = await hasBaseGrant(emp.id, base.id);
+  if (!ok) {
+    res.status(403).json({
+      error: `No grant: ${emp.name} does not have access to base "${base.name}". Ask a teammate to grant it in Base settings → AI access.`,
+    });
+    return null;
+  }
+  return { record, table, base };
+}
+
+const recordRefSchema = z
+  .object({
+    recordId: z.string().uuid(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/get_base_record",
+  validateBody(recordRefSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof recordRefSchema>;
+    const found = await loadGrantedRecord(req, res, body.recordId);
+    if (!found) return;
+    const fields = await AppDataSource.getRepository(BaseField).find({
+      where: { tableId: found.table.id },
+      order: { sortOrder: "ASC", createdAt: "ASC" },
+    });
+    const linkOptions = await buildLinkOptionsFor(fields);
+    const [comments, attachments] = await Promise.all([
+      AppDataSource.getRepository(BaseRecordComment).find({
+        where: { recordId: found.record.id },
+        order: { createdAt: "ASC" },
+      }),
+      AppDataSource.getRepository(BaseRecordAttachment).find({
+        where: { recordId: found.record.id },
+        order: { createdAt: "ASC" },
+      }),
+    ]);
+    const co = req.mcpCompany!;
+    res.json({
+      base: { id: found.base.id, slug: found.base.slug, name: found.base.name },
+      table: {
+        id: found.table.id,
+        slug: found.table.slug,
+        name: found.table.name,
+      },
+      record: hydrateRecord(found.record),
+      fields: fields.map(hydrateField),
+      linkOptions,
+      comments: await hydrateRecordComments(co.id, comments),
+      attachments: await hydrateRecordAttachments(co.id, attachments),
+    });
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/list_record_comments",
+  validateBody(recordRefSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof recordRefSchema>;
+    const found = await loadGrantedRecord(req, res, body.recordId);
+    if (!found) return;
+    const co = req.mcpCompany!;
+    const comments = await AppDataSource.getRepository(BaseRecordComment).find({
+      where: { recordId: found.record.id },
+      order: { createdAt: "ASC" },
+    });
+    res.json({ comments: await hydrateRecordComments(co.id, comments) });
+  },
+);
+
+const createRecordCommentSchema = z
+  .object({
+    recordId: z.string().uuid(),
+    body: z.string().min(1).max(10_000),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/create_record_comment",
+  validateBody(createRecordCommentSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof createRecordCommentSchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const found = await loadGrantedRecord(req, res, body.recordId);
+    if (!found) return;
+    const repo = AppDataSource.getRepository(BaseRecordComment);
+    const saved = await repo.save(
+      repo.create({
+        recordId: found.record.id,
+        authorUserId: null,
+        authorEmployeeId: self.id,
+        body: body.body,
+      }),
+    );
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "base_record_comment.create",
+      targetType: "base_record",
+      targetId: found.record.id,
+      targetLabel: `${found.base.name}/${found.table.name}`,
+      metadata: {
+        via: "mcp",
+        commentId: saved.id,
+        baseId: found.base.id,
+        tableId: found.table.id,
+      },
+    });
+    await journal(
+      self.id,
+      `${self.name} commented on ${found.base.name}/${found.table.name}`,
+      body.body.length > 240 ? `${body.body.slice(0, 240)}…` : body.body,
+    );
+    const [hydrated] = await hydrateRecordComments(co.id, [saved]);
+    res.json({ comment: hydrated });
+  },
+);
+
+const deleteRecordCommentSchema = z
+  .object({
+    recordId: z.string().uuid(),
+    commentId: z.string().uuid(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/delete_record_comment",
+  validateBody(deleteRecordCommentSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof deleteRecordCommentSchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const found = await loadGrantedRecord(req, res, body.recordId);
+    if (!found) return;
+    const repo = AppDataSource.getRepository(BaseRecordComment);
+    const cmt = await repo.findOneBy({
+      id: body.commentId,
+      recordId: found.record.id,
+    });
+    if (!cmt) return res.status(404).json({ error: "Comment not found" });
+    // AI employees can only delete comments they themselves authored. They
+    // shouldn't be able to silence humans on a record.
+    if (cmt.authorEmployeeId !== self.id) {
+      return res.status(403).json({
+        error: "AI employees may only delete their own comments",
+      });
+    }
+    await repo.delete({ id: cmt.id });
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "base_record_comment.delete",
+      targetType: "base_record",
+      targetId: found.record.id,
+      targetLabel: `${found.base.name}/${found.table.name}`,
+      metadata: { via: "mcp", commentId: cmt.id },
+    });
+    res.json({ ok: true });
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/list_record_attachments",
+  validateBody(recordRefSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof recordRefSchema>;
+    const found = await loadGrantedRecord(req, res, body.recordId);
+    if (!found) return;
+    const co = req.mcpCompany!;
+    const rows = await AppDataSource.getRepository(BaseRecordAttachment).find({
+      where: { recordId: found.record.id },
+      order: { createdAt: "ASC" },
+    });
+    res.json({ attachments: await hydrateRecordAttachments(co.id, rows) });
+  },
+);
+
+const attachToRecordSchema = z
+  .object({
+    recordId: z.string().uuid(),
+    filename: z.string().min(1).max(255),
+    mimeType: z.string().min(1).max(120).optional(),
+    contentText: z.string().optional(),
+    contentBase64: z.string().optional(),
+  })
+  .strict()
+  .refine(
+    (b) =>
+      (b.contentText !== undefined) !== (b.contentBase64 !== undefined),
+    "Provide exactly one of contentText or contentBase64",
+  );
+
+mcpInternalRouter.post(
+  "/tools/attach_file_to_record",
+  validateBody(attachToRecordSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof attachToRecordSchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const found = await loadGrantedRecord(req, res, body.recordId);
+    if (!found) return;
+
+    let bytes: Buffer;
+    let mimeType = body.mimeType;
+    if (body.contentText !== undefined) {
+      bytes = Buffer.from(body.contentText, "utf8");
+      if (!mimeType) mimeType = "text/plain; charset=utf-8";
+    } else {
+      try {
+        bytes = Buffer.from(body.contentBase64 ?? "", "base64");
+      } catch {
+        return res.status(400).json({ error: "Invalid base64" });
+      }
+      if (!mimeType) mimeType = "application/octet-stream";
+    }
+    if (bytes.length === 0) {
+      return res.status(400).json({ error: "Empty file" });
+    }
+    if (bytes.length > BASE_ATTACHMENTS_AI_MAX_BYTES) {
+      return res.status(413).json({
+        error: `Attachment exceeds the ${BASE_ATTACHMENTS_AI_MAX_BYTES / (1024 * 1024)} MB AI upload cap`,
+      });
+    }
+
+    const row = await recordEmployeeAttachment({
+      companyId: co.id,
+      companySlug: co.slug,
+      recordId: found.record.id,
+      filename: body.filename,
+      mimeType,
+      bytes,
+      uploadedByEmployeeId: self.id,
+    });
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "base_record_attachment.create",
+      targetType: "base_record",
+      targetId: found.record.id,
+      targetLabel: `${found.base.name}/${found.table.name}`,
+      metadata: {
+        via: "mcp",
+        attachmentId: row.id,
+        filename: row.filename,
+        sizeBytes: Number(row.sizeBytes),
+      },
+    });
+    await journal(
+      self.id,
+      `${self.name} attached "${body.filename}" to ${found.base.name}/${found.table.name}`,
+      `Mime: ${mimeType}, ${bytes.length} bytes.`,
+    );
+    const [hydrated] = await hydrateRecordAttachments(co.id, [row]);
+    res.json({ attachment: hydrated });
+  },
+);
+
+const readAttachmentSchema = z
+  .object({
+    recordId: z.string().uuid(),
+    attachmentId: z.string().uuid(),
+    /** Cap content read into memory. Defaults to 256 KiB. */
+    maxBytes: z.number().int().min(1).max(1024 * 1024).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/read_record_attachment",
+  validateBody(readAttachmentSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof readAttachmentSchema>;
+    const co = req.mcpCompany!;
+    const found = await loadGrantedRecord(req, res, body.recordId);
+    if (!found) return;
+    const repo = AppDataSource.getRepository(BaseRecordAttachment);
+    const row = await repo.findOneBy({
+      id: body.attachmentId,
+      recordId: found.record.id,
+    });
+    if (!row) return res.status(404).json({ error: "Attachment not found" });
+    if (row.companyId !== co.id) {
+      return res.status(403).json({ error: "Wrong company" });
+    }
+    const max = body.maxBytes ?? 256 * 1024;
+    const text = await readBaseAttachmentText(row, co.slug, max);
+    if (text === null) {
+      return res.status(413).json({
+        error:
+          "Attachment is missing on disk or exceeds the maxBytes cap. Ask a human to download it from the UI for now.",
+      });
+    }
+    res.json({
+      attachment: {
+        id: row.id,
+        filename: row.filename,
+        mimeType: row.mimeType,
+        sizeBytes: Number(row.sizeBytes),
+      },
+      content: text,
+    });
+  },
+);
+
+const deleteAttachmentSchema = z
+  .object({
+    recordId: z.string().uuid(),
+    attachmentId: z.string().uuid(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/delete_record_attachment",
+  validateBody(deleteAttachmentSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof deleteAttachmentSchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const found = await loadGrantedRecord(req, res, body.recordId);
+    if (!found) return;
+    const repo = AppDataSource.getRepository(BaseRecordAttachment);
+    const row = await repo.findOneBy({
+      id: body.attachmentId,
+      recordId: found.record.id,
+    });
+    if (!row) return res.status(404).json({ error: "Attachment not found" });
+    // AI may only remove attachments it uploaded itself.
+    if (row.uploadedByEmployeeId !== self.id) {
+      return res.status(403).json({
+        error: "AI employees may only delete attachments they uploaded",
+      });
+    }
+    if (row.companyId !== co.id) {
+      return res.status(403).json({ error: "Wrong company" });
+    }
+    // Resolve to confirm it lives under our root and grab the path before
+    // dropping the row, so the bytes go too.
+    const resolved = await resolveBaseAttachmentFile(row.id, co.id);
+    if (resolved) await deleteBaseAttachmentBytes(resolved.row, co.slug);
+    await repo.delete({ id: row.id });
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "base_record_attachment.delete",
+      targetType: "base_record",
+      targetId: found.record.id,
+      targetLabel: `${found.base.name}/${found.table.name}`,
+      metadata: { via: "mcp", attachmentId: row.id },
     });
     res.json({ ok: true });
   },

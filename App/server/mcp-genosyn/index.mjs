@@ -844,6 +844,154 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: "get_base_record",
+    description:
+      "Open a single Base record like a form: returns the row's fields + values, every field definition for the table, the comment thread, and the list of file attachments. Use this when a teammate asks you to read or update a specific row, or before posting a comment so you know the row's context. Pair with `update_base_row` (existing) for cell edits, `create_record_comment` to discuss, and `attach_file_to_record` to drop in supporting files.",
+    endpoint: "/tools/get_base_record",
+    inputSchema: {
+      type: "object",
+      properties: {
+        recordId: {
+          type: "string",
+          description: "UUID from `list_base_rows` (the `id` field on each record).",
+        },
+      },
+      required: ["recordId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_record_comments",
+    description:
+      "List the comment thread on a Base record. Both human Members and AI Employees post into the same stream; the `author.kind` field distinguishes them. Use this before commenting so you don't duplicate context already in the thread.",
+    endpoint: "/tools/list_record_comments",
+    inputSchema: {
+      type: "object",
+      properties: {
+        recordId: {
+          type: "string",
+          description: "Record UUID from `list_base_rows` / `get_base_record`.",
+        },
+      },
+      required: ["recordId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_record_comment",
+    description:
+      "Post a comment on a Base record's thread, authored by you (the AI Employee). Use this to share an analysis, flag a discrepancy, or @-summarise findings to a human teammate. Markdown is fine. Keep it concise — long monologues belong in a Note.",
+    endpoint: "/tools/create_record_comment",
+    inputSchema: {
+      type: "object",
+      properties: {
+        recordId: { type: "string" },
+        body: {
+          type: "string",
+          description: "Comment body (markdown). 1–10000 chars.",
+        },
+      },
+      required: ["recordId", "body"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_record_comment",
+    description:
+      "Delete one of your own comments on a Base record. You can only delete comments you (this AI employee) authored — humans manage their own messages from the UI.",
+    endpoint: "/tools/delete_record_comment",
+    inputSchema: {
+      type: "object",
+      properties: {
+        recordId: { type: "string" },
+        commentId: { type: "string" },
+      },
+      required: ["recordId", "commentId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_record_attachments",
+    description:
+      "List the files attached to a Base record, with metadata (filename, mime type, size, who uploaded). Use this before reading a file to confirm it exists and is small enough.",
+    endpoint: "/tools/list_record_attachments",
+    inputSchema: {
+      type: "object",
+      properties: {
+        recordId: { type: "string" },
+      },
+      required: ["recordId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "attach_file_to_record",
+    description:
+      "Attach a file to a Base record. Provide either `contentText` (for text/markdown/CSV/JSON output you generated) OR `contentBase64` (for small binary blobs). Caps at 5 MB per AI upload; larger files have to come from a human via the UI. The attachment shows up in the record's drawer for both humans and AI to see.",
+    endpoint: "/tools/attach_file_to_record",
+    inputSchema: {
+      type: "object",
+      properties: {
+        recordId: { type: "string" },
+        filename: {
+          type: "string",
+          description: "Filename including extension, e.g. 'report.csv'.",
+        },
+        mimeType: {
+          type: "string",
+          description:
+            "Optional. Defaults to text/plain for contentText, application/octet-stream for contentBase64.",
+        },
+        contentText: {
+          type: "string",
+          description:
+            "UTF-8 text content. Use for plain text, markdown, CSV, JSON, etc.",
+        },
+        contentBase64: {
+          type: "string",
+          description:
+            "Base64-encoded bytes. Use for small binary files like PNGs.",
+        },
+      },
+      required: ["recordId", "filename"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "read_record_attachment",
+    description:
+      "Read a record attachment's bytes as UTF-8 text. Useful for ingesting CSVs, JSON, markdown, or notes that a teammate dropped on a record. Caps at the `maxBytes` argument (default 256 KiB) — larger files return an error so you don't blow your context window. Binary attachments will likely come back as garbled UTF-8; check the mime type first via `list_record_attachments`.",
+    endpoint: "/tools/read_record_attachment",
+    inputSchema: {
+      type: "object",
+      properties: {
+        recordId: { type: "string" },
+        attachmentId: { type: "string" },
+        maxBytes: {
+          type: "number",
+          description: "Cap content read into the response. Default 262144 (256 KiB).",
+        },
+      },
+      required: ["recordId", "attachmentId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_record_attachment",
+    description:
+      "Delete a file attachment you previously uploaded to a Base record. You can only delete your own uploads; human uploads have to be removed from the UI.",
+    endpoint: "/tools/delete_record_attachment",
+    inputSchema: {
+      type: "object",
+      properties: {
+        recordId: { type: "string" },
+        attachmentId: { type: "string" },
+      },
+      required: ["recordId", "attachmentId"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 const TOOL_BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));

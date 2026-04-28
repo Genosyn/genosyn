@@ -722,6 +722,52 @@ export type BaseAssistantResult = {
   employee?: { id: string; name: string; slug: string };
 };
 
+export type BaseRecordCommentAuthor =
+  | {
+      kind: "human";
+      id: string;
+      name: string;
+      email: string | null;
+      avatarKey: string | null;
+      handle: string | null;
+    }
+  | {
+      kind: "ai";
+      id: string;
+      name: string;
+      slug: string;
+      role: string;
+      avatarKey: string | null;
+    };
+
+export type BaseRecordComment = {
+  id: string;
+  recordId: string;
+  body: string;
+  authorUserId: string | null;
+  authorEmployeeId: string | null;
+  author: BaseRecordCommentAuthor | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BaseRecordAttachmentUploader =
+  | { kind: "human"; id: string; name: string }
+  | { kind: "ai"; id: string; name: string; slug: string };
+
+export type BaseRecordAttachment = {
+  id: string;
+  recordId: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  isImage: boolean;
+  uploadedByUserId: string | null;
+  uploadedByEmployeeId: string | null;
+  uploader: BaseRecordAttachmentUploader | null;
+  createdAt: string;
+};
+
 /**
  * A grant giving one AI employee read/write access to one Base via their MCP
  * tools. The server returns the pair plus a lightweight employee snapshot so

@@ -6,8 +6,11 @@ import { Base } from "../db/entities/Base.js";
 import { BaseTable } from "../db/entities/BaseTable.js";
 import { BaseField, BaseFieldType } from "../db/entities/BaseField.js";
 import { BaseRecord } from "../db/entities/BaseRecord.js";
+import { BaseRecordComment } from "../db/entities/BaseRecordComment.js";
+import { BaseRecordAttachment } from "../db/entities/BaseRecordAttachment.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
+import { Company } from "../db/entities/Company.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
@@ -20,6 +23,8 @@ import {
   grantBaseAccess,
   hydrateField,
   hydrateRecord,
+  hydrateRecordAttachments,
+  hydrateRecordComments,
   listBaseGrants,
   listTemplates,
   revokeBaseAccess,
@@ -29,6 +34,12 @@ import {
 } from "../services/bases.js";
 import { findBaseTemplate } from "../services/baseTemplates.js";
 import { recordAudit } from "../services/audit.js";
+import {
+  baseRecordUploadMiddleware,
+  deleteBaseAttachmentBytes,
+  recordHumanAttachment,
+  resolveBaseAttachmentFile,
+} from "../services/baseRecordUploads.js";
 
 export const basesRouter = Router({ mergeParams: true });
 basesRouter.use(requireAuth);
@@ -187,12 +198,33 @@ basesRouter.delete("/bases/:baseSlug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const b = await loadBaseBySlug(cid, req.params.baseSlug);
   if (!b) return res.status(404).json({ error: "Base not found" });
-  // Cascade delete: tables → fields + records → base.
+  // Cascade delete: tables → fields + records (and their comments + attachments) → base.
   const tables = await AppDataSource.getRepository(BaseTable).find({
     where: { baseId: b.id },
   });
   const tableIds = tables.map((t) => t.id);
   if (tableIds.length) {
+    const records = await AppDataSource.getRepository(BaseRecord).find({
+      where: { tableId: In(tableIds) },
+    });
+    const recordIds = records.map((r) => r.id);
+    if (recordIds.length) {
+      const attachments = await AppDataSource.getRepository(BaseRecordAttachment).find({
+        where: { recordId: In(recordIds) },
+      });
+      if (attachments.length) {
+        const co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
+        if (co) {
+          for (const a of attachments) await deleteBaseAttachmentBytes(a, co.slug);
+        }
+      }
+      await AppDataSource.getRepository(BaseRecordAttachment).delete({
+        recordId: In(recordIds),
+      });
+      await AppDataSource.getRepository(BaseRecordComment).delete({
+        recordId: In(recordIds),
+      });
+    }
     await AppDataSource.getRepository(BaseRecord).delete({ tableId: In(tableIds) });
     await AppDataSource.getRepository(BaseField).delete({ tableId: In(tableIds) });
     await AppDataSource.getRepository(BaseTable).delete({ id: In(tableIds) });
@@ -372,6 +404,27 @@ basesRouter.delete("/bases/:baseSlug/tables/:tableId", async (req, res) => {
   if (!b) return res.status(404).json({ error: "Base not found" });
   const t = await loadTable(b.id, req.params.tableId);
   if (!t) return res.status(404).json({ error: "Table not found" });
+  const records = await AppDataSource.getRepository(BaseRecord).find({
+    where: { tableId: t.id },
+  });
+  const recordIds = records.map((r) => r.id);
+  if (recordIds.length) {
+    const attachments = await AppDataSource.getRepository(BaseRecordAttachment).find({
+      where: { recordId: In(recordIds) },
+    });
+    if (attachments.length) {
+      const co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
+      if (co) {
+        for (const a of attachments) await deleteBaseAttachmentBytes(a, co.slug);
+      }
+    }
+    await AppDataSource.getRepository(BaseRecordAttachment).delete({
+      recordId: In(recordIds),
+    });
+    await AppDataSource.getRepository(BaseRecordComment).delete({
+      recordId: In(recordIds),
+    });
+  }
   await AppDataSource.getRepository(BaseRecord).delete({ tableId: t.id });
   await AppDataSource.getRepository(BaseField).delete({ tableId: t.id });
   await AppDataSource.getRepository(BaseTable).delete({ id: t.id });
@@ -637,8 +690,244 @@ basesRouter.delete(
       tableId: t.id,
     });
     if (!r) return res.status(404).json({ error: "Row not found" });
+    // Drop file bytes for any attachments before deleting the rows so the
+    // join table doesn't accumulate orphan blobs on disk.
+    const attachments = await AppDataSource.getRepository(BaseRecordAttachment).find({
+      where: { recordId: r.id },
+    });
+    if (attachments.length) {
+      const co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
+      if (co) {
+        for (const a of attachments) await deleteBaseAttachmentBytes(a, co.slug);
+      }
+    }
+    await AppDataSource.getRepository(BaseRecordAttachment).delete({ recordId: r.id });
+    await AppDataSource.getRepository(BaseRecordComment).delete({ recordId: r.id });
     await AppDataSource.getRepository(BaseRecord).delete({ id: r.id });
     res.json({ ok: true });
+  },
+);
+
+// ─────────────────────────── record detail (comments + attachments) ──────────
+
+async function loadRecordForDetail(
+  cid: string,
+  baseSlug: string,
+  tableId: string,
+  rowId: string,
+): Promise<{ base: Base; table: BaseTable; record: BaseRecord } | null> {
+  const b = await loadBaseBySlug(cid, baseSlug);
+  if (!b) return null;
+  const t = await loadTable(b.id, tableId);
+  if (!t) return null;
+  const r = await AppDataSource.getRepository(BaseRecord).findOneBy({
+    id: rowId,
+    tableId: t.id,
+  });
+  if (!r) return null;
+  return { base: b, table: t, record: r };
+}
+
+// ----- Comments -----
+
+basesRouter.get(
+  "/bases/:baseSlug/tables/:tableId/rows/:rowId/comments",
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const found = await loadRecordForDetail(
+      cid,
+      req.params.baseSlug,
+      req.params.tableId,
+      req.params.rowId,
+    );
+    if (!found) return res.status(404).json({ error: "Record not found" });
+    const comments = await AppDataSource.getRepository(BaseRecordComment).find({
+      where: { recordId: found.record.id },
+      order: { createdAt: "ASC" },
+    });
+    res.json(await hydrateRecordComments(cid, comments));
+  },
+);
+
+const createRecordCommentSchema = z.object({
+  body: z.string().min(1).max(10_000),
+});
+
+basesRouter.post(
+  "/bases/:baseSlug/tables/:tableId/rows/:rowId/comments",
+  validateBody(createRecordCommentSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const found = await loadRecordForDetail(
+      cid,
+      req.params.baseSlug,
+      req.params.tableId,
+      req.params.rowId,
+    );
+    if (!found) return res.status(404).json({ error: "Record not found" });
+    const body = req.body as z.infer<typeof createRecordCommentSchema>;
+    const repo = AppDataSource.getRepository(BaseRecordComment);
+    const saved = await repo.save(
+      repo.create({
+        recordId: found.record.id,
+        authorUserId: req.userId ?? null,
+        authorEmployeeId: null,
+        body: body.body,
+      }),
+    );
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "base_record_comment.create",
+      targetType: "base_record",
+      targetId: found.record.id,
+      targetLabel: `${found.base.name}/${found.table.name}`,
+      metadata: { commentId: saved.id, baseId: found.base.id, tableId: found.table.id },
+    });
+    const [hydrated] = await hydrateRecordComments(cid, [saved]);
+    res.json(hydrated);
+  },
+);
+
+basesRouter.delete(
+  "/bases/:baseSlug/tables/:tableId/rows/:rowId/comments/:commentId",
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const found = await loadRecordForDetail(
+      cid,
+      req.params.baseSlug,
+      req.params.tableId,
+      req.params.rowId,
+    );
+    if (!found) return res.status(404).json({ error: "Record not found" });
+    const repo = AppDataSource.getRepository(BaseRecordComment);
+    const cmt = await repo.findOneBy({
+      id: req.params.commentId,
+      recordId: found.record.id,
+    });
+    if (!cmt) return res.status(404).json({ error: "Comment not found" });
+    // Mirror the todo-comment policy: humans can delete their own comments;
+    // AI comments can be cleared by any company member (treated as thread noise).
+    if (cmt.authorUserId && cmt.authorUserId !== req.userId) {
+      return res.status(403).json({ error: "Not your comment" });
+    }
+    await repo.delete({ id: cmt.id });
+    res.json({ ok: true });
+  },
+);
+
+// ----- Attachments -----
+
+// Resolve `req.company` so the multer middleware can write to the right
+// per-company directory. The bases router doesn't otherwise need this, so we
+// inline the lookup on just the upload path.
+basesRouter.post(
+  "/bases/:baseSlug/tables/:tableId/rows/:rowId/attachments",
+  async (req, res, next) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
+    if (!co) return res.status(404).json({ error: "Company not found" });
+    (req as unknown as { company: Company }).company = co;
+    next();
+  },
+  baseRecordUploadMiddleware.single("file"),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const found = await loadRecordForDetail(
+      cid,
+      req.params.baseSlug,
+      req.params.tableId,
+      req.params.rowId,
+    );
+    if (!found) return res.status(404).json({ error: "Record not found" });
+    const file = (req as unknown as { file?: Express.Multer.File }).file;
+    if (!file) return res.status(400).json({ error: "No file uploaded" });
+    const row = await recordHumanAttachment({
+      companyId: cid,
+      recordId: found.record.id,
+      file,
+      uploadedByUserId: req.userId!,
+    });
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "base_record_attachment.create",
+      targetType: "base_record",
+      targetId: found.record.id,
+      targetLabel: `${found.base.name}/${found.table.name}`,
+      metadata: {
+        attachmentId: row.id,
+        filename: row.filename,
+        sizeBytes: Number(row.sizeBytes),
+      },
+    });
+    const [hydrated] = await hydrateRecordAttachments(cid, [row]);
+    res.status(201).json(hydrated);
+  },
+);
+
+basesRouter.get(
+  "/bases/:baseSlug/tables/:tableId/rows/:rowId/attachments",
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const found = await loadRecordForDetail(
+      cid,
+      req.params.baseSlug,
+      req.params.tableId,
+      req.params.rowId,
+    );
+    if (!found) return res.status(404).json({ error: "Record not found" });
+    const rows = await AppDataSource.getRepository(BaseRecordAttachment).find({
+      where: { recordId: found.record.id },
+      order: { createdAt: "ASC" },
+    });
+    res.json(await hydrateRecordAttachments(cid, rows));
+  },
+);
+
+basesRouter.delete(
+  "/bases/:baseSlug/tables/:tableId/rows/:rowId/attachments/:attachmentId",
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const found = await loadRecordForDetail(
+      cid,
+      req.params.baseSlug,
+      req.params.tableId,
+      req.params.rowId,
+    );
+    if (!found) return res.status(404).json({ error: "Record not found" });
+    const repo = AppDataSource.getRepository(BaseRecordAttachment);
+    const row = await repo.findOneBy({
+      id: req.params.attachmentId,
+      recordId: found.record.id,
+    });
+    if (!row) return res.status(404).json({ error: "Attachment not found" });
+    if (row.companyId !== cid) {
+      return res.status(403).json({ error: "Wrong company" });
+    }
+    const co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
+    if (co) await deleteBaseAttachmentBytes(row, co.slug);
+    await repo.delete({ id: row.id });
+    res.json({ ok: true });
+  },
+);
+
+// Download / inline-serve. Scoped to the company so a leaked id from one
+// tenant can't reach into another.
+basesRouter.get(
+  "/base-attachments/:attachmentId",
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const resolved = await resolveBaseAttachmentFile(req.params.attachmentId, cid);
+    if (!resolved) return res.status(404).json({ error: "Attachment not found" });
+    res.setHeader("Content-Type", resolved.row.mimeType);
+    const inline = resolved.row.mimeType.startsWith("image/");
+    const disposition = inline ? "inline" : "attachment";
+    res.setHeader(
+      "Content-Disposition",
+      `${disposition}; filename="${encodeURIComponent(resolved.row.filename)}"`,
+    );
+    res.sendFile(resolved.absPath);
   },
 );
 

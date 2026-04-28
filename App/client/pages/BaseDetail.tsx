@@ -18,6 +18,7 @@ import {
   ChevronDown,
   X,
   Users,
+  Maximize2,
 } from "lucide-react";
 import {
   api,
@@ -43,6 +44,7 @@ import { useDialog } from "../components/ui/Dialog";
 import { useBases } from "./BasesLayout";
 import { CellEditor, CellView, SelectOptionsEditor } from "./BaseGridCells";
 import { BaseAssistant } from "./BaseAssistant";
+import { RecordDetailDrawer } from "./BaseRecordDetail";
 import {
   BASE_COLORS,
   BASE_ICON_NAMES,
@@ -78,6 +80,7 @@ export default function BaseDetail({ company }: { company: Company }) {
   const [contentLoading, setContentLoading] = React.useState(false);
   const [showSettings, setShowSettings] = React.useState(false);
   const [showAssistant, setShowAssistant] = React.useState(false);
+  const [openRecordId, setOpenRecordId] = React.useState<string | null>(null);
 
   // `activeDetail` may belong to the previous base (during nav). Only trust it
   // once the slug matches the URL.
@@ -202,10 +205,28 @@ export default function BaseDetail({ company }: { company: Company }) {
               onReload={() => loadContent(true)}
               onTablesReload={reloadActive}
               companyId={company.id}
+              onOpenRecord={(rid) => setOpenRecordId(rid)}
             />
           ) : null}
         </div>
       </div>
+
+      {openRecordId && currentTable && content && (() => {
+        const record = content.records.find((r) => r.id === openRecordId);
+        if (!record) return null;
+        return (
+          <RecordDetailDrawer
+            company={company}
+            base={base}
+            table={currentTable}
+            record={record}
+            fields={content.fields}
+            linkOptions={content.linkOptions}
+            onClose={() => setOpenRecordId(null)}
+            onChanged={() => loadContent(true)}
+          />
+        );
+      })()}
 
       {showAssistant && (
         <BaseAssistant
@@ -243,6 +264,7 @@ function Grid({
   onReload,
   onTablesReload,
   companyId,
+  onOpenRecord,
 }: {
   base: Base;
   table: BaseTable;
@@ -251,6 +273,7 @@ function Grid({
   onReload: () => Promise<void>;
   onTablesReload: () => Promise<void>;
   companyId: string;
+  onOpenRecord: (recordId: string) => void;
 }) {
   const { toast } = useToast();
   const dialog = useDialog();
@@ -409,6 +432,7 @@ function Grid({
                 linkOptions={linkOptions}
                 onPatchCell={(fid, v) => patchCell(r, fid, v)}
                 onDelete={() => deleteRow(r)}
+                onExpand={() => onOpenRecord(r.id)}
               />
             ))}
             <tr>
@@ -555,6 +579,7 @@ function Row({
   linkOptions,
   onPatchCell,
   onDelete,
+  onExpand,
 }: {
   index: number;
   record: BaseRecord;
@@ -562,6 +587,7 @@ function Row({
   linkOptions: Record<string, BaseLinkOption[]>;
   onPatchCell: (fieldId: string, value: unknown) => void;
   onDelete: () => void;
+  onExpand: () => void;
 }) {
   const [editingField, setEditingField] = React.useState<string | null>(null);
 
@@ -570,6 +596,13 @@ function Row({
       <td className="sticky left-0 z-10 w-10 border-r border-slate-200 bg-white px-2 text-center text-[11px] text-slate-400 group-hover:bg-indigo-50/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500">
         <div className="flex items-center justify-center gap-1">
           <span className="group-hover:hidden">{index}</span>
+          <button
+            onClick={onExpand}
+            className="hidden rounded p-0.5 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 group-hover:inline-flex dark:hover:bg-indigo-950/30"
+            title="Open record"
+          >
+            <Maximize2 size={11} />
+          </button>
           <button
             onClick={onDelete}
             className="hidden rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600 group-hover:inline-flex dark:hover:bg-red-950/30"

@@ -10,8 +10,11 @@ import { Base } from "../db/entities/Base.js";
 import { BaseTable } from "../db/entities/BaseTable.js";
 import { BaseField } from "../db/entities/BaseField.js";
 import { BaseRecord } from "../db/entities/BaseRecord.js";
+import { BaseRecordComment } from "../db/entities/BaseRecordComment.js";
+import { BaseRecordAttachment } from "../db/entities/BaseRecordAttachment.js";
 import { EmployeeBaseGrant } from "../db/entities/EmployeeBaseGrant.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { User } from "../db/entities/User.js";
 import { toSlug } from "../lib/slug.js";
 import { In } from "typeorm";
 import {
@@ -436,6 +439,185 @@ export async function hasBaseGrant(
  */
 export async function deleteGrantsForBase(baseId: string): Promise<void> {
   await AppDataSource.getRepository(EmployeeBaseGrant).delete({ baseId });
+}
+
+// ───── Record comments + attachments (hydrators shared by HTTP + MCP) ─────
+
+export type RecordCommentAuthor =
+  | { kind: "human"; id: string; name: string; email: string | null; avatarKey: string | null; handle: string | null }
+  | { kind: "ai"; id: string; name: string; slug: string; role: string; avatarKey: string | null };
+
+export type HydratedRecordComment = {
+  id: string;
+  recordId: string;
+  body: string;
+  authorUserId: string | null;
+  authorEmployeeId: string | null;
+  author: RecordCommentAuthor | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RecordAttachmentUploader =
+  | { kind: "human"; id: string; name: string }
+  | { kind: "ai"; id: string; name: string; slug: string };
+
+export type HydratedRecordAttachment = {
+  id: string;
+  recordId: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  isImage: boolean;
+  uploadedByUserId: string | null;
+  uploadedByEmployeeId: string | null;
+  uploader: RecordAttachmentUploader | null;
+  createdAt: string;
+};
+
+/**
+ * Attach author info (human Member or AI Employee) so the UI can render an
+ * avatar + name without extra fetches. Mirrors {@link hydrateComments} for
+ * todos but lives here so MCP tools can reuse it without pulling
+ * projects.ts into the binary's dependency graph.
+ */
+export async function hydrateRecordComments(
+  companyId: string,
+  comments: BaseRecordComment[],
+): Promise<HydratedRecordComment[]> {
+  const userIds = [
+    ...new Set(comments.map((c) => c.authorUserId).filter((x): x is string => !!x)),
+  ];
+  const empIds = [
+    ...new Set(comments.map((c) => c.authorEmployeeId).filter((x): x is string => !!x)),
+  ];
+  const [users, emps] = await Promise.all([
+    userIds.length
+      ? AppDataSource.getRepository(User).find({ where: { id: In(userIds) } })
+      : Promise.resolve([]),
+    empIds.length
+      ? AppDataSource.getRepository(AIEmployee).find({
+          where: { id: In(empIds), companyId },
+        })
+      : Promise.resolve([]),
+  ]);
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const empById = new Map(emps.map((e) => [e.id, e]));
+
+  return comments.map((c) => {
+    let author: RecordCommentAuthor | null = null;
+    if (c.authorUserId) {
+      const u = userById.get(c.authorUserId);
+      if (u) {
+        author = {
+          kind: "human",
+          id: u.id,
+          name: u.name,
+          email: u.email ?? null,
+          avatarKey: u.avatarKey ?? null,
+          handle: u.handle ?? null,
+        };
+      }
+    } else if (c.authorEmployeeId) {
+      const e = empById.get(c.authorEmployeeId);
+      if (e) {
+        author = {
+          kind: "ai",
+          id: e.id,
+          name: e.name,
+          slug: e.slug,
+          role: e.role,
+          avatarKey: e.avatarKey ?? null,
+        };
+      }
+    }
+    return {
+      id: c.id,
+      recordId: c.recordId,
+      body: c.body,
+      authorUserId: c.authorUserId,
+      authorEmployeeId: c.authorEmployeeId,
+      author,
+      createdAt: c.createdAt.toISOString(),
+      updatedAt: c.updatedAt.toISOString(),
+    };
+  });
+}
+
+export async function hydrateRecordAttachments(
+  companyId: string,
+  attachments: BaseRecordAttachment[],
+): Promise<HydratedRecordAttachment[]> {
+  const userIds = [
+    ...new Set(
+      attachments.map((a) => a.uploadedByUserId).filter((x): x is string => !!x),
+    ),
+  ];
+  const empIds = [
+    ...new Set(
+      attachments
+        .map((a) => a.uploadedByEmployeeId)
+        .filter((x): x is string => !!x),
+    ),
+  ];
+  const [users, emps] = await Promise.all([
+    userIds.length
+      ? AppDataSource.getRepository(User).find({ where: { id: In(userIds) } })
+      : Promise.resolve([]),
+    empIds.length
+      ? AppDataSource.getRepository(AIEmployee).find({
+          where: { id: In(empIds), companyId },
+        })
+      : Promise.resolve([]),
+  ]);
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const empById = new Map(emps.map((e) => [e.id, e]));
+
+  return attachments.map((a) => {
+    let uploader: RecordAttachmentUploader | null = null;
+    if (a.uploadedByUserId) {
+      const u = userById.get(a.uploadedByUserId);
+      if (u) uploader = { kind: "human", id: u.id, name: u.name };
+    } else if (a.uploadedByEmployeeId) {
+      const e = empById.get(a.uploadedByEmployeeId);
+      if (e) uploader = { kind: "ai", id: e.id, name: e.name, slug: e.slug };
+    }
+    return {
+      id: a.id,
+      recordId: a.recordId,
+      filename: a.filename,
+      mimeType: a.mimeType,
+      sizeBytes: Number(a.sizeBytes),
+      isImage: typeof a.mimeType === "string" && a.mimeType.startsWith("image/"),
+      uploadedByUserId: a.uploadedByUserId,
+      uploadedByEmployeeId: a.uploadedByEmployeeId,
+      uploader,
+      createdAt: a.createdAt.toISOString(),
+    };
+  });
+}
+
+/**
+ * Walk a record up to its base + table for permission/audit logging. Returns
+ * `null` if anything along the chain is missing — callers should respond with
+ * 404 in that case.
+ */
+export async function loadRecordWithChain(
+  recordId: string,
+): Promise<{ record: BaseRecord; table: BaseTable; base: Base } | null> {
+  const record = await AppDataSource.getRepository(BaseRecord).findOneBy({
+    id: recordId,
+  });
+  if (!record) return null;
+  const table = await AppDataSource.getRepository(BaseTable).findOneBy({
+    id: record.tableId,
+  });
+  if (!table) return null;
+  const base = await AppDataSource.getRepository(Base).findOneBy({
+    id: table.baseId,
+  });
+  if (!base) return null;
+  return { record, table, base };
 }
 
 /** Used by the /new page to preview templates before the user commits. */
