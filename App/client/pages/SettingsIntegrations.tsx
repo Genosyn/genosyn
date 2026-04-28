@@ -11,6 +11,7 @@ import {
   Mail,
   Pencil,
   Plug,
+  Plug2,
   RefreshCw,
   Trash2,
   Users,
@@ -70,6 +71,10 @@ export function SettingsIntegrations() {
   const [connections, setConnections] = React.useState<IntegrationConnection[] | null>(null);
   const [addingApiKey, setAddingApiKey] = React.useState<IntegrationCatalogEntry | null>(null);
   const [addingGoogle, setAddingGoogle] = React.useState<IntegrationCatalogEntry | null>(null);
+  const [reconnecting, setReconnecting] = React.useState<{
+    entry: IntegrationCatalogEntry;
+    conn: IntegrationConnection;
+  } | null>(null);
   const [refreshingId, setRefreshingId] = React.useState<string | null>(null);
   const [managing, setManaging] = React.useState<IntegrationConnection | null>(null);
 
@@ -137,6 +142,15 @@ export function SettingsIntegrations() {
       return;
     }
     setAddingApiKey(entry);
+  }
+
+  async function reconnect(conn: IntegrationConnection) {
+    const entry = catalog?.find((e) => e.provider === conn.provider);
+    if (!entry) {
+      toast(`Unknown integration: ${conn.provider}`, "error");
+      return;
+    }
+    setReconnecting({ entry, conn });
   }
 
   async function refreshStatus(conn: IntegrationConnection) {
@@ -275,6 +289,14 @@ export function SettingsIntegrations() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          onClick={() => reconnect(c)}
+                          title="Reconnect"
+                        >
+                          <Plug2 size={12} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => removeConnection(c)}
                           title="Disconnect"
                         >
@@ -341,22 +363,63 @@ export function SettingsIntegrations() {
       </section>
 
       <ApiKeyModal
-        open={addingApiKey !== null}
-        entry={addingApiKey}
+        open={
+          addingApiKey !== null ||
+          (reconnecting !== null && reconnecting.conn.authMode === "apikey")
+        }
+        entry={
+          addingApiKey ??
+          (reconnecting?.conn.authMode === "apikey" ? reconnecting.entry : null)
+        }
+        reconnect={
+          reconnecting?.conn.authMode === "apikey"
+            ? { connectionId: reconnecting.conn.id, label: reconnecting.conn.label }
+            : null
+        }
         companyId={company.id}
-        onClose={() => setAddingApiKey(null)}
+        onClose={() => {
+          setAddingApiKey(null);
+          setReconnecting(null);
+        }}
         onSaved={async () => {
           setAddingApiKey(null);
+          setReconnecting(null);
           await reload();
         }}
       />
       <OauthOrServiceAccountModal
-        open={addingGoogle !== null}
-        entry={addingGoogle}
+        open={
+          addingGoogle !== null ||
+          (reconnecting !== null &&
+            (reconnecting.conn.authMode === "oauth2" ||
+              reconnecting.conn.authMode === "service_account"))
+        }
+        entry={
+          addingGoogle ??
+          (reconnecting?.conn.authMode === "oauth2" ||
+          reconnecting?.conn.authMode === "service_account"
+            ? reconnecting.entry
+            : null)
+        }
+        reconnect={
+          reconnecting?.conn.authMode === "oauth2" ||
+          reconnecting?.conn.authMode === "service_account"
+            ? {
+                connectionId: reconnecting.conn.id,
+                label: reconnecting.conn.label,
+                authMode: reconnecting.conn.authMode,
+                scopeGroups: reconnecting.conn.scopeGroups,
+              }
+            : null
+        }
         companyId={company.id}
-        onClose={() => setAddingGoogle(null)}
+        onClose={() => {
+          setAddingGoogle(null);
+          setReconnecting(null);
+        }}
         onSaved={async () => {
           setAddingGoogle(null);
+          setReconnecting(null);
           await reload();
         }}
       />
@@ -636,12 +699,14 @@ function StatusBadge({
 function ApiKeyModal({
   open,
   entry,
+  reconnect,
   companyId,
   onClose,
   onSaved,
 }: {
   open: boolean;
   entry: IntegrationCatalogEntry | null;
+  reconnect: { connectionId: string; label: string } | null;
   companyId: string;
   onClose: () => void;
   onSaved: () => void;
@@ -653,27 +718,40 @@ function ApiKeyModal({
 
   React.useEffect(() => {
     if (open && entry) {
-      setLabel(entry.name);
+      setLabel(reconnect?.label ?? entry.name);
       setFields({});
     }
-  }, [open, entry]);
+  }, [open, entry, reconnect]);
 
   if (!entry || entry.authMode !== "apikey") return null;
 
+  const isReconnect = reconnect !== null;
+  const title = isReconnect
+    ? `Reconnect ${reconnect.label}`
+    : `Connect ${entry.name}`;
+
   return (
-    <Modal open={open} onClose={onClose} title={`Connect ${entry.name}`} size="lg">
+    <Modal open={open} onClose={onClose} title={title} size="lg">
       <form
         className="flex flex-col gap-4"
         onSubmit={async (e) => {
           e.preventDefault();
           setBusy(true);
           try {
-            await api.post(`/api/companies/${companyId}/integrations/connections`, {
-              provider: entry.provider,
-              label: label.trim() || entry.name,
-              fields,
-            });
-            toast(`${entry.name} connected`, "success");
+            if (isReconnect) {
+              await api.put(
+                `/api/companies/${companyId}/integrations/connections/${reconnect.connectionId}/credentials`,
+                { fields },
+              );
+              toast(`${entry.name} reconnected`, "success");
+            } else {
+              await api.post(`/api/companies/${companyId}/integrations/connections`, {
+                provider: entry.provider,
+                label: label.trim() || entry.name,
+                fields,
+              });
+              toast(`${entry.name} connected`, "success");
+            }
             onSaved();
           } catch (err) {
             toast((err as Error).message, "error");
@@ -684,16 +762,20 @@ function ApiKeyModal({
       >
         {entry.description && (
           <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-            {entry.description}
+            {isReconnect
+              ? `Replace the credentials for "${reconnect.label}". Existing employee grants and the connection id are preserved.`
+              : entry.description}
           </p>
         )}
-        <Input
-          label="Label"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          placeholder={entry.name}
-          required
-        />
+        {!isReconnect && (
+          <Input
+            label="Label"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder={entry.name}
+            required
+          />
+        )}
         {(entry.fields ?? []).map((f: IntegrationCatalogField) => (
           <div key={f.key}>
             <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
@@ -718,7 +800,7 @@ function ApiKeyModal({
             Cancel
           </Button>
           <Button type="submit" disabled={busy}>
-            {busy ? "Testing…" : "Connect"}
+            {busy ? "Testing…" : isReconnect ? "Reconnect" : "Connect"}
           </Button>
         </div>
       </form>
@@ -731,12 +813,19 @@ type ConnectMode = "oauth" | "service_account";
 function OauthOrServiceAccountModal({
   open,
   entry,
+  reconnect,
   companyId,
   onClose,
   onSaved,
 }: {
   open: boolean;
   entry: IntegrationCatalogEntry | null;
+  reconnect: {
+    connectionId: string;
+    label: string;
+    authMode: "oauth2" | "service_account";
+    scopeGroups: string[];
+  } | null;
   companyId: string;
   onClose: () => void;
   onSaved: () => void;
@@ -744,24 +833,47 @@ function OauthOrServiceAccountModal({
   const { toast } = useToast();
   const supportsOauth = !!entry?.oauth;
   const supportsSa = !!entry?.serviceAccount;
+  const isReconnect = reconnect !== null;
+  // Reconnect locks the auth mode to whatever the existing connection
+  // already uses; we never silently change auth modes mid-flight (that
+  // would orphan the client credentials).
   const [mode, setMode] = React.useState<ConnectMode>("oauth");
   const [label, setLabel] = React.useState("");
   const [clientId, setClientId] = React.useState("");
   const [clientSecret, setClientSecret] = React.useState("");
   const [keyJson, setKeyJson] = React.useState("");
   const [impersonationEmail, setImpersonationEmail] = React.useState("");
+  const [selectedScopeGroups, setSelectedScopeGroups] = React.useState<string[]>([]);
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
     if (open && entry) {
-      setMode(supportsOauth ? "oauth" : "service_account");
-      setLabel(defaultLabel(entry));
+      const initialMode: ConnectMode = isReconnect
+        ? reconnect.authMode === "oauth2"
+          ? "oauth"
+          : "service_account"
+        : supportsOauth
+          ? "oauth"
+          : "service_account";
+      setMode(initialMode);
+      setLabel(reconnect?.label ?? defaultLabel(entry));
       setClientId("");
       setClientSecret("");
       setKeyJson("");
       setImpersonationEmail("");
+      // Default to all available scope groups checked. For reconnect with a
+      // non-empty stored selection, prefill from that. Legacy connections
+      // (empty stored array) fall back to "all" so the user sees the
+      // current grant rather than an empty list.
+      const allGroupKeys = (
+        initialMode === "oauth"
+          ? entry.oauth?.scopeGroups
+          : entry.serviceAccount?.scopeGroups
+      )?.map((g) => g.key) ?? [];
+      const stored = reconnect?.scopeGroups ?? [];
+      setSelectedScopeGroups(stored.length > 0 ? stored : allGroupKeys);
     }
-  }, [open, entry, supportsOauth]);
+  }, [open, entry, supportsOauth, isReconnect, reconnect]);
 
   if (!entry) return null;
 
@@ -770,15 +882,22 @@ function OauthOrServiceAccountModal({
     if (!entry) return;
     setBusy(true);
     try {
-      const { authorizeUrl } = await api.post<{ authorizeUrl: string }>(
-        `/api/companies/${companyId}/integrations/oauth/start`,
-        {
-          provider: entry.provider,
-          label: label.trim() || entry.name,
-          clientId: clientId.trim(),
-          clientSecret: clientSecret.trim(),
-        },
-      );
+      const isOauthReconnect = isReconnect && reconnect.authMode === "oauth2";
+      const { authorizeUrl } = isOauthReconnect
+        ? await api.post<{ authorizeUrl: string }>(
+            `/api/companies/${companyId}/integrations/connections/${reconnect.connectionId}/reconnect/oauth`,
+            { scopeGroups: selectedScopeGroups },
+          )
+        : await api.post<{ authorizeUrl: string }>(
+            `/api/companies/${companyId}/integrations/oauth/start`,
+            {
+              provider: entry.provider,
+              label: label.trim() || entry.name,
+              clientId: clientId.trim(),
+              clientSecret: clientSecret.trim(),
+              scopeGroups: selectedScopeGroups,
+            },
+          );
       const popup = window.open(authorizeUrl, "genosyn-oauth", "width=520,height=700");
       if (!popup) {
         toast("Popup blocked — allow popups for this site and try again.", "error");
@@ -799,16 +918,29 @@ function OauthOrServiceAccountModal({
     if (!entry) return;
     setBusy(true);
     try {
-      await api.post(
-        `/api/companies/${companyId}/integrations/connections/service-account`,
-        {
-          provider: entry.provider,
-          label: label.trim() || entry.name,
-          keyJson,
-          impersonationEmail: impersonationEmail.trim() || undefined,
-        },
-      );
-      toast(`${entry.name} connected`, "success");
+      if (isReconnect) {
+        await api.put(
+          `/api/companies/${companyId}/integrations/connections/${reconnect.connectionId}/service-account`,
+          {
+            keyJson,
+            impersonationEmail: impersonationEmail.trim() || undefined,
+            scopeGroups: selectedScopeGroups,
+          },
+        );
+        toast(`${entry.name} reconnected`, "success");
+      } else {
+        await api.post(
+          `/api/companies/${companyId}/integrations/connections/service-account`,
+          {
+            provider: entry.provider,
+            label: label.trim() || entry.name,
+            keyJson,
+            impersonationEmail: impersonationEmail.trim() || undefined,
+            scopeGroups: selectedScopeGroups,
+          },
+        );
+        toast(`${entry.name} connected`, "success");
+      }
       onSaved();
     } catch (err) {
       toast((err as Error).message, "error");
@@ -817,21 +949,38 @@ function OauthOrServiceAccountModal({
     }
   }
 
+  function toggleScopeGroup(key: string) {
+    setSelectedScopeGroups((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
+    );
+  }
+
   const redirectUri =
     typeof window !== "undefined"
       ? `${window.location.origin}/api/integrations/oauth/callback/google`
       : "";
 
   return (
-    <Modal open={open} onClose={onClose} title={`Connect ${entry.name}`} size="lg">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={isReconnect ? `Reconnect ${reconnect.label}` : `Connect ${entry.name}`}
+      size="lg"
+    >
       <div className="flex flex-col gap-4">
-        {entry.description && (
+        {isReconnect ? (
+          <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            {reconnect.authMode === "oauth2"
+              ? `Re-run Google's consent screen for "${reconnect.label}" to refresh tokens or change which products this connection can access. The connection id and existing employee grants are preserved.`
+              : `Replace the service-account JSON for "${reconnect.label}". Existing employee grants and the connection id are preserved.`}
+          </p>
+        ) : entry.description ? (
           <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
             {entry.description}
           </p>
-        )}
+        ) : null}
 
-        {supportsOauth && supportsSa && (
+        {!isReconnect && supportsOauth && supportsSa && (
           <div className="flex gap-1 rounded-lg bg-slate-100 p-1 text-xs dark:bg-slate-800">
             <button
               type="button"
@@ -860,57 +1009,77 @@ function OauthOrServiceAccountModal({
 
         {mode === "oauth" && supportsOauth ? (
           <form className="flex flex-col gap-3" onSubmit={submitOauth}>
-            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
-              <p className="font-medium">Set up an OAuth Client ID first</p>
-              <ol className="mt-1 list-decimal space-y-0.5 pl-4">
-                <li>
-                  Google Cloud Console → APIs &amp; Services → Credentials → <em>Create OAuth Client ID</em> (Web application).
-                </li>
-                <li>
-                  Add this redirect URI under <em>Authorized redirect URIs</em>:
-                  <code className="ml-1 break-all rounded bg-amber-100 px-1 py-0.5 font-mono dark:bg-amber-900/40">
-                    {redirectUri}
-                  </code>
-                </li>
-                <li>Paste the resulting Client ID and Client Secret below.</li>
-              </ol>
-            </div>
-            <Input
-              label="Label"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder={entry.name}
-              required
+            {!isReconnect && (
+              <>
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                  <p className="font-medium">Set up an OAuth Client ID first</p>
+                  <ol className="mt-1 list-decimal space-y-0.5 pl-4">
+                    <li>
+                      Google Cloud Console → APIs &amp; Services → Credentials → <em>Create OAuth Client ID</em> (Web application).
+                    </li>
+                    <li>
+                      Add this redirect URI under <em>Authorized redirect URIs</em>:
+                      <code className="ml-1 break-all rounded bg-amber-100 px-1 py-0.5 font-mono dark:bg-amber-900/40">
+                        {redirectUri}
+                      </code>
+                    </li>
+                    <li>Paste the resulting Client ID and Client Secret below.</li>
+                  </ol>
+                </div>
+                <Input
+                  label="Label"
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value)}
+                  placeholder={entry.name}
+                  required
+                />
+                <Input
+                  label="OAuth Client ID"
+                  value={clientId}
+                  onChange={(e) => setClientId(e.target.value)}
+                  placeholder="123456789-abcdef.apps.googleusercontent.com"
+                  required
+                />
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                    OAuth Client Secret <span className="ml-1 text-red-500">*</span>
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={clientSecret}
+                    onChange={(e) => setClientSecret(e.target.value)}
+                    placeholder="GOCSPX-…"
+                    className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-mono shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
+                  />
+                  <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                    Encrypted at rest with the app&apos;s session secret. Used to refresh access tokens.
+                  </p>
+                </div>
+              </>
+            )}
+            <ScopeGroupPicker
+              groups={entry.oauth?.scopeGroups ?? []}
+              selected={selectedScopeGroups}
+              onToggle={toggleScopeGroup}
             />
-            <Input
-              label="OAuth Client ID"
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              placeholder="123456789-abcdef.apps.googleusercontent.com"
-              required
-            />
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
-                OAuth Client Secret <span className="ml-1 text-red-500">*</span>
-              </label>
-              <input
-                type="password"
-                required
-                value={clientSecret}
-                onChange={(e) => setClientSecret(e.target.value)}
-                placeholder="GOCSPX-…"
-                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-mono shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
-              />
-              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                Encrypted at rest with the app&apos;s session secret. Used to refresh access tokens.
-              </p>
-            </div>
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={busy || !clientId.trim() || !clientSecret.trim()}>
-                {busy ? "Starting…" : `Connect with ${entry.name}`}
+              <Button
+                type="submit"
+                disabled={
+                  busy ||
+                  selectedScopeGroups.length === 0 ||
+                  (!isReconnect && (!clientId.trim() || !clientSecret.trim()))
+                }
+              >
+                {busy
+                  ? "Starting…"
+                  : isReconnect
+                    ? "Reconnect"
+                    : `Connect with ${entry.name}`}
               </Button>
             </div>
           </form>
@@ -929,13 +1098,15 @@ function OauthOrServiceAccountModal({
                 </p>
               )}
             </div>
-            <Input
-              label="Label"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder={entry.name}
-              required
-            />
+            {!isReconnect && (
+              <Input
+                label="Label"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder={entry.name}
+                required
+              />
+            )}
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
                 Service account JSON <span className="ml-1 text-red-500">*</span>
@@ -961,17 +1132,93 @@ function OauthOrServiceAccountModal({
                 type="email"
               />
             )}
+            <ScopeGroupPicker
+              groups={entry.serviceAccount?.scopeGroups ?? []}
+              selected={selectedScopeGroups}
+              onToggle={toggleScopeGroup}
+            />
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={busy || !keyJson.trim()}>
-                {busy ? "Validating…" : "Save service account"}
+              <Button
+                type="submit"
+                disabled={busy || !keyJson.trim() || selectedScopeGroups.length === 0}
+              >
+                {busy
+                  ? "Validating…"
+                  : isReconnect
+                    ? "Reconnect"
+                    : "Save service account"}
               </Button>
             </div>
           </form>
         ) : null}
       </div>
     </Modal>
+  );
+}
+
+/**
+ * Render a list of provider-defined scope bundles as checkboxes. Used by
+ * both the OAuth and Service Account flows so the user can pick which
+ * services (Mail, Calendar, Drive, …) the connection is allowed to touch.
+ */
+function ScopeGroupPicker({
+  groups,
+  selected,
+  onToggle,
+}: {
+  groups: { key: string; label: string; description: string; required?: boolean; workspaceOnly?: boolean }[];
+  selected: string[];
+  onToggle: (key: string) => void;
+}) {
+  if (groups.length === 0) return null;
+  return (
+    <div>
+      <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-200">
+        What can this connection access?
+      </label>
+      <p className="mb-2 text-[11px] text-slate-500 dark:text-slate-400">
+        Pick the products this connection can touch. You can change this later by reconnecting.
+      </p>
+      <div className="flex flex-col divide-y divide-slate-100 rounded-md border border-slate-200 dark:divide-slate-800 dark:border-slate-700">
+        {groups.map((g) => {
+          const checked = selected.includes(g.key) || !!g.required;
+          return (
+            <label
+              key={g.key}
+              className="flex cursor-pointer items-start gap-2.5 p-2.5 transition hover:bg-slate-50 dark:hover:bg-slate-800/40"
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                disabled={!!g.required}
+                onChange={() => onToggle(g.key)}
+                className="mt-0.5 h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900"
+              />
+              <span className="flex-1 text-xs">
+                <span className="flex items-center gap-1.5 font-medium text-slate-900 dark:text-slate-100">
+                  {g.label}
+                  {g.workspaceOnly && (
+                    <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                      Workspace only
+                    </span>
+                  )}
+                  {g.required && (
+                    <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                      Required
+                    </span>
+                  )}
+                </span>
+                <span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">
+                  {g.description}
+                </span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </div>
   );
 }

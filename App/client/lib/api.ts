@@ -355,6 +355,14 @@ export type IntegrationCatalogField = {
   required: boolean;
   hint?: string;
 };
+export type IntegrationScopeGroup = {
+  key: string;
+  label: string;
+  description: string;
+  scopes: string[];
+  required?: boolean;
+  workspaceOnly?: boolean;
+};
 export type IntegrationCatalogEntry = {
   provider: string;
   name: string;
@@ -366,10 +374,12 @@ export type IntegrationCatalogEntry = {
   oauth?: {
     app: "google";
     scopes: string[];
+    scopeGroups?: IntegrationScopeGroup[];
     setupDocs?: string;
   };
   serviceAccount?: {
     scopes: string[];
+    scopeGroups?: IntegrationScopeGroup[];
     impersonation: boolean;
     setupDocs?: string;
   };
@@ -389,6 +399,7 @@ export type IntegrationConnection = {
   lastCheckedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  scopeGroups: string[];
 };
 export type ConnectionGrant = {
   id: string;

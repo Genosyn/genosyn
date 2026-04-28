@@ -3,6 +3,7 @@ import type {
   IntegrationConfig,
   IntegrationProvider,
   IntegrationRuntimeContext,
+  IntegrationScopeGroup,
   OauthTokenSet,
 } from "../types.js";
 import { config } from "../../../config.js";
@@ -14,8 +15,13 @@ import { safeJson } from "./google/util.js";
  * Google Workspace — umbrella OAuth + Service Account integration.
  *
  * One `IntegrationConnection` row covers a single Google account (or a
- * single service account) and exposes tools from multiple Google products
- * (Gmail + Drive today; Calendar, Docs, etc. later).
+ * single service account) and exposes tools from multiple Google
+ * products. The scope set is **user-pickable** at connect/reconnect
+ * time: the catalog lists scope groups (`GOOGLE_SCOPE_GROUPS`) like
+ * "Mail" or "Calendar", the UI renders them as checkboxes, and the
+ * server resolves the chosen keys to the underlying URL scopes. Tools
+ * currently ship for Gmail and Drive; the rest are pre-wired so users
+ * can grant them now and use them once tool families land.
  *
  * Two auth modes are supported, picked at create-time:
  *
@@ -23,7 +29,9 @@ import { safeJson } from "./google/util.js";
  *     `clientId` + `clientSecret` (registered with Google Cloud) and runs
  *     the standard 3-legged consent dance. Tokens refresh via the stored
  *     refresh_token. Works for any Google account, including personal
- *     `@gmail.com`.
+ *     `@gmail.com` — though Workspace-only scope groups (Chat, Meet,
+ *     Directory) simply won't be granted for personal accounts; we read
+ *     the actual granted scope off the token response.
  *
  *   • Service account (`authMode="service_account"`): each Connection
  *     uploads a Google Cloud service-account JSON key. Access tokens are
@@ -31,27 +39,118 @@ import { safeJson } from "./google/util.js";
  *     `impersonationEmail`, the SA acts on a Workspace user's behalf via
  *     domain-wide delegation. Does not work with personal `@gmail.com`.
  *
- * Scopes requested are the same in both modes:
- *   - `gmail.modify`     — read, draft, send, label.
- *   - `drive.readonly`   — search and read files across Drive.
- *   - `userinfo.email`   — so we know which account just authorised (OAuth).
- *   - `openid`           — required when userinfo.email is requested (OAuth).
+ * OAuth additionally requests `userinfo.email` + `openid` so we know
+ * which account just authorised — those are the OAuth baseline and can't
+ * be unchecked.
  */
 
 const GOOGLE_TOKEN = "https://oauth2.googleapis.com/token";
 const GOOGLE_USERINFO = "https://openidconnect.googleapis.com/v1/userinfo";
 
-const GOOGLE_OAUTH_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.modify",
-  "https://www.googleapis.com/auth/drive.readonly",
+/**
+ * User-pickable scope bundles. The connect/reconnect UI renders these as
+ * checkboxes; the OAuth start endpoint resolves the keys back to the URL
+ * scope list. Adding a new product (say, YouTube) is a single entry here.
+ */
+export const GOOGLE_SCOPE_GROUPS: IntegrationScopeGroup[] = [
+  {
+    key: "mail",
+    label: "Gmail",
+    description: "Read, draft, send, label email; manage filters/forwarding.",
+    scopes: [
+      "https://www.googleapis.com/auth/gmail.modify",
+      "https://www.googleapis.com/auth/gmail.settings.basic",
+    ],
+  },
+  {
+    key: "drive",
+    label: "Drive",
+    description: "Search, read, create, and edit files in Drive.",
+    scopes: ["https://www.googleapis.com/auth/drive"],
+  },
+  {
+    key: "calendar",
+    label: "Calendar",
+    description: "Read and manage events on the user's calendars.",
+    scopes: ["https://www.googleapis.com/auth/calendar"],
+  },
+  {
+    key: "docs",
+    label: "Docs / Sheets / Slides",
+    description: "Read and edit Google Docs, Sheets, and Slides.",
+    scopes: [
+      "https://www.googleapis.com/auth/documents",
+      "https://www.googleapis.com/auth/spreadsheets",
+      "https://www.googleapis.com/auth/presentations",
+    ],
+  },
+  {
+    key: "tasks",
+    label: "Tasks",
+    description: "Read and manage Google Tasks.",
+    scopes: ["https://www.googleapis.com/auth/tasks"],
+  },
+  {
+    key: "contacts",
+    label: "Contacts",
+    description: "Read and edit personal contacts (People API).",
+    scopes: ["https://www.googleapis.com/auth/contacts"],
+  },
+  {
+    key: "directory",
+    label: "Directory",
+    description: "Read your Workspace org's user directory.",
+    scopes: ["https://www.googleapis.com/auth/directory.readonly"],
+    workspaceOnly: true,
+  },
+  {
+    key: "chat",
+    label: "Chat",
+    description: "Read and send messages in Google Chat.",
+    scopes: ["https://www.googleapis.com/auth/chat.messages"],
+    workspaceOnly: true,
+  },
+  {
+    key: "meet",
+    label: "Meet",
+    description: "Create Meet spaces.",
+    scopes: ["https://www.googleapis.com/auth/meetings.space.created"],
+    workspaceOnly: true,
+  },
+];
+
+/** OAuth requires `openid` + `userinfo.email` regardless of which products
+ * the user picked — that's how we identify which Google account just
+ * authorised. SA tokens skip these (the JWT identifies the SA itself). */
+const GOOGLE_OAUTH_BASELINE_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
   "openid",
 ];
 
-const GOOGLE_SERVICE_ACCOUNT_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.modify",
-  "https://www.googleapis.com/auth/drive.readonly",
-];
+const GOOGLE_SERVICE_ACCOUNT_BASELINE_SCOPES: string[] = [];
+
+/**
+ * Resolve a list of scope-group keys → flat scope URL list. Unknown keys
+ * are silently dropped; this matters for forward compatibility (a
+ * connection persisted with key "foo" that we later remove won't break
+ * reconnect — it just means that group is no longer requested).
+ */
+export function resolveGoogleScopes(args: {
+  scopeGroups: string[];
+  baseline: string[];
+}): string[] {
+  const out = new Set(args.baseline);
+  const byKey = new Map(GOOGLE_SCOPE_GROUPS.map((g) => [g.key, g] as const));
+  for (const key of args.scopeGroups) {
+    const group = byKey.get(key);
+    if (!group) continue;
+    for (const s of group.scopes) out.add(s);
+  }
+  return Array.from(out);
+}
+
+/** All known group keys — the default selection for fresh connections. */
+export const ALL_GOOGLE_SCOPE_GROUP_KEYS = GOOGLE_SCOPE_GROUPS.map((g) => g.key);
 
 // ---------- Config shapes (what's stored encrypted on each Connection) ----------
 
@@ -65,6 +164,11 @@ export type GoogleOauthConfig = {
   /** Space-separated granted scopes. */
   scope: string;
   email: string;
+  /** Scope-group keys the user selected at consent time. Stored so
+   * reconnect can prefill the checkbox state. Older connections written
+   * before this feature shipped have an empty array — the UI treats that
+   * as "all groups" for the prefill default. */
+  scopeGroups?: string[];
 };
 
 export type GoogleServiceAccountConfig = {
@@ -72,7 +176,10 @@ export type GoogleServiceAccountConfig = {
   privateKey: string;
   privateKeyId: string;
   projectId: string;
+  /** Resolved scope URLs the SA token is minted with. */
   scopes: string[];
+  /** Scope-group keys the user picked. Same prefill semantics as above. */
+  scopeGroups?: string[];
   /** When set, the SA impersonates this Workspace user (domain-wide
    * delegation). Required for Gmail since SAs cannot read mail otherwise. */
   impersonationEmail?: string;
@@ -94,19 +201,21 @@ export const googleProvider: IntegrationProvider = {
   catalog: {
     provider: "google",
     name: "Google Workspace",
-    tagline: "Connect Gmail + Drive — search, read, send.",
+    tagline: "Connect Gmail, Drive, Calendar, Docs, and more.",
     description:
-      "Connect a Google account so AI employees can triage email, search Drive, and send replies. Each Connection brings its own credentials: an OAuth client (recommended for personal Gmail or small teams) or a service account JSON key (Workspace admin / programmatic access).",
+      "Connect a Google account so AI employees can triage email, search and edit Drive, manage calendars, draft Docs/Sheets/Slides, work with Tasks and Contacts, and post to Chat/Meet. Each Connection brings its own credentials: an OAuth client (recommended for personal Gmail or small teams) or a service account JSON key (Workspace admin / programmatic access).",
     icon: "Mail",
     authMode: "oauth2",
     oauth: {
       app: "google",
-      scopes: GOOGLE_OAUTH_SCOPES,
+      scopes: GOOGLE_OAUTH_BASELINE_SCOPES,
+      scopeGroups: GOOGLE_SCOPE_GROUPS,
       setupDocs:
         "https://developers.google.com/identity/protocols/oauth2/web-server",
     },
     serviceAccount: {
-      scopes: GOOGLE_SERVICE_ACCOUNT_SCOPES,
+      scopes: GOOGLE_SERVICE_ACCOUNT_BASELINE_SCOPES,
+      scopeGroups: GOOGLE_SCOPE_GROUPS,
       // Gmail SAs can't read a mailbox without DWD impersonation, so we
       // surface the field. Drive-only access works without it.
       impersonation: true,
@@ -118,7 +227,7 @@ export const googleProvider: IntegrationProvider = {
 
   tools: ALL_TOOLS,
 
-  buildOauthConfig({ tokens, userInfo, clientId, clientSecret }) {
+  buildOauthConfig({ tokens, userInfo, clientId, clientSecret, scopeGroups }) {
     const email = typeof userInfo.email === "string" ? userInfo.email : "";
     if (!tokens.refreshToken) {
       throw new Error(
@@ -133,11 +242,12 @@ export const googleProvider: IntegrationProvider = {
       expiresAt: tokens.expiresAt ?? Date.now() + 60 * 60 * 1000,
       scope: tokens.scope ?? "",
       email,
+      scopeGroups,
     };
     return { config: cfg as unknown as IntegrationConfig, accountHint: email || "Google account" };
   },
 
-  async buildServiceAccountConfig({ keyJson, impersonationEmail }) {
+  async buildServiceAccountConfig({ keyJson, impersonationEmail, scopeGroups }) {
     const clientEmail = strField(keyJson, "client_email");
     const privateKey = strField(keyJson, "private_key");
     const privateKeyId = strField(keyJson, "private_key_id");
@@ -153,13 +263,23 @@ export const googleProvider: IntegrationProvider = {
         "private_key looks malformed. Paste the JSON file verbatim — newlines must be `\\n` inside the quoted string.",
       );
     }
+    const resolvedScopes = resolveGoogleScopes({
+      scopeGroups,
+      baseline: GOOGLE_SERVICE_ACCOUNT_BASELINE_SCOPES,
+    });
+    if (resolvedScopes.length === 0) {
+      throw new Error(
+        "Pick at least one Google service (Mail, Drive, Calendar, …) — service-account tokens need a scope to be useful.",
+      );
+    }
     const trimmedImpersonation = impersonationEmail?.trim() || undefined;
     const cfg: GoogleServiceAccountConfig = {
       clientEmail,
       privateKey,
       privateKeyId,
       projectId,
-      scopes: GOOGLE_SERVICE_ACCOUNT_SCOPES,
+      scopes: resolvedScopes,
+      scopeGroups,
       impersonationEmail: trimmedImpersonation,
     };
     // Mint once eagerly so the user sees a clear error during connect rather

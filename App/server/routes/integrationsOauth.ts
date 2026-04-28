@@ -1,5 +1,8 @@
 import { Router } from "express";
-import { createOauthConnection } from "../services/integrations.js";
+import {
+  createOauthConnection,
+  updateOauthConnectionConfig,
+} from "../services/integrations.js";
 import { finishOauth, resolveOauthState } from "../services/oauth.js";
 import { recordAudit } from "../services/audit.js";
 
@@ -58,17 +61,32 @@ integrationsOauthRouter.get("/callback/:app", async (req, res) => {
 
   try {
     const finished = await finishOauth({ app: "google", code: rawCode, state });
-    const conn = await createOauthConnection({
-      companyId: finished.companyId,
-      provider: finished.provider,
-      label: finished.label,
-      config: finished.config,
-      accountHint: finished.accountHint,
-    });
+    const conn = state.existingConnectionId
+      ? await updateOauthConnectionConfig({
+          companyId: finished.companyId,
+          connectionId: state.existingConnectionId,
+          config: finished.config,
+          accountHint: finished.accountHint,
+        })
+      : await createOauthConnection({
+          companyId: finished.companyId,
+          provider: finished.provider,
+          label: finished.label,
+          config: finished.config,
+          accountHint: finished.accountHint,
+        });
+    if (!conn) {
+      return renderClose(res, {
+        ok: false,
+        title: "Connection no longer exists",
+        detail:
+          "The connection you were reconnecting was deleted while you were authorising. Close this window and start again.",
+      });
+    }
     await recordAudit({
       companyId: finished.companyId,
       actorUserId: state.userId,
-      action: "connection.create",
+      action: state.existingConnectionId ? "connection.reconnect" : "connection.create",
       targetType: "connection",
       targetId: conn.id,
       targetLabel: `${conn.provider} · ${conn.label}`,
@@ -76,7 +94,9 @@ integrationsOauthRouter.get("/callback/:app", async (req, res) => {
     });
     return renderClose(res, {
       ok: true,
-      title: `Connected ${conn.provider}`,
+      title: state.existingConnectionId
+        ? `Reconnected ${conn.provider}`
+        : `Connected ${conn.provider}`,
       detail: `${conn.accountHint} is now available to your team.`,
     });
   } catch (err) {

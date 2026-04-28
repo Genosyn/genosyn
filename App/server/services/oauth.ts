@@ -4,7 +4,10 @@ import {
   buildGoogleAuthorizeUrl,
   exchangeGoogleCode,
   googleRedirectUri,
+  resolveGoogleScopes,
+  type GoogleOauthConfig,
 } from "../integrations/providers/google.js";
+import { decryptConnectionConfig, getConnection } from "./integrations.js";
 
 /**
  * OAuth state store + provider dispatch.
@@ -30,7 +33,7 @@ import {
  * of a leaked state string.
  */
 
-type OauthState = {
+export type OauthState = {
   state: string;
   userId: string;
   companyId: string;
@@ -38,7 +41,13 @@ type OauthState = {
   label: string;
   clientId: string;
   clientSecret: string;
+  /** Scope-group keys the user picked at start time. Stashed so the
+   * callback can persist them on the new/updated connection. */
+  scopeGroups: string[];
   expiresAt: number;
+  /** When set, the callback updates this connection's tokens instead of
+   * creating a new one — preserves the row id, label, and grants. */
+  existingConnectionId?: string;
 };
 
 const STATE_TTL_MS = 10 * 60 * 1000;
@@ -58,6 +67,8 @@ export function startOauth(args: {
   label: string;
   clientId: string;
   clientSecret: string;
+  scopeGroups: string[];
+  existingConnectionId?: string;
 }): { authorizeUrl: string } {
   sweep();
   const provider = getProvider(args.provider);
@@ -77,23 +88,77 @@ export function startOauth(args: {
     label: args.label,
     clientId: args.clientId,
     clientSecret: args.clientSecret,
+    scopeGroups: args.scopeGroups,
     expiresAt: Date.now() + STATE_TTL_MS,
+    existingConnectionId: args.existingConnectionId,
   });
 
   let authorizeUrl: string;
   switch (oauth.app) {
-    case "google":
+    case "google": {
+      // Each provider knows how to expand its own group keys; for now we
+      // only have Google so dispatch is inline.
+      const scopes = resolveGoogleScopes({
+        scopeGroups: args.scopeGroups,
+        baseline: oauth.scopes,
+      });
       authorizeUrl = buildGoogleAuthorizeUrl({
         state,
-        scopes: oauth.scopes,
+        scopes,
         clientId: args.clientId,
         redirectUri: googleRedirectUri(),
       });
       break;
+    }
     default:
       throw new Error(`Unsupported OAuth app: ${oauth.app}`);
   }
   return { authorizeUrl };
+}
+
+/**
+ * Reuse the clientId / clientSecret embedded in an existing OAuth
+ * connection to start a fresh consent flow. The new state carries the
+ * connection id so the callback can update tokens in place rather than
+ * creating a duplicate row (which would orphan grants).
+ */
+export async function startOauthReconnect(args: {
+  companyId: string;
+  userId: string;
+  connectionId: string;
+  /** Scope-group keys to request this time. Falls back to whatever was
+   * persisted on the existing connection — empty array on legacy rows
+   * means "no groups picked", which the route layer translates into
+   * "all groups" for backward-compat sanity. */
+  scopeGroups?: string[];
+}): Promise<{ authorizeUrl: string }> {
+  const conn = await getConnection(args.companyId, args.connectionId);
+  if (!conn) throw new Error("Connection not found");
+  if (conn.authMode !== "oauth2") {
+    throw new Error(
+      `Connection is ${conn.authMode}, not OAuth — re-enter credentials in the matching modal.`,
+    );
+  }
+  const provider = getProvider(conn.provider);
+  if (!provider || !provider.catalog.oauth) {
+    throw new Error(`${conn.provider} no longer supports OAuth`);
+  }
+  const cfg = decryptConnectionConfig(conn) as GoogleOauthConfig;
+  if (!cfg.clientId || !cfg.clientSecret) {
+    throw new Error(
+      "Stored OAuth client credentials are missing — disconnect and create a new connection.",
+    );
+  }
+  return startOauth({
+    companyId: args.companyId,
+    userId: args.userId,
+    provider: conn.provider,
+    label: conn.label,
+    clientId: cfg.clientId,
+    clientSecret: cfg.clientSecret,
+    scopeGroups: args.scopeGroups ?? cfg.scopeGroups ?? [],
+    existingConnectionId: conn.id,
+  });
 }
 
 /** Pop a state record — single-use. */
@@ -140,6 +205,7 @@ export async function finishOauth(args: {
         userInfo,
         clientId: args.state.clientId,
         clientSecret: args.state.clientSecret,
+        scopeGroups: args.state.scopeGroups,
       });
       return {
         provider: args.state.provider,

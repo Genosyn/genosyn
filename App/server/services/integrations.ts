@@ -33,6 +33,10 @@ export type ConnectionDTO = {
   lastCheckedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Scope-group keys persisted on the connection (OAuth + SA only).
+   * Empty array for API-key connections or legacy rows that pre-date
+   * scope groups. The reconnect modal uses this to prefill checkboxes. */
+  scopeGroups: string[];
 };
 
 export function serializeConnection(c: IntegrationConnection): ConnectionDTO {
@@ -48,7 +52,26 @@ export function serializeConnection(c: IntegrationConnection): ConnectionDTO {
     lastCheckedAt: c.lastCheckedAt ? c.lastCheckedAt.toISOString() : null,
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
+    scopeGroups: readScopeGroups(c),
   };
+}
+
+/**
+ * Pull `scopeGroups` out of the encrypted config without surfacing any
+ * other secret fields. Returns `[]` for API-key connections or anything
+ * we can't decrypt — the UI treats `[]` as "no scope groups picked".
+ */
+function readScopeGroups(c: IntegrationConnection): string[] {
+  if (c.authMode === "apikey") return [];
+  try {
+    const cfg = decryptConnectionConfig(c) as { scopeGroups?: unknown };
+    if (Array.isArray(cfg.scopeGroups)) {
+      return cfg.scopeGroups.filter((s): s is string => typeof s === "string");
+    }
+  } catch {
+    // Bad config — surface as empty rather than crashing the list endpoint.
+  }
+  return [];
 }
 
 export async function listConnections(companyId: string): Promise<IntegrationConnection[]> {
@@ -164,6 +187,7 @@ export async function createServiceAccountConnection(args: {
   label: string;
   keyJson: Record<string, unknown>;
   impersonationEmail?: string;
+  scopeGroups: string[];
 }): Promise<IntegrationConnection> {
   const provider = getProvider(args.provider);
   if (!provider) throw new Error(`Unknown integration: ${args.provider}`);
@@ -178,6 +202,7 @@ export async function createServiceAccountConnection(args: {
   const { config, accountHint } = await provider.buildServiceAccountConfig({
     keyJson: args.keyJson,
     impersonationEmail: args.impersonationEmail,
+    scopeGroups: args.scopeGroups,
   });
   const repo = AppDataSource.getRepository(IntegrationConnection);
   const row = repo.create({
@@ -208,6 +233,111 @@ export async function updateConnectionLabel(
   const existing = await repo.findOneBy({ companyId, id });
   if (!existing) return null;
   existing.label = label.trim() || existing.label;
+  await repo.save(existing);
+  return existing;
+}
+
+/**
+ * Reconnect helpers — replace the encrypted credentials on an existing
+ * connection without touching its id, label, or grants. Used when an API
+ * key rotates, a service-account JSON is regenerated, or an OAuth token
+ * is fully revoked and the user needs to re-grant consent. Keeping the
+ * row id stable means every existing employee grant survives.
+ */
+export async function updateApiKeyCredentials(args: {
+  companyId: string;
+  connectionId: string;
+  fields: Record<string, string>;
+}): Promise<IntegrationConnection | null> {
+  const repo = AppDataSource.getRepository(IntegrationConnection);
+  const existing = await repo.findOneBy({
+    companyId: args.companyId,
+    id: args.connectionId,
+  });
+  if (!existing) return null;
+  if (existing.authMode !== "apikey") {
+    throw new Error(
+      `Connection is ${existing.authMode}, not API-key — use the matching reconnect flow.`,
+    );
+  }
+  const provider = getProvider(existing.provider);
+  if (!provider || !provider.validateApiKey) {
+    throw new Error(`Unknown integration: ${existing.provider}`);
+  }
+  const { config, accountHint } = await provider.validateApiKey(args.fields);
+  existing.encryptedConfig = encryptConnectionConfig(config);
+  existing.accountHint = accountHint;
+  existing.status = "connected";
+  existing.statusMessage = "";
+  existing.lastCheckedAt = new Date();
+  await repo.save(existing);
+  return existing;
+}
+
+export async function updateServiceAccountCredentials(args: {
+  companyId: string;
+  connectionId: string;
+  keyJson: Record<string, unknown>;
+  impersonationEmail?: string;
+  scopeGroups: string[];
+}): Promise<IntegrationConnection | null> {
+  const repo = AppDataSource.getRepository(IntegrationConnection);
+  const existing = await repo.findOneBy({
+    companyId: args.companyId,
+    id: args.connectionId,
+  });
+  if (!existing) return null;
+  if (existing.authMode !== "service_account") {
+    throw new Error(
+      `Connection is ${existing.authMode}, not service-account — use the matching reconnect flow.`,
+    );
+  }
+  const provider = getProvider(existing.provider);
+  if (!provider || !provider.buildServiceAccountConfig) {
+    throw new Error(`Unknown integration: ${existing.provider}`);
+  }
+  const { config, accountHint } = await provider.buildServiceAccountConfig({
+    keyJson: args.keyJson,
+    impersonationEmail: args.impersonationEmail,
+    scopeGroups: args.scopeGroups,
+  });
+  existing.encryptedConfig = encryptConnectionConfig(config);
+  existing.accountHint = accountHint;
+  existing.status = "connected";
+  existing.statusMessage = "";
+  existing.lastCheckedAt = new Date();
+  await repo.save(existing);
+  return existing;
+}
+
+/**
+ * Replace the encrypted config on an existing OAuth connection — called by
+ * the OAuth callback when it resolves a state that carried an
+ * `existingConnectionId`. The provider has already shaped the new tokens
+ * into a config blob via `buildOauthConfig`.
+ */
+export async function updateOauthConnectionConfig(args: {
+  companyId: string;
+  connectionId: string;
+  config: IntegrationConfig;
+  accountHint: string;
+}): Promise<IntegrationConnection | null> {
+  const repo = AppDataSource.getRepository(IntegrationConnection);
+  const existing = await repo.findOneBy({
+    companyId: args.companyId,
+    id: args.connectionId,
+  });
+  if (!existing) return null;
+  if (existing.authMode !== "oauth2") {
+    throw new Error(
+      `Connection is ${existing.authMode}, not OAuth — use the matching reconnect flow.`,
+    );
+  }
+  existing.encryptedConfig = encryptConnectionConfig(args.config);
+  existing.accountHint = args.accountHint;
+  existing.status = "connected";
+  existing.statusMessage = "";
+  existing.lastCheckedAt = new Date();
   await repo.save(existing);
   return existing;
 }

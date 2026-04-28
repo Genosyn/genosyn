@@ -28,6 +28,28 @@ export type IntegrationCatalogField = {
   hint?: string;
 };
 
+/**
+ * A user-pickable bundle of provider scopes — e.g. "Mail" maps to
+ * `gmail.modify` + `gmail.settings.basic`. Lets the connect/reconnect UI
+ * show a short checkbox list ("Mail", "Calendar", "Drive") instead of
+ * leaking raw OAuth URL strings into the form.
+ */
+export type IntegrationScopeGroup = {
+  /** Stable id (e.g. "mail", "calendar"). Persisted on the Connection. */
+  key: string;
+  /** Display name (e.g. "Gmail"). */
+  label: string;
+  /** Short blurb shown next to the checkbox. */
+  description: string;
+  /** Underlying provider scope URLs this group includes. */
+  scopes: string[];
+  /** When true, the checkbox is locked on. */
+  required?: boolean;
+  /** When true, only Workspace accounts (not personal `@gmail.com`) can
+   * grant this group. Surfaced as a small hint in the UI. */
+  workspaceOnly?: boolean;
+};
+
 /** Metadata the UI needs to render the catalog + the "add connection" form. */
 export type IntegrationCatalogEntry = {
   /** Stable id — matches `IntegrationConnection.provider`. */
@@ -49,15 +71,23 @@ export type IntegrationCatalogEntry = {
    * block is purely metadata for the connect form. */
   oauth?: {
     app: "google";
+    /** Always-included baseline scopes (e.g. `userinfo.email` + `openid`
+     * for OpenID Connect identity). Cannot be unchecked. */
     scopes: string[];
+    /** Optional, user-pickable scope bundles. The UI shows these as
+     * checkboxes; the resolved scope URLs are added to `scopes` at
+     * authorise time. */
+    scopeGroups?: IntegrationScopeGroup[];
     /** Link to docs explaining how to register the app. */
     setupDocs?: string;
   };
   /** When set, this integration also accepts a service-account credential.
    * The connect modal renders a second tab for it. */
   serviceAccount?: {
-    /** Required scopes the SA token will be minted with. */
+    /** Always-included baseline scopes the SA token will be minted with. */
     scopes: string[];
+    /** Optional, user-pickable scope bundles for SA tokens. */
+    scopeGroups?: IntegrationScopeGroup[];
     /** When true, the connect form asks for an `impersonationEmail` so the
      * SA can act on a Workspace user's behalf via domain-wide delegation. */
     impersonation: boolean;
@@ -128,24 +158,28 @@ export type IntegrationProvider = {
   /**
    * OAuth providers call this after the handshake to hand back the final
    * config blob. The caller already has access+refresh tokens, the OAuth
-   * client credentials (so the provider can refresh later), and (if the
-   * provider returns one) a userinfo payload.
+   * client credentials (so the provider can refresh later), the
+   * scope-group keys the user picked at start time, and (if the provider
+   * returns one) a userinfo payload.
    */
   buildOauthConfig?(args: {
     tokens: OauthTokenSet;
     userInfo: Record<string, unknown>;
     clientId: string;
     clientSecret: string;
+    scopeGroups: string[];
   }): { config: IntegrationConfig; accountHint: string };
 
   /**
    * Service-account providers implement this. Receives the parsed JSON key
-   * file + optional impersonation email; returns the persisted config blob.
-   * Throw with a user-friendly message if the JSON shape is invalid.
+   * file, optional impersonation email, and the scope-group keys the user
+   * picked. Returns the persisted config blob. Throw with a user-friendly
+   * message if the JSON shape is invalid or the user picked no groups.
    */
   buildServiceAccountConfig?(args: {
     keyJson: Record<string, unknown>;
     impersonationEmail?: string;
+    scopeGroups: string[];
   }): Promise<{ config: IntegrationConfig; accountHint: string }>;
 
   /**

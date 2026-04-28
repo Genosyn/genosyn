@@ -17,9 +17,11 @@ import {
   refreshConnectionStatus,
   revokeAccess,
   serializeConnection,
+  updateApiKeyCredentials,
   updateConnectionLabel,
+  updateServiceAccountCredentials,
 } from "../services/integrations.js";
-import { startOauth } from "../services/oauth.js";
+import { startOauth, startOauthReconnect } from "../services/oauth.js";
 import { recordAudit } from "../services/audit.js";
 
 /**
@@ -155,6 +157,7 @@ const oauthStartSchema = z.object({
   label: z.string().min(1).max(80),
   clientId: z.string().min(1).max(512),
   clientSecret: z.string().min(1).max(512),
+  scopeGroups: z.array(z.string().min(1).max(64)).max(64).default([]),
 });
 
 integrationsRouter.post(
@@ -171,6 +174,7 @@ integrationsRouter.post(
         label: body.label,
         clientId: body.clientId.trim(),
         clientSecret: body.clientSecret.trim(),
+        scopeGroups: body.scopeGroups,
       });
       res.json(out);
     } catch (err) {
@@ -189,6 +193,7 @@ const serviceAccountSchema = z.object({
   // clean error.
   keyJson: z.string().min(1).max(20_000),
   impersonationEmail: z.string().email().max(254).optional(),
+  scopeGroups: z.array(z.string().min(1).max(64)).max(64).default([]),
 });
 
 integrationsRouter.post(
@@ -225,6 +230,7 @@ integrationsRouter.post(
         label: body.label,
         keyJson,
         impersonationEmail: body.impersonationEmail,
+        scopeGroups: body.scopeGroups,
       });
       await recordAudit({
         companyId: cid,
@@ -239,6 +245,135 @@ integrationsRouter.post(
     } catch (err) {
       res.status(400).json({
         error: err instanceof Error ? err.message : "Failed to add service account",
+      });
+    }
+  },
+);
+
+// ---------- Reconnect ----------
+//
+// Reconnect = replace credentials on an existing connection in place.
+// Keeping the row id stable preserves every employee grant and the audit
+// history; deleting + recreating would silently revoke access for the
+// whole team. Three sub-routes, one per auth mode.
+
+const reconnectOauthSchema = z.object({
+  scopeGroups: z.array(z.string().min(1).max(64)).max(64).optional(),
+});
+
+integrationsRouter.post(
+  "/connections/:connId/reconnect/oauth",
+  validateBody(reconnectOauthSchema),
+  async (req, res) => {
+    const { cid, connId } = req.params as Record<string, string>;
+    const body = req.body as z.infer<typeof reconnectOauthSchema>;
+    try {
+      const out = await startOauthReconnect({
+        companyId: cid,
+        userId: req.userId!,
+        connectionId: connId,
+        scopeGroups: body.scopeGroups,
+      });
+      res.json(out);
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : "Failed to start reconnect",
+      });
+    }
+  },
+);
+
+const reconnectApiKeySchema = z.object({
+  fields: z.record(z.string().max(20_000)),
+});
+
+integrationsRouter.put(
+  "/connections/:connId/credentials",
+  validateBody(reconnectApiKeySchema),
+  async (req, res) => {
+    const { cid, connId } = req.params as Record<string, string>;
+    const body = req.body as z.infer<typeof reconnectApiKeySchema>;
+    try {
+      const updated = await updateApiKeyCredentials({
+        companyId: cid,
+        connectionId: connId,
+        fields: body.fields,
+      });
+      if (!updated) return res.status(404).json({ error: "Connection not found" });
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "connection.reconnect",
+        targetType: "connection",
+        targetId: updated.id,
+        targetLabel: `${updated.provider} · ${updated.label}`,
+        metadata: { provider: updated.provider, authMode: "apikey" },
+      });
+      res.json(serializeConnection(updated));
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : "Failed to reconnect",
+      });
+    }
+  },
+);
+
+const reconnectServiceAccountSchema = z.object({
+  keyJson: z.string().min(1).max(20_000),
+  impersonationEmail: z.string().email().max(254).optional(),
+  scopeGroups: z.array(z.string().min(1).max(64)).max(64).optional(),
+});
+
+integrationsRouter.put(
+  "/connections/:connId/service-account",
+  validateBody(reconnectServiceAccountSchema),
+  async (req, res) => {
+    const { cid, connId } = req.params as Record<string, string>;
+    const body = req.body as z.infer<typeof reconnectServiceAccountSchema>;
+    let keyJson: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(body.keyJson);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("expected an object");
+      }
+      keyJson = parsed as Record<string, unknown>;
+    } catch (err) {
+      return res.status(400).json({
+        error: `Could not parse service-account JSON: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+    try {
+      // If the client didn't send scopeGroups, fall back to whatever was
+      // last persisted on this connection (so reconnect can be a pure
+      // key-rotation without needing to re-pick scopes).
+      let scopeGroups = body.scopeGroups;
+      if (!scopeGroups) {
+        const existing = await getConnection(cid, connId);
+        if (!existing) return res.status(404).json({ error: "Connection not found" });
+        const dto = serializeConnection(existing);
+        scopeGroups = dto.scopeGroups;
+      }
+      const updated = await updateServiceAccountCredentials({
+        companyId: cid,
+        connectionId: connId,
+        keyJson,
+        impersonationEmail: body.impersonationEmail,
+        scopeGroups,
+      });
+      if (!updated) return res.status(404).json({ error: "Connection not found" });
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "connection.reconnect",
+        targetType: "connection",
+        targetId: updated.id,
+        targetLabel: `${updated.provider} · ${updated.label}`,
+        metadata: { provider: updated.provider, authMode: "service_account" },
+      });
+      res.json(serializeConnection(updated));
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : "Failed to reconnect",
       });
     }
   },
