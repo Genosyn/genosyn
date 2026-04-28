@@ -13,6 +13,9 @@ on:
       - "App/**"
       - "Home/**"
       - ".github/workflows/docker.yml"
+  # release.yml dispatches this workflow after creating a v*.*.* tag, because
+  # tags created by GITHUB_TOKEN don't fire the push trigger above.
+  workflow_dispatch:
 
 concurrency:
   group: docker-${{ github.ref }}

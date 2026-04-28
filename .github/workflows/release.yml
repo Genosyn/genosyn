@@ -69,3 +69,18 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "$TAG" \
             --generate-notes
+
+      # Tag pushes from GITHUB_TOKEN don't fire workflow triggers (GitHub's
+      # recursion guard), so `docker.yml`'s `tags: v*.*.*` rule never sees the
+      # tag we just created. workflow_dispatch is an explicit exception, so we
+      # kick off docker.yml against the new tag ref to publish semver-tagged
+      # images.
+      - name: Trigger image build for new tag
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh workflow run docker.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$TAG"
