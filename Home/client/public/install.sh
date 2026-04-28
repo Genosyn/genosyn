@@ -18,11 +18,14 @@
 #   GENOSYN_IMAGE    image reference      (default: ghcr.io/genosyn/app:latest)
 #
 # Additional env for the CLI download itself:
-#   GENOSYN_CLI_URL     fetch URL for the genosyn script
-#                       (default: https://genosyn.com/genosyn)
-#   GENOSYN_CLI_PREFIX  install prefix; the binary goes under $prefix/bin
-#                       (auto-detected: /usr/local, then $HOME/.local)
-#   GENOSYN_SKIP_RUN=1  install the CLI but don't run `genosyn install`
+#   GENOSYN_CLI_URL         fetch URL for the genosyn script
+#                           (default: https://genosyn.com/genosyn)
+#   GENOSYN_CLI_PREFIX      install prefix; the binary goes under $prefix/bin
+#                           (auto-detected: /usr/local, then $HOME/.local)
+#   GENOSYN_SKIP_RUN=1      install the CLI but don't run `genosyn install`
+#   GENOSYN_INSTALL_DOCKER=0 skip the auto-install of Docker when it's missing
+#                            (default: install via https://get.docker.com on
+#                            Linux, or `brew install --cask docker` on macOS)
 
 set -euo pipefail
 
@@ -50,14 +53,6 @@ printf '%sRun companies autonomously.%s\n\n' "${C_DIM}" "${C_RESET}"
 
 # ---------- sanity checks ----------
 
-if ! command -v docker >/dev/null 2>&1; then
-  die "Docker is not installed. Get it at https://docs.docker.com/get-docker/"
-fi
-
-if ! docker info >/dev/null 2>&1; then
-  die "Docker daemon is not reachable. Start Docker Desktop (or your daemon) and re-run."
-fi
-
 fetcher=""
 if command -v curl >/dev/null 2>&1; then
   fetcher="curl"
@@ -65,6 +60,76 @@ elif command -v wget >/dev/null 2>&1; then
   fetcher="wget"
 else
   die "Neither curl nor wget is available. Install one and re-run."
+fi
+
+fetch_to() {
+  # fetch_to <url> <dest>
+  if [ "${fetcher}" = "curl" ]; then
+    curl -fsSL "$1" -o "$2"
+  else
+    wget -q "$1" -O "$2"
+  fi
+}
+
+install_docker() {
+  if [ "${GENOSYN_INSTALL_DOCKER:-1}" = "0" ]; then
+    die "Docker is not installed. Get it at https://docs.docker.com/get-docker/"
+  fi
+
+  uname_s="$(uname -s)"
+  case "${uname_s}" in
+    Linux)
+      step "Installing Docker via https://get.docker.com"
+      docker_tmp="$(mktemp -t get-docker.XXXXXX)"
+      fetch_to "https://get.docker.com" "${docker_tmp}"
+
+      if [ "$(id -u)" = "0" ]; then
+        sh "${docker_tmp}"
+      elif command -v sudo >/dev/null 2>&1; then
+        sudo sh "${docker_tmp}"
+      else
+        rm -f "${docker_tmp}"
+        die "Cannot install Docker without root or sudo. Install it manually: https://docs.docker.com/get-docker/"
+      fi
+      rm -f "${docker_tmp}"
+
+      if command -v systemctl >/dev/null 2>&1; then
+        if [ "$(id -u)" = "0" ]; then
+          systemctl start docker >/dev/null 2>&1 || true
+          systemctl enable docker >/dev/null 2>&1 || true
+        elif command -v sudo >/dev/null 2>&1; then
+          sudo systemctl start docker >/dev/null 2>&1 || true
+          sudo systemctl enable docker >/dev/null 2>&1 || true
+        fi
+      fi
+      ;;
+    Darwin)
+      if command -v brew >/dev/null 2>&1; then
+        step "Installing Docker Desktop via Homebrew"
+        brew install --cask docker
+        warn "Open Docker Desktop from Applications to start the daemon, then re-run this installer."
+        exit 0
+      fi
+      die "Docker is not installed. Install Docker Desktop from https://docs.docker.com/desktop/install/mac-install/ and re-run."
+      ;;
+    *)
+      die "Docker auto-install isn't supported on '${uname_s}'. See https://docs.docker.com/get-docker/"
+      ;;
+  esac
+
+  if ! command -v docker >/dev/null 2>&1; then
+    die "Docker install completed but 'docker' is not on PATH. Open a new shell and re-run."
+  fi
+  ok "Docker installed."
+}
+
+if ! command -v docker >/dev/null 2>&1; then
+  warn "Docker is not installed."
+  install_docker
+fi
+
+if ! docker info >/dev/null 2>&1; then
+  die "Docker daemon is not reachable. Start Docker Desktop (or your daemon) and re-run. On Linux, you may also need: sudo usermod -aG docker \$USER (then log out and back in)."
 fi
 
 # ---------- pick install prefix ----------
@@ -97,11 +162,7 @@ tmp="$(mktemp -t genosyn-cli.XXXXXX)"
 trap 'rm -f "${tmp}"' EXIT
 
 step "Downloading genosyn CLI from ${CLI_URL}"
-if [ "${fetcher}" = "curl" ]; then
-  curl -fsSL "${CLI_URL}" -o "${tmp}"
-else
-  wget -q "${CLI_URL}" -O "${tmp}"
-fi
+fetch_to "${CLI_URL}" "${tmp}"
 
 # Minimal smoke-check: must be non-empty and look like a shell script.
 if [ ! -s "${tmp}" ]; then

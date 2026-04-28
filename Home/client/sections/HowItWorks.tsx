@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { ArrowRight, Check, Copy, Terminal } from "lucide-react";
+import type { ReactNode } from "react";
+import { ArrowRight, Check, Copy } from "lucide-react";
 import { SectionEyebrow } from "@/sections/Primitives";
 
 type Step = {
@@ -26,7 +27,17 @@ const STEPS: Step[] = [
   },
 ];
 
-const INSTALL_COMMAND = "curl -fsSL https://genosyn.com/install.sh | bash";
+type InstallTab = "curl" | "docker";
+
+const INSTALL_COMMANDS: Record<InstallTab, string> = {
+  curl: "curl -fsSL https://genosyn.com/install.sh | bash",
+  docker: `docker run -d \\
+  --name genosyn \\
+  --restart unless-stopped \\
+  -p 8471:8471 \\
+  -v genosyn-data:/app/data \\
+  ghcr.io/genosyn/app:latest`,
+};
 
 export function HowItWorks() {
   return (
@@ -93,16 +104,23 @@ export function HowItWorks() {
 }
 
 function InstallTerminal() {
+  const [tab, setTab] = useState<InstallTab>("curl");
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(INSTALL_COMMAND);
+      await navigator.clipboard.writeText(INSTALL_COMMANDS[tab]);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1600);
     } catch {
       // Clipboard may be blocked; the command stays selectable.
     }
+  };
+
+  const selectTab = (next: InstallTab) => {
+    if (next === tab) return;
+    setTab(next);
+    setCopied(false);
   };
 
   return (
@@ -111,9 +129,21 @@ function InstallTerminal() {
         <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
         <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
         <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
-        <div className="ml-3 inline-flex items-center gap-1.5 text-xs font-medium text-zinc-400">
-          <Terminal className="h-3.5 w-3.5" />
-          install
+        <div role="tablist" aria-label="Install method" className="ml-3 flex items-center gap-1">
+          <TabButton
+            active={tab === "curl"}
+            controls="install-panel"
+            onClick={() => selectTab("curl")}
+          >
+            curl
+          </TabButton>
+          <TabButton
+            active={tab === "docker"}
+            controls="install-panel"
+            onClick={() => selectTab("docker")}
+          >
+            Docker
+          </TabButton>
         </div>
         <button
           type="button"
@@ -134,28 +164,100 @@ function InstallTerminal() {
           )}
         </button>
       </div>
-      <pre className="overflow-x-auto px-6 py-5 font-mono text-[13.5px] leading-7 text-zinc-200">
-        <code>
-          <span className="text-zinc-500">$ </span>
-          <span className="text-zinc-100">curl -fsSL </span>
-          <span className="text-emerald-300">https://genosyn.com/install.sh</span>
-          <span className="text-zinc-100"> | bash</span>
-          {"\n\n"}
-          <span className="text-zinc-500">→ </span>
-          <span className="text-zinc-300">Pulling ghcr.io/genosyn/app:latest</span>
-          {"\n"}
-          <span className="text-zinc-500">→ </span>
-          <span className="text-zinc-300">Starting genosyn on port 8471</span>
-          {"\n"}
-          <span className="text-emerald-400">✓ </span>
-          <span className="text-zinc-300">Genosyn is running.</span>
-          {"\n\n"}
-          <span className="text-zinc-500">   Open  </span>
-          <span className="text-emerald-300 underline-offset-2">http://localhost:8471</span>
-          <ArrowIcon />
-        </code>
+      <pre
+        id="install-panel"
+        role="tabpanel"
+        className="overflow-x-auto px-6 py-5 font-mono text-[13.5px] leading-7 text-zinc-200"
+      >
+        <code>{tab === "curl" ? <CurlBody /> : <DockerBody />}</code>
       </pre>
     </div>
+  );
+}
+
+function TabButton({
+  active,
+  controls,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  controls: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      aria-controls={controls}
+      onClick={onClick}
+      className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
+        active
+          ? "bg-white/10 text-white"
+          : "text-zinc-400 hover:text-zinc-200"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function CurlBody() {
+  return (
+    <>
+      <span className="text-zinc-500">$ </span>
+      <span className="text-zinc-100">curl -fsSL </span>
+      <span className="text-emerald-300">https://genosyn.com/install.sh</span>
+      <span className="text-zinc-100"> | bash</span>
+      {"\n\n"}
+      <span className="text-zinc-500">→ </span>
+      <span className="text-zinc-300">Pulling ghcr.io/genosyn/app:latest</span>
+      {"\n"}
+      <span className="text-zinc-500">→ </span>
+      <span className="text-zinc-300">Starting genosyn on port 8471</span>
+      {"\n"}
+      <span className="text-emerald-400">✓ </span>
+      <span className="text-zinc-300">Genosyn is running.</span>
+      {"\n\n"}
+      <span className="text-zinc-500">   Open  </span>
+      <span className="text-emerald-300 underline-offset-2">http://localhost:8471</span>
+      <ArrowIcon />
+    </>
+  );
+}
+
+function DockerBody() {
+  return (
+    <>
+      <span className="text-zinc-500">$ </span>
+      <span className="text-zinc-100">docker run -d \</span>
+      {"\n"}
+      <span className="text-zinc-100">    --name </span>
+      <span className="text-emerald-300">genosyn</span>
+      <span className="text-zinc-100"> \</span>
+      {"\n"}
+      <span className="text-zinc-100">    --restart unless-stopped \</span>
+      {"\n"}
+      <span className="text-zinc-100">    -p </span>
+      <span className="text-emerald-300">8471:8471</span>
+      <span className="text-zinc-100"> \</span>
+      {"\n"}
+      <span className="text-zinc-100">    -v </span>
+      <span className="text-emerald-300">genosyn-data:/app/data</span>
+      <span className="text-zinc-100"> \</span>
+      {"\n"}
+      <span className="text-zinc-100">    </span>
+      <span className="text-emerald-300">ghcr.io/genosyn/app:latest</span>
+      {"\n\n"}
+      <span className="text-emerald-400">✓ </span>
+      <span className="text-zinc-300">Genosyn is running.</span>
+      {"\n\n"}
+      <span className="text-zinc-500">   Open  </span>
+      <span className="text-emerald-300 underline-offset-2">http://localhost:8471</span>
+      <ArrowIcon />
+    </>
   );
 }
 
