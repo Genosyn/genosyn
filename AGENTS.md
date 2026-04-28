@@ -1,8 +1,8 @@
 # AGENTS.md — Guide for AI coding agents working on Genosyn
 
-> If you are Claude Code, Codex, opencode, Cursor, Aider, or any other AI
-> agent touching this repo, read this file first. It is the single source of
-> truth for how to work here.
+> If you are Claude Code, Codex, opencode, goose, Cursor, Aider, or any
+> other AI agent touching this repo, read this file first. It is the single
+> source of truth for how to work here.
 
 ---
 
@@ -17,7 +17,7 @@ autonomously with AI employees**.
   three are plain markdown stored on the employee / skill / routine DB rows —
   there are no `SOUL.md` / `README.md` files on disk any more.
 - Each company can register multiple **AI Models** (`claude-code`, `codex`,
-  `opencode` with custom model) and assign them to employees.
+  `opencode`, `goose` with custom model) and assign them to employees.
 
 Read `ROADMAP.md` for the full vocabulary, milestones, and backlog. **Do not
 duplicate content from ROADMAP.md here** — link to it.
@@ -132,9 +132,9 @@ Everything user-generated lives under `config.dataDir` (default `./data`):
 data/
 ├── app.sqlite
 └── companies/<company-slug>/employees/<emp-slug>/
-    ├── .claude/  .codex/  .opencode/   # per-employee provider credentials
-    ├── .mcp.json                        # materialized before every spawn
-    └── …                                # whatever the CLI writes into cwd
+    ├── .claude/ .codex/ .opencode/ .goose/   # per-employee provider creds
+    ├── .mcp.json                              # materialized before every spawn
+    └── …                                      # whatever the CLI writes into cwd
 ```
 
 - **The database is the source of truth** for Soul, Skill, and Routine prose
@@ -142,17 +142,21 @@ data/
   Run logs (`Run.logContent`). Do not reintroduce `SOUL.md` /
   `skills/<slug>/README.md` / `routines/<slug>/README.md` on disk.
 - What stays on disk is the runtime surface the provider CLI needs: the
-  per-employee credentials directories (`.claude`, `.codex`, `.opencode`),
-  the provider-specific MCP config we materialize before each spawn, and
-  any artifacts the CLI writes into its cwd. Each provider has its own
-  config shape and file location; all three always include a built-in
-  `genosyn` server so the employee can call back into Genosyn to create
-  Routines, Todos, journal notes, etc.:
+  per-employee credentials directories (`.claude`, `.codex`, `.opencode`,
+  `.goose`), the provider-specific MCP config we materialize before each
+  spawn, and any artifacts the CLI writes into its cwd. Each provider has
+  its own config shape and file location; every provider always includes a
+  built-in `genosyn` server so the employee can call back into Genosyn to
+  create Routines, Todos, journal notes, etc.:
     * **claude-code** → `.mcp.json` at the employee's cwd
     * **codex** → `$CODEX_HOME/config.toml` with `[mcp_servers.<name>]`
       blocks (HTTP-transport external servers are skipped with a note,
       since codex only supports stdio)
     * **opencode** → `opencode.json` at the cwd with `mcp.<name>` entries
+    * **goose** → no file is written; servers are passed as runtime CLI
+      flags (`--with-extension`, `--with-streamable-http-extension`) so we
+      don't fight with whatever `goose configure` wrote into the same
+      `config.yaml`
 - The `data/` directory is gitignored. Never commit anything inside it.
 - Slugs are derived once at create-time via `slugify`; renames update the
   display name but not the slug (so URLs and credential paths stay stable).

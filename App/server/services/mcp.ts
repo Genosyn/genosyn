@@ -16,6 +16,12 @@ import { employeeCodexDir } from "./paths.js";
  *   - claude-code → `.mcp.json` at cwd (standard Claude Code schema)
  *   - codex       → `$CODEX_HOME/config.toml` with `[mcp_servers.<name>]`
  *   - opencode    → `opencode.json` at cwd with `mcp.<name>` entries
+ *   - goose       → no config file; servers passed as runtime CLI flags
+ *                   (`--with-extension`, `--with-streamable-http-extension`)
+ *                   so we don't fight with what `goose configure` writes
+ *                   into the same `config.yaml`. The MCP env vars hitch a
+ *                   ride on the goose parent process so the stdio child
+ *                   inherits them.
  *
  * Every provider gets the built-in `genosyn` server (read/write access to
  * Genosyn's own Routines / Todos / Journal / ...) merged with whatever the
@@ -127,6 +133,19 @@ async function loadUserServers(employeeId: string): Promise<NormalizedServer[]> 
 }
 
 /**
+ * Returned by {@link materializeMcpConfig}. Most providers materialize a
+ * config file and have nothing to add to the CLI invocation, so they return
+ * empty arrays. Goose is the exception — it has no file to write, but does
+ * need extra `--with-extension` flags and inherited env on the spawn.
+ */
+export type McpInvocationExtras = {
+  /** Extra CLI args to append to the provider invocation. */
+  extraArgs: string[];
+  /** Extra env vars to merge onto the provider spawn so MCP children inherit them. */
+  extraEnv: Record<string, string>;
+};
+
+/**
  * Materialize the correct MCP config file(s) for the provider we're about
  * to spawn. Called before every chat turn / routine run so edits in the UI
  * take effect on the next invocation without a restart.
@@ -136,6 +155,9 @@ async function loadUserServers(employeeId: string): Promise<NormalizedServer[]> 
  * stamped into the provider's config so the employee can call Genosyn's own
  * API (Routines, Todos, Journal, ...). Callers that don't want tool access
  * (e.g., future read-only previews) can omit the token.
+ *
+ * Returns any CLI args / env additions the caller must apply (only goose
+ * uses these today; other providers return empty values).
  */
 export async function materializeMcpConfig(
   employeeId: string,
@@ -146,32 +168,35 @@ export async function materializeMcpConfig(
     companySlug?: string;
     employeeSlug?: string;
   } = {},
-): Promise<void> {
+): Promise<McpInvocationExtras> {
   const provider = options.provider ?? "claude-code";
   const userServers = await loadUserServers(employeeId);
+  const empty: McpInvocationExtras = { extraArgs: [], extraEnv: {} };
 
   switch (provider) {
     case "claude-code":
       writeClaudeConfig(cwd, userServers, options.genosynToken);
-      return;
+      return empty;
     case "codex": {
       if (!options.companySlug || !options.employeeSlug) {
         // Without slugs we can't locate the employee's CODEX_HOME, so fall
         // back to the claude-shaped `.mcp.json` which codex also ignores —
         // same end result as before the multi-provider work.
         writeClaudeConfig(cwd, userServers, options.genosynToken);
-        return;
+        return empty;
       }
       writeCodexConfig(
         employeeCodexDir(options.companySlug, options.employeeSlug),
         userServers,
         options.genosynToken,
       );
-      return;
+      return empty;
     }
     case "opencode":
       writeOpencodeConfig(cwd, userServers, options.genosynToken);
-      return;
+      return empty;
+    case "goose":
+      return buildGooseExtras(userServers, options.genosynToken);
   }
 }
 
@@ -381,6 +406,72 @@ function writeOpencodeConfig(
   }
 
   fs.writeFileSync(target, JSON.stringify(file, null, 2), "utf8");
+}
+
+// ---------- goose ----------
+
+/**
+ * Build goose's runtime MCP flags. goose accepts extensions via three CLI
+ * flags rather than a config file we can safely overwrite:
+ *
+ *   --with-extension "<command>"            stdio extension
+ *   --with-streamable-http-extension <url>  streamable HTTP transport
+ *   --with-remote-extension <url>           legacy SSE transport
+ *
+ * We default HTTP-transport user servers to streamable HTTP — that's the
+ * current MCP spec; SSE is being phased out. If a user has SSE-only servers
+ * they can switch the flag manually in a follow-up.
+ *
+ * stdio servers' env vars need to live on the goose parent process so the
+ * extension subprocess inherits them. We collect those into `extraEnv`,
+ * which the runner / chat seam merges onto its spawn.
+ */
+function buildGooseExtras(
+  userServers: NormalizedServer[],
+  token: string | undefined,
+): McpInvocationExtras {
+  const extraArgs: string[] = [];
+  const extraEnv: Record<string, string> = {};
+
+  if (token) {
+    extraArgs.push(
+      "--with-extension",
+      gooseStdioCommand(process.execPath, [GENOSYN_MCP_BIN]),
+    );
+    extraEnv.GENOSYN_MCP_API = internalApiBase();
+    extraEnv.GENOSYN_MCP_TOKEN = token;
+  }
+
+  for (const s of userServers) {
+    if (s.transport === "http") {
+      extraArgs.push("--with-streamable-http-extension", s.url);
+    } else {
+      extraArgs.push("--with-extension", gooseStdioCommand(s.command, s.args));
+      for (const [k, v] of Object.entries(s.env)) {
+        // Last writer wins on collisions — same fate as overlapping env keys
+        // in any other provider's config materialization.
+        extraEnv[k] = v;
+      }
+    }
+  }
+
+  return { extraArgs, extraEnv };
+}
+
+/**
+ * Serialize a stdio command + args list as a single string suitable for
+ * goose's `--with-extension` flag. goose splits on whitespace, so any token
+ * containing a space (or other shell metacharacter) gets wrapped in single
+ * quotes with embedded `'` escaped. Pure-ASCII paths and args round-trip
+ * unchanged.
+ */
+function gooseStdioCommand(command: string, args: string[]): string {
+  return [command, ...args].map(shellQuoteIfNeeded).join(" ");
+}
+
+function shellQuoteIfNeeded(value: string): string {
+  if (value.length > 0 && /^[A-Za-z0-9_./@:=+,-]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 // ---------- parsing helpers ----------

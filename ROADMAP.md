@@ -43,7 +43,7 @@ source, **no pricing page**.
 
 ### 4. Task runner execution
 Routines store cron expressions and prompt/skill bindings. Real model
-invocation (claude-code / codex / opencode) ships in M6. The runner spawns
+invocation (claude-code / codex / opencode / goose) ships in M6. The runner spawns
 the provider CLI in the employee's working directory with the employee's
 own credentials scoped to `data/.../employees/<slug>/.claude/`, falling back
 to a stub log when no model is connected (so self-hosters without the CLI
@@ -79,8 +79,8 @@ its own on-disk creds file, which can be individually disconnected.
 - **Routine** — a scheduled recurring piece of work. Cron-triggered. Brief is
   markdown on `Routine.body` alongside the cron metadata.
 - **AI Model** — the brain of a single AI Employee. One-to-one with the
-  employee. Has a provider (`claude-code` / `codex` / `opencode`), a model
-  string, and its own credentials stored under the employee's data dir.
+  employee. Has a provider (`claude-code` / `codex` / `opencode` / `goose`),
+  a model string, and its own credentials stored under the employee's data dir.
 - **Run** — a single execution of a routine. Captured stdout + stderr are
   stored on `Run.logContent` in the DB (hard-capped at 256KB).
 
@@ -111,7 +111,7 @@ genosyn/
 │   └── data/                     # runtime
 │       ├── app.sqlite            # Soul / Skill / Routine bodies + Run logs live here
 │       └── companies/<company-slug>/employees/<emp-slug>/
-│           ├── .claude/ .codex/ .opencode/  # per-employee provider creds
+│           ├── .claude/ .codex/ .opencode/ .goose/  # per-employee provider creds
 │           ├── .mcp.json                     # materialized before each spawn
 │           └── …                             # artifacts the CLI writes to cwd
 └── Home/                         # Marketing site, standalone
@@ -133,7 +133,7 @@ genosyn/
 - `Company` — id, name, slug, ownerId
 - `Membership` — companyId, userId, role (owner / admin / member)
 - `Invitation` — companyId, email, token, expiresAt *(V1)*
-- `AIModel` — employeeId (unique), provider (`claude-code | codex | opencode`),
+- `AIModel` — employeeId (unique), provider (`claude-code | codex | opencode | goose`),
   model, authMode (`subscription | apikey`), configJson (encrypted secrets),
   connectedAt
 - `AIEmployee` — companyId, name, slug, role, soulBody (markdown)
@@ -231,7 +231,7 @@ export const config = {
 - [ ] `AIModel` entity one-to-one with `AIEmployee`; migration drops
       `companyId` and `AIEmployee.defaultModelId`, adds `employeeId` (unique),
       `authMode`, `connectedAt`
-- [ ] Provider-specific setup for claude-code / codex / opencode
+- [ ] Provider-specific setup for claude-code / codex / opencode / goose
 - [ ] **Subscription sign-in flow:** employee detail page shows a one-liner
       (`CLAUDE_CONFIG_DIR=<path> claude login`), UI polls for credentials
       file and flips to "Connected" automatically
@@ -423,7 +423,7 @@ export const config = {
 - **Import/export** — back up a company (entities + filesystem tree).
 
 ### Runner
-- Real execution for `claude-code`, `codex`, `opencode`.
+- Real execution for `claude-code`, `codex`, `opencode`, `goose`.
 - Sandboxed execution env (docker or lightweight jail).
 - Streaming logs to the UI.
 - Per-run context window budget.

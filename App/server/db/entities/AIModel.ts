@@ -6,7 +6,7 @@ import {
   Index,
 } from "typeorm";
 
-export type Provider = "claude-code" | "codex" | "opencode";
+export type Provider = "claude-code" | "codex" | "opencode" | "goose";
 export type AuthMode = "subscription" | "apikey";
 
 /**

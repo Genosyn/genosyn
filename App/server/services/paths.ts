@@ -35,6 +35,7 @@ export function employeeDir(companySlug: string, employeeSlug: string): string {
  * - claude-code → <employee>/.claude
  * - codex       → <employee>/.codex
  * - opencode    → <employee>/.opencode   (treated as XDG_DATA_HOME)
+ * - goose       → <employee>/.goose      (treated as XDG_CONFIG_HOME)
  */
 export function employeeClaudeDir(
   companySlug: string,
@@ -80,6 +81,26 @@ export function opencodeCredsPath(
   // <dir>/opencode/auth.json. We point XDG_DATA_HOME at `.opencode` so the
   // creds file ends up at `.opencode/opencode/auth.json`.
   return path.join(employeeOpencodeDir(companySlug, employeeSlug), "opencode", "auth.json");
+}
+
+export function employeeGooseDir(
+  companySlug: string,
+  employeeSlug: string,
+): string {
+  return path.join(employeeDir(companySlug, employeeSlug), ".goose");
+}
+
+export function gooseCredsPath(
+  companySlug: string,
+  employeeSlug: string,
+): string {
+  // goose follows XDG conventions for its config: with XDG_CONFIG_HOME=<dir>,
+  // it reads/writes <dir>/goose/config.yaml. We point XDG_CONFIG_HOME at the
+  // employee's `.goose` so the file lands at `.goose/goose/config.yaml`.
+  // Spawns also set GOOSE_DISABLE_KEYRING=1 so provider keys end up in this
+  // file rather than the host's OS keychain — without that the per-employee
+  // isolation breaks, since the keychain is shared across all employees.
+  return path.join(employeeGooseDir(companySlug, employeeSlug), "goose", "config.yaml");
 }
 
 export function ensureDir(p: string): void {

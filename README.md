@@ -27,8 +27,8 @@ AI employees.
 A **Company** has human **Members** and **AI Employees**. Every AI Employee
 has a **Soul** (their constitution), a set of **Skills** (markdown playbooks),
 and **Routines** (scheduled, cron-driven work) — all stored in the database.
-Bring your own **AI Models** (`claude-code`, `codex`, `opencode`) and assign
-them per employee.
+Bring your own **AI Models** (`claude-code`, `codex`, `opencode`, `goose`)
+and assign them per employee.
 
 > **Disclaimer:** This software is AI generated. Use at your own risk. It is
 > open source and provided **without warranty** of any kind — see

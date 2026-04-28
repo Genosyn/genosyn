@@ -5,7 +5,7 @@ import { Company } from "../db/entities/Company.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { Skill } from "../db/entities/Skill.js";
 import { employeeDir, ensureDir } from "./paths.js";
-import { PROVIDERS, isSubscriptionConnected } from "./providers.js";
+import { PROVIDERS, isSubscriptionConnected, splitGooseModel } from "./providers.js";
 import { decryptSecret } from "../lib/secret.js";
 import { materializeMcpConfig } from "./mcp.js";
 import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
@@ -103,14 +103,20 @@ export async function streamChatWithEmployee(
   // this employee's behalf for the duration of the CLI spawn. Revoked in
   // `finally` so it doesn't linger in memory past the reply.
   const mcpToken = issueMcpToken(emp.id, co.id);
-  await materializeMcpConfig(emp.id, cwd, {
+  const mcpExtras = await materializeMcpConfig(emp.id, cwd, {
     genosynToken: mcpToken,
     provider: model.provider,
     companySlug: co.slug,
     employeeSlug: emp.slug,
   });
+  // goose returns extra CLI flags + env (it has no config file we can write
+  // without clobbering `goose configure`'s state). Other providers return
+  // empty values; the merge is a no-op for them.
+  for (const [k, v] of Object.entries(mcpExtras.extraEnv)) {
+    if (!(k in childEnv)) childEnv[k] = v;
+  }
 
-  const invocation = buildInvocation(model.provider, model.model, prompt);
+  const invocation = buildInvocation(model.provider, model.model, prompt, mcpExtras.extraArgs);
   try {
     const stdout = await spawnAndStream(invocation.cmd, invocation.args, {
       cwd,
@@ -217,7 +223,20 @@ function buildProviderEnv(
 ): { env: NodeJS.ProcessEnv; error?: undefined } | { env?: undefined; error: string } {
   const spec = PROVIDERS[model.provider];
   const base = { ...process.env };
-  for (const key of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CLAUDE_CONFIG_DIR", "CODEX_HOME"]) {
+  // Strip any ambient credentials so employees can't accidentally inherit the
+  // host's logged-in session or shared key. The XDG_* and GOOSE_* entries
+  // protect opencode + goose from picking up the operator's own config dirs.
+  for (const key of [
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "CLAUDE_CONFIG_DIR",
+    "CODEX_HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "GOOSE_PROVIDER",
+    "GOOSE_MODEL",
+    "GOOSE_DISABLE_KEYRING",
+  ]) {
     delete base[key];
   }
 
@@ -228,7 +247,18 @@ function buildProviderEnv(
         error: `Subscription credentials not found. Sign ${model.provider} in from the Settings tab first.`,
       };
     }
-    return { env: { ...base, [spec.configDirEnv]: dir } };
+    const env: NodeJS.ProcessEnv = { ...base, [spec.configDirEnv]: dir };
+    if (model.provider === "goose") {
+      // Pin keys to config.yaml (not the host keychain) so per-employee
+      // isolation actually holds. Pass through provider/model selection so
+      // the AIModel record stays authoritative even if the user's
+      // `goose configure` choice drifts.
+      env.GOOSE_DISABLE_KEYRING = "1";
+      const { provider: gp, model: gm } = splitGooseModel(model.model);
+      if (gp) env.GOOSE_PROVIDER = gp;
+      if (gm) env.GOOSE_MODEL = gm;
+    }
+    return { env };
   }
 
   if (!spec.apiKeyEnv) {
@@ -257,6 +287,7 @@ function buildInvocation(
   provider: AIModel["provider"],
   modelStr: string,
   prompt: string,
+  extraArgs: string[],
 ): { cmd: string; args: string[]; parser: StreamParser } {
   switch (provider) {
     case "claude-code":
@@ -288,6 +319,7 @@ function buildInvocation(
           "stream-json",
           "--verbose",
           "--include-partial-messages",
+          ...extraArgs,
         ],
         parser: "claude-jsonl",
       };
@@ -307,6 +339,7 @@ function buildInvocation(
           "never",
           "--sandbox",
           "workspace-write",
+          ...extraArgs,
           prompt,
         ],
         parser: "text",
@@ -314,7 +347,18 @@ function buildInvocation(
     case "opencode":
       return {
         cmd: "opencode",
-        args: ["run", "--model", modelStr, prompt],
+        args: ["run", "--model", modelStr, ...extraArgs, prompt],
+        parser: "text",
+      };
+    case "goose":
+      // `--no-session` skips writing a session file (we don't replay these),
+      // `--quiet` drops the recipe banner so stdout stays focused on the
+      // model's reply. Provider + model selection rides on env vars set in
+      // `buildProviderEnv` so a single AIModel.model edit reroutes both
+      // chat and routine spawns without surgery here.
+      return {
+        cmd: "goose",
+        args: ["run", "--text", prompt, "--no-session", "--quiet", ...extraArgs],
         parser: "text",
       };
   }

@@ -17,7 +17,7 @@ const FEATURES: Feature[] = [
   {
     icon: Cpu,
     title: "Bring your own brain",
-    body: "Plug in claude-code, codex, or opencode per employee. Costs land on the provider's invoice, not ours.",
+    body: "Plug in claude-code, codex, opencode, or goose per employee. Costs land on the provider's invoice, not ours.",
   },
   {
     icon: Database,

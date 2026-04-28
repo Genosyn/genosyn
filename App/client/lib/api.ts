@@ -159,7 +159,7 @@ export type RunLog = {
   truncated?: boolean;
   size?: number;
 };
-export type Provider = "claude-code" | "codex" | "opencode";
+export type Provider = "claude-code" | "codex" | "opencode" | "goose";
 export type AuthMode = "subscription" | "apikey";
 export type AIModel = {
   id: string;
@@ -175,6 +175,18 @@ export type AIModel = {
   loginCommand: string;
   apiKeyEnv: string | null;
   supportsApiKey: boolean;
+  cliInstalled: boolean;
+};
+
+export type PtySessionView = {
+  sessionId: string;
+  kind: "install" | "login";
+  provider: Provider;
+  output: string;
+  totalBytes: number;
+  truncated: boolean;
+  exited: boolean;
+  exitCode: number | null;
 };
 export type Member = {
   userId: string;

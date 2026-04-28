@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { AIModel, Provider } from "../db/entities/AIModel.js";
@@ -8,7 +9,9 @@ import {
   codexCredsPath,
   employeeClaudeDir,
   employeeCodexDir,
+  employeeGooseDir,
   employeeOpencodeDir,
+  gooseCredsPath,
   opencodeCredsPath,
 } from "./paths.js";
 
@@ -18,9 +21,9 @@ import {
  * credentials path and login command.
  *
  * Claude Code is the only provider with a production-ready headless CLI in
- * this milestone; codex and opencode are wired end-to-end with the same
- * shape (subscription login + API key), and degrade gracefully when the CLI
- * binary isn't installed.
+ * this milestone; codex, opencode and goose are wired end-to-end with the
+ * same shape (subscription login + optional API key), and degrade gracefully
+ * when the CLI binary isn't installed.
  */
 export type ProviderSpec = {
   /** Human label. */
@@ -35,6 +38,21 @@ export type ProviderSpec = {
   supportsApiKey: boolean;
   /** Shell command the operator runs to log in (scoped via configDirEnv). */
   loginCommand: string;
+  /**
+   * argv form of the login command, used when we spawn it under a pty for
+   * the in-browser sign-in flow. Must be the same effective command as
+   * `loginCommand` (which is the human-readable shell version shown to
+   * operators who prefer to run it themselves).
+   */
+  loginArgv: { cmd: string; args: string[] };
+  /** Binary name to look up on PATH to decide if the CLI is installed. */
+  binName: string;
+  /**
+   * argv form of an installer that places `binName` on PATH. Run as a
+   * background pty session from the in-app installer surface. Goose ships a
+   * shell pipeline; everyone else is `npm install -g <pkg>`.
+   */
+  installArgv: { cmd: string; args: string[] };
   /** Absolute path to the employee's per-provider config dir. */
   configDir(companySlug: string, employeeSlug: string): string;
   /** Absolute path to the creds file the provider drops on successful login. */
@@ -51,8 +69,8 @@ export type ProviderSpec = {
  * platform is `.claude.json` with a populated `oauthAccount` — so we treat
  * that (or the legacy `.credentials.json`) as the canonical signal.
  *
- * Codex and opencode write their creds files directly, so the simple file
- * check still holds for them.
+ * Codex, opencode and goose write their creds files directly, so the simple
+ * file check still holds for them.
  */
 export function isSubscriptionConnected(
   provider: Provider,
@@ -106,6 +124,9 @@ export const PROVIDERS: Record<Provider, ProviderSpec> = {
     apiKeyEnv: "ANTHROPIC_API_KEY",
     supportsApiKey: true,
     loginCommand: "claude login",
+    loginArgv: { cmd: "claude", args: ["login"] },
+    binName: "claude",
+    installArgv: { cmd: "npm", args: ["install", "-g", "@anthropic-ai/claude-code"] },
     configDir: employeeClaudeDir,
     credsPath: claudeCredsPath,
   },
@@ -116,6 +137,9 @@ export const PROVIDERS: Record<Provider, ProviderSpec> = {
     apiKeyEnv: "OPENAI_API_KEY",
     supportsApiKey: true,
     loginCommand: "codex login",
+    loginArgv: { cmd: "codex", args: ["login"] },
+    binName: "codex",
+    installArgv: { cmd: "npm", args: ["install", "-g", "@openai/codex"] },
     configDir: employeeCodexDir,
     credsPath: codexCredsPath,
   },
@@ -132,7 +156,88 @@ export const PROVIDERS: Record<Provider, ProviderSpec> = {
     apiKeyEnv: null,
     supportsApiKey: false,
     loginCommand: "opencode auth login",
+    loginArgv: { cmd: "opencode", args: ["auth", "login"] },
+    binName: "opencode",
+    installArgv: { cmd: "npm", args: ["install", "-g", "opencode-ai"] },
     configDir: employeeOpencodeDir,
     credsPath: opencodeCredsPath,
   },
+  goose: {
+    label: "Goose",
+    // Format mirrors opencode's `<provider>/<model>` so the runner can split
+    // it into GOOSE_PROVIDER + GOOSE_MODEL on each spawn.
+    defaultModel: "anthropic/claude-opus-4-6",
+    // goose reads XDG_CONFIG_HOME to locate `goose/config.yaml`, where its
+    // provider auth + selected model live. Pointing it at the employee dir
+    // keeps each employee's signed-in session isolated.
+    configDirEnv: "XDG_CONFIG_HOME",
+    // goose is a router — it calls whichever underlying provider the model
+    // string names. API keys live in goose's own config store, not a single
+    // env var, so we disable the apikey flow.
+    apiKeyEnv: null,
+    supportsApiKey: false,
+    // GOOSE_DISABLE_KEYRING=1 keeps goose from stashing creds in the host's
+    // OS keychain — without it, every employee would share whatever the host
+    // has logged in. The login command in the UI is composed as
+    // `<configDirEnv>=<dir> <loginCommand>`, so the disable flag stamps in
+    // here.
+    loginCommand: "GOOSE_DISABLE_KEYRING=1 goose configure",
+    // The pty spawner sets GOOSE_DISABLE_KEYRING in the env map, so the argv
+    // is just the bare command — env vars don't belong in argv when execing
+    // directly (no shell to interpret them).
+    loginArgv: { cmd: "goose", args: ["configure"] },
+    binName: "goose",
+    // Goose ships a shell installer; piping curl into bash is the documented
+    // path. We invoke through `bash -lc` so PATH-based redirects work and the
+    // installer can write to /usr/local/bin (or ~/.local/bin if unprivileged).
+    installArgv: {
+      cmd: "bash",
+      args: [
+        "-lc",
+        "curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash",
+      ],
+    },
+    configDir: employeeGooseDir,
+    credsPath: gooseCredsPath,
+  },
 };
+
+/**
+ * True if the provider's CLI binary resolves on PATH. Used by the installer
+ * surface and the runner to decide whether to offer / require an install.
+ *
+ * Implementation note: we shell out to `which` rather than walk PATH ourselves
+ * because the CLIs may live in arch-specific bins (`/usr/local/bin`,
+ * `~/.local/bin`, `~/.npm-global/bin`, …) that vary across hosts. Letting the
+ * shell resolve it matches whatever the spawn() will actually find.
+ */
+export function isCliInstalled(provider: Provider): boolean {
+  const spec = PROVIDERS[provider];
+  try {
+    // `which` is universally present on the platforms we support (alpine,
+    // debian, macOS). stdout is harmless; we just key off the exit code.
+    const r = spawnSync("which", [spec.binName], { stdio: "ignore" });
+    return r.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Split an AIModel.model field of the shape `<provider>/<model>` into its
+ * two halves for goose's GOOSE_PROVIDER + GOOSE_MODEL env vars. If there's
+ * no slash, the whole string is treated as the model name and the provider
+ * stays whatever `goose configure` chose.
+ */
+export function splitGooseModel(s: string): { provider: string | null; model: string | null } {
+  const trimmed = s.trim();
+  if (!trimmed) return { provider: null, model: null };
+  const slash = trimmed.indexOf("/");
+  if (slash === -1) return { provider: null, model: trimmed };
+  const provider = trimmed.slice(0, slash).trim();
+  const model = trimmed.slice(slash + 1).trim();
+  return {
+    provider: provider.length > 0 ? provider : null,
+    model: model.length > 0 ? model : null,
+  };
+}

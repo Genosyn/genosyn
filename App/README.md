@@ -53,14 +53,15 @@ User-generated content (Soul, Skills, Routines, Run logs) lives in the DB.
 With the default driver that's `./data/app.sqlite`; flip
 `config.db.driver` to `postgres` and everything (entities + migrations) moves
 with you. The filesystem side of `config.dataDir` only holds per-employee
-provider credentials (`.claude`, `.codex`, `.opencode`), the `.mcp.json` we
-materialize before each spawn, and any artifacts the CLI writes into its
-working directory. Everything under `data/` is gitignored.
+provider credentials (`.claude`, `.codex`, `.opencode`, `.goose`), the
+`.mcp.json` we materialize before each spawn, and any artifacts the CLI
+writes into its working directory. Everything under `data/` is gitignored.
 
 ## Runner
 
 The cron-driven runner in `server/services/runner.ts` spawns the employee's
-provider CLI (`claude-code` / `codex` / `opencode`) with a prompt composed
-from the employee's Soul + Skills + Routine. Stdout + stderr are captured
-into `Run.logContent` (capped at 256KB). When no model is connected or the
-CLI isn't installed, the run is marked `skipped` with an explanatory log.
+provider CLI (`claude-code` / `codex` / `opencode` / `goose`) with a prompt
+composed from the employee's Soul + Skills + Routine. Stdout + stderr are
+captured into `Run.logContent` (capped at 256KB). When no model is connected
+or the CLI isn't installed, the run is marked `skipped` with an explanatory
+log.

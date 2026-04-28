@@ -7,6 +7,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch --ignore='**/vite.config.*' --ignore='client/**' --ignore='dist/**' --ignore='data/**' server/index.ts",
+    "postinstall": "node scripts/rebuild-node-pty.mjs",
     "build": "npm run build:server && npm run build:client",
     "build:server": "tsc -p tsconfig.server.json && mkdir -p dist/server/mcp-genosyn && cp server/mcp-genosyn/*.mjs dist/server/mcp-genosyn/",
     "build:client": "vite build",
@@ -37,6 +38,7 @@
     "marked": "^14.1.2",
     "multer": "^2.1.1",
     "node-cron": "^3.0.3",
+    "node-pty": "^1.0.0",
     "nodemailer": "^6.9.15",
     "pg": "^8.13.0",
     "react": "^18.3.1",

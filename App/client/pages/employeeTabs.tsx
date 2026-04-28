@@ -6,7 +6,9 @@ import {
   Camera,
   Check,
   Copy,
+  Download,
   Edit3,
+  ExternalLink,
   KeyRound,
   Loader2,
   BookText,
@@ -15,7 +17,9 @@ import {
   Plug,
   PlugZap,
   Plus,
+  Send,
   Sparkles,
+  Terminal,
   Trash2,
   Unplug,
   UserRound,
@@ -29,6 +33,7 @@ import {
   Company,
   Employee,
   Provider,
+  PtySessionView,
   Routine,
   Run,
   RunLog,
@@ -778,6 +783,7 @@ const PROVIDER_DEFAULTS: Record<
   "claude-code": { label: "claude-code", model: "claude-opus-4-6", supportsApiKey: true },
   codex: { label: "codex", model: "gpt-5-codex", supportsApiKey: true },
   opencode: { label: "opencode", model: "anthropic/claude-opus-4-6", supportsApiKey: false },
+  goose: { label: "goose", model: "anthropic/claude-opus-4-6", supportsApiKey: false },
 };
 
 /**
@@ -1229,6 +1235,7 @@ function ModelForm({
           <option value="claude-code">claude-code</option>
           <option value="codex">codex</option>
           <option value="opencode">opencode</option>
+          <option value="goose">goose</option>
         </Select>
         <Input
           label="Model"
@@ -1278,6 +1285,8 @@ function subscriptionBlurb(p: Provider): string {
       return "Use a ChatGPT plan via `codex login`.";
     case "opencode":
       return "Sign in via `opencode auth login` — any provider opencode supports.";
+    case "goose":
+      return "Sign in via `goose configure` — any provider goose supports.";
   }
 }
 
@@ -1288,6 +1297,8 @@ function apiKeyBlurb(p: Provider): string {
     case "codex":
       return "Pay-as-you-go from platform.openai.com.";
     case "opencode":
+      return "";
+    case "goose":
       return "";
   }
 }
@@ -1395,7 +1406,12 @@ function ModelStatusCard({
         </div>
 
         {!connected && model.authMode === "subscription" && (
-          <SubscriptionLoginPanel model={model} />
+          <SubscriptionLoginPanel
+            company={company}
+            emp={emp}
+            model={model}
+            onConnected={onChanged}
+          />
         )}
         {!connected && model.authMode === "apikey" && (
           <ApiKeyPanel company={company} emp={emp} model={model} onSaved={onChanged} />
@@ -1420,18 +1436,433 @@ function StatusBadge({ connected }: { connected: boolean }) {
   );
 }
 
-function SubscriptionLoginPanel({ model }: { model: AIModel }) {
-  const command = `${model.configDirEnv}=${shellQuote(model.configDir)} ${model.loginCommand}`;
-  const [copied, setCopied] = React.useState(false);
+/**
+ * Drives the full sign-in flow without ever sending the operator to a
+ * terminal. The CLI runs server-side under a pty; we stream its output here
+ * and forward keystrokes back. Three states, in order:
+ *
+ *   1. CLI not installed → "Install <provider>" button → live install log.
+ *   2. CLI installed, awaiting OAuth → "Sign in" button → live terminal +
+ *      paste-back input. Any URL the CLI prints is surfaced as a clickable
+ *      "Open in browser" button so the operator never has to copy it.
+ *   3. CLI installed, signed in → unmounted by parent (status flips).
+ *
+ * The escape hatch for SSH-only setups is the disclosure at the bottom: the
+ * original "copy this command and paste in a terminal" string is still
+ * available, just no longer the primary path.
+ */
+function SubscriptionLoginPanel({
+  company,
+  emp,
+  model,
+  onConnected,
+}: {
+  company: Company;
+  emp: Employee;
+  model: AIModel;
+  onConnected: () => void;
+}) {
+  const employeeId = emp.id;
+  return (
+    <SubscriptionLoginInner
+      key={`${model.id}:${employeeId}:${model.cliInstalled}`}
+      company={company}
+      emp={emp}
+      model={model}
+      onConnected={onConnected}
+    />
+  );
+}
+
+function SubscriptionLoginInner({
+  company,
+  emp,
+  model,
+  onConnected,
+}: {
+  company: Company;
+  emp: Employee;
+  model: AIModel;
+  onConnected: () => void;
+}) {
+  // We track the active pty session here. The session abstraction is shared
+  // by install + login — same shape, same polling — so one piece of state
+  // covers both phases.
+  const [session, setSession] = React.useState<PtySessionView | null>(null);
+  const [phase, setPhase] = React.useState<"idle" | "installing" | "signingIn">("idle");
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const sinceRef = React.useRef(0);
+  const sessionRef = React.useRef<PtySessionView | null>(null);
+  const baseUrl = `/api/companies/${company.id}/employees/${emp.id}/model`;
+  const { toast } = useToast();
+
+  // Cancel any live session when we unmount or when the parent flips the
+  // model status to connected. Without this an aborted login pty would sit
+  // around until the 30-min hard sweeper kicks it.
+  const cancelActive = React.useCallback(async () => {
+    const cur = sessionRef.current;
+    if (!cur) return;
+    sessionRef.current = null;
+    try {
+      await api.post(`${baseUrl}/session/${cur.sessionId}/cancel`);
+    } catch {
+      // best-effort; the server's sweeper handles abandoned sessions.
+    }
+  }, [baseUrl]);
+
+  React.useEffect(() => {
+    return () => {
+      void cancelActive();
+    };
+  }, [cancelActive]);
+
+  // Poll for new pty output. We hammer the endpoint at 700ms — enough to feel
+  // live for "code printed" and "URL printed" moments without flooding the
+  // server. The polling stops as soon as the session exits or the user
+  // dismisses it.
+  React.useEffect(() => {
+    if (!session || session.exited) return;
+    let alive = true;
+    const id = window.setInterval(async () => {
+      if (!alive) return;
+      try {
+        const next = await api.get<PtySessionView>(
+          `${baseUrl}/session/${session.sessionId}?since=${sinceRef.current}`,
+        );
+        if (!alive) return;
+        sinceRef.current = next.totalBytes;
+        // Merge: append the freshly fetched chunk to the last cumulative
+        // snapshot. We never re-fetch already-seen bytes thanks to `since`.
+        setSession((prev) => {
+          if (!prev) return next;
+          return {
+            ...next,
+            output: (prev.output ?? "") + next.output,
+          };
+        });
+        if (next.exited) {
+          if (next.exitCode !== 0 && next.exitCode !== null) {
+            setError(
+              `${phase === "installing" ? "Installer" : "Login"} exited with code ${next.exitCode}.`,
+            );
+          }
+          // For installs, refresh the parent so cliInstalled flips true and we
+          // can move on to the sign-in step.
+          if (phase === "installing" && next.exitCode === 0) {
+            onConnected();
+          }
+          // For successful logins the parent's existing /refresh poll picks up
+          // the creds file and unmounts us. We just stop polling here.
+        }
+      } catch {
+        // network blip — try again next tick
+      }
+    }, 700);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, [session, baseUrl, phase, onConnected]);
+
+  React.useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+
+  async function startInstall() {
+    setBusy(true);
+    setError(null);
+    sinceRef.current = 0;
+    try {
+      const { sessionId } = await api.post<{ sessionId: string }>(`${baseUrl}/install`);
+      setPhase("installing");
+      setSession({
+        sessionId,
+        kind: "install",
+        provider: model.provider,
+        output: "",
+        totalBytes: 0,
+        truncated: false,
+        exited: false,
+        exitCode: null,
+      });
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function startLogin() {
+    setBusy(true);
+    setError(null);
+    sinceRef.current = 0;
+    try {
+      const { sessionId } = await api.post<{ sessionId: string }>(`${baseUrl}/login`);
+      setPhase("signingIn");
+      setSession({
+        sessionId,
+        kind: "login",
+        provider: model.provider,
+        output: "",
+        totalBytes: 0,
+        truncated: false,
+        exited: false,
+        exitCode: null,
+      });
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function send(data: string) {
+    if (!session) return;
+    try {
+      await api.post(`${baseUrl}/session/${session.sessionId}/input`, { data });
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
+
+  async function dismissSession() {
+    await cancelActive();
+    setSession(null);
+    setPhase("idle");
+    setError(null);
+  }
+
+  // Step 1: CLI is not installed. Either offer to install it from here, or
+  // (for operators who'd rather drive their own host) fall back to the
+  // copy-this-command card.
+  if (!model.cliInstalled && phase !== "installing") {
+    return (
+      <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:bg-slate-900 dark:border-slate-700">
+        <div className="flex items-start gap-3">
+          <div className="rounded-md bg-amber-100 p-1.5 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+            <Download size={14} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+              {model.provider} isn't installed on this server yet
+            </div>
+            <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              We'll install it for you. The Docker image ships with all CLIs
+              pre-installed; you'll only see this on a fresh bare-metal host.
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <Button size="sm" onClick={startInstall} disabled={busy}>
+                {busy ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                Install {model.provider}
+              </Button>
+              {error && <span className="text-xs text-red-600 dark:text-red-400">{error}</span>}
+            </div>
+          </div>
+        </div>
+        <ManualCommandFallback model={model} />
+      </div>
+    );
+  }
+
+  // Step 2: CLI is installed. Either we're mid-install-just-finished, or we
+  // need to start the sign-in pty.
+  if (!session) {
+    return (
+      <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:bg-slate-900 dark:border-slate-700">
+        <div className="flex items-start gap-3">
+          <div className="rounded-md bg-indigo-100 p-1.5 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+            <PlugZap size={14} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+              Sign {emp.name} into {model.provider}
+            </div>
+            <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              We'll open the provider's login flow. You'll get a URL to click,
+              and any code the provider asks for goes back into the box below.
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <Button size="sm" onClick={startLogin} disabled={busy}>
+                {busy ? <Loader2 size={14} className="animate-spin" /> : <PlugZap size={14} />}
+                Sign in with {model.provider}
+              </Button>
+              {error && <span className="text-xs text-red-600 dark:text-red-400">{error}</span>}
+            </div>
+          </div>
+        </div>
+        <ManualCommandFallback model={model} />
+      </div>
+    );
+  }
+
+  // Step 3: a pty is running. Render its live output + an input row.
+  return (
+    <PtySessionPanel
+      session={session}
+      phase={phase}
+      configDir={model.configDir}
+      onSend={send}
+      onDismiss={dismissSession}
+      error={error}
+    />
+  );
+}
+
+function PtySessionPanel({
+  session,
+  phase,
+  configDir,
+  onSend,
+  onDismiss,
+  error,
+}: {
+  session: PtySessionView;
+  phase: "idle" | "installing" | "signingIn";
+  configDir: string;
+  onSend: (data: string) => void;
+  onDismiss: () => void;
+  error: string | null;
+}) {
+  const [input, setInput] = React.useState("");
+  const outRef = React.useRef<HTMLPreElement | null>(null);
+  // Auto-scroll the terminal as new output arrives, but don't fight a user
+  // who's scrolled back to read something earlier.
+  const stickRef = React.useRef(true);
+  React.useEffect(() => {
+    const el = outRef.current;
+    if (!el) return;
+    if (stickRef.current) el.scrollTop = el.scrollHeight;
+  }, [session.output]);
+
+  const url = extractFirstUrl(session.output);
+  const cleanedOutput = stripAnsi(session.output);
+  const heading =
+    phase === "installing"
+      ? `Installing ${session.provider}…`
+      : `Signing in to ${session.provider}…`;
 
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:bg-slate-900 dark:border-slate-700">
-      <div className="text-xs text-slate-600 dark:text-slate-300">
-        Run this once in any terminal on this server. The page will detect the
-        login automatically — no need to refresh.
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-sm font-medium text-slate-900 dark:text-slate-100">
+          {session.exited ? (
+            session.exitCode === 0 ? (
+              <Check size={14} className="text-emerald-600" />
+            ) : (
+              <X size={14} className="text-red-600" />
+            )
+          ) : (
+            <Loader2 size={14} className="animate-spin text-indigo-600" />
+          )}
+          <span>{heading}</span>
+        </div>
+        <Button size="sm" variant="ghost" onClick={onDismiss}>
+          <X size={14} /> {session.exited ? "Close" : "Cancel"}
+        </Button>
       </div>
-      <div className="flex items-center gap-2">
-        <code className="flex-1 overflow-x-auto whitespace-nowrap rounded-md bg-slate-900 px-3 py-2 font-mono text-xs text-slate-100">
+
+      {url && phase === "signingIn" && !session.exited && (
+        <div className="flex items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs dark:border-indigo-800 dark:bg-indigo-950">
+          <ExternalLink size={14} className="text-indigo-600 dark:text-indigo-300" />
+          <span className="flex-1 truncate text-slate-700 dark:text-slate-200">
+            Open this URL to authorize, then paste the code below:
+          </span>
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2 py-1 text-xs font-medium text-white hover:bg-indigo-700"
+          >
+            Open <ExternalLink size={12} />
+          </a>
+        </div>
+      )}
+
+      <pre
+        ref={outRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          stickRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
+        }}
+        className="max-h-64 min-h-[8rem] overflow-auto whitespace-pre-wrap break-words rounded-md bg-slate-950 px-3 py-2 font-mono text-[11px] leading-snug text-slate-100"
+      >
+        {cleanedOutput || "Starting…"}
+      </pre>
+
+      {!session.exited && (
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!input) return;
+            // ENTER is what advances every CLI prompt — claude login asks for
+            // a code, codex asks for a code, goose configure walks a wizard.
+            // Append \r so the pty sees a real newline.
+            onSend(`${input}\r`);
+            setInput("");
+          }}
+        >
+          <Input
+            value={input}
+            placeholder={
+              phase === "signingIn"
+                ? "Paste the code from your browser, then press Enter"
+                : "Type a response, then press Enter"
+            }
+            onChange={(e) => setInput(e.target.value)}
+            className="flex-1"
+          />
+          <Button type="submit" size="sm" disabled={!input}>
+            <Send size={14} /> Send
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            title="Send Enter"
+            onClick={() => onSend("\r")}
+          >
+            ↵
+          </Button>
+        </form>
+      )}
+
+      {session.exited && session.exitCode === 0 && phase === "installing" && (
+        <div className="text-xs text-emerald-700 dark:text-emerald-400">
+          Installed. Click "Sign in" below to continue.
+        </div>
+      )}
+      {session.exited && session.exitCode === 0 && phase === "signingIn" && (
+        <div className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400">
+          <Loader2 size={12} className="animate-spin" />
+          Sign-in finished. Verifying credentials…
+        </div>
+      )}
+      {error && <div className="text-xs text-red-600 dark:text-red-400">{error}</div>}
+      <div className="text-[10px] text-slate-500 dark:text-slate-400">
+        Credentials land at <code>{configDir}</code>
+      </div>
+    </div>
+  );
+}
+
+function ManualCommandFallback({ model }: { model: AIModel }) {
+  const command = `${model.configDirEnv}=${shellQuote(model.configDir)} ${model.loginCommand}`;
+  const [open, setOpen] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+  return (
+    <details
+      className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-950"
+      open={open}
+      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+    >
+      <summary className="flex cursor-pointer items-center gap-2 text-slate-600 dark:text-slate-300">
+        <Terminal size={12} />
+        SSH-only host? Run the equivalent in a terminal.
+      </summary>
+      <div className="mt-2 flex items-center gap-2">
+        <code className="flex-1 overflow-x-auto whitespace-nowrap rounded-md bg-slate-900 px-3 py-2 font-mono text-[11px] text-slate-100">
           {command}
         </code>
         <Button
@@ -1447,12 +1878,32 @@ function SubscriptionLoginPanel({ model }: { model: AIModel }) {
           {copied ? "Copied" : "Copy"}
         </Button>
       </div>
-      <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-        <Loader2 size={12} className="animate-spin" /> Watching for credentials at{" "}
-        <code className="rounded bg-white px-1 py-0.5 text-[11px] dark:bg-slate-900">{model.configDir}</code>
-      </div>
-    </div>
+    </details>
   );
+}
+
+/**
+ * Pull the first http(s) URL out of a chunk of CLI output. Used to surface
+ * an OAuth URL as a clickable button — every provider's login command prints
+ * one early in its run.
+ */
+function extractFirstUrl(s: string): string | null {
+  if (!s) return null;
+  const cleaned = stripAnsi(s);
+  const match = cleaned.match(/https?:\/\/[^\s"'`<>]+/);
+  return match ? match[0] : null;
+}
+
+/**
+ * Strip ANSI color and cursor escape sequences so the in-browser terminal
+ * stays readable. We don't try to emulate a real terminal — the login flows
+ * are short and linear, so dropping the styling is a reasonable trade for
+ * not pulling in xterm.js.
+ */
+function stripAnsi(s: string): string {
+  // Matches CSI escapes (color, cursor moves, screen clears) — covers what
+  // the install + login CLIs actually emit in practice.
+  return s.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "").replace(/\r(?!\n)/g, "");
 }
 
 function shellQuote(s: string): string {
