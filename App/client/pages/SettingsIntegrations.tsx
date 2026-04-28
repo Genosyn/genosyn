@@ -9,6 +9,7 @@ import {
   Database,
   Github,
   Mail,
+  Pencil,
   Plug,
   RefreshCw,
   Trash2,
@@ -159,6 +160,31 @@ export function SettingsIntegrations() {
     }
   }
 
+  async function renameConnection(conn: IntegrationConnection) {
+    const next = await dialog.prompt({
+      title: "Rename connection",
+      defaultValue: conn.label,
+      placeholder: "Stripe US",
+      confirmLabel: "Rename",
+      validate: (v) => (v.trim().length === 0 ? "Label is required" : null),
+    });
+    if (next === null) return;
+    const trimmed = next.trim();
+    if (trimmed === conn.label) return;
+    try {
+      const updated = await api.patch<IntegrationConnection>(
+        `/api/companies/${company.id}/integrations/connections/${conn.id}`,
+        { label: trimmed },
+      );
+      setConnections((prev) =>
+        (prev ?? []).map((c) => (c.id === updated.id ? updated : c)),
+      );
+      toast("Connection renamed", "success");
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
+
   async function removeConnection(conn: IntegrationConnection) {
     const ok = await dialog.confirm({
       title: `Disconnect ${conn.label}?`,
@@ -225,6 +251,14 @@ export function SettingsIntegrations() {
                           title="Manage employee access"
                         >
                           <Users size={12} /> Access
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => renameConnection(c)}
+                          title="Rename"
+                        >
+                          <Pencil size={12} />
                         </Button>
                         <Button
                           variant="ghost"

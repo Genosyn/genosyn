@@ -17,6 +17,7 @@ import {
   refreshConnectionStatus,
   revokeAccess,
   serializeConnection,
+  updateConnectionLabel,
 } from "../services/integrations.js";
 import { startOauth } from "../services/oauth.js";
 import { recordAudit } from "../services/audit.js";
@@ -96,6 +97,31 @@ integrationsRouter.post(
         error: err instanceof Error ? err.message : "Failed to create connection",
       });
     }
+  },
+);
+
+const updateConnectionSchema = z.object({
+  label: z.string().min(1).max(80),
+});
+
+integrationsRouter.patch(
+  "/connections/:connId",
+  validateBody(updateConnectionSchema),
+  async (req, res) => {
+    const { cid, connId } = req.params as Record<string, string>;
+    const body = req.body as z.infer<typeof updateConnectionSchema>;
+    const updated = await updateConnectionLabel(cid, connId, body.label);
+    if (!updated) return res.status(404).json({ error: "Connection not found" });
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "connection.update",
+      targetType: "connection",
+      targetId: updated.id,
+      targetLabel: `${updated.provider} · ${updated.label}`,
+      metadata: { provider: updated.provider, label: updated.label },
+    });
+    res.json(serializeConnection(updated));
   },
 );
 

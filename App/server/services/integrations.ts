@@ -195,6 +195,23 @@ export async function createServiceAccountConnection(args: {
   return row;
 }
 
+/**
+ * Rename a connection. The `label` is purely cosmetic — credentials and the
+ * status of the connection are untouched.
+ */
+export async function updateConnectionLabel(
+  companyId: string,
+  id: string,
+  label: string,
+): Promise<IntegrationConnection | null> {
+  const repo = AppDataSource.getRepository(IntegrationConnection);
+  const existing = await repo.findOneBy({ companyId, id });
+  if (!existing) return null;
+  existing.label = label.trim() || existing.label;
+  await repo.save(existing);
+  return existing;
+}
+
 export async function deleteConnection(
   companyId: string,
   id: string,
