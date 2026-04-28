@@ -12,6 +12,7 @@ import { BaseField } from "../db/entities/BaseField.js";
 import { BaseRecord } from "../db/entities/BaseRecord.js";
 import { BaseRecordComment } from "../db/entities/BaseRecordComment.js";
 import { BaseRecordAttachment } from "../db/entities/BaseRecordAttachment.js";
+import { BaseView } from "../db/entities/BaseView.js";
 import { EmployeeBaseGrant } from "../db/entities/EmployeeBaseGrant.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { User } from "../db/entities/User.js";
@@ -618,6 +619,95 @@ export async function loadRecordWithChain(
   });
   if (!base) return null;
   return { record, table, base };
+}
+
+// ───── Views (saved filter/sort/hidden-field configurations) ────────────────
+
+export type HydratedBaseView = {
+  id: string;
+  tableId: string;
+  name: string;
+  slug: string;
+  sortOrder: number;
+  filters: unknown[];
+  sorts: unknown[];
+  hiddenFieldIds: string[];
+  createdAt: string;
+};
+
+function safeParseArray(json: string): unknown[] {
+  try {
+    const parsed = JSON.parse(json || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function hydrateView(v: BaseView): HydratedBaseView {
+  return {
+    id: v.id,
+    tableId: v.tableId,
+    name: v.name,
+    slug: v.slug,
+    sortOrder: v.sortOrder,
+    filters: safeParseArray(v.filtersJson),
+    sorts: safeParseArray(v.sortsJson),
+    hiddenFieldIds: safeParseArray(v.hiddenFieldsJson).filter(
+      (x): x is string => typeof x === "string",
+    ),
+    createdAt: v.createdAt.toISOString(),
+  };
+}
+
+export async function uniqueViewSlug(tableId: string, base: string): Promise<string> {
+  const repo = AppDataSource.getRepository(BaseView);
+  const seed = base || "view";
+  let slug = seed;
+  let n = 1;
+  while (await repo.findOneBy({ tableId, slug })) {
+    n += 1;
+    slug = `${seed}-${n}`;
+  }
+  return slug;
+}
+
+/**
+ * Make sure the given table has at least one view. Tables created before
+ * BaseView existed don't have any rows, so we lazily seed a default "Grid view"
+ * the first time the views endpoint is hit.
+ */
+export async function ensureDefaultView(tableId: string): Promise<BaseView> {
+  const repo = AppDataSource.getRepository(BaseView);
+  const existing = await repo.find({
+    where: { tableId },
+    order: { sortOrder: "ASC", createdAt: "ASC" },
+  });
+  if (existing.length > 0) return existing[0];
+  const slug = await uniqueViewSlug(tableId, "grid-view");
+  const saved = await repo.save(
+    repo.create({
+      tableId,
+      name: "Grid view",
+      slug,
+      sortOrder: 1000,
+      filtersJson: "[]",
+      sortsJson: "[]",
+      hiddenFieldsJson: "[]",
+    }),
+  );
+  return saved;
+}
+
+export async function listViewsForTable(
+  tableId: string,
+): Promise<HydratedBaseView[]> {
+  await ensureDefaultView(tableId);
+  const rows = await AppDataSource.getRepository(BaseView).find({
+    where: { tableId },
+    order: { sortOrder: "ASC", createdAt: "ASC" },
+  });
+  return rows.map(hydrateView);
 }
 
 /** Used by the /new page to preview templates before the user commits. */

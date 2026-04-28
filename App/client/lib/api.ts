@@ -698,11 +698,66 @@ export type BaseDetail = {
   tables: BaseTable[];
 };
 
+/**
+ * Operators for a filter rule, by field type. Kept as a flat union so the
+ * UI can drive its operator dropdown from a single source. Some operators
+ * apply to multiple types (e.g. `isEmpty`) and the picker filters them based
+ * on the field's `type`.
+ */
+export type BaseFilterOperator =
+  | "is"
+  | "isNot"
+  | "contains"
+  | "doesNotContain"
+  | "isEmpty"
+  | "isNotEmpty"
+  | "equals"
+  | "notEquals"
+  | "greaterThan"
+  | "lessThan"
+  | "greaterThanOrEqual"
+  | "lessThanOrEqual"
+  | "isAnyOf"
+  | "isNoneOf"
+  | "hasAnyOf"
+  | "hasAllOf"
+  | "hasNoneOf"
+  | "isBefore"
+  | "isAfter"
+  | "isChecked"
+  | "isUnchecked";
+
+export type BaseFilterRule = {
+  id: string;
+  fieldId: string;
+  operator: BaseFilterOperator;
+  value?: unknown;
+};
+
+export type BaseSortRule = {
+  id: string;
+  fieldId: string;
+  direction: "asc" | "desc";
+};
+
+export type BaseView = {
+  id: string;
+  tableId: string;
+  name: string;
+  slug: string;
+  sortOrder: number;
+  filters: BaseFilterRule[];
+  sorts: BaseSortRule[];
+  hiddenFieldIds: string[];
+  createdAt: string;
+};
+
 export type BaseTableContent = {
   table: BaseTable;
   fields: BaseField[];
   records: BaseRecord[];
   linkOptions: Record<string, BaseLinkOption[]>;
+  views: BaseView[];
 };
 
 export type BaseTemplateSummary = {

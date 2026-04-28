@@ -8,6 +8,7 @@ import { BaseField, BaseFieldType } from "../db/entities/BaseField.js";
 import { BaseRecord } from "../db/entities/BaseRecord.js";
 import { BaseRecordComment } from "../db/entities/BaseRecordComment.js";
 import { BaseRecordAttachment } from "../db/entities/BaseRecordAttachment.js";
+import { BaseView } from "../db/entities/BaseView.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
@@ -18,6 +19,7 @@ import { chatWithEmployee } from "../services/chat.js";
 import {
   buildLinkOptionsFor,
   deleteGrantsForBase,
+  ensureDefaultView,
   findBaseByName,
   findBaseTableByName,
   grantBaseAccess,
@@ -25,12 +27,15 @@ import {
   hydrateRecord,
   hydrateRecordAttachments,
   hydrateRecordComments,
+  hydrateView,
   listBaseGrants,
   listTemplates,
+  listViewsForTable,
   revokeBaseAccess,
   seedBaseFromTemplate,
   uniqueBaseSlug,
   uniqueTableSlug,
+  uniqueViewSlug,
 } from "../services/bases.js";
 import { findBaseTemplate } from "../services/baseTemplates.js";
 import { recordAudit } from "../services/audit.js";
@@ -227,6 +232,7 @@ basesRouter.delete("/bases/:baseSlug", async (req, res) => {
     }
     await AppDataSource.getRepository(BaseRecord).delete({ tableId: In(tableIds) });
     await AppDataSource.getRepository(BaseField).delete({ tableId: In(tableIds) });
+    await AppDataSource.getRepository(BaseView).delete({ tableId: In(tableIds) });
     await AppDataSource.getRepository(BaseTable).delete({ id: In(tableIds) });
   }
   await deleteGrantsForBase(b.id);
@@ -365,6 +371,8 @@ basesRouter.post(
         sortOrder: 1000,
       }),
     );
+    // Seed the default view so the grid has something to render against.
+    await ensureDefaultView(saved.id);
     res.json(saved);
   },
 );
@@ -427,6 +435,7 @@ basesRouter.delete("/bases/:baseSlug/tables/:tableId", async (req, res) => {
   }
   await AppDataSource.getRepository(BaseRecord).delete({ tableId: t.id });
   await AppDataSource.getRepository(BaseField).delete({ tableId: t.id });
+  await AppDataSource.getRepository(BaseView).delete({ tableId: t.id });
   await AppDataSource.getRepository(BaseTable).delete({ id: t.id });
   res.json({ ok: true });
 });
@@ -442,7 +451,7 @@ basesRouter.get(
     const t = await loadTable(b.id, req.params.tableId);
     if (!t) return res.status(404).json({ error: "Table not found" });
 
-    const [fields, records] = await Promise.all([
+    const [fields, records, views] = await Promise.all([
       AppDataSource.getRepository(BaseField).find({
         where: { tableId: t.id },
         order: { sortOrder: "ASC", createdAt: "ASC" },
@@ -451,6 +460,7 @@ basesRouter.get(
         where: { tableId: t.id },
         order: { sortOrder: "ASC", createdAt: "ASC" },
       }),
+      listViewsForTable(t.id),
     ]);
 
     const linkOptions = await buildLinkOptionsFor(fields);
@@ -459,6 +469,7 @@ basesRouter.get(
       fields: fields.map(hydrateField),
       records: records.map(hydrateRecord),
       linkOptions,
+      views,
     });
   },
 );
@@ -704,6 +715,172 @@ basesRouter.delete(
     await AppDataSource.getRepository(BaseRecordAttachment).delete({ recordId: r.id });
     await AppDataSource.getRepository(BaseRecordComment).delete({ recordId: r.id });
     await AppDataSource.getRepository(BaseRecord).delete({ id: r.id });
+    res.json({ ok: true });
+  },
+);
+
+// Bulk delete — keyed off the table-rows collection, body carries the ids.
+// Used by the grid's multi-select bar so the client doesn't issue N separate
+// requests when the user picks five rows and hits Delete.
+const bulkDeleteRowsSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(500),
+});
+
+basesRouter.post(
+  "/bases/:baseSlug/tables/:tableId/rows/bulk-delete",
+  validateBody(bulkDeleteRowsSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const b = await loadBaseBySlug(cid, req.params.baseSlug);
+    if (!b) return res.status(404).json({ error: "Base not found" });
+    const t = await loadTable(b.id, req.params.tableId);
+    if (!t) return res.status(404).json({ error: "Table not found" });
+    const body = req.body as z.infer<typeof bulkDeleteRowsSchema>;
+
+    const rows = await AppDataSource.getRepository(BaseRecord).find({
+      where: { id: In(body.ids), tableId: t.id },
+    });
+    if (rows.length === 0) return res.json({ ok: true, deleted: 0 });
+
+    const ids = rows.map((r) => r.id);
+    const attachments = await AppDataSource.getRepository(BaseRecordAttachment).find({
+      where: { recordId: In(ids) },
+    });
+    if (attachments.length) {
+      const co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
+      if (co) {
+        for (const a of attachments) await deleteBaseAttachmentBytes(a, co.slug);
+      }
+    }
+    await AppDataSource.getRepository(BaseRecordAttachment).delete({
+      recordId: In(ids),
+    });
+    await AppDataSource.getRepository(BaseRecordComment).delete({
+      recordId: In(ids),
+    });
+    await AppDataSource.getRepository(BaseRecord).delete({ id: In(ids) });
+    res.json({ ok: true, deleted: ids.length });
+  },
+);
+
+// ─────────────────────────── views ───────────────────────────────────────────
+
+basesRouter.get(
+  "/bases/:baseSlug/tables/:tableId/views",
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const b = await loadBaseBySlug(cid, req.params.baseSlug);
+    if (!b) return res.status(404).json({ error: "Base not found" });
+    const t = await loadTable(b.id, req.params.tableId);
+    if (!t) return res.status(404).json({ error: "Table not found" });
+    res.json(await listViewsForTable(t.id));
+  },
+);
+
+// Filter / sort rule shapes — kept loose because operators vary by field type
+// and the client is the source of truth for which combinations make sense.
+const filterRuleSchema = z.object({
+  id: z.string().min(1).max(40),
+  fieldId: z.string().min(1),
+  operator: z.string().min(1).max(40),
+  value: z.unknown().optional(),
+});
+const sortRuleSchema = z.object({
+  id: z.string().min(1).max(40),
+  fieldId: z.string().min(1),
+  direction: z.enum(["asc", "desc"]),
+});
+
+const createViewSchema = z.object({
+  name: z.string().min(1).max(80),
+  filters: z.array(filterRuleSchema).optional(),
+  sorts: z.array(sortRuleSchema).optional(),
+  hiddenFieldIds: z.array(z.string()).optional(),
+});
+
+basesRouter.post(
+  "/bases/:baseSlug/tables/:tableId/views",
+  validateBody(createViewSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const b = await loadBaseBySlug(cid, req.params.baseSlug);
+    if (!b) return res.status(404).json({ error: "Base not found" });
+    const t = await loadTable(b.id, req.params.tableId);
+    if (!t) return res.status(404).json({ error: "Table not found" });
+    const body = req.body as z.infer<typeof createViewSchema>;
+
+    const slug = await uniqueViewSlug(t.id, toSlug(body.name));
+    const last = await AppDataSource.getRepository(BaseView).findOne({
+      where: { tableId: t.id },
+      order: { sortOrder: "DESC" },
+    });
+    const repo = AppDataSource.getRepository(BaseView);
+    const saved = await repo.save(
+      repo.create({
+        tableId: t.id,
+        name: body.name,
+        slug,
+        sortOrder: (last?.sortOrder ?? 0) + 1000,
+        filtersJson: JSON.stringify(body.filters ?? []),
+        sortsJson: JSON.stringify(body.sorts ?? []),
+        hiddenFieldsJson: JSON.stringify(body.hiddenFieldIds ?? []),
+      }),
+    );
+    res.json(hydrateView(saved));
+  },
+);
+
+const patchViewSchema = z.object({
+  name: z.string().min(1).max(80).optional(),
+  filters: z.array(filterRuleSchema).optional(),
+  sorts: z.array(sortRuleSchema).optional(),
+  hiddenFieldIds: z.array(z.string()).optional(),
+  sortOrder: z.number().optional(),
+});
+
+basesRouter.patch(
+  "/bases/:baseSlug/tables/:tableId/views/:viewId",
+  validateBody(patchViewSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const b = await loadBaseBySlug(cid, req.params.baseSlug);
+    if (!b) return res.status(404).json({ error: "Base not found" });
+    const t = await loadTable(b.id, req.params.tableId);
+    if (!t) return res.status(404).json({ error: "Table not found" });
+    const repo = AppDataSource.getRepository(BaseView);
+    const v = await repo.findOneBy({ id: req.params.viewId, tableId: t.id });
+    if (!v) return res.status(404).json({ error: "View not found" });
+    const body = req.body as z.infer<typeof patchViewSchema>;
+
+    if (body.name !== undefined) v.name = body.name;
+    if (body.filters !== undefined) v.filtersJson = JSON.stringify(body.filters);
+    if (body.sorts !== undefined) v.sortsJson = JSON.stringify(body.sorts);
+    if (body.hiddenFieldIds !== undefined)
+      v.hiddenFieldsJson = JSON.stringify(body.hiddenFieldIds);
+    if (body.sortOrder !== undefined) v.sortOrder = body.sortOrder;
+    await repo.save(v);
+    res.json(hydrateView(v));
+  },
+);
+
+basesRouter.delete(
+  "/bases/:baseSlug/tables/:tableId/views/:viewId",
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const b = await loadBaseBySlug(cid, req.params.baseSlug);
+    if (!b) return res.status(404).json({ error: "Base not found" });
+    const t = await loadTable(b.id, req.params.tableId);
+    if (!t) return res.status(404).json({ error: "Table not found" });
+    const repo = AppDataSource.getRepository(BaseView);
+    const v = await repo.findOneBy({ id: req.params.viewId, tableId: t.id });
+    if (!v) return res.status(404).json({ error: "View not found" });
+    const count = await repo.count({ where: { tableId: t.id } });
+    if (count <= 1) {
+      return res.status(400).json({
+        error: "A table needs at least one view — create another before deleting this one.",
+      });
+    }
+    await repo.delete({ id: v.id });
     res.json({ ok: true });
   },
 );

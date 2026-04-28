@@ -19,6 +19,7 @@ import {
   X,
   Users,
   Maximize2,
+  Check,
 } from "lucide-react";
 import {
   api,
@@ -30,6 +31,7 @@ import {
   BaseRecord,
   BaseTable,
   BaseTableContent,
+  BaseView,
   Company,
   Employee,
   SelectOption,
@@ -52,6 +54,18 @@ import {
   baseAccent,
 } from "../components/BaseIcons";
 import { clsx } from "../components/ui/clsx";
+import {
+  applyFilters,
+  applySorts,
+  ArrowUpDown,
+  EyeOff,
+  FilterIcon,
+  FilterPopover,
+  HideFieldsPopover,
+  SortPopover,
+  ToolbarButton,
+  ViewTabs,
+} from "./BaseViewControls";
 
 const FIELD_TYPE_META: Record<
   BaseFieldType,
@@ -74,6 +88,7 @@ export default function BaseDetail({ company }: { company: Company }) {
   const { baseSlug, tableSlug } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const dialog = useDialog();
   const { activeDetail, reloadActive, reload: reloadBases } = useBases();
 
   const [content, setContent] = React.useState<BaseTableContent | null>(null);
@@ -81,6 +96,7 @@ export default function BaseDetail({ company }: { company: Company }) {
   const [showSettings, setShowSettings] = React.useState(false);
   const [showAssistant, setShowAssistant] = React.useState(false);
   const [openRecordId, setOpenRecordId] = React.useState<string | null>(null);
+  const [activeViewId, setActiveViewId] = React.useState<string | null>(null);
 
   // `activeDetail` may belong to the previous base (during nav). Only trust it
   // once the slug matches the URL.
@@ -129,6 +145,145 @@ export default function BaseDetail({ company }: { company: Company }) {
   React.useEffect(() => {
     loadContent();
   }, [loadContent]);
+
+  // Reset the active view whenever the user switches tables — view IDs are
+  // per-table so the previous selection is meaningless on the next one.
+  React.useEffect(() => {
+    setActiveViewId(null);
+  }, [currentTable?.id]);
+
+  // Promote the first available view to active once content arrives, and
+  // gracefully fall back if the active view was deleted out from under us.
+  React.useEffect(() => {
+    if (!content) return;
+    const found = activeViewId
+      ? content.views.find((v) => v.id === activeViewId)
+      : null;
+    if (!found) {
+      const next = content.views[0]?.id ?? null;
+      if (next !== activeViewId) setActiveViewId(next);
+    }
+  }, [content, activeViewId]);
+
+  const activeView = React.useMemo(
+    () =>
+      content && activeViewId
+        ? content.views.find((v) => v.id === activeViewId) ?? null
+        : null,
+    [content, activeViewId],
+  );
+
+  // Apply a partial change to the active view and persist it. Optimistic so
+  // toggling a filter feels instant; reverts on error.
+  const updateActiveView = React.useCallback(
+    async (
+      patch: Partial<
+        Pick<BaseView, "name" | "filters" | "sorts" | "hiddenFieldIds">
+      >,
+    ) => {
+      if (!detail || !currentTable || !activeView) return;
+      const prev = content;
+      // Optimistic
+      setContent((prevContent) => {
+        if (!prevContent) return prevContent;
+        return {
+          ...prevContent,
+          views: prevContent.views.map((v) =>
+            v.id === activeView.id ? { ...v, ...patch } : v,
+          ),
+        };
+      });
+      try {
+        await api.patch(
+          `/api/companies/${company.id}/bases/${detail.base.slug}/tables/${currentTable.id}/views/${activeView.id}`,
+          patch,
+        );
+      } catch (err) {
+        toast((err as Error).message, "error");
+        setContent(prev);
+      }
+    },
+    [activeView, company.id, content, currentTable, detail, toast],
+  );
+
+  const createView = React.useCallback(async () => {
+    if (!detail || !currentTable) return;
+    const name = await dialog.prompt({
+      title: "New view",
+      placeholder: "View name",
+      defaultValue: `View ${(content?.views.length ?? 0) + 1}`,
+      confirmLabel: "Create",
+    });
+    if (!name) return;
+    try {
+      const created = await api.post<BaseView>(
+        `/api/companies/${company.id}/bases/${detail.base.slug}/tables/${currentTable.id}/views`,
+        { name, filters: [], sorts: [], hiddenFieldIds: [] },
+      );
+      await loadContent(true);
+      setActiveViewId(created.id);
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }, [company.id, content, currentTable, detail, dialog, loadContent, toast]);
+
+  const renameView = React.useCallback(
+    async (viewId: string) => {
+      if (!detail || !currentTable || !content) return;
+      const v = content.views.find((x) => x.id === viewId);
+      if (!v) return;
+      const name = await dialog.prompt({
+        title: "Rename view",
+        defaultValue: v.name,
+        confirmLabel: "Rename",
+      });
+      if (!name || name === v.name) return;
+      try {
+        await api.patch(
+          `/api/companies/${company.id}/bases/${detail.base.slug}/tables/${currentTable.id}/views/${viewId}`,
+          { name },
+        );
+        await loadContent(true);
+      } catch (err) {
+        toast((err as Error).message, "error");
+      }
+    },
+    [company.id, content, currentTable, detail, dialog, loadContent, toast],
+  );
+
+  const deleteView = React.useCallback(
+    async (viewId: string) => {
+      if (!detail || !currentTable || !content) return;
+      const v = content.views.find((x) => x.id === viewId);
+      if (!v) return;
+      const ok = await dialog.confirm({
+        title: `Delete "${v.name}"?`,
+        message: "Records aren't affected — only this saved view configuration.",
+        confirmLabel: "Delete view",
+        variant: "danger",
+      });
+      if (!ok) return;
+      try {
+        await api.del(
+          `/api/companies/${company.id}/bases/${detail.base.slug}/tables/${currentTable.id}/views/${viewId}`,
+        );
+        if (activeViewId === viewId) setActiveViewId(null);
+        await loadContent(true);
+      } catch (err) {
+        toast((err as Error).message, "error");
+      }
+    },
+    [
+      activeViewId,
+      company.id,
+      content,
+      currentTable,
+      detail,
+      dialog,
+      loadContent,
+      toast,
+    ],
+  );
 
   if (!detail) {
     return (
@@ -206,6 +361,13 @@ export default function BaseDetail({ company }: { company: Company }) {
               onTablesReload={reloadActive}
               companyId={company.id}
               onOpenRecord={(rid) => setOpenRecordId(rid)}
+              activeView={activeView}
+              activeViewId={activeViewId}
+              onSwitchView={setActiveViewId}
+              onCreateView={createView}
+              onRenameView={renameView}
+              onDeleteView={deleteView}
+              onUpdateActiveView={updateActiveView}
             />
           ) : null}
         </div>
@@ -265,6 +427,13 @@ function Grid({
   onTablesReload,
   companyId,
   onOpenRecord,
+  activeView,
+  activeViewId,
+  onSwitchView,
+  onCreateView,
+  onRenameView,
+  onDeleteView,
+  onUpdateActiveView,
 }: {
   base: Base;
   table: BaseTable;
@@ -274,11 +443,74 @@ function Grid({
   onTablesReload: () => Promise<void>;
   companyId: string;
   onOpenRecord: (recordId: string) => void;
+  activeView: BaseView | null;
+  activeViewId: string | null;
+  onSwitchView: (id: string) => void;
+  onCreateView: () => Promise<void> | void;
+  onRenameView: (id: string) => Promise<void> | void;
+  onDeleteView: (id: string) => Promise<void> | void;
+  onUpdateActiveView: (
+    patch: Partial<Pick<BaseView, "name" | "filters" | "sorts" | "hiddenFieldIds">>,
+  ) => Promise<void> | void;
 }) {
   const { toast } = useToast();
   const dialog = useDialog();
-  const { fields, records, linkOptions } = content;
+  const { fields, records, linkOptions, views } = content;
   const [pendingLinkField, setPendingLinkField] = React.useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
+  const [filterOpen, setFilterOpen] = React.useState(false);
+  const [sortOpen, setSortOpen] = React.useState(false);
+  const [hideOpen, setHideOpen] = React.useState(false);
+  const filterBtnRef = React.useRef<HTMLButtonElement>(null);
+  const sortBtnRef = React.useRef<HTMLButtonElement>(null);
+  const hideBtnRef = React.useRef<HTMLButtonElement>(null);
+  const lastClickedRowIdRef = React.useRef<string | null>(null);
+
+  // Apply the active view: filter, then sort. The unfiltered set is what the
+  // toolbar's Hide-fields and the bulk bar refer to.
+  const visibleRecords = React.useMemo(() => {
+    if (!activeView) return records;
+    const filtered = applyFilters(records, activeView.filters, fields);
+    return applySorts(filtered, activeView.sorts, fields);
+  }, [activeView, fields, records]);
+
+  // Hidden fields are stored on the view; primary fields are never hidden so
+  // a row always has a recognisable label.
+  const visibleFields = React.useMemo(() => {
+    if (!activeView) return fields;
+    const hidden = new Set(activeView.hiddenFieldIds);
+    return fields.filter((f) => f.isPrimary || !hidden.has(f.id));
+  }, [activeView, fields]);
+
+  // Drop selections that no longer exist (after a filter, delete, or sort).
+  React.useEffect(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const stillVisible = new Set(visibleRecords.map((r) => r.id));
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (stillVisible.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [visibleRecords]);
+
+  // Esc clears selection, mirroring most Linear/Airtable-style grids.
+  React.useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape" && selectedIds.size > 0) {
+        // Skip if the user is editing inside an input/textarea — they likely
+        // want to cancel the cell edit, not deselect the row.
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+        setSelectedIds(new Set());
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedIds.size]);
 
   async function patchCell(row: BaseRecord, fieldId: string, value: unknown) {
     // Optimistic: update in-place then re-fetch for link-label freshness.
@@ -313,6 +545,61 @@ function Grid({
         `/api/companies/${companyId}/bases/${base.slug}/tables/${table.id}/rows/${row.id}`,
       );
       await onReload();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
+
+  function toggleSelect(rowId: string, shiftKey: boolean) {
+    // Shift-click extends from the last-clicked row to the current one across
+    // the *visible* set, the same behaviour as Airtable / Linear / Finder.
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (shiftKey && lastClickedRowIdRef.current) {
+        const ids = visibleRecords.map((r) => r.id);
+        const a = ids.indexOf(lastClickedRowIdRef.current);
+        const b = ids.indexOf(rowId);
+        if (a !== -1 && b !== -1) {
+          const [from, to] = a < b ? [a, b] : [b, a];
+          for (let i = from; i <= to; i += 1) next.add(ids[i]);
+          return next;
+        }
+      }
+      if (next.has(rowId)) next.delete(rowId);
+      else next.add(rowId);
+      return next;
+    });
+    lastClickedRowIdRef.current = rowId;
+  }
+
+  function toggleSelectAll() {
+    setSelectedIds((prev) => {
+      if (prev.size === visibleRecords.length && visibleRecords.length > 0) {
+        return new Set();
+      }
+      return new Set(visibleRecords.map((r) => r.id));
+    });
+  }
+
+  async function bulkDelete() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    const ok = await dialog.confirm({
+      title: `Delete ${ids.length} ${ids.length === 1 ? "row" : "rows"}?`,
+      message:
+        "They will be permanently removed along with any comments and attachments.",
+      confirmLabel: `Delete ${ids.length === 1 ? "row" : "rows"}`,
+      variant: "danger",
+    });
+    if (!ok) return;
+    try {
+      await api.post<{ ok: true; deleted: number }>(
+        `/api/companies/${companyId}/bases/${base.slug}/tables/${table.id}/rows/bulk-delete`,
+        { ids },
+      );
+      setSelectedIds(new Set());
+      await onReload();
+      toast(`Deleted ${ids.length} ${ids.length === 1 ? "row" : "rows"}`, "success");
     } catch (err) {
       toast((err as Error).message, "error");
     }
@@ -399,64 +686,170 @@ function Grid({
     }
   }
 
+  const filterCount = activeView?.filters.length ?? 0;
+  const sortCount = activeView?.sorts.length ?? 0;
+  const hiddenCount = activeView?.hiddenFieldIds.length ?? 0;
+  const allSelected =
+    visibleRecords.length > 0 && selectedIds.size === visibleRecords.length;
+  const someSelected = selectedIds.size > 0 && !allSelected;
+
   return (
-    <div className="inline-block min-w-full p-4">
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr>
-              <th className="sticky left-0 top-0 z-10 w-10 border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500">
-                #
-              </th>
-              {fields.map((f) => (
-                <FieldHeader
-                  key={f.id}
-                  field={f}
-                  tables={tables}
-                  onPatch={(p) => patchField(f, p)}
-                  onDelete={() => deleteField(f)}
-                />
-              ))}
-              <th className="border-b border-slate-200 bg-slate-50 px-1 py-1 dark:border-slate-700 dark:bg-slate-900">
-                <AddFieldButton onAdd={addField} />
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {records.map((r, idx) => (
-              <Row
-                key={r.id}
-                index={idx + 1}
-                record={r}
-                fields={fields}
-                linkOptions={linkOptions}
-                onPatchCell={(fid, v) => patchCell(r, fid, v)}
-                onDelete={() => deleteRow(r)}
-                onExpand={() => onOpenRecord(r.id)}
-              />
-            ))}
-            <tr>
-              <td className="sticky left-0 z-10 w-10 border-r border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900" />
-              <td
-                colSpan={fields.length + 1}
-                className="bg-slate-50 dark:bg-slate-900"
-              >
-                <button
-                  onClick={addRow}
-                  className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-                >
-                  <Plus size={12} /> Add row
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+    <div className="flex min-h-full flex-col">
+      {/* View tabs */}
+      <div className="border-b border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+        <ViewTabs
+          views={views.map((v) => ({ id: v.id, name: v.name }))}
+          activeViewId={activeViewId}
+          onSwitch={onSwitchView}
+          onCreate={() => void onCreateView()}
+          onRename={(id) => void onRenameView(id)}
+          onDelete={(id) => void onDeleteView(id)}
+        />
+        {/* Toolbar */}
+        <div className="flex items-center gap-1 border-t border-slate-100 px-3 py-1.5 dark:border-slate-800">
+          <ToolbarButton
+            buttonRef={filterBtnRef}
+            active={filterCount > 0}
+            count={filterCount}
+            icon={<FilterIcon size={12} />}
+            label="Filter"
+            onClick={() => setFilterOpen((s) => !s)}
+          />
+          <ToolbarButton
+            buttonRef={sortBtnRef}
+            active={sortCount > 0}
+            count={sortCount}
+            icon={<ArrowUpDown size={12} />}
+            label="Sort"
+            onClick={() => setSortOpen((s) => !s)}
+          />
+          <ToolbarButton
+            buttonRef={hideBtnRef}
+            active={hiddenCount > 0}
+            count={hiddenCount}
+            icon={<EyeOff size={12} />}
+            label={hiddenCount > 0 ? "Hidden fields" : "Hide fields"}
+            onClick={() => setHideOpen((s) => !s)}
+          />
+          <div className="ml-auto text-[11px] text-slate-400 dark:text-slate-500">
+            {filterCount > 0 || sortCount > 0
+              ? `${visibleRecords.length} of ${records.length} ${records.length === 1 ? "row" : "rows"}`
+              : `${records.length} ${records.length === 1 ? "row" : "rows"}`}
+          </div>
+        </div>
       </div>
 
-      {records.length === 0 && (
-        <div className="mt-4 rounded-md border border-dashed border-slate-200 bg-white p-6 text-center text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
-          This table is empty. Click <span className="font-semibold">Add row</span> above to start.
+      <div className="flex-1 p-4">
+        <div className="inline-block min-w-full">
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr>
+                  <th className="sticky left-0 top-0 z-10 w-10 border-b border-r border-slate-200 bg-slate-50 px-0 py-0 dark:border-slate-700 dark:bg-slate-900">
+                    <SelectAllCell
+                      allSelected={allSelected}
+                      someSelected={someSelected}
+                      onToggle={toggleSelectAll}
+                      disabled={visibleRecords.length === 0}
+                    />
+                  </th>
+                  {visibleFields.map((f) => (
+                    <FieldHeader
+                      key={f.id}
+                      field={f}
+                      tables={tables}
+                      onPatch={(p) => patchField(f, p)}
+                      onDelete={() => deleteField(f)}
+                    />
+                  ))}
+                  <th className="border-b border-slate-200 bg-slate-50 px-1 py-1 dark:border-slate-700 dark:bg-slate-900">
+                    <AddFieldButton onAdd={addField} />
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleRecords.map((r, idx) => (
+                  <Row
+                    key={r.id}
+                    index={idx + 1}
+                    record={r}
+                    fields={visibleFields}
+                    linkOptions={linkOptions}
+                    selected={selectedIds.has(r.id)}
+                    onToggleSelect={(shift) => toggleSelect(r.id, shift)}
+                    onPatchCell={(fid, v) => patchCell(r, fid, v)}
+                    onDelete={() => deleteRow(r)}
+                    onExpand={() => onOpenRecord(r.id)}
+                  />
+                ))}
+                <tr>
+                  <td className="sticky left-0 z-10 w-10 border-r border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900" />
+                  <td
+                    colSpan={visibleFields.length + 1}
+                    className="bg-slate-50 dark:bg-slate-900"
+                  >
+                    <button
+                      onClick={addRow}
+                      className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                    >
+                      <Plus size={12} /> Add row
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {records.length === 0 ? (
+            <div className="mt-4 rounded-md border border-dashed border-slate-200 bg-white p-6 text-center text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+              This table is empty. Click <span className="font-semibold">Add row</span> above to start.
+            </div>
+          ) : visibleRecords.length === 0 ? (
+            <div className="mt-4 rounded-md border border-dashed border-slate-200 bg-white p-6 text-center text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+              No rows match the current filters in this view.
+            </div>
+          ) : null}
         </div>
+      </div>
+
+      {/* Filter / sort / hide popovers — anchored by the toolbar buttons. */}
+      {activeView && (
+        <>
+          <FilterPopover
+            open={filterOpen}
+            onClose={() => setFilterOpen(false)}
+            triggerRef={filterBtnRef}
+            fields={fields}
+            filters={activeView.filters}
+            linkOptions={linkOptions}
+            onChange={(filters) => void onUpdateActiveView({ filters })}
+          />
+          <SortPopover
+            open={sortOpen}
+            onClose={() => setSortOpen(false)}
+            triggerRef={sortBtnRef}
+            fields={fields}
+            sorts={activeView.sorts}
+            onChange={(sorts) => void onUpdateActiveView({ sorts })}
+          />
+          <HideFieldsPopover
+            open={hideOpen}
+            onClose={() => setHideOpen(false)}
+            triggerRef={hideBtnRef}
+            fields={fields}
+            hiddenFieldIds={activeView.hiddenFieldIds}
+            onChange={(hiddenFieldIds) => void onUpdateActiveView({ hiddenFieldIds })}
+          />
+        </>
+      )}
+
+      {/* Bulk-action bar floats at the bottom while rows are selected. */}
+      {selectedIds.size > 0 && (
+        <BulkActionBar
+          count={selectedIds.size}
+          onClear={() => setSelectedIds(new Set())}
+          onDelete={() => void bulkDelete()}
+        />
       )}
 
       {pendingLinkField && (
@@ -469,6 +862,80 @@ function Grid({
           }}
         />
       )}
+    </div>
+  );
+}
+
+function SelectAllCell({
+  allSelected,
+  someSelected,
+  onToggle,
+  disabled,
+}: {
+  allSelected: boolean;
+  someSelected: boolean;
+  onToggle: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={disabled}
+      className={clsx(
+        "flex h-9 w-full items-center justify-center text-slate-400 disabled:opacity-40",
+        !disabled && "hover:bg-slate-100 dark:hover:bg-slate-800",
+      )}
+      aria-label={allSelected ? "Clear selection" : "Select all rows"}
+      title={allSelected ? "Clear selection" : "Select all"}
+    >
+      <span
+        className={clsx(
+          "flex h-4 w-4 items-center justify-center rounded border",
+          allSelected || someSelected
+            ? "border-indigo-500 bg-indigo-500 text-white"
+            : "border-slate-300 dark:border-slate-600",
+        )}
+      >
+        {allSelected ? (
+          <Check size={11} strokeWidth={3} />
+        ) : someSelected ? (
+          <span className="block h-0.5 w-2 bg-white" />
+        ) : null}
+      </span>
+    </button>
+  );
+}
+
+function BulkActionBar({
+  count,
+  onClear,
+  onDelete,
+}: {
+  count: number;
+  onClear: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center px-4">
+      <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-3 py-1.5 shadow-lg backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
+        <span className="text-xs font-medium text-slate-700 dark:text-slate-200">
+          {count} {count === 1 ? "row" : "rows"} selected
+        </span>
+        <span className="h-4 w-px bg-slate-200 dark:bg-slate-700" />
+        <button
+          onClick={onDelete}
+          className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
+        >
+          <Trash2 size={12} /> Delete
+        </button>
+        <button
+          onClick={onClear}
+          className="rounded-full px-2.5 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }
@@ -577,6 +1044,8 @@ function Row({
   record,
   fields,
   linkOptions,
+  selected,
+  onToggleSelect,
   onPatchCell,
   onDelete,
   onExpand,
@@ -585,6 +1054,8 @@ function Row({
   record: BaseRecord;
   fields: BaseField[];
   linkOptions: Record<string, BaseLinkOption[]>;
+  selected: boolean;
+  onToggleSelect: (shiftKey: boolean) => void;
   onPatchCell: (fieldId: string, value: unknown) => void;
   onDelete: () => void;
   onExpand: () => void;
@@ -592,10 +1063,49 @@ function Row({
   const [editingField, setEditingField] = React.useState<string | null>(null);
 
   return (
-    <tr className="group border-t border-slate-100 hover:bg-indigo-50/20 dark:border-slate-800 dark:hover:bg-indigo-500/5">
-      <td className="sticky left-0 z-10 w-10 border-r border-slate-200 bg-white px-2 text-center text-[11px] text-slate-400 group-hover:bg-indigo-50/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500">
-        <div className="flex items-center justify-center gap-1">
-          <span className="group-hover:hidden">{index}</span>
+    <tr
+      className={clsx(
+        "group border-t border-slate-100 dark:border-slate-800",
+        selected
+          ? "bg-indigo-50/60 dark:bg-indigo-500/10"
+          : "hover:bg-indigo-50/20 dark:hover:bg-indigo-500/5",
+      )}
+    >
+      <td
+        className={clsx(
+          "sticky left-0 z-10 w-10 border-r border-slate-200 px-0 text-center text-[11px] text-slate-400 dark:border-slate-700 dark:text-slate-500",
+          selected
+            ? "bg-indigo-50/60 dark:bg-indigo-500/10"
+            : "bg-white group-hover:bg-indigo-50/20 dark:bg-slate-900",
+        )}
+      >
+        <div className="flex h-9 items-center justify-center gap-1">
+          {/* Selection checkbox (always visible if selected, else on hover) */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleSelect(e.shiftKey);
+            }}
+            className={clsx(
+              "rounded p-0.5",
+              selected ? "inline-flex" : "hidden group-hover:inline-flex",
+            )}
+            aria-label={selected ? "Deselect row" : "Select row"}
+            title="Click to select; shift-click for range"
+          >
+            <span
+              className={clsx(
+                "flex h-3.5 w-3.5 items-center justify-center rounded border",
+                selected
+                  ? "border-indigo-500 bg-indigo-500 text-white"
+                  : "border-slate-300 dark:border-slate-600",
+              )}
+            >
+              {selected && <Check size={10} strokeWidth={3} />}
+            </span>
+          </button>
+          {!selected && <span className="group-hover:hidden">{index}</span>}
           <button
             onClick={onExpand}
             className="hidden rounded p-0.5 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 group-hover:inline-flex dark:hover:bg-indigo-950/30"
