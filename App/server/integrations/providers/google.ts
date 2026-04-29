@@ -201,6 +201,7 @@ export const googleProvider: IntegrationProvider = {
   catalog: {
     provider: "google",
     name: "Google Workspace",
+    category: "Productivity",
     tagline: "Connect Gmail, Drive, Calendar, Docs, and more.",
     description:
       "Connect a Google account so AI employees can triage email, search and edit Drive, manage calendars, draft Docs/Sheets/Slides, work with Tasks and Contacts, and post to Chat/Meet. Each Connection brings its own credentials: an OAuth client (recommended for personal Gmail or small teams) or a service account JSON key (Workspace admin / programmatic access).",

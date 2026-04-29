@@ -63,6 +63,7 @@ export const metabaseProvider: IntegrationProvider = {
   catalog: {
     provider: "metabase",
     name: "Metabase",
+    category: "Analytics",
     tagline: "Dashboards, questions, query results.",
     description:
       "Give AI employees read access to your Metabase instance. Create an API key under Admin → API Keys (Metabase 0.49+) with a read-only group, then paste the instance URL and key below.",

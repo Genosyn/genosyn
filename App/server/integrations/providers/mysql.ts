@@ -86,6 +86,7 @@ export const mysqlProvider: IntegrationProvider = {
   catalog: {
     provider: "mysql",
     name: "MySQL",
+    category: "Databases",
     tagline: "Databases, tables, queries.",
     description:
       "Connect a MySQL or MariaDB database so AI employees can list databases and tables, describe columns, and run queries. Works with MySQL 5.7+ and MariaDB 10.x. Use a read-only role unless you explicitly want write access.",

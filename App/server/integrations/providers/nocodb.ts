@@ -89,6 +89,7 @@ export const nocodbProvider: IntegrationProvider = {
   catalog: {
     provider: "nocodb",
     name: "NocoDB",
+    category: "Databases",
     tagline: "Bases, tables, records.",
     description:
       "Connect a NocoDB instance so AI employees can read and edit records in your no-code databases. Works with cloud (app.nocodb.com) or self-hosted. Create an API token in Profile → Tokens, then paste the instance URL and token below.",

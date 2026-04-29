@@ -84,6 +84,7 @@ export const postgresProvider: IntegrationProvider = {
   catalog: {
     provider: "postgres",
     name: "Postgres",
+    category: "Databases",
     tagline: "Schemas, tables, queries.",
     description:
       "Connect a PostgreSQL database so AI employees can list schemas and tables, describe columns, and run queries. Use a read-only role unless you explicitly want write access — the integration does not enforce one.",

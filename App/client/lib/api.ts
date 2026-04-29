@@ -363,9 +363,25 @@ export type IntegrationScopeGroup = {
   required?: boolean;
   workspaceOnly?: boolean;
 };
+export type IntegrationCategory =
+  | "Databases"
+  | "Analytics"
+  | "Productivity"
+  | "Payments"
+  | "Developer";
+
+export const INTEGRATION_CATEGORY_ORDER: IntegrationCategory[] = [
+  "Databases",
+  "Analytics",
+  "Productivity",
+  "Payments",
+  "Developer",
+];
+
 export type IntegrationCatalogEntry = {
   provider: string;
   name: string;
+  category: IntegrationCategory;
   tagline: string;
   description?: string;
   icon: string;

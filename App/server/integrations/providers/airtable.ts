@@ -111,6 +111,7 @@ export const airtableProvider: IntegrationProvider = {
   catalog: {
     provider: "airtable",
     name: "Airtable",
+    category: "Databases",
     tagline: "Bases, tables, records.",
     description:
       "Connect an Airtable workspace so AI employees can read and edit records. Create a Personal Access Token at airtable.com/create/tokens with the scopes data.records:read, data.records:write, and schema.bases:read, and grant access to the bases you want exposed.",

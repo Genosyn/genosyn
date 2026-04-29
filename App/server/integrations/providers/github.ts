@@ -107,6 +107,7 @@ export const githubProvider: IntegrationProvider = {
   catalog: {
     provider: "github",
     name: "GitHub",
+    category: "Developer",
     tagline: "Repos, issues, pull requests, code search.",
     description:
       "Connect a GitHub account so AI employees can browse repos, read code, triage issues, and open pull requests. Uses a Personal Access Token — create one at github.com/settings/tokens (classic) or github.com/settings/personal-access-tokens (fine-grained) and grant the scopes you want the employees to have. Add multiple connections to cover several orgs or accounts.",

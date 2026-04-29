@@ -57,6 +57,7 @@ export const stripeProvider: IntegrationProvider = {
   catalog: {
     provider: "stripe",
     name: "Stripe",
+    category: "Payments",
     tagline: "Customers, subscriptions, charges, balance.",
     description:
       "Connect a Stripe account so AI employees can answer revenue questions and look up customers or subscriptions. Uses a restricted API key — create one at dashboard.stripe.com/apikeys and grant read access to Customers, Subscriptions, Charges, and Balance.",

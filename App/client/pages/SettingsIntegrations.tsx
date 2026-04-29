@@ -14,10 +14,12 @@ import {
   Plug,
   Plug2,
   RefreshCw,
+  Search,
   Server,
   Table2,
   Trash2,
   Users,
+  X,
   Zap,
   type LucideIcon,
 } from "lucide-react";
@@ -29,6 +31,8 @@ import {
   IntegrationCatalogEntry,
   IntegrationCatalogField,
   IntegrationConnection,
+  INTEGRATION_CATEGORY_ORDER,
+  type IntegrationCategory,
 } from "../lib/api";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
@@ -85,6 +89,7 @@ export function SettingsIntegrations() {
   } | null>(null);
   const [refreshingId, setRefreshingId] = React.useState<string | null>(null);
   const [managing, setManaging] = React.useState<IntegrationConnection | null>(null);
+  const [search, setSearch] = React.useState("");
 
   const reload = React.useCallback(async () => {
     try {
@@ -125,6 +130,29 @@ export function SettingsIntegrations() {
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
   }, [reload, toast]);
+
+  const groupedCatalog = React.useMemo(() => {
+    if (!catalog) return [] as Array<{ category: IntegrationCategory; entries: IntegrationCatalogEntry[] }>;
+    const needle = search.trim().toLowerCase();
+    const filtered = needle
+      ? catalog.filter((e) => {
+          const hay = `${e.name} ${e.tagline} ${e.description ?? ""} ${e.provider} ${e.category}`.toLowerCase();
+          return hay.includes(needle);
+        })
+      : catalog;
+    const groups = new Map<IntegrationCategory, IntegrationCatalogEntry[]>();
+    for (const entry of filtered) {
+      const arr = groups.get(entry.category) ?? [];
+      arr.push(entry);
+      groups.set(entry.category, arr);
+    }
+    return INTEGRATION_CATEGORY_ORDER.flatMap((category) => {
+      const entries = groups.get(category);
+      if (!entries || entries.length === 0) return [];
+      entries.sort((a, b) => a.name.localeCompare(b.name));
+      return [{ category, entries }];
+    });
+  }, [catalog, search]);
 
   const byProvider = React.useMemo(() => {
     const out = new Map<string, IntegrationConnection[]>();
@@ -321,51 +349,95 @@ export function SettingsIntegrations() {
       </section>
 
       <section>
-        <h2 className="mb-3 text-sm font-semibold">Available integrations</h2>
+        <div className="mb-3 flex items-center gap-3">
+          <h2 className="text-sm font-semibold">Available integrations</h2>
+          <div className="relative ml-auto w-full max-w-xs">
+            <Search
+              size={14}
+              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500"
+            />
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search integrations…"
+              className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-8 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-indigo-700 dark:focus:ring-indigo-900"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                aria-label="Clear search"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+        </div>
         {catalog === null ? (
           <Spinner />
+        ) : groupedCatalog.length === 0 ? (
+          <EmptyState
+            title="No matching integrations"
+            description={`No integrations match "${search.trim()}". Try a different keyword or clear the search.`}
+          />
         ) : (
-          <div className="grid gap-3 md:grid-cols-2">
-            {catalog.map((entry) => {
-              const Icon = ICONS[entry.icon] ?? Plug;
-              const existing = byProvider.get(entry.provider)?.length ?? 0;
-              return (
-                <button
-                  key={entry.provider}
-                  onClick={() => startConnect(entry)}
-                  disabled={!entry.enabled}
-                  className="group flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-indigo-300 hover:bg-indigo-50/40 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/30"
-                >
-                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-700 group-hover:bg-indigo-100 group-hover:text-indigo-600 dark:bg-slate-800 dark:text-slate-200 dark:group-hover:bg-indigo-900 dark:group-hover:text-indigo-300">
-                    <Icon size={18} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                        {entry.name}
-                      </span>
-                      {existing > 0 && (
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                          {existing} connected
-                        </span>
-                      )}
-                      <span className="ml-auto text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                        {entry.authMode === "oauth2" ? "OAuth" : "API key"}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                      {entry.tagline}
-                    </p>
-                    {!entry.enabled && entry.disabledReason && (
-                      <p className="mt-2 flex items-start gap-1 text-xs text-amber-700 dark:text-amber-400">
-                        <AlertCircle size={12} className="mt-0.5 shrink-0" />
-                        <span>{entry.disabledReason}</span>
-                      </p>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
+          <div className="flex flex-col gap-6">
+            {groupedCatalog.map(({ category, entries }) => (
+              <div key={category}>
+                <div className="mb-2 flex items-baseline gap-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    {category}
+                  </h3>
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                    {entries.length}
+                  </span>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {entries.map((entry) => {
+                    const Icon = ICONS[entry.icon] ?? Plug;
+                    const existing = byProvider.get(entry.provider)?.length ?? 0;
+                    return (
+                      <button
+                        key={entry.provider}
+                        onClick={() => startConnect(entry)}
+                        disabled={!entry.enabled}
+                        className="group flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-indigo-300 hover:bg-indigo-50/40 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/30"
+                      >
+                        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-700 group-hover:bg-indigo-100 group-hover:text-indigo-600 dark:bg-slate-800 dark:text-slate-200 dark:group-hover:bg-indigo-900 dark:group-hover:text-indigo-300">
+                          <Icon size={18} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                              {entry.name}
+                            </span>
+                            {existing > 0 && (
+                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                {existing} connected
+                              </span>
+                            )}
+                            <span className="ml-auto text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                              {entry.authMode === "oauth2" ? "OAuth" : "API key"}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                            {entry.tagline}
+                          </p>
+                          {!entry.enabled && entry.disabledReason && (
+                            <p className="mt-2 flex items-start gap-1 text-xs text-amber-700 dark:text-amber-400">
+                              <AlertCircle size={12} className="mt-0.5 shrink-0" />
+                              <span>{entry.disabledReason}</span>
+                            </p>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </section>

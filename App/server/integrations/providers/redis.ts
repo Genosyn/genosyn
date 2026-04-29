@@ -87,6 +87,7 @@ export const redisProvider: IntegrationProvider = {
   catalog: {
     provider: "redis",
     name: "Redis",
+    category: "Databases",
     tagline: "Keys, values, INFO.",
     description:
       "Connect a Redis instance so AI employees can scan keys, fetch values, and inspect server health. Works with redis:// (TCP) and rediss:// (TLS) URLs. Use a least-privileged ACL user — the integration does not enforce read-only.",

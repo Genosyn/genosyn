@@ -81,6 +81,7 @@ export const clickhouseProvider: IntegrationProvider = {
   catalog: {
     provider: "clickhouse",
     name: "ClickHouse",
+    category: "Databases",
     tagline: "Columnar OLAP — databases, tables, queries.",
     description:
       "Connect a ClickHouse cluster so AI employees can list databases and tables, describe schemas, and run analytical queries. Works with self-hosted ClickHouse and ClickHouse Cloud. Use a read-only user for safety.",

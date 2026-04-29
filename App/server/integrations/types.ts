@@ -17,6 +17,26 @@
 
 export type IntegrationAuthMode = "apikey" | "oauth2" | "service_account";
 
+/**
+ * High-level grouping for the catalog UI. The order here is the order
+ * sections are rendered in. Adding a new value here is a UI-visible change —
+ * pick an existing one if you can.
+ */
+export type IntegrationCategory =
+  | "Databases"
+  | "Analytics"
+  | "Productivity"
+  | "Payments"
+  | "Developer";
+
+export const INTEGRATION_CATEGORY_ORDER: IntegrationCategory[] = [
+  "Databases",
+  "Analytics",
+  "Productivity",
+  "Payments",
+  "Developer",
+];
+
 /** A single form field collected during Connection creation (API-key mode). */
 export type IntegrationCatalogField = {
   key: string;
@@ -56,6 +76,8 @@ export type IntegrationCatalogEntry = {
   provider: string;
   /** Display name, e.g. "Stripe". */
   name: string;
+  /** Section the catalog UI groups this entry under. */
+  category: IntegrationCategory;
   /** One-line pitch shown on the catalog card. */
   tagline: string;
   /** Longer description for the add-connection page. */
