@@ -797,61 +797,36 @@ function ActionPills({
   employeeSlug: string;
   onInspect: (a: MessageAction) => void;
 }) {
-  // Group consecutive integration.invoke actions so a long run of tool calls
-  // collapses into a single "X tool calls" chip. Other actions
-  // (routine.create, todo.create, …) stay as individual pills since they
-  // each represent a distinct, named outcome the human wants to scan.
-  const groups = React.useMemo(() => groupActions(actions), [actions]);
+  // 2+ actions in a turn always roll up into one "X tool calls" chip,
+  // regardless of action type. A turn that creates 30 base rows then runs
+  // 14 integration calls used to render as 44 inline pills — way more than
+  // the reply itself. Single-action turns stay inline so the most common
+  // case ("created routine X") is one click from its detail view.
+  if (actions.length >= 2) {
+    return (
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        <ToolCallGroup
+          actions={actions}
+          companySlug={companySlug}
+          employeeSlug={employeeSlug}
+          onInspect={onInspect}
+        />
+      </div>
+    );
+  }
   return (
     <div className="mt-2 flex flex-wrap gap-1.5">
-      {groups.map((group, gi) => {
-        if (group.kind === "tool" && group.actions.length >= 2) {
-          return (
-            <ToolCallGroup
-              key={`g-${gi}`}
-              actions={group.actions}
-              companySlug={companySlug}
-              employeeSlug={employeeSlug}
-              onInspect={onInspect}
-            />
-          );
-        }
-        return (
-          <React.Fragment key={`g-${gi}`}>
-            {group.actions.map((a, i) => (
-              <ActionPill
-                key={`${a.action}-${a.targetId ?? i}-${gi}-${i}`}
-                action={a}
-                companySlug={companySlug}
-                employeeSlug={employeeSlug}
-                onInspect={onInspect}
-              />
-            ))}
-          </React.Fragment>
-        );
-      })}
+      {actions.map((a, i) => (
+        <ActionPill
+          key={`${a.action}-${a.targetId ?? i}`}
+          action={a}
+          companySlug={companySlug}
+          employeeSlug={employeeSlug}
+          onInspect={onInspect}
+        />
+      ))}
     </div>
   );
-}
-
-type ActionGroup = {
-  kind: "tool" | "other";
-  actions: MessageAction[];
-};
-
-function groupActions(actions: MessageAction[]): ActionGroup[] {
-  const out: ActionGroup[] = [];
-  for (const a of actions) {
-    const kind: ActionGroup["kind"] =
-      a.action === "integration.invoke" ? "tool" : "other";
-    const last = out[out.length - 1];
-    if (last && last.kind === kind) {
-      last.actions.push(a);
-    } else {
-      out.push({ kind, actions: [a] });
-    }
-  }
-  return out;
 }
 
 function ToolCallGroup({
