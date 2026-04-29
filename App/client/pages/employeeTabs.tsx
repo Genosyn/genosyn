@@ -1645,11 +1645,11 @@ function SubscriptionLoginInner({
           </div>
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-              {model.provider} isn't installed on this server yet
+              {model.provider} isn&apos;t installed on this server yet
             </div>
             <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              We'll install it for you. The Docker image ships with all CLIs
-              pre-installed; you'll only see this on a fresh bare-metal host.
+              We&apos;ll install it for you. The Docker image ships with all CLIs
+              pre-installed; you&apos;ll only see this on a fresh bare-metal host.
             </div>
             <div className="mt-2 flex items-center gap-2">
               <Button size="sm" onClick={startInstall} disabled={busy}>
@@ -1679,7 +1679,7 @@ function SubscriptionLoginInner({
               Sign {emp.name} into {model.provider}
             </div>
             <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              We'll open the provider's login flow. You'll get a URL to click,
+              We&apos;ll open the provider&apos;s login flow. You&apos;ll get a URL to click,
               and any code the provider asks for goes back into the box below.
             </div>
             <div className="mt-2 flex items-center gap-2">
@@ -1830,7 +1830,7 @@ function PtySessionPanel({
 
       {session.exited && session.exitCode === 0 && phase === "installing" && (
         <div className="text-xs text-emerald-700 dark:text-emerald-400">
-          Installed. Click "Sign in" below to continue.
+          Installed. Click &quot;Sign in&quot; below to continue.
         </div>
       )}
       {session.exited && session.exitCode === 0 && phase === "signingIn" && (
@@ -1890,7 +1890,10 @@ function ManualCommandFallback({ model }: { model: AIModel }) {
 function extractFirstUrl(s: string): string | null {
   if (!s) return null;
   const cleaned = stripAnsi(s);
-  const match = cleaned.match(/https?:\/\/[^\s"'`<>]+/);
+  // Stop at whitespace, BEL (0x07 — provider CLIs sometimes embed BEL
+  // in status lines), and the usual URL-terminator punctuation.
+  // eslint-disable-next-line no-control-regex
+  const match = cleaned.match(/https?:\/\/[^\s\x07"'`<>]+/);
   return match ? match[0] : null;
 }
 
@@ -1903,6 +1906,7 @@ function extractFirstUrl(s: string): string | null {
 function stripAnsi(s: string): string {
   // Matches CSI escapes (color, cursor moves, screen clears) — covers what
   // the install + login CLIs actually emit in practice.
+  // eslint-disable-next-line no-control-regex
   return s.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "").replace(/\r(?!\n)/g, "");
 }
 
