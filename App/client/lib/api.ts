@@ -201,6 +201,11 @@ export type RunLog = {
   content: string;
   truncated?: boolean;
   size?: number;
+  live?: boolean;
+  status?: RunStatus;
+  exitCode?: number | null;
+  startedAt?: string;
+  finishedAt?: string | null;
 };
 export type Provider = "claude-code" | "codex" | "opencode" | "goose";
 export type AuthMode = "subscription" | "apikey";

@@ -13,7 +13,7 @@ import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { routineTemplate } from "../services/files.js";
 import { registerRoutine } from "../services/cron.js";
-import { runRoutine, RUN_LOG_MAX_BYTES } from "../services/runner.js";
+import { startRoutineRun, getLiveRunSnapshot, RUN_LOG_MAX_BYTES } from "../services/runner.js";
 import { recordAudit } from "../services/audit.js";
 
 export const routinesRouter = Router({ mergeParams: true });
@@ -242,7 +242,14 @@ routinesRouter.post("/routines/:rid/run", async (req, res) => {
     targetId: found.routine.id,
     targetLabel: found.routine.name,
   });
-  const run = await runRoutine(found.routine);
+  // Return as soon as the Run row exists so the UI can open a tail-log modal
+  // and poll /runs/:runId/log while the child process is still alive. The
+  // completion promise is left to settle in the background; errors are
+  // captured on the Run row, so we just swallow rejections here.
+  const { run, completion } = await startRoutineRun(found.routine);
+  completion.catch((err) => {
+    console.error("[run]", err);
+  });
   res.json(run);
 });
 
@@ -273,10 +280,12 @@ routinesRouter.get("/routines/:rid/runs", async (req, res) => {
 });
 
 /**
- * Return the captured log for a single run. The runner hard-caps the stored
- * content at {@link RUN_LOG_MAX_BYTES}, so this endpoint never has to worry
- * about runaway sizes — it just returns the row verbatim with the usual
- * company-scope check.
+ * Return the captured log for a single run. While a run is still executing
+ * we serve the live in-memory buffer so the UI can tail output; once the
+ * row is finalized we fall back to the persisted `logContent`. The runner
+ * hard-caps the stored content at {@link RUN_LOG_MAX_BYTES}, so the
+ * endpoint never has to worry about runaway sizes. Status fields ride
+ * along so callers can poll a single endpoint to drive a live-log modal.
  */
 routinesRouter.get("/runs/:runId/log", async (req, res) => {
   const run = await AppDataSource.getRepository(Run).findOneBy({ id: req.params.runId });
@@ -287,8 +296,20 @@ routinesRouter.get("/runs/:runId/log", async (req, res) => {
     run.routineId,
   );
   if (!found) return res.status(404).json({ error: "Not found" });
-  const content = run.logContent ?? "";
-  const size = Buffer.byteLength(content, "utf8");
-  const truncated = size >= RUN_LOG_MAX_BYTES;
-  res.json({ content, truncated, size });
+
+  const live = getLiveRunSnapshot(run.id);
+  const content = live ? live.content : (run.logContent ?? "");
+  const size = live ? live.size : Buffer.byteLength(content, "utf8");
+  const truncated = live ? live.truncated : size >= RUN_LOG_MAX_BYTES;
+
+  res.json({
+    content,
+    truncated,
+    size,
+    live: live !== null,
+    status: run.status,
+    exitCode: run.exitCode,
+    startedAt: run.startedAt,
+    finishedAt: run.finishedAt,
+  });
 });

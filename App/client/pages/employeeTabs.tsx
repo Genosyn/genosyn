@@ -307,6 +307,7 @@ export function RoutinesPage() {
   const [adding, setAdding] = React.useState(false);
   const [editing, setEditing] = React.useState<Routine | null>(null);
   const [viewingRuns, setViewingRuns] = React.useState<Routine | null>(null);
+  const [activeRun, setActiveRun] = React.useState<{ routine: Routine; run: Run } | null>(null);
   const { toast } = useToast();
   const dialog = useDialog();
 
@@ -363,9 +364,10 @@ export function RoutinesPage() {
                     variant="secondary"
                     onClick={async () => {
                       try {
-                        await api.post(`/api/companies/${company.id}/routines/${r.id}/run`);
-                        toast("Run started", "success");
-                        reload();
+                        const run = await api.post<Run>(
+                          `/api/companies/${company.id}/routines/${r.id}/run`,
+                        );
+                        setActiveRun({ routine: r, run });
                       } catch (err) {
                         toast((err as Error).message, "error");
                       }
@@ -428,6 +430,17 @@ export function RoutinesPage() {
           onClose={() => setViewingRuns(null)}
         />
       )}
+      {activeRun && (
+        <RunInProgressModal
+          company={company}
+          routine={activeRun.routine}
+          run={activeRun.run}
+          onClose={() => {
+            setActiveRun(null);
+            reload();
+          }}
+        />
+      )}
     </>
   );
 }
@@ -449,6 +462,155 @@ function formatDuration(started: string, finished: string | null): string {
   const m = Math.floor(s / 60);
   const rem = Math.round(s - m * 60);
   return `${m}m ${rem}s`;
+}
+
+/**
+ * Live tail for a run that's just been kicked off. Polls /runs/:runId/log on
+ * a short interval until the server reports a terminal status; the same
+ * endpoint serves the in-memory buffer while the child is alive and the
+ * persisted `logContent` once it has finalized, so this doesn't need a
+ * separate "is the run done" probe.
+ */
+function RunInProgressModal({
+  company,
+  routine,
+  run: initialRun,
+  onClose,
+}: {
+  company: Company;
+  routine: Routine;
+  run: Run;
+  onClose: () => void;
+}) {
+  const [log, setLog] = React.useState<RunLog | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const preRef = React.useRef<HTMLPreElement>(null);
+  const userScrolledRef = React.useRef(false);
+
+  const status: RunStatus = log?.status ?? initialRun.status;
+  const isTerminal = status !== "running";
+
+  React.useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    async function tick() {
+      try {
+        const next = await api.get<RunLog>(
+          `/api/companies/${company.id}/runs/${initialRun.id}/log`,
+        );
+        if (cancelled) return;
+        setLog(next);
+        setError(null);
+        if (next.status === "running") {
+          timer = setTimeout(tick, 1200);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setError((err as Error).message);
+        // Keep polling on transient errors so a flaky network doesn't end the
+        // tail prematurely; back off a bit.
+        timer = setTimeout(tick, 2500);
+      }
+    }
+    tick();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [company.id, initialRun.id]);
+
+  // Auto-scroll the pre to the bottom as new content arrives, unless the user
+  // has scrolled away from the bottom themselves (so reading mid-log isn't
+  // yanked out from under them).
+  React.useEffect(() => {
+    const el = preRef.current;
+    if (!el) return;
+    if (userScrolledRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [log?.content]);
+
+  function handleScroll() {
+    const el = preRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+    userScrolledRef.current = !atBottom;
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`Run: ${routine.name}`}
+      size="xl"
+    >
+      <div className="flex flex-col gap-3" style={{ minHeight: 420 }}>
+        <div className="flex items-center gap-2 text-xs">
+          <span
+            className={
+              "rounded border px-2 py-0.5 font-medium uppercase tracking-wide " +
+              RUN_STATUS_STYLE[status]
+            }
+          >
+            {status === "running" ? (
+              <span className="inline-flex items-center gap-1">
+                <Loader2 size={10} className="animate-spin" /> running
+              </span>
+            ) : (
+              status
+            )}
+          </span>
+          {log?.exitCode !== null && log?.exitCode !== undefined && (
+            <span className="text-slate-500 dark:text-slate-400">
+              exit {log.exitCode}
+            </span>
+          )}
+          {log?.startedAt && (
+            <span className="text-slate-400 dark:text-slate-500">
+              {formatDuration(
+                log.startedAt,
+                log.finishedAt ?? (isTerminal ? new Date().toISOString() : null),
+              )}
+            </span>
+          )}
+          {log?.live && (
+            <span className="text-slate-400 dark:text-slate-500">live</span>
+          )}
+          {error && (
+            <span className="text-rose-500 dark:text-rose-400">{error}</span>
+          )}
+        </div>
+        <div className="flex-1 overflow-hidden rounded-lg border border-slate-200 bg-slate-950 dark:border-slate-700">
+          <pre
+            ref={preRef}
+            onScroll={handleScroll}
+            className="h-full max-h-[60vh] min-h-[360px] overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-[11px] leading-relaxed text-slate-100"
+          >
+            {log === null ? (
+              <span className="text-slate-500">Starting…</span>
+            ) : log.content ? (
+              <>
+                {log.truncated && (
+                  <div className="mb-2 text-amber-400">
+                    [log truncated — first 256KB of {log.size} bytes]
+                  </div>
+                )}
+                {log.content}
+              </>
+            ) : (
+              <span className="text-slate-500">Waiting for output…</span>
+            )}
+          </pre>
+        </div>
+        <div className="flex justify-end">
+          <Button variant={isTerminal ? "primary" : "secondary"} onClick={onClose}>
+            {isTerminal ? "Close" : "Close (run continues)"}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
 }
 
 /**

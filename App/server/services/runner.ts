@@ -41,7 +41,47 @@ import { materializeReposForEmployee } from "./repoSync.js";
  */
 export const RUN_LOG_MAX_BYTES = 256 * 1024;
 
+/**
+ * In-process registry of LogBuffers for runs that are still executing. The
+ * `/runs/:runId/log` endpoint reads from here while a run is in flight so the
+ * UI can tail output live; once the run terminates we drop the entry and the
+ * endpoint falls back to the persisted `Run.logContent`.
+ */
+const liveBuffers = new Map<string, LogBuffer>();
+
+export function getLiveRunSnapshot(
+  runId: string,
+): { content: string; size: number; truncated: boolean } | null {
+  const log = liveBuffers.get(runId);
+  if (!log) return null;
+  const content = log.value();
+  return {
+    content,
+    size: Buffer.byteLength(content, "utf8"),
+    truncated: log.isTruncated,
+  };
+}
+
+/**
+ * Synchronous-feeling wrapper used by cron + webhook + approval flows: awaits
+ * full completion, returns the final Run row. Manual UI runs use
+ * {@link startRoutineRun} so the request can return before execution finishes.
+ */
 export async function runRoutine(routine: Routine): Promise<Run> {
+  const { completion } = await startRoutineRun(routine);
+  return completion;
+}
+
+/**
+ * Begin a run and return the saved Run row immediately (status `running`),
+ * along with a `completion` promise that resolves once the child process
+ * exits and the row has been finalized. The LogBuffer is registered in
+ * {@link liveBuffers} for the lifetime of the run so polling clients can
+ * tail output before it lands in the DB.
+ */
+export async function startRoutineRun(
+  routine: Routine,
+): Promise<{ run: Run; completion: Promise<Run> }> {
   const runRepo = AppDataSource.getRepository(Run);
   const routineRepo = AppDataSource.getRepository(Routine);
   const empRepo = AppDataSource.getRepository(AIEmployee);
@@ -66,6 +106,7 @@ export async function runRoutine(routine: Routine): Promise<Run> {
   const saved = await runRepo.save(run);
 
   const log = new LogBuffer(RUN_LOG_MAX_BYTES);
+  liveBuffers.set(saved.id, log);
   log.write(
     [
       `[${now.toISOString()}] run started`,
@@ -78,130 +119,140 @@ export async function runRoutine(routine: Routine): Promise<Run> {
     ].join("\n") + "\n",
   );
 
-  // No model connected → skip cleanly.
-  if (!model) {
-    log.line(
-      "[skipped] This employee has no AI Model connected. Open the employee in the app and connect one.",
-    );
-    saved.finishedAt = new Date();
-    saved.status = "skipped";
-    saved.logContent = log.value();
-    await runRepo.save(saved);
-    await touchRoutine(routine, saved.finishedAt, routineRepo);
-    return saved;
-  }
-
-  const memoryContext = await composeMemoryContext(emp.id);
-  const prompt = composePrompt({ co, emp, routine, skills, memoryContext });
-
-  const env = buildProviderEnv(co.slug, emp.slug, model);
-  if (!("error" in env)) {
-    // Merge company vault secrets into the child env. Validation + the
-    // internal RESERVED_NAMES filter in loadCompanySecretsEnv mean this
-    // can't clobber provider auth keys we just set above.
+  const completion = (async (): Promise<Run> => {
     try {
-      const secrets = await loadCompanySecretsEnv(co.id);
-      for (const [k, v] of Object.entries(secrets)) {
-        if (k in (env.env ?? {})) continue;
-        env.env![k] = v;
+      // No model connected → skip cleanly.
+      if (!model) {
+        log.line(
+          "[skipped] This employee has no AI Model connected. Open the employee in the app and connect one.",
+        );
+        saved.finishedAt = new Date();
+        saved.status = "skipped";
+        saved.logContent = log.value();
+        await runRepo.save(saved);
+        await touchRoutine(routine, saved.finishedAt, routineRepo);
+        return saved;
       }
-    } catch (err) {
-      log.line(`[warn] failed to load company secrets: ${(err as Error).message}`);
+
+      const memoryContext = await composeMemoryContext(emp.id);
+      const prompt = composePrompt({ co, emp, routine, skills, memoryContext });
+
+      const env = buildProviderEnv(co.slug, emp.slug, model);
+      if (!("error" in env)) {
+        // Merge company vault secrets into the child env. Validation + the
+        // internal RESERVED_NAMES filter in loadCompanySecretsEnv mean this
+        // can't clobber provider auth keys we just set above.
+        try {
+          const secrets = await loadCompanySecretsEnv(co.id);
+          for (const [k, v] of Object.entries(secrets)) {
+            if (k in (env.env ?? {})) continue;
+            env.env![k] = v;
+          }
+        } catch (err) {
+          log.line(`[warn] failed to load company secrets: ${(err as Error).message}`);
+        }
+      }
+      if ("error" in env) {
+        log.line(`[error] ${env.error}`);
+        saved.finishedAt = new Date();
+        saved.status = "failed";
+        saved.logContent = log.value();
+        await runRepo.save(saved);
+        await touchRoutine(routine, saved.finishedAt, routineRepo);
+        return saved;
+      }
+
+      const cwd = employeeDir(co.slug, emp.slug);
+      ensureDir(cwd);
+
+      // Mint a fresh MCP token so the built-in Genosyn stdio server can act on
+      // this employee's behalf for the duration of the run. Revoked in `finally`
+      // so a killed run doesn't leave a usable token behind.
+      const mcpToken = issueMcpToken(emp.id, co.id);
+      const mcpExtras = await materializeMcpConfig(emp.id, cwd, {
+        genosynToken: mcpToken,
+        provider: model.provider,
+        companySlug: co.slug,
+        employeeSlug: emp.slug,
+      });
+      // goose returns extra CLI flags + env (it has no config file we can write
+      // without clobbering `goose configure`'s state). Other providers return
+      // empty values; the merge is a no-op for them.
+      for (const [k, v] of Object.entries(mcpExtras.extraEnv)) {
+        if (env.env && !(k in env.env)) env.env[k] = v;
+      }
+
+      // Materialize each granted GitHub Connection's allowlisted repos into
+      // `<cwd>/repos/<owner>/<name>/`. Errors are non-fatal — we surface them
+      // in the run log and let the agent decide whether to proceed.
+      const repoSync = await materializeReposForEmployee({ employeeId: emp.id, cwd });
+      for (const [k, v] of Object.entries(repoSync.extraEnv)) {
+        if (env.env && !(k in env.env)) env.env[k] = v;
+      }
+      for (const r of repoSync.repos) {
+        log.line(`[repos] synced ${r.owner}/${r.name}@${r.defaultBranch}`);
+      }
+      for (const e of repoSync.errors) {
+        log.line(`[repos] ${e.scope}: ${e.message}`);
+      }
+
+      // Dispatch by provider. The headless invocations below are the documented
+      // non-interactive entry points for each CLI. If the CLI binary isn't
+      // installed we catch ENOENT and degrade to a "skipped" log so the UI keeps
+      // working before any provider has been installed on the host.
+      const invocation = buildInvocation(model.provider, model.model, prompt, mcpExtras.extraArgs);
+      const timeoutMs = Math.max(1, routine.timeoutSec) * 1000;
+      try {
+        const result = await spawnAndBuffer(
+          invocation.cmd,
+          invocation.args,
+          { cwd, env: env.env, timeoutMs },
+          log,
+        );
+        saved.finishedAt = new Date();
+        saved.exitCode = result.code;
+        saved.status = result.code === 0 ? "completed" : "failed";
+        if (result.code !== 0) {
+          log.line(`[error] ${invocation.cmd} exited with code ${result.code}`);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (err instanceof SpawnTimeoutError) {
+          log.line(
+            `[timeout] Killed after ${routine.timeoutSec}s. Increase the routine's timeoutSec if this is expected.`,
+          );
+          saved.finishedAt = new Date();
+          saved.status = "timeout";
+          saved.exitCode = null;
+        } else if (msg.includes("ENOENT")) {
+          log.line(
+            `[stub] \`${invocation.cmd}\` CLI not found on PATH. Install it to run this routine for real.`,
+          );
+          saved.finishedAt = new Date();
+          saved.status = "skipped";
+          saved.exitCode = null;
+        } else {
+          log.line(`[error] ${msg}`);
+          saved.finishedAt = new Date();
+          saved.status = "failed";
+          saved.exitCode = null;
+        }
+      } finally {
+        revokeMcpToken(mcpToken);
+      }
+      saved.logContent = log.value();
+      await runRepo.save(saved);
+      await touchRoutine(routine, saved.finishedAt, routineRepo);
+      await writeJournalForRun(emp.id, routine, saved);
+      return saved;
+    } finally {
+      // Once the row has the final logContent, the live buffer is no longer
+      // the source of truth — drop it so subsequent /log reads hit the DB.
+      liveBuffers.delete(saved.id);
     }
-  }
-  if ("error" in env) {
-    log.line(`[error] ${env.error}`);
-    saved.finishedAt = new Date();
-    saved.status = "failed";
-    saved.logContent = log.value();
-    await runRepo.save(saved);
-    await touchRoutine(routine, saved.finishedAt, routineRepo);
-    return saved;
-  }
+  })();
 
-  const cwd = employeeDir(co.slug, emp.slug);
-  ensureDir(cwd);
-
-  // Mint a fresh MCP token so the built-in Genosyn stdio server can act on
-  // this employee's behalf for the duration of the run. Revoked in `finally`
-  // so a killed run doesn't leave a usable token behind.
-  const mcpToken = issueMcpToken(emp.id, co.id);
-  const mcpExtras = await materializeMcpConfig(emp.id, cwd, {
-    genosynToken: mcpToken,
-    provider: model.provider,
-    companySlug: co.slug,
-    employeeSlug: emp.slug,
-  });
-  // goose returns extra CLI flags + env (it has no config file we can write
-  // without clobbering `goose configure`'s state). Other providers return
-  // empty values; the merge is a no-op for them.
-  for (const [k, v] of Object.entries(mcpExtras.extraEnv)) {
-    if (env.env && !(k in env.env)) env.env[k] = v;
-  }
-
-  // Materialize each granted GitHub Connection's allowlisted repos into
-  // `<cwd>/repos/<owner>/<name>/`. Errors are non-fatal — we surface them
-  // in the run log and let the agent decide whether to proceed.
-  const repoSync = await materializeReposForEmployee({ employeeId: emp.id, cwd });
-  for (const [k, v] of Object.entries(repoSync.extraEnv)) {
-    if (env.env && !(k in env.env)) env.env[k] = v;
-  }
-  for (const r of repoSync.repos) {
-    log.line(`[repos] synced ${r.owner}/${r.name}@${r.defaultBranch}`);
-  }
-  for (const e of repoSync.errors) {
-    log.line(`[repos] ${e.scope}: ${e.message}`);
-  }
-
-  // Dispatch by provider. The headless invocations below are the documented
-  // non-interactive entry points for each CLI. If the CLI binary isn't
-  // installed we catch ENOENT and degrade to a "skipped" log so the UI keeps
-  // working before any provider has been installed on the host.
-  const invocation = buildInvocation(model.provider, model.model, prompt, mcpExtras.extraArgs);
-  const timeoutMs = Math.max(1, routine.timeoutSec) * 1000;
-  try {
-    const result = await spawnAndBuffer(
-      invocation.cmd,
-      invocation.args,
-      { cwd, env: env.env, timeoutMs },
-      log,
-    );
-    saved.finishedAt = new Date();
-    saved.exitCode = result.code;
-    saved.status = result.code === 0 ? "completed" : "failed";
-    if (result.code !== 0) {
-      log.line(`[error] ${invocation.cmd} exited with code ${result.code}`);
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (err instanceof SpawnTimeoutError) {
-      log.line(
-        `[timeout] Killed after ${routine.timeoutSec}s. Increase the routine's timeoutSec if this is expected.`,
-      );
-      saved.finishedAt = new Date();
-      saved.status = "timeout";
-      saved.exitCode = null;
-    } else if (msg.includes("ENOENT")) {
-      log.line(
-        `[stub] \`${invocation.cmd}\` CLI not found on PATH. Install it to run this routine for real.`,
-      );
-      saved.finishedAt = new Date();
-      saved.status = "skipped";
-      saved.exitCode = null;
-    } else {
-      log.line(`[error] ${msg}`);
-      saved.finishedAt = new Date();
-      saved.status = "failed";
-      saved.exitCode = null;
-    }
-  } finally {
-    revokeMcpToken(mcpToken);
-  }
-  saved.logContent = log.value();
-  await runRepo.save(saved);
-  await touchRoutine(routine, saved.finishedAt, routineRepo);
-  await writeJournalForRun(emp.id, routine, saved);
-  return saved;
+  return { run: saved, completion };
 }
 
 /**
@@ -474,6 +525,10 @@ class LogBuffer {
 
   value(): string {
     return this.parts.join("");
+  }
+
+  get isTruncated(): boolean {
+    return this.truncated;
   }
 }
 
