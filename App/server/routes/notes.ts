@@ -3,6 +3,7 @@ import { z } from "zod";
 import { In, IsNull, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Note } from "../db/entities/Note.js";
+import { Notebook } from "../db/entities/Notebook.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { User } from "../db/entities/User.js";
 import {
@@ -12,10 +13,12 @@ import {
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
+import { ensureDefaultNotebook } from "../services/notebooks.js";
 import {
   deleteGrantsForNote,
   listDirectGrants,
   listInheritedGrants,
+  listNotebookInheritedGrants,
   upsertNoteGrant,
 } from "../services/notes.js";
 
@@ -106,16 +109,27 @@ async function hydrateNotes(companyId: string, notes: Note[]): Promise<HydratedN
 /**
  * Return every note in the company, ordered by sortOrder then updatedAt.
  * The client builds the tree from `parentId`. Archived notes are filtered
- * out unless `?archived=true` is passed (the trash view).
+ * out unless `?archived=true` is passed (the trash view). Pass
+ * `?notebookSlug=…` to scope to a single notebook.
  */
 notesRouter.get("/notes", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const archived = req.query.archived === "true";
-  const notes = await AppDataSource.getRepository(Note).find({
-    where: {
+  const nbSlugParam = req.query.notebookSlug;
+  const where: Record<string, unknown> = {
+    companyId: cid,
+    archivedAt: archived ? Not(IsNull()) : IsNull(),
+  };
+  if (typeof nbSlugParam === "string" && nbSlugParam.length > 0) {
+    const nb = await AppDataSource.getRepository(Notebook).findOneBy({
       companyId: cid,
-      archivedAt: archived ? Not(IsNull()) : IsNull(),
-    },
+      slug: nbSlugParam,
+    });
+    if (!nb) return res.status(404).json({ error: "Notebook not found" });
+    where.notebookId = nb.id;
+  }
+  const notes = await AppDataSource.getRepository(Note).find({
+    where,
     order: { sortOrder: "ASC", updatedAt: "DESC" },
   });
   res.json(await hydrateNotes(cid, notes));
@@ -147,6 +161,7 @@ const createNoteSchema = z.object({
   title: z.string().min(1).max(200),
   body: z.string().max(200_000).optional(),
   icon: z.string().max(40).optional(),
+  notebookSlug: z.string().min(1).max(80).optional(),
   parentSlug: z.string().min(1).max(160).nullable().optional(),
 });
 
@@ -154,18 +169,46 @@ notesRouter.post("/notes", validateBody(createNoteSchema), async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const body = req.body as z.infer<typeof createNoteSchema>;
   const repo = AppDataSource.getRepository(Note);
+  const nbRepo = AppDataSource.getRepository(Notebook);
 
+  // Resolve the parent first, because creating a sub-page implies the
+  // notebook of the parent — the client doesn't have to repeat itself.
   let parentId: string | null = null;
+  let parentNotebookId: string | null = null;
   if (body.parentSlug) {
     const parent = await repo.findOneBy({ companyId: cid, slug: body.parentSlug });
     if (!parent) return res.status(400).json({ error: "Unknown parent note" });
     parentId = parent.id;
+    parentNotebookId = parent.notebookId;
+  }
+
+  let notebookId: string;
+  if (body.notebookSlug) {
+    const nb = await nbRepo.findOneBy({ companyId: cid, slug: body.notebookSlug });
+    if (!nb) return res.status(400).json({ error: "Unknown notebook" });
+    if (parentNotebookId && nb.id !== parentNotebookId) {
+      return res
+        .status(400)
+        .json({ error: "Sub-pages must live in the same notebook as their parent" });
+    }
+    notebookId = nb.id;
+  } else if (parentNotebookId) {
+    notebookId = parentNotebookId;
+  } else {
+    // Fall back to the company's default notebook so the client can create a
+    // top-level note without picking a notebook explicitly.
+    const nb = await ensureDefaultNotebook(cid, req.userId ?? null);
+    notebookId = nb.id;
   }
 
   const slug = await uniqueNoteSlug(cid, toSlug(body.title));
   // Place new note at the bottom of its sibling group so explicit reorders win.
   const siblings = await repo.find({
-    where: { companyId: cid, parentId: parentId ?? IsNull() },
+    where: {
+      companyId: cid,
+      notebookId,
+      parentId: parentId ?? IsNull(),
+    },
     order: { sortOrder: "DESC" },
     take: 1,
   });
@@ -173,6 +216,7 @@ notesRouter.post("/notes", validateBody(createNoteSchema), async (req, res) => {
 
   const note = repo.create({
     companyId: cid,
+    notebookId,
     title: body.title,
     slug,
     body: body.body ?? "",
@@ -209,6 +253,7 @@ const patchNoteSchema = z.object({
   body: z.string().max(200_000).optional(),
   icon: z.string().max(40).optional(),
   parentSlug: z.string().min(1).max(160).nullable().optional(),
+  notebookSlug: z.string().min(1).max(80).optional(),
   sortOrder: z.number().int().optional(),
   archived: z.boolean().optional(),
 });
@@ -223,6 +268,24 @@ notesRouter.patch(
     const body = req.body as z.infer<typeof patchNoteSchema>;
     const repo = AppDataSource.getRepository(Note);
 
+    // Moving to a different notebook detaches the note from its parent —
+    // a sub-page can't survive a notebook move because parents are
+    // notebook-local. The client has to opt into this explicitly via
+    // notebookSlug; we don't infer it from a parent change.
+    let nextNotebookId = note.notebookId;
+    let movingNotebook = false;
+    if (body.notebookSlug !== undefined) {
+      const nb = await AppDataSource.getRepository(Notebook).findOneBy({
+        companyId: cid,
+        slug: body.notebookSlug,
+      });
+      if (!nb) return res.status(400).json({ error: "Unknown notebook" });
+      if (nb.id !== note.notebookId) {
+        nextNotebookId = nb.id;
+        movingNotebook = true;
+      }
+    }
+
     if (body.parentSlug !== undefined) {
       if (body.parentSlug === null) {
         note.parentId = null;
@@ -232,6 +295,11 @@ notesRouter.patch(
         if (parent.id === note.id) {
           return res.status(400).json({ error: "A note cannot be its own parent" });
         }
+        if (parent.notebookId !== nextNotebookId) {
+          return res.status(400).json({
+            error: "A note's parent must live in the same notebook",
+          });
+        }
         if (await isDescendant(cid, parent.id, note.id)) {
           return res
             .status(400)
@@ -239,7 +307,23 @@ notesRouter.patch(
         }
         note.parentId = parent.id;
       }
+    } else if (movingNotebook) {
+      // Notebook change without an explicit re-parent → drop to the
+      // notebook's top level and pull every descendant along, so the
+      // sub-tree stays intact in its new home.
+      note.parentId = null;
     }
+
+    if (movingNotebook) {
+      note.notebookId = nextNotebookId;
+      // Reassign every descendant of `note` to the new notebook so the tree
+      // stays self-consistent (parent's notebook == child's notebook).
+      const descendants = await collectDescendantIds(cid, note.id);
+      if (descendants.length > 0) {
+        await repo.update({ id: In(descendants) }, { notebookId: nextNotebookId });
+      }
+    }
+
     if (body.title !== undefined) note.title = body.title;
     if (body.body !== undefined) note.body = body.body;
     if (body.icon !== undefined) note.icon = body.icon;
@@ -254,6 +338,35 @@ notesRouter.patch(
     res.json(hydrated);
   },
 );
+
+/**
+ * BFS down the note tree from `rootId`, returning every descendant id
+ * (excluding the root itself). Used when moving a note to a different
+ * notebook so we can drag the whole sub-tree along.
+ */
+async function collectDescendantIds(
+  companyId: string,
+  rootId: string,
+): Promise<string[]> {
+  const repo = AppDataSource.getRepository(Note);
+  const out: string[] = [];
+  const queue: string[] = [rootId];
+  const seen = new Set<string>();
+  while (queue.length) {
+    const id = queue.shift()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const children = await repo.find({
+      where: { companyId, parentId: id },
+      select: ["id"],
+    });
+    for (const c of children) {
+      out.push(c.id);
+      queue.push(c.id);
+    }
+  }
+  return out;
+}
 
 /**
  * True if `descendantId` is found anywhere underneath `rootId` by walking
@@ -341,12 +454,13 @@ notesRouter.get("/notes/:noteSlug/grants", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const note = await loadNoteBySlug(cid, req.params.noteSlug);
   if (!note) return res.status(404).json({ error: "Note not found" });
-  const [direct, inherited] = await Promise.all([
+  const [direct, inherited, notebookInherited] = await Promise.all([
     listDirectGrants(note.id),
     listInheritedGrants(note.id),
+    listNotebookInheritedGrants(note.id),
   ]);
-  // Build a lookup of source-note titles so the UI can show
-  // "inherited from <title>" without an N+1 fetch.
+  // Build lookups of source titles so the UI can show "inherited from
+  // <title>" without an N+1 fetch.
   const sourceIds = [...new Set(inherited.map((g) => g.sourceNoteId))];
   const sources = sourceIds.length
     ? await AppDataSource.getRepository(Note).find({
@@ -355,10 +469,16 @@ notesRouter.get("/notes/:noteSlug/grants", async (req, res) => {
       })
     : [];
   const sourceById = new Map(sources.map((s) => [s.id, s]));
-  const [hydratedDirect, hydratedInherited] = await Promise.all([
-    hydrateGrants(cid, direct),
-    hydrateGrants(cid, inherited),
-  ]);
+  const notebook = await AppDataSource.getRepository(Notebook).findOne({
+    where: { id: note.notebookId, companyId: cid },
+    select: ["id", "slug", "title"],
+  });
+  const [hydratedDirect, hydratedInherited, hydratedNotebookInherited] =
+    await Promise.all([
+      hydrateGrants(cid, direct),
+      hydrateGrants(cid, inherited),
+      hydrateNotebookGrants(cid, notebookInherited),
+    ]);
   res.json({
     direct: hydratedDirect,
     inherited: hydratedInherited.map((g) => {
@@ -370,8 +490,60 @@ notesRouter.get("/notes/:noteSlug/grants", async (req, res) => {
           : null,
       };
     }),
+    notebookInherited: hydratedNotebookInherited.map((g) => ({
+      ...g,
+      source: notebook
+        ? { id: notebook.id, slug: notebook.slug, title: notebook.title }
+        : null,
+    })),
   });
 });
+
+type NotebookGrantWithEmployee = {
+  id: string;
+  employeeId: string;
+  notebookId: string;
+  accessLevel: NoteAccessLevel;
+  createdAt: Date;
+  employee: { id: string; name: string; slug: string; role: string; avatarKey: string | null } | null;
+};
+
+async function hydrateNotebookGrants(
+  companyId: string,
+  grants: Array<{
+    id: string;
+    employeeId: string;
+    notebookId: string;
+    accessLevel: NoteAccessLevel;
+    createdAt: Date;
+  }>,
+): Promise<NotebookGrantWithEmployee[]> {
+  if (grants.length === 0) return [];
+  const empIds = [...new Set(grants.map((g) => g.employeeId))];
+  const emps = await AppDataSource.getRepository(AIEmployee).find({
+    where: { id: In(empIds), companyId },
+  });
+  const byId = new Map(emps.map((e) => [e.id, e]));
+  return grants.map((g) => {
+    const e = byId.get(g.employeeId);
+    return {
+      id: g.id,
+      employeeId: g.employeeId,
+      notebookId: g.notebookId,
+      accessLevel: g.accessLevel,
+      createdAt: g.createdAt,
+      employee: e
+        ? {
+            id: e.id,
+            name: e.name,
+            slug: e.slug,
+            role: e.role,
+            avatarKey: e.avatarKey ?? null,
+          }
+        : null,
+    };
+  });
+}
 
 const createGrantSchema = z.object({
   employeeId: z.string().uuid(),

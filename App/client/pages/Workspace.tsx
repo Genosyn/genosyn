@@ -27,11 +27,10 @@ import {
   WorkspaceChannel,
   WorkspaceDirectory,
   WorkspaceMessage,
-  WorkspaceSocket,
   WsInboundEvent,
-  connectWorkspace,
   workspaceApi,
 } from "../lib/workspace";
+import { useCompanySocketSubscription } from "../components/CompanySocket";
 import { EmojiPicker } from "../components/workspace/EmojiPicker";
 import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
@@ -82,7 +81,6 @@ export default function Workspace({ company, me }: WorkspaceProps) {
   const [showNewChannel, setShowNewChannel] = React.useState(false);
   const [showNewDM, setShowNewDM] = React.useState(false);
 
-  const socketRef = React.useRef<WorkspaceSocket | null>(null);
   // Mirrors activeChannelId so the long-lived WS handler reads the latest
   // value instead of the one captured when the socket was opened. Without
   // this, a message arriving in the channel the user is currently viewing
@@ -141,12 +139,10 @@ export default function Workspace({ company, me }: WorkspaceProps) {
     setActiveChannelId(urlChannelId);
   }, [urlChannelId, activeChannelId]);
 
-  React.useEffect(() => {
-    const sock = connectWorkspace(company.id, (ev) => handleWsEvent(ev));
-    socketRef.current = sock;
-    return () => sock.close();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [company.id]);
+  // Subscribe to inbound frames on the shared per-company socket. The
+  // provider in AppShell owns the connection so the bell, the chat surface,
+  // and any future live feature share one socket.
+  useCompanySocketSubscription((ev) => handleWsEvent(ev));
 
   function handleWsEvent(ev: WsInboundEvent) {
     switch (ev.type) {

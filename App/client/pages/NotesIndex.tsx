@@ -1,32 +1,36 @@
 import React from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import {
+  Book,
+  BookPlus,
   Clock,
   FileText,
-  PenLine,
   Plus,
   Search,
   Sparkles,
 } from "lucide-react";
-import { api, Company, Note } from "../lib/api";
+import { api, Company, Note, Notebook } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
 import { useToast } from "../components/ui/Toast";
+import { useDialog } from "../components/ui/Dialog";
 import { NotesContext } from "./NotesLayout";
 import { clsx } from "../components/ui/clsx";
 
 /**
- * Notes welcome screen. Shown when the URL is /c/<slug>/notes with no note
- * selected. Doubles as the search surface — typing into the hero input hits
- * the LIKE-search endpoint and renders matches inline.
+ * Notes welcome screen. Shown when the URL is /c/<slug>/notes with no
+ * notebook or note selected. Lists every notebook with its activity, plus
+ * a global search bar that hits the LIKE-search endpoint across all
+ * notebooks.
  */
 export default function NotesIndex({ company }: { company: Company }) {
-  const { notes, refresh } = useOutletContext<NotesContext>();
+  const { notebooks, notes, refresh } = useOutletContext<NotesContext>();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const dialog = useDialog();
   const [query, setQuery] = React.useState("");
   const [results, setResults] = React.useState<Note[] | null>(null);
   const [searching, setSearching] = React.useState(false);
-  const [creating, setCreating] = React.useState(false);
+  const [creatingNb, setCreatingNb] = React.useState(false);
 
   React.useEffect(() => {
     const q = query.trim();
@@ -50,18 +54,32 @@ export default function NotesIndex({ company }: { company: Company }) {
     return () => window.clearTimeout(handle);
   }, [query, company.id, toast]);
 
-  async function createTopLevel() {
-    setCreating(true);
+  const notebookById = React.useMemo(() => {
+    const m = new Map<string, Notebook>();
+    for (const nb of notebooks) m.set(nb.id, nb);
+    return m;
+  }, [notebooks]);
+
+  async function createNotebook() {
+    setCreatingNb(true);
     try {
-      const created = await api.post<Note>(`/api/companies/${company.id}/notes`, {
-        title: "Untitled",
+      const title = await dialog.prompt({
+        title: "New notebook",
+        message: "Notebooks group related pages — runbooks, briefs, post-mortems, etc.",
+        placeholder: "Notebook name",
+        confirmLabel: "Create",
       });
+      if (!title) return;
+      const created = await api.post<Notebook>(
+        `/api/companies/${company.id}/notebooks`,
+        { title },
+      );
       await refresh();
       navigate(`/c/${company.slug}/notes/${created.slug}`);
     } catch (err) {
       toast((err as Error).message, "error");
     } finally {
-      setCreating(false);
+      setCreatingNb(false);
     }
   }
 
@@ -90,9 +108,6 @@ export default function NotesIndex({ company }: { company: Company }) {
 
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-3xl px-10 pt-12">
-          {/* Hero — title with the same emphasis a note's title gets, then a
-              big search/jumper. No card chrome on the search; it should feel
-              like the search bar is the page. */}
           <div className="mb-8">
             <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               Notes
@@ -101,9 +116,9 @@ export default function NotesIndex({ company }: { company: Company }) {
               {company.name}
             </h1>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Shared knowledge for humans and AI employees. Write a runbook,
-              capture a decision, link a brief — anything you want everyone to
-              be able to read and edit.
+              Shared knowledge for humans and AI employees. Group related pages
+              into notebooks — runbooks, briefs, post-mortems — and nest pages
+              underneath when they belong together.
             </p>
           </div>
 
@@ -115,16 +130,9 @@ export default function NotesIndex({ company }: { company: Company }) {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search pages or jump to one…"
+              placeholder="Search pages across every notebook…"
               className="w-full rounded-lg border border-slate-200 bg-white py-3 pl-11 pr-4 text-base text-slate-700 placeholder:text-slate-400 hover:border-slate-300 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500 dark:hover:border-slate-600 dark:focus:border-indigo-700 dark:focus:ring-indigo-900/30"
             />
-            <button
-              onClick={createTopLevel}
-              disabled={creating}
-              className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1.5 rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-300"
-            >
-              <Plus size={13} /> {creating ? "Creating…" : "New"}
-            </button>
           </div>
 
           {results !== null ? (
@@ -133,11 +141,29 @@ export default function NotesIndex({ company }: { company: Company }) {
               query={query}
               results={results}
               searching={searching}
+              notebookById={notebookById}
             />
-          ) : live.length === 0 ? (
-            <EmptyHero onCreate={createTopLevel} creating={creating} />
+          ) : notebooks.length === 0 ? (
+            <EmptyHero onCreate={createNotebook} creating={creatingNb} />
           ) : (
-            <RecentList company={company} notes={recents} />
+            <>
+              <NotebookGrid
+                company={company}
+                notebooks={notebooks}
+                notes={live}
+                onCreate={createNotebook}
+                creating={creatingNb}
+              />
+              {recents.length > 0 && (
+                <div className="mt-10">
+                  <RecentList
+                    company={company}
+                    notes={recents}
+                    notebookById={notebookById}
+                  />
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -158,28 +184,126 @@ function EmptyHero({
         <Sparkles size={22} />
       </div>
       <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-        Start your first page
+        Start your first notebook
       </h3>
       <p className="mx-auto mt-1 max-w-md text-sm text-slate-500 dark:text-slate-400">
-        Type{" "}
-        <kbd className="rounded border border-slate-300 bg-slate-100 px-1 py-0.5 text-[11px] font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
-          /
-        </kbd>{" "}
-        anywhere on a page to insert headings, lists, to-dos and more. AI
-        employees can read and write notes you share with them.
+        Notebooks hold related pages. Create one for your company handbook,
+        another for product briefs — anything you want everyone to be able to
+        read and edit.
       </p>
       <button
         onClick={onCreate}
         disabled={creating}
         className="mx-auto mt-5 inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
       >
-        <PenLine size={14} /> {creating ? "Creating…" : "Create your first page"}
+        <BookPlus size={14} /> {creating ? "Creating…" : "Create your first notebook"}
       </button>
     </div>
   );
 }
 
-function RecentList({ company, notes }: { company: Company; notes: Note[] }) {
+function NotebookGrid({
+  company,
+  notebooks,
+  notes,
+  onCreate,
+  creating,
+}: {
+  company: Company;
+  notebooks: Notebook[];
+  notes: Note[];
+  onCreate: () => void;
+  creating: boolean;
+}) {
+  // Most recent updatedAt across the notebook's live notes — the same
+  // signal that drives the "Recently edited" feed.
+  const lastTouchByNotebook = React.useMemo(() => {
+    const m = new Map<string, number>();
+    for (const n of notes) {
+      const t = new Date(n.updatedAt).getTime();
+      const cur = m.get(n.notebookId) ?? 0;
+      if (t > cur) m.set(n.notebookId, t);
+    }
+    return m;
+  }, [notes]);
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between">
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          Notebooks
+        </div>
+        <button
+          onClick={onCreate}
+          disabled={creating}
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-indigo-700 dark:hover:text-indigo-300"
+        >
+          <BookPlus size={12} /> {creating ? "Creating…" : "New notebook"}
+        </button>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {notebooks.map((nb) => (
+          <NotebookCard
+            key={nb.id}
+            company={company}
+            notebook={nb}
+            lastTouch={lastTouchByNotebook.get(nb.id) ?? 0}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function NotebookCard({
+  company,
+  notebook,
+  lastTouch,
+}: {
+  company: Company;
+  notebook: Notebook;
+  lastTouch: number;
+}) {
+  const navigate = useNavigate();
+  return (
+    <button
+      onClick={() => navigate(`/c/${company.slug}/notes/${notebook.slug}`)}
+      className="group flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-indigo-300 hover:shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:hover:border-indigo-700"
+    >
+      <div className="flex items-center gap-2">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-lg dark:bg-slate-800">
+          {notebook.icon ? (
+            <span aria-hidden>{notebook.icon}</span>
+          ) : (
+            <Book size={16} className="text-slate-500 dark:text-slate-400" />
+          )}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+            {notebook.title || "Untitled notebook"}
+          </div>
+          <div className="truncate text-xs text-slate-500 dark:text-slate-400">
+            {notebook.noteCount === 0
+              ? "No pages yet"
+              : `${notebook.noteCount} page${notebook.noteCount === 1 ? "" : "s"}`}
+            {lastTouch > 0
+              ? ` · updated ${formatRelative(new Date(lastTouch).toISOString())}`
+              : ""}
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function RecentList({
+  company,
+  notes,
+  notebookById,
+}: {
+  company: Company;
+  notes: Note[];
+  notebookById: Map<string, Notebook>;
+}) {
   return (
     <div>
       <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -192,6 +316,7 @@ function RecentList({ company, notes }: { company: Company; notes: Note[] }) {
             key={n.id}
             company={company}
             note={n}
+            notebook={notebookById.get(n.notebookId) ?? null}
             isLast={i === notes.length - 1}
           />
         ))}
@@ -203,10 +328,12 @@ function RecentList({ company, notes }: { company: Company; notes: Note[] }) {
 function NoteListRow({
   company,
   note,
+  notebook,
   isLast,
 }: {
   company: Company;
   note: Note;
+  notebook: Notebook | null;
   isLast: boolean;
 }) {
   const navigate = useNavigate();
@@ -214,7 +341,11 @@ function NoteListRow({
   const editorKind = note.lastEditedBy?.kind ?? note.createdBy?.kind ?? null;
   return (
     <button
-      onClick={() => navigate(`/c/${company.slug}/notes/${note.slug}`)}
+      onClick={() =>
+        navigate(
+          `/c/${company.slug}/notes/${notebook?.slug ?? ""}/${note.slug}`,
+        )
+      }
       className={clsx(
         "flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/60",
         !isLast && "border-b border-slate-100 dark:border-slate-800",
@@ -231,11 +362,14 @@ function NoteListRow({
         <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
           {note.title || "Untitled"}
         </div>
-        {note.body && (
-          <div className="truncate text-xs text-slate-500 dark:text-slate-400">
-            {previewBody(note.body)}
-          </div>
-        )}
+        <div className="truncate text-xs text-slate-500 dark:text-slate-400">
+          {notebook ? (
+            <span className="mr-2 inline-flex items-center gap-1 text-slate-400 dark:text-slate-500">
+              <Book size={10} /> {notebook.title}
+            </span>
+          ) : null}
+          {note.body && previewBody(note.body)}
+        </div>
       </div>
       <div className="hidden shrink-0 text-right text-xs text-slate-400 dark:text-slate-500 sm:block">
         <div>{formatRelative(note.updatedAt)}</div>
@@ -281,11 +415,13 @@ function SearchResults({
   query,
   results,
   searching,
+  notebookById,
 }: {
   company: Company;
   query: string;
   results: Note[];
   searching: boolean;
+  notebookById: Map<string, Notebook>;
 }) {
   const navigate = useNavigate();
   if (searching && results.length === 0) {
@@ -309,46 +445,51 @@ function SearchResults({
   }
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
-      {results.map((n, i) => (
-        <button
-          key={n.id}
-          onClick={() => navigate(`/c/${company.slug}/notes/${n.slug}`)}
-          className={
-            "flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 " +
-            (i > 0 ? "border-t border-slate-100 dark:border-slate-800" : "")
-          }
-        >
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-slate-100 text-base dark:bg-slate-800">
-            {n.icon ? (
-              <span aria-hidden>{n.icon}</span>
-            ) : (
-              <FileText size={14} className="text-slate-500 dark:text-slate-400" />
-            )}
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
-              {n.title || "Untitled"}
-            </div>
-            {n.body && (
-              <div className="line-clamp-1 text-xs text-slate-500 dark:text-slate-400">
-                {snippetAround(n.body, query)}
+      {results.map((n, i) => {
+        const nb = notebookById.get(n.notebookId);
+        return (
+          <button
+            key={n.id}
+            onClick={() =>
+              navigate(`/c/${company.slug}/notes/${nb?.slug ?? ""}/${n.slug}`)
+            }
+            className={
+              "flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 " +
+              (i > 0 ? "border-t border-slate-100 dark:border-slate-800" : "")
+            }
+          >
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-slate-100 text-base dark:bg-slate-800">
+              {n.icon ? (
+                <span aria-hidden>{n.icon}</span>
+              ) : (
+                <FileText size={14} className="text-slate-500 dark:text-slate-400" />
+              )}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                {n.title || "Untitled"}
               </div>
-            )}
-          </div>
-          <span className="shrink-0 text-xs text-slate-400 dark:text-slate-500">
-            {new Date(n.updatedAt).toLocaleDateString()}
-          </span>
-        </button>
-      ))}
+              {nb && (
+                <div className="mb-0.5 inline-flex items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500">
+                  <Book size={10} /> {nb.title}
+                </div>
+              )}
+              {n.body && (
+                <div className="line-clamp-1 text-xs text-slate-500 dark:text-slate-400">
+                  {snippetAround(n.body, query)}
+                </div>
+              )}
+            </div>
+            <span className="shrink-0 text-xs text-slate-400 dark:text-slate-500">
+              {new Date(n.updatedAt).toLocaleDateString()}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
 
-/**
- * Pull a short snippet from `body` centered on the first occurrence of
- * `query` (case-insensitive). Falls back to the body's leading characters
- * if there's no match — which can happen when the hit was on the title.
- */
 function snippetAround(body: string, query: string): string {
   const idx = body.toLowerCase().indexOf(query.toLowerCase());
   if (idx < 0) return body.slice(0, 160);
@@ -358,3 +499,6 @@ function snippetAround(body: string, query: string): string {
   const suffix = end === body.length ? "" : "…";
   return prefix + body.slice(start, end) + suffix;
 }
+
+// Re-export Plus so other modules importing from this file keep working.
+export { Plus };

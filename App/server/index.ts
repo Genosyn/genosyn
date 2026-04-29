@@ -21,7 +21,6 @@ import { routinesRouter } from "./routes/routines.js";
 import { modelsRouter } from "./routes/models.js";
 import { employeeSurfaceRouter } from "./routes/employeeSurface.js";
 import { projectsRouter } from "./routes/projects.js";
-import { attentionRouter } from "./routes/attention.js";
 import { approvalsRouter } from "./routes/approvals.js";
 import { webhooksRouter } from "./routes/webhooks.js";
 import { mcpRouter } from "./routes/mcp.js";
@@ -38,7 +37,9 @@ import { workspaceRouter } from "./routes/workspace.js";
 import { pipelinesRouter } from "./routes/pipelines.js";
 import { emailProvidersRouter } from "./routes/emailProviders.js";
 import { emailLogsRouter } from "./routes/emailLogs.js";
+import { notebooksRouter } from "./routes/notebooks.js";
 import { notesRouter } from "./routes/notes.js";
+import { notificationsRouter } from "./routes/notifications.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -92,8 +93,8 @@ async function main() {
   app.use("/api/companies/:cid", routinesRouter);
   // Projects + Todos (task manager). See ROADMAP.md V1 backlog.
   app.use("/api/companies/:cid", projectsRouter);
-  // Notification-badge summary (review queue + workspace mentions).
-  app.use("/api/companies/:cid", attentionRouter);
+  // Per-user notification feed — bell + panel in the top bar.
+  app.use("/api/companies/:cid", notificationsRouter);
   // Bases (Airtable-style workspaces) — companion to Tasks.
   app.use("/api/companies/:cid", basesRouter);
   app.use("/api/companies/:cid", approvalsRouter);
@@ -118,6 +119,8 @@ async function main() {
 
   // Notes — Notion-style company-wide markdown knowledge base. Both human
   // members and AI employees (via the built-in MCP server) can read/write.
+  // Notebooks are the top-level grouping; every Note belongs to one.
+  app.use("/api/companies/:cid", notebooksRouter);
   app.use("/api/companies/:cid", notesRouter);
 
   // Per-company email providers (SMTP / SendGrid / Mailgun / Resend /

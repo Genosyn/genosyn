@@ -18,6 +18,8 @@ import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { broadcastToCompany } from "./realtime.js";
 import { attachmentsForMessages, bindAttachmentsToMessage } from "./uploads.js";
 import { streamChatWithEmployee, ChatTurn } from "./chat.js";
+import { Company } from "../db/entities/Company.js";
+import { createNotifications } from "./notifications.js";
 
 /**
  * The workspace-chat service: channels, DMs, messages, reactions.
@@ -442,6 +444,17 @@ export async function postMessage(params: {
     triggeringUserId: params.authorUserId,
   }).catch((e) => {
     console.error("[workspaceChat] mention reply failed:", e);
+  });
+
+  // Generate per-recipient bell notifications for human teammates targeted
+  // by this message: every DM counterpart, plus anyone @-mentioned by
+  // handle in a public/private channel they can see.
+  void notifyHumanRecipients({
+    channel,
+    message: msg,
+    authorUserId: params.authorUserId,
+  }).catch((e) => {
+    console.error("[workspaceChat] notify recipients failed:", e);
   });
 
   return summary;
@@ -996,6 +1009,103 @@ async function historyForEmployee(
 async function userLabelFor(userId: string): Promise<string> {
   const u = await AppDataSource.getRepository(User).findOneBy({ id: userId });
   return u?.name || u?.email || "Teammate";
+}
+
+/**
+ * Persist bell notifications for the human teammates targeted by a fresh
+ * message. Mirrors the attention-summary rules so the badge and the bell
+ * stay in sync:
+ *   - DMs: notify every human member except the author.
+ *   - Public/private channels: notify any company user whose `@handle`
+ *     appears in the body. Private channels constrain to actual members so
+ *     a stranger doesn't receive a link they can't open.
+ */
+async function notifyHumanRecipients(args: {
+  channel: Channel;
+  message: ChannelMessage;
+  authorUserId: string;
+}): Promise<void> {
+  const { channel, message, authorUserId } = args;
+  const { members, users, memberships } = repos();
+
+  const company = await AppDataSource.getRepository(Company).findOneBy({
+    id: channel.companyId,
+  });
+  if (!company) return;
+
+  const author = await users.findOneBy({ id: authorUserId });
+  const authorName = author?.name || author?.email || "Someone";
+  const channelLabel =
+    channel.kind === "dm"
+      ? null
+      : channel.name
+        ? `#${channel.name}`
+        : "a channel";
+  const linkBase = `/c/${company.slug}/workspace/${channel.id}`;
+
+  const recipients = new Set<string>();
+
+  if (channel.kind === "dm") {
+    const memberRows = await members.find({ where: { channelId: channel.id } });
+    for (const m of memberRows) {
+      if (m.memberKind !== "user" || !m.userId) continue;
+      if (m.userId === authorUserId) continue;
+      recipients.add(m.userId);
+    }
+  } else {
+    const slugs = parseMentionSlugs(message.content);
+    if (slugs.length === 0) return;
+    const companyMembers = await memberships.findBy({
+      companyId: channel.companyId,
+    });
+    const companyUserIds = companyMembers.map((m) => m.userId);
+    if (companyUserIds.length === 0) return;
+    const userRows = await users.findBy({ id: In(companyUserIds) });
+    const handleMatches = userRows.filter(
+      (u) => u.handle && slugs.includes(u.handle.toLowerCase()),
+    );
+    let allowed: string[] = handleMatches.map((u) => u.id);
+    if (channel.kind === "private") {
+      const channelMemberRows = await members.find({
+        where: { channelId: channel.id },
+      });
+      const memberUserIds = new Set(
+        channelMemberRows
+          .filter((m) => m.userId)
+          .map((m) => m.userId as string),
+      );
+      allowed = allowed.filter((uid) => memberUserIds.has(uid));
+    }
+    for (const uid of allowed) {
+      if (uid === authorUserId) continue;
+      recipients.add(uid);
+    }
+  }
+
+  if (recipients.size === 0) return;
+
+  const preview = previewText(message.content);
+  const inputs = Array.from(recipients).map((uid) => ({
+    companyId: channel.companyId,
+    userId: uid,
+    kind: channel.kind === "dm" ? ("mention" as const) : ("mention" as const),
+    title:
+      channel.kind === "dm"
+        ? `${authorName} sent you a message`
+        : `${authorName} mentioned you in ${channelLabel}`,
+    body: preview,
+    link: linkBase,
+    actorKind: "user" as const,
+    actorId: authorUserId,
+    entityKind: "channel_message" as const,
+    entityId: message.id,
+  }));
+  await createNotifications(inputs);
+}
+
+function previewText(body: string): string {
+  const oneLine = body.replace(/\s+/g, " ").trim();
+  return oneLine.length > 140 ? `${oneLine.slice(0, 140)}…` : oneLine;
 }
 
 function framedMention(content: string, userLabel: string): string {

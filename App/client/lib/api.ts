@@ -954,6 +954,7 @@ export type NoteAuthor =
 export type Note = {
   id: string;
   companyId: string;
+  notebookId: string;
   title: string;
   slug: string;
   body: string;
@@ -969,6 +970,21 @@ export type Note = {
   updatedAt: string;
   createdBy: NoteAuthor | null;
   lastEditedBy: NoteAuthor | null;
+};
+
+export type Notebook = {
+  id: string;
+  companyId: string;
+  title: string;
+  slug: string;
+  icon: string;
+  sortOrder: number;
+  createdById: string | null;
+  createdByEmployeeId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  noteCount: number;
+  archivedCount: number;
 };
 
 /** Per-note access an AI employee can hold. Humans always have full access. */
@@ -996,11 +1012,74 @@ export type InheritedNoteGrant = NoteGrant & {
   source: { id: string; slug: string; title: string } | null;
 };
 
+/** A grant inherited from the notebook the note lives in. */
+export type NotebookInheritedGrant = {
+  id: string;
+  employeeId: string;
+  notebookId: string;
+  accessLevel: NoteAccessLevel;
+  createdAt: string;
+  employee: NoteGrantEmployee | null;
+  source: { id: string; slug: string; title: string } | null;
+};
+
 export type NoteGrantsResponse = {
   direct: NoteGrant[];
   inherited: InheritedNoteGrant[];
+  notebookInherited: NotebookInheritedGrant[];
 };
 
 export type NoteGrantCandidate = NoteGrantEmployee & {
   alreadyGranted: boolean;
+};
+
+/** Direct grants on a Notebook (cascades into every note in the notebook). */
+export type NotebookGrant = {
+  id: string;
+  employeeId: string;
+  notebookId: string;
+  accessLevel: NoteAccessLevel;
+  createdAt: string;
+  employee: NoteGrantEmployee | null;
+};
+
+export type NotebookGrantsResponse = {
+  direct: NotebookGrant[];
+};
+
+export type NotebookGrantCandidate = NoteGrantCandidate;
+
+// ───────────────────────── Notifications ────────────────────────────────
+
+export type NotificationKind =
+  | "mention"
+  | "todo_review_requested"
+  | "approval_pending";
+
+export type NotificationActorKind = "user" | "ai" | "system";
+
+export type NotificationEntityKind =
+  | "channel_message"
+  | "todo"
+  | "approval";
+
+export type NotificationActor = {
+  kind: NotificationActorKind;
+  id: string | null;
+  name: string;
+  avatarKey: string | null;
+  slug: string | null;
+};
+
+export type Notification = {
+  id: string;
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  link: string | null;
+  actor: NotificationActor | null;
+  entityKind: NotificationEntityKind | null;
+  entityId: string | null;
+  readAt: string | null;
+  createdAt: string;
 };

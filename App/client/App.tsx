@@ -58,6 +58,7 @@ import PipelineNew from "./pages/PipelineNew";
 import PipelineDetail from "./pages/PipelineDetail";
 import NotesLayout from "./pages/NotesLayout";
 import NotesIndex from "./pages/NotesIndex";
+import NotebookDetail from "./pages/NotebookDetail";
 import NoteDetail from "./pages/NoteDetail";
 
 type AuthState =
@@ -214,10 +215,19 @@ function CompanyRoutes({
           <Route path=":pSlug" element={<PipelineDetail company={company} />} />
         </Route>
 
-        {/* Notes — Notion-style company-wide markdown knowledge base. */}
+        {/* Notes — Notion-style company-wide markdown knowledge base.
+            URL shape: /notes/<notebook>/<note>. The bare /notes lists
+            notebooks; /notes/<notebook> shows that notebook's contents. */}
         <Route path="notes" element={<NotesLayout company={company} />}>
           <Route index element={<NotesIndex company={company} />} />
-          <Route path=":noteSlug" element={<NoteDetail company={company} />} />
+          <Route
+            path=":notebookSlug"
+            element={<NotebookDetail company={company} />}
+          />
+          <Route
+            path=":notebookSlug/:noteSlug"
+            element={<NoteDetail company={company} />}
+          />
         </Route>
 
         <Route path="approvals" element={<Approvals company={company} />} />

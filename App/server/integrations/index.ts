@@ -7,6 +7,11 @@ import { googleProvider } from "./providers/google.js";
 import { metabaseProvider } from "./providers/metabase.js";
 import { nocodbProvider } from "./providers/nocodb.js";
 import { githubProvider } from "./providers/github.js";
+import { airtableProvider } from "./providers/airtable.js";
+import { postgresProvider } from "./providers/postgres.js";
+import { mysqlProvider } from "./providers/mysql.js";
+import { clickhouseProvider } from "./providers/clickhouse.js";
+import { redisProvider } from "./providers/redis.js";
 
 /**
  * Provider registry. Adding a new integration means:
@@ -20,6 +25,11 @@ const PROVIDERS: Record<string, IntegrationProvider> = {
   [metabaseProvider.catalog.provider]: metabaseProvider,
   [nocodbProvider.catalog.provider]: nocodbProvider,
   [githubProvider.catalog.provider]: githubProvider,
+  [airtableProvider.catalog.provider]: airtableProvider,
+  [postgresProvider.catalog.provider]: postgresProvider,
+  [mysqlProvider.catalog.provider]: mysqlProvider,
+  [clickhouseProvider.catalog.provider]: clickhouseProvider,
+  [redisProvider.catalog.provider]: redisProvider,
 };
 
 export function getProvider(id: string): IntegrationProvider | null {

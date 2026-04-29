@@ -12,6 +12,7 @@ import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { generateToken } from "../lib/token.js";
 import { sendEmail } from "../services/email.js";
+import { ensureDefaultNotebook } from "../services/notebooks.js";
 import { companyDir } from "../services/paths.js";
 import { avatarAbsPath, mimeFromKey } from "../services/avatars.js";
 import { config } from "../../config.js";
@@ -60,6 +61,9 @@ companiesRouter.post("/", validateBody(createSchema), async (req, res) => {
   const co = coRepo.create({ name, slug, ownerId: req.userId! });
   await coRepo.save(co);
   await memRepo.save(memRepo.create({ companyId: co.id, userId: req.userId!, role: "owner" }));
+  // Every company needs a default notebook so the create-note flow has a
+  // home from day one.
+  await ensureDefaultNotebook(co.id, req.userId!);
   res.json({ id: co.id, name: co.name, slug: co.slug, role: "owner" });
 });
 

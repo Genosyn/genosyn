@@ -6,6 +6,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Approval } from "../db/entities/Approval.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { runRoutine } from "./runner.js";
+import { notifyApprovalPending } from "./notifications.js";
 
 /**
  * Heartbeat-based routine scheduler.
@@ -70,6 +71,10 @@ async function tickRoutine(routineId: string): Promise<void> {
       status: "pending",
     });
     await approvalRepo.save(pending);
+    void notifyApprovalPending(pending).catch((e) => {
+      // eslint-disable-next-line no-console
+      console.error("[cron] notify approval pending failed:", e);
+    });
     await AppDataSource.getRepository(JournalEntry).save(
       AppDataSource.getRepository(JournalEntry).create({
         employeeId: emp.id,

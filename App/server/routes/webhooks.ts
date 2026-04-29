@@ -8,6 +8,7 @@ import { runRoutine } from "../services/runner.js";
 import { recordAudit } from "../services/audit.js";
 import { findPipelineByWebhook } from "../services/pipelines/index.js";
 import { runPipeline } from "../services/pipelines/executor.js";
+import { notifyApprovalPending } from "../services/notifications.js";
 
 /**
  * Unauthenticated trigger surface. The URL itself is the credential — each
@@ -77,6 +78,10 @@ webhooksRouter.post("/r/:routineId/:token", async (req, res) => {
       status: "pending",
     });
     const saved = await approvalRepo.save(pending);
+    void notifyApprovalPending(saved).catch((e) => {
+      // eslint-disable-next-line no-console
+      console.error("[webhook] notify approval pending failed:", e);
+    });
     return res.json({ status: "pending_approval", approvalId: saved.id });
   }
 

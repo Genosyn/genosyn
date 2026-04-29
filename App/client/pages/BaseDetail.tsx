@@ -1106,20 +1106,6 @@ function Row({
             </span>
           </button>
           {!selected && <span className="group-hover:hidden">{index}</span>}
-          <button
-            onClick={onExpand}
-            className="hidden rounded p-0.5 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 group-hover:inline-flex dark:hover:bg-indigo-950/30"
-            title="Open record"
-          >
-            <Maximize2 size={11} />
-          </button>
-          <button
-            onClick={onDelete}
-            className="hidden rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600 group-hover:inline-flex dark:hover:bg-red-950/30"
-            title="Delete row"
-          >
-            <Trash2 size={11} />
-          </button>
         </div>
       </td>
       {fields.map((f) => {
@@ -1170,7 +1156,24 @@ function Row({
           </td>
         );
       })}
-      <td />
+      <td className="border-l border-slate-100 px-1 align-middle dark:border-slate-800">
+        <div className="flex h-9 items-center justify-center gap-1">
+          <button
+            onClick={onExpand}
+            className="hidden rounded p-1 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 group-hover:inline-flex dark:hover:bg-indigo-950/30"
+            title="Open record"
+          >
+            <Maximize2 size={13} />
+          </button>
+          <button
+            onClick={onDelete}
+            className="hidden rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 group-hover:inline-flex dark:hover:bg-red-950/30"
+            title="Delete row"
+          >
+            <Trash2 size={13} />
+          </button>
+        </div>
+      </td>
     </tr>
   );
 }

@@ -13,9 +13,10 @@ import {
  * shared knowledge surface, distinct from per-employee Journal entries
  * (one-line diary) and per-employee Memory items (durable injected facts).
  *
- * Notes form a hierarchy: each row optionally points at a `parentId` that
- * references another Note in the same company, mirroring Notion's nested
- * pages. `archivedAt` is a soft-delete timestamp so accidental deletes are
+ * Every Note belongs to exactly one Notebook (`notebookId`). Notebooks are
+ * the top-level grouping shown in the sidebar; they do not nest. Within a
+ * notebook, notes can still nest via `parentId` (Notion-style sub-pages).
+ * `archivedAt` is a soft-delete timestamp so accidental deletes are
  * recoverable from the trash view.
  *
  * Author bookkeeping is split into two columns per side: `createdById`
@@ -24,13 +25,18 @@ import {
  */
 @Entity("notes")
 @Index(["companyId", "slug"], { unique: true })
-@Index(["companyId", "parentId"])
+@Index(["companyId", "notebookId"])
+@Index(["notebookId", "parentId"])
 export class Note {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
 
   @Column({ type: "varchar" })
   companyId!: string;
+
+  /** Notebook this page lives in. Required — every note belongs to a notebook. */
+  @Column({ type: "varchar" })
+  notebookId!: string;
 
   @Column({ type: "varchar" })
   title!: string;

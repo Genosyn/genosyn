@@ -59,6 +59,17 @@ export type WsEvent =
       type: "presence";
       userId: string;
       online: boolean;
+    }
+  | {
+      type: "notification.new";
+      /** Recipient — clients filter so each user only reacts to their own. */
+      userId: string;
+      notification: unknown;
+    }
+  | {
+      type: "notification.read";
+      userId: string;
+      notificationIds: string[];
     };
 
 type ConnectedSocket = {

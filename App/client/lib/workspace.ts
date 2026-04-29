@@ -1,4 +1,4 @@
-import { api } from "./api";
+import { api, Notification } from "./api";
 
 /**
  * Client-side types + API helpers + WebSocket client for the workspace-chat
@@ -230,31 +230,60 @@ export type WsInboundEvent =
       channelId: string;
       by: { kind: "user" | "ai"; id: string; name: string };
     }
-  | { type: "presence"; userId: string; online: boolean };
+  | { type: "presence"; userId: string; online: boolean }
+  | {
+      type: "notification.new";
+      userId: string;
+      notification: Notification;
+    }
+  | {
+      type: "notification.read";
+      userId: string;
+      notificationIds: string[];
+    };
 
-export type WorkspaceSocket = {
+export type CompanySocket = {
   close: () => void;
   sendTyping: (channelId: string, name: string) => void;
+  /** Register a handler. Returns an unsubscribe function. */
+  subscribe: (handler: (event: WsInboundEvent) => void) => () => void;
 };
 
+/** Backwards-compat alias for the chat surface that was the first consumer. */
+export type WorkspaceSocket = CompanySocket;
+
 /**
- * Open an authenticated WebSocket for the given company.
+ * Open an authenticated WebSocket for the given company. One physical
+ * connection is shared by every consumer in the page (workspace chat,
+ * notifications, etc.) via the `subscribe` fan-out — opening N sockets
+ * for N features would burn server slots and double-deliver messages.
  *
- * Auth is a two-step mint: we first call POST /ws-token to get a short-lived
- * token, then upgrade with `?token=...`. The socket auto-reconnects with
- * exponential backoff up to 30 s, and re-mints the token each attempt.
- * `onEvent` is called with every inbound event; the caller is responsible
- * for filtering by channel and patching local state.
+ * Auth is a two-step mint: we first call POST /ws-token to get a short-
+ * lived token, then upgrade with `?token=...`. The socket auto-reconnects
+ * with exponential backoff up to 30 s and re-mints the token each attempt.
  */
-export function connectWorkspace(
+export function connectCompanySocket(
   companyId: string,
-  onEvent: (event: WsInboundEvent) => void,
   onStatus?: (status: "connecting" | "open" | "closed") => void,
-): WorkspaceSocket {
+): CompanySocket {
   let ws: WebSocket | null = null;
   let closed = false;
   let attempt = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  const handlers = new Set<(event: WsInboundEvent) => void>();
+
+  function dispatch(event: WsInboundEvent) {
+    // Snapshot so a handler that unsubscribes mid-iteration doesn't skip
+    // its peers.
+    for (const fn of Array.from(handlers)) {
+      try {
+        fn(event);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("[ws] handler threw:", err);
+      }
+    }
+  }
 
   async function open() {
     if (closed) return;
@@ -281,7 +310,7 @@ export function connectWorkspace(
     sock.addEventListener("message", (ev) => {
       try {
         const data = JSON.parse(ev.data);
-        onEvent(data as WsInboundEvent);
+        dispatch(data as WsInboundEvent);
       } catch {
         // Drop malformed frames rather than throwing — the server shouldn't
         // send them but we don't want one bad frame to kill the channel.
@@ -318,11 +347,29 @@ export function connectWorkspace(
       closed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+      handlers.clear();
     },
     sendTyping: (channelId, name) => {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "typing", channelId, name }));
       }
     },
+    subscribe: (handler) => {
+      handlers.add(handler);
+      return () => {
+        handlers.delete(handler);
+      };
+    },
   };
+}
+
+/** @deprecated Prefer `connectCompanySocket(...).subscribe(handler)`. */
+export function connectWorkspace(
+  companyId: string,
+  onEvent: (event: WsInboundEvent) => void,
+  onStatus?: (status: "connecting" | "open" | "closed") => void,
+): CompanySocket {
+  const sock = connectCompanySocket(companyId, onStatus);
+  sock.subscribe(onEvent);
+  return sock;
 }

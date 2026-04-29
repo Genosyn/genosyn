@@ -1,7 +1,6 @@
 import React from "react";
 import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import {
-  ArrowUp,
   Check,
   Eye,
   FileText,
@@ -23,6 +22,7 @@ import {
   NoteGrant,
   NoteGrantCandidate,
   NoteGrantsResponse,
+  NotebookInheritedGrant,
 } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
@@ -67,11 +67,18 @@ const EMOJI_PALETTE = [
  * top bar, then a centered column that hosts the icon + title and the
  * block editor below. The "Save" button is hidden behind ⌘S — the saving
  * status appears next to the title so we never need a chunky toolbar.
+ *
+ * The URL is `/c/<co>/notes/<notebook>/<note>` — the notebook segment
+ * keeps the breadcrumb navigation honest and lets us deep-link to a note
+ * inside its notebook context.
  */
 export default function NoteDetail({ company }: { company: Company }) {
-  const { noteSlug } = useParams<{ noteSlug: string }>();
+  const { noteSlug, notebookSlug } = useParams<{
+    noteSlug: string;
+    notebookSlug: string;
+  }>();
   const navigate = useNavigate();
-  const { notes, refresh } = useOutletContext<NotesContext>();
+  const { notebooks, notes, refresh } = useOutletContext<NotesContext>();
   const { toast } = useToast();
   const dialog = useDialog();
 
@@ -159,6 +166,25 @@ export default function NoteDetail({ company }: { company: Company }) {
     return () => window.clearTimeout(handle);
   }, [dirty, save]);
 
+  // Keep the URL's notebook segment in sync with the note's actual
+  // notebook. If the user reaches the page via an old or mismatched URL,
+  // redirect to the canonical path so links and the breadcrumb stay
+  // coherent. Runs unconditionally (the early return below would otherwise
+  // make this a conditional hook).
+  const noteNotebookId = note?.notebookId;
+  const canonicalNotebook = React.useMemo(
+    () => (noteNotebookId ? notebooks.find((nb) => nb.id === noteNotebookId) ?? null : null),
+    [notebooks, noteNotebookId],
+  );
+  React.useEffect(() => {
+    if (!note || !canonicalNotebook) return;
+    if (notebookSlug && notebookSlug !== canonicalNotebook.slug) {
+      navigate(`/c/${company.slug}/notes/${canonicalNotebook.slug}/${note.slug}`, {
+        replace: true,
+      });
+    }
+  }, [canonicalNotebook, company.slug, navigate, note, notebookSlug]);
+
   async function archive() {
     if (!note) return;
     try {
@@ -166,7 +192,11 @@ export default function NoteDetail({ company }: { company: Company }) {
         archived: true,
       });
       await refresh();
-      navigate(`/c/${company.slug}/notes`);
+      navigate(
+        notebookSlug
+          ? `/c/${company.slug}/notes/${notebookSlug}`
+          : `/c/${company.slug}/notes`,
+      );
     } catch (err) {
       toast((err as Error).message, "error");
     }
@@ -200,21 +230,11 @@ export default function NoteDetail({ company }: { company: Company }) {
     try {
       await api.del(`/api/companies/${company.id}/notes/${note.slug}`);
       await refresh();
-      navigate(`/c/${company.slug}/notes`);
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
-  }
-
-  async function moveToRoot() {
-    if (!note || !note.parentId) return;
-    try {
-      const updated = await api.patch<Note>(
-        `/api/companies/${company.id}/notes/${note.slug}`,
-        { parentSlug: null },
+      navigate(
+        notebookSlug
+          ? `/c/${company.slug}/notes/${notebookSlug}`
+          : `/c/${company.slug}/notes`,
       );
-      setNote(updated);
-      await refresh();
     } catch (err) {
       toast((err as Error).message, "error");
     }
@@ -229,6 +249,8 @@ export default function NoteDetail({ company }: { company: Company }) {
   }
 
   const breadcrumb = buildBreadcrumb(notes, note);
+  const notebook = canonicalNotebook;
+  const canonicalNotebookSlug = notebook?.slug ?? notebookSlug ?? "";
   const editor = note.lastEditedBy?.name ?? note.createdBy?.name ?? "Unknown";
   const editorKind = note.lastEditedBy?.kind ?? note.createdBy?.kind ?? null;
   const status = saving
@@ -248,12 +270,20 @@ export default function NoteDetail({ company }: { company: Company }) {
             items={[
               { label: company.name, to: `/c/${company.slug}` },
               { label: "Notes", to: `/c/${company.slug}/notes` },
+              ...(notebook
+                ? [
+                    {
+                      label: notebook.title || "Untitled notebook",
+                      to: `/c/${company.slug}/notes/${notebook.slug}`,
+                    },
+                  ]
+                : []),
               ...breadcrumb.map((b) => ({
                 label: b.title || "Untitled",
                 to:
                   b.id === note.id
                     ? undefined
-                    : `/c/${company.slug}/notes/${b.slug}`,
+                    : `/c/${company.slug}/notes/${canonicalNotebookSlug}/${b.slug}`,
               })),
             ]}
           />
@@ -293,17 +323,6 @@ export default function NoteDetail({ company }: { company: Company }) {
                   onClick={() => setMenuOpen(false)}
                 />
                 <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-900">
-                  {note.parentId && (
-                    <button
-                      onClick={() => {
-                        setMenuOpen(false);
-                        moveToRoot();
-                      }}
-                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
-                    >
-                      <ArrowUp size={14} /> Move to top level
-                    </button>
-                  )}
                   {note.archivedAt ? (
                     <>
                       <button
@@ -435,6 +454,7 @@ export default function NoteDetail({ company }: { company: Company }) {
       <ShareModal
         company={company}
         note={note}
+        notebookSlug={canonicalNotebookSlug}
         open={shareOpen}
         onClose={() => setShareOpen(false)}
       />
@@ -559,11 +579,13 @@ function IconPicker({
 function ShareModal({
   company,
   note,
+  notebookSlug,
   open,
   onClose,
 }: {
   company: Company;
   note: Note;
+  notebookSlug: string;
   open: boolean;
   onClose: () => void;
 }) {
@@ -630,6 +652,14 @@ function ShareModal({
   const inheritedDeduped = (grants?.inherited ?? []).filter(
     (g) => !directIds.has(g.employeeId),
   );
+  const inheritedEmpIds = new Set(inheritedDeduped.map((g) => g.employeeId));
+  const notebookInheritedDeduped = (grants?.notebookInherited ?? []).filter(
+    (g) => !directIds.has(g.employeeId) && !inheritedEmpIds.has(g.employeeId),
+  );
+  const totalCount =
+    (grants?.direct.length ?? 0) +
+    inheritedDeduped.length +
+    notebookInheritedDeduped.length;
 
   return (
     <Modal open={open} onClose={onClose} title="Share this note">
@@ -640,9 +670,10 @@ function ShareModal({
           <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
             Members of {company.name} always have access. Add AI employees
             below — they inherit the same level on every nested page.
+            Sharing the whole notebook covers every page in it at once.
           </div>
 
-          {grants.direct.length === 0 && inheritedDeduped.length === 0 ? (
+          {totalCount === 0 ? (
             <div className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
               No AI employee has access yet.
             </div>
@@ -659,7 +690,19 @@ function ShareModal({
                 />
               ))}
               {inheritedDeduped.map((g) => (
-                <InheritedGrantRow key={g.id} company={company} grant={g} />
+                <InheritedGrantRow
+                  key={g.id}
+                  company={company}
+                  notebookSlug={notebookSlug}
+                  grant={g}
+                />
+              ))}
+              {notebookInheritedDeduped.map((g) => (
+                <NotebookInheritedGrantRow
+                  key={g.id}
+                  company={company}
+                  grant={g}
+                />
               ))}
             </div>
           )}
@@ -800,13 +843,60 @@ function DirectGrantRow({
 
 function InheritedGrantRow({
   company,
+  notebookSlug,
   grant,
 }: {
   company: Company;
+  notebookSlug: string;
   grant: InheritedNoteGrant;
 }) {
   const emp = grant.employee;
   const sourceTitle = grant.source?.title || "an ancestor page";
+  return (
+    <div className="flex items-center gap-3 px-3 py-2.5 opacity-80">
+      <Avatar
+        name={emp?.name ?? "AI"}
+        src={emp ? employeeAvatarUrl(company.id, emp.id, emp.avatarKey) : null}
+        kind="ai"
+        size="sm"
+      />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+          {emp?.name ?? "Unknown"}
+        </div>
+        <Link
+          to={
+            grant.source && notebookSlug
+              ? `/c/${company.slug}/notes/${notebookSlug}/${grant.source.slug}`
+              : `/c/${company.slug}/notes`
+          }
+          className="block truncate text-xs text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300"
+          title={`Inherited from "${sourceTitle}". Manage on the source page.`}
+        >
+          inherited from {sourceTitle}
+        </Link>
+      </div>
+      <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+        {levelLabel(grant.accessLevel)}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Row for an employee whose access on this note comes from a grant on the
+ * whole notebook. Surfaced separately from per-note inheritance so the
+ * human can tell the two apart and follow the link to manage it.
+ */
+function NotebookInheritedGrantRow({
+  company,
+  grant,
+}: {
+  company: Company;
+  grant: NotebookInheritedGrant;
+}) {
+  const emp = grant.employee;
+  const sourceTitle = grant.source?.title || "this notebook";
   return (
     <div className="flex items-center gap-3 px-3 py-2.5 opacity-80">
       <Avatar
@@ -826,9 +916,9 @@ function InheritedGrantRow({
               : `/c/${company.slug}/notes`
           }
           className="block truncate text-xs text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300"
-          title={`Inherited from "${sourceTitle}". Manage on the source page.`}
+          title={`Shared on the "${sourceTitle}" notebook. Manage on the notebook page.`}
         >
-          inherited from {sourceTitle}
+          inherited from notebook · {sourceTitle}
         </Link>
       </div>
       <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">

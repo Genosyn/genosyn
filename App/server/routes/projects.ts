@@ -3,6 +3,7 @@ import { z } from "zod";
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { Company } from "../db/entities/Company.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Project } from "../db/entities/Project.js";
 import { Todo, TodoPriority, TodoRecurrence, TodoStatus } from "../db/entities/Todo.js";
@@ -12,6 +13,7 @@ import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { ChatTurn, chatWithEmployee } from "../services/chat.js";
+import { createNotification } from "../services/notifications.js";
 
 export const projectsRouter = Router({ mergeParams: true });
 projectsRouter.use(requireAuth);
@@ -536,6 +538,7 @@ projectsRouter.patch("/todos/:tid", validateBody(patchTodoSchema), async (req, r
   if (body.sortOrder !== undefined) t.sortOrder = body.sortOrder;
   if (body.recurrence !== undefined) t.recurrence = body.recurrence;
   let justCompleted = false;
+  let justEnteredReview = false;
   if (body.status !== undefined) {
     const prev = t.status;
     t.status = body.status;
@@ -544,9 +547,27 @@ projectsRouter.patch("/todos/:tid", validateBody(patchTodoSchema), async (req, r
       justCompleted = true;
     }
     if (body.status !== "done" && prev === "done") t.completedAt = null;
+    if (body.status === "in_review" && prev !== "in_review") {
+      justEnteredReview = true;
+    }
   }
 
   await AppDataSource.getRepository(Todo).save(t);
+
+  // Notify the human reviewer when work first enters their queue. Skip if
+  // the reviewer is themselves the one moving the card (no self-pings) or
+  // if the reviewer is an AI employee — bots don't get a bell.
+  if (justEnteredReview && t.reviewerUserId && t.reviewerUserId !== req.userId) {
+    void notifyTodoReviewRequested({
+      companyId: cid,
+      todo: t,
+      project: found.project,
+      actorUserId: req.userId ?? null,
+    }).catch((e) => {
+      // eslint-disable-next-line no-console
+      console.error("[projects] notify review requested failed:", e);
+    });
+  }
 
   // If a recurring todo was just completed, spawn the next instance so the
   // work reappears on the list when it's next due. We anchor the next dueAt
@@ -811,4 +832,35 @@ async function respondAsEmployee(
   pending.body = reply;
   pending.pending = false;
   await commentRepo.save(pending);
+}
+
+async function notifyTodoReviewRequested(args: {
+  companyId: string;
+  todo: Todo;
+  project: Project;
+  actorUserId: string | null;
+}): Promise<void> {
+  const { companyId, todo, project, actorUserId } = args;
+  if (!todo.reviewerUserId) return;
+  const company = await AppDataSource.getRepository(Company).findOneBy({
+    id: companyId,
+  });
+  if (!company) return;
+  const actor = actorUserId
+    ? await AppDataSource.getRepository(User).findOneBy({ id: actorUserId })
+    : null;
+  const actorName = actor?.name || actor?.email || "Someone";
+  const ref = `${project.key}-${todo.number}`;
+  await createNotification({
+    companyId,
+    userId: todo.reviewerUserId,
+    kind: "todo_review_requested",
+    title: `${actorName} requested your review on ${ref}`,
+    body: todo.title,
+    link: `/c/${company.slug}/tasks/p/${project.slug}`,
+    actorKind: actor ? "user" : "system",
+    actorId: actor?.id ?? null,
+    entityKind: "todo",
+    entityId: todo.id,
+  });
 }

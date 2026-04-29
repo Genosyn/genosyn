@@ -7,9 +7,13 @@ import {
   CreditCard,
   Database,
   Github,
+  Layers,
   Mail,
   Plug,
+  Server,
+  Table2,
   Trash2,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -40,8 +44,12 @@ const ICONS: Record<string, LucideIcon> = {
   BarChart3,
   Database,
   Github,
+  Layers,
   Mail,
   Plug,
+  Server,
+  Table2,
+  Zap,
 };
 
 function useCtx(): EmployeeOutletCtx {

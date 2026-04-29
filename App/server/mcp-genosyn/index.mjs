@@ -721,13 +721,29 @@ const TOOLS = [
     },
   },
   {
+    name: "list_notebooks",
+    description:
+      "List Notebooks for this company. Notebooks are the top-level grouping for Notes (every Note lives in exactly one Notebook). Use this to discover where the team files different kinds of pages — runbooks, briefs, post-mortems — before creating a new note.",
+    endpoint: "/tools/list_notebooks",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_notes",
     description:
-      "List Notes (Notion-style markdown pages) for this company. Notes are a shared knowledge base — both humans and AI employees can read and write. Use this to discover what context the team has captured before answering a question, or to find a page to update. Archived (trashed) notes are excluded by default; pass `includeArchived: true` to include them. Pass `parentSlug` to list direct children of a specific page.",
+      "List Notes (Notion-style markdown pages) for this company. Notes are a shared knowledge base — both humans and AI employees can read and write. Use this to discover what context the team has captured before answering a question, or to find a page to update. Archived (trashed) notes are excluded by default; pass `includeArchived: true` to include them. Pass `notebookSlug` to scope to one notebook, or `parentSlug` to list direct children of a specific page.",
     endpoint: "/tools/list_notes",
     inputSchema: {
       type: "object",
       properties: {
+        notebookSlug: {
+          type: "string",
+          description:
+            "Optional. Slug of a notebook — only notes in that notebook are returned. See list_notebooks.",
+        },
         parentSlug: {
           type: "string",
           description:
@@ -778,7 +794,7 @@ const TOOLS = [
   {
     name: "create_note",
     description:
-      "Create a new Note (Notion-style markdown page) in this company. Use this to capture decisions, runbooks, project context, design rationale, or anything a teammate (human or AI) might want to read later. Markdown headings, lists, and links are encouraged. Pass `parentSlug` to nest the new page underneath an existing one — useful for grouping a related cluster of pages. The note will appear in the sidebar for everyone in the company.",
+      "Create a new Note (Notion-style markdown page) in this company. Use this to capture decisions, runbooks, project context, design rationale, or anything a teammate (human or AI) might want to read later. Markdown headings, lists, and links are encouraged. Pass `notebookSlug` to file the page in a specific notebook (otherwise it lands in the company's default notebook), or `parentSlug` to nest the new page underneath an existing one — useful for grouping a related cluster of pages. The note will appear in the sidebar for everyone in the company.",
     endpoint: "/tools/create_note",
     inputSchema: {
       type: "object",
@@ -795,6 +811,11 @@ const TOOLS = [
           type: "string",
           description:
             "Optional emoji or short string shown in the sidebar (e.g. '📘').",
+        },
+        notebookSlug: {
+          type: "string",
+          description:
+            "Optional. Slug of the notebook to file the page in. Defaults to the company's default notebook. Ignored when `parentSlug` is set — sub-pages inherit their parent's notebook.",
         },
         parentSlug: {
           type: "string",

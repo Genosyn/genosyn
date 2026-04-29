@@ -16,6 +16,7 @@ import { routineTemplate, skillTemplate } from "../services/files.js";
 import { registerRoutine } from "../services/cron.js";
 import { recordAudit } from "../services/audit.js";
 import { resolveMcpToken } from "../services/mcpTokens.js";
+import { createNotification } from "../services/notifications.js";
 import {
   getGrantWithConnection,
   invokeConnectionTool,
@@ -60,12 +61,14 @@ import {
   renameChannel,
 } from "../services/workspaceChat.js";
 import { Note } from "../db/entities/Note.js";
+import { Notebook } from "../db/entities/Notebook.js";
 import { EmployeeNoteGrant } from "../db/entities/EmployeeNoteGrant.js";
 import {
   hasNoteAccess,
   listAccessibleNoteIds,
   upsertNoteGrant,
 } from "../services/notes.js";
+import { ensureDefaultNotebook } from "../services/notebooks.js";
 
 /**
  * Internal HTTP surface called by the built-in Genosyn MCP server binary.
@@ -780,13 +783,30 @@ mcpInternalRouter.post(
     if (body.description !== undefined) t.description = body.description;
     if (body.priority !== undefined) t.priority = body.priority;
     if (body.dueAt !== undefined) t.dueAt = body.dueAt ? new Date(body.dueAt) : null;
+    let justEnteredReview = false;
     if (body.status !== undefined) {
       const prev = t.status;
       t.status = body.status;
       if (body.status === "done" && prev !== "done") t.completedAt = new Date();
       if (body.status !== "done" && prev === "done") t.completedAt = null;
+      if (body.status === "in_review" && prev !== "in_review") {
+        justEnteredReview = true;
+      }
     }
     await todoRepo.save(t);
+
+    if (justEnteredReview && t.reviewerUserId) {
+      void notifyTodoReviewByEmployee({
+        companyId: co.id,
+        todo: t,
+        project,
+        actorEmployeeId: self.id,
+        actorEmployeeName: self.name,
+      }).catch((e) => {
+        // eslint-disable-next-line no-console
+        console.error("[mcpInternal] notify review requested failed:", e);
+      });
+    }
 
     await recordAudit({
       companyId: co.id,
@@ -2509,10 +2529,23 @@ function serializeNote(n: Note) {
     title: n.title,
     body: n.body,
     icon: n.icon,
+    notebookId: n.notebookId,
     parentId: n.parentId,
     archived: n.archivedAt !== null,
     createdAt: n.createdAt,
     updatedAt: n.updatedAt,
+  };
+}
+
+function serializeNotebook(nb: Notebook) {
+  return {
+    id: nb.id,
+    slug: nb.slug,
+    title: nb.title,
+    icon: nb.icon,
+    sortOrder: nb.sortOrder,
+    createdAt: nb.createdAt,
+    updatedAt: nb.updatedAt,
   };
 }
 
@@ -2529,6 +2562,7 @@ async function uniqueNoteSlug(companyId: string, base: string): Promise<string> 
 
 const listNotesSchema = z
   .object({
+    notebookSlug: z.string().min(1).max(80).optional(),
     parentSlug: z.string().min(1).max(160).optional(),
     includeArchived: z.boolean().optional(),
   })
@@ -2542,6 +2576,16 @@ mcpInternalRouter.post(
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
     const repo = AppDataSource.getRepository(Note);
+
+    let notebookId: string | undefined;
+    if (body.notebookSlug) {
+      const nb = await AppDataSource.getRepository(Notebook).findOneBy({
+        companyId: co.id,
+        slug: body.notebookSlug,
+      });
+      if (!nb) return res.status(404).json({ error: "Notebook not found" });
+      notebookId = nb.id;
+    }
 
     let parentId: string | null | undefined = undefined;
     if (body.parentSlug) {
@@ -2561,6 +2605,7 @@ mcpInternalRouter.post(
       companyId: co.id,
       id: In([...accessible]),
     };
+    if (notebookId !== undefined) where.notebookId = notebookId;
     if (parentId !== undefined) where.parentId = parentId;
     if (!body.includeArchived) where.archivedAt = IsNull();
     const notes = await repo.find({
@@ -2568,6 +2613,38 @@ mcpInternalRouter.post(
       order: { sortOrder: "ASC", updatedAt: "DESC" },
     });
     res.json({ notes: notes.map(serializeNote) });
+  },
+);
+
+const listNotebooksSchema = z.object({}).strict();
+
+mcpInternalRouter.post(
+  "/tools/list_notebooks",
+  validateBody(listNotebooksSchema),
+  async (req: McpRequest, res) => {
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    // Filter to notebooks the employee has any access to: either a direct
+    // notebook grant, or a note grant somewhere inside the notebook.
+    const accessible = await listAccessibleNoteIds(co.id, self.id);
+    const rows = await AppDataSource.getRepository(Notebook).find({
+      where: { companyId: co.id },
+      order: { sortOrder: "ASC", createdAt: "ASC" },
+    });
+    if (accessible.size === 0) return res.json({ notebooks: [] });
+    const accessibleNotebookIds = new Set<string>();
+    if (accessible.size > 0) {
+      const allNotes = await AppDataSource.getRepository(Note).find({
+        where: { companyId: co.id, id: In([...accessible]) },
+        select: ["notebookId"],
+      });
+      for (const n of allNotes) accessibleNotebookIds.add(n.notebookId);
+    }
+    res.json({
+      notebooks: rows
+        .filter((nb) => accessibleNotebookIds.has(nb.id))
+        .map(serializeNotebook),
+    });
   },
 );
 
@@ -2634,6 +2711,7 @@ const createNoteMcpSchema = z
     title: z.string().min(1).max(200),
     body: z.string().max(200_000).optional(),
     icon: z.string().max(40).optional(),
+    notebookSlug: z.string().min(1).max(80).optional(),
     parentSlug: z.string().min(1).max(160).optional(),
   })
   .strict();
@@ -2648,6 +2726,7 @@ mcpInternalRouter.post(
     const repo = AppDataSource.getRepository(Note);
 
     let parentId: string | null = null;
+    let parentNotebookId: string | null = null;
     if (body.parentSlug) {
       const parent = await repo.findOneBy({
         companyId: co.id,
@@ -2660,12 +2739,34 @@ mcpInternalRouter.post(
         return res.status(403).json({ error: "Need write access on the parent note" });
       }
       parentId = parent.id;
+      parentNotebookId = parent.notebookId;
+    }
+
+    let notebookId: string;
+    if (body.notebookSlug) {
+      const nb = await AppDataSource.getRepository(Notebook).findOneBy({
+        companyId: co.id,
+        slug: body.notebookSlug,
+      });
+      if (!nb) return res.status(400).json({ error: "Unknown notebook" });
+      if (parentNotebookId && nb.id !== parentNotebookId) {
+        return res.status(400).json({
+          error: "Sub-pages must live in the same notebook as their parent",
+        });
+      }
+      notebookId = nb.id;
+    } else if (parentNotebookId) {
+      notebookId = parentNotebookId;
+    } else {
+      const nb = await ensureDefaultNotebook(co.id, null);
+      notebookId = nb.id;
     }
 
     const slug = await uniqueNoteSlug(co.id, toSlug(body.title));
     const siblings = await repo.find({
       where: {
         companyId: co.id,
+        notebookId,
         parentId: parentId ?? IsNull(),
       },
       order: { sortOrder: "DESC" },
@@ -2675,6 +2776,7 @@ mcpInternalRouter.post(
 
     const note = repo.create({
       companyId: co.id,
+      notebookId,
       title: body.title,
       slug,
       body: body.body ?? "",
@@ -2870,4 +2972,32 @@ async function companyOwnerId(companyId: string): Promise<string | null> {
     id: companyId,
   });
   return co?.ownerId ?? null;
+}
+
+async function notifyTodoReviewByEmployee(args: {
+  companyId: string;
+  todo: Todo;
+  project: Project;
+  actorEmployeeId: string;
+  actorEmployeeName: string;
+}): Promise<void> {
+  const { companyId, todo, project, actorEmployeeId, actorEmployeeName } = args;
+  if (!todo.reviewerUserId) return;
+  const company = await AppDataSource.getRepository(Company).findOneBy({
+    id: companyId,
+  });
+  if (!company) return;
+  const ref = `${project.key}-${todo.number}`;
+  await createNotification({
+    companyId,
+    userId: todo.reviewerUserId,
+    kind: "todo_review_requested",
+    title: `${actorEmployeeName} requested your review on ${ref}`,
+    body: todo.title,
+    link: `/c/${company.slug}/tasks/p/${project.slug}`,
+    actorKind: "ai",
+    actorId: actorEmployeeId,
+    entityKind: "todo",
+    entityId: todo.id,
+  });
 }

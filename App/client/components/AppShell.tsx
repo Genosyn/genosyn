@@ -1,11 +1,30 @@
 import React from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
-import { ChevronDown, ChevronRight, LogOut, Monitor, Moon, Sun, UserCog } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  GitBranch,
+  type LucideIcon,
+  ListChecks,
+  LogOut,
+  MessageSquare,
+  Monitor,
+  Moon,
+  NotebookText,
+  Settings as SettingsIcon,
+  ShieldCheck,
+  Sun,
+  Table2,
+  UserCog,
+  Users,
+} from "lucide-react";
 import { api, Company, Me } from "../lib/api";
 import { useToast } from "./ui/Toast";
 import { useDialog } from "./ui/Dialog";
 import { Avatar, meAvatarUrl } from "./ui/Avatar";
+import { CompanySocketProvider } from "./CompanySocket";
 import { LogoMark } from "./Logo";
+import { NotificationsPanel } from "./NotificationsPanel";
 import { useTheme, Theme } from "./Theme";
 
 /**
@@ -35,73 +54,149 @@ type AppShellProps = {
 };
 
 export function AppShell({ me, companies, current, onCompaniesChanged, children }: AppShellProps) {
-  const attention = useAttention(current.id);
   return (
-    <div className="flex h-full flex-col">
-      <TopNav
-        me={me}
-        companies={companies}
-        current={current}
-        onCompaniesChanged={onCompaniesChanged}
-        attention={attention}
-      />
-      <div className="flex min-h-0 flex-1">{children}</div>
-    </div>
+    <CompanySocketProvider companyId={current.id}>
+      <div className="flex h-full flex-col">
+        <TopNav
+          me={me}
+          companies={companies}
+          current={current}
+          onCompaniesChanged={onCompaniesChanged}
+        />
+        <div className="flex min-h-0 flex-1">{children}</div>
+      </div>
+    </CompanySocketProvider>
   );
 }
 
-type AttentionSummary = { reviewCount: number; mentionCount: number };
+// ───────────────────────── Section catalog ──────────────────────────────
 
-/**
- * Polls the per-company "needs your attention" summary. Drives the counter
- * pills on the Workspace / Tasks top-nav tabs so the UI can nudge the viewer
- * toward pending reviews and unread @mentions without them hunting for it.
- *
- * Re-fetches on focus and every 30s — short enough that badges feel live,
- * long enough that an idle tab doesn't hammer the API.
- */
-function useAttention(companyId: string): AttentionSummary {
-  const [state, setState] = React.useState<AttentionSummary>({
-    reviewCount: 0,
-    mentionCount: 0,
-  });
-  React.useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const data = await api.get<AttentionSummary>(
-          `/api/companies/${companyId}/attention`,
-        );
-        if (!cancelled) setState(data);
-      } catch {
-        // Swallow — a failed poll shouldn't clobber the stale badge value.
-      }
-    }
-    load();
-    const interval = window.setInterval(load, 30_000);
-    const onFocus = () => load();
-    window.addEventListener("focus", onFocus);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-      window.removeEventListener("focus", onFocus);
-    };
-  }, [companyId]);
-  return state;
-}
+type SectionKey =
+  | "workspace"
+  | "employees"
+  | "tasks"
+  | "bases"
+  | "notes"
+  | "pipelines"
+  | "approvals"
+  | "settings";
+
+type SectionItem = {
+  key: SectionKey;
+  label: string;
+  description: string;
+  icon: LucideIcon;
+  /** Path under `/c/<slug>/…` — empty string for the company root. */
+  path: string;
+  iconBg: string;
+};
+
+type SectionGroup = { label: string; items: SectionItem[] };
+
+const SECTION_GROUPS: SectionGroup[] = [
+  {
+    label: "Essentials",
+    items: [
+      {
+        key: "workspace",
+        label: "Workspace",
+        description: "Slack-style channels and DMs.",
+        icon: MessageSquare,
+        path: "/workspace",
+        iconBg:
+          "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300",
+      },
+      {
+        key: "employees",
+        label: "Employees",
+        description: "AI teammates and their souls.",
+        icon: Users,
+        path: "",
+        iconBg:
+          "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
+      },
+      {
+        key: "tasks",
+        label: "Tasks",
+        description: "Projects, todos, review queue.",
+        icon: ListChecks,
+        path: "/tasks",
+        iconBg:
+          "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300",
+      },
+    ],
+  },
+  {
+    label: "Knowledge",
+    items: [
+      {
+        key: "bases",
+        label: "Bases",
+        description: "Airtable-style structured data.",
+        icon: Table2,
+        path: "/bases",
+        iconBg:
+          "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300",
+      },
+      {
+        key: "notes",
+        label: "Notes",
+        description: "Notion-style markdown pages.",
+        icon: NotebookText,
+        path: "/notes",
+        iconBg:
+          "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300",
+      },
+      {
+        key: "pipelines",
+        label: "Pipelines",
+        description: "n8n-style visual automation.",
+        icon: GitBranch,
+        path: "/pipelines",
+        iconBg:
+          "bg-sky-100 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300",
+      },
+    ],
+  },
+  {
+    label: "System",
+    items: [
+      {
+        key: "approvals",
+        label: "Approvals",
+        description: "Gate routines that need a human.",
+        icon: ShieldCheck,
+        path: "/approvals",
+        iconBg:
+          "bg-orange-100 text-orange-600 dark:bg-orange-500/15 dark:text-orange-300",
+      },
+      {
+        key: "settings",
+        label: "Settings",
+        description: "Members, integrations, billing.",
+        icon: SettingsIcon,
+        path: "/settings",
+        iconBg:
+          "bg-slate-200 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
+      },
+    ],
+  },
+];
+
+const SECTION_BY_KEY: Record<SectionKey, SectionItem> = Object.fromEntries(
+  SECTION_GROUPS.flatMap((g) => g.items).map((i) => [i.key, i]),
+) as Record<SectionKey, SectionItem>;
 
 function TopNav({
   me,
   companies,
   current,
   onCompaniesChanged,
-  attention,
 }: {
   me: Me;
   companies: Company[];
   current: Company;
   onCompaniesChanged: () => void;
-  attention: AttentionSummary;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -115,26 +210,11 @@ function TopNav({
     navigate("/login");
   }
 
-  // Determine active top-level section from the URL path so /employees/:slug
-  // still highlights "Employees".
-  const section = location.pathname.includes("/settings")
-    ? "settings"
-    : location.pathname.includes("/workspace")
-      ? "workspace"
-      : location.pathname.includes("/tasks")
-        ? "tasks"
-        : location.pathname.includes("/bases")
-          ? "bases"
-          : location.pathname.includes("/notes")
-            ? "notes"
-            : location.pathname.includes("/pipelines")
-              ? "pipelines"
-              : location.pathname.includes("/approvals")
-                ? "approvals"
-                : "employees";
+  const sectionKey = activeSection(location.pathname);
+  const section = SECTION_BY_KEY[sectionKey];
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-6 border-b border-slate-200 bg-white px-4 dark:border-slate-800 dark:bg-slate-950">
+    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 dark:border-slate-800 dark:bg-slate-950">
       <Link to={`/c/${current.slug}`} className="flex items-center gap-2">
         <LogoMark className="h-7 w-7" />
       </Link>
@@ -189,48 +269,12 @@ function TopNav({
         )}
       </div>
 
-      <nav className="flex items-center gap-1">
-        <TopTab
-          to={`/c/${current.slug}/workspace`}
-          active={section === "workspace"}
-          label="Workspace"
-          badge={attention.mentionCount}
-          badgeTitle={
-            attention.mentionCount === 1
-              ? "1 unread mention"
-              : `${attention.mentionCount} unread mentions`
-          }
-          badgeTone="rose"
-        />
-        <TopTab to={`/c/${current.slug}`} active={section === "employees"} label="Employees" />
-        <TopTab
-          to={`/c/${current.slug}/tasks`}
-          active={section === "tasks"}
-          label="Tasks"
-          badge={attention.reviewCount}
-          badgeTitle={
-            attention.reviewCount === 1
-              ? "1 task in review"
-              : `${attention.reviewCount} tasks in review`
-          }
-          badgeTone="violet"
-        />
-        <TopTab to={`/c/${current.slug}/bases`} active={section === "bases"} label="Bases" />
-        <TopTab to={`/c/${current.slug}/notes`} active={section === "notes"} label="Notes" />
-        <TopTab
-          to={`/c/${current.slug}/pipelines`}
-          active={section === "pipelines"}
-          label="Pipelines"
-        />
-        <TopTab
-          to={`/c/${current.slug}/approvals`}
-          active={section === "approvals"}
-          label="Approvals"
-        />
-        <TopTab to={`/c/${current.slug}/settings`} active={section === "settings"} label="Settings" />
-      </nav>
+      <ChevronRight size={14} className="text-slate-300 dark:text-slate-600" />
+
+      <SectionMenu current={section} companySlug={current.slug} />
 
       <div className="ml-auto flex items-center gap-2">
+        <NotificationsPanel company={current} meId={me.id} />
         <ThemeToggle />
         <div className="relative">
           <button
@@ -274,49 +318,129 @@ function TopNav({
   );
 }
 
-type BadgeTone = "rose" | "violet";
+/**
+ * Resolve the active top-level section from the URL path. Order matters
+ * because some routes nest (e.g. `/employees/:slug/settings`); the `/settings`
+ * check has to come AFTER more specific section checks fail.
+ */
+function activeSection(pathname: string): SectionKey {
+  if (/\/c\/[^/]+\/workspace(\/|$)/.test(pathname)) return "workspace";
+  if (/\/c\/[^/]+\/tasks(\/|$)/.test(pathname)) return "tasks";
+  if (/\/c\/[^/]+\/bases(\/|$)/.test(pathname)) return "bases";
+  if (/\/c\/[^/]+\/notes(\/|$)/.test(pathname)) return "notes";
+  if (/\/c\/[^/]+\/pipelines(\/|$)/.test(pathname)) return "pipelines";
+  if (/\/c\/[^/]+\/approvals(\/|$)/.test(pathname)) return "approvals";
+  if (/\/c\/[^/]+\/settings(\/|$)/.test(pathname)) return "settings";
+  return "employees";
+}
 
-function TopTab({
-  to,
-  active,
-  label,
-  badge,
-  badgeTitle,
-  badgeTone = "violet",
+/**
+ * Single section pill that opens the mega-menu. Replaces the row of
+ * eight horizontal tabs we used before — the bell handles attention
+ * counts, so the nav itself is purely a destination chooser now.
+ */
+function SectionMenu({
+  current,
+  companySlug,
 }: {
-  to: string;
-  active: boolean;
-  label: string;
-  badge?: number;
-  badgeTitle?: string;
-  badgeTone?: BadgeTone;
+  current: SectionItem;
+  companySlug: string;
 }) {
-  const show = typeof badge === "number" && badge > 0;
+  const [open, setOpen] = React.useState(false);
+  const navigate = useNavigate();
+  const Icon = current.icon;
+
+  React.useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
   return (
-    <Link
-      to={to}
-      className={
-        "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium " +
-        (active
-          ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
-          : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800")
-      }
-    >
-      <span>{label}</span>
-      {show && (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-2 rounded-md px-2 py-1 text-sm font-medium text-slate-900 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800"
+      >
         <span
-          title={badgeTitle}
           className={
-            "inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-[10px] font-semibold tabular-nums " +
-            (badgeTone === "rose"
-              ? "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-200"
-              : "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-200")
+            "flex h-5 w-5 items-center justify-center rounded " + current.iconBg
           }
         >
-          {badge! > 99 ? "99+" : badge}
+          <Icon size={12} />
         </span>
+        {current.label}
+        <ChevronDown size={14} className="text-slate-400" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 top-full z-20 mt-2 grid w-[44rem] grid-cols-3 gap-6 rounded-xl border border-slate-200 bg-white p-5 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+            {SECTION_GROUPS.map((g) => (
+              <div key={g.label} className="flex flex-col gap-1">
+                <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                  {g.label}
+                </div>
+                {g.items.map((item) => (
+                  <SectionMenuItem
+                    key={item.key}
+                    item={item}
+                    active={item.key === current.key}
+                    onClick={() => {
+                      setOpen(false);
+                      navigate(`/c/${companySlug}${item.path}`);
+                    }}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        </>
       )}
-    </Link>
+    </div>
+  );
+}
+
+function SectionMenuItem({
+  item,
+  active,
+  onClick,
+}: {
+  item: SectionItem;
+  active: boolean;
+  onClick: () => void;
+}) {
+  const Icon = item.icon;
+  return (
+    <button
+      onClick={onClick}
+      className={
+        "group flex items-start gap-3 rounded-lg p-2 text-left transition-colors " +
+        (active
+          ? "bg-slate-50 dark:bg-slate-800/60"
+          : "hover:bg-slate-50 dark:hover:bg-slate-800/60")
+      }
+    >
+      <span
+        className={
+          "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg " +
+          item.iconBg
+        }
+      >
+        <Icon size={18} />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-slate-900 dark:text-slate-100">
+          {item.label}
+        </span>
+        <span className="block text-xs text-slate-500 dark:text-slate-400">
+          {item.description}
+        </span>
+      </span>
+    </button>
   );
 }
 
