@@ -3,6 +3,7 @@ import { Link, useOutletContext } from "react-router-dom";
 import {
   AlertCircle,
   BarChart3,
+  BookOpen,
   Check,
   CheckCircle2,
   CreditCard,
@@ -19,6 +20,7 @@ import {
   Table2,
   Trash2,
   Users,
+  Workflow,
   X,
   Zap,
   type LucideIcon,
@@ -58,8 +60,9 @@ import type { SettingsOutletCtx } from "./SettingsLayout";
  */
 
 const ICONS: Record<string, LucideIcon> = {
-  CreditCard,
   BarChart3,
+  BookOpen,
+  CreditCard,
   Database,
   Github,
   Layers,
@@ -67,6 +70,7 @@ const ICONS: Record<string, LucideIcon> = {
   Plug,
   Server,
   Table2,
+  Workflow,
   Zap,
 };
 
