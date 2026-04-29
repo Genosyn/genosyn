@@ -721,6 +721,165 @@ const TOOLS = [
     },
   },
   {
+    name: "list_teams",
+    description:
+      "List the Teams (org chart groupings) in this company. Each team comes with its members so you can see who's on which team and resolve `@slug` to a real teammate. Use this when a teammate references 'the eng team' or 'who's on revenue?'.",
+    endpoint: "/tools/list_teams",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "list_handoffs",
+    description:
+      "List handoffs you're involved in. Use this at the top of a chat turn or routine run to check your inbox for delegated work. Defaults to incoming pending handoffs; pass `direction: 'outgoing'` for things you delegated, `direction: 'any'` for both, and `status` to filter (pending | completed | declined | cancelled).",
+    endpoint: "/tools/list_handoffs",
+    inputSchema: {
+      type: "object",
+      properties: {
+        direction: {
+          type: "string",
+          enum: ["incoming", "outgoing", "any"],
+          description: "Defaults to 'incoming'.",
+        },
+        status: {
+          type: "string",
+          enum: ["pending", "completed", "declined", "cancelled"],
+        },
+        limit: {
+          type: "number",
+          description: "Max rows to return (1–200, default 50).",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_handoff",
+    description:
+      "Hand a piece of work off to another AI employee. The receiver picks it up at the start of their next chat turn or routine run via list_handoffs. Pass `toEmployee` (slug or UUID) for an explicit handoff, or `toManager: true` to send it up your reporting line. Use this when something is genuinely outside your remit — don't fire-and-forget routine work, do the work yourself.",
+    endpoint: "/tools/create_handoff",
+    inputSchema: {
+      type: "object",
+      properties: {
+        toEmployee: {
+          type: "string",
+          description: "Slug (preferred) or UUID of the receiving employee.",
+        },
+        toManager: {
+          type: "boolean",
+          description:
+            "If true, hand off to your `reportsTo` employee. Errors if you don't have a manager set.",
+        },
+        title: {
+          type: "string",
+          description: "Short summary, e.g. 'Investigate Stripe webhook 500s'.",
+        },
+        body: {
+          type: "string",
+          description:
+            "Markdown brief: context, what you've already tried, what success looks like, links.",
+        },
+        dueAt: {
+          type: "string",
+          description: "Optional ISO-8601 deadline. The receiver sees this in their inbox.",
+        },
+      },
+      required: ["title"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "complete_handoff",
+    description:
+      "Mark a handoff you received as completed. Pass a `resolutionNote` describing what you did so the sender has the trail. Only the receiver can complete; only pending handoffs can transition.",
+    endpoint: "/tools/complete_handoff",
+    inputSchema: {
+      type: "object",
+      properties: {
+        handoffId: { type: "string", description: "UUID from list_handoffs." },
+        resolutionNote: {
+          type: "string",
+          description: "Markdown summary of what you did.",
+        },
+      },
+      required: ["handoffId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "decline_handoff",
+    description:
+      "Decline a handoff you received. Pass a `resolutionNote` explaining why so the sender can re-route. Only the receiver can decline; only pending handoffs can transition.",
+    endpoint: "/tools/decline_handoff",
+    inputSchema: {
+      type: "object",
+      properties: {
+        handoffId: { type: "string", description: "UUID from list_handoffs." },
+        resolutionNote: {
+          type: "string",
+          description: "Reason for declining (e.g. 'Out of scope; ask @bob-pm').",
+        },
+      },
+      required: ["handoffId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "cancel_handoff",
+    description:
+      "Retract a handoff you sent that hasn't been picked up yet. Use when the work no longer matters (priority shifted, problem resolved upstream). Only the sender can cancel; only pending handoffs can transition.",
+    endpoint: "/tools/cancel_handoff",
+    inputSchema: {
+      type: "object",
+      properties: {
+        handoffId: { type: "string", description: "UUID from list_handoffs." },
+        resolutionNote: {
+          type: "string",
+          description: "Optional reason for cancelling.",
+        },
+      },
+      required: ["handoffId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "send_workspace_message",
+    description:
+      "Post a message into the workspace chat — a public/private channel, a DM with another AI employee, or a DM with a human Member. Specify exactly one of `channel`, `dmEmployee`, or `dmUser`. If you @mention another employee by slug (e.g. 'can you take this @bob-pm?'), they will be auto-invited to public channels and reply on their own. Posts into a public channel auto-add you as a member; private channels require an existing membership. Use this for proactive updates (standups, status, handoffs) — don't spam, every message costs tokens for any employee asked to reply.",
+    endpoint: "/tools/send_workspace_message",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channel: {
+          type: "string",
+          description:
+            "Channel slug (e.g. 'engineering') or UUID. For public/private channels only — DMs use `dmEmployee` or `dmUser`.",
+        },
+        dmEmployee: {
+          type: "string",
+          description:
+            "Slug or UUID of another AI employee in the company. Opens (or reuses) a 1:1 DM with them and posts.",
+        },
+        dmUser: {
+          type: "string",
+          description:
+            "UUID of a human Member of this company. Opens (or reuses) a 1:1 DM with them and posts. Get IDs from the company directory.",
+        },
+        content: {
+          type: "string",
+          description:
+            "The message body. Markdown is rendered. Use @employee-slug to ping another AI; they'll be auto-added to public channels and reply.",
+        },
+        parentMessageId: {
+          type: "string",
+          description:
+            "Optional UUID of a message you're replying to (threaded). Omit for a top-level post.",
+        },
+      },
+      required: ["content"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_notebooks",
     description:
       "List Notebooks for this company. Notebooks are the top-level grouping for Notes (every Note lives in exactly one Notebook). Use this to discover where the team files different kinds of pages — runbooks, briefs, post-mortems — before creating a new note.",

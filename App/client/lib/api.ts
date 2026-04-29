@@ -109,12 +109,55 @@ export type Employee = {
   slug: string;
   role: string;
   avatarKey?: string | null;
+  teamId?: string | null;
+  reportsToEmployeeId?: string | null;
   /** Lightweight model summary, present only on the list endpoint. */
   model?: {
     provider: Provider;
     model: string;
     status: "connected" | "not_connected";
   } | null;
+};
+
+export type Team = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  archivedAt: string | null;
+  memberCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type HandoffStatus =
+  | "pending"
+  | "completed"
+  | "declined"
+  | "cancelled";
+
+export type HandoffParty = {
+  id: string;
+  slug: string;
+  name: string;
+  role: string;
+};
+
+export type Handoff = {
+  id: string;
+  companyId: string;
+  fromEmployeeId: string;
+  toEmployeeId: string;
+  from: HandoffParty | null;
+  to: HandoffParty | null;
+  title: string;
+  body: string;
+  status: HandoffStatus;
+  resolutionNote: string | null;
+  dueAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 export type Skill = { id: string; employeeId: string; name: string; slug: string };
 export type Routine = {

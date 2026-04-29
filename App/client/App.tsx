@@ -37,6 +37,9 @@ import {
   SettingsSecrets,
 } from "./pages/Settings";
 import { SettingsIntegrations } from "./pages/SettingsIntegrations";
+import { SettingsTeams } from "./pages/SettingsTeams";
+import { HandoffsPage } from "./pages/EmployeeHandoffs";
+import Inbox from "./pages/Inbox";
 import { EmployeeConnections } from "./pages/EmployeeConnections";
 import Invite from "./pages/Invite";
 import TasksLayout from "./pages/TasksLayout";
@@ -162,6 +165,9 @@ function CompanyRoutes({
     <AppShell me={me} companies={companies} current={company} onCompaniesChanged={onChanged}>
       <ChatSessionsProvider key={company.id}>
       <Routes>
+        {/* Inbox — company-wide rollup of today's journal entries. */}
+        <Route path="inbox" element={<Inbox company={company} />} />
+
         {/* Employees section — sidebar = roster */}
         <Route element={<EmployeesLayout company={company} />}>
           <Route index element={<EmployeesIndex company={company} />} />
@@ -178,6 +184,7 @@ function CompanyRoutes({
           <Route path="skills" element={<SkillsPage />} />
           <Route path="routines" element={<RoutinesPage />} />
           <Route path="journal" element={<JournalPage />} />
+          <Route path="handoffs" element={<HandoffsPage />} />
           <Route path="memory" element={<MemoryPage />} />
           <Route path="connections" element={<EmployeeConnections />} />
           <Route path="mcp" element={<McpPage />} />
@@ -251,6 +258,7 @@ function CompanyRoutes({
           <Route path="profile" element={<SettingsAccount />} />
           <Route path="company" element={<SettingsCompany />} />
           <Route path="members" element={<SettingsMembers />} />
+          <Route path="teams" element={<SettingsTeams />} />
           <Route path="integrations" element={<SettingsIntegrations />} />
           <Route path="secrets" element={<SettingsSecrets />} />
           <Route path="backup" element={<SettingsBackup />} />

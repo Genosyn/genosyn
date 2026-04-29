@@ -36,6 +36,22 @@ export class AIEmployee {
   @Column({ type: "varchar", nullable: true })
   avatarKey!: string | null;
 
+  /**
+   * Optional Team this employee belongs to (one team per employee for V1;
+   * a join table can land later if cross-team members ever matter). Drives
+   * the org chart, Handoff defaults, and team-scoped digests.
+   */
+  @Column({ type: "varchar", nullable: true })
+  teamId!: string | null;
+
+  /**
+   * Optional reporting line — the employee this one reports to. Self-FK,
+   * same-company constraint enforced in code. Used by `create_handoff`'s
+   * `manager: true` shortcut and by future escalation rules.
+   */
+  @Column({ type: "varchar", nullable: true })
+  reportsToEmployeeId!: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

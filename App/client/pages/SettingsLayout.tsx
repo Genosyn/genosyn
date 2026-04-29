@@ -6,6 +6,7 @@ import {
   Building2,
   KeyRound,
   Mail,
+  Network,
   Plug,
   ScrollText,
   Settings as SettingsIcon,
@@ -32,6 +33,7 @@ const SETTINGS_TAB_LABEL: Record<string, string> = {
   profile: "Profile",
   company: "Company",
   members: "Members",
+  teams: "Teams",
   integrations: "Integrations",
   email: "Email",
   providers: "Providers",
@@ -71,6 +73,7 @@ export default function SettingsLayout({
         </div>
         <SidebarLink to={`${base}/company`} icon={<Building2 size={14} />} label="Company" />
         <SidebarLink to={`${base}/members`} icon={<Users size={14} />} label="Members" />
+        <SidebarLink to={`${base}/teams`} icon={<Network size={14} />} label="Teams" />
         <SidebarLink to={`${base}/integrations`} icon={<Plug size={14} />} label="Integrations" />
         <SidebarLink to={`${base}/email`} icon={<Mail size={14} />} label="Email" />
         <SidebarLink to={`${base}/secrets`} icon={<KeyRound size={14} />} label="Secrets" />

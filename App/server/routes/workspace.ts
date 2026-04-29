@@ -269,7 +269,7 @@ workspaceRouter.post(
       : ({ kind: "ai", employeeId: body.targetEmployeeId! } as const);
     const channel = await findOrCreateDM({
       companyId: co.id,
-      fromUserId: req.userId!,
+      from: { kind: "user", userId: req.userId! },
       target,
     });
     const hydrated = await getChannel(channel.id, co.id, req.userId!);
@@ -325,7 +325,7 @@ workspaceRouter.post(
       const msg = await postMessage({
         channelId: req.params.channelId,
         companyId: co.id,
-        authorUserId: req.userId!,
+        author: { kind: "user", userId: req.userId! },
         content: body.content,
         parentMessageId: body.parentMessageId ?? null,
         attachmentIds: body.attachmentIds,

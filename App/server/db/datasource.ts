@@ -50,6 +50,8 @@ import { Note } from "./entities/Note.js";
 import { EmployeeNoteGrant } from "./entities/EmployeeNoteGrant.js";
 import { EmployeeNotebookGrant } from "./entities/EmployeeNotebookGrant.js";
 import { Notification } from "./entities/Notification.js";
+import { Team } from "./entities/Team.js";
+import { Handoff } from "./entities/Handoff.js";
 
 const entities = [
   User,
@@ -98,6 +100,8 @@ const entities = [
   EmployeeNoteGrant,
   EmployeeNotebookGrant,
   Notification,
+  Team,
+  Handoff,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

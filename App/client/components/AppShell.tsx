@@ -4,6 +4,7 @@ import {
   ChevronDown,
   ChevronRight,
   GitBranch,
+  Inbox,
   type LucideIcon,
   ListChecks,
   LogOut,
@@ -72,6 +73,7 @@ export function AppShell({ me, companies, current, onCompaniesChanged, children 
 // ───────────────────────── Section catalog ──────────────────────────────
 
 type SectionKey =
+  | "inbox"
   | "workspace"
   | "employees"
   | "tasks"
@@ -97,6 +99,15 @@ const SECTION_GROUPS: SectionGroup[] = [
   {
     label: "Essentials",
     items: [
+      {
+        key: "inbox",
+        label: "Inbox",
+        description: "Today's journal entries across employees.",
+        icon: Inbox,
+        path: "/inbox",
+        iconBg:
+          "bg-cyan-100 text-cyan-600 dark:bg-cyan-500/15 dark:text-cyan-300",
+      },
       {
         key: "workspace",
         label: "Workspace",
@@ -324,6 +335,7 @@ function TopNav({
  * check has to come AFTER more specific section checks fail.
  */
 function activeSection(pathname: string): SectionKey {
+  if (/\/c\/[^/]+\/inbox(\/|$)/.test(pathname)) return "inbox";
   if (/\/c\/[^/]+\/workspace(\/|$)/.test(pathname)) return "workspace";
   if (/\/c\/[^/]+\/tasks(\/|$)/.test(pathname)) return "tasks";
   if (/\/c\/[^/]+\/bases(\/|$)/.test(pathname)) return "bases";

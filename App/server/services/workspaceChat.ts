@@ -203,46 +203,88 @@ export async function createChannel(params: {
   return channel;
 }
 
+export type DmActor =
+  | { kind: "user"; userId: string }
+  | { kind: "ai"; employeeId: string };
+
+function dmActorMatchesMember(actor: DmActor, m: ChannelMember): boolean {
+  if (actor.kind === "user") {
+    return m.memberKind === "user" && m.userId === actor.userId;
+  }
+  return m.memberKind === "ai" && m.employeeId === actor.employeeId;
+}
+
+function dmActorEquals(a: DmActor, b: DmActor): boolean {
+  if (a.kind !== b.kind) return false;
+  return a.kind === "user"
+    ? a.userId === (b as { userId: string }).userId
+    : a.employeeId === (b as { employeeId: string }).employeeId;
+}
+
+function newMemberRowForActor(
+  channelId: string,
+  actor: DmActor,
+  lastReadAt: Date | null,
+): ChannelMember {
+  const { members } = repos();
+  if (actor.kind === "user") {
+    return members.create({
+      channelId,
+      memberKind: "user",
+      userId: actor.userId,
+      employeeId: null,
+      lastReadAt,
+    });
+  }
+  return members.create({
+    channelId,
+    memberKind: "ai",
+    userId: null,
+    employeeId: actor.employeeId,
+    lastReadAt,
+  });
+}
+
 export async function findOrCreateDM(params: {
   companyId: string;
-  fromUserId: string;
-  target: { kind: "user"; userId: string } | { kind: "ai"; employeeId: string };
+  from: DmActor;
+  target: DmActor;
 }): Promise<Channel> {
   const { channels, members } = repos();
 
+  if (dmActorEquals(params.from, params.target)) {
+    throw new Error("Cannot DM yourself");
+  }
+
   // A DM between A and B is the unique channel with kind='dm' whose members
   // are exactly {A, B}. SQLite doesn't have MINUS/INTERSECT tuple-style
-  // queries that would make this a one-shot, so we enumerate the user's DM
+  // queries that would make this a one-shot, so we enumerate the actor's DM
   // memberships and check each for the right counterparty. Volumes are
   // small (DMs are per-person, per-counterparty) so N is comfortable.
-  const myDMs = await members
+  const myDMsQB = members
     .createQueryBuilder("cm")
     .innerJoin(Channel, "c", "c.id = cm.channelId")
     .where("c.companyId = :companyId", { companyId: params.companyId })
     .andWhere("c.kind = 'dm'")
-    .andWhere("c.archivedAt IS NULL")
-    .andWhere("cm.userId = :userId", { userId: params.fromUserId })
-    .getMany();
+    .andWhere("c.archivedAt IS NULL");
+  if (params.from.kind === "user") {
+    myDMsQB
+      .andWhere("cm.memberKind = 'user'")
+      .andWhere("cm.userId = :uid", { uid: params.from.userId });
+  } else {
+    myDMsQB
+      .andWhere("cm.memberKind = 'ai'")
+      .andWhere("cm.employeeId = :eid", { eid: params.from.employeeId });
+  }
+  const myDMs = await myDMsQB.getMany();
 
   for (const m of myDMs) {
     const others = await members.find({ where: { channelId: m.channelId } });
     if (others.length !== 2) continue;
-    const me = others.find((x) => x.userId === params.fromUserId);
+    const me = others.find((x) => dmActorMatchesMember(params.from, x));
     const counter = others.find((x) => x.id !== me?.id);
     if (!me || !counter) continue;
-    if (
-      params.target.kind === "user" &&
-      counter.memberKind === "user" &&
-      counter.userId === params.target.userId
-    ) {
-      const ch = await channels.findOneBy({ id: m.channelId });
-      if (ch) return ch;
-    }
-    if (
-      params.target.kind === "ai" &&
-      counter.memberKind === "ai" &&
-      counter.employeeId === params.target.employeeId
-    ) {
+    if (dmActorMatchesMember(params.target, counter)) {
       const ch = await channels.findOneBy({ id: m.channelId });
       if (ch) return ch;
     }
@@ -254,42 +296,16 @@ export async function findOrCreateDM(params: {
     name: null,
     slug: null,
     topic: "",
-    createdByUserId: params.fromUserId,
+    createdByUserId: params.from.kind === "user" ? params.from.userId : null,
     archivedAt: null,
     lastMessageAt: null,
   });
   await channels.save(channel);
 
   const memberRows: ChannelMember[] = [
-    members.create({
-      channelId: channel.id,
-      memberKind: "user",
-      userId: params.fromUserId,
-      employeeId: null,
-      lastReadAt: new Date(),
-    }),
+    newMemberRowForActor(channel.id, params.from, new Date()),
+    newMemberRowForActor(channel.id, params.target, null),
   ];
-  if (params.target.kind === "user") {
-    memberRows.push(
-      members.create({
-        channelId: channel.id,
-        memberKind: "user",
-        userId: params.target.userId,
-        employeeId: null,
-        lastReadAt: null,
-      }),
-    );
-  } else {
-    memberRows.push(
-      members.create({
-        channelId: channel.id,
-        memberKind: "ai",
-        userId: null,
-        employeeId: params.target.employeeId,
-        lastReadAt: null,
-      }),
-    );
-  }
   await members.save(memberRows);
   return channel;
 }
@@ -398,7 +414,7 @@ export async function removeChannelMember(
 export async function postMessage(params: {
   channelId: string;
   companyId: string;
-  authorUserId: string;
+  author: DmActor;
   content: string;
   parentMessageId?: string | null;
   attachmentIds?: string[];
@@ -410,9 +426,9 @@ export async function postMessage(params: {
 
   const msg = messages.create({
     channelId: params.channelId,
-    authorKind: "user",
-    authorUserId: params.authorUserId,
-    authorEmployeeId: null,
+    authorKind: params.author.kind === "user" ? "user" : "ai",
+    authorUserId: params.author.kind === "user" ? params.author.userId : null,
+    authorEmployeeId: params.author.kind === "ai" ? params.author.employeeId : null,
     content: params.content,
     parentMessageId: params.parentMessageId ?? null,
     editedAt: null,
@@ -429,7 +445,9 @@ export async function postMessage(params: {
   }
   await channels.update({ id: channel.id }, { lastMessageAt: msg.createdAt });
 
-  const summary = await hydrateMessage(msg, params.authorUserId);
+  const viewerUserId =
+    params.author.kind === "user" ? params.author.userId : null;
+  const summary = await hydrateMessage(msg, viewerUserId);
   broadcastToCompany(params.companyId, {
     type: "message.new",
     channelId: channel.id,
@@ -437,25 +455,29 @@ export async function postMessage(params: {
   });
 
   // Fire-and-forget AI replies for @mentions. Failures log but don't back-
-  // pressure the human's request.
+  // pressure the caller's request.
   void handleMentions({
     channel,
     message: msg,
-    triggeringUserId: params.authorUserId,
+    trigger: params.author,
   }).catch((e) => {
     console.error("[workspaceChat] mention reply failed:", e);
   });
 
-  // Generate per-recipient bell notifications for human teammates targeted
-  // by this message: every DM counterpart, plus anyone @-mentioned by
-  // handle in a public/private channel they can see.
-  void notifyHumanRecipients({
-    channel,
-    message: msg,
-    authorUserId: params.authorUserId,
-  }).catch((e) => {
-    console.error("[workspaceChat] notify recipients failed:", e);
-  });
+  // Bell notifications for human recipients only fire on human-authored
+  // messages today — the notification surface is tuned for human@human
+  // pings. AI-authored messages still trigger an AI reply via
+  // handleMentions; a dedicated AI-to-human bell can land later.
+  if (params.author.kind === "user") {
+    const authorUserId = params.author.userId;
+    void notifyHumanRecipients({
+      channel,
+      message: msg,
+      authorUserId,
+    }).catch((e) => {
+      console.error("[workspaceChat] notify recipients failed:", e);
+    });
+  }
 
   return summary;
 }
@@ -685,7 +707,7 @@ async function hydrateChannel(
 
 async function hydrateMessage(
   m: ChannelMessage,
-  viewerUserId: string,
+  viewerUserId: string | null,
 ): Promise<MessageSummary> {
   const [list] = await hydrateMessages([m], viewerUserId);
   return list;
@@ -693,7 +715,7 @@ async function hydrateMessage(
 
 async function hydrateMessages(
   msgs: ChannelMessage[],
-  viewerUserId: string,
+  viewerUserId: string | null,
 ): Promise<MessageSummary[]> {
   if (msgs.length === 0) return [];
   const { reactions, users, employees } = repos();
@@ -784,7 +806,8 @@ async function hydrateMessages(
     }
     const reactionSummaries: ReactionSummary[] = [];
     for (const [emoji, arr] of byEmoji) {
-      const byMe = arr.some((r) => r.userId === viewerUserId);
+      const byMe =
+        viewerUserId !== null && arr.some((r) => r.userId === viewerUserId);
       const actors: ReactionSummary["actors"] = arr.map((r) => {
         if (r.userId) {
           const u = reactUserMap.get(r.userId);
@@ -835,7 +858,7 @@ function parseMentionSlugs(content: string): string[] {
 async function handleMentions(args: {
   channel: Channel;
   message: ChannelMessage;
-  triggeringUserId: string;
+  trigger: DmActor;
 }): Promise<void> {
   const { employees, members, channels, messages: msgRepo } = repos();
 
@@ -855,11 +878,28 @@ async function handleMentions(args: {
     const memberRows = await members.find({
       where: { channelId: args.channel.id },
     });
-    const aiMember = memberRows.find((m) => m.memberKind === "ai");
-    if (aiMember?.employeeId) {
-      const e = await employees.findOneBy({ id: aiMember.employeeId });
+    // Pick the AI counterparty — if the trigger itself is an AI (AI↔AI DM),
+    // skip the sender so we don't ask Alice to reply to her own message.
+    const counterpart = memberRows.find(
+      (m) =>
+        m.memberKind === "ai" &&
+        m.employeeId !== null &&
+        !(
+          args.trigger.kind === "ai" &&
+          m.employeeId === args.trigger.employeeId
+        ),
+    );
+    if (counterpart?.employeeId) {
+      const e = await employees.findOneBy({ id: counterpart.employeeId });
       if (e) respondingEmployees = [e];
     }
+  }
+
+  // Self-mention loop guard: an AI sender shouldn't reply to its own message
+  // even if it typed `@its-own-slug`.
+  if (args.trigger.kind === "ai") {
+    const senderId = args.trigger.employeeId;
+    respondingEmployees = respondingEmployees.filter((e) => e.id !== senderId);
   }
 
   if (respondingEmployees.length === 0) return;
@@ -912,8 +952,11 @@ async function handleMentions(args: {
       emp.id,
       args.channel.id,
     );
-    const userLabel = await userLabelFor(args.triggeringUserId);
-    const framed = framedMention(args.message.content, userLabel);
+    const triggerLabel =
+      args.trigger.kind === "user"
+        ? await userLabelFor(args.trigger.userId)
+        : await employeeLabelFor(args.trigger.employeeId);
+    const framed = framedMention(args.message.content, triggerLabel);
 
     // Broadcast typing every 3 s while the CLI is thinking so teammates
     // see a "{name} is typing..." pill instead of silence. The interval
@@ -953,7 +996,9 @@ async function handleMentions(args: {
       }),
     );
     await channels.update({ id: args.channel.id }, { lastMessageAt: reply.createdAt });
-    const summary = await hydrateMessage(reply, args.triggeringUserId);
+    const viewerUserId =
+      args.trigger.kind === "user" ? args.trigger.userId : null;
+    const summary = await hydrateMessage(reply, viewerUserId);
     broadcastToCompany(args.channel.companyId, {
       type: "message.new",
       channelId: args.channel.id,
@@ -1009,6 +1054,13 @@ async function historyForEmployee(
 async function userLabelFor(userId: string): Promise<string> {
   const u = await AppDataSource.getRepository(User).findOneBy({ id: userId });
   return u?.name || u?.email || "Teammate";
+}
+
+async function employeeLabelFor(employeeId: string): Promise<string> {
+  const e = await AppDataSource.getRepository(AIEmployee).findOneBy({
+    id: employeeId,
+  });
+  return e?.name || "AI teammate";
 }
 
 /**

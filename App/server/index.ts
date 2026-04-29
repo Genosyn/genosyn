@@ -41,6 +41,9 @@ import { emailLogsRouter } from "./routes/emailLogs.js";
 import { notebooksRouter } from "./routes/notebooks.js";
 import { notesRouter } from "./routes/notes.js";
 import { notificationsRouter } from "./routes/notifications.js";
+import { teamsRouter } from "./routes/teams.js";
+import { handoffsRouter } from "./routes/handoffs.js";
+import { inboxRouter } from "./routes/inbox.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -99,6 +102,13 @@ async function main() {
   app.use("/api/companies/:cid/employees", employeeSurfaceRouter);
   app.use("/api/companies/:cid", skillsRouter);
   app.use("/api/companies/:cid", routinesRouter);
+  // Org chart + Handoffs (Phase B). Teams group employees; Handoffs are
+  // formal AI→AI delegation with status workflow.
+  app.use("/api/companies/:cid", teamsRouter);
+  app.use("/api/companies/:cid", handoffsRouter);
+  // Company-wide daily digest (Phase C). Rolls up today's journal entries
+  // across all employees so humans get a single feed.
+  app.use("/api/companies/:cid", inboxRouter);
   // Projects + Todos (task manager). See ROADMAP.md V1 backlog.
   app.use("/api/companies/:cid", projectsRouter);
   // Per-user notification feed — bell + panel in the top bar.

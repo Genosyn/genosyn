@@ -57,9 +57,17 @@ import {
   archiveChannel,
   createChannel,
   findChannelBySlugOrId,
+  findOrCreateDM,
   listChannelsForEmployee,
+  postMessage,
   renameChannel,
 } from "../services/workspaceChat.js";
+import { Channel } from "../db/entities/Channel.js";
+import { ChannelMember } from "../db/entities/ChannelMember.js";
+import { User } from "../db/entities/User.js";
+import { Membership } from "../db/entities/Membership.js";
+import { Team } from "../db/entities/Team.js";
+import { Handoff, type HandoffStatus } from "../db/entities/Handoff.js";
 import { Note } from "../db/entities/Note.js";
 import { Notebook } from "../db/entities/Notebook.js";
 import { EmployeeNoteGrant } from "../db/entities/EmployeeNoteGrant.js";
@@ -2517,6 +2525,474 @@ mcpInternalRouter.post(
       "Via the built-in MCP tool.",
     );
     res.json({ ok: true });
+  },
+);
+
+// ─────────────────── Workspace messages (AI ↔ AI / AI → human) ──────────
+
+const sendWorkspaceMessageSchema = z
+  .object({
+    channel: z.string().min(1).max(120).optional(),
+    dmEmployee: z.string().min(1).max(120).optional(),
+    dmUser: z.string().uuid().optional(),
+    content: z.string().min(1).max(16_000),
+    parentMessageId: z.string().uuid().nullable().optional(),
+  })
+  .strict()
+  .refine(
+    (v) =>
+      [v.channel, v.dmEmployee, v.dmUser].filter(
+        (x) => typeof x === "string" && x.length > 0,
+      ).length === 1,
+    {
+      message: "Specify exactly one of: channel, dmEmployee, dmUser.",
+    },
+  );
+
+mcpInternalRouter.post(
+  "/tools/send_workspace_message",
+  validateBody(sendWorkspaceMessageSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof sendWorkspaceMessageSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+
+    let channel: Channel;
+    let auditTarget: { type: string; id: string; label: string };
+    let journalTitle: string;
+
+    if (body.channel) {
+      const ch = await findChannelBySlugOrId(co.id, body.channel);
+      if (!ch) return res.status(404).json({ error: "Channel not found" });
+      if (ch.archivedAt) {
+        return res.status(400).json({ error: "Channel is archived" });
+      }
+      if (ch.kind === "dm") {
+        return res.status(400).json({
+          error:
+            "That is a DM channel; pass `dmEmployee` or `dmUser` instead of `channel`.",
+        });
+      }
+      // Auto-join public channels (mirrors the @mention auto-join in chat).
+      // Private channels require an explicit grant — refuse to broadcast
+      // into a room the AI was never invited to.
+      const memberRepo = AppDataSource.getRepository(ChannelMember);
+      const existing = await memberRepo.findOneBy({
+        channelId: ch.id,
+        memberKind: "ai",
+        employeeId: self.id,
+      });
+      if (!existing) {
+        if (ch.kind === "private") {
+          return res.status(403).json({
+            error: "Not a member of this private channel.",
+          });
+        }
+        await memberRepo.save(
+          memberRepo.create({
+            channelId: ch.id,
+            memberKind: "ai",
+            userId: null,
+            employeeId: self.id,
+            lastReadAt: null,
+          }),
+        );
+      }
+      channel = ch;
+      auditTarget = {
+        type: "channel",
+        id: ch.id,
+        label: ch.name ?? ch.slug ?? "channel",
+      };
+      journalTitle = `${self.name} posted in #${ch.slug ?? "channel"}`;
+    } else if (body.dmEmployee) {
+      const empRepo = AppDataSource.getRepository(AIEmployee);
+      const target =
+        (await empRepo.findOneBy({
+          id: body.dmEmployee,
+          companyId: co.id,
+        })) ??
+        (await empRepo.findOneBy({
+          slug: body.dmEmployee.toLowerCase(),
+          companyId: co.id,
+        }));
+      if (!target) {
+        return res.status(404).json({ error: "Employee not found" });
+      }
+      if (target.id === self.id) {
+        return res.status(400).json({ error: "Cannot DM yourself" });
+      }
+      channel = await findOrCreateDM({
+        companyId: co.id,
+        from: { kind: "ai", employeeId: self.id },
+        target: { kind: "ai", employeeId: target.id },
+      });
+      auditTarget = {
+        type: "channel",
+        id: channel.id,
+        label: `DM with ${target.name}`,
+      };
+      journalTitle = `${self.name} DM'd ${target.name}`;
+    } else if (body.dmUser) {
+      // Human Member of the same company. Cross-company DMs are refused.
+      const member = await AppDataSource.getRepository(Membership).findOneBy({
+        companyId: co.id,
+        userId: body.dmUser,
+      });
+      if (!member) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      const user = await AppDataSource.getRepository(User).findOneBy({
+        id: body.dmUser,
+      });
+      if (!user) return res.status(404).json({ error: "User not found" });
+      channel = await findOrCreateDM({
+        companyId: co.id,
+        from: { kind: "ai", employeeId: self.id },
+        target: { kind: "user", userId: user.id },
+      });
+      auditTarget = {
+        type: "channel",
+        id: channel.id,
+        label: `DM with ${user.name || user.email}`,
+      };
+      journalTitle = `${self.name} DM'd ${user.name || user.email}`;
+    } else {
+      return res.status(400).json({ error: "No target specified" });
+    }
+
+    let summary;
+    try {
+      summary = await postMessage({
+        channelId: channel.id,
+        companyId: co.id,
+        author: { kind: "ai", employeeId: self.id },
+        content: body.content,
+        parentMessageId: body.parentMessageId ?? null,
+      });
+    } catch (err) {
+      return res.status(400).json({
+        error: err instanceof Error ? err.message : "Send failed",
+      });
+    }
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "channel_message.create",
+      targetType: auditTarget.type,
+      targetId: auditTarget.id,
+      targetLabel: auditTarget.label,
+      metadata: {
+        via: "mcp",
+        messageId: summary.id,
+        channelKind: channel.kind,
+      },
+    });
+    await journal(
+      self.id,
+      journalTitle,
+      body.content.length > 240
+        ? `${body.content.slice(0, 240)}…`
+        : body.content,
+    );
+
+    res.json({
+      message: summary,
+      channel: {
+        id: channel.id,
+        kind: channel.kind,
+        slug: channel.slug,
+        name: channel.name,
+      },
+    });
+  },
+);
+
+// ─────────────────── Org chart (Teams + reporting line) ────────────────
+
+const listTeamsSchema = z.object({}).strict();
+mcpInternalRouter.post(
+  "/tools/list_teams",
+  validateBody(listTeamsSchema),
+  async (req: McpRequest, res) => {
+    const co = req.mcpCompany!;
+    const teams = await AppDataSource.getRepository(Team).find({
+      where: { companyId: co.id },
+      order: { name: "ASC" },
+    });
+    const empRepo = AppDataSource.getRepository(AIEmployee);
+    const out = [];
+    for (const t of teams) {
+      if (t.archivedAt) continue;
+      const members = await empRepo.find({
+        where: { teamId: t.id, companyId: co.id },
+        order: { name: "ASC" },
+      });
+      out.push({
+        id: t.id,
+        slug: t.slug,
+        name: t.name,
+        description: t.description,
+        members: members.map((e) => ({
+          id: e.id,
+          slug: e.slug,
+          name: e.name,
+          role: e.role,
+        })),
+      });
+    }
+    res.json({ teams: out });
+  },
+);
+
+// ─────────────────── Handoffs (AI → AI delegation) ──────────────────────
+
+async function findEmployeeBySlugOrId(
+  companyId: string,
+  idOrSlug: string,
+): Promise<AIEmployee | null> {
+  const repo = AppDataSource.getRepository(AIEmployee);
+  const byId = await repo.findOneBy({ id: idOrSlug, companyId });
+  if (byId) return byId;
+  return repo.findOneBy({ companyId, slug: idOrSlug.toLowerCase() });
+}
+
+function serializeHandoff(h: Handoff) {
+  return {
+    id: h.id,
+    fromEmployeeId: h.fromEmployeeId,
+    toEmployeeId: h.toEmployeeId,
+    title: h.title,
+    body: h.body,
+    status: h.status,
+    resolutionNote: h.resolutionNote,
+    dueAt: h.dueAt?.toISOString() ?? null,
+    completedAt: h.completedAt?.toISOString() ?? null,
+    createdAt: h.createdAt.toISOString(),
+    updatedAt: h.updatedAt.toISOString(),
+  };
+}
+
+const listHandoffsSchema = z
+  .object({
+    direction: z.enum(["incoming", "outgoing", "any"]).optional(),
+    status: z.enum(["pending", "completed", "declined", "cancelled"]).optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/list_handoffs",
+  validateBody(listHandoffsSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof listHandoffsSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const direction = body.direction ?? "incoming";
+    const qb = AppDataSource.getRepository(Handoff)
+      .createQueryBuilder("h")
+      .where("h.companyId = :cid", { cid: co.id });
+    if (direction === "incoming") {
+      qb.andWhere("h.toEmployeeId = :eid", { eid: self.id });
+    } else if (direction === "outgoing") {
+      qb.andWhere("h.fromEmployeeId = :eid", { eid: self.id });
+    } else {
+      qb.andWhere(
+        "(h.toEmployeeId = :eid OR h.fromEmployeeId = :eid)",
+        { eid: self.id },
+      );
+    }
+    if (body.status) qb.andWhere("h.status = :status", { status: body.status });
+    qb.orderBy("h.createdAt", "DESC").take(body.limit ?? 50);
+    const rows = await qb.getMany();
+    res.json({ handoffs: rows.map(serializeHandoff) });
+  },
+);
+
+const createHandoffSchema = z
+  .object({
+    toEmployee: z.string().min(1).max(120).optional(),
+    toManager: z.boolean().optional(),
+    title: z.string().min(1).max(160),
+    body: z.string().max(20_000).optional(),
+    dueAt: z.string().datetime().optional(),
+  })
+  .strict()
+  .refine(
+    (v) => Boolean(v.toEmployee) !== Boolean(v.toManager),
+    {
+      message: "Specify exactly one of `toEmployee` (slug/UUID) or `toManager: true`.",
+    },
+  );
+
+mcpInternalRouter.post(
+  "/tools/create_handoff",
+  validateBody(createHandoffSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof createHandoffSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    let target: AIEmployee | null = null;
+    if (body.toManager) {
+      if (!self.reportsToEmployeeId) {
+        return res.status(400).json({
+          error: "You don't have a manager set. Ask a human to wire up your reporting line, or pass `toEmployee` instead.",
+        });
+      }
+      target = await AppDataSource.getRepository(AIEmployee).findOneBy({
+        id: self.reportsToEmployeeId,
+        companyId: co.id,
+      });
+      if (!target) {
+        return res
+          .status(400)
+          .json({ error: "Manager record is stale; ask a human to fix it." });
+      }
+    } else if (body.toEmployee) {
+      target = await findEmployeeBySlugOrId(co.id, body.toEmployee);
+      if (!target) {
+        return res.status(404).json({ error: "Employee not found" });
+      }
+    }
+    if (!target) {
+      return res.status(400).json({ error: "No target resolved" });
+    }
+    if (target.id === self.id) {
+      return res.status(400).json({ error: "Cannot hand off to yourself" });
+    }
+    const repo = AppDataSource.getRepository(Handoff);
+    const h = repo.create({
+      companyId: co.id,
+      fromEmployeeId: self.id,
+      toEmployeeId: target.id,
+      title: body.title.trim(),
+      body: body.body ?? "",
+      status: "pending",
+      resolutionNote: null,
+      dueAt: body.dueAt ? new Date(body.dueAt) : null,
+      completedAt: null,
+    });
+    await repo.save(h);
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "handoff.create",
+      targetType: "handoff",
+      targetId: h.id,
+      targetLabel: h.title,
+      metadata: {
+        via: "mcp",
+        fromEmployeeId: self.id,
+        toEmployeeId: target.id,
+      },
+    });
+    await journal(
+      self.id,
+      `Handed off "${h.title}" to ${target.name}`,
+      h.body.length > 240 ? `${h.body.slice(0, 240)}…` : h.body,
+    );
+    await journal(
+      target.id,
+      `Received handoff "${h.title}" from ${self.name}`,
+      h.body.length > 240 ? `${h.body.slice(0, 240)}…` : h.body,
+    );
+    res.json({ handoff: serializeHandoff(h) });
+  },
+);
+
+const transitionHandoffSchema = z
+  .object({
+    handoffId: z.string().uuid(),
+    resolutionNote: z.string().max(20_000).optional(),
+  })
+  .strict();
+
+async function applyMcpTransition(
+  req: McpRequest,
+  res: import("express").Response,
+  next: HandoffStatus,
+  expectedActor: "from" | "to",
+): Promise<void> {
+  const body = req.body as z.infer<typeof transitionHandoffSchema>;
+  const co = req.mcpCompany!;
+  const self = req.mcpEmployee!;
+  const repo = AppDataSource.getRepository(Handoff);
+  const h = await repo.findOneBy({ id: body.handoffId, companyId: co.id });
+  if (!h) {
+    res.status(404).json({ error: "Handoff not found" });
+    return;
+  }
+  if (h.status !== "pending") {
+    res.status(400).json({
+      error: `Handoff is already ${h.status}; only pending handoffs can transition.`,
+    });
+    return;
+  }
+  const allowedActorId =
+    expectedActor === "to" ? h.toEmployeeId : h.fromEmployeeId;
+  if (allowedActorId !== self.id) {
+    res.status(403).json({
+      error:
+        expectedActor === "to"
+          ? "Only the receiver can complete or decline a handoff."
+          : "Only the sender can cancel a handoff.",
+    });
+    return;
+  }
+  h.status = next;
+  h.resolutionNote = body.resolutionNote ?? null;
+  h.completedAt = next === "completed" ? new Date() : null;
+  await repo.save(h);
+  await recordAudit({
+    companyId: co.id,
+    actorEmployeeId: self.id,
+    action: `handoff.${next}`,
+    targetType: "handoff",
+    targetId: h.id,
+    targetLabel: h.title,
+    metadata: { via: "mcp" },
+  });
+  const verb =
+    next === "completed"
+      ? "completed"
+      : next === "declined"
+        ? "declined"
+        : "cancelled";
+  await journal(
+    h.fromEmployeeId,
+    `Handoff "${h.title}" ${verb}`,
+    body.resolutionNote ?? "",
+  );
+  await journal(
+    h.toEmployeeId,
+    `Handoff "${h.title}" ${verb}`,
+    body.resolutionNote ?? "",
+  );
+  res.json({ handoff: serializeHandoff(h) });
+}
+
+mcpInternalRouter.post(
+  "/tools/complete_handoff",
+  validateBody(transitionHandoffSchema),
+  async (req: McpRequest, res) => {
+    await applyMcpTransition(req, res, "completed", "to");
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/decline_handoff",
+  validateBody(transitionHandoffSchema),
+  async (req: McpRequest, res) => {
+    await applyMcpTransition(req, res, "declined", "to");
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/cancel_handoff",
+  validateBody(transitionHandoffSchema),
+  async (req: McpRequest, res) => {
+    await applyMcpTransition(req, res, "cancelled", "from");
   },
 );
 

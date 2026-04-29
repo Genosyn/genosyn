@@ -10,6 +10,7 @@ import { AIModel } from "../db/entities/AIModel.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { Approval } from "../db/entities/Approval.js";
 import { McpServer } from "../db/entities/McpServer.js";
+import { Team } from "../db/entities/Team.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
@@ -189,6 +190,8 @@ const patchSchema = z.object({
   name: z.string().min(1).max(80).optional(),
   role: z.string().min(1).max(80).optional(),
   slug: z.string().min(1).max(80).optional(),
+  teamId: z.string().uuid().nullable().optional(),
+  reportsToEmployeeId: z.string().uuid().nullable().optional(),
 });
 
 employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
@@ -208,6 +211,41 @@ employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
     emp.name = body.name;
   }
   if (body.role !== undefined) emp.role = body.role;
+  if (body.teamId !== undefined) {
+    if (body.teamId === null) {
+      emp.teamId = null;
+    } else {
+      const team = await AppDataSource.getRepository(Team).findOneBy({
+        id: body.teamId,
+        companyId: emp.companyId,
+      });
+      if (!team) {
+        return res.status(400).json({ error: "Team not found in this company" });
+      }
+      emp.teamId = team.id;
+    }
+  }
+  if (body.reportsToEmployeeId !== undefined) {
+    if (body.reportsToEmployeeId === null) {
+      emp.reportsToEmployeeId = null;
+    } else {
+      if (body.reportsToEmployeeId === emp.id) {
+        return res
+          .status(400)
+          .json({ error: "An employee cannot report to themselves" });
+      }
+      const manager = await repo.findOneBy({
+        id: body.reportsToEmployeeId,
+        companyId: emp.companyId,
+      });
+      if (!manager) {
+        return res
+          .status(400)
+          .json({ error: "Manager not found in this company" });
+      }
+      emp.reportsToEmployeeId = manager.id;
+    }
+  }
   if (body.slug !== undefined) {
     const normalized = toSlug(body.slug);
     if (!normalized) {
@@ -263,6 +301,13 @@ employeesRouter.delete("/:eid", async (req, res) => {
   const emp = await empRepo.findOneBy({ id: req.params.eid, companyId: (req.params as Record<string, string>).cid });
   if (!emp) return res.status(404).json({ error: "Not found" });
   const co = await loadCompany((req.params as Record<string, string>).cid);
+
+  // Clear reporting lines that pointed at this employee so subordinates
+  // don't carry a dangling manager reference.
+  await empRepo.update(
+    { reportsToEmployeeId: emp.id },
+    { reportsToEmployeeId: null },
+  );
 
   await AppDataSource.getRepository(Approval).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(Routine).delete({ employeeId: emp.id });

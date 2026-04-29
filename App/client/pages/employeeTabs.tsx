@@ -44,6 +44,7 @@ import {
   MemoryItem,
   McpServer,
   McpTransport,
+  Team,
 } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -862,7 +863,129 @@ export function GeneralSettingsPage() {
     <div className="flex flex-col gap-4">
       <EmployeeAvatarCard company={company} emp={emp} />
       <EmployeeBasicsCard company={company} emp={emp} />
+      <EmployeeOrgCard company={company} emp={emp} />
     </div>
+  );
+}
+
+function EmployeeOrgCard({
+  company,
+  emp,
+}: {
+  company: Company;
+  emp: Employee;
+}) {
+  const [teams, setTeams] = React.useState<Team[] | null>(null);
+  const [peers, setPeers] = React.useState<Employee[] | null>(null);
+  const [teamId, setTeamId] = React.useState<string>(emp.teamId ?? "");
+  const [reportsTo, setReportsTo] = React.useState<string>(
+    emp.reportsToEmployeeId ?? "",
+  );
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const { toast } = useToast();
+
+  React.useEffect(() => {
+    setTeamId(emp.teamId ?? "");
+    setReportsTo(emp.reportsToEmployeeId ?? "");
+  }, [emp.id, emp.teamId, emp.reportsToEmployeeId]);
+
+  React.useEffect(() => {
+    api
+      .get<Team[]>(`/api/companies/${company.id}/teams`)
+      .then((list) => setTeams(list.filter((t) => !t.archivedAt)))
+      .catch(() => setTeams([]));
+    api
+      .get<Employee[]>(`/api/companies/${company.id}/employees`)
+      .then((list) => setPeers(list.filter((e) => e.id !== emp.id)))
+      .catch(() => setPeers([]));
+  }, [company.id, emp.id]);
+
+  const dirty =
+    (teamId || null) !== (emp.teamId ?? null) ||
+    (reportsTo || null) !== (emp.reportsToEmployeeId ?? null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!dirty || saving) return;
+    setError(null);
+    setSaving(true);
+    try {
+      await api.patch<Employee>(
+        `/api/companies/${company.id}/employees/${emp.id}`,
+        {
+          teamId: teamId || null,
+          reportsToEmployeeId: reportsTo || null,
+        },
+      );
+      toast("Org chart updated", "success");
+      window.dispatchEvent(new CustomEvent("genosyn:employee-updated"));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardBody className="flex flex-col gap-3">
+        <div>
+          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            Org chart
+          </div>
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            The team this employee belongs to and who they report to. Manager
+            is used by the <code className="font-mono">create_handoff</code>{" "}
+            <code className="font-mono">toManager: true</code> shortcut.
+          </div>
+        </div>
+        <form className="flex flex-col gap-3" onSubmit={submit}>
+          <FormError message={error} />
+          <label className="flex flex-col gap-1 text-xs">
+            <span className="font-medium text-slate-700 dark:text-slate-300">
+              Team
+            </span>
+            <select
+              className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+              value={teamId}
+              onChange={(e) => setTeamId(e.target.value)}
+              disabled={!teams}
+            >
+              <option value="">— No team —</option>
+              {(teams ?? []).map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs">
+            <span className="font-medium text-slate-700 dark:text-slate-300">
+              Reports to
+            </span>
+            <select
+              className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+              value={reportsTo}
+              onChange={(e) => setReportsTo(e.target.value)}
+              disabled={!peers}
+            >
+              <option value="">— No manager —</option>
+              {(peers ?? []).map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.role})
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="flex justify-end pt-1">
+            <Button type="submit" disabled={!dirty || saving}>
+              {saving ? "Saving…" : "Save changes"}
+            </Button>
+          </div>
+        </form>
+      </CardBody>
+    </Card>
   );
 }
 
