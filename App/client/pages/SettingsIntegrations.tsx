@@ -2,6 +2,7 @@ import React from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import {
   AlertCircle,
+  Antenna,
   BarChart3,
   BookOpen,
   Check,
@@ -16,9 +17,11 @@ import {
   Plug2,
   RefreshCw,
   Search,
+  Send,
   Server,
   Table2,
   Trash2,
+  Twitter,
   Users,
   Workflow,
   X,
@@ -60,6 +63,7 @@ import type { SettingsOutletCtx } from "./SettingsLayout";
  */
 
 const ICONS: Record<string, LucideIcon> = {
+  Antenna,
   BarChart3,
   BookOpen,
   CreditCard,
@@ -68,8 +72,10 @@ const ICONS: Record<string, LucideIcon> = {
   Layers,
   Mail,
   Plug,
+  Send,
   Server,
   Table2,
+  Twitter,
   Workflow,
   Zap,
 };
@@ -1039,10 +1045,31 @@ function OauthOrServiceAccountModal({
     );
   }
 
+  const oauthApp = entry?.oauth?.app ?? "google";
   const redirectUri =
     typeof window !== "undefined"
-      ? `${window.location.origin}/api/integrations/oauth/callback/google`
+      ? `${window.location.origin}/api/integrations/oauth/callback/${oauthApp}`
       : "";
+  // Per-provider OAuth setup copy. Each entry knows where the user must
+  // register the OAuth client and what the resulting client id looks
+  // like, so the connect form can show concrete instructions instead of
+  // generic OAuth boilerplate.
+  const oauthSetup =
+    oauthApp === "x"
+      ? {
+          consoleStep:
+            "developer.x.com → Projects & Apps → your project → Keys and tokens → User authentication settings → enable OAuth 2.0 (Confidential client).",
+          clientIdPlaceholder: "Client ID (looks like a 25-char base64-ish string)",
+          clientSecretPlaceholder: "Client Secret",
+          consentTitle: "X",
+        }
+      : {
+          consoleStep:
+            "Google Cloud Console → APIs & Services → Credentials → Create OAuth Client ID (Web application).",
+          clientIdPlaceholder: "123456789-abcdef.apps.googleusercontent.com",
+          clientSecretPlaceholder: "GOCSPX-…",
+          consentTitle: "Google",
+        };
 
   return (
     <Modal
@@ -1055,7 +1082,7 @@ function OauthOrServiceAccountModal({
         {isReconnect ? (
           <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
             {reconnect.authMode === "oauth2"
-              ? `Re-run Google's consent screen for "${reconnect.label}" to refresh tokens or change which products this connection can access. The connection id and existing employee grants are preserved.`
+              ? `Re-run ${oauthSetup.consentTitle}'s consent screen for "${reconnect.label}" to refresh tokens or change which products this connection can access. The connection id and existing employee grants are preserved.`
               : `Replace the service-account JSON for "${reconnect.label}". Existing employee grants and the connection id are preserved.`}
           </p>
         ) : entry.description ? (
@@ -1098,9 +1125,7 @@ function OauthOrServiceAccountModal({
                 <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
                   <p className="font-medium">Set up an OAuth Client ID first</p>
                   <ol className="mt-1 list-decimal space-y-0.5 pl-4">
-                    <li>
-                      Google Cloud Console → APIs &amp; Services → Credentials → <em>Create OAuth Client ID</em> (Web application).
-                    </li>
+                    <li>{oauthSetup.consoleStep}</li>
                     <li>
                       Add this redirect URI under <em>Authorized redirect URIs</em>:
                       <code className="ml-1 break-all rounded bg-amber-100 px-1 py-0.5 font-mono dark:bg-amber-900/40">
@@ -1121,7 +1146,7 @@ function OauthOrServiceAccountModal({
                   label="OAuth Client ID"
                   value={clientId}
                   onChange={(e) => setClientId(e.target.value)}
-                  placeholder="123456789-abcdef.apps.googleusercontent.com"
+                  placeholder={oauthSetup.clientIdPlaceholder}
                   required
                 />
                 <div>
@@ -1133,7 +1158,7 @@ function OauthOrServiceAccountModal({
                     required
                     value={clientSecret}
                     onChange={(e) => setClientSecret(e.target.value)}
-                    placeholder="GOCSPX-…"
+                    placeholder={oauthSetup.clientSecretPlaceholder}
                     className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-mono shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
                   />
                   <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">

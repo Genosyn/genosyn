@@ -367,6 +367,7 @@ export type IntegrationCategory =
   | "Databases"
   | "Analytics"
   | "Productivity"
+  | "Communication"
   | "Payments"
   | "Developer";
 
@@ -374,6 +375,7 @@ export const INTEGRATION_CATEGORY_ORDER: IntegrationCategory[] = [
   "Databases",
   "Analytics",
   "Productivity",
+  "Communication",
   "Payments",
   "Developer",
 ];
@@ -388,7 +390,7 @@ export type IntegrationCatalogEntry = {
   authMode: IntegrationAuthMode;
   fields?: IntegrationCatalogField[];
   oauth?: {
-    app: "google";
+    app: "google" | "x";
     scopes: string[];
     scopeGroups?: IntegrationScopeGroup[];
     setupDocs?: string;

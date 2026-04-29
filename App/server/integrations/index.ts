@@ -14,6 +14,9 @@ import { clickhouseProvider } from "./providers/clickhouse.js";
 import { redisProvider } from "./providers/redis.js";
 import { notionProvider } from "./providers/notion.js";
 import { linearProvider } from "./providers/linear.js";
+import { telegramProvider } from "./providers/telegram.js";
+import { xProvider } from "./providers/x.js";
+import { nostrProvider } from "./providers/nostr.js";
 
 /**
  * Provider registry. Adding a new integration means:
@@ -34,6 +37,9 @@ const PROVIDERS: Record<string, IntegrationProvider> = {
   [redisProvider.catalog.provider]: redisProvider,
   [notionProvider.catalog.provider]: notionProvider,
   [linearProvider.catalog.provider]: linearProvider,
+  [telegramProvider.catalog.provider]: telegramProvider,
+  [xProvider.catalog.provider]: xProvider,
+  [nostrProvider.catalog.provider]: nostrProvider,
 };
 
 export function getProvider(id: string): IntegrationProvider | null {

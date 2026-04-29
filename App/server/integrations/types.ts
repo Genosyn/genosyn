@@ -26,6 +26,7 @@ export type IntegrationCategory =
   | "Databases"
   | "Analytics"
   | "Productivity"
+  | "Communication"
   | "Payments"
   | "Developer";
 
@@ -33,6 +34,7 @@ export const INTEGRATION_CATEGORY_ORDER: IntegrationCategory[] = [
   "Databases",
   "Analytics",
   "Productivity",
+  "Communication",
   "Payments",
   "Developer",
 ];
@@ -92,7 +94,7 @@ export type IntegrationCatalogEntry = {
    * supplies its own `clientId` + `clientSecret` at create-time, so this
    * block is purely metadata for the connect form. */
   oauth?: {
-    app: "google";
+    app: "google" | "x";
     /** Always-included baseline scopes (e.g. `userinfo.email` + `openid`
      * for OpenID Connect identity). Cannot be unchecked. */
     scopes: string[];

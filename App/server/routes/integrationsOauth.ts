@@ -3,8 +3,14 @@ import {
   createOauthConnection,
   updateOauthConnectionConfig,
 } from "../services/integrations.js";
-import { finishOauth, resolveOauthState } from "../services/oauth.js";
+import { finishOauth, resolveOauthState, type OauthApp } from "../services/oauth.js";
 import { recordAudit } from "../services/audit.js";
+
+const OAUTH_APPS: ReadonlySet<OauthApp> = new Set<OauthApp>(["google", "x"]);
+
+function isOauthApp(s: string): s is OauthApp {
+  return OAUTH_APPS.has(s as OauthApp);
+}
 
 /**
  * Public OAuth callback surface — must be mounted outside the session /
@@ -23,7 +29,7 @@ export const integrationsOauthRouter = Router();
 
 integrationsOauthRouter.get("/callback/:app", async (req, res) => {
   const app = String(req.params.app ?? "");
-  if (app !== "google") {
+  if (!isOauthApp(app)) {
     return renderClose(res, {
       ok: false,
       title: "Unknown OAuth provider",
@@ -60,7 +66,7 @@ integrationsOauthRouter.get("/callback/:app", async (req, res) => {
   }
 
   try {
-    const finished = await finishOauth({ app: "google", code: rawCode, state });
+    const finished = await finishOauth({ app, code: rawCode, state });
     const conn = state.existingConnectionId
       ? await updateOauthConnectionConfig({
           companyId: finished.companyId,

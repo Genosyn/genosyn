@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@clickhouse/client": "^1.18.3",
+    "@noble/hashes": "^1.4.0",
     "@types/archiver": "^7.0.0",
     "@types/unzipper": "^0.10.11",
     "archiver": "^7.0.1",
@@ -42,6 +43,7 @@
     "node-cron": "^3.0.3",
     "node-pty": "^1.0.0",
     "nodemailer": "^6.9.15",
+    "nostr-tools": "^2.7.2",
     "pg": "^8.13.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

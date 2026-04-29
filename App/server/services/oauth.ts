@@ -7,6 +7,15 @@ import {
   resolveGoogleScopes,
   type GoogleOauthConfig,
 } from "../integrations/providers/google.js";
+import {
+  buildXAuthorizeUrl,
+  exchangeXCode,
+  generatePkceVerifier,
+  pkceChallenge,
+  resolveXScopes,
+  xRedirectUri,
+  type XOauthConfig,
+} from "../integrations/providers/x.js";
 import { decryptConnectionConfig, getConnection } from "./integrations.js";
 
 /**
@@ -48,6 +57,10 @@ export type OauthState = {
   /** When set, the callback updates this connection's tokens instead of
    * creating a new one — preserves the row id, label, and grants. */
   existingConnectionId?: string;
+  /** PKCE code_verifier — required by X.com (and any other OAuth 2.0 +
+   * PKCE provider we add). Stashed alongside state so the callback can
+   * pass it to the token-exchange step. Empty string for non-PKCE flows. */
+  codeVerifier?: string;
 };
 
 const STATE_TTL_MS = 10 * 60 * 1000;
@@ -80,6 +93,10 @@ export function startOauth(args: {
   }
 
   const state = crypto.randomBytes(24).toString("hex");
+  // PKCE code_verifier — only emitted for providers that need it (X). For
+  // Google's plain auth-code flow this is undefined and the callback skips
+  // passing it.
+  const codeVerifier = oauth.app === "x" ? generatePkceVerifier() : undefined;
   states.set(state, {
     state,
     userId: args.userId,
@@ -91,13 +108,12 @@ export function startOauth(args: {
     scopeGroups: args.scopeGroups,
     expiresAt: Date.now() + STATE_TTL_MS,
     existingConnectionId: args.existingConnectionId,
+    codeVerifier,
   });
 
   let authorizeUrl: string;
   switch (oauth.app) {
     case "google": {
-      // Each provider knows how to expand its own group keys; for now we
-      // only have Google so dispatch is inline.
       const scopes = resolveGoogleScopes({
         scopeGroups: args.scopeGroups,
         baseline: oauth.scopes,
@@ -107,6 +123,20 @@ export function startOauth(args: {
         scopes,
         clientId: args.clientId,
         redirectUri: googleRedirectUri(),
+      });
+      break;
+    }
+    case "x": {
+      const scopes = resolveXScopes({
+        scopeGroups: args.scopeGroups,
+        baseline: oauth.scopes,
+      });
+      authorizeUrl = buildXAuthorizeUrl({
+        state,
+        scopes,
+        clientId: args.clientId,
+        redirectUri: xRedirectUri(),
+        codeChallenge: pkceChallenge(codeVerifier!),
       });
       break;
     }
@@ -143,7 +173,13 @@ export async function startOauthReconnect(args: {
   if (!provider || !provider.catalog.oauth) {
     throw new Error(`${conn.provider} no longer supports OAuth`);
   }
-  const cfg = decryptConnectionConfig(conn) as GoogleOauthConfig;
+  // GoogleOauthConfig and XOauthConfig both expose `clientId` /
+  // `clientSecret` / `scopeGroups`; that is the only shape this function
+  // cares about, so a structural narrowing covers every OAuth provider.
+  const cfg = decryptConnectionConfig(conn) as Pick<
+    GoogleOauthConfig & XOauthConfig,
+    "clientId" | "clientSecret" | "scopeGroups"
+  >;
   if (!cfg.clientId || !cfg.clientSecret) {
     throw new Error(
       "Stored OAuth client credentials are missing — disconnect and create a new connection.",
@@ -171,6 +207,8 @@ export function resolveOauthState(state: string): OauthState | null {
   return info;
 }
 
+export type OauthApp = "google" | "x";
+
 /**
  * Dispatch a finished OAuth handshake to the right provider helper. Called
  * from `/api/integrations/oauth/callback/:app`. Returns the provider id
@@ -178,7 +216,7 @@ export function resolveOauthState(state: string): OauthState | null {
  * integration itself — Google could back Gmail, Calendar, etc.).
  */
 export async function finishOauth(args: {
-  app: "google";
+  app: OauthApp;
   code: string;
   state: OauthState;
 }): Promise<{
@@ -188,34 +226,54 @@ export async function finishOauth(args: {
   companyId: string;
   label: string;
 }> {
+  const provider = getProvider(args.state.provider);
+  if (!provider || !provider.buildOauthConfig) {
+    throw new Error(`Provider ${args.state.provider} cannot finish OAuth`);
+  }
+  let tokens;
+  let userInfo: Record<string, unknown>;
   switch (args.app) {
     case "google": {
-      const provider = getProvider(args.state.provider);
-      if (!provider || !provider.buildOauthConfig) {
-        throw new Error(`Provider ${args.state.provider} cannot finish OAuth`);
-      }
-      const { tokens, userInfo } = await exchangeGoogleCode({
+      const exchanged = await exchangeGoogleCode({
         code: args.code,
         clientId: args.state.clientId,
         clientSecret: args.state.clientSecret,
         redirectUri: googleRedirectUri(),
       });
-      const { config, accountHint } = provider.buildOauthConfig({
-        tokens,
-        userInfo,
+      tokens = exchanged.tokens;
+      userInfo = exchanged.userInfo;
+      break;
+    }
+    case "x": {
+      if (!args.state.codeVerifier) {
+        throw new Error("PKCE code_verifier missing from OAuth state");
+      }
+      const exchanged = await exchangeXCode({
+        code: args.code,
         clientId: args.state.clientId,
         clientSecret: args.state.clientSecret,
-        scopeGroups: args.state.scopeGroups,
+        codeVerifier: args.state.codeVerifier,
+        redirectUri: xRedirectUri(),
       });
-      return {
-        provider: args.state.provider,
-        config,
-        accountHint,
-        companyId: args.state.companyId,
-        label: args.state.label,
-      };
+      tokens = exchanged.tokens;
+      userInfo = exchanged.userInfo;
+      break;
     }
     default:
       throw new Error(`Unknown OAuth app: ${args.app}`);
   }
+  const { config, accountHint } = provider.buildOauthConfig({
+    tokens,
+    userInfo,
+    clientId: args.state.clientId,
+    clientSecret: args.state.clientSecret,
+    scopeGroups: args.state.scopeGroups,
+  });
+  return {
+    provider: args.state.provider,
+    config,
+    accountHint,
+    companyId: args.state.companyId,
+    label: args.state.label,
+  };
 }

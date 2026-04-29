@@ -10,6 +10,7 @@ import { initDb } from "./db/datasource.js";
 import { bootCron } from "./services/cron.js";
 import { bootBackups } from "./services/backups.js";
 import { bootPipelineCron } from "./services/pipelines/index.js";
+import { bootTelegramListeners } from "./services/telegramListener.js";
 import { attachRealtime } from "./services/realtime.js";
 import { errorHandler } from "./middleware/error.js";
 import { authRouter } from "./routes/auth.js";
@@ -49,6 +50,13 @@ async function main() {
   await bootCron();
   await bootBackups();
   await bootPipelineCron();
+  // Long-polling Telegram listener — one outbound HTTP loop per Telegram
+  // Connection. Fires asynchronously so a slow Telegram API doesn't gate
+  // server startup; failures inside each loop are logged + retried.
+  void bootTelegramListeners().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[telegram] boot failed:", err);
+  });
 
   const app = express();
   app.use(express.json({ limit: "1mb" }));

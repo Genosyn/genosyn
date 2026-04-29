@@ -9,6 +9,7 @@ import type {
   IntegrationConfig,
   IntegrationRuntimeContext,
 } from "../integrations/types.js";
+import { refreshTelegramListener } from "./telegramListener.js";
 
 /**
  * Service layer for Integration Connections + Grants.
@@ -140,6 +141,7 @@ export async function createApiKeyConnection(args: {
     lastCheckedAt: new Date(),
   });
   await repo.save(row);
+  notifyConnectionChanged(row.id, row.provider);
   return row;
 }
 
@@ -172,6 +174,7 @@ export async function createOauthConnection(args: {
     lastCheckedAt: new Date(),
   });
   await repo.save(row);
+  notifyConnectionChanged(row.id, row.provider);
   return row;
 }
 
@@ -217,6 +220,7 @@ export async function createServiceAccountConnection(args: {
     lastCheckedAt: new Date(),
   });
   await repo.save(row);
+  notifyConnectionChanged(row.id, row.provider);
   return row;
 }
 
@@ -271,6 +275,7 @@ export async function updateApiKeyCredentials(args: {
   existing.statusMessage = "";
   existing.lastCheckedAt = new Date();
   await repo.save(existing);
+  notifyConnectionChanged(existing.id, existing.provider);
   return existing;
 }
 
@@ -307,6 +312,7 @@ export async function updateServiceAccountCredentials(args: {
   existing.statusMessage = "";
   existing.lastCheckedAt = new Date();
   await repo.save(existing);
+  notifyConnectionChanged(existing.id, existing.provider);
   return existing;
 }
 
@@ -339,6 +345,7 @@ export async function updateOauthConnectionConfig(args: {
   existing.statusMessage = "";
   existing.lastCheckedAt = new Date();
   await repo.save(existing);
+  notifyConnectionChanged(existing.id, existing.provider);
   return existing;
 }
 
@@ -355,7 +362,27 @@ export async function deleteConnection(
     connectionId: id,
   });
   await repo.delete({ id });
+  notifyConnectionChanged(id, existing.provider, { deleted: true });
   return true;
+}
+
+/**
+ * Side-channel hook for providers that need to react to connection-row
+ * changes outside the request-response cycle. Today only Telegram cares —
+ * its long-polling listener has to start, stop, or re-key when a token
+ * rotates. Other providers stay free of background workers, so this is a
+ * targeted dispatch rather than an event bus.
+ */
+function notifyConnectionChanged(
+  connectionId: string,
+  provider: string,
+  opts: { deleted?: boolean } = {},
+): void {
+  if (provider !== "telegram") return;
+  void refreshTelegramListener(connectionId, opts).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error(`[telegram] refresh listener failed for ${connectionId}:`, err);
+  });
 }
 
 /**

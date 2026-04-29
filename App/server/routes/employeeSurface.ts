@@ -65,6 +65,8 @@ function serializeConversation(c: Conversation, lastMessageAt: Date | null = nul
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
     lastMessageAt,
+    source: c.source ?? "web",
+    connectionId: c.connectionId ?? null,
   };
 }
 

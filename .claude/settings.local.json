@@ -22,7 +22,8 @@
       "Bash(magick -version)",
       "Bash(git stash *)",
       "Bash(xargs ls *)",
-      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8471)"
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8471)",
+      "Bash(awk '/tools: \\\\[/,/\\\\],/' /Users/nawazdhandala/Projects/Genosyn/genosyn/App/server/integrations/providers/github.ts)"
     ]
   }
 }

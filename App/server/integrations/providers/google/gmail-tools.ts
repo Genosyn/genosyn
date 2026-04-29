@@ -1,5 +1,5 @@
 import type { IntegrationTool } from "../../types.js";
-import { safeJson } from "./util.js";
+import { clampInt, safeJson } from "./util.js";
 
 /**
  * Gmail tool definitions + handlers, hosted under the umbrella `google`
@@ -222,12 +222,4 @@ function str(v: unknown): string {
 
 function maybeStr(v: unknown): string | undefined {
   return typeof v === "string" && v ? v : undefined;
-}
-
-function clampInt(v: unknown, min: number, max: number, fallback: number): number {
-  if (typeof v !== "number" || !Number.isFinite(v)) return fallback;
-  const i = Math.floor(v);
-  if (i < min) return min;
-  if (i > max) return max;
-  return i;
 }

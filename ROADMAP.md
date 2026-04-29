@@ -373,6 +373,73 @@ export const config = {
 - [ ] Threaded replies (column exists, UI deferred)
 - [ ] Search, link unfurls, desktop notifications
 
+### M12 — Engineering Repos (AI employees that ship code)
+
+Engineering AI employees need a working tree, not API calls — coding
+providers (claude-code / codex / opencode / goose) are *editor-shaped*.
+This milestone makes that real: each GitHub Connection materializes one
+or more git checkouts into the employee's `cwd` before each spawn, the
+agent uses normal `git` to branch + commit + push, and one new MCP tool
+(`create_pull_request`) closes the loop.
+
+- [ ] **GitHub OAuth + GitHub App auth modes.** Extend the existing
+      `github` provider (currently `apikey` only) with `oauth2` and
+      `github_app`. OAuth: add `"github"` to the `OauthApp` union in
+      `services/oauth.ts:210` and to the dispatch switches at
+      `oauth.ts:115` + `oauth.ts:235`; new helpers in
+      `integrations/providers/github-oauth.ts` mirroring the Google /
+      X shape. App: store `appId` + encrypted `privateKey` +
+      `installationId`; mint installation tokens on demand and cache
+      under their `expires_at`.
+- [ ] **Per-Connection `repos[]` allowlist.** A Connection picks the
+      subset of accessible repos that grants will materialize. Stored
+      inside `IntegrationConnection.encryptedConfig.repos` as
+      `{ owner, name, defaultBranch }[]` — no schema change. Editable
+      from Settings → Integrations.
+- [ ] **`services/repoSync.ts`.** Called from the runner pre-spawn
+      block (parallel to `materializeMcpConfig` at
+      `services/runner.ts:128`) and from `services/chat.ts`. Per
+      granted repo: shallow `git clone` first time into
+      `<employeeDir>/repos/<owner>/<name>/`, then
+      `git fetch && git reset --hard origin/<defaultBranch>` on every
+      subsequent spawn. Per-employee+repo lockfile so two concurrent
+      runs on the same Connection serialize.
+- [ ] **Token-based git auth.** Materialize `~/.git-credentials`
+      (or a `GIT_ASKPASS` shim) inside the employee dir at spawn time
+      so `git push` / `gh` work transparently inside the sandbox.
+      Stripped after the spawn returns. App installations get a
+      fresh, short-lived token per spawn.
+- [ ] **One new MCP tool: `create_pull_request`** on the github
+      provider. Inputs: `owner`, `repo`, `head`, `base`, `title`,
+      `body`, `draft`. Branch + commit + push are normal `git`
+      operations the agent runs itself in `repos/<owner>/<name>/`.
+- [ ] **Settings → Integrations UI.** Github connect modal grows tabs
+      for "GitHub App" / "OAuth" / "Personal token". Connection detail
+      page lists materialized repos with checkboxes → save updates
+      the allowlist.
+- [ ] **Workspace visibility.** Employee Workspace tree (M7) gains a
+      `repos/` subtree pre-populated by the runner. Read-only from
+      the UI's perspective — the source of truth is the agent's
+      working directory, not Genosyn-side mutations.
+- [ ] **Engineering skill body.** Ship a default `Engineering` skill
+      template that points the employee at `repos/`, the
+      `create_pull_request` tool, and a "branch → commit → push → PR"
+      playbook. Users attach it manually in M12; auto-attach lands
+      with future "Templates / Hiring".
+
+> **Why extend `github` instead of a new primitive.** Repos look like
+> Connections (one auth blob per org/account) and grants look like
+> grants (per-employee scoping). The novel piece is the pre-spawn
+> materialization step, which is parallel to how `.mcp.json` already
+> gets written before each run — adding it to the runner is one
+> hook, not a new entity.
+
+> **Deferred to a follow-up.** GitLab + Bitbucket parallels (same
+> shape, separate providers); per-routine `git worktree` isolation
+> (only if same-routine concurrency becomes a real problem); signed
+> commits via the GitHub App identity; sandboxed/containerized
+> execution (lives with the broader runner sandbox V1 backlog item).
+
 ---
 
 ## V1 backlog (post-MVP)

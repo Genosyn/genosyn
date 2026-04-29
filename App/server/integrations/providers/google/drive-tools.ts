@@ -1,5 +1,5 @@
 import type { IntegrationTool } from "../../types.js";
-import { safeJson } from "./util.js";
+import { clampInt, safeJson } from "./util.js";
 
 /**
  * Drive tool definitions + handlers, hosted under the umbrella `google`
@@ -283,12 +283,4 @@ function concatChunks(chunks: Uint8Array[], total: number): Uint8Array {
 
 function toBase64(data: Uint8Array): string {
   return Buffer.from(data).toString("base64");
-}
-
-function clampInt(v: unknown, min: number, max: number, fallback: number): number {
-  if (typeof v !== "number" || !Number.isFinite(v)) return fallback;
-  const i = Math.floor(v);
-  if (i < min) return min;
-  if (i > max) return max;
-  return i;
 }
