@@ -16,6 +16,13 @@ import {
   xRedirectUri,
   type XOauthConfig,
 } from "../integrations/providers/x.js";
+import {
+  buildGithubAuthorizeUrl,
+  exchangeGithubCode,
+  githubRedirectUri,
+  resolveGithubScopes,
+  type GithubOauthConfig,
+} from "../integrations/providers/github-oauth.js";
 import { decryptConnectionConfig, getConnection } from "./integrations.js";
 
 /**
@@ -94,8 +101,8 @@ export function startOauth(args: {
 
   const state = crypto.randomBytes(24).toString("hex");
   // PKCE code_verifier — only emitted for providers that need it (X). For
-  // Google's plain auth-code flow this is undefined and the callback skips
-  // passing it.
+  // Google's and GitHub's plain auth-code flows this is undefined and the
+  // callback skips passing it.
   const codeVerifier = oauth.app === "x" ? generatePkceVerifier() : undefined;
   states.set(state, {
     state,
@@ -140,6 +147,19 @@ export function startOauth(args: {
       });
       break;
     }
+    case "github": {
+      const scopes = resolveGithubScopes({
+        scopeGroups: args.scopeGroups,
+        baseline: oauth.scopes,
+      });
+      authorizeUrl = buildGithubAuthorizeUrl({
+        state,
+        scopes,
+        clientId: args.clientId,
+        redirectUri: githubRedirectUri(),
+      });
+      break;
+    }
     default:
       throw new Error(`Unsupported OAuth app: ${oauth.app}`);
   }
@@ -173,11 +193,12 @@ export async function startOauthReconnect(args: {
   if (!provider || !provider.catalog.oauth) {
     throw new Error(`${conn.provider} no longer supports OAuth`);
   }
-  // GoogleOauthConfig and XOauthConfig both expose `clientId` /
-  // `clientSecret` / `scopeGroups`; that is the only shape this function
-  // cares about, so a structural narrowing covers every OAuth provider.
+  // GoogleOauthConfig, XOauthConfig, and GithubOauthConfig all expose
+  // `clientId` / `clientSecret` / `scopeGroups`; that is the only shape
+  // this function cares about, so a structural narrowing covers every
+  // OAuth provider.
   const cfg = decryptConnectionConfig(conn) as Pick<
-    GoogleOauthConfig & XOauthConfig,
+    GoogleOauthConfig & XOauthConfig & GithubOauthConfig,
     "clientId" | "clientSecret" | "scopeGroups"
   >;
   if (!cfg.clientId || !cfg.clientSecret) {
@@ -207,7 +228,7 @@ export function resolveOauthState(state: string): OauthState | null {
   return info;
 }
 
-export type OauthApp = "google" | "x";
+export type OauthApp = "google" | "x" | "github";
 
 /**
  * Dispatch a finished OAuth handshake to the right provider helper. Called
@@ -254,6 +275,17 @@ export async function finishOauth(args: {
         clientSecret: args.state.clientSecret,
         codeVerifier: args.state.codeVerifier,
         redirectUri: xRedirectUri(),
+      });
+      tokens = exchanged.tokens;
+      userInfo = exchanged.userInfo;
+      break;
+    }
+    case "github": {
+      const exchanged = await exchangeGithubCode({
+        code: args.code,
+        clientId: args.state.clientId,
+        clientSecret: args.state.clientSecret,
+        redirectUri: githubRedirectUri(),
       });
       tokens = exchanged.tokens;
       userInfo = exchanged.userInfo;

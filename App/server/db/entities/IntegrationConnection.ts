@@ -7,7 +7,11 @@ import {
   Index,
 } from "typeorm";
 
-export type IntegrationAuthMode = "apikey" | "oauth2" | "service_account";
+export type IntegrationAuthMode =
+  | "apikey"
+  | "oauth2"
+  | "service_account"
+  | "github_app";
 export type IntegrationConnectionStatus = "connected" | "error" | "expired";
 
 /**

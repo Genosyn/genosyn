@@ -27,7 +27,7 @@ export type ConnectionDTO = {
   companyId: string;
   provider: string;
   label: string;
-  authMode: "apikey" | "oauth2" | "service_account";
+  authMode: "apikey" | "oauth2" | "service_account" | "github_app";
   accountHint: string;
   status: "connected" | "error" | "expired";
   statusMessage: string;
@@ -341,6 +341,88 @@ export async function updateOauthConnectionConfig(args: {
   }
   existing.encryptedConfig = encryptConnectionConfig(args.config);
   existing.accountHint = args.accountHint;
+  existing.status = "connected";
+  existing.statusMessage = "";
+  existing.lastCheckedAt = new Date();
+  await repo.save(existing);
+  notifyConnectionChanged(existing.id, existing.provider);
+  return existing;
+}
+
+/**
+ * Create a Connection from a GitHub App credential (App ID + PEM private
+ * key + installation id). Mints an installation token eagerly so the user
+ * sees an immediate error if the triple is wrong.
+ */
+export async function createGithubAppConnection(args: {
+  companyId: string;
+  provider: string;
+  label: string;
+  appId: string;
+  privateKey: string;
+  installationId: string;
+}): Promise<IntegrationConnection> {
+  const provider = getProvider(args.provider);
+  if (!provider) throw new Error(`Unknown integration: ${args.provider}`);
+  if (!provider.catalog.githubApp) {
+    throw new Error(`${provider.catalog.name} does not support GitHub Apps`);
+  }
+  if (!provider.buildGithubAppConfig) {
+    throw new Error(
+      `${provider.catalog.name} declared GitHub App support but has no validator`,
+    );
+  }
+  const { config, accountHint } = await provider.buildGithubAppConfig({
+    appId: args.appId,
+    privateKey: args.privateKey,
+    installationId: args.installationId,
+  });
+  const repo = AppDataSource.getRepository(IntegrationConnection);
+  const row = repo.create({
+    companyId: args.companyId,
+    provider: args.provider,
+    label: args.label.trim() || provider.catalog.name,
+    authMode: "github_app",
+    encryptedConfig: encryptConnectionConfig(config),
+    accountHint,
+    status: "connected",
+    statusMessage: "",
+    lastCheckedAt: new Date(),
+  });
+  await repo.save(row);
+  notifyConnectionChanged(row.id, row.provider);
+  return row;
+}
+
+export async function updateGithubAppCredentials(args: {
+  companyId: string;
+  connectionId: string;
+  appId: string;
+  privateKey: string;
+  installationId: string;
+}): Promise<IntegrationConnection | null> {
+  const repo = AppDataSource.getRepository(IntegrationConnection);
+  const existing = await repo.findOneBy({
+    companyId: args.companyId,
+    id: args.connectionId,
+  });
+  if (!existing) return null;
+  if (existing.authMode !== "github_app") {
+    throw new Error(
+      `Connection is ${existing.authMode}, not github-app — use the matching reconnect flow.`,
+    );
+  }
+  const provider = getProvider(existing.provider);
+  if (!provider || !provider.buildGithubAppConfig) {
+    throw new Error(`Unknown integration: ${existing.provider}`);
+  }
+  const { config, accountHint } = await provider.buildGithubAppConfig({
+    appId: args.appId,
+    privateKey: args.privateKey,
+    installationId: args.installationId,
+  });
+  existing.encryptedConfig = encryptConnectionConfig(config);
+  existing.accountHint = accountHint;
   existing.status = "connected";
   existing.statusMessage = "";
   existing.lastCheckedAt = new Date();

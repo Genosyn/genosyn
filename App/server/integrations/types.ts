@@ -15,7 +15,11 @@
  * surface to this module's `invokeTool` hook.
  */
 
-export type IntegrationAuthMode = "apikey" | "oauth2" | "service_account";
+export type IntegrationAuthMode =
+  | "apikey"
+  | "oauth2"
+  | "service_account"
+  | "github_app";
 
 /**
  * High-level grouping for the catalog UI. The order here is the order
@@ -94,7 +98,7 @@ export type IntegrationCatalogEntry = {
    * supplies its own `clientId` + `clientSecret` at create-time, so this
    * block is purely metadata for the connect form. */
   oauth?: {
-    app: "google" | "x";
+    app: "google" | "x" | "github";
     /** Always-included baseline scopes (e.g. `userinfo.email` + `openid`
      * for OpenID Connect identity). Cannot be unchecked. */
     scopes: string[];
@@ -115,6 +119,13 @@ export type IntegrationCatalogEntry = {
     /** When true, the connect form asks for an `impersonationEmail` so the
      * SA can act on a Workspace user's behalf via domain-wide delegation. */
     impersonation: boolean;
+    setupDocs?: string;
+  };
+  /** When set, this integration accepts a GitHub App + installation
+   * credential. The connect modal renders a tab for it that asks for an
+   * App ID, a PEM private key, and (after a "discover" round-trip) the
+   * installation to use. */
+  githubApp?: {
     setupDocs?: string;
   };
   /** Whether this integration can be used right now. With the move to
@@ -204,6 +215,18 @@ export type IntegrationProvider = {
     keyJson: Record<string, unknown>;
     impersonationEmail?: string;
     scopeGroups: string[];
+  }): Promise<{ config: IntegrationConfig; accountHint: string }>;
+
+  /**
+   * GitHub App providers implement this. Receives the App ID, the PEM
+   * private key, and the chosen installation id. Mints a token eagerly so
+   * the user gets an immediate error if the triple is wrong, and returns
+   * the persisted config blob.
+   */
+  buildGithubAppConfig?(args: {
+    appId: string;
+    privateKey: string;
+    installationId: string;
   }): Promise<{ config: IntegrationConfig; accountHint: string }>;
 
   /**

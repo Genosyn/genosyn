@@ -6,7 +6,11 @@ import {
 import { finishOauth, resolveOauthState, type OauthApp } from "../services/oauth.js";
 import { recordAudit } from "../services/audit.js";
 
-const OAUTH_APPS: ReadonlySet<OauthApp> = new Set<OauthApp>(["google", "x"]);
+const OAUTH_APPS: ReadonlySet<OauthApp> = new Set<OauthApp>([
+  "google",
+  "x",
+  "github",
+]);
 
 function isOauthApp(s: string): s is OauthApp {
   return OAUTH_APPS.has(s as OauthApp);

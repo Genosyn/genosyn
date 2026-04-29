@@ -99,6 +99,7 @@ export function SettingsIntegrations() {
   } | null>(null);
   const [refreshingId, setRefreshingId] = React.useState<string | null>(null);
   const [managing, setManaging] = React.useState<IntegrationConnection | null>(null);
+  const [pickingRepos, setPickingRepos] = React.useState<IntegrationConnection | null>(null);
   const [search, setSearch] = React.useState("");
 
   const reload = React.useCallback(async () => {
@@ -180,10 +181,10 @@ export function SettingsIntegrations() {
       toast(entry.disabledReason ?? "Integration not enabled", "error");
       return;
     }
-    // OAuth integrations now collect clientId / secret per Connection,
-    // and Google additionally supports service-account JSON. Both flows
-    // open a unified modal; API-key integrations keep their old form.
-    if (entry.oauth || entry.serviceAccount) {
+    // OAuth / Service-Account / GitHub-App integrations all share the
+    // unified connect modal (it grows tabs based on which auth modes the
+    // entry advertises). Pure API-key integrations keep the simpler form.
+    if (entry.oauth || entry.serviceAccount || entry.githubApp) {
       setAddingGoogle(entry);
       return;
     }
@@ -312,6 +313,16 @@ export function SettingsIntegrations() {
                         >
                           <Users size={12} /> Access
                         </Button>
+                        {c.provider === "github" && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setPickingRepos(c)}
+                            title="Pick which repos this connection can clone for granted employees"
+                          >
+                            <BookOpen size={12} /> Repos
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"
@@ -482,18 +493,21 @@ export function SettingsIntegrations() {
           addingGoogle !== null ||
           (reconnecting !== null &&
             (reconnecting.conn.authMode === "oauth2" ||
-              reconnecting.conn.authMode === "service_account"))
+              reconnecting.conn.authMode === "service_account" ||
+              reconnecting.conn.authMode === "github_app"))
         }
         entry={
           addingGoogle ??
           (reconnecting?.conn.authMode === "oauth2" ||
-          reconnecting?.conn.authMode === "service_account"
+          reconnecting?.conn.authMode === "service_account" ||
+          reconnecting?.conn.authMode === "github_app"
             ? reconnecting.entry
             : null)
         }
         reconnect={
           reconnecting?.conn.authMode === "oauth2" ||
-          reconnecting?.conn.authMode === "service_account"
+          reconnecting?.conn.authMode === "service_account" ||
+          reconnecting?.conn.authMode === "github_app"
             ? {
                 connectionId: reconnecting.conn.id,
                 label: reconnecting.conn.label,
@@ -519,6 +533,12 @@ export function SettingsIntegrations() {
         company={company}
         catalog={catalog ?? []}
         onClose={() => setManaging(null)}
+      />
+      <RepoAllowlistModal
+        open={pickingRepos !== null}
+        connection={pickingRepos}
+        companyId={company.id}
+        onClose={() => setPickingRepos(null)}
       />
     </>
   );
@@ -898,7 +918,20 @@ function ApiKeyModal({
   );
 }
 
-type ConnectMode = "oauth" | "service_account";
+type ConnectMode = "oauth" | "service_account" | "apikey" | "github_app";
+
+type GithubAppInstallation = {
+  id: number;
+  account: string;
+  accountType: string;
+  targetType: string;
+  htmlUrl: string;
+};
+
+type GithubAppDiscovery = {
+  app: { id: number; name: string; slug: string; htmlUrl: string };
+  installations: GithubAppInstallation[];
+};
 
 function OauthOrServiceAccountModal({
   open,
@@ -913,7 +946,7 @@ function OauthOrServiceAccountModal({
   reconnect: {
     connectionId: string;
     label: string;
-    authMode: "oauth2" | "service_account";
+    authMode: "oauth2" | "service_account" | "github_app";
     scopeGroups: string[];
   } | null;
   companyId: string;
@@ -923,6 +956,12 @@ function OauthOrServiceAccountModal({
   const { toast } = useToast();
   const supportsOauth = !!entry?.oauth;
   const supportsSa = !!entry?.serviceAccount;
+  // An entry advertises API-key as a *secondary* mode whenever it has
+  // both OAuth metadata AND a non-empty `fields` block (today: GitHub).
+  // Pure API-key providers never reach this modal — `startConnect` routes
+  // them straight to `ApiKeyModal`.
+  const supportsApiKey = !!entry?.oauth && (entry?.fields?.length ?? 0) > 0;
+  const supportsGithubApp = !!entry?.githubApp;
   const isReconnect = reconnect !== null;
   // Reconnect locks the auth mode to whatever the existing connection
   // already uses; we never silently change auth modes mid-flight (that
@@ -933,6 +972,12 @@ function OauthOrServiceAccountModal({
   const [clientSecret, setClientSecret] = React.useState("");
   const [keyJson, setKeyJson] = React.useState("");
   const [impersonationEmail, setImpersonationEmail] = React.useState("");
+  const [apiKeyFields, setApiKeyFields] = React.useState<Record<string, string>>({});
+  const [appId, setAppId] = React.useState("");
+  const [appPrivateKey, setAppPrivateKey] = React.useState("");
+  const [appDiscovery, setAppDiscovery] = React.useState<GithubAppDiscovery | null>(null);
+  const [selectedInstallationId, setSelectedInstallationId] = React.useState("");
+  const [discovering, setDiscovering] = React.useState(false);
   const [selectedScopeGroups, setSelectedScopeGroups] = React.useState<string[]>([]);
   const [busy, setBusy] = React.useState(false);
 
@@ -941,16 +986,27 @@ function OauthOrServiceAccountModal({
       const initialMode: ConnectMode = isReconnect
         ? reconnect.authMode === "oauth2"
           ? "oauth"
-          : "service_account"
+          : reconnect.authMode === "service_account"
+            ? "service_account"
+            : "github_app"
         : supportsOauth
           ? "oauth"
-          : "service_account";
+          : supportsSa
+            ? "service_account"
+            : supportsGithubApp
+              ? "github_app"
+              : "oauth";
       setMode(initialMode);
       setLabel(reconnect?.label ?? defaultLabel(entry));
       setClientId("");
       setClientSecret("");
       setKeyJson("");
       setImpersonationEmail("");
+      setApiKeyFields({});
+      setAppId("");
+      setAppPrivateKey("");
+      setAppDiscovery(null);
+      setSelectedInstallationId("");
       // Default to all available scope groups checked. For reconnect with a
       // non-empty stored selection, prefill from that. Legacy connections
       // (empty stored array) fall back to "all" so the user sees the
@@ -963,7 +1019,7 @@ function OauthOrServiceAccountModal({
       const stored = reconnect?.scopeGroups ?? [];
       setSelectedScopeGroups(stored.length > 0 ? stored : allGroupKeys);
     }
-  }, [open, entry, supportsOauth, isReconnect, reconnect]);
+  }, [open, entry, supportsOauth, supportsSa, supportsGithubApp, isReconnect, reconnect]);
 
   if (!entry) return null;
 
@@ -996,6 +1052,82 @@ function OauthOrServiceAccountModal({
         // postMessage and refreshes the connection list on success.
         onSaved();
       }
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function discoverGithubApp() {
+    if (!entry) return;
+    setDiscovering(true);
+    try {
+      const out = await api.post<GithubAppDiscovery>(
+        `/api/companies/${companyId}/integrations/github-app/discover`,
+        { appId: appId.trim(), privateKey: appPrivateKey.trim() },
+      );
+      setAppDiscovery(out);
+      // Auto-pick when there's exactly one installation — saves a click in
+      // the common case (single-org App, single install).
+      if (out.installations.length === 1) {
+        setSelectedInstallationId(String(out.installations[0].id));
+      }
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setDiscovering(false);
+    }
+  }
+
+  async function submitGithubApp(e: React.FormEvent) {
+    e.preventDefault();
+    if (!entry) return;
+    setBusy(true);
+    try {
+      if (isReconnect && reconnect.authMode === "github_app") {
+        await api.put(
+          `/api/companies/${companyId}/integrations/connections/${reconnect.connectionId}/github-app`,
+          {
+            appId: appId.trim(),
+            privateKey: appPrivateKey.trim(),
+            installationId: selectedInstallationId.trim(),
+          },
+        );
+        toast(`${entry.name} reconnected`, "success");
+      } else {
+        await api.post(
+          `/api/companies/${companyId}/integrations/connections/github-app`,
+          {
+            provider: entry.provider,
+            label: label.trim() || entry.name,
+            appId: appId.trim(),
+            privateKey: appPrivateKey.trim(),
+            installationId: selectedInstallationId.trim(),
+          },
+        );
+        toast(`${entry.name} connected`, "success");
+      }
+      onSaved();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitApiKey(e: React.FormEvent) {
+    e.preventDefault();
+    if (!entry) return;
+    setBusy(true);
+    try {
+      await api.post(`/api/companies/${companyId}/integrations/connections`, {
+        provider: entry.provider,
+        label: label.trim() || entry.name,
+        fields: apiKeyFields,
+      });
+      toast(`${entry.name} connected`, "success");
+      onSaved();
     } catch (err) {
       toast((err as Error).message, "error");
     } finally {
@@ -1063,13 +1195,21 @@ function OauthOrServiceAccountModal({
           clientSecretPlaceholder: "Client Secret",
           consentTitle: "X",
         }
-      : {
-          consoleStep:
-            "Google Cloud Console → APIs & Services → Credentials → Create OAuth Client ID (Web application).",
-          clientIdPlaceholder: "123456789-abcdef.apps.googleusercontent.com",
-          clientSecretPlaceholder: "GOCSPX-…",
-          consentTitle: "Google",
-        };
+      : oauthApp === "github"
+        ? {
+            consoleStep:
+              "github.com/settings/developers → OAuth Apps → New OAuth App. Name it, set Homepage URL to your Genosyn instance, and paste the redirect URI below as the Authorization callback URL.",
+            clientIdPlaceholder: "Iv1.abc123def456…",
+            clientSecretPlaceholder: "GitHub OAuth client secret",
+            consentTitle: "GitHub",
+          }
+        : {
+            consoleStep:
+              "Google Cloud Console → APIs & Services → Credentials → Create OAuth Client ID (Web application).",
+            clientIdPlaceholder: "123456789-abcdef.apps.googleusercontent.com",
+            clientSecretPlaceholder: "GOCSPX-…",
+            consentTitle: "Google",
+          };
 
   return (
     <Modal
@@ -1091,32 +1231,67 @@ function OauthOrServiceAccountModal({
           </p>
         ) : null}
 
-        {!isReconnect && supportsOauth && supportsSa && (
-          <div className="flex gap-1 rounded-lg bg-slate-100 p-1 text-xs dark:bg-slate-800">
-            <button
-              type="button"
-              onClick={() => setMode("oauth")}
-              className={`flex-1 rounded-md px-3 py-1.5 font-medium transition ${
-                mode === "oauth"
-                  ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
-                  : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-              }`}
-            >
-              OAuth
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode("service_account")}
-              className={`flex-1 rounded-md px-3 py-1.5 font-medium transition ${
-                mode === "service_account"
-                  ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
-                  : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-              }`}
-            >
-              Service account
-            </button>
-          </div>
-        )}
+        {!isReconnect &&
+          (supportsOauth ? 1 : 0) +
+            (supportsSa ? 1 : 0) +
+            (supportsApiKey ? 1 : 0) +
+            (supportsGithubApp ? 1 : 0) >=
+            2 && (
+            <div className="flex gap-1 rounded-lg bg-slate-100 p-1 text-xs dark:bg-slate-800">
+              {supportsOauth && (
+                <button
+                  type="button"
+                  onClick={() => setMode("oauth")}
+                  className={`flex-1 rounded-md px-3 py-1.5 font-medium transition ${
+                    mode === "oauth"
+                      ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                      : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                  }`}
+                >
+                  OAuth
+                </button>
+              )}
+              {supportsGithubApp && (
+                <button
+                  type="button"
+                  onClick={() => setMode("github_app")}
+                  className={`flex-1 rounded-md px-3 py-1.5 font-medium transition ${
+                    mode === "github_app"
+                      ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                      : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                  }`}
+                >
+                  GitHub App
+                </button>
+              )}
+              {supportsSa && (
+                <button
+                  type="button"
+                  onClick={() => setMode("service_account")}
+                  className={`flex-1 rounded-md px-3 py-1.5 font-medium transition ${
+                    mode === "service_account"
+                      ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                      : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                  }`}
+                >
+                  Service account
+                </button>
+              )}
+              {supportsApiKey && (
+                <button
+                  type="button"
+                  onClick={() => setMode("apikey")}
+                  className={`flex-1 rounded-md px-3 py-1.5 font-medium transition ${
+                    mode === "apikey"
+                      ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                      : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                  }`}
+                >
+                  Personal token
+                </button>
+              )}
+            </div>
+          )}
 
         {mode === "oauth" && supportsOauth ? (
           <form className="flex flex-col gap-3" onSubmit={submitOauth}>
@@ -1263,6 +1438,404 @@ function OauthOrServiceAccountModal({
             </div>
           </form>
         ) : null}
+
+        {mode === "github_app" && supportsGithubApp ? (
+          <form className="flex flex-col gap-3" onSubmit={submitGithubApp}>
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+              <p className="font-medium">Register a GitHub App first</p>
+              <ol className="mt-1 list-decimal space-y-0.5 pl-4">
+                <li>
+                  github.com/settings/apps → New GitHub App. Pick repository
+                  permissions: <em>Contents: Read &amp; write</em>,{" "}
+                  <em>Pull requests: Read &amp; write</em>,{" "}
+                  <em>Issues: Read &amp; write</em>, plus{" "}
+                  <em>Workflows: Read &amp; write</em> if the AI edits CI.
+                </li>
+                <li>Generate a private key and download the .pem file.</li>
+                <li>
+                  Install the App on the org or user that owns the target
+                  repos.
+                </li>
+                <li>Paste the App ID and the .pem contents below.</li>
+              </ol>
+            </div>
+            {!isReconnect && (
+              <Input
+                label="Label"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder={entry.name}
+                required
+              />
+            )}
+            <Input
+              label="App ID"
+              value={appId}
+              onChange={(e) => {
+                setAppId(e.target.value);
+                setAppDiscovery(null);
+                setSelectedInstallationId("");
+              }}
+              placeholder="123456"
+              required
+            />
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                Private key (.pem) <span className="ml-1 text-red-500">*</span>
+              </label>
+              <textarea
+                required
+                value={appPrivateKey}
+                onChange={(e) => {
+                  setAppPrivateKey(e.target.value);
+                  setAppDiscovery(null);
+                  setSelectedInstallationId("");
+                }}
+                placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;…&#10;-----END RSA PRIVATE KEY-----"
+                rows={6}
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-[11px] shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
+              />
+              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                Encrypted at rest. The private key never leaves the server.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={discoverGithubApp}
+                disabled={discovering || !appId.trim() || !appPrivateKey.trim()}
+              >
+                {discovering ? "Discovering…" : "Discover installations"}
+              </Button>
+              {appDiscovery ? (
+                <span className="text-xs text-slate-500 dark:text-slate-400">
+                  {appDiscovery.app.name || `App ${appDiscovery.app.id}`} ·{" "}
+                  {appDiscovery.installations.length} installation
+                  {appDiscovery.installations.length === 1 ? "" : "s"}
+                </span>
+              ) : null}
+            </div>
+            {appDiscovery ? (
+              appDiscovery.installations.length === 0 ? (
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                  This App has no installations yet. Install it on the org or
+                  user that owns the repos you want, then click Discover again.
+                </div>
+              ) : (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                    Installation <span className="ml-1 text-red-500">*</span>
+                  </label>
+                  <select
+                    required
+                    value={selectedInstallationId}
+                    onChange={(e) => setSelectedInstallationId(e.target.value)}
+                    className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600 dark:text-slate-100"
+                  >
+                    <option value="">Pick an installation…</option>
+                    {appDiscovery.installations.map((i) => (
+                      <option key={i.id} value={String(i.id)}>
+                        {i.account} ({i.targetType}) · #{i.id}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )
+            ) : null}
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={
+                  busy ||
+                  !appId.trim() ||
+                  !appPrivateKey.trim() ||
+                  !selectedInstallationId.trim()
+                }
+              >
+                {busy ? "Saving…" : isReconnect ? "Reconnect" : "Connect"}
+              </Button>
+            </div>
+          </form>
+        ) : null}
+
+        {mode === "apikey" && supportsApiKey && !isReconnect ? (
+          <form className="flex flex-col gap-3" onSubmit={submitApiKey}>
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300">
+              <p className="font-medium">Personal Access Token</p>
+              <p className="mt-1">
+                Headless setups (CI / scripts) where running the OAuth consent flow isn&apos;t practical. Generate a fine-grained token at github.com/settings/personal-access-tokens scoped to the repos and orgs you trust — the token needs <code className="rounded bg-slate-100 px-1 py-0.5 font-mono dark:bg-slate-800">repo</code> at minimum to clone and push.
+              </p>
+            </div>
+            <Input
+              label="Label"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder={entry.name}
+              required
+            />
+            {(entry.fields ?? []).map((f) => (
+              <div key={f.key}>
+                <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                  {f.label}
+                  {f.required && <span className="ml-1 text-red-500">*</span>}
+                </label>
+                <input
+                  type={f.type === "password" ? "password" : "text"}
+                  required={f.required}
+                  placeholder={f.placeholder}
+                  value={apiKeyFields[f.key] ?? ""}
+                  onChange={(e) =>
+                    setApiKeyFields((prev) => ({ ...prev, [f.key]: e.target.value }))
+                  }
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-mono shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
+                />
+                {f.hint && (
+                  <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{f.hint}</p>
+                )}
+              </div>
+            ))}
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={busy}>
+                {busy ? "Testing…" : "Connect"}
+              </Button>
+            </div>
+          </form>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
+type GithubRepoRow = {
+  owner: string;
+  name: string;
+  defaultBranch: string;
+  description?: string;
+  private?: boolean;
+};
+
+/**
+ * Per-Connection repo picker for GitHub. Loads the live list of repos the
+ * connection's token can see and lets the operator toggle which ones the
+ * runner is allowed to materialize on disk for granted AI employees.
+ *
+ * The allowlist is persisted server-side inside the encrypted config blob,
+ * so disconnect / reconnect rebuilds the picker against fresh credentials.
+ */
+function RepoAllowlistModal({
+  open,
+  connection,
+  companyId,
+  onClose,
+}: {
+  open: boolean;
+  connection: IntegrationConnection | null;
+  companyId: string;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [allowed, setAllowed] = React.useState<GithubRepoRow[]>([]);
+  const [discoverable, setDiscoverable] = React.useState<GithubRepoRow[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [search, setSearch] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!open || !connection) return;
+    let cancelled = false;
+    setDiscoverable(null);
+    setAllowed([]);
+    setLoadError(null);
+    setSearch("");
+    (async () => {
+      try {
+        const data = await api.get<{
+          allowed: GithubRepoRow[];
+          discoverable: GithubRepoRow[];
+        }>(
+          `/api/companies/${companyId}/integrations/connections/${connection.id}/github/repos`,
+        );
+        if (cancelled) return;
+        setAllowed(data.allowed);
+        setDiscoverable(data.discoverable);
+      } catch (err) {
+        if (cancelled) return;
+        setLoadError((err as Error).message);
+        setDiscoverable([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, connection, companyId]);
+
+  const allowedKey = React.useCallback(
+    (r: GithubRepoRow) => `${r.owner.toLowerCase()}/${r.name.toLowerCase()}`,
+    [],
+  );
+  const allowedSet = React.useMemo(
+    () => new Set(allowed.map(allowedKey)),
+    [allowed, allowedKey],
+  );
+
+  function toggle(repo: GithubRepoRow) {
+    const key = allowedKey(repo);
+    if (allowedSet.has(key)) {
+      setAllowed((prev) => prev.filter((r) => allowedKey(r) !== key));
+    } else {
+      setAllowed((prev) => [
+        ...prev,
+        {
+          owner: repo.owner,
+          name: repo.name,
+          defaultBranch: repo.defaultBranch,
+        },
+      ]);
+    }
+  }
+
+  async function save() {
+    if (!connection) return;
+    setBusy(true);
+    try {
+      await api.put(
+        `/api/companies/${companyId}/integrations/connections/${connection.id}/github/repos`,
+        {
+          repos: allowed.map((r) => ({
+            owner: r.owner,
+            name: r.name,
+            defaultBranch: r.defaultBranch,
+          })),
+        },
+      );
+      toast(`Allowlisted ${allowed.length} repo${allowed.length === 1 ? "" : "s"}`, "success");
+      onClose();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const filteredDiscoverable = React.useMemo(() => {
+    if (!discoverable) return null;
+    const q = search.trim().toLowerCase();
+    if (!q) return discoverable;
+    return discoverable.filter((r) =>
+      `${r.owner}/${r.name}`.toLowerCase().includes(q),
+    );
+  }, [discoverable, search]);
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={connection ? `Repos · ${connection.label}` : "Repos"}
+      size="lg"
+    >
+      <div className="flex flex-col gap-3">
+        <p className="rounded-md bg-slate-50 p-3 text-xs text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
+          AI employees with a grant on this Connection get every selected repo
+          cloned into their working directory before each spawn. They use
+          plain <code className="rounded bg-slate-100 px-1 py-0.5 font-mono dark:bg-slate-900">git</code> to
+          branch, commit, and push, and the <code className="rounded bg-slate-100 px-1 py-0.5 font-mono dark:bg-slate-900">create_pull_request</code> tool
+          to ship work back as a PR.
+        </p>
+
+        {loadError ? (
+          <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+            {loadError}
+          </div>
+        ) : null}
+
+        <div className="relative">
+          <Search
+            size={14}
+            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500"
+          />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filter repos…"
+            className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-indigo-700 dark:focus:ring-indigo-900"
+          />
+        </div>
+
+        {filteredDiscoverable === null ? (
+          <div className="flex justify-center py-6">
+            <Spinner />
+          </div>
+        ) : filteredDiscoverable.length === 0 ? (
+          <EmptyState
+            title={search ? "No matching repos" : "No accessible repos"}
+            description={
+              search
+                ? `No repos on this connection match "${search.trim()}".`
+                : "This connection's token can't see any repos. Check the token's scopes and org access."
+            }
+          />
+        ) : (
+          <ul className="max-h-96 divide-y divide-slate-100 overflow-y-auto rounded-md border border-slate-200 dark:divide-slate-800 dark:border-slate-700">
+            {filteredDiscoverable.map((r) => {
+              const key = allowedKey(r);
+              const checked = allowedSet.has(key);
+              return (
+                <li key={key}>
+                  <label className="flex cursor-pointer items-start gap-3 p-2.5 transition hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggle(r)}
+                      className="mt-0.5 h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900"
+                    />
+                    <span className="flex-1 min-w-0">
+                      <span className="flex items-center gap-1.5 text-sm font-medium text-slate-900 dark:text-slate-100">
+                        <span className="truncate">
+                          {r.owner}/{r.name}
+                        </span>
+                        {r.private ? (
+                          <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                            Private
+                          </span>
+                        ) : null}
+                        <span className="ml-auto text-[10px] font-normal text-slate-400 dark:text-slate-500">
+                          {r.defaultBranch}
+                        </span>
+                      </span>
+                      {r.description ? (
+                        <span className="mt-0.5 block truncate text-[11px] text-slate-500 dark:text-slate-400">
+                          {r.description}
+                        </span>
+                      ) : null}
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <span className="text-xs text-slate-500 dark:text-slate-400">
+            {allowed.length} selected
+          </span>
+          <div className="flex gap-2">
+            <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={save} disabled={busy}>
+              {busy ? "Saving…" : "Save selection"}
+            </Button>
+          </div>
+        </div>
       </div>
     </Modal>
   );

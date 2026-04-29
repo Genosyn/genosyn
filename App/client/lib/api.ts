@@ -346,7 +346,11 @@ export type AuditEvent = {
   createdAt: string;
 };
 
-export type IntegrationAuthMode = "apikey" | "oauth2" | "service_account";
+export type IntegrationAuthMode =
+  | "apikey"
+  | "oauth2"
+  | "service_account"
+  | "github_app";
 export type IntegrationCatalogField = {
   key: string;
   label: string;
@@ -390,7 +394,7 @@ export type IntegrationCatalogEntry = {
   authMode: IntegrationAuthMode;
   fields?: IntegrationCatalogField[];
   oauth?: {
-    app: "google" | "x";
+    app: "google" | "x" | "github";
     scopes: string[];
     scopeGroups?: IntegrationScopeGroup[];
     setupDocs?: string;
@@ -399,6 +403,9 @@ export type IntegrationCatalogEntry = {
     scopes: string[];
     scopeGroups?: IntegrationScopeGroup[];
     impersonation: boolean;
+    setupDocs?: string;
+  };
+  githubApp?: {
     setupDocs?: string;
   };
   enabled: boolean;

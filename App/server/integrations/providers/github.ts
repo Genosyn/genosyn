@@ -1,26 +1,55 @@
-import type { IntegrationProvider } from "../types.js";
+import type {
+  IntegrationConfig,
+  IntegrationProvider,
+  IntegrationRuntimeContext,
+} from "../types.js";
 import { maskSecret } from "../../lib/secret.js";
+import {
+  GITHUB_SCOPE_GROUPS,
+  refreshGithubToken,
+  type GithubOauthConfig,
+  type GithubRepoRef,
+} from "./github-oauth.js";
+import {
+  buildGithubAppConfig as buildGithubAppConfigImpl,
+  ensureInstallationToken,
+  type GithubAppConfig,
+} from "./github-app.js";
 
 /**
- * GitHub — API-key integration. Users paste a Personal Access Token (classic
- * `ghp_…` or fine-grained `github_pat_…`). We call /user on create to
- * validate the token and capture the login + display name for the account
- * hint. A Company can register multiple GitHub Connections (one per
- * org/account/scope) and grant them independently to AI employees.
+ * GitHub — repos, issues, pull requests, code search.
  *
- * No SDK dependency — the REST API is JSON over HTTPS and easy to hit with
- * `fetch`. If we later need GraphQL or finer-grained streaming, swapping in
- * `@octokit/rest` becomes a local change.
+ * Two auth modes are supported, picked at create-time:
+ *
+ *   • Personal Access Token (`authMode="apikey"`): user pastes a classic
+ *     `ghp_…` or fine-grained `github_pat_…`. We call /user on create to
+ *     validate the token and capture the login + display name. Tokens are
+ *     long-lived; nothing to refresh.
+ *
+ *   • OAuth 2.0 (`authMode="oauth2"`): each Connection brings its own OAuth
+ *     App (`clientId` + `clientSecret`, registered at
+ *     github.com/settings/developers) and runs the standard 3-legged
+ *     consent dance. Refresh tokens are only issued when the OAuth App has
+ *     "Expire user authorization tokens" enabled — otherwise the access
+ *     token is long-lived. We handle both cases transparently.
+ *
+ * On both modes the Connection persists a `repos[]` allowlist — the subset
+ * of accessible repos that engineering AI employees with a grant on this
+ * Connection can clone into their working directory. The allowlist is
+ * editable from Settings → Integrations and lives inside the encrypted
+ * config blob (no schema change).
  */
 
 const GITHUB_API = "https://api.github.com";
 
-type GitHubConfig = {
+/** Persisted shape for `authMode="apikey"` connections. */
+export type GithubApiKeyConfig = {
   apiKey: string;
   login?: string;
   userId?: number;
   userName?: string;
   userType?: string;
+  repos?: GithubRepoRef[];
 };
 
 type FetchInit = {
@@ -30,7 +59,7 @@ type FetchInit = {
 };
 
 async function githubFetch(
-  apiKey: string,
+  accessToken: string,
   path: string,
   init: FetchInit = {},
 ): Promise<unknown> {
@@ -46,7 +75,7 @@ async function githubFetch(
     : "";
   const url = `${GITHUB_API}${path}${qs}`;
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${apiKey}`,
+    Authorization: `Bearer ${accessToken}`,
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
     "User-Agent": "genosyn",
@@ -76,6 +105,52 @@ async function githubFetch(
     throw new Error(msg);
   }
   return parsed;
+}
+
+/**
+ * Resolve the access token for the current request, refreshing the OAuth
+ * token in-place if it's near expiry. Used by every tool handler.
+ */
+async function ensureGithubAccessToken(
+  ctx: IntegrationRuntimeContext,
+): Promise<string> {
+  if (ctx.authMode === "apikey") {
+    const cfg = ctx.config as GithubApiKeyConfig;
+    if (!cfg.apiKey) throw new Error("GitHub Connection is missing its API key.");
+    return cfg.apiKey;
+  }
+  if (ctx.authMode === "oauth2") {
+    const cfg = ctx.config as GithubOauthConfig;
+    if (!cfg.accessToken) {
+      throw new Error("GitHub Connection is missing its OAuth access token.");
+    }
+    // expiresAt === 0 → OAuth App without expiration; access token is
+    // long-lived, no refresh needed/possible.
+    if (cfg.expiresAt > 0 && cfg.expiresAt < Date.now() + 60_000) {
+      const refreshed = await refreshGithubToken(cfg);
+      const next: GithubOauthConfig = {
+        ...cfg,
+        accessToken: refreshed.accessToken,
+        refreshToken: refreshed.refreshToken,
+        expiresAt: refreshed.expiresAt,
+        scope: refreshed.scope,
+      };
+      ctx.setConfig?.(next as unknown as IntegrationConfig);
+      ctx.config = next as unknown as IntegrationConfig;
+      return next.accessToken;
+    }
+    return cfg.accessToken;
+  }
+  if (ctx.authMode === "github_app") {
+    const cfg = ctx.config as GithubAppConfig;
+    const { accessToken, refreshedConfig } = await ensureInstallationToken(cfg);
+    if (refreshedConfig) {
+      ctx.setConfig?.(refreshedConfig as unknown as IntegrationConfig);
+      ctx.config = refreshedConfig as unknown as IntegrationConfig;
+    }
+    return accessToken;
+  }
+  throw new Error(`GitHub connector does not support authMode "${ctx.authMode}"`);
 }
 
 function clampInt(v: unknown, min: number, max: number, fallback: number): number {
@@ -108,11 +183,11 @@ export const githubProvider: IntegrationProvider = {
     provider: "github",
     name: "GitHub",
     category: "Developer",
-    tagline: "Repos, issues, pull requests, code search.",
+    tagline: "Repos, issues, pull requests, code search, and PRs from AI employees.",
     description:
-      "Connect a GitHub account so AI employees can browse repos, read code, triage issues, and open pull requests. Uses a Personal Access Token — create one at github.com/settings/tokens (classic) or github.com/settings/personal-access-tokens (fine-grained) and grant the scopes you want the employees to have. Add multiple connections to cover several orgs or accounts.",
+      "Connect a GitHub account so AI employees can browse repos, read code, triage issues, and open pull requests against the repos you allowlist on the Connection. OAuth is recommended for a one-click connect; a Personal Access Token still works for headless setups. Engineering employees with a grant on this Connection get a fresh `git clone` of each allowlisted repo materialized into their working directory before every spawn — they can branch, commit, push, and call the `create_pull_request` tool to ship work.",
     icon: "Github",
-    authMode: "apikey",
+    authMode: "oauth2",
     fields: [
       {
         key: "apiKey",
@@ -120,9 +195,23 @@ export const githubProvider: IntegrationProvider = {
         type: "password",
         placeholder: "ghp_… or github_pat_…",
         required: true,
-        hint: "Fine-grained tokens scoped to the orgs/repos you trust are recommended.",
+        hint: "Fine-grained tokens scoped to the orgs/repos you trust are recommended. Needs `repo` scope to clone + push.",
       },
     ],
+    oauth: {
+      app: "github",
+      // `repo` covers private clone/push/issues/PRs; `read:user` is
+      // required for the /user lookup we do for the account hint. The
+      // optional scope groups (`workflow`, `read:org`) are user-pickable.
+      scopes: ["repo", "read:user"],
+      scopeGroups: GITHUB_SCOPE_GROUPS,
+      setupDocs:
+        "https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps",
+    },
+    githubApp: {
+      setupDocs:
+        "https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app",
+    },
     enabled: true,
   },
 
@@ -348,6 +437,43 @@ export const githubProvider: IntegrationProvider = {
       },
     },
     {
+      name: "create_pull_request",
+      description:
+        "Open a pull request from `head` (a branch the agent already pushed) into `base`. The agent is expected to have committed and pushed the head branch via plain `git` from inside its `repos/<owner>/<name>/` working tree before calling this tool. Set `draft: true` to open a draft PR.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          owner: { type: "string", description: "Repo owner (org or user)." },
+          repo: { type: "string", description: "Repo name." },
+          title: { type: "string", description: "PR title." },
+          body: {
+            type: "string",
+            description: "Markdown PR description. Optional but strongly recommended.",
+          },
+          head: {
+            type: "string",
+            description:
+              "Source branch. For same-repo PRs, just the branch name; for forks use `user:branch`.",
+          },
+          base: {
+            type: "string",
+            description: "Target branch (usually the repo's default branch).",
+          },
+          draft: {
+            type: "boolean",
+            description: "Open as a draft PR.",
+          },
+          maintainer_can_modify: {
+            type: "boolean",
+            description:
+              "Allow maintainers to push to the head branch. Defaults to true.",
+          },
+        },
+        required: ["owner", "repo", "title", "head", "base"],
+        additionalProperties: false,
+      },
+    },
+    {
       name: "list_commits",
       description: "List commits in a repo. Filter by branch (`sha`), path, author, or `since`.",
       inputSchema: {
@@ -396,22 +522,58 @@ export const githubProvider: IntegrationProvider = {
     if (!user?.login) {
       throw new Error("GitHub returned no user — token may be invalid.");
     }
-    const config: GitHubConfig = {
+    const config: GithubApiKeyConfig = {
       apiKey,
       login: user.login,
       userId: user.id,
       userName: user.name ?? undefined,
       userType: user.type ?? undefined,
+      repos: [],
     };
     const display = user.name ? `${user.name} (@${user.login})` : `@${user.login}`;
     const accountHint = `${display} · ${maskSecret(apiKey)}`;
-    return { config, accountHint };
+    return { config: config as unknown as IntegrationConfig, accountHint };
+  },
+
+  async buildGithubAppConfig(args) {
+    return buildGithubAppConfigImpl(args);
+  },
+
+  buildOauthConfig({ tokens, userInfo, clientId, clientSecret, scopeGroups }) {
+    const login = typeof userInfo.login === "string" ? userInfo.login : "";
+    const userId = typeof userInfo.id === "number" ? userInfo.id : 0;
+    const userName = typeof userInfo.name === "string" ? userInfo.name : undefined;
+    if (!login || !userId) {
+      throw new Error(
+        "GitHub did not return user identity on /user — token may be missing read:user scope.",
+      );
+    }
+    const cfg: GithubOauthConfig = {
+      clientId,
+      clientSecret,
+      accessToken: tokens.accessToken,
+      // Empty string is a valid state for OAuth Apps that don't expire
+      // tokens — refresh attempts are skipped when this is empty.
+      refreshToken: tokens.refreshToken ?? "",
+      expiresAt: tokens.expiresAt ?? 0,
+      scope: tokens.scope ?? "",
+      login,
+      userId,
+      userName,
+      repos: [],
+      scopeGroups,
+    };
+    const display = userName ? `${userName} (@${login})` : `@${login}`;
+    return {
+      config: cfg as unknown as IntegrationConfig,
+      accountHint: display,
+    };
   },
 
   async checkStatus(ctx) {
-    const cfg = ctx.config as GitHubConfig;
     try {
-      await githubFetch(cfg.apiKey, "/user");
+      const token = await ensureGithubAccessToken(ctx);
+      await githubFetch(token, "/user");
       return { ok: true };
     } catch (err) {
       return {
@@ -422,12 +584,12 @@ export const githubProvider: IntegrationProvider = {
   },
 
   async invokeTool(name, args, ctx) {
-    const cfg = ctx.config as GitHubConfig;
+    const accessToken = await ensureGithubAccessToken(ctx);
     const a = (args as Record<string, unknown>) ?? {};
 
     switch (name) {
       case "get_authenticated_user":
-        return githubFetch(cfg.apiKey, "/user");
+        return githubFetch(accessToken, "/user");
 
       case "list_repos": {
         const query: Record<string, string | number> = {
@@ -438,13 +600,13 @@ export const githubProvider: IntegrationProvider = {
         };
         if (typeof a.visibility === "string") query.visibility = a.visibility;
         if (typeof a.affiliation === "string") query.affiliation = a.affiliation;
-        return githubFetch(cfg.apiKey, "/user/repos", { query });
+        return githubFetch(accessToken, "/user/repos", { query });
       }
 
       case "get_repo": {
         const { owner, repo } = requireOwnerRepo(a);
         return githubFetch(
-          cfg.apiKey,
+          accessToken,
           `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
         );
       }
@@ -458,7 +620,7 @@ export const githubProvider: IntegrationProvider = {
         };
         if (typeof a.sort === "string") query.sort = a.sort;
         if (typeof a.order === "string") query.order = a.order;
-        return githubFetch(cfg.apiKey, "/search/repositories", { query });
+        return githubFetch(accessToken, "/search/repositories", { query });
       }
 
       case "get_file_contents": {
@@ -467,7 +629,7 @@ export const githubProvider: IntegrationProvider = {
         const query: Record<string, string> = {};
         if (typeof a.ref === "string" && a.ref.trim()) query.ref = a.ref.trim();
         return githubFetch(
-          cfg.apiKey,
+          accessToken,
           `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${path
             .split("/")
             .map(encodeURIComponent)
@@ -488,7 +650,7 @@ export const githubProvider: IntegrationProvider = {
         if (typeof a.creator === "string") query.creator = a.creator;
         if (typeof a.since === "string") query.since = a.since;
         return githubFetch(
-          cfg.apiKey,
+          accessToken,
           `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues`,
           { query },
         );
@@ -499,7 +661,7 @@ export const githubProvider: IntegrationProvider = {
         const number = clampInt(a.number, 1, Number.MAX_SAFE_INTEGER, 0);
         if (!number) throw new Error("number is required");
         return githubFetch(
-          cfg.apiKey,
+          accessToken,
           `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}`,
         );
       }
@@ -512,7 +674,7 @@ export const githubProvider: IntegrationProvider = {
         if (Array.isArray(a.labels)) body.labels = a.labels;
         if (Array.isArray(a.assignees)) body.assignees = a.assignees;
         return githubFetch(
-          cfg.apiKey,
+          accessToken,
           `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues`,
           { method: "POST", body },
         );
@@ -524,7 +686,7 @@ export const githubProvider: IntegrationProvider = {
         if (!number) throw new Error("number is required");
         const commentBody = requireString(a.body, "body");
         return githubFetch(
-          cfg.apiKey,
+          accessToken,
           `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}/comments`,
           { method: "POST", body: { body: commentBody } },
         );
@@ -542,7 +704,7 @@ export const githubProvider: IntegrationProvider = {
         if (typeof a.sort === "string") query.sort = a.sort;
         if (typeof a.direction === "string") query.direction = a.direction;
         return githubFetch(
-          cfg.apiKey,
+          accessToken,
           `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`,
           { query },
         );
@@ -553,8 +715,26 @@ export const githubProvider: IntegrationProvider = {
         const number = clampInt(a.number, 1, Number.MAX_SAFE_INTEGER, 0);
         if (!number) throw new Error("number is required");
         return githubFetch(
-          cfg.apiKey,
+          accessToken,
           `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${number}`,
+        );
+      }
+
+      case "create_pull_request": {
+        const { owner, repo } = requireOwnerRepo(a);
+        const title = requireString(a.title, "title");
+        const head = requireString(a.head, "head");
+        const base = requireString(a.base, "base");
+        const body: Record<string, unknown> = { title, head, base };
+        if (typeof a.body === "string") body.body = a.body;
+        if (typeof a.draft === "boolean") body.draft = a.draft;
+        if (typeof a.maintainer_can_modify === "boolean") {
+          body.maintainer_can_modify = a.maintainer_can_modify;
+        }
+        return githubFetch(
+          accessToken,
+          `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`,
+          { method: "POST", body },
         );
       }
 
@@ -570,7 +750,7 @@ export const githubProvider: IntegrationProvider = {
         if (typeof a.since === "string") query.since = a.since;
         if (typeof a.until === "string") query.until = a.until;
         return githubFetch(
-          cfg.apiKey,
+          accessToken,
           `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits`,
           { query },
         );
@@ -583,7 +763,7 @@ export const githubProvider: IntegrationProvider = {
           per_page: clampInt(a.per_page, 1, 100, 30),
           page: clampInt(a.page, 1, 1_000_000, 1),
         };
-        return githubFetch(cfg.apiKey, "/search/code", { query });
+        return githubFetch(accessToken, "/search/code", { query });
       }
 
       default:
@@ -591,3 +771,107 @@ export const githubProvider: IntegrationProvider = {
     }
   },
 };
+
+/**
+ * Resolve the access token + login for a GitHub Connection's persisted
+ * config, refreshing in-place if necessary. Used by the repo-sync service
+ * (which needs a token to materialize `git clone` credential helpers) — not
+ * just the in-band tool dispatcher.
+ *
+ * Returns `null` when the config is missing the credentials we need (e.g. an
+ * OAuth row whose access token was never saved). Callers should treat that as
+ * a hard skip.
+ */
+type GithubAuthMode = "apikey" | "oauth2" | "service_account" | "github_app";
+
+export async function resolveGithubCredentials(
+  cfg: IntegrationConfig,
+  authMode: GithubAuthMode,
+): Promise<{
+  accessToken: string;
+  login: string;
+  /** When non-null, the caller should re-encrypt + persist the updated
+   * config (refresh-token / installation-token rotation). */
+  refreshedConfig: IntegrationConfig | null;
+} | null> {
+  if (authMode === "apikey") {
+    const c = cfg as GithubApiKeyConfig;
+    if (!c.apiKey) return null;
+    return {
+      accessToken: c.apiKey,
+      login: c.login ?? "",
+      refreshedConfig: null,
+    };
+  }
+  if (authMode === "oauth2") {
+    const c = cfg as GithubOauthConfig;
+    if (!c.accessToken) return null;
+    if (c.expiresAt > 0 && c.expiresAt < Date.now() + 60_000 && c.refreshToken) {
+      const refreshed = await refreshGithubToken(c);
+      const next: GithubOauthConfig = {
+        ...c,
+        accessToken: refreshed.accessToken,
+        refreshToken: refreshed.refreshToken,
+        expiresAt: refreshed.expiresAt,
+        scope: refreshed.scope,
+      };
+      return {
+        accessToken: next.accessToken,
+        login: next.login,
+        refreshedConfig: next as unknown as IntegrationConfig,
+      };
+    }
+    return { accessToken: c.accessToken, login: c.login, refreshedConfig: null };
+  }
+  if (authMode === "github_app") {
+    const c = cfg as GithubAppConfig;
+    const { accessToken, refreshedConfig } = await ensureInstallationToken(c);
+    return {
+      accessToken,
+      // GitHub App installation tokens authenticate as the App, not a user.
+      // The "login" here is informational for the credential helper /
+      // accountHint surfaces; an empty string is fine — git push uses the
+      // x-access-token literal regardless of this value.
+      login: c.account ?? c.appSlug ?? "",
+      refreshedConfig: refreshedConfig
+        ? (refreshedConfig as unknown as IntegrationConfig)
+        : null,
+    };
+  }
+  return null;
+}
+
+/** Read the persisted repo allowlist regardless of auth mode. */
+export function readGithubRepos(
+  cfg: IntegrationConfig,
+  authMode: GithubAuthMode,
+): GithubRepoRef[] {
+  if (authMode === "apikey") {
+    return (cfg as GithubApiKeyConfig).repos ?? [];
+  }
+  if (authMode === "oauth2") {
+    return (cfg as GithubOauthConfig).repos ?? [];
+  }
+  if (authMode === "github_app") {
+    return (cfg as GithubAppConfig).repos ?? [];
+  }
+  return [];
+}
+
+/** Write a new repo allowlist back into the config blob. */
+export function writeGithubRepos(
+  cfg: IntegrationConfig,
+  authMode: GithubAuthMode,
+  repos: GithubRepoRef[],
+): IntegrationConfig {
+  if (authMode === "apikey") {
+    return { ...(cfg as GithubApiKeyConfig), repos } as unknown as IntegrationConfig;
+  }
+  if (authMode === "oauth2") {
+    return { ...(cfg as GithubOauthConfig), repos } as unknown as IntegrationConfig;
+  }
+  if (authMode === "github_app") {
+    return { ...(cfg as GithubAppConfig), repos } as unknown as IntegrationConfig;
+  }
+  return cfg;
+}

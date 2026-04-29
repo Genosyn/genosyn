@@ -11,6 +11,7 @@ import { materializeMcpConfig } from "./mcp.js";
 import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
+import { materializeReposForEmployee } from "./repoSync.js";
 
 /**
  * Chat seam.
@@ -113,6 +114,14 @@ export async function streamChatWithEmployee(
   // without clobbering `goose configure`'s state). Other providers return
   // empty values; the merge is a no-op for them.
   for (const [k, v] of Object.entries(mcpExtras.extraEnv)) {
+    if (!(k in childEnv)) childEnv[k] = v;
+  }
+
+  // Materialize each granted GitHub Connection's allowlisted repos so the
+  // agent finds a working tree at `<cwd>/repos/<owner>/<name>/`. Errors are
+  // non-fatal — chat still proceeds, just without the failing repo on disk.
+  const repoSync = await materializeReposForEmployee({ employeeId: emp.id, cwd });
+  for (const [k, v] of Object.entries(repoSync.extraEnv)) {
     if (!(k in childEnv)) childEnv[k] = v;
   }
 
