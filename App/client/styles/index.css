@@ -155,3 +155,28 @@ html.dark .chat-md pre {
   font-weight: 600;
   background-color: rgba(148, 163, 184, 0.12);
 }
+
+/* Notion-style block editor — placeholder text appears when an editable
+   block is empty AND focused. The selector matches both empty <div> and
+   the all-<br> shape browsers leave behind after backspacing. */
+.block-editable[data-placeholder]:empty::before,
+.block-editable[data-placeholder]:has(br:only-child)::before {
+  content: attr(data-placeholder);
+  color: rgb(148 163 184); /* slate-400 */
+  pointer-events: none;
+}
+html.dark .block-editable[data-placeholder]:empty::before,
+html.dark .block-editable[data-placeholder]:has(br:only-child)::before {
+  color: rgb(71 85 105); /* slate-600 */
+}
+.block-editable:focus {
+  outline: none;
+}
+/* Indent the rendered link/inline-code/bold/italic markdown so it reads
+   without overwhelming the content while still being scannable. */
+.block-editable {
+  caret-color: rgb(15 23 42);
+}
+html.dark .block-editable {
+  caret-color: rgb(226 232 240);
+}

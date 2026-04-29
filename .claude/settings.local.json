@@ -19,7 +19,8 @@
       "mcp__Claude_Preview__preview_start",
       "Bash(git checkout *)",
       "Bash(node -e \"console.log\\('node ok'\\)\")",
-      "Bash(magick -version)"
+      "Bash(magick -version)",
+      "Bash(git stash *)"
     ]
   }
 }
