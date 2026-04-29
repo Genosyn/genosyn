@@ -797,18 +797,121 @@ function ActionPills({
   employeeSlug: string;
   onInspect: (a: MessageAction) => void;
 }) {
+  // Group consecutive integration.invoke actions so a long run of tool calls
+  // collapses into a single "X tool calls" chip. Other actions
+  // (routine.create, todo.create, …) stay as individual pills since they
+  // each represent a distinct, named outcome the human wants to scan.
+  const groups = React.useMemo(() => groupActions(actions), [actions]);
   return (
     <div className="mt-2 flex flex-wrap gap-1.5">
-      {actions.map((a, i) => (
-        <ActionPill
-          key={`${a.action}-${a.targetId ?? i}`}
-          action={a}
-          companySlug={companySlug}
-          employeeSlug={employeeSlug}
-          onInspect={onInspect}
-        />
-      ))}
+      {groups.map((group, gi) => {
+        if (group.kind === "tool" && group.actions.length >= 2) {
+          return (
+            <ToolCallGroup
+              key={`g-${gi}`}
+              actions={group.actions}
+              companySlug={companySlug}
+              employeeSlug={employeeSlug}
+              onInspect={onInspect}
+            />
+          );
+        }
+        return (
+          <React.Fragment key={`g-${gi}`}>
+            {group.actions.map((a, i) => (
+              <ActionPill
+                key={`${a.action}-${a.targetId ?? i}-${gi}-${i}`}
+                action={a}
+                companySlug={companySlug}
+                employeeSlug={employeeSlug}
+                onInspect={onInspect}
+              />
+            ))}
+          </React.Fragment>
+        );
+      })}
     </div>
+  );
+}
+
+type ActionGroup = {
+  kind: "tool" | "other";
+  actions: MessageAction[];
+};
+
+function groupActions(actions: MessageAction[]): ActionGroup[] {
+  const out: ActionGroup[] = [];
+  for (const a of actions) {
+    const kind: ActionGroup["kind"] =
+      a.action === "integration.invoke" ? "tool" : "other";
+    const last = out[out.length - 1];
+    if (last && last.kind === kind) {
+      last.actions.push(a);
+    } else {
+      out.push({ kind, actions: [a] });
+    }
+  }
+  return out;
+}
+
+function ToolCallGroup({
+  actions,
+  companySlug,
+  employeeSlug,
+  onInspect,
+}: {
+  actions: MessageAction[];
+  companySlug: string;
+  employeeSlug: string;
+  onInspect: (a: MessageAction) => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const errorCount = actions.filter(
+    (a) => a.metadata?.status === "error",
+  ).length;
+  const hasError = errorCount > 0;
+  const palette = hasError
+    ? "border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-300 hover:bg-rose-100 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300 dark:hover:border-rose-500/50 dark:hover:bg-rose-500/20"
+    : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-800";
+  const className = `inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition cursor-pointer ${palette}`;
+  const label = `${actions.length} tool call${actions.length === 1 ? "" : "s"}`;
+  const errorSuffix = hasError ? ` · ${errorCount} failed` : "";
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={className}
+        aria-expanded={open}
+        title={open ? "Hide tool calls" : "Show tool calls"}
+      >
+        {open ? (
+          <ChevronDown size={11} strokeWidth={2.5} />
+        ) : (
+          <ChevronRight size={11} strokeWidth={2.5} />
+        )}
+        <span>
+          {label}
+          {errorSuffix}
+        </span>
+      </button>
+      {open && (
+        <div className="w-full pl-3">
+          <div className="flex flex-wrap gap-1.5">
+            {actions.map((a, i) => (
+              <ActionPill
+                key={`${a.action}-${a.targetId ?? i}-tg`}
+                action={a}
+                companySlug={companySlug}
+                employeeSlug={employeeSlug}
+                onInspect={onInspect}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
