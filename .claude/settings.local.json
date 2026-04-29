@@ -23,7 +23,8 @@
       "Bash(git stash *)",
       "Bash(xargs ls *)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8471)",
-      "Bash(awk '/tools: \\\\[/,/\\\\],/' /Users/nawazdhandala/Projects/Genosyn/genosyn/App/server/integrations/providers/github.ts)"
+      "Bash(awk '/tools: \\\\[/,/\\\\],/' /Users/nawazdhandala/Projects/Genosyn/genosyn/App/server/integrations/providers/github.ts)",
+      "Bash(curl -sS -X POST http://localhost:8471/api/mcp-internal/tools/send_workspace_message -H \"Content-Type: application/json\" -d '{\"channel\":\"engineering\",\"content\":\"hi\"}' -w \"\\\\nHTTP %{http_code}\\\\n\")"
     ]
   }
 }
