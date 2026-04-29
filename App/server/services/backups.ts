@@ -151,6 +151,69 @@ export async function bootBackups(): Promise<void> {
   await reconcileBackupHistory();
   const sched = await getBackupSchedule();
   applyBackupSchedule(sched);
+  await maybeRunMissedBackup(sched);
+}
+
+/**
+ * If the schedule was supposed to fire while the server was down, run a
+ * catch-up backup now. Compares the most recent expected fire time against
+ * `lastRunAt` (or `updatedAt` for a freshly-enabled schedule that has never
+ * completed a run) so that toggling the schedule on doesn't immediately
+ * trigger a backup, but a real missed run does.
+ */
+async function maybeRunMissedBackup(sched: BackupSchedule): Promise<void> {
+  if (!sched.enabled) return;
+  const now = new Date();
+  const expected = previousScheduledFireTime(sched, now);
+  const baseline = sched.lastRunAt ?? sched.updatedAt;
+  if (!baseline || expected.getTime() <= baseline.getTime()) return;
+  // eslint-disable-next-line no-console
+  console.log(
+    `[backups] missed scheduled run at ${expected.toISOString()}; running catch-up backup`,
+  );
+  runBackup("scheduled").catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[backups] catch-up run failed:", err);
+  });
+}
+
+/**
+ * Most recent moment the schedule should have fired at or before `now`.
+ * Mirrors the cron expression from {@link cronExprForSchedule} but in JS
+ * Date arithmetic so we don't need a cron-parser dependency.
+ */
+function previousScheduledFireTime(sched: BackupSchedule, now: Date): Date {
+  const hour = clamp(sched.hour, 0, 23);
+  const candidate = new Date(now);
+  candidate.setHours(hour, 0, 0, 0);
+
+  switch (sched.frequency) {
+    case "weekly": {
+      const targetDow = clamp(sched.dayOfWeek, 0, 6);
+      let daysBack = (candidate.getDay() - targetDow + 7) % 7;
+      if (daysBack === 0 && candidate.getTime() > now.getTime()) {
+        daysBack = 7;
+      }
+      candidate.setDate(candidate.getDate() - daysBack);
+      return candidate;
+    }
+    case "monthly": {
+      const targetDom = clamp(sched.dayOfMonth, 1, 28);
+      candidate.setDate(targetDom);
+      candidate.setHours(hour, 0, 0, 0);
+      if (candidate.getTime() > now.getTime()) {
+        candidate.setMonth(candidate.getMonth() - 1);
+      }
+      return candidate;
+    }
+    case "daily":
+    default: {
+      if (candidate.getTime() > now.getTime()) {
+        candidate.setDate(candidate.getDate() - 1);
+      }
+      return candidate;
+    }
+  }
 }
 
 /**
