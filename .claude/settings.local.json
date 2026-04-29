@@ -21,7 +21,8 @@
       "Bash(node -e \"console.log\\('node ok'\\)\")",
       "Bash(magick -version)",
       "Bash(git stash *)",
-      "Bash(xargs ls *)"
+      "Bash(xargs ls *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8471)"
     ]
   }
 }

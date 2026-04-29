@@ -1008,20 +1008,26 @@ function BlockRow({
   return (
     <div
       className={clsx(
-        "group relative flex items-start",
-        block.type === "h1" && "mt-6 mb-1",
-        block.type === "h2" && "mt-5 mb-1",
-        block.type === "h3" && "mt-4 mb-1",
+        "group relative",
+        block.type === "h1" && "mt-8 mb-1",
+        block.type === "h2" && "mt-6 mb-1",
+        block.type === "h3" && "mt-5 mb-0.5",
         (block.type === "bullet" ||
           block.type === "numbered" ||
           block.type === "todo") &&
           "py-0.5",
-        block.type === "paragraph" && "py-1",
+        block.type === "paragraph" && "py-[3px]",
         block.type === "quote" && "py-1",
-        block.type === "divider" && "py-0",
+        block.type === "divider" && "py-1",
       )}
     >
-      <div className="flex h-7 w-14 shrink-0 items-center justify-end pr-1 opacity-0 transition-opacity group-hover:opacity-100">
+      {/* Floating gutter — sits in the page's left padding so the editable
+          column aligns flush with the title. Hidden on small screens (no
+          hover affordance) and revealed on row hover otherwise. */}
+      <div
+        contentEditable={false}
+        className="absolute -left-12 top-0 hidden h-7 select-none items-center gap-0.5 pr-1 opacity-0 transition-opacity group-hover:opacity-100 sm:flex"
+      >
         <button
           type="button"
           onClick={onAddBelow}
@@ -1042,17 +1048,17 @@ function BlockRow({
         </button>
       </div>
 
-      <div className="flex w-full min-w-0 items-start gap-2">
+      <div className="flex items-start gap-2">
         {block.type === "bullet" && (
           <span
             aria-hidden
-            className="mt-[0.55rem] inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400 dark:bg-slate-500"
+            className="mt-[0.6rem] inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-slate-500 dark:bg-slate-400"
           />
         )}
         {block.type === "numbered" && (
           <span
             aria-hidden
-            className="mt-1 shrink-0 text-base text-slate-500 dark:text-slate-400"
+            className="mt-[0.1rem] shrink-0 text-base leading-relaxed text-slate-500 dark:text-slate-400"
           >
             {indexAmongType(index)}.
           </span>
@@ -1063,14 +1069,14 @@ function BlockRow({
             onClick={onToggleCheck}
             aria-label={block.checked ? "Mark as not done" : "Mark as done"}
             className={clsx(
-              "mt-[0.4rem] flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border transition",
+              "mt-[0.45rem] flex h-[1.05rem] w-[1.05rem] shrink-0 items-center justify-center rounded-[4px] border transition",
               block.checked
                 ? "border-indigo-500 bg-indigo-500 text-white"
                 : "border-slate-300 bg-white hover:border-indigo-400 dark:border-slate-600 dark:bg-slate-900",
             )}
           >
             {block.checked && (
-              <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <path d="M2 6.5L5 9l5-6" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             )}
@@ -1079,7 +1085,7 @@ function BlockRow({
         {block.type === "quote" && (
           <span
             aria-hidden
-            className="mt-1 inline-block w-[3px] self-stretch rounded bg-slate-300 dark:bg-slate-600"
+            className="inline-block w-[3px] self-stretch rounded-full bg-slate-300 dark:bg-slate-600"
           />
         )}
         {editable}
@@ -1100,26 +1106,26 @@ function indexAmongType(globalIndex: number): number {
 function blockTypeClass(type: BlockType, checked?: boolean): string {
   switch (type) {
     case "h1":
-      return "text-[2rem] font-bold leading-tight text-slate-900 dark:text-slate-50";
+      return "text-[1.875rem] font-bold leading-[1.3] tracking-tight text-slate-900 dark:text-slate-50";
     case "h2":
-      return "text-2xl font-semibold leading-snug text-slate-900 dark:text-slate-100";
+      return "text-[1.5rem] font-semibold leading-[1.3] tracking-tight text-slate-900 dark:text-slate-100";
     case "h3":
-      return "text-xl font-semibold leading-snug text-slate-900 dark:text-slate-100";
+      return "text-[1.25rem] font-semibold leading-[1.3] tracking-tight text-slate-900 dark:text-slate-100";
     case "bullet":
     case "numbered":
-      return "text-[15px] leading-relaxed text-slate-800 dark:text-slate-100";
+      return "text-base leading-[1.6] text-slate-800 dark:text-slate-100";
     case "todo":
       return clsx(
-        "text-[15px] leading-relaxed",
+        "text-base leading-[1.6]",
         checked
           ? "text-slate-400 line-through dark:text-slate-500"
           : "text-slate-800 dark:text-slate-100",
       );
     case "quote":
-      return "text-[15px] italic leading-relaxed text-slate-600 dark:text-slate-300";
+      return "text-base italic leading-[1.6] text-slate-600 dark:text-slate-300";
     case "paragraph":
     default:
-      return "text-[15px] leading-relaxed text-slate-800 dark:text-slate-100";
+      return "text-base leading-[1.6] text-slate-800 dark:text-slate-100";
   }
 }
 

@@ -362,9 +362,11 @@ export default function NoteDetail({ company }: { company: Company }) {
         </div>
       </div>
 
-      {/* Notion-style page surface — wide column, no card chrome. */}
+      {/* Notion-style page surface — wide column, no card chrome. The
+          horizontal padding leaves room for the block editor's hover
+          gutter (which sits in the negative-left of each row). */}
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-3xl px-10 pb-24 pt-12">
+        <div className="mx-auto w-full max-w-[820px] px-6 pb-32 pt-14 sm:px-14 lg:px-20">
           {note.archivedAt && (
             <div className="mb-6 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
               <span>This note is in the trash.</span>
@@ -379,14 +381,14 @@ export default function NoteDetail({ company }: { company: Company }) {
 
           {/* Icon + title — the icon's "Add" affordance only shows on hover
               when empty, mirroring Notion's restrained header. */}
-          <div className="group/title relative mb-2 flex items-end gap-3">
+          <div className="group/title relative mb-1 -ml-2 flex items-end">
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setIconPickerOpen((v) => !v)}
                 title={icon ? "Change icon" : "Add icon"}
                 className={clsx(
-                  "flex h-14 w-14 items-center justify-center rounded-md text-4xl transition",
+                  "flex h-[4.5rem] w-[4.5rem] items-center justify-center rounded-md text-[3.25rem] leading-none transition",
                   icon
                     ? "hover:bg-slate-100 dark:hover:bg-slate-800"
                     : "text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200",
@@ -397,7 +399,7 @@ export default function NoteDetail({ company }: { company: Company }) {
                   <span aria-hidden>{icon}</span>
                 ) : (
                   <SmilePlus
-                    size={22}
+                    size={24}
                     className="opacity-0 transition group-hover/title:opacity-100"
                   />
                 )}
@@ -423,23 +425,23 @@ export default function NoteDetail({ company }: { company: Company }) {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Untitled"
-            className="mb-1 w-full border-0 bg-transparent text-[2.75rem] font-bold leading-tight tracking-tight text-slate-900 placeholder:text-slate-300 focus:outline-none focus:ring-0 dark:text-slate-50 dark:placeholder:text-slate-700"
+            className="w-full border-0 bg-transparent p-0 text-[2.5rem] font-bold leading-[1.2] tracking-tight text-slate-900 placeholder:text-slate-300 focus:outline-none focus:ring-0 dark:text-slate-50 dark:placeholder:text-slate-700"
           />
 
-          <div className="mb-8 mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-400 dark:text-slate-500">
-            {note.lastEditedBy?.name && (
-              <>
-                <span>
-                  {editorKind === "ai" ? "Last edited by AI " : "Last edited by "}
-                  <span className="font-medium text-slate-600 dark:text-slate-300">
-                    {editor}
-                  </span>
+          {note.lastEditedBy?.name && (
+            <div className="mt-1 mb-10 flex flex-wrap items-center gap-1.5 text-[13px] text-slate-400 dark:text-slate-500">
+              <span>
+                {editorKind === "ai" ? "Last edited by AI " : "Last edited by "}
+                <span className="font-medium text-slate-500 dark:text-slate-400">
+                  {editor}
                 </span>
-                <span aria-hidden>·</span>
-                <span>{formatRelative(note.updatedAt)}</span>
-              </>
-            )}
-          </div>
+              </span>
+              <span aria-hidden>·</span>
+              <span>{formatRelative(note.updatedAt)}</span>
+            </div>
+          )}
+
+          {!note.lastEditedBy?.name && <div className="mb-10" />}
 
           {/* The editor sits flush with the page — no border, no card. */}
           <BlockEditor
