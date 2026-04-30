@@ -415,14 +415,18 @@ function ShareModal({
   return (
     <Modal open={open} onClose={onClose} title="Share with AI employees" size="lg">
       <div className="flex flex-col gap-5">
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Every AI employee gets read access on ingest. Revoke individuals
+          here, or grant access to anyone who joined the company after this
+          learning was added.
+        </p>
         <div>
           <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
             Has access
           </h3>
           {grants.length === 0 ? (
             <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-              No employees yet — pick from the list below to share this
-              learning.
+              No employees have access. Add one below.
             </p>
           ) : (
             <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-700">

@@ -13,6 +13,7 @@ import {
 } from "../db/entities/EmployeeLearningGrant.js";
 import type { NoteAccessLevel } from "../db/entities/EmployeeNoteGrant.js";
 import { Company } from "../db/entities/Company.js";
+import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { companyDir, ensureDir } from "./paths.js";
 
 /**
@@ -378,4 +379,30 @@ export async function listLearningsByIds(
     where: { companyId, id: In(ids) },
     order: { updatedAt: "DESC" },
   });
+}
+
+/**
+ * Grant `read` access to every AI employee in the company on this learning.
+ * Called once at create time so a fresh Learning is immediately visible to
+ * the team via the MCP surface — without this, every new ingestion would
+ * silently land with zero grants and a human would have to walk into the
+ * share modal before any employee could see it.
+ *
+ * Idempotent: per-employee grants are upserted, so calling this twice is a
+ * no-op. New employees added *after* a Learning is ingested do not get an
+ * automatic grant — that's a future "back-fill on hire" decision; for now
+ * the human re-shares from the modal.
+ */
+export async function grantLearningToAllEmployees(
+  companyId: string,
+  learningId: string,
+): Promise<number> {
+  const emps = await AppDataSource.getRepository(AIEmployee).find({
+    where: { companyId },
+    select: ["id"],
+  });
+  for (const e of emps) {
+    await upsertLearningGrant(e.id, learningId, "read");
+  }
+  return emps.length;
 }

@@ -22,6 +22,7 @@ import {
   deleteLearningBytes,
   epubFileToText,
   fetchUrlAsText,
+  grantLearningToAllEmployees,
   htmlToText,
   inferSourceKindFromFilename,
   learningUploadMiddleware,
@@ -227,6 +228,8 @@ learningsRouter.post(
     });
     await repo.save(row);
 
+    const grantedCount = await grantLearningToAllEmployees(cid, row.id);
+
     await recordAudit({
       companyId: cid,
       actorUserId: req.userId ?? null,
@@ -238,6 +241,7 @@ learningsRouter.post(
         sourceKind: row.sourceKind,
         bytes: Number(row.bytes),
         status: row.status,
+        grantedToEmployees: grantedCount,
       },
     });
 
@@ -335,6 +339,8 @@ learningsRouter.post(
     });
     await AppDataSource.getRepository(Learning).save(row);
 
+    const grantedCount = await grantLearningToAllEmployees(cid, row.id);
+
     await recordAudit({
       companyId: cid,
       actorUserId: req.userId ?? null,
@@ -347,6 +353,7 @@ learningsRouter.post(
         bytes: Number(row.bytes),
         status: row.status,
         filename: row.sourceFilename,
+        grantedToEmployees: grantedCount,
       },
     });
 
