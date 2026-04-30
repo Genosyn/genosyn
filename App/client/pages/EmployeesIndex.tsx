@@ -18,13 +18,15 @@ import { useEmployees } from "./employeesContext";
 
 /**
  * The `/c/:slug` index pane. Shows the company roster as an interactive
- * org chart driven by `reportsToEmployeeId`. Each card has an inline
- * editor for Team and Reports-to that PATCHes the employee, so members
- * can both *see* and *define* the chart from one screen.
+ * org chart driven by `reportsToEmployeeId` / `reportsToUserId`. Each AI
+ * card has an inline editor for Team and Reports-to that PATCHes the
+ * employee, so members can both *see* and *define* the chart from one
+ * screen.
  *
- * Humans (company members) render alongside AI employees so the chart
- * reflects the full company. Human nodes don't have a reporting line in
- * the schema yet, so they sit as roots above the AI hierarchy.
+ * Humans (company members) and AI employees are rendered as the same
+ * kind of node and share the same recursion. An AI can report to either
+ * another AI (existing) or a human (new) — humans themselves don&apos;t
+ * have a reports-to field yet, so they always sit as roots.
  */
 export default function EmployeesIndex({ company }: { company: Company }) {
   const { employees } = useEmployees();
@@ -97,6 +99,17 @@ export default function EmployeesIndex({ company }: { company: Company }) {
   );
 }
 
+type ChartNode =
+  | { kind: "ai"; key: string; name: string; emp: Employee }
+  | { kind: "human"; key: string; name: string; member: Member };
+
+const aiKey = (id: string) => `ai:${id}`;
+const humanKey = (userId: string) => `human:${userId}`;
+
+function memberDisplayName(m: Member): string {
+  return m.name || m.email || "Member";
+}
+
 function OrgChartView({
   company,
   employees,
@@ -116,28 +129,56 @@ function OrgChartView({
       .catch(() => setTeams([]));
   }, [company.id]);
 
-  // Group employees by their manager. Anyone whose manager isn't in the
-  // company roster (deleted, missing) gets re-rooted so they stay visible.
+  // Walk both AIs and humans into a single tree. An AI prefers its
+  // human manager (`reportsToUserId`) over its AI one when both happen
+  // to be set; the API enforces that only one is set at a time, but the
+  // UI tolerates stale data by picking deterministically. Anyone whose
+  // declared manager is no longer on the roster gets re-rooted.
   const { roots, byManager } = React.useMemo(() => {
-    const ids = new Set(employees.map((e) => e.id));
-    const byManager = new Map<string, Employee[]>();
-    const roots: Employee[] = [];
+    const aiIds = new Set(employees.map((e) => e.id));
+    const memberIds = new Set(members.map((m) => m.userId));
+    const byManager = new Map<string, ChartNode[]>();
+    const roots: ChartNode[] = [];
+
+    for (const m of members) {
+      roots.push({
+        kind: "human",
+        key: humanKey(m.userId),
+        name: memberDisplayName(m),
+        member: m,
+      });
+    }
     for (const e of employees) {
-      const mgr = e.reportsToEmployeeId;
-      if (mgr && ids.has(mgr) && mgr !== e.id) {
-        const list = byManager.get(mgr) ?? [];
-        list.push(e);
-        byManager.set(mgr, list);
+      const node: ChartNode = {
+        kind: "ai",
+        key: aiKey(e.id),
+        name: e.name,
+        emp: e,
+      };
+      let parent: string | null = null;
+      if (e.reportsToUserId && memberIds.has(e.reportsToUserId)) {
+        parent = humanKey(e.reportsToUserId);
+      } else if (
+        e.reportsToEmployeeId &&
+        aiIds.has(e.reportsToEmployeeId) &&
+        e.reportsToEmployeeId !== e.id
+      ) {
+        parent = aiKey(e.reportsToEmployeeId);
+      }
+      if (parent) {
+        const list = byManager.get(parent) ?? [];
+        list.push(node);
+        byManager.set(parent, list);
       } else {
-        roots.push(e);
+        roots.push(node);
       }
     }
-    const sortByName = (a: Employee, b: Employee) =>
+    const sortByName = (a: ChartNode, b: ChartNode) =>
       a.name.localeCompare(b.name);
     roots.sort(sortByName);
     for (const list of byManager.values()) list.sort(sortByName);
     return { roots, byManager };
-  }, [employees]);
+  }, [employees, members]);
 
   const teamsById = React.useMemo(() => {
     const m = new Map<string, Team>();
@@ -149,6 +190,7 @@ function OrgChartView({
   const nodeProps = {
     company,
     employees,
+    members,
     teamsById,
     teams,
     onChanged: reload,
@@ -178,34 +220,14 @@ function OrgChartView({
         </div>
       </div>
 
-      {members.length > 0 && (
-        <div className="border-b border-slate-200/70 px-6 py-5 dark:border-slate-800/70">
-          <div className="mb-3 flex items-center gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              People
-            </span>
-            <span className="text-[11px] text-slate-400 dark:text-slate-500">
-              {members.length} {members.length === 1 ? "human" : "humans"}
-            </span>
-          </div>
-          <ul className="flex flex-wrap gap-3">
-            {members.map((m) => (
-              <li key={m.userId}>
-                <MemberCard company={company} member={m} />
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
       {hasHierarchy ? (
         <div className="overflow-x-auto px-6 py-8">
           <div className="flex min-w-fit items-start justify-center gap-10">
             {roots.map((r) => (
               <OrgNode
-                key={r.id}
-                emp={r}
-                visited={new Set([r.id])}
+                key={r.key}
+                node={r}
+                visited={new Set([r.key])}
                 {...nodeProps}
               />
             ))}
@@ -219,14 +241,14 @@ function OrgChartView({
             </div>
             <div>
               No reporting lines yet. Click <Pencil className="inline" size={11} />{" "}
-              on any card to set who someone reports to — the chart will draw
+              on any AI card to set who they report to — the chart will draw
               itself.
             </div>
           </div>
           <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {roots.map((emp) => (
-              <li key={emp.id}>
-                <NodeCard emp={emp} reportCount={0} {...nodeProps} />
+            {roots.map((node) => (
+              <li key={node.key}>
+                <NodeCard node={node} reportCount={0} {...nodeProps} />
               </li>
             ))}
           </ul>
@@ -236,69 +258,37 @@ function OrgChartView({
   );
 }
 
-function MemberCard({
-  company,
-  member,
-}: {
-  company: Company;
-  member: Member;
-}) {
-  const displayName = member.name || member.email || "Member";
-  return (
-    <div className="flex w-56 items-center gap-2.5 rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      <Avatar
-        name={displayName}
-        kind="human"
-        size="md"
-        src={memberAvatarUrl(company.id, member.userId, member.avatarKey)}
-      />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <span className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
-            {displayName}
-          </span>
-          <span className="inline-flex items-center rounded-md bg-indigo-50 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
-            Human
-          </span>
-        </div>
-        <div className="truncate text-[11px] capitalize text-slate-500 dark:text-slate-400">
-          {member.role}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 type SharedNodeProps = {
-  byManager: Map<string, Employee[]>;
+  byManager: Map<string, ChartNode[]>;
   company: Company;
   employees: Employee[];
+  members: Member[];
   teamsById: Map<string, Team>;
   teams: Team[] | null;
   onChanged: () => Promise<void>;
 };
 
 function OrgNode({
-  emp,
+  node,
   visited,
   ...shared
-}: SharedNodeProps & { emp: Employee; visited: Set<string> }) {
-  const reports = (shared.byManager.get(emp.id) ?? []).filter(
-    (r) => !visited.has(r.id),
+}: SharedNodeProps & { node: ChartNode; visited: Set<string> }) {
+  const reports = (shared.byManager.get(node.key) ?? []).filter(
+    (r) => !visited.has(r.key),
   );
   const nextVisited = new Set(visited);
-  for (const r of reports) nextVisited.add(r.id);
+  for (const r of reports) nextVisited.add(r.key);
 
   return (
     <div className="flex flex-col items-center">
-      <NodeCard emp={emp} reportCount={reports.length} {...shared} />
+      <NodeCard node={node} reportCount={reports.length} {...shared} />
       {reports.length > 0 && (
         <>
           <div className="h-5 w-0.5 bg-slate-300 dark:bg-slate-600" />
           <div className="flex items-start gap-8">
             {reports.map((r, i) => (
               <div
-                key={r.id}
+                key={r.key}
                 className="relative flex flex-col items-center"
               >
                 {reports.length > 1 && (
@@ -314,7 +304,7 @@ function OrgNode({
                   />
                 )}
                 <div className="h-5 w-0.5 bg-slate-300 dark:bg-slate-600" />
-                <OrgNode emp={r} visited={nextVisited} {...shared} />
+                <OrgNode node={r} visited={nextVisited} {...shared} />
               </div>
             ))}
           </div>
@@ -325,11 +315,29 @@ function OrgNode({
 }
 
 function NodeCard({
+  node,
+  reportCount,
+  ...shared
+}: SharedNodeProps & { node: ChartNode; reportCount: number }) {
+  if (node.kind === "ai") {
+    return <AINodeCard emp={node.emp} reportCount={reportCount} {...shared} />;
+  }
+  return (
+    <HumanNodeCard
+      member={node.member}
+      reportCount={reportCount}
+      company={shared.company}
+    />
+  );
+}
+
+function AINodeCard({
   emp,
   reportCount,
   byManager: _byManager,
   company,
   employees,
+  members,
   teamsById,
   teams,
   onChanged,
@@ -386,9 +394,65 @@ function NodeCard({
         emp={emp}
         company={company}
         employees={employees}
+        members={members}
         teams={teams}
         onChanged={onChanged}
       />
+    </div>
+  );
+}
+
+function HumanNodeCard({
+  company,
+  member,
+  reportCount,
+}: {
+  company: Company;
+  member: Member;
+  reportCount: number;
+}) {
+  const displayName = memberDisplayName(member);
+  const isManager = reportCount > 0;
+  return (
+    <div
+      className={clsx(
+        "relative w-56 rounded-xl border bg-white shadow-sm transition hover:border-slate-300 hover:shadow-md dark:bg-slate-900 dark:hover:border-slate-700",
+        isManager
+          ? "border-slate-200 ring-1 ring-emerald-100 dark:border-slate-800 dark:ring-emerald-500/20"
+          : "border-slate-200 dark:border-slate-800",
+      )}
+    >
+      <div className="flex flex-col gap-2.5 p-3.5">
+        <div className="flex items-center gap-2.5">
+          <Avatar
+            name={displayName}
+            kind="human"
+            size="md"
+            src={memberAvatarUrl(company.id, member.userId, member.avatarKey)}
+          />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <span className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+                {displayName}
+              </span>
+            </div>
+            <div className="truncate text-[11px] capitalize text-slate-500 dark:text-slate-400">
+              {member.role}
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="inline-flex items-center rounded-md bg-emerald-50 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+            Human
+          </span>
+          {isManager && (
+            <span className="inline-flex items-center gap-1 rounded-md bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
+              <ChevronDown size={10} />
+              {reportCount} {reportCount === 1 ? "report" : "reports"}
+            </span>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -397,12 +461,14 @@ function OrgEditMenu({
   emp,
   company,
   employees,
+  members,
   teams,
   onChanged,
 }: {
   emp: Employee;
   company: Company;
   employees: Employee[];
+  members: Member[];
   teams: Team[] | null;
   onChanged: () => Promise<void>;
 }) {
@@ -431,6 +497,7 @@ function OrgEditMenu({
           emp={emp}
           company={company}
           employees={employees}
+          members={members}
           teams={teams}
           onSaved={async () => {
             await onChanged();
@@ -442,22 +509,33 @@ function OrgEditMenu({
   );
 }
 
+// "Reports to" select value encodes both kinds in a single string so we
+// can re-use one <select>. "" → no manager; "ai:<id>" → AI manager;
+// "human:<userId>" → human manager.
+function initialReportsTo(emp: Employee): string {
+  if (emp.reportsToUserId) return humanKey(emp.reportsToUserId);
+  if (emp.reportsToEmployeeId) return aiKey(emp.reportsToEmployeeId);
+  return "";
+}
+
 function OrgEditForm({
   emp,
   company,
   employees,
+  members,
   teams,
   onSaved,
 }: {
   emp: Employee;
   company: Company;
   employees: Employee[];
+  members: Member[];
   teams: Team[] | null;
   onSaved: () => Promise<void>;
 }) {
   const [teamId, setTeamId] = React.useState<string>(emp.teamId ?? "");
   const [reportsTo, setReportsTo] = React.useState<string>(
-    emp.reportsToEmployeeId ?? "",
+    initialReportsTo(emp),
   );
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -465,7 +543,7 @@ function OrgEditForm({
 
   const dirty =
     (teamId || null) !== (emp.teamId ?? null) ||
-    (reportsTo || null) !== (emp.reportsToEmployeeId ?? null);
+    reportsTo !== initialReportsTo(emp);
 
   const peers = employees.filter((e) => e.id !== emp.id);
 
@@ -475,12 +553,23 @@ function OrgEditForm({
     setError(null);
     setSaving(true);
     try {
+      const patch: {
+        teamId: string | null;
+        reportsToEmployeeId: string | null;
+        reportsToUserId: string | null;
+      } = {
+        teamId: teamId || null,
+        reportsToEmployeeId: null,
+        reportsToUserId: null,
+      };
+      if (reportsTo.startsWith("ai:")) {
+        patch.reportsToEmployeeId = reportsTo.slice(3);
+      } else if (reportsTo.startsWith("human:")) {
+        patch.reportsToUserId = reportsTo.slice(6);
+      }
       await api.patch<Employee>(
         `/api/companies/${company.id}/employees/${emp.id}`,
-        {
-          teamId: teamId || null,
-          reportsToEmployeeId: reportsTo || null,
-        },
+        patch,
       );
       toast("Org chart updated", "success");
       window.dispatchEvent(new CustomEvent("genosyn:employee-updated"));
@@ -539,11 +628,24 @@ function OrgEditForm({
           onChange={(e) => setReportsTo(e.target.value)}
         >
           <option value="">— No manager —</option>
-          {peers.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name} ({p.role})
-            </option>
-          ))}
+          {members.length > 0 && (
+            <optgroup label="Humans">
+              {members.map((m) => (
+                <option key={m.userId} value={humanKey(m.userId)}>
+                  {memberDisplayName(m)} ({m.role})
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {peers.length > 0 && (
+            <optgroup label="AI employees">
+              {peers.map((p) => (
+                <option key={p.id} value={aiKey(p.id)}>
+                  {p.name} ({p.role})
+                </option>
+              ))}
+            </optgroup>
+          )}
         </select>
       </label>
       <div className="flex justify-end pt-1">

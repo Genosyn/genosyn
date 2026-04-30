@@ -52,6 +52,15 @@ export class AIEmployee {
   @Column({ type: "varchar", nullable: true })
   reportsToEmployeeId!: string | null;
 
+  /**
+   * Optional human manager — the company member this employee reports to.
+   * Mutually exclusive with `reportsToEmployeeId` (set at most one). Lets
+   * the org chart weave humans into the hierarchy as managers without
+   * needing a join across two tables in code that walks the tree.
+   */
+  @Column({ type: "varchar", nullable: true })
+  reportsToUserId!: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

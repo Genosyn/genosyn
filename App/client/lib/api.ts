@@ -111,6 +111,7 @@ export type Employee = {
   avatarKey?: string | null;
   teamId?: string | null;
   reportsToEmployeeId?: string | null;
+  reportsToUserId?: string | null;
   /** Lightweight model summary, present only on the list endpoint. */
   model?: {
     provider: Provider;

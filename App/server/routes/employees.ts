@@ -11,6 +11,7 @@ import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { Approval } from "../db/entities/Approval.js";
 import { McpServer } from "../db/entities/McpServer.js";
 import { Team } from "../db/entities/Team.js";
+import { Membership } from "../db/entities/Membership.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
@@ -192,6 +193,7 @@ const patchSchema = z.object({
   slug: z.string().min(1).max(80).optional(),
   teamId: z.string().uuid().nullable().optional(),
   reportsToEmployeeId: z.string().uuid().nullable().optional(),
+  reportsToUserId: z.string().uuid().nullable().optional(),
 });
 
 employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
@@ -244,6 +246,26 @@ employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
           .json({ error: "Manager not found in this company" });
       }
       emp.reportsToEmployeeId = manager.id;
+      // The two reporting fields are mutually exclusive — picking an AI
+      // manager clears any human one and vice-versa.
+      emp.reportsToUserId = null;
+    }
+  }
+  if (body.reportsToUserId !== undefined) {
+    if (body.reportsToUserId === null) {
+      emp.reportsToUserId = null;
+    } else {
+      const human = await AppDataSource.getRepository(Membership).findOneBy({
+        userId: body.reportsToUserId,
+        companyId: emp.companyId,
+      });
+      if (!human) {
+        return res
+          .status(400)
+          .json({ error: "Manager not found in this company" });
+      }
+      emp.reportsToUserId = human.userId;
+      emp.reportsToEmployeeId = null;
     }
   }
   if (body.slug !== undefined) {

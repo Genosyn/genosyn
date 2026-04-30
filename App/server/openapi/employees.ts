@@ -11,6 +11,7 @@ const Employee = z
     avatarKey: z.string().nullable(),
     teamId: z.string().uuid().nullable(),
     reportsToEmployeeId: z.string().uuid().nullable(),
+    reportsToUserId: z.string().uuid().nullable(),
   })
   .openapi("Employee");
 
