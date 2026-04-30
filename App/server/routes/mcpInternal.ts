@@ -71,12 +71,17 @@ import { Handoff, type HandoffStatus } from "../db/entities/Handoff.js";
 import { Note } from "../db/entities/Note.js";
 import { Notebook } from "../db/entities/Notebook.js";
 import { EmployeeNoteGrant } from "../db/entities/EmployeeNoteGrant.js";
+import { Learning } from "../db/entities/Learning.js";
 import {
   hasNoteAccess,
   listAccessibleNoteIds,
   upsertNoteGrant,
 } from "../services/notes.js";
 import { ensureDefaultNotebook } from "../services/notebooks.js";
+import {
+  hasLearningAccess,
+  listAccessibleLearningIds,
+} from "../services/learnings.js";
 
 /**
  * Internal HTTP surface called by the built-in Genosyn MCP server binary.
@@ -3442,6 +3447,105 @@ async function isNoteDescendant(
   }
   return false;
 }
+
+function serializeLearning(l: Learning, opts: { includeBody?: boolean } = {}) {
+  const tagList = l.tags
+    ? l.tags.split(",").map((t) => t.trim()).filter((t) => t.length > 0)
+    : [];
+  const out: Record<string, unknown> = {
+    id: l.id,
+    title: l.title,
+    slug: l.slug,
+    sourceKind: l.sourceKind,
+    sourceUrl: l.sourceUrl,
+    sourceFilename: l.sourceFilename,
+    summary: l.summary,
+    tags: tagList,
+    bodyLength: l.bodyText?.length ?? 0,
+    bytes: Number(l.bytes),
+    status: l.status,
+    errorMessage: l.errorMessage,
+    createdAt: l.createdAt,
+    updatedAt: l.updatedAt,
+  };
+  if (opts.includeBody) out.bodyText = l.bodyText;
+  return out;
+}
+
+const listLearningsSchema = z.object({}).strict();
+
+mcpInternalRouter.post(
+  "/tools/list_learnings",
+  validateBody(listLearningsSchema),
+  async (req: McpRequest, res) => {
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const accessible = await listAccessibleLearningIds(self.id);
+    if (accessible.size === 0) return res.json({ learnings: [] });
+    const rows = await AppDataSource.getRepository(Learning).find({
+      where: { companyId: co.id, id: In([...accessible]) },
+      order: { updatedAt: "DESC" },
+    });
+    res.json({ learnings: rows.map((r) => serializeLearning(r)) });
+  },
+);
+
+const searchLearningsSchema = z
+  .object({
+    query: z.string().min(1).max(200),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/search_learnings",
+  validateBody(searchLearningsSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof searchLearningsSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const accessible = await listAccessibleLearningIds(self.id);
+    if (accessible.size === 0) return res.json({ learnings: [] });
+
+    const term = `%${body.query.replace(/[%_]/g, (c) => "\\" + c)}%`;
+    const rows = await AppDataSource.getRepository(Learning)
+      .createQueryBuilder("l")
+      .where("l.companyId = :cid", { cid: co.id })
+      .andWhere("l.id IN (:...ids)", { ids: [...accessible] })
+      .andWhere(
+        "(l.title LIKE :term ESCAPE '\\' OR l.summary LIKE :term ESCAPE '\\' OR l.tags LIKE :term ESCAPE '\\' OR l.bodyText LIKE :term ESCAPE '\\')",
+        { term },
+      )
+      .orderBy("l.updatedAt", "DESC")
+      .limit(50)
+      .getMany();
+    res.json({ learnings: rows.map((r) => serializeLearning(r)) });
+  },
+);
+
+const getLearningSchema = z
+  .object({
+    learningSlug: z.string().min(1).max(160),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/get_learning",
+  validateBody(getLearningSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof getLearningSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const row = await AppDataSource.getRepository(Learning).findOneBy({
+      companyId: co.id,
+      slug: body.learningSlug,
+    });
+    if (!row) return res.status(404).json({ error: "Learning not found" });
+    if (!(await hasLearningAccess(self.id, row.id, "read"))) {
+      return res.status(403).json({ error: "No access to that learning" });
+    }
+    res.json({ learning: serializeLearning(row, { includeBody: true }) });
+  },
+);
 
 async function companyOwnerId(companyId: string): Promise<string | null> {
   const co = await AppDataSource.getRepository(Company).findOneBy({

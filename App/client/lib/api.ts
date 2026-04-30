@@ -1145,6 +1145,64 @@ export type NotebookGrantsResponse = {
 
 export type NotebookGrantCandidate = NoteGrantCandidate;
 
+// ───────────────────────── Learnings (M18) ──────────────────────────────
+
+export type LearningSourceKind = "url" | "text" | "pdf" | "epub" | "video";
+export type LearningStatus = "pending" | "ready" | "failed";
+
+export type LearningAuthor =
+  | { kind: "human"; id: string; name: string; email: string | null }
+  | { kind: "ai"; id: string; name: string; slug: string; role: string };
+
+export type Learning = {
+  id: string;
+  companyId: string;
+  title: string;
+  slug: string;
+  sourceKind: LearningSourceKind;
+  sourceUrl: string | null;
+  sourceFilename: string | null;
+  storageKey: string | null;
+  summary: string;
+  /** Full extracted text — present only on the detail endpoint. */
+  bodyText?: string;
+  /** Length of the extracted text in characters; cheap to surface in lists. */
+  bodyLength: number;
+  tags: string;
+  tagList: string[];
+  bytes: number;
+  status: LearningStatus;
+  errorMessage: string;
+  createdById: string | null;
+  createdByEmployeeId: string | null;
+  createdBy: LearningAuthor | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LearningGrantEmployee = {
+  id: string;
+  name: string;
+  slug: string;
+  role: string;
+  avatarKey: string | null;
+};
+
+export type LearningGrant = {
+  id: string;
+  employeeId: string;
+  learningId: string;
+  accessLevel: NoteAccessLevel;
+  createdAt: string;
+  employee: LearningGrantEmployee | null;
+};
+
+export type LearningGrantsResponse = { direct: LearningGrant[] };
+
+export type LearningGrantCandidate = LearningGrantEmployee & {
+  alreadyGranted: boolean;
+};
+
 // ───────────────────────── Notifications ────────────────────────────────
 
 export type NotificationKind =

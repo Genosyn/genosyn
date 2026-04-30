@@ -64,6 +64,8 @@ import NotesLayout from "./pages/NotesLayout";
 import NotesIndex from "./pages/NotesIndex";
 import NotebookDetail from "./pages/NotebookDetail";
 import NoteDetail from "./pages/NoteDetail";
+import LearningsIndex from "./pages/LearningsIndex";
+import LearningDetail from "./pages/LearningDetail";
 
 type AuthState =
   | { status: "loading" }
@@ -237,6 +239,14 @@ function CompanyRoutes({
             element={<NoteDetail company={company} />}
           />
         </Route>
+
+        {/* Learnings (M18) — knowledge ingestion. URL / ebook / paste →
+            extracted text, queryable by AI employees via MCP tools. */}
+        <Route path="learnings" element={<LearningsIndex company={company} />} />
+        <Route
+          path="learnings/:slug"
+          element={<LearningDetail company={company} />}
+        />
 
         <Route path="approvals" element={<Approvals company={company} />} />
 

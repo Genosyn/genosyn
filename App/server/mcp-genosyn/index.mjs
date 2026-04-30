@@ -1025,6 +1025,47 @@ const TOOLS = [
     },
   },
   {
+    name: "list_learnings",
+    description:
+      "List the Learnings (external material — articles, ebooks, transcripts — that the team has ingested for you to study) you have been granted access to in this company. Each row carries a title, sourceKind (url / text / pdf / epub / video), summary, tag list, and content length so you can decide whether to pull the full text via `get_learning`. Distinct from Memory (durable facts auto-injected into your prompt) and Notes (pages the team writes together) — Learnings are someone else's words, ingested for you to study.",
+    endpoint: "/tools/list_learnings",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "search_learnings",
+    description:
+      "Search Learnings by title, summary, tags, and full extracted text using a substring match (case-insensitive). Use before answering domain questions — the team may have ingested a primer that already covers the topic. Returns up to 50 hits ordered by most-recently-updated. Only Learnings you have been granted access to are searched.",
+    endpoint: "/tools/search_learnings",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Substring to look for in titles, summaries, tags, and body text.",
+        },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_learning",
+    description:
+      "Read a single Learning by its slug, including the full extracted plain text. Use this after `list_learnings` / `search_learnings` to pull in the actual material to read. Body text is capped at 1 MiB on ingestion; longer ebooks are truncated.",
+    endpoint: "/tools/get_learning",
+    inputSchema: {
+      type: "object",
+      properties: {
+        learningSlug: {
+          type: "string",
+          description: "Slug from list_learnings / search_learnings.",
+        },
+      },
+      required: ["learningSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_base_record",
     description:
       "Open a single Base record like a form: returns the row's fields + values, every field definition for the table, the comment thread, and the list of file attachments. Use this when a teammate asks you to read or update a specific row, or before posting a comment so you know the row's context. Pair with `update_base_row` (existing) for cell edits, `create_record_comment` to discuss, and `attach_file_to_record` to drop in supporting files.",

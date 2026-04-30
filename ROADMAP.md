@@ -327,6 +327,44 @@ plugin surface later.
       api-keys (full M14), employees, routines + runs. Adding a new area
       = one more file under `server/openapi/`.
 
+### M18 — Learnings (knowledge ingestion) ✅
+
+External material — articles, ebooks, transcripts — that an AI employee
+should "study" and refer back to. Distinct from `EmployeeMemory` (atomic
+durable facts, auto-injected into the prompt) and `Note` (human-authored
+markdown the team writes together): a Learning is **content the team did
+not write**, ingested once, queried on demand via the MCP surface.
+
+- [x] `Learning` entity — companyId, title, slug, sourceKind
+      (`url` | `text` | `pdf` | `epub` | `video`), sourceUrl, sourceFilename,
+      summary, bodyText (extracted plain text, capped at 1 MiB),
+      tags (comma-joined string), bytes, status
+      (`pending` | `ready` | `failed`), errorMessage, author bookkeeping.
+- [x] `EmployeeLearningGrant` entity — employee → learning, with the same
+      `read` / `write` access levels as Notes.
+- [x] Ingestion service `services/learnings.ts`:
+      * URL → `fetch` + minimal HTML→text (no jsdom/readability dep)
+      * Plain text / `.txt` / `.md` / `.html` upload → store + index
+      * PDF upload → text via `pdf-parse` (new dep, flagged below)
+      * EPUB upload → unzip + collect XHTML body text via existing `unzipper`
+      * Video → accepted but flagged `failed` with a "transcripts coming
+        soon" note (no ASR dep)
+- [x] HTTP routes under `/api/companies/:cid/learnings`: list, create
+      (URL / paste / upload via multer, 25 MB cap), detail, patch
+      (rename + retag), delete, plus grant CRUD.
+- [x] MCP tools — `list_learnings`, `search_learnings`, `get_learning`
+      mirroring the Notes pattern. Read-only for AI; humans curate.
+- [x] React UI under `/c/<co>/learnings`: index grid, "Add learning"
+      modal with URL / paste / file tabs, detail page with summary +
+      extracted text + share modal.
+- [x] AppShell sidebar entry under "Knowledge".
+
+**New dependency:** `pdf-parse` (small, well-maintained, Node 22 OK).
+Avoided the bigger choice of an embeddings store + vector search; v1
+relies on substring matching over titles, summaries, and `bodyText`,
+same as `search_notes`. Embeddings + RAG land in a future milestone
+once we know what the team actually queries.
+
 ### M15 — 2FA / TOTP (planned)
 - [ ] `User` gets `totpSecret` (encrypted), `totpEnabledAt`, `recoveryCodes`
 - [ ] Enroll flow with QR (otpauth://… → render via `qrcode` dep)

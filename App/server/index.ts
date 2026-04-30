@@ -40,6 +40,7 @@ import { emailProvidersRouter } from "./routes/emailProviders.js";
 import { emailLogsRouter } from "./routes/emailLogs.js";
 import { notebooksRouter } from "./routes/notebooks.js";
 import { notesRouter } from "./routes/notes.js";
+import { learningsRouter } from "./routes/learnings.js";
 import { notificationsRouter } from "./routes/notifications.js";
 import { teamsRouter } from "./routes/teams.js";
 import { handoffsRouter } from "./routes/handoffs.js";
@@ -150,6 +151,10 @@ async function main() {
   // Notebooks are the top-level grouping; every Note belongs to one.
   app.use("/api/companies/:cid", notebooksRouter);
   app.use("/api/companies/:cid", notesRouter);
+
+  // Learnings (M18) — knowledge ingestion. Humans paste URLs / pastes /
+  // upload PDFs / EPUBs; AI employees query the result via MCP tools.
+  app.use("/api/companies/:cid", learningsRouter);
 
   // Per-company email providers (SMTP / SendGrid / Mailgun / Resend /
   // Postmark) and the append-only delivery log used by Settings → Email
