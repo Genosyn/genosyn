@@ -45,6 +45,7 @@ import { teamsRouter } from "./routes/teams.js";
 import { handoffsRouter } from "./routes/handoffs.js";
 import { inboxRouter } from "./routes/inbox.js";
 import { apiKeysRouter } from "./routes/apiKeys.js";
+import { openapiRouter } from "./routes/openapi.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -89,6 +90,11 @@ async function main() {
   // earlier — session-less on purpose, but mounted before the session router
   // anyway so no cookie state leaks into these requests.
   app.use("/api/internal/mcp", mcpInternalRouter);
+
+  // Public OpenAPI document + Swagger UI. Mounted before the session router
+  // so the docs page works for unauthenticated visitors — the spec describes
+  // shapes, not data, and any documented endpoint still enforces its own auth.
+  app.use("/api", openapiRouter);
 
   app.use("/api/auth", authRouter);
   app.use("/api/companies", companiesRouter);

@@ -22,6 +22,7 @@
     "migration:show": "npm run typeorm -- migration:show -d ormconfig.ts"
   },
   "dependencies": {
+    "@asteasolutions/zod-to-openapi": "^7.3.4",
     "@clickhouse/client": "^1.18.3",
     "@noble/hashes": "^1.4.0",
     "@types/archiver": "^7.0.0",
@@ -51,6 +52,7 @@
     "redis": "^5.12.1",
     "reflect-metadata": "^0.2.2",
     "slugify": "^1.6.6",
+    "swagger-ui-express": "^5.0.1",
     "typeorm": "^0.3.20",
     "unzipper": "^0.12.3",
     "ws": "^8.20.0",
@@ -70,6 +72,7 @@
     "@types/pg": "^8.20.0",
     "@types/react": "^18.3.9",
     "@types/react-dom": "^18.3.0",
+    "@types/swagger-ui-express": "^4.1.8",
     "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.6.0",
     "@typescript-eslint/parser": "^8.6.0",

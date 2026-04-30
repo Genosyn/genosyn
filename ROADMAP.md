@@ -290,7 +290,7 @@ export const config = {
       `services/approvals.ts` dispatches; lightning over-cap payments queue
       a `lightning_payment` Approval which replays the call on approve
 
-### M14 — API Keys + REST API 🔨 (active)
+### M14 — API Keys + REST API ✅
 
 Programmatic access to the same surface humans use through the UI. Today
 all routes are session-gated; this milestone introduces a Bearer-token
@@ -298,31 +298,34 @@ auth path that delegates to the same membership / role checks. Unlocks
 external triggers, scripting, CI integration, and a public Cowork-style
 plugin surface later.
 
-- [ ] `ApiKey` entity + migration. Fields: companyId (indexed), userId
+- [x] `ApiKey` entity + migration. Fields: companyId (indexed), userId
       (owner), name, prefix (first 8 chars for display), tokenHash
       (sha256 hex of the random 32 bytes), lastUsedAt, expiresAt,
       revokedAt, createdAt.
-- [ ] Token format: `gen_<43 base64url chars>` (32 random bytes). Hash
+- [x] Token format: `gen_<43 base64url chars>` (32 random bytes). Hash
       with sha256 — high-entropy random input doesn't need bcrypt and
       sha256 keeps the per-request lookup O(1) on an indexed column.
-- [ ] `requireAuth` extended: if no session, fall back to
+- [x] `requireAuth` extended: if no session, fall back to
       `Authorization: Bearer gen_…`. On match, set `req.userId = key.userId`,
       stash `req.apiKeyCompanyId` and `req.apiKey` for downstream guards
       to reject cross-company use.
-- [ ] `requireCompanyMember` rejects when an API key is presented for a
+- [x] `requireCompanyMember` rejects when an API key is presented for a
       company id other than the key's `companyId`, even if the underlying
       user is a member of both.
-- [ ] CRUD routes under `/api/companies/:cid/api-keys`:
+- [x] CRUD routes under `/api/companies/:cid/api-keys`:
       `GET` (list, no plaintext), `POST` (create, returns plaintext once
       and never again), `DELETE :id` (revoke).
-- [ ] Settings → API keys page mirroring the Secrets / Audit shape: table
+- [x] Settings → API keys page mirroring the Secrets / Audit shape: table
       of keys with prefix + name + last-used + expires; "Generate" modal
       that surfaces the plaintext once with a copy button and warning;
       revoke confirmation.
-- [ ] Audit events on create / revoke / use.
-- [ ] Document at the top of the Settings page: "Pass as
-      `Authorization: Bearer gen_…`. Same surface as the UI." Link to a
-      generated cURL example for the current key.
+- [x] Audit events on create / revoke.
+- [x] **OpenAPI / Swagger docs** — registry-based spec generator at
+      `server/openapi/`, served as `/api/openapi.json` (raw) and `/api/docs`
+      (interactive Swagger UI). Both Bearer + cookie auth schemes
+      pre-configured for try-it-out. Coverage today: auth, companies,
+      api-keys (full M14), employees, routines + runs. Adding a new area
+      = one more file under `server/openapi/`.
 
 ### M15 — 2FA / TOTP (planned)
 - [ ] `User` gets `totpSecret` (encrypted), `totpEnabledAt`, `recoveryCodes`

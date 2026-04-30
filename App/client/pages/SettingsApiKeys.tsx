@@ -1,6 +1,6 @@
 import React from "react";
 import { useOutletContext } from "react-router-dom";
-import { Check, Copy, KeyRound, Trash2 } from "lucide-react";
+import { BookOpen, Check, Copy, KeyRound, Trash2 } from "lucide-react";
 import { api, ApiKey, ApiKeyCreated, Company } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -55,17 +55,27 @@ function ApiKeysCard({ company }: { company: Company }) {
     <>
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
               <h2 className="text-sm font-semibold">Personal access tokens</h2>
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                 Authenticate as you against the same REST surface the UI uses.
                 Pass <code className="font-mono">Authorization: Bearer gen_…</code>.
               </p>
             </div>
-            <Button size="sm" onClick={() => setCreating(true)}>
-              Generate key
-            </Button>
+            <div className="flex shrink-0 items-center gap-2">
+              <a
+                href="/api/docs"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                <BookOpen size={12} /> API reference
+              </a>
+              <Button size="sm" onClick={() => setCreating(true)}>
+                Generate key
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardBody>
