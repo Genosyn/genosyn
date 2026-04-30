@@ -23,6 +23,20 @@ import {
   resolveGithubScopes,
   type GithubOauthConfig,
 } from "../integrations/providers/github-oauth.js";
+import {
+  buildRedditAuthorizeUrl,
+  exchangeRedditCode,
+  redditRedirectUri,
+  resolveRedditScopes,
+  type RedditOauthConfig,
+} from "../integrations/providers/reddit.js";
+import {
+  buildLinkedinAuthorizeUrl,
+  exchangeLinkedinCode,
+  linkedinRedirectUri,
+  resolveLinkedinScopes,
+  type LinkedinOauthConfig,
+} from "../integrations/providers/linkedin.js";
 import { decryptConnectionConfig, getConnection } from "./integrations.js";
 
 /**
@@ -160,6 +174,32 @@ export function startOauth(args: {
       });
       break;
     }
+    case "reddit": {
+      const scopes = resolveRedditScopes({
+        scopeGroups: args.scopeGroups,
+        baseline: oauth.scopes,
+      });
+      authorizeUrl = buildRedditAuthorizeUrl({
+        state,
+        scopes,
+        clientId: args.clientId,
+        redirectUri: redditRedirectUri(),
+      });
+      break;
+    }
+    case "linkedin": {
+      const scopes = resolveLinkedinScopes({
+        scopeGroups: args.scopeGroups,
+        baseline: oauth.scopes,
+      });
+      authorizeUrl = buildLinkedinAuthorizeUrl({
+        state,
+        scopes,
+        clientId: args.clientId,
+        redirectUri: linkedinRedirectUri(),
+      });
+      break;
+    }
     default:
       throw new Error(`Unsupported OAuth app: ${oauth.app}`);
   }
@@ -193,12 +233,16 @@ export async function startOauthReconnect(args: {
   if (!provider || !provider.catalog.oauth) {
     throw new Error(`${conn.provider} no longer supports OAuth`);
   }
-  // GoogleOauthConfig, XOauthConfig, and GithubOauthConfig all expose
-  // `clientId` / `clientSecret` / `scopeGroups`; that is the only shape
-  // this function cares about, so a structural narrowing covers every
-  // OAuth provider.
+  // GoogleOauthConfig, XOauthConfig, GithubOauthConfig, RedditOauthConfig,
+  // and LinkedinOauthConfig all expose `clientId` / `clientSecret` /
+  // `scopeGroups`; that is the only shape this function cares about, so a
+  // structural narrowing covers every OAuth provider.
   const cfg = decryptConnectionConfig(conn) as Pick<
-    GoogleOauthConfig & XOauthConfig & GithubOauthConfig,
+    GoogleOauthConfig &
+      XOauthConfig &
+      GithubOauthConfig &
+      RedditOauthConfig &
+      LinkedinOauthConfig,
     "clientId" | "clientSecret" | "scopeGroups"
   >;
   if (!cfg.clientId || !cfg.clientSecret) {
@@ -228,7 +272,7 @@ export function resolveOauthState(state: string): OauthState | null {
   return info;
 }
 
-export type OauthApp = "google" | "x" | "github";
+export type OauthApp = "google" | "x" | "github" | "reddit" | "linkedin";
 
 /**
  * Dispatch a finished OAuth handshake to the right provider helper. Called
@@ -286,6 +330,28 @@ export async function finishOauth(args: {
         clientId: args.state.clientId,
         clientSecret: args.state.clientSecret,
         redirectUri: githubRedirectUri(),
+      });
+      tokens = exchanged.tokens;
+      userInfo = exchanged.userInfo;
+      break;
+    }
+    case "reddit": {
+      const exchanged = await exchangeRedditCode({
+        code: args.code,
+        clientId: args.state.clientId,
+        clientSecret: args.state.clientSecret,
+        redirectUri: redditRedirectUri(),
+      });
+      tokens = exchanged.tokens;
+      userInfo = exchanged.userInfo;
+      break;
+    }
+    case "linkedin": {
+      const exchanged = await exchangeLinkedinCode({
+        code: args.code,
+        clientId: args.state.clientId,
+        clientSecret: args.state.clientSecret,
+        redirectUri: linkedinRedirectUri(),
       });
       tokens = exchanged.tokens;
       userInfo = exchanged.userInfo;

@@ -10,6 +10,8 @@ const OAUTH_APPS: ReadonlySet<OauthApp> = new Set<OauthApp>([
   "google",
   "x",
   "github",
+  "reddit",
+  "linkedin",
 ]);
 
 function isOauthApp(s: string): s is OauthApp {

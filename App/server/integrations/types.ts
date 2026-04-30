@@ -98,7 +98,7 @@ export type IntegrationCatalogEntry = {
    * supplies its own `clientId` + `clientSecret` at create-time, so this
    * block is purely metadata for the connect form. */
   oauth?: {
-    app: "google" | "x" | "github";
+    app: "google" | "x" | "github" | "reddit" | "linkedin";
     /** Always-included baseline scopes (e.g. `userinfo.email` + `openid`
      * for OpenID Connect identity). Cannot be unchecked. */
     scopes: string[];

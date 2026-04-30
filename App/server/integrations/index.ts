@@ -19,6 +19,8 @@ import { xProvider } from "./providers/x.js";
 import { nostrProvider } from "./providers/nostr.js";
 import { lightningProvider } from "./providers/lightning.js";
 import { lightningLndProvider } from "./providers/lightning-lnd.js";
+import { redditProvider } from "./providers/reddit.js";
+import { linkedinProvider } from "./providers/linkedin.js";
 
 /**
  * Provider registry. Adding a new integration means:
@@ -44,6 +46,8 @@ const PROVIDERS: Record<string, IntegrationProvider> = {
   [nostrProvider.catalog.provider]: nostrProvider,
   [lightningProvider.catalog.provider]: lightningProvider,
   [lightningLndProvider.catalog.provider]: lightningLndProvider,
+  [redditProvider.catalog.provider]: redditProvider,
+  [linkedinProvider.catalog.provider]: linkedinProvider,
 };
 
 export function getProvider(id: string): IntegrationProvider | null {
