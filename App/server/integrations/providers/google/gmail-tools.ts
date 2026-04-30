@@ -55,7 +55,28 @@ export const gmailTools: IntegrationTool[] = [
   {
     name: "gmail_send_message",
     description:
-      "Send an email from the connected account. Body is plain text; provide `html` for richer formatting. Always requires `to` and `subject`.",
+      "Send an email from the connected account. Body is plain text; provide `html` for richer formatting. Always requires `to` and `subject`. If a human should review before the message goes out, use `gmail_create_draft` instead.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        to: { type: "string" },
+        cc: { type: "string" },
+        bcc: { type: "string" },
+        subject: { type: "string" },
+        body: { type: "string", description: "Plain-text body." },
+        html: {
+          type: "string",
+          description: "Optional HTML body — sent as multipart/alternative.",
+        },
+      },
+      required: ["to", "subject", "body"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "gmail_create_draft",
+    description:
+      "Save an email as a draft in the connected account instead of sending it. Use this whenever a human should review the message before it goes out, or when operating in a draft-only workflow. Same fields as `gmail_send_message`; the draft appears in the user's Gmail Drafts folder ready to edit and send.",
     inputSchema: {
       type: "object",
       properties: {
@@ -125,6 +146,21 @@ export async function invokeGmailTool(
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ raw }),
+      });
+    }
+    case "gmail_create_draft": {
+      const raw = encodeRfc822({
+        to: str(a.to),
+        cc: maybeStr(a.cc),
+        bcc: maybeStr(a.bcc),
+        subject: str(a.subject),
+        body: str(a.body),
+        html: maybeStr(a.html),
+      });
+      return gmailFetch(accessToken, "/users/me/drafts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: { raw } }),
       });
     }
     case "gmail_list_labels":
