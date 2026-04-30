@@ -4,13 +4,13 @@ import {
   ChevronDown,
   ChevronRight,
   GitBranch,
-  Inbox,
   type LucideIcon,
   ListChecks,
   LogOut,
   MessageSquare,
   Monitor,
   Moon,
+  NotebookPen,
   NotebookText,
   Settings as SettingsIcon,
   ShieldCheck,
@@ -100,15 +100,6 @@ const SECTION_GROUPS: SectionGroup[] = [
     label: "Essentials",
     items: [
       {
-        key: "inbox",
-        label: "Inbox",
-        description: "Today's journal entries across employees.",
-        icon: Inbox,
-        path: "/inbox",
-        iconBg:
-          "bg-cyan-100 text-cyan-600 dark:bg-cyan-500/15 dark:text-cyan-300",
-      },
-      {
         key: "workspace",
         label: "Workspace",
         description: "Slack-style channels and DMs.",
@@ -172,6 +163,15 @@ const SECTION_GROUPS: SectionGroup[] = [
   {
     label: "System",
     items: [
+      {
+        key: "inbox",
+        label: "Journal",
+        description: "Today's journal entries across employees.",
+        icon: NotebookPen,
+        path: "/inbox",
+        iconBg:
+          "bg-cyan-100 text-cyan-600 dark:bg-cyan-500/15 dark:text-cyan-300",
+      },
       {
         key: "approvals",
         label: "Approvals",

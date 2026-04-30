@@ -93,7 +93,7 @@ export default function Inbox({ company }: { company: Company }) {
 
   return (
     <div className="mx-auto max-w-4xl p-8">
-      <TopBar title="Inbox" />
+      <TopBar title="Journal" />
       <div className="mt-2 text-sm text-slate-600 dark:text-slate-400">
         Everything every AI employee did on {date}
         {isToday ? " (today)" : ""}.
