@@ -1,18 +1,22 @@
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Plus, Users } from "lucide-react";
+import { ChevronDown, Network, Pencil, Plus, Users } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { Breadcrumbs } from "../components/AppShell";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
-import { Company } from "../lib/api";
+import { Menu } from "../components/ui/Menu";
+import { Spinner } from "../components/ui/Spinner";
+import { FormError } from "../components/ui/FormError";
+import { useToast } from "../components/ui/Toast";
+import { clsx } from "../components/ui/clsx";
+import { api, Company, Employee, Team } from "../lib/api";
 import { useEmployees } from "./employeesContext";
 
 /**
- * The `/c/:slug` index pane. Shows the company roster as a clickable grid
- * so a member can pick an employee without first scanning the sidebar.
- * The sidebar still mirrors the roster — keeping the grid here gives the
- * landing pane a real purpose and makes the "who works here" answer
- * unmissable on first load.
+ * The `/c/:slug` index pane. Shows the company roster as an interactive
+ * org chart driven by `reportsToEmployeeId`. Each card has an inline
+ * editor for Team and Reports-to that PATCHes the employee, so members
+ * can both *see* and *define* the chart from one screen.
  */
 export default function EmployeesIndex({ company }: { company: Company }) {
   const { employees } = useEmployees();
@@ -60,38 +64,415 @@ export default function EmployeesIndex({ company }: { company: Company }) {
             Employees
           </h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Pick someone to chat, edit their workspace, or review their Soul.
+            Click a card to open. Use the pencil to set who someone reports
+            to and which team they&apos;re on.
           </p>
         </div>
         <Button onClick={() => navigate(`/c/${company.slug}/employees/new`)}>
           <Plus size={14} /> New employee
         </Button>
       </div>
-      <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {employees.map((e) => (
-          <li key={e.id}>
-            <Link
-              to={`/c/${company.slug}/employees/${e.slug}`}
-              className="group flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700"
-            >
-              <Avatar
-                name={e.name}
-                kind="ai"
-                size="lg"
-                src={employeeAvatarUrl(company.id, e.id, e.avatarKey)}
-              />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-semibold text-slate-900 group-hover:text-slate-950 dark:text-slate-100 dark:group-hover:text-white">
-                  {e.name}
-                </div>
-                <div className="truncate text-xs text-slate-500 dark:text-slate-400">
-                  {e.role || "No role set"}
-                </div>
-              </div>
-            </Link>
-          </li>
-        ))}
-      </ul>
+      <OrgChartView company={company} employees={employees} />
     </>
+  );
+}
+
+function OrgChartView({
+  company,
+  employees,
+}: {
+  company: Company;
+  employees: Employee[];
+}) {
+  const { reload } = useEmployees();
+  const [teams, setTeams] = React.useState<Team[] | null>(null);
+
+  React.useEffect(() => {
+    api
+      .get<Team[]>(`/api/companies/${company.id}/teams`)
+      .then((list) => setTeams(list.filter((t) => !t.archivedAt)))
+      .catch(() => setTeams([]));
+  }, [company.id]);
+
+  // Group employees by their manager. Anyone whose manager isn't in the
+  // company roster (deleted, missing) gets re-rooted so they stay visible.
+  const { roots, byManager } = React.useMemo(() => {
+    const ids = new Set(employees.map((e) => e.id));
+    const byManager = new Map<string, Employee[]>();
+    const roots: Employee[] = [];
+    for (const e of employees) {
+      const mgr = e.reportsToEmployeeId;
+      if (mgr && ids.has(mgr) && mgr !== e.id) {
+        const list = byManager.get(mgr) ?? [];
+        list.push(e);
+        byManager.set(mgr, list);
+      } else {
+        roots.push(e);
+      }
+    }
+    const sortByName = (a: Employee, b: Employee) =>
+      a.name.localeCompare(b.name);
+    roots.sort(sortByName);
+    for (const list of byManager.values()) list.sort(sortByName);
+    return { roots, byManager };
+  }, [employees]);
+
+  const teamsById = React.useMemo(() => {
+    const m = new Map<string, Team>();
+    for (const t of teams ?? []) m.set(t.id, t);
+    return m;
+  }, [teams]);
+
+  const hasHierarchy = byManager.size > 0;
+  const nodeProps = {
+    company,
+    employees,
+    teamsById,
+    teams,
+    onChanged: reload,
+    byManager,
+  };
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50/50 to-white shadow-sm dark:border-slate-800 dark:from-slate-900/40 dark:to-slate-950">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200/70 px-5 py-3 dark:border-slate-800/70">
+        <div className="flex items-center gap-2">
+          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">
+            <Network size={14} />
+          </div>
+          <div className="flex flex-col">
+            <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              Reporting structure
+            </span>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">
+              {hasHierarchy
+                ? `${employees.length} ${employees.length === 1 ? "person" : "people"} · ${byManager.size} manager${byManager.size === 1 ? "" : "s"}`
+                : `${employees.length} ${employees.length === 1 ? "person" : "people"}, no reporting lines yet`}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {hasHierarchy ? (
+        <div className="overflow-x-auto px-6 py-8">
+          <div className="flex min-w-fit items-start justify-center gap-10">
+            {roots.map((r) => (
+              <OrgNode
+                key={r.id}
+                emp={r}
+                visited={new Set([r.id])}
+                {...nodeProps}
+              />
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4 p-5">
+          <div className="flex items-start gap-3 rounded-lg bg-indigo-50/60 px-4 py-3 text-xs text-indigo-900 dark:bg-indigo-500/10 dark:text-indigo-200">
+            <div className="mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300">
+              i
+            </div>
+            <div>
+              No reporting lines yet. Click <Pencil className="inline" size={11} />{" "}
+              on any card to set who someone reports to — the chart will draw
+              itself.
+            </div>
+          </div>
+          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {roots.map((emp) => (
+              <li key={emp.id}>
+                <NodeCard emp={emp} reportCount={0} {...nodeProps} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type SharedNodeProps = {
+  byManager: Map<string, Employee[]>;
+  company: Company;
+  employees: Employee[];
+  teamsById: Map<string, Team>;
+  teams: Team[] | null;
+  onChanged: () => Promise<void>;
+};
+
+function OrgNode({
+  emp,
+  visited,
+  ...shared
+}: SharedNodeProps & { emp: Employee; visited: Set<string> }) {
+  const reports = (shared.byManager.get(emp.id) ?? []).filter(
+    (r) => !visited.has(r.id),
+  );
+  const nextVisited = new Set(visited);
+  for (const r of reports) nextVisited.add(r.id);
+
+  return (
+    <div className="flex flex-col items-center">
+      <NodeCard emp={emp} reportCount={reports.length} {...shared} />
+      {reports.length > 0 && (
+        <>
+          <div className="h-5 w-0.5 bg-slate-300 dark:bg-slate-600" />
+          <div className="flex items-start gap-8">
+            {reports.map((r, i) => (
+              <div
+                key={r.id}
+                className="relative flex flex-col items-center"
+              >
+                {reports.length > 1 && (
+                  <div
+                    className={clsx(
+                      "absolute top-0 h-0.5 bg-slate-300 dark:bg-slate-600",
+                      i === 0
+                        ? "left-1/2 right-0"
+                        : i === reports.length - 1
+                          ? "left-0 right-1/2"
+                          : "left-0 right-0",
+                    )}
+                  />
+                )}
+                <div className="h-5 w-0.5 bg-slate-300 dark:bg-slate-600" />
+                <OrgNode emp={r} visited={nextVisited} {...shared} />
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function NodeCard({
+  emp,
+  reportCount,
+  byManager: _byManager,
+  company,
+  employees,
+  teamsById,
+  teams,
+  onChanged,
+}: SharedNodeProps & { emp: Employee; reportCount: number }) {
+  const team = emp.teamId ? teamsById.get(emp.teamId) : null;
+  const isManager = reportCount > 0;
+  return (
+    <div
+      className={clsx(
+        "group relative w-56 rounded-xl border bg-white shadow-sm transition hover:border-slate-300 hover:shadow-md dark:bg-slate-900 dark:hover:border-slate-700",
+        isManager
+          ? "border-slate-200 ring-1 ring-indigo-100 dark:border-slate-800 dark:ring-indigo-500/20"
+          : "border-slate-200 dark:border-slate-800",
+      )}
+    >
+      <Link
+        to={`/c/${company.slug}/employees/${emp.slug}`}
+        className="flex flex-col gap-2.5 p-3.5"
+      >
+        <div className="flex items-center gap-2.5">
+          <Avatar
+            name={emp.name}
+            kind="ai"
+            size="md"
+            src={employeeAvatarUrl(company.id, emp.id, emp.avatarKey)}
+          />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+              {emp.name}
+            </div>
+            <div className="truncate text-[11px] text-slate-500 dark:text-slate-400">
+              {emp.role || "No role set"}
+            </div>
+          </div>
+        </div>
+        {(team || isManager) && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {team && (
+              <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
+                {team.name}
+              </span>
+            )}
+            {isManager && (
+              <span className="inline-flex items-center gap-1 rounded-md bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
+                <ChevronDown size={10} />
+                {reportCount} {reportCount === 1 ? "report" : "reports"}
+              </span>
+            )}
+          </div>
+        )}
+      </Link>
+      <OrgEditMenu
+        emp={emp}
+        company={company}
+        employees={employees}
+        teams={teams}
+        onChanged={onChanged}
+      />
+    </div>
+  );
+}
+
+function OrgEditMenu({
+  emp,
+  company,
+  employees,
+  teams,
+  onChanged,
+}: {
+  emp: Employee;
+  company: Company;
+  employees: Employee[];
+  teams: Team[] | null;
+  onChanged: () => Promise<void>;
+}) {
+  return (
+    <Menu
+      align="right"
+      width={260}
+      trigger={({ ref, onClick }) => (
+        <button
+          ref={ref}
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            onClick();
+          }}
+          title="Edit team & manager"
+          className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-md border border-slate-200 bg-white/80 text-slate-400 opacity-60 backdrop-blur transition hover:border-indigo-300 hover:bg-white hover:text-indigo-700 hover:opacity-100 group-hover:opacity-100 dark:border-slate-700 dark:bg-slate-900/80 dark:hover:border-indigo-500/40 dark:hover:bg-slate-900 dark:hover:text-indigo-300"
+        >
+          <Pencil size={11} />
+        </button>
+      )}
+    >
+      {(close) => (
+        <OrgEditForm
+          emp={emp}
+          company={company}
+          employees={employees}
+          teams={teams}
+          onSaved={async () => {
+            await onChanged();
+            close();
+          }}
+        />
+      )}
+    </Menu>
+  );
+}
+
+function OrgEditForm({
+  emp,
+  company,
+  employees,
+  teams,
+  onSaved,
+}: {
+  emp: Employee;
+  company: Company;
+  employees: Employee[];
+  teams: Team[] | null;
+  onSaved: () => Promise<void>;
+}) {
+  const [teamId, setTeamId] = React.useState<string>(emp.teamId ?? "");
+  const [reportsTo, setReportsTo] = React.useState<string>(
+    emp.reportsToEmployeeId ?? "",
+  );
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const { toast } = useToast();
+
+  const dirty =
+    (teamId || null) !== (emp.teamId ?? null) ||
+    (reportsTo || null) !== (emp.reportsToEmployeeId ?? null);
+
+  const peers = employees.filter((e) => e.id !== emp.id);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!dirty || saving) return;
+    setError(null);
+    setSaving(true);
+    try {
+      await api.patch<Employee>(
+        `/api/companies/${company.id}/employees/${emp.id}`,
+        {
+          teamId: teamId || null,
+          reportsToEmployeeId: reportsTo || null,
+        },
+      );
+      toast("Org chart updated", "success");
+      window.dispatchEvent(new CustomEvent("genosyn:employee-updated"));
+      await onSaved();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const selectClass =
+    "rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-indigo-900";
+
+  return (
+    <form className="flex flex-col gap-2.5 p-2.5" onSubmit={submit}>
+      <div className="flex items-center justify-between px-0.5">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+          Edit org
+        </span>
+        <span className="truncate text-xs font-medium text-slate-700 dark:text-slate-300">
+          {emp.name}
+        </span>
+      </div>
+      <FormError message={error} />
+      <label className="flex flex-col gap-1 text-xs">
+        <span className="font-medium text-slate-700 dark:text-slate-300">
+          Team
+        </span>
+        <select
+          className={selectClass}
+          value={teamId}
+          onChange={(e) => setTeamId(e.target.value)}
+          disabled={teams === null}
+        >
+          <option value="">— No team —</option>
+          {(teams ?? []).map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+        {teams !== null && teams.length === 0 && (
+          <span className="text-[10px] text-slate-400 dark:text-slate-500">
+            No teams yet — create one in Settings → Teams.
+          </span>
+        )}
+      </label>
+      <label className="flex flex-col gap-1 text-xs">
+        <span className="font-medium text-slate-700 dark:text-slate-300">
+          Reports to
+        </span>
+        <select
+          className={selectClass}
+          value={reportsTo}
+          onChange={(e) => setReportsTo(e.target.value)}
+        >
+          <option value="">— No manager —</option>
+          {peers.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name} ({p.role})
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="flex justify-end pt-1">
+        <Button type="submit" size="sm" disabled={!dirty || saving}>
+          {saving ? <Spinner size={12} /> : "Save"}
+        </Button>
+      </div>
+    </form>
   );
 }
