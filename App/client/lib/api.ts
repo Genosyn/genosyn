@@ -175,11 +175,18 @@ export type Routine = {
 };
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
+export type ApprovalKind = "routine" | "lightning_payment";
 export type Approval = {
   id: string;
   companyId: string;
+  kind: ApprovalKind;
   routineId: string;
   employeeId: string;
+  title: string | null;
+  summary: string | null;
+  payloadJson: string | null;
+  resultJson: string | null;
+  errorMessage: string | null;
   status: ApprovalStatus;
   requestedAt: string;
   decidedAt: string | null;
@@ -402,7 +409,7 @@ export type IntegrationAuthMode =
 export type IntegrationCatalogField = {
   key: string;
   label: string;
-  type: "text" | "password" | "url";
+  type: "text" | "password" | "url" | "textarea";
   placeholder?: string;
   required: boolean;
   hint?: string;

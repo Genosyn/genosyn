@@ -892,14 +892,25 @@ function ApiKeyModal({
               {f.label}
               {f.required && <span className="ml-1 text-red-500">*</span>}
             </label>
-            <input
-              type={f.type === "password" ? "password" : "text"}
-              required={f.required}
-              placeholder={f.placeholder}
-              value={fields[f.key] ?? ""}
-              onChange={(e) => setFields((prev) => ({ ...prev, [f.key]: e.target.value }))}
-              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-mono shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
-            />
+            {f.type === "textarea" ? (
+              <textarea
+                required={f.required}
+                placeholder={f.placeholder}
+                value={fields[f.key] ?? ""}
+                onChange={(e) => setFields((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                rows={6}
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-mono shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
+              />
+            ) : (
+              <input
+                type={f.type === "password" ? "password" : "text"}
+                required={f.required}
+                placeholder={f.placeholder}
+                value={fields[f.key] ?? ""}
+                onChange={(e) => setFields((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-mono shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
+              />
+            )}
             {f.hint && (
               <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{f.hint}</p>
             )}

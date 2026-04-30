@@ -5,11 +5,13 @@ import { EmployeeConnectionGrant } from "../db/entities/EmployeeConnectionGrant.
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { encryptSecret, decryptSecret } from "../lib/secret.js";
 import { getProvider } from "../integrations/index.js";
-import type {
-  IntegrationConfig,
-  IntegrationRuntimeContext,
+import {
+  ApprovalRequiredError,
+  type IntegrationConfig,
+  type IntegrationRuntimeContext,
 } from "../integrations/types.js";
 import { refreshTelegramListener } from "./telegramListener.js";
+import { createPaymentApproval } from "./approvals.js";
 
 /**
  * Service layer for Integration Connections + Grants.
@@ -661,9 +663,32 @@ export async function invokeConnectionTool(args: {
     setConfig(next) {
       refreshed = next;
     },
+    connectionId: pair.connection.id,
+    companyId: pair.connection.companyId,
+    employeeId: args.employee.id,
   };
 
-  const result = await provider.invokeTool(args.toolName, args.toolArgs, ctx);
+  let result: unknown;
+  try {
+    result = await provider.invokeTool(args.toolName, args.toolArgs, ctx);
+  } catch (err) {
+    if (err instanceof ApprovalRequiredError) {
+      const approval = await createPaymentApproval({
+        companyId: pair.connection.companyId,
+        employeeId: args.employee.id,
+        connectionId: pair.connection.id,
+        toolName: args.toolName,
+        toolArgs: (args.toolArgs as Record<string, unknown>) ?? {},
+        amountSats: err.amountSats,
+        title: err.title,
+        summary: err.summary,
+      });
+      throw new Error(
+        `Approval pending — a human must approve before this is sent. Approval id: ${approval.id}.`,
+      );
+    }
+    throw err;
+  }
   if (refreshed) {
     pair.connection.encryptedConfig = encryptConnectionConfig(refreshed);
     pair.connection.lastCheckedAt = new Date();

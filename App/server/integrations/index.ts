@@ -17,6 +17,8 @@ import { linearProvider } from "./providers/linear.js";
 import { telegramProvider } from "./providers/telegram.js";
 import { xProvider } from "./providers/x.js";
 import { nostrProvider } from "./providers/nostr.js";
+import { lightningProvider } from "./providers/lightning.js";
+import { lightningLndProvider } from "./providers/lightning-lnd.js";
 
 /**
  * Provider registry. Adding a new integration means:
@@ -40,6 +42,8 @@ const PROVIDERS: Record<string, IntegrationProvider> = {
   [telegramProvider.catalog.provider]: telegramProvider,
   [xProvider.catalog.provider]: xProvider,
   [nostrProvider.catalog.provider]: nostrProvider,
+  [lightningProvider.catalog.provider]: lightningProvider,
+  [lightningLndProvider.catalog.provider]: lightningLndProvider,
 };
 
 export function getProvider(id: string): IntegrationProvider | null {

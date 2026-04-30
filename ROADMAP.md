@@ -440,6 +440,84 @@ agent uses normal `git` to branch + commit + push, and one new MCP tool
 > commits via the GitHub App identity; sandboxed/containerized
 > execution (lives with the broader runner sandbox V1 backlog item).
 
+### M13 — Lightning (Bitcoin payments for companies + AI employees)
+
+A first-class **Lightning** Integration so a Company can hold a wallet
+and grant individual AI employees the ability to send and receive
+Bitcoin. Wallet-agnostic by default: each Connection holds a
+**Nostr Wallet Connect (NIP-47)** URI minted by any compatible wallet
+(Alby Hub, Mutiny, Phoenixd, Coinos, LNbits, Zeus, …), so operators
+don't have to run a Lightning node to use Genosyn — but those who do
+can point NWC at their own node.
+
+- [x] **`lightning` provider** under `App/server/integrations/providers/lightning.ts`,
+      `authMode: "apikey"`, category `Payments`. The "API key" is a
+      single `nostr+walletconnect://…` URI. We reuse the Schnorr
+      signing + NIP-04 encryption already pulled in by the `nostr`
+      provider, so no new crypto deps.
+- [x] **Tools.** Standard NIP-47 surface, expressed in **sats** at the
+      tool boundary (NWC is millisats internally — the provider
+      converts):
+        * `get_info` — wallet alias, network, supported methods
+        * `get_balance` — `{ balanceSats }`
+        * `make_invoice` — `{ amountSats, description?, expirySeconds? }`
+        * `pay_invoice` — `{ invoice, amountSats? }`
+        * `pay_keysend` — `{ pubkey, amountSats, message? }`
+        * `lookup_invoice` — `{ paymentHash? | invoice? }`
+        * `list_transactions` — `{ from?, until?, limit?, type? }`
+- [x] **Spending controls** stored on the Connection's encrypted
+      config (no schema change): `maxPaymentSats` (single payment cap)
+      and `dailyLimitSats` (rolling 24h cap, tracked via a compact
+      `spendLog` updated through `ctx.setConfig`). Payments over the
+      cap throw a user-facing error at the tool boundary so the AI
+      sees a clean refusal and can ask a human.
+- [x] **`checkStatus`** does a live `get_info` over the relays at
+      Connection-create time and from the "Test connection" button,
+      surfacing relay/auth/method-support failures up front instead
+      of at first payment.
+- [x] **Approvals plumbing.** Generalized the existing `Approval`
+      entity so it can hold non-routine kinds (migration
+      `1780100000000-ApprovalKinds`: `kind`, `title`, `summary`,
+      `payloadJson`, `resultJson`, `errorMessage`). New
+      `services/approvals.ts` dispatches on `kind`. Lightning
+      providers throw a generic `ApprovalRequiredError` from the
+      tool handler when amount > `requireApprovalAboveSats`; the
+      central `invokeConnectionTool` dispatcher in
+      `services/integrations.ts` catches it and writes a
+      `lightning_payment` Approval row containing the original
+      `(connectionId, toolName, args)`. On approve, the dispatcher
+      decrypts the connection, replays the call with
+      `bypassApprovalGate: true`, and persists `resultJson` (or
+      `errorMessage` on failure). Approvals UI renders both kinds
+      from one page with kind-specific titles + icons.
+- [x] **Direct LND/CLN macaroon auth as a separate provider.** Shipped
+      `lightning-lnd` (separate provider entry, same tool surface
+      via `lightning-shared.ts`). Auth: REST URL + hex macaroon +
+      optional PEM cert (textarea field — added `"textarea"` to the
+      `IntegrationCatalogField.type` union and to the connect-modal
+      renderer). Speaks LND's REST API directly via `node:https`
+      with optional CA pinning. Tools: `get_info`, `get_balance`,
+      `make_invoice`, `pay_invoice`, `lookup_invoice`,
+      `list_transactions`. **Keysend not implemented** — LND's REST
+      keysend path needs preimage synthesis and TLV envelope
+      management; users who need keysend stay on the NWC provider.
+      CLN (`cln_rest`) is a future companion — same shape, separate
+      module.
+
+> **Why NWC + LND, not just NWC.** NWC is the smallest viable auth
+> surface (one URI, one form field) and immediately works against
+> every self-custodial wallet — that's the default path. LND is for
+> operators who run their own node and want sovereignty; the same
+> tool surface means an AI employee can be ported between modes
+> without changing prompts.
+
+> **Why `lightning`, not `bitcoin`.** Bitcoin on-chain is a separate
+> can of worms (xpub watch wallets, PSBT signing, broadcast via
+> Mempool/Esplora, fee estimation). When that lands it gets its own
+> provider — same category, different transport. Lightning carries
+> the day-to-day flow (invoices, micropayments, agent-to-agent
+> transfers); on-chain is for treasury-style movements.
+
 ---
 
 ## V1 backlog (post-MVP)

@@ -47,7 +47,7 @@ export const INTEGRATION_CATEGORY_ORDER: IntegrationCategory[] = [
 export type IntegrationCatalogField = {
   key: string;
   label: string;
-  type: "text" | "password" | "url";
+  type: "text" | "password" | "url" | "textarea";
   placeholder?: string;
   required: boolean;
   /** Short hint rendered under the input. */
@@ -163,7 +163,36 @@ export type IntegrationRuntimeContext = {
    * will re-encrypt and persist it before returning to the AI employee.
    */
   setConfig?(next: IntegrationConfig): void;
+  /** Identification of the calling Connection, populated by the central
+   *  dispatcher. Empty during validateApiKey at create-time. Providers
+   *  that gate via Approvals or write Audit events read these. */
+  connectionId?: string;
+  companyId?: string;
+  /** Set when an AI employee is the caller; empty for human/system. */
+  employeeId?: string;
+  /** When true, providers that gate via Approvals should skip the gate.
+   *  The approval-execution path sets this when replaying a payment a
+   *  human just approved. */
+  bypassApprovalGate?: boolean;
 };
+
+/**
+ * Throw from inside `invokeTool` when a tool call needs human approval
+ * before it can proceed (e.g. a Lightning payment over the configured
+ * threshold). The central dispatcher catches this, creates a pending
+ * Approval row, and surfaces a friendly "approval pending" error to the
+ * caller. Providers stay free of DB dependencies this way.
+ */
+export class ApprovalRequiredError extends Error {
+  constructor(
+    public readonly title: string,
+    public readonly summary: string | null,
+    public readonly amountSats: number,
+  ) {
+    super(`Human approval required: ${title}`);
+    this.name = "ApprovalRequiredError";
+  }
+}
 
 export type OauthTokenSet = {
   accessToken: string;

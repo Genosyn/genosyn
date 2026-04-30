@@ -4,16 +4,22 @@ import { AppDataSource } from "../db/datasource.js";
 import { Approval } from "../db/entities/Approval.js";
 import { Routine } from "../db/entities/Routine.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
-import { runRoutine } from "../services/runner.js";
 import { recordAudit } from "../services/audit.js";
+import {
+  executeApproval,
+  recordApprovalRejection,
+} from "../services/approvals.js";
 
 /**
- * Human-in-the-loop inbox. Cron ticks for routines marked `requiresApproval`
- * land here as `pending`. A human approves (→ we actually run the routine
- * now, from the approval handler) or rejects (→ nothing runs, request is
- * stamped).
+ * Human-in-the-loop inbox. Two kinds today:
+ *
+ *   * `routine` — cron tick for a routine marked `requiresApproval`
+ *   * `lightning_payment` — Lightning payment over the Connection's
+ *                            `requireApprovalAboveSats` threshold
+ *
+ * Approve dispatches to the right execute path in `services/approvals.ts`;
+ * reject only stamps the row + writes a journal entry.
  */
 export const approvalsRouter = Router({ mergeParams: true });
 approvalsRouter.use(requireAuth);
@@ -26,10 +32,18 @@ approvalsRouter.get("/approvals", async (req, res) => {
     order: { requestedAt: "DESC" },
     take: 200,
   });
-  // Hydrate with routine + employee labels so the inbox renders without
-  // another round-trip per row.
-  const routineIds = [...new Set(approvals.map((a) => a.routineId))];
-  const empIds = [...new Set(approvals.map((a) => a.employeeId))];
+
+  // Routine kind needs the routine name; both kinds need the employee
+  // name. Hydrate in two batched queries so the inbox renders without
+  // an N+1 round-trip.
+  const routineIds = [
+    ...new Set(
+      approvals
+        .filter((a) => a.kind === "routine" && a.routineId)
+        .map((a) => a.routineId),
+    ),
+  ];
+  const empIds = [...new Set(approvals.map((a) => a.employeeId).filter(Boolean))];
   const routines = routineIds.length
     ? await AppDataSource.getRepository(Routine).find({
         where: { id: In(routineIds) },
@@ -42,10 +56,11 @@ approvalsRouter.get("/approvals", async (req, res) => {
     : [];
   const rById = new Map(routines.map((r) => [r.id, r]));
   const eById = new Map(emps.map((e) => [e.id, e]));
+
   res.json(
     approvals.map((a) => {
-      const r = rById.get(a.routineId) ?? null;
-      const e = eById.get(a.employeeId) ?? null;
+      const r = a.routineId ? (rById.get(a.routineId) ?? null) : null;
+      const e = a.employeeId ? (eById.get(a.employeeId) ?? null) : null;
       return {
         ...a,
         routine: r ? { id: r.id, name: r.name, slug: r.slug } : null,
@@ -68,29 +83,39 @@ approvalsRouter.post("/approvals/:id/approve", async (req, res) => {
   if (approval.status !== "pending") {
     return res.status(409).json({ error: `Approval already ${approval.status}` });
   }
-  const routine = await AppDataSource.getRepository(Routine).findOneBy({
-    id: approval.routineId,
-  });
-  if (!routine) return res.status(404).json({ error: "Routine no longer exists" });
+
   approval.status = "approved";
   approval.decidedAt = new Date();
   approval.decidedByUserId = req.session?.userId ?? null;
   await AppDataSource.getRepository(Approval).save(approval);
+
   await recordAudit({
     companyId: cid,
     actorUserId: req.userId ?? null,
     action: "approval.approve",
     targetType: "approval",
     targetId: approval.id,
-    targetLabel: routine.name,
-    metadata: { routineId: routine.id },
+    targetLabel: approval.title ?? "",
+    metadata: {
+      kind: approval.kind,
+      routineId: approval.routineId || undefined,
+    },
   });
-  // Fire the routine. We don't await the run here so the UI responds fast;
-  // the runner persists progress to the Run table regardless.
-  runRoutine(routine).catch((err) => {
-    // eslint-disable-next-line no-console
-    console.error(`[approvals] routine ${routine.id} failed post-approval:`, err);
-  });
+
+  // Execute the side-effect. For routines this fires-and-forgets; for
+  // payments the await blocks long enough for relay round-trips so the
+  // UI sees the outcome on the response.
+  try {
+    await executeApproval(approval);
+  } catch (err) {
+    approval.errorMessage = err instanceof Error ? err.message : String(err);
+    await AppDataSource.getRepository(Approval).save(approval);
+    return res.status(500).json({
+      ...approval,
+      executeError: approval.errorMessage,
+    });
+  }
+
   res.json(approval);
 });
 
@@ -101,34 +126,25 @@ approvalsRouter.post("/approvals/:id/reject", async (req, res) => {
   if (approval.status !== "pending") {
     return res.status(409).json({ error: `Approval already ${approval.status}` });
   }
+
   approval.status = "rejected";
   approval.decidedAt = new Date();
   approval.decidedByUserId = req.session?.userId ?? null;
   await AppDataSource.getRepository(Approval).save(approval);
+
   await recordAudit({
     companyId: cid,
     actorUserId: req.userId ?? null,
     action: "approval.reject",
     targetType: "approval",
     targetId: approval.id,
-    targetLabel: "",
-    metadata: { routineId: approval.routineId },
+    targetLabel: approval.title ?? "",
+    metadata: {
+      kind: approval.kind,
+      routineId: approval.routineId || undefined,
+    },
   });
-  const routine = await AppDataSource.getRepository(Routine).findOneBy({
-    id: approval.routineId,
-  });
-  if (routine) {
-    await AppDataSource.getRepository(JournalEntry).save(
-      AppDataSource.getRepository(JournalEntry).create({
-        employeeId: approval.employeeId,
-        kind: "system",
-        title: `Approval rejected for routine "${routine.name}"`,
-        body: "No run was performed.",
-        routineId: routine.id,
-        runId: null,
-        authorUserId: approval.decidedByUserId,
-      }),
-    );
-  }
+
+  await recordApprovalRejection(approval);
   res.json(approval);
 });
