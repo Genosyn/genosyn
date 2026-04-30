@@ -25,7 +25,7 @@ import { useToast } from "./ui/Toast";
 import { useDialog } from "./ui/Dialog";
 import { Avatar, meAvatarUrl } from "./ui/Avatar";
 import { CompanySocketProvider } from "./CompanySocket";
-import { LogoMark } from "./Logo";
+import { Logo } from "./Logo";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { useTheme, Theme } from "./Theme";
 
@@ -237,9 +237,14 @@ function TopNav({
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 dark:border-slate-800 dark:bg-slate-950">
-      <Link to={`/c/${current.slug}`} className="flex items-center gap-2">
-        <LogoMark className="h-7 w-7" />
+      <Link to={`/c/${current.slug}`} className="flex items-center gap-2 text-slate-900 dark:text-slate-100">
+        <Logo className="h-7 w-auto" />
       </Link>
+
+      <span
+        aria-hidden="true"
+        className="h-5 w-px bg-slate-200 dark:bg-slate-700"
+      />
 
       <div className="relative">
         <button
