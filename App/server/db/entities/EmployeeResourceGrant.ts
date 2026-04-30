@@ -8,7 +8,7 @@ import {
 import type { NoteAccessLevel } from "./EmployeeNoteGrant.js";
 
 /**
- * Grants an AI employee access to a Learning. We reuse the
+ * Grants an AI employee access to a Resource. We reuse the
  * `NoteAccessLevel` (`read` | `write`) so the share UI doesn't need a
  * second vocabulary, even though the AI surface is read-only today —
  * `write` exists so a future curation tool (re-summarize, re-tag) has a
@@ -17,11 +17,11 @@ import type { NoteAccessLevel } from "./EmployeeNoteGrant.js";
  * Humans (members) bypass this table; it only governs what AI employees
  * see through their MCP surface.
  */
-@Entity("employee_learning_grants")
+@Entity("employee_resource_grants")
 @Index(["employeeId"])
-@Index(["learningId"])
-@Index(["employeeId", "learningId"], { unique: true })
-export class EmployeeLearningGrant {
+@Index(["resourceId"])
+@Index(["employeeId", "resourceId"], { unique: true })
+export class EmployeeResourceGrant {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
 
@@ -29,7 +29,7 @@ export class EmployeeLearningGrant {
   employeeId!: string;
 
   @Column({ type: "varchar" })
-  learningId!: string;
+  resourceId!: string;
 
   @Column({ type: "varchar", default: "read" })
   accessLevel!: NoteAccessLevel;

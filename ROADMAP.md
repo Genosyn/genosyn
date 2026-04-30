@@ -327,36 +327,42 @@ plugin surface later.
       api-keys (full M14), employees, routines + runs. Adding a new area
       = one more file under `server/openapi/`.
 
-### M18 — Learnings (knowledge ingestion) ✅
+### M18 — Resources (knowledge ingestion) ✅
 
 External material — articles, ebooks, transcripts — that an AI employee
 should "study" and refer back to. Distinct from `EmployeeMemory` (atomic
 durable facts, auto-injected into the prompt) and `Note` (human-authored
-markdown the team writes together): a Learning is **content the team did
+markdown the team writes together): a Resource is **content the team did
 not write**, ingested once, queried on demand via the MCP surface.
 
-- [x] `Learning` entity — companyId, title, slug, sourceKind
+> Originally shipped as "Learnings"; renamed to "Resources" so the
+> vocabulary doesn't collide with the verb form ("learning something
+> new") that already shows up across Skill / Memory copy. The follow-up
+> migration `RenameLearningsToResources` drops the old tables and
+> creates the new ones — there is no in-place data migration.
+
+- [x] `Resource` entity — companyId, title, slug, sourceKind
       (`url` | `text` | `pdf` | `epub` | `video`), sourceUrl, sourceFilename,
       summary, bodyText (extracted plain text, capped at 1 MiB),
       tags (comma-joined string), bytes, status
       (`pending` | `ready` | `failed`), errorMessage, author bookkeeping.
-- [x] `EmployeeLearningGrant` entity — employee → learning, with the same
-      `read` / `write` access levels as Notes.
-- [x] Ingestion service `services/learnings.ts`:
+- [x] `EmployeeResourceGrant` entity — employee → resource, with the
+      same `read` / `write` access levels as Notes.
+- [x] Ingestion service `services/resources.ts`:
       * URL → `fetch` + minimal HTML→text (no jsdom/readability dep)
       * Plain text / `.txt` / `.md` / `.html` upload → store + index
       * PDF upload → text via `pdf-parse` (new dep, flagged below)
       * EPUB upload → unzip + collect XHTML body text via existing `unzipper`
       * Video → accepted but flagged `failed` with a "transcripts coming
         soon" note (no ASR dep)
-- [x] HTTP routes under `/api/companies/:cid/learnings`: list, create
+- [x] HTTP routes under `/api/companies/:cid/resources`: list, create
       (URL / paste / upload via multer, 25 MB cap), detail, patch
       (rename + retag), delete, plus grant CRUD.
-- [x] MCP tools — `list_learnings`, `search_learnings`, `get_learning`
+- [x] MCP tools — `list_resources`, `search_resources`, `get_resource`
       mirroring the Notes pattern. Read-only for AI; humans curate.
-- [x] React UI under `/c/<co>/learnings`: index grid, "Add learning"
-      modal with URL / paste / file tabs, detail page with summary +
-      extracted text + share modal.
+- [x] React UI under `/c/<co>/resources`: Notion-style centered layout
+      with quick-add tiles (URL / Paste / Upload), search-as-you-type,
+      compact list view, document-style detail page, share modal.
 - [x] AppShell sidebar entry under "Knowledge".
 
 **New dependency:** `pdf-parse` (small, well-maintained, Node 22 OK).

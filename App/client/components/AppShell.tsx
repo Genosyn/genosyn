@@ -4,7 +4,7 @@ import {
   ChevronDown,
   ChevronRight,
   GitBranch,
-  GraduationCap,
+  Library,
   type LucideIcon,
   ListChecks,
   LogOut,
@@ -80,7 +80,7 @@ type SectionKey =
   | "tasks"
   | "bases"
   | "notes"
-  | "learnings"
+  | "resources"
   | "pipelines"
   | "approvals"
   | "settings";
@@ -152,11 +152,11 @@ const SECTION_GROUPS: SectionGroup[] = [
           "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300",
       },
       {
-        key: "learnings",
-        label: "Learnings",
+        key: "resources",
+        label: "Resources",
         description: "URLs, ebooks, transcripts AI employees can study.",
-        icon: GraduationCap,
-        path: "/learnings",
+        icon: Library,
+        path: "/resources",
         iconBg:
           "bg-fuchsia-100 text-fuchsia-600 dark:bg-fuchsia-500/15 dark:text-fuchsia-300",
       },
@@ -351,7 +351,7 @@ function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/tasks(\/|$)/.test(pathname)) return "tasks";
   if (/\/c\/[^/]+\/bases(\/|$)/.test(pathname)) return "bases";
   if (/\/c\/[^/]+\/notes(\/|$)/.test(pathname)) return "notes";
-  if (/\/c\/[^/]+\/learnings(\/|$)/.test(pathname)) return "learnings";
+  if (/\/c\/[^/]+\/resources(\/|$)/.test(pathname)) return "resources";
   if (/\/c\/[^/]+\/pipelines(\/|$)/.test(pathname)) return "pipelines";
   if (/\/c\/[^/]+\/approvals(\/|$)/.test(pathname)) return "approvals";
   if (/\/c\/[^/]+\/settings(\/|$)/.test(pathname)) return "settings";

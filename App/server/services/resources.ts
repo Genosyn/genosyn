@@ -6,21 +6,21 @@ import multer from "multer";
 import unzipper from "unzipper";
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
-import { Learning } from "../db/entities/Learning.js";
-import type { LearningSourceKind } from "../db/entities/Learning.js";
+import { Resource } from "../db/entities/Resource.js";
+import type { ResourceSourceKind } from "../db/entities/Resource.js";
 import {
-  EmployeeLearningGrant,
-} from "../db/entities/EmployeeLearningGrant.js";
+  EmployeeResourceGrant,
+} from "../db/entities/EmployeeResourceGrant.js";
 import type { NoteAccessLevel } from "../db/entities/EmployeeNoteGrant.js";
 import { Company } from "../db/entities/Company.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { companyDir, ensureDir } from "./paths.js";
 
 /**
- * Learnings — knowledge ingestion. The store is a flat per-company table
- * of `Learning` rows; bytes for uploads land on disk under
- * `data/companies/<slug>/learnings/`. Retrieval is substring matching on
- * `bodyText` for v1, mirroring `search_notes`.
+ * Resources — knowledge ingestion. The store is a flat per-company
+ * table of `Resource` rows; bytes for uploads land on disk under
+ * `data/companies/<slug>/resources/`. Retrieval is substring matching
+ * on `bodyText` for v1, mirroring `search_notes`.
  *
  * Source kinds:
  *   - `url`: fetch + minimal HTML→text extraction
@@ -30,16 +30,16 @@ import { companyDir, ensureDir } from "./paths.js";
  *   - `video`: accepted but stored as `failed` for now (no ASR yet)
  */
 
-export const LEARNING_MAX_BYTES = 25 * 1024 * 1024;
+export const RESOURCE_MAX_BYTES = 25 * 1024 * 1024;
 /** Hard cap on the extracted text we keep on the row; SQLite handles MBs but
  * pulling a 50 MiB ebook body into a JSON response is wasteful. */
-export const LEARNING_BODY_TEXT_CAP = 1 * 1024 * 1024;
+export const RESOURCE_BODY_TEXT_CAP = 1 * 1024 * 1024;
 /** Summary auto-generated when humans don't supply one. First N characters
  * of the extracted body text, single-line. */
-export const LEARNING_AUTO_SUMMARY_CHARS = 320;
+export const RESOURCE_AUTO_SUMMARY_CHARS = 320;
 
-function learningsRoot(companySlug: string): string {
-  const dir = path.join(companyDir(companySlug), "learnings");
+function resourcesRoot(companySlug: string): string {
+  const dir = path.join(companyDir(companySlug), "resources");
   ensureDir(dir);
   return dir;
 }
@@ -52,11 +52,11 @@ function safeExt(filename: string): string {
 }
 
 /**
- * Multer middleware for the create-learning route. Single-file upload
+ * Multer middleware for the create-resource route. Single-file upload
  * under field name `file`, capped at 25 MB. The route handler must set
  * `req.company` first (same pattern as the bases attachment route).
  */
-export const learningUploadMiddleware = multer({
+export const resourceUploadMiddleware = multer({
   storage: multer.diskStorage({
     destination: async (req, _file, cb) => {
       try {
@@ -65,7 +65,7 @@ export const learningUploadMiddleware = multer({
           cb(new Error("Company context missing on upload"), "");
           return;
         }
-        cb(null, learningsRoot(co.slug));
+        cb(null, resourcesRoot(co.slug));
       } catch (err) {
         cb(err as Error, "");
       }
@@ -77,17 +77,17 @@ export const learningUploadMiddleware = multer({
     },
   }),
   limits: {
-    fileSize: LEARNING_MAX_BYTES,
+    fileSize: RESOURCE_MAX_BYTES,
     files: 1,
   },
 });
 
-export async function uniqueLearningSlug(
+export async function uniqueResourceSlug(
   companyId: string,
   base: string,
 ): Promise<string> {
-  const repo = AppDataSource.getRepository(Learning);
-  let slug = base || "learning";
+  const repo = AppDataSource.getRepository(Resource);
+  let slug = base || "resource";
   let n = 1;
   while (await repo.findOneBy({ companyId, slug })) {
     n += 1;
@@ -100,9 +100,9 @@ export async function uniqueLearningSlug(
 
 /**
  * Strip an HTML document down to plain text. Avoids dragging jsdom +
- * readability into the dep tree — for v1 we keep paragraph boundaries
- * but throw away inline markup. Good enough for substring search and
- * for an AI to read back.
+ * readability into the dep tree — for v1 we keep paragraph
+ * boundaries but throw away inline markup. Good enough for substring
+ * search and for an AI to read back.
  */
 export function htmlToText(html: string): { title: string; text: string } {
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
@@ -160,8 +160,8 @@ function decodeHtmlEntities(s: string): string {
 
 /**
  * Fetch a URL and return the (best-effort) extracted plain text. Any
- * non-2xx response throws with a helpful message — the caller stamps the
- * row as `failed` and surfaces the error.
+ * non-2xx response throws with a helpful message — the caller stamps
+ * the row as `failed` and surfaces the error.
  */
 export async function fetchUrlAsText(
   url: string,
@@ -180,7 +180,7 @@ export async function fetchUrlAsText(
     headers: {
       // Give servers a real-looking UA so a few sites don't refuse us.
       "User-Agent":
-        "GenosynLearningBot/1.0 (+https://genosyn.com)",
+        "GenosynResourceBot/1.0 (+https://genosyn.com)",
       Accept: "text/html,application/xhtml+xml,*/*;q=0.8",
     },
   });
@@ -189,7 +189,7 @@ export async function fetchUrlAsText(
   }
   const contentType = (res.headers.get("content-type") ?? "").toLowerCase();
   const buf = Buffer.from(await res.arrayBuffer());
-  if (buf.length > LEARNING_MAX_BYTES) {
+  if (buf.length > RESOURCE_MAX_BYTES) {
     throw new Error("Response is larger than the 25 MB ingestion cap.");
   }
   if (contentType.startsWith("text/html") || contentType.includes("xhtml")) {
@@ -210,8 +210,8 @@ export async function fetchUrlAsText(
 /**
  * Extract text from a PDF buffer using `pdf-parse`. The library is
  * CommonJS-only and contains a debug branch that reads a built-in test
- * PDF when imported as `require('pdf-parse')` from CJS — to avoid that
- * we go straight at the inner module.
+ * PDF when imported as `require('pdf-parse')` from CJS — to
+ * avoid that we go straight at the inner module.
  */
 export async function pdfBufferToText(buf: Buffer): Promise<string> {
   const require = createRequire(import.meta.url);
@@ -241,8 +241,8 @@ export async function epubFileToText(absPath: string): Promise<string> {
     const { text } = htmlToText(html);
     if (text.trim().length === 0) continue;
     parts.push(text.trim());
-    if (parts.join("\n\n").length > LEARNING_BODY_TEXT_CAP * 2) {
-      // Stop early; the cap below trims to LEARNING_BODY_TEXT_CAP anyway.
+    if (parts.join("\n\n").length > RESOURCE_BODY_TEXT_CAP * 2) {
+      // Stop early; the cap below trims to RESOURCE_BODY_TEXT_CAP anyway.
       break;
     }
   }
@@ -250,40 +250,40 @@ export async function epubFileToText(absPath: string): Promise<string> {
 }
 
 export function trimBodyText(text: string): string {
-  // Strip embedded NUL bytes — SQLite's text APIs occasionally trip on
-  // them when they leak in from PDF/EPUB extraction.
+  // Strip embedded NUL bytes — SQLite's text APIs occasionally
+  // trip on them when they leak in from PDF/EPUB extraction.
   // eslint-disable-next-line no-control-regex
   const normalized = text.replace(/\u0000/g, "").trim();
-  if (normalized.length <= LEARNING_BODY_TEXT_CAP) return normalized;
-  return normalized.slice(0, LEARNING_BODY_TEXT_CAP);
+  if (normalized.length <= RESOURCE_BODY_TEXT_CAP) return normalized;
+  return normalized.slice(0, RESOURCE_BODY_TEXT_CAP);
 }
 
 export function summarize(text: string, summary?: string): string {
   if (summary && summary.trim().length > 0) return summary.trim();
   const oneLine = text.replace(/\s+/g, " ").trim();
-  if (oneLine.length <= LEARNING_AUTO_SUMMARY_CHARS) return oneLine;
-  return oneLine.slice(0, LEARNING_AUTO_SUMMARY_CHARS - 1) + "…";
+  if (oneLine.length <= RESOURCE_AUTO_SUMMARY_CHARS) return oneLine;
+  return oneLine.slice(0, RESOURCE_AUTO_SUMMARY_CHARS - 1) + "…";
 }
 
 // ---------- Storage / file helpers ----------
 
-export function resolveLearningFile(
+export function resolveResourceFile(
   companySlug: string,
   storageKey: string,
 ): string | null {
-  const root = learningsRoot(companySlug);
+  const root = resourcesRoot(companySlug);
   const abs = path.join(root, path.basename(storageKey));
   if (!abs.startsWith(root)) return null;
   if (!fs.existsSync(abs)) return null;
   return abs;
 }
 
-export async function deleteLearningBytes(
+export async function deleteResourceBytes(
   storageKey: string,
   companySlug: string,
 ): Promise<void> {
   try {
-    const root = learningsRoot(companySlug);
+    const root = resourcesRoot(companySlug);
     const abs = path.join(root, path.basename(storageKey));
     if (!abs.startsWith(root)) return;
     if (fs.existsSync(abs)) await fs.promises.unlink(abs);
@@ -294,7 +294,7 @@ export async function deleteLearningBytes(
 
 export function inferSourceKindFromFilename(
   filename: string,
-): LearningSourceKind {
+): ResourceSourceKind {
   const ext = path.extname(filename).toLowerCase();
   if (ext === ".pdf") return "pdf";
   if (ext === ".epub") return "epub";
@@ -312,13 +312,13 @@ export function inferSourceKindFromFilename(
 
 // ---------- Grant helpers ----------
 
-export async function upsertLearningGrant(
+export async function upsertResourceGrant(
   employeeId: string,
-  learningId: string,
+  resourceId: string,
   accessLevel: NoteAccessLevel,
-): Promise<EmployeeLearningGrant> {
-  const repo = AppDataSource.getRepository(EmployeeLearningGrant);
-  const existing = await repo.findOneBy({ employeeId, learningId });
+): Promise<EmployeeResourceGrant> {
+  const repo = AppDataSource.getRepository(EmployeeResourceGrant);
+  const existing = await repo.findOneBy({ employeeId, resourceId });
   if (existing) {
     if (existing.accessLevel !== accessLevel) {
       existing.accessLevel = accessLevel;
@@ -326,83 +326,83 @@ export async function upsertLearningGrant(
     }
     return existing;
   }
-  const row = repo.create({ employeeId, learningId, accessLevel });
+  const row = repo.create({ employeeId, resourceId, accessLevel });
   await repo.save(row);
   return row;
 }
 
-export async function listDirectLearningGrants(
-  learningId: string,
-): Promise<EmployeeLearningGrant[]> {
-  return AppDataSource.getRepository(EmployeeLearningGrant).find({
-    where: { learningId },
+export async function listDirectResourceGrants(
+  resourceId: string,
+): Promise<EmployeeResourceGrant[]> {
+  return AppDataSource.getRepository(EmployeeResourceGrant).find({
+    where: { resourceId },
     order: { createdAt: "ASC" },
   });
 }
 
-export async function deleteGrantsForLearning(
-  learningId: string,
+export async function deleteGrantsForResource(
+  resourceId: string,
 ): Promise<void> {
-  await AppDataSource.getRepository(EmployeeLearningGrant).delete({
-    learningId,
+  await AppDataSource.getRepository(EmployeeResourceGrant).delete({
+    resourceId,
   });
 }
 
-export async function listAccessibleLearningIds(
+export async function listAccessibleResourceIds(
   employeeId: string,
 ): Promise<Set<string>> {
   const grants = await AppDataSource.getRepository(
-    EmployeeLearningGrant,
+    EmployeeResourceGrant,
   ).find({ where: { employeeId } });
-  return new Set(grants.map((g) => g.learningId));
+  return new Set(grants.map((g) => g.resourceId));
 }
 
-export async function hasLearningAccess(
+export async function hasResourceAccess(
   employeeId: string,
-  learningId: string,
+  resourceId: string,
   required: NoteAccessLevel,
 ): Promise<boolean> {
   const grant = await AppDataSource.getRepository(
-    EmployeeLearningGrant,
-  ).findOneBy({ employeeId, learningId });
+    EmployeeResourceGrant,
+  ).findOneBy({ employeeId, resourceId });
   if (!grant) return false;
   if (required === "read") return true;
   return grant.accessLevel === "write";
 }
 
-export async function listLearningsByIds(
+export async function listResourcesByIds(
   companyId: string,
   ids: string[],
-): Promise<Learning[]> {
+): Promise<Resource[]> {
   if (ids.length === 0) return [];
-  return AppDataSource.getRepository(Learning).find({
+  return AppDataSource.getRepository(Resource).find({
     where: { companyId, id: In(ids) },
     order: { updatedAt: "DESC" },
   });
 }
 
 /**
- * Grant `read` access to every AI employee in the company on this learning.
- * Called once at create time so a fresh Learning is immediately visible to
- * the team via the MCP surface — without this, every new ingestion would
- * silently land with zero grants and a human would have to walk into the
- * share modal before any employee could see it.
+ * Grant `read` access to every AI employee in the company on this resource.
+ * Called once at create time so a fresh Resource is immediately visible to
+ * the team via the MCP surface — without this, every new ingestion
+ * would silently land with zero grants and a human would have to walk
+ * into the share modal before any employee could see it.
  *
- * Idempotent: per-employee grants are upserted, so calling this twice is a
- * no-op. New employees added *after* a Learning is ingested do not get an
- * automatic grant — that's a future "back-fill on hire" decision; for now
- * the human re-shares from the modal.
+ * Idempotent: per-employee grants are upserted, so calling this twice is
+ * a no-op. New employees added *after* a Resource is ingested do not get
+ * an automatic grant — that's a future "back-fill on hire"
+ * decision; for now the human re-shares from the modal.
  */
-export async function grantLearningToAllEmployees(
+export async function grantResourceToAllEmployees(
   companyId: string,
-  learningId: string,
+  resourceId: string,
 ): Promise<number> {
   const emps = await AppDataSource.getRepository(AIEmployee).find({
     where: { companyId },
     select: ["id"],
   });
   for (const e of emps) {
-    await upsertLearningGrant(e.id, learningId, "read");
+    await upsertResourceGrant(e.id, resourceId, "read");
   }
   return emps.length;
 }

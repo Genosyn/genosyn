@@ -1145,21 +1145,21 @@ export type NotebookGrantsResponse = {
 
 export type NotebookGrantCandidate = NoteGrantCandidate;
 
-// ───────────────────────── Learnings (M18) ──────────────────────────────
+// ───────────────────────── Resources (M18) ──────────────────────────────
 
-export type LearningSourceKind = "url" | "text" | "pdf" | "epub" | "video";
-export type LearningStatus = "pending" | "ready" | "failed";
+export type ResourceSourceKind = "url" | "text" | "pdf" | "epub" | "video";
+export type ResourceStatus = "pending" | "ready" | "failed";
 
-export type LearningAuthor =
+export type ResourceAuthor =
   | { kind: "human"; id: string; name: string; email: string | null }
   | { kind: "ai"; id: string; name: string; slug: string; role: string };
 
-export type Learning = {
+export type Resource = {
   id: string;
   companyId: string;
   title: string;
   slug: string;
-  sourceKind: LearningSourceKind;
+  sourceKind: ResourceSourceKind;
   sourceUrl: string | null;
   sourceFilename: string | null;
   storageKey: string | null;
@@ -1171,16 +1171,16 @@ export type Learning = {
   tags: string;
   tagList: string[];
   bytes: number;
-  status: LearningStatus;
+  status: ResourceStatus;
   errorMessage: string;
   createdById: string | null;
   createdByEmployeeId: string | null;
-  createdBy: LearningAuthor | null;
+  createdBy: ResourceAuthor | null;
   createdAt: string;
   updatedAt: string;
 };
 
-export type LearningGrantEmployee = {
+export type ResourceGrantEmployee = {
   id: string;
   name: string;
   slug: string;
@@ -1188,18 +1188,18 @@ export type LearningGrantEmployee = {
   avatarKey: string | null;
 };
 
-export type LearningGrant = {
+export type ResourceGrant = {
   id: string;
   employeeId: string;
-  learningId: string;
+  resourceId: string;
   accessLevel: NoteAccessLevel;
   createdAt: string;
-  employee: LearningGrantEmployee | null;
+  employee: ResourceGrantEmployee | null;
 };
 
-export type LearningGrantsResponse = { direct: LearningGrant[] };
+export type ResourceGrantsResponse = { direct: ResourceGrant[] };
 
-export type LearningGrantCandidate = LearningGrantEmployee & {
+export type ResourceGrantCandidate = ResourceGrantEmployee & {
   alreadyGranted: boolean;
 };
 

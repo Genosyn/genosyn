@@ -71,7 +71,7 @@ import { Handoff, type HandoffStatus } from "../db/entities/Handoff.js";
 import { Note } from "../db/entities/Note.js";
 import { Notebook } from "../db/entities/Notebook.js";
 import { EmployeeNoteGrant } from "../db/entities/EmployeeNoteGrant.js";
-import { Learning } from "../db/entities/Learning.js";
+import { Resource } from "../db/entities/Resource.js";
 import {
   hasNoteAccess,
   listAccessibleNoteIds,
@@ -79,9 +79,9 @@ import {
 } from "../services/notes.js";
 import { ensureDefaultNotebook } from "../services/notebooks.js";
 import {
-  hasLearningAccess,
-  listAccessibleLearningIds,
-} from "../services/learnings.js";
+  hasResourceAccess,
+  listAccessibleResourceIds,
+} from "../services/resources.js";
 
 /**
  * Internal HTTP surface called by the built-in Genosyn MCP server binary.
@@ -3448,102 +3448,102 @@ async function isNoteDescendant(
   return false;
 }
 
-function serializeLearning(l: Learning, opts: { includeBody?: boolean } = {}) {
-  const tagList = l.tags
-    ? l.tags.split(",").map((t) => t.trim()).filter((t) => t.length > 0)
+function serializeResource(r: Resource, opts: { includeBody?: boolean } = {}) {
+  const tagList = r.tags
+    ? r.tags.split(",").map((t) => t.trim()).filter((t) => t.length > 0)
     : [];
   const out: Record<string, unknown> = {
-    id: l.id,
-    title: l.title,
-    slug: l.slug,
-    sourceKind: l.sourceKind,
-    sourceUrl: l.sourceUrl,
-    sourceFilename: l.sourceFilename,
-    summary: l.summary,
+    id: r.id,
+    title: r.title,
+    slug: r.slug,
+    sourceKind: r.sourceKind,
+    sourceUrl: r.sourceUrl,
+    sourceFilename: r.sourceFilename,
+    summary: r.summary,
     tags: tagList,
-    bodyLength: l.bodyText?.length ?? 0,
-    bytes: Number(l.bytes),
-    status: l.status,
-    errorMessage: l.errorMessage,
-    createdAt: l.createdAt,
-    updatedAt: l.updatedAt,
+    bodyLength: r.bodyText?.length ?? 0,
+    bytes: Number(r.bytes),
+    status: r.status,
+    errorMessage: r.errorMessage,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
   };
-  if (opts.includeBody) out.bodyText = l.bodyText;
+  if (opts.includeBody) out.bodyText = r.bodyText;
   return out;
 }
 
-const listLearningsSchema = z.object({}).strict();
+const listResourcesSchema = z.object({}).strict();
 
 mcpInternalRouter.post(
-  "/tools/list_learnings",
-  validateBody(listLearningsSchema),
+  "/tools/list_resources",
+  validateBody(listResourcesSchema),
   async (req: McpRequest, res) => {
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
-    const accessible = await listAccessibleLearningIds(self.id);
-    if (accessible.size === 0) return res.json({ learnings: [] });
-    const rows = await AppDataSource.getRepository(Learning).find({
+    const accessible = await listAccessibleResourceIds(self.id);
+    if (accessible.size === 0) return res.json({ resources: [] });
+    const rows = await AppDataSource.getRepository(Resource).find({
       where: { companyId: co.id, id: In([...accessible]) },
       order: { updatedAt: "DESC" },
     });
-    res.json({ learnings: rows.map((r) => serializeLearning(r)) });
+    res.json({ resources: rows.map((r) => serializeResource(r)) });
   },
 );
 
-const searchLearningsSchema = z
+const searchResourcesSchema = z
   .object({
     query: z.string().min(1).max(200),
   })
   .strict();
 
 mcpInternalRouter.post(
-  "/tools/search_learnings",
-  validateBody(searchLearningsSchema),
+  "/tools/search_resources",
+  validateBody(searchResourcesSchema),
   async (req: McpRequest, res) => {
-    const body = req.body as z.infer<typeof searchLearningsSchema>;
+    const body = req.body as z.infer<typeof searchResourcesSchema>;
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
-    const accessible = await listAccessibleLearningIds(self.id);
-    if (accessible.size === 0) return res.json({ learnings: [] });
+    const accessible = await listAccessibleResourceIds(self.id);
+    if (accessible.size === 0) return res.json({ resources: [] });
 
     const term = `%${body.query.replace(/[%_]/g, (c) => "\\" + c)}%`;
-    const rows = await AppDataSource.getRepository(Learning)
-      .createQueryBuilder("l")
-      .where("l.companyId = :cid", { cid: co.id })
-      .andWhere("l.id IN (:...ids)", { ids: [...accessible] })
+    const rows = await AppDataSource.getRepository(Resource)
+      .createQueryBuilder("r")
+      .where("r.companyId = :cid", { cid: co.id })
+      .andWhere("r.id IN (:...ids)", { ids: [...accessible] })
       .andWhere(
-        "(l.title LIKE :term ESCAPE '\\' OR l.summary LIKE :term ESCAPE '\\' OR l.tags LIKE :term ESCAPE '\\' OR l.bodyText LIKE :term ESCAPE '\\')",
+        "(r.title LIKE :term ESCAPE '\\' OR r.summary LIKE :term ESCAPE '\\' OR r.tags LIKE :term ESCAPE '\\' OR r.bodyText LIKE :term ESCAPE '\\')",
         { term },
       )
-      .orderBy("l.updatedAt", "DESC")
+      .orderBy("r.updatedAt", "DESC")
       .limit(50)
       .getMany();
-    res.json({ learnings: rows.map((r) => serializeLearning(r)) });
+    res.json({ resources: rows.map((r) => serializeResource(r)) });
   },
 );
 
-const getLearningSchema = z
+const getResourceSchema = z
   .object({
-    learningSlug: z.string().min(1).max(160),
+    resourceSlug: z.string().min(1).max(160),
   })
   .strict();
 
 mcpInternalRouter.post(
-  "/tools/get_learning",
-  validateBody(getLearningSchema),
+  "/tools/get_resource",
+  validateBody(getResourceSchema),
   async (req: McpRequest, res) => {
-    const body = req.body as z.infer<typeof getLearningSchema>;
+    const body = req.body as z.infer<typeof getResourceSchema>;
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
-    const row = await AppDataSource.getRepository(Learning).findOneBy({
+    const row = await AppDataSource.getRepository(Resource).findOneBy({
       companyId: co.id,
-      slug: body.learningSlug,
+      slug: body.resourceSlug,
     });
-    if (!row) return res.status(404).json({ error: "Learning not found" });
-    if (!(await hasLearningAccess(self.id, row.id, "read"))) {
-      return res.status(403).json({ error: "No access to that learning" });
+    if (!row) return res.status(404).json({ error: "Resource not found" });
+    if (!(await hasResourceAccess(self.id, row.id, "read"))) {
+      return res.status(403).json({ error: "No access to that resource" });
     }
-    res.json({ learning: serializeLearning(row, { includeBody: true }) });
+    res.json({ resource: serializeResource(row, { includeBody: true }) });
   },
 );
 

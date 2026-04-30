@@ -3,51 +3,51 @@ import { Router } from "express";
 import { z } from "zod";
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
-import { Learning } from "../db/entities/Learning.js";
-import type { LearningSourceKind } from "../db/entities/Learning.js";
+import { Resource } from "../db/entities/Resource.js";
+import type { ResourceSourceKind } from "../db/entities/Resource.js";
 import { Company } from "../db/entities/Company.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { User } from "../db/entities/User.js";
 import {
-  EmployeeLearningGrant,
-} from "../db/entities/EmployeeLearningGrant.js";
+  EmployeeResourceGrant,
+} from "../db/entities/EmployeeResourceGrant.js";
 import type { NoteAccessLevel } from "../db/entities/EmployeeNoteGrant.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { recordAudit } from "../services/audit.js";
 import {
-  LEARNING_MAX_BYTES,
-  deleteGrantsForLearning,
-  deleteLearningBytes,
+  RESOURCE_MAX_BYTES,
+  deleteGrantsForResource,
+  deleteResourceBytes,
   epubFileToText,
   fetchUrlAsText,
-  grantLearningToAllEmployees,
+  grantResourceToAllEmployees,
   htmlToText,
   inferSourceKindFromFilename,
-  learningUploadMiddleware,
-  listDirectLearningGrants,
+  resourceUploadMiddleware,
+  listDirectResourceGrants,
   pdfBufferToText,
-  resolveLearningFile,
+  resolveResourceFile,
   summarize,
   trimBodyText,
-  uniqueLearningSlug,
-  upsertLearningGrant,
-} from "../services/learnings.js";
+  uniqueResourceSlug,
+  upsertResourceGrant,
+} from "../services/resources.js";
 import fs from "node:fs";
 
 /**
- * Learnings — knowledge ingestion. Humans create rows by pasting a URL,
+ * Resources — knowledge ingestion. Humans create rows by pasting a URL,
  * uploading a file (PDF / EPUB / TXT / MD / HTML), or pasting raw text.
  * The server extracts plain text on the spot, stores it on `bodyText`,
- * and surfaces the resulting Learning to AI employees through the MCP
+ * and surfaces the resulting Resource to AI employees through the MCP
  * tool surface (read-only) and to humans through the React UI.
  *
- * Access for AI is gated by `EmployeeLearningGrant`; humans bypass.
+ * Access for AI is gated by `EmployeeResourceGrant`; humans bypass.
  */
-export const learningsRouter = Router({ mergeParams: true });
-learningsRouter.use(requireAuth);
-learningsRouter.use(requireCompanyMember);
+export const resourcesRouter = Router({ mergeParams: true });
+resourcesRouter.use(requireAuth);
+resourcesRouter.use(requireCompanyMember);
 
 const ACCESS_LEVELS: [NoteAccessLevel, ...NoteAccessLevel[]] = ["read", "write"];
 
@@ -56,7 +56,7 @@ type AuthorRef =
   | { kind: "ai"; id: string; name: string; slug: string; role: string }
   | null;
 
-type HydratedLearning = Omit<Learning, "bodyText"> & {
+type HydratedResource = Omit<Resource, "bodyText"> & {
   bodyText?: string;
   bodyLength: number;
   tagList: string[];
@@ -69,9 +69,9 @@ type HydratedLearning = Omit<Learning, "bodyText"> & {
  */
 async function hydrate(
   companyId: string,
-  rows: Learning[],
+  rows: Resource[],
   opts: { includeBody?: boolean } = {},
-): Promise<HydratedLearning[]> {
+): Promise<HydratedResource[]> {
   if (rows.length === 0) return [];
   const userIds = [
     ...new Set(rows.map((r) => r.createdById).filter((x): x is string => !!x)),
@@ -126,7 +126,7 @@ async function hydrate(
           .map((t) => t.trim())
           .filter((t) => t.length > 0)
       : [];
-    const out: HydratedLearning = {
+    const out: HydratedResource = {
       ...r,
       bodyLength,
       tagList,
@@ -139,9 +139,9 @@ async function hydrate(
 
 // ----- LIST -----
 
-learningsRouter.get("/learnings", async (req, res) => {
+resourcesRouter.get("/resources", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
-  const rows = await AppDataSource.getRepository(Learning).find({
+  const rows = await AppDataSource.getRepository(Resource).find({
     where: { companyId: cid },
     order: { updatedAt: "DESC" },
   });
@@ -171,13 +171,13 @@ const createBodySchema = z.discriminatedUnion("sourceKind", [
   createTextSchema,
 ]);
 
-learningsRouter.post(
-  "/learnings",
+resourcesRouter.post(
+  "/resources",
   validateBody(createBodySchema),
   async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const body = req.body as z.infer<typeof createBodySchema>;
-    const repo = AppDataSource.getRepository(Learning);
+    const repo = AppDataSource.getRepository(Resource);
 
     let title = "";
     let summary = "";
@@ -208,7 +208,7 @@ learningsRouter.post(
       summary = summarize(bodyText, body.summary);
     }
 
-    const slug = await uniqueLearningSlug(cid, toSlug(title) || "learning");
+    const slug = await uniqueResourceSlug(cid, toSlug(title) || "resource");
     const row = repo.create({
       companyId: cid,
       title,
@@ -228,13 +228,13 @@ learningsRouter.post(
     });
     await repo.save(row);
 
-    const grantedCount = await grantLearningToAllEmployees(cid, row.id);
+    const grantedCount = await grantResourceToAllEmployees(cid, row.id);
 
     await recordAudit({
       companyId: cid,
       actorUserId: req.userId ?? null,
-      action: "learning.create",
-      targetType: "learning",
+      action: "resource.create",
+      targetType: "resource",
       targetId: row.id,
       targetLabel: row.title,
       metadata: {
@@ -252,8 +252,8 @@ learningsRouter.post(
 
 // ----- CREATE: file upload -----
 
-learningsRouter.post(
-  "/learnings/upload",
+resourcesRouter.post(
+  "/resources/upload",
   async (req, res, next) => {
     const cid = (req.params as Record<string, string>).cid;
     const co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
@@ -261,18 +261,18 @@ learningsRouter.post(
     (req as unknown as { company: Company }).company = co;
     next();
   },
-  learningUploadMiddleware.single("file"),
+  resourceUploadMiddleware.single("file"),
   async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const co = (req as unknown as { company?: Company }).company;
     const file = (req as unknown as { file?: Express.Multer.File }).file;
     if (!co) return res.status(404).json({ error: "Company not found" });
     if (!file) return res.status(400).json({ error: "No file uploaded" });
-    if (file.size > LEARNING_MAX_BYTES) {
+    if (file.size > RESOURCE_MAX_BYTES) {
       return res.status(400).json({ error: "File exceeds the 25 MB cap" });
     }
 
-    const sourceKind: LearningSourceKind = inferSourceKindFromFilename(
+    const sourceKind: ResourceSourceKind = inferSourceKindFromFilename(
       file.originalname,
     );
     const titleHint = path
@@ -318,9 +318,9 @@ learningsRouter.post(
 
     const summary = (req.body as Record<string, string>)?.summary;
     const tags = (req.body as Record<string, string>)?.tags ?? "";
-    const slug = await uniqueLearningSlug(cid, toSlug(title) || "learning");
+    const slug = await uniqueResourceSlug(cid, toSlug(title) || "resource");
 
-    const row = AppDataSource.getRepository(Learning).create({
+    const row = AppDataSource.getRepository(Resource).create({
       companyId: cid,
       title,
       slug,
@@ -337,15 +337,15 @@ learningsRouter.post(
       createdById: req.userId ?? null,
       createdByEmployeeId: null,
     });
-    await AppDataSource.getRepository(Learning).save(row);
+    await AppDataSource.getRepository(Resource).save(row);
 
-    const grantedCount = await grantLearningToAllEmployees(cid, row.id);
+    const grantedCount = await grantResourceToAllEmployees(cid, row.id);
 
     await recordAudit({
       companyId: cid,
       actorUserId: req.userId ?? null,
-      action: "learning.create",
-      targetType: "learning",
+      action: "resource.create",
+      targetType: "resource",
       targetId: row.id,
       targetLabel: row.title,
       metadata: {
@@ -364,31 +364,31 @@ learningsRouter.post(
 
 // ----- DETAIL -----
 
-async function loadLearning(
+async function loadResource(
   companyId: string,
   slug: string,
-): Promise<Learning | null> {
-  return AppDataSource.getRepository(Learning).findOneBy({ companyId, slug });
+): Promise<Resource | null> {
+  return AppDataSource.getRepository(Resource).findOneBy({ companyId, slug });
 }
 
-learningsRouter.get("/learnings/:slug", async (req, res) => {
+resourcesRouter.get("/resources/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
-  const row = await loadLearning(cid, req.params.slug);
-  if (!row) return res.status(404).json({ error: "Learning not found" });
+  const row = await loadResource(cid, req.params.slug);
+  if (!row) return res.status(404).json({ error: "Resource not found" });
   const [hydrated] = await hydrate(cid, [row], { includeBody: true });
   res.json(hydrated);
 });
 
-learningsRouter.get("/learnings/:slug/file", async (req, res) => {
+resourcesRouter.get("/resources/:slug/file", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
-  const row = await loadLearning(cid, req.params.slug);
-  if (!row) return res.status(404).json({ error: "Learning not found" });
+  const row = await loadResource(cid, req.params.slug);
+  if (!row) return res.status(404).json({ error: "Resource not found" });
   if (!row.storageKey) {
     return res.status(404).json({ error: "Original file unavailable" });
   }
   const co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
   if (!co) return res.status(404).json({ error: "Company not found" });
-  const abs = resolveLearningFile(co.slug, row.storageKey);
+  const abs = resolveResourceFile(co.slug, row.storageKey);
   if (!abs) return res.status(404).json({ error: "File missing on disk" });
   res.download(abs, row.sourceFilename ?? path.basename(abs));
 });
@@ -401,18 +401,18 @@ const patchSchema = z.object({
   tags: z.string().max(500).optional(),
 });
 
-learningsRouter.patch(
-  "/learnings/:slug",
+resourcesRouter.patch(
+  "/resources/:slug",
   validateBody(patchSchema),
   async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
-    const row = await loadLearning(cid, req.params.slug);
-    if (!row) return res.status(404).json({ error: "Learning not found" });
+    const row = await loadResource(cid, req.params.slug);
+    if (!row) return res.status(404).json({ error: "Resource not found" });
     const body = req.body as z.infer<typeof patchSchema>;
     if (body.title !== undefined) row.title = body.title;
     if (body.summary !== undefined) row.summary = body.summary.trim();
     if (body.tags !== undefined) row.tags = body.tags.trim();
-    await AppDataSource.getRepository(Learning).save(row);
+    await AppDataSource.getRepository(Resource).save(row);
     const [hydrated] = await hydrate(cid, [row], { includeBody: true });
     res.json(hydrated);
   },
@@ -420,23 +420,23 @@ learningsRouter.patch(
 
 // ----- DELETE -----
 
-learningsRouter.delete("/learnings/:slug", async (req, res) => {
+resourcesRouter.delete("/resources/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
-  const row = await loadLearning(cid, req.params.slug);
-  if (!row) return res.status(404).json({ error: "Learning not found" });
+  const row = await loadResource(cid, req.params.slug);
+  if (!row) return res.status(404).json({ error: "Resource not found" });
   const co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
   if (!co) return res.status(404).json({ error: "Company not found" });
 
-  await deleteGrantsForLearning(row.id);
+  await deleteGrantsForResource(row.id);
   if (row.storageKey) {
-    await deleteLearningBytes(row.storageKey, co.slug);
+    await deleteResourceBytes(row.storageKey, co.slug);
   }
-  await AppDataSource.getRepository(Learning).delete({ id: row.id });
+  await AppDataSource.getRepository(Resource).delete({ id: row.id });
   await recordAudit({
     companyId: cid,
     actorUserId: req.userId ?? null,
-    action: "learning.delete",
-    targetType: "learning",
+    action: "resource.delete",
+    targetType: "resource",
     targetId: row.id,
     targetLabel: row.title,
   });
@@ -445,7 +445,7 @@ learningsRouter.delete("/learnings/:slug", async (req, res) => {
 
 // ----- GRANTS -----
 
-type GrantWithEmployee = EmployeeLearningGrant & {
+type GrantWithEmployee = EmployeeResourceGrant & {
   employee: {
     id: string;
     name: string;
@@ -457,7 +457,7 @@ type GrantWithEmployee = EmployeeLearningGrant & {
 
 async function hydrateGrants(
   companyId: string,
-  grants: EmployeeLearningGrant[],
+  grants: EmployeeResourceGrant[],
 ): Promise<GrantWithEmployee[]> {
   if (grants.length === 0) return [];
   const empIds = [...new Set(grants.map((g) => g.employeeId))];
@@ -481,11 +481,11 @@ async function hydrateGrants(
   });
 }
 
-learningsRouter.get("/learnings/:slug/grants", async (req, res) => {
+resourcesRouter.get("/resources/:slug/grants", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
-  const row = await loadLearning(cid, req.params.slug);
-  if (!row) return res.status(404).json({ error: "Learning not found" });
-  const direct = await listDirectLearningGrants(row.id);
+  const row = await loadResource(cid, req.params.slug);
+  if (!row) return res.status(404).json({ error: "Resource not found" });
+  const direct = await listDirectResourceGrants(row.id);
   res.json({ direct: await hydrateGrants(cid, direct) });
 });
 
@@ -494,20 +494,20 @@ const createGrantSchema = z.object({
   accessLevel: z.enum(ACCESS_LEVELS).optional(),
 });
 
-learningsRouter.post(
-  "/learnings/:slug/grants",
+resourcesRouter.post(
+  "/resources/:slug/grants",
   validateBody(createGrantSchema),
   async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
-    const row = await loadLearning(cid, req.params.slug);
-    if (!row) return res.status(404).json({ error: "Learning not found" });
+    const row = await loadResource(cid, req.params.slug);
+    if (!row) return res.status(404).json({ error: "Resource not found" });
     const body = req.body as z.infer<typeof createGrantSchema>;
     const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
       id: body.employeeId,
       companyId: cid,
     });
     if (!emp) return res.status(400).json({ error: "Unknown employee" });
-    const grant = await upsertLearningGrant(
+    const grant = await upsertResourceGrant(
       emp.id,
       row.id,
       body.accessLevel ?? "read",
@@ -521,17 +521,17 @@ const patchGrantSchema = z.object({
   accessLevel: z.enum(ACCESS_LEVELS),
 });
 
-learningsRouter.patch(
-  "/learnings/:slug/grants/:grantId",
+resourcesRouter.patch(
+  "/resources/:slug/grants/:grantId",
   validateBody(patchGrantSchema),
   async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
-    const row = await loadLearning(cid, req.params.slug);
-    if (!row) return res.status(404).json({ error: "Learning not found" });
-    const repo = AppDataSource.getRepository(EmployeeLearningGrant);
+    const row = await loadResource(cid, req.params.slug);
+    if (!row) return res.status(404).json({ error: "Resource not found" });
+    const repo = AppDataSource.getRepository(EmployeeResourceGrant);
     const grant = await repo.findOneBy({
       id: req.params.grantId,
-      learningId: row.id,
+      resourceId: row.id,
     });
     if (!grant) return res.status(404).json({ error: "Grant not found" });
     const body = req.body as z.infer<typeof patchGrantSchema>;
@@ -542,16 +542,16 @@ learningsRouter.patch(
   },
 );
 
-learningsRouter.delete(
-  "/learnings/:slug/grants/:grantId",
+resourcesRouter.delete(
+  "/resources/:slug/grants/:grantId",
   async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
-    const row = await loadLearning(cid, req.params.slug);
-    if (!row) return res.status(404).json({ error: "Learning not found" });
-    const repo = AppDataSource.getRepository(EmployeeLearningGrant);
+    const row = await loadResource(cid, req.params.slug);
+    if (!row) return res.status(404).json({ error: "Resource not found" });
+    const repo = AppDataSource.getRepository(EmployeeResourceGrant);
     const grant = await repo.findOneBy({
       id: req.params.grantId,
-      learningId: row.id,
+      resourceId: row.id,
     });
     if (!grant) return res.status(404).json({ error: "Grant not found" });
     await repo.delete({ id: grant.id });
@@ -559,18 +559,18 @@ learningsRouter.delete(
   },
 );
 
-learningsRouter.get(
-  "/learnings/:slug/grant-candidates",
+resourcesRouter.get(
+  "/resources/:slug/grant-candidates",
   async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
-    const row = await loadLearning(cid, req.params.slug);
-    if (!row) return res.status(404).json({ error: "Learning not found" });
+    const row = await loadResource(cid, req.params.slug);
+    if (!row) return res.status(404).json({ error: "Resource not found" });
     const [emps, direct] = await Promise.all([
       AppDataSource.getRepository(AIEmployee).find({
         where: { companyId: cid },
         order: { createdAt: "ASC" },
       }),
-      listDirectLearningGrants(row.id),
+      listDirectResourceGrants(row.id),
     ]);
     const grantedSet = new Set(direct.map((g) => g.employeeId));
     res.json(
@@ -585,4 +585,3 @@ learningsRouter.get(
     );
   },
 );
-

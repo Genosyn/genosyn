@@ -1025,17 +1025,17 @@ const TOOLS = [
     },
   },
   {
-    name: "list_learnings",
+    name: "list_resources",
     description:
-      "List the Learnings (external material — articles, ebooks, transcripts — that the team has ingested for you to study) you have been granted access to in this company. Each row carries a title, sourceKind (url / text / pdf / epub / video), summary, tag list, and content length so you can decide whether to pull the full text via `get_learning`. Distinct from Memory (durable facts auto-injected into your prompt) and Notes (pages the team writes together) — Learnings are someone else's words, ingested for you to study.",
-    endpoint: "/tools/list_learnings",
+      "List the Resources (external material — articles, ebooks, transcripts — that the team has ingested for you to study) you have been granted access to in this company. Each row carries a title, sourceKind (url / text / pdf / epub / video), summary, tag list, and content length so you can decide whether to pull the full text via `get_resource`. Distinct from Memory (durable facts auto-injected into your prompt) and Notes (pages the team writes together) — Resources are someone else's words, ingested for you to study.",
+    endpoint: "/tools/list_resources",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
-    name: "search_learnings",
+    name: "search_resources",
     description:
-      "Search Learnings by title, summary, tags, and full extracted text using a substring match (case-insensitive). Use before answering domain questions — the team may have ingested a primer that already covers the topic. Returns up to 50 hits ordered by most-recently-updated. Only Learnings you have been granted access to are searched.",
-    endpoint: "/tools/search_learnings",
+      "Search Resources by title, summary, tags, and full extracted text using a substring match (case-insensitive). Use before answering domain questions — the team may have ingested a primer that already covers the topic. Returns up to 50 hits ordered by most-recently-updated. Only Resources you have been granted access to are searched.",
+    endpoint: "/tools/search_resources",
     inputSchema: {
       type: "object",
       properties: {
@@ -1049,19 +1049,19 @@ const TOOLS = [
     },
   },
   {
-    name: "get_learning",
+    name: "get_resource",
     description:
-      "Read a single Learning by its slug, including the full extracted plain text. Use this after `list_learnings` / `search_learnings` to pull in the actual material to read. Body text is capped at 1 MiB on ingestion; longer ebooks are truncated.",
-    endpoint: "/tools/get_learning",
+      "Read a single Resource by its slug, including the full extracted plain text. Use this after `list_resources` / `search_resources` to pull in the actual material to read. Body text is capped at 1 MiB on ingestion; longer ebooks are truncated.",
+    endpoint: "/tools/get_resource",
     inputSchema: {
       type: "object",
       properties: {
-        learningSlug: {
+        resourceSlug: {
           type: "string",
-          description: "Slug from list_learnings / search_learnings.",
+          description: "Slug from list_resources / search_resources.",
         },
       },
-      required: ["learningSlug"],
+      required: ["resourceSlug"],
       additionalProperties: false,
     },
   },

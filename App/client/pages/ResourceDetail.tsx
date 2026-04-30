@@ -3,17 +3,16 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   AlertCircle,
   ArrowLeft,
-  BookOpen,
+  Check,
   Download,
   ExternalLink,
-  FileText,
-  Globe,
   Loader2,
+  Pencil,
   Save,
-  Sparkles,
+  Tag,
   Trash2,
   Users,
-  Video,
+  X,
 } from "lucide-react";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
@@ -26,21 +25,20 @@ import { useDialog } from "../components/ui/Dialog";
 import {
   api,
   Company,
-  Learning,
-  LearningGrant,
-  LearningGrantCandidate,
-  LearningGrantsResponse,
-  LearningSourceKind,
+  Resource,
+  ResourceGrant,
+  ResourceGrantCandidate,
+  ResourceGrantsResponse,
   NoteAccessLevel,
 } from "../lib/api";
-import { formatBodyLength } from "./LearningsIndex";
+import { SourceKindIcon, formatBodyLength } from "./ResourcesIndex";
 
-export default function LearningDetail({ company }: { company: Company }) {
+export default function ResourceDetail({ company }: { company: Company }) {
   const { slug } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast();
   const dialog = useDialog();
-  const [row, setRow] = React.useState<Learning | null>(null);
+  const [row, setRow] = React.useState<Resource | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [editing, setEditing] = React.useState(false);
   const [showShare, setShowShare] = React.useState(false);
@@ -52,8 +50,8 @@ export default function LearningDetail({ company }: { company: Company }) {
     if (!slug) return;
     setLoading(true);
     try {
-      const r = await api.get<Learning>(
-        `/api/companies/${company.id}/learnings/${slug}`,
+      const r = await api.get<Resource>(
+        `/api/companies/${company.id}/resources/${slug}`,
       );
       setRow(r);
       setTitle(r.title);
@@ -61,7 +59,7 @@ export default function LearningDetail({ company }: { company: Company }) {
       setTags(r.tags);
     } catch (err) {
       toast(
-        err instanceof Error ? err.message : "Could not load learning",
+        err instanceof Error ? err.message : "Could not load resource",
         "error",
       );
     } finally {
@@ -76,8 +74,8 @@ export default function LearningDetail({ company }: { company: Company }) {
   async function save() {
     if (!row) return;
     try {
-      const updated = await api.patch<Learning>(
-        `/api/companies/${company.id}/learnings/${row.slug}`,
+      const updated = await api.patch<Resource>(
+        `/api/companies/${company.id}/resources/${row.slug}`,
         { title: title.trim(), summary, tags },
       );
       setRow(updated);
@@ -88,10 +86,18 @@ export default function LearningDetail({ company }: { company: Company }) {
     }
   }
 
+  function cancelEdit() {
+    if (!row) return;
+    setTitle(row.title);
+    setSummary(row.summary);
+    setTags(row.tags);
+    setEditing(false);
+  }
+
   async function remove() {
     if (!row) return;
     const ok = await dialog.confirm({
-      title: "Delete this learning?",
+      title: "Delete this resource?",
       message:
         "Both the extracted text and the original file (if any) are removed. AI employees lose access immediately.",
       confirmLabel: "Delete",
@@ -99,9 +105,9 @@ export default function LearningDetail({ company }: { company: Company }) {
     });
     if (!ok) return;
     try {
-      await api.del(`/api/companies/${company.id}/learnings/${row.slug}`);
+      await api.del(`/api/companies/${company.id}/resources/${row.slug}`);
       toast("Deleted", "success");
-      navigate(`/c/${company.slug}/learnings`);
+      navigate(`/c/${company.slug}/resources`);
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), "error");
     }
@@ -118,110 +124,122 @@ export default function LearningDetail({ company }: { company: Company }) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
         <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-          Learning not found
+          Resource not found
         </h2>
         <Button
           variant="secondary"
-          onClick={() => navigate(`/c/${company.slug}/learnings`)}
+          onClick={() => navigate(`/c/${company.slug}/resources`)}
         >
-          <ArrowLeft size={14} /> Back to learnings
+          <ArrowLeft size={14} /> Back to resources
         </Button>
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-full flex-col">
-      <div className="border-b border-slate-200 bg-white px-6 py-4 dark:bg-slate-900 dark:border-slate-700">
+    <div className="flex h-full flex-col">
+      <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/85 px-6 py-2 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80">
         <Breadcrumbs
           items={[
-            { label: "Learnings", to: `/c/${company.slug}/learnings` },
+            { label: company.name, to: `/c/${company.slug}` },
+            { label: "Resources", to: `/c/${company.slug}/resources` },
             { label: row.title },
           ]}
         />
-        <div className="mt-3 flex items-start gap-4">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
-            <SourceKindIcon kind={row.sourceKind} />
-          </div>
-          <div className="min-w-0 flex-1">
-            {editing ? (
-              <Input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="text-lg font-semibold"
-              />
-            ) : (
-              <h1 className="truncate text-xl font-semibold text-slate-900 dark:text-slate-100">
-                {row.title}
-              </h1>
-            )}
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-              <span className="capitalize">{row.sourceKind}</span>
-              <span>·</span>
-              <span>{formatBodyLength(row.bodyLength)}</span>
-              <span>·</span>
-              <span>{formatBytes(row.bytes)}</span>
-              {row.status !== "ready" && (
-                <>
-                  <span>·</span>
-                  <StatusBadge status={row.status} />
-                </>
-              )}
-              {row.sourceUrl && (
-                <>
-                  <span>·</span>
-                  <a
-                    href={row.sourceUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-indigo-600 hover:underline dark:text-indigo-400"
-                  >
-                    Open source <ExternalLink size={12} />
-                  </a>
-                </>
-              )}
-            </div>
-          </div>
-          <div className="flex shrink-0 gap-2">
-            {row.storageKey && (
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  window.open(
-                    `/api/companies/${company.id}/learnings/${row.slug}/file`,
-                    "_blank",
-                  )
-                }
-              >
-                <Download size={14} /> Original
-              </Button>
-            )}
-            <Button
-              variant="secondary"
-              onClick={() => setShowShare(true)}
-            >
-              <Users size={14} /> Share
-            </Button>
-            {editing ? (
-              <Button onClick={save}>
-                <Save size={14} /> Save
-              </Button>
-            ) : (
-              <Button variant="secondary" onClick={() => setEditing(true)}>
-                Edit
-              </Button>
-            )}
-            <Button variant="danger" onClick={remove}>
-              <Trash2 size={14} />
-            </Button>
-          </div>
-        </div>
       </div>
 
-      <div className="flex-1 px-6 py-6">
-        <div className="mx-auto max-w-3xl space-y-6">
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-3xl px-10 pt-12 pb-16">
+          <div className="mb-6 flex items-start gap-4">
+            <span className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+              <SourceKindIcon kind={row.sourceKind} size={18} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <span className="capitalize">{row.sourceKind}</span> resource
+              </div>
+              {editing ? (
+                <Input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className="text-2xl font-bold"
+                />
+              ) : (
+                <h1 className="break-words text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+                  {row.title}
+                </h1>
+              )}
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+                <span>{formatBodyLength(row.bodyLength)}</span>
+                <span aria-hidden>·</span>
+                <span>{formatBytes(row.bytes)}</span>
+                {row.status !== "ready" && (
+                  <>
+                    <span aria-hidden>·</span>
+                    <StatusBadge status={row.status} />
+                  </>
+                )}
+                {row.sourceUrl && (
+                  <>
+                    <span aria-hidden>·</span>
+                    <a
+                      href={row.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-indigo-600 hover:underline dark:text-indigo-400"
+                    >
+                      <span className="max-w-[14rem] truncate">
+                        {hostnameOf(row.sourceUrl)}
+                      </span>
+                      <ExternalLink size={11} />
+                    </a>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="mb-8 flex flex-wrap items-center gap-2">
+            {editing ? (
+              <>
+                <Button onClick={save}>
+                  <Save size={14} /> Save
+                </Button>
+                <Button variant="secondary" onClick={cancelEdit}>
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="secondary" onClick={() => setEditing(true)}>
+                  <Pencil size={14} /> Edit
+                </Button>
+                <Button variant="secondary" onClick={() => setShowShare(true)}>
+                  <Users size={14} /> Share
+                </Button>
+                {row.storageKey && (
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      window.open(
+                        `/api/companies/${company.id}/resources/${row.slug}/file`,
+                        "_blank",
+                      )
+                    }
+                  >
+                    <Download size={14} /> Original
+                  </Button>
+                )}
+                <div className="flex-1" />
+                <Button variant="ghost" onClick={remove}>
+                  <Trash2 size={14} />
+                </Button>
+              </>
+            )}
+          </div>
+
           {row.status === "failed" && row.errorMessage && (
-            <div className="flex items-start gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200">
+            <div className="mb-6 flex items-start gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200">
               <AlertCircle size={16} className="mt-0.5 shrink-0" />
               <div>
                 <div className="font-semibold">Ingestion failed</div>
@@ -230,49 +248,48 @@ export default function LearningDetail({ company }: { company: Company }) {
             </div>
           )}
 
-          <section>
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          <section className="mb-8">
+            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               Summary
             </h2>
             {editing ? (
               <Textarea
-                className="mt-2"
                 value={summary}
                 onChange={(e) => setSummary(e.target.value)}
                 rows={3}
+                placeholder="A short summary AI employees see alongside the title."
               />
+            ) : row.summary ? (
+              <p className="whitespace-pre-line text-base leading-7 text-slate-700 dark:text-slate-200">
+                {row.summary}
+              </p>
             ) : (
-              <p className="mt-2 whitespace-pre-line text-sm text-slate-700 dark:text-slate-200">
-                {row.summary || (
-                  <span className="text-slate-400 dark:text-slate-500">
-                    No summary.
-                  </span>
-                )}
+              <p className="text-sm italic text-slate-400 dark:text-slate-500">
+                No summary yet.
               </p>
             )}
           </section>
 
-          <section>
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Tags
+          <section className="mb-10">
+            <h2 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <Tag size={11} /> Tags
             </h2>
             {editing ? (
               <Input
-                className="mt-2"
                 value={tags}
                 onChange={(e) => setTags(e.target.value)}
-                placeholder="comma, separated"
+                placeholder="pricing, b2b, growth"
               />
             ) : row.tagList.length === 0 ? (
-              <p className="mt-2 text-sm text-slate-400 dark:text-slate-500">
+              <p className="text-sm italic text-slate-400 dark:text-slate-500">
                 No tags yet.
               </p>
             ) : (
-              <div className="mt-2 flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-1.5">
                 {row.tagList.map((t) => (
                   <span
                     key={t}
-                    className="rounded-full border border-slate-200 px-2.5 py-0.5 text-xs text-slate-700 dark:border-slate-700 dark:text-slate-200"
+                    className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200"
                   >
                     {t}
                   </span>
@@ -282,15 +299,17 @@ export default function LearningDetail({ company }: { company: Company }) {
           </section>
 
           <section>
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               Extracted text
             </h2>
             {row.bodyText ? (
-              <pre className="mt-2 max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-lg border border-slate-200 bg-white p-4 font-sans text-sm leading-6 text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                {row.bodyText}
-              </pre>
+              <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+                <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap p-5 font-sans text-sm leading-7 text-slate-800 dark:text-slate-200">
+                  {row.bodyText}
+                </pre>
+              </div>
             ) : (
-              <p className="mt-2 text-sm text-slate-400 dark:text-slate-500">
+              <p className="text-sm italic text-slate-400 dark:text-slate-500">
                 No extracted text on this row.
               </p>
             )}
@@ -301,23 +320,14 @@ export default function LearningDetail({ company }: { company: Company }) {
       <ShareModal
         open={showShare}
         company={company}
-        learning={row}
+        resource={row}
         onClose={() => setShowShare(false)}
       />
     </div>
   );
 }
 
-function SourceKindIcon({ kind }: { kind: LearningSourceKind }) {
-  const size = 22;
-  if (kind === "url") return <Globe size={size} />;
-  if (kind === "pdf") return <FileText size={size} />;
-  if (kind === "epub") return <BookOpen size={size} />;
-  if (kind === "video") return <Video size={size} />;
-  return <Sparkles size={size} />;
-}
-
-function StatusBadge({ status }: { status: Learning["status"] }) {
+function StatusBadge({ status }: { status: Resource["status"] }) {
   if (status === "failed") {
     return (
       <span className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400">
@@ -339,22 +349,30 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-// ---------------- Share modal ----------------
+function hostnameOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+// ───────────────────────────── Share modal ──────────────────────────────
 
 function ShareModal({
   open,
   company,
-  learning,
+  resource,
   onClose,
 }: {
   open: boolean;
   company: Company;
-  learning: Learning;
+  resource: Resource;
   onClose: () => void;
 }) {
   const { toast } = useToast();
-  const [grants, setGrants] = React.useState<LearningGrant[]>([]);
-  const [candidates, setCandidates] = React.useState<LearningGrantCandidate[]>(
+  const [grants, setGrants] = React.useState<ResourceGrant[]>([]);
+  const [candidates, setCandidates] = React.useState<ResourceGrantCandidate[]>(
     [],
   );
   const [busy, setBusy] = React.useState(false);
@@ -363,11 +381,11 @@ function ShareModal({
     if (!open) return;
     try {
       const [g, cs] = await Promise.all([
-        api.get<LearningGrantsResponse>(
-          `/api/companies/${company.id}/learnings/${learning.slug}/grants`,
+        api.get<ResourceGrantsResponse>(
+          `/api/companies/${company.id}/resources/${resource.slug}/grants`,
         ),
-        api.get<LearningGrantCandidate[]>(
-          `/api/companies/${company.id}/learnings/${learning.slug}/grant-candidates`,
+        api.get<ResourceGrantCandidate[]>(
+          `/api/companies/${company.id}/resources/${resource.slug}/grant-candidates`,
         ),
       ]);
       setGrants(g.direct);
@@ -375,7 +393,7 @@ function ShareModal({
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), "error");
     }
-  }, [open, company.id, learning.slug, toast]);
+  }, [open, company.id, resource.slug, toast]);
 
   React.useEffect(() => {
     reload();
@@ -384,8 +402,8 @@ function ShareModal({
   async function add(employeeId: string, accessLevel: NoteAccessLevel) {
     setBusy(true);
     try {
-      await api.post<LearningGrant>(
-        `/api/companies/${company.id}/learnings/${learning.slug}/grants`,
+      await api.post<ResourceGrant>(
+        `/api/companies/${company.id}/resources/${resource.slug}/grants`,
         { employeeId, accessLevel },
       );
       await reload();
@@ -400,7 +418,7 @@ function ShareModal({
     setBusy(true);
     try {
       await api.del(
-        `/api/companies/${company.id}/learnings/${learning.slug}/grants/${grantId}`,
+        `/api/companies/${company.id}/resources/${resource.slug}/grants/${grantId}`,
       );
       await reload();
     } catch (err) {
@@ -418,7 +436,7 @@ function ShareModal({
         <p className="text-xs text-slate-500 dark:text-slate-400">
           Every AI employee gets read access on ingest. Revoke individuals
           here, or grant access to anyone who joined the company after this
-          learning was added.
+          resource was added.
         </p>
         <div>
           <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
@@ -436,10 +454,16 @@ function ShareModal({
                   className="flex items-center justify-between px-3 py-2"
                 >
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
-                      {g.employee?.name ?? "Unknown"}
+                    <div className="flex items-center gap-1.5">
+                      <Check
+                        size={12}
+                        className="text-emerald-600 dark:text-emerald-400"
+                      />
+                      <span className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                        {g.employee?.name ?? "Unknown"}
+                      </span>
                     </div>
-                    <div className="truncate text-xs text-slate-500 dark:text-slate-400">
+                    <div className="ml-[18px] truncate text-xs text-slate-500 dark:text-slate-400">
                       {g.employee?.role ?? ""} ·{" "}
                       <span className="capitalize">{g.accessLevel}</span>
                     </div>
@@ -450,7 +474,7 @@ function ShareModal({
                     onClick={() => remove(g.id)}
                     disabled={busy}
                   >
-                    Revoke
+                    <X size={12} /> Revoke
                   </Button>
                 </li>
               ))}
