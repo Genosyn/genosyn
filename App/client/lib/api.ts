@@ -519,6 +519,22 @@ export type Secret = {
   updatedAt: string;
 };
 
+export type ApiKey = {
+  id: string;
+  name: string;
+  /** Display-only chip including the `gen_` prefix and first 8 chars of the
+   * random suffix. The full token is only ever returned once by `create`. */
+  prefix: string;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+};
+
+/** Returned by `POST /api-keys`. The `token` field is the plaintext value
+ * shown to the human exactly once — never persisted, never visible again. */
+export type ApiKeyCreated = ApiKey & { token: string };
+
 // ───────────────────────── Email providers + logs ──────────────────────────
 
 export type EmailProviderKind =

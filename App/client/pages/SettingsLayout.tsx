@@ -10,6 +10,7 @@ import {
   Plug,
   ScrollText,
   Settings as SettingsIcon,
+  TerminalSquare,
   User,
   Users,
 } from "lucide-react";
@@ -39,6 +40,7 @@ const SETTINGS_TAB_LABEL: Record<string, string> = {
   providers: "Providers",
   logs: "Logs",
   secrets: "Secrets",
+  "api-keys": "API keys",
   backup: "Backup",
   usage: "Usage",
   audit: "Audit log",
@@ -77,6 +79,7 @@ export default function SettingsLayout({
         <SidebarLink to={`${base}/integrations`} icon={<Plug size={14} />} label="Integrations" />
         <SidebarLink to={`${base}/email`} icon={<Mail size={14} />} label="Email" />
         <SidebarLink to={`${base}/secrets`} icon={<KeyRound size={14} />} label="Secrets" />
+        <SidebarLink to={`${base}/api-keys`} icon={<TerminalSquare size={14} />} label="API keys" />
         <SidebarLink to={`${base}/backup`} icon={<Archive size={14} />} label="Backup" />
         <SidebarLink to={`${base}/usage`} icon={<BarChart3 size={14} />} label="Usage" />
         <SidebarLink to={`${base}/audit`} icon={<ScrollText size={14} />} label="Audit log" />

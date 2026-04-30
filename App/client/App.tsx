@@ -38,6 +38,7 @@ import {
 } from "./pages/Settings";
 import { SettingsIntegrations } from "./pages/SettingsIntegrations";
 import { SettingsTeams } from "./pages/SettingsTeams";
+import { SettingsApiKeys } from "./pages/SettingsApiKeys";
 import { HandoffsPage } from "./pages/EmployeeHandoffs";
 import Inbox from "./pages/Inbox";
 import { EmployeeConnections } from "./pages/EmployeeConnections";
@@ -261,6 +262,7 @@ function CompanyRoutes({
           <Route path="teams" element={<SettingsTeams />} />
           <Route path="integrations" element={<SettingsIntegrations />} />
           <Route path="secrets" element={<SettingsSecrets />} />
+          <Route path="api-keys" element={<SettingsApiKeys />} />
           <Route path="backup" element={<SettingsBackup />} />
           <Route path="usage" element={<Usage />} />
           <Route path="audit" element={<AuditLog />} />

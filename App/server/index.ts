@@ -44,6 +44,7 @@ import { notificationsRouter } from "./routes/notifications.js";
 import { teamsRouter } from "./routes/teams.js";
 import { handoffsRouter } from "./routes/handoffs.js";
 import { inboxRouter } from "./routes/inbox.js";
+import { apiKeysRouter } from "./routes/apiKeys.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -119,6 +120,9 @@ async function main() {
   app.use("/api/companies/:cid", secretsRouter);
   app.use("/api/companies/:cid", auditRouter);
   app.use("/api/companies/:cid", usageRouter);
+  // Per-user programmatic API keys (M14). Bearer tokens minted here
+  // authenticate as the calling user, scoped to this company only.
+  app.use("/api/companies/:cid", apiKeysRouter);
   // Per-employee model (one-to-one with AIEmployee). See ROADMAP §5.
   app.use("/api/companies/:cid/employees/:eid/model", modelsRouter);
   app.use("/api/companies/:cid/employees/:eid/mcp", mcpRouter);

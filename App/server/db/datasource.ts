@@ -52,6 +52,7 @@ import { EmployeeNotebookGrant } from "./entities/EmployeeNotebookGrant.js";
 import { Notification } from "./entities/Notification.js";
 import { Team } from "./entities/Team.js";
 import { Handoff } from "./entities/Handoff.js";
+import { ApiKey } from "./entities/ApiKey.js";
 
 const entities = [
   User,
@@ -102,6 +103,7 @@ const entities = [
   Notification,
   Team,
   Handoff,
+  ApiKey,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)
