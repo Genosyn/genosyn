@@ -205,11 +205,21 @@ data/
   - App: server compiled to `dist/server/index.js`, client assets under
     `dist/client/` (served by the Express process).
   - Home: `dist/server.js` serving built client assets.
-- **Schema changes require a migration.** `synchronize` is off. After
-  editing entities, run `npm run migration:generate -- server/db/migrations/<Name>`
-  and commit the generated file. Boot calls `AppDataSource.runMigrations()`
-  so pending migrations apply on startup. Never edit a migration that has
-  already been committed.
+- **Schema changes require a migration, and migrations are NEVER
+  hand-written.** `synchronize` is off. After editing entities, run
+  `npm run migration:generate -- server/db/migrations/<Name>` and commit
+  the generated file as-is. The CLI diffs your entity changes against the
+  current local DB and emits the SQL for you — do not write the
+  `up()` / `down()` bodies yourself, and do not "tidy up" the generated
+  output. Boot calls `AppDataSource.runMigrations()` so pending migrations
+  apply on startup. Never edit a migration that has already been
+  committed; if you got the schema wrong, write a follow-up migration.
+  - If `migration:generate` complains that the binary is stale (the
+    `NODE_MODULE_VERSION` mismatch on `better-sqlite3`), run
+    `npm rebuild better-sqlite3` once and try again.
+  - The current local DB must already be migrated to head before you
+    generate (`npm run migration:run`), otherwise the diff will include
+    work from earlier branches.
 
 ---
 
@@ -276,6 +286,9 @@ Don't tag manually, don't edit version numbers in `package.json` files.
   the built-in stdio binary at `server/mcp-genosyn/`. User-configured
   servers with that name are dropped when `.mcp.json` is materialized.
 - Skipping the zod schema on a new endpoint.
+- Hand-writing a migration file. Always run
+  `npm run migration:generate -- server/db/migrations/<Name>` and commit
+  what it emits. See section 7.
 - Adding a feature that isn't on the roadmap without adding it to the
   roadmap first.
 - Pushing a commit that breaks `npm run lint` or `npm run build` in either
