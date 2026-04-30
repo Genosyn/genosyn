@@ -17,7 +17,6 @@ import {
   Plug,
   PlugZap,
   Plus,
-  Send,
   Sparkles,
   Terminal,
   Trash2,
@@ -1412,21 +1411,44 @@ export function EmployeeModelSection({ company, emp }: { company: Company; emp: 
 
   if (model === undefined) return <Spinner />;
   if (!model) return <ModelSetup company={company} emp={emp} onSaved={reload} />;
+  // Connected models show the reconfigure card up front (so the operator can
+  // switch model strings, swap providers, etc.). Not-yet-connected models
+  // hide it behind a disclosure — the active sign-in is the one thing the
+  // user should be doing, and a duplicate provider/auth picker right under
+  // it is just noise.
+  const connected = model.status === "connected";
   return (
     <div className="flex flex-col gap-4">
       <ModelStatusCard company={company} emp={emp} model={model} onChanged={reload} />
-      <Card>
-        <CardBody className="flex flex-col gap-3">
-          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Reconfigure</div>
-          <ModelForm
-            initial={{ provider: model.provider, model: model.model, authMode: model.authMode }}
-            company={company}
-            emp={emp}
-            onSaved={reload}
-            submitLabel="Save changes"
-          />
-        </CardBody>
-      </Card>
+      {connected ? (
+        <Card>
+          <CardBody className="flex flex-col gap-3">
+            <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Reconfigure</div>
+            <ModelForm
+              initial={{ provider: model.provider, model: model.model, authMode: model.authMode }}
+              company={company}
+              emp={emp}
+              onSaved={reload}
+              submitLabel="Save changes"
+            />
+          </CardBody>
+        </Card>
+      ) : (
+        <details className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-950">
+          <summary className="cursor-pointer text-slate-600 dark:text-slate-300">
+            Change provider, model, or auth method
+          </summary>
+          <div className="mt-3">
+            <ModelForm
+              initial={{ provider: model.provider, model: model.model, authMode: model.authMode }}
+              company={company}
+              emp={emp}
+              onSaved={reload}
+              submitLabel="Save changes"
+            />
+          </div>
+        </details>
+      )}
     </div>
   );
 }
@@ -1565,13 +1587,13 @@ function ModelForm({
 function subscriptionBlurb(p: Provider): string {
   switch (p) {
     case "claude-code":
-      return "Use a Claude Pro or Max plan via `claude login`.";
+      return "Use a Claude Pro or Max plan — sign in with one click.";
     case "codex":
-      return "Use a ChatGPT plan via `codex login`.";
+      return "Use a ChatGPT plan — sign in with one click.";
     case "opencode":
-      return "Sign in via `opencode auth login` — any provider opencode supports.";
+      return "Sign in to any provider opencode supports.";
     case "goose":
-      return "Sign in via `goose configure` — any provider goose supports.";
+      return "Sign in to any provider goose supports.";
   }
 }
 
@@ -1649,21 +1671,44 @@ function ModelStatusCard({
   const connected = model.status === "connected";
 
   async function disconnect() {
-    const ok = await dialog.confirm({
-      title: `Disconnect ${model.provider}?`,
-      message: `${emp.name}'s on-disk credentials will be wiped. You can reconnect any time.`,
-      confirmLabel: "Disconnect",
-      variant: "danger",
-    });
-    if (!ok) return;
+    // The wording adapts to current state. When the model is connected, this
+    // is a destructive action that wipes the creds. When it isn't, the row
+    // exists but holds no creds yet — the operator hasn't paid any cost
+    // beyond picking a provider, so we don't need a scary confirm dialog.
+    if (connected) {
+      const ok = await dialog.confirm({
+        title: `Disconnect ${model.provider}?`,
+        message: `${emp.name}'s on-disk credentials will be wiped. You can reconnect any time.`,
+        confirmLabel: "Disconnect",
+        variant: "danger",
+      });
+      if (!ok) return;
+    }
     try {
       await api.del(`/api/companies/${company.id}/employees/${emp.id}/model`);
-      toast("Model disconnected", "success");
+      toast(connected ? "Model disconnected" : "Sign-in cancelled", "success");
       onChanged();
     } catch (err) {
       toast((err as Error).message, "error");
     }
   }
+
+  // Subtitle has to be honest about state. The previous copy
+  // ("Signed in with claude-code subscription") was rendered even when the
+  // user hadn't actually completed sign-in yet — looked like a contradiction
+  // next to the WAITING badge.
+  const subtitle = (() => {
+    if (connected) {
+      if (model.authMode === "subscription") {
+        return `Signed in with ${model.provider} subscription`;
+      }
+      return `Authenticated with ${model.apiKeyEnv ?? "API"} key`;
+    }
+    if (model.authMode === "subscription") {
+      return `Not signed in yet — finish the steps below to connect ${model.provider}.`;
+    }
+    return `No ${model.apiKeyEnv ?? "API"} key on file yet — paste one below to connect.`;
+  })();
 
   return (
     <Card>
@@ -1677,16 +1722,14 @@ function ModelStatusCard({
               <StatusBadge connected={connected} />
             </div>
             <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              {model.authMode === "subscription"
-                ? `Signed in with ${model.provider} subscription`
-                : `Authenticated with ${model.apiKeyEnv ?? "API"} key`}
+              {subtitle}
               {model.connectedAt && connected && (
                 <> · connected {new Date(model.connectedAt).toLocaleString()}</>
               )}
             </div>
           </div>
           <Button size="sm" variant="ghost" onClick={disconnect}>
-            <Unplug size={14} /> Disconnect
+            <Unplug size={14} /> {connected ? "Disconnect" : "Cancel"}
           </Button>
         </div>
 
@@ -1981,12 +2024,14 @@ function SubscriptionLoginInner({
     );
   }
 
-  // Step 3: a pty is running. Render its live output + an input row.
+  // Step 3: a pty is running. Render the wizard.
   return (
     <PtySessionPanel
       session={session}
       phase={phase}
       configDir={model.configDir}
+      configDirEnv={model.configDirEnv}
+      loginCommand={model.loginCommand}
       onSend={send}
       onDismiss={dismissSession}
       error={error}
@@ -1994,10 +2039,28 @@ function SubscriptionLoginInner({
   );
 }
 
+/**
+ * Live sign-in / install wizard. Replaces the raw-terminal experience with a
+ * focused two-step flow:
+ *
+ *   1. Open the provider's authorization URL (primary CTA, appears as soon as
+ *      the URL is printed by the CLI).
+ *   2. Paste the code the provider hands you, click Connect.
+ *
+ * The CLI's actual stdout is still useful for debugging weird hosts or
+ * unfamiliar provider quirks, so it lives behind a "Show terminal output"
+ * disclosure — collapsed by default, auto-opens on a non-zero exit.
+ *
+ * For the install phase (rare — only on bare metal) we render a compact
+ * progress card with a tail of the install log so the operator can see npm
+ * doing its thing.
+ */
 function PtySessionPanel({
   session,
   phase,
   configDir,
+  configDirEnv,
+  loginCommand,
   onSend,
   onDismiss,
   error,
@@ -2005,131 +2068,566 @@ function PtySessionPanel({
   session: PtySessionView;
   phase: "idle" | "installing" | "signingIn";
   configDir: string;
+  configDirEnv: string;
+  loginCommand: string;
   onSend: (data: string) => void;
   onDismiss: () => void;
   error: string | null;
 }) {
-  const [input, setInput] = React.useState("");
+  const cleanedOutput = React.useMemo(() => stripAnsi(session.output), [session.output]);
+  const status = computeWizardStatus(session, cleanedOutput, phase);
+
+  if (phase === "installing") {
+    return (
+      <InstallProgressPanel
+        session={session}
+        cleanedOutput={cleanedOutput}
+        onDismiss={onDismiss}
+        error={error}
+      />
+    );
+  }
+
+  return (
+    <SignInWizard
+      session={session}
+      cleanedOutput={cleanedOutput}
+      status={status}
+      configDir={configDir}
+      configDirEnv={configDirEnv}
+      loginCommand={loginCommand}
+      onSend={onSend}
+      onDismiss={onDismiss}
+      error={error}
+    />
+  );
+}
+
+type WizardStatus =
+  | "starting"
+  | "openLink"
+  | "verifying"
+  | "succeeded"
+  | "failed";
+
+/**
+ * Map raw CLI state to a friendly status. The CLI doesn't speak in terms the
+ * end user cares about, so we paper over its quirks with a small state machine
+ * keyed on the output we've seen so far + the pty's exit state.
+ */
+function computeWizardStatus(
+  session: PtySessionView,
+  cleanedOutput: string,
+  phase: "idle" | "installing" | "signingIn",
+): WizardStatus {
+  if (phase !== "signingIn") return "starting";
+  if (session.exited) {
+    if (session.exitCode === 0 && /login successful|signed in/i.test(cleanedOutput)) {
+      return "succeeded";
+    }
+    if (session.exitCode === 0) return "succeeded"; // best-effort; outer poll re-checks
+    return "failed";
+  }
+  if (/login successful|signed in/i.test(cleanedOutput)) return "succeeded";
+  if (extractFirstUrl(cleanedOutput)) return "openLink";
+  return "starting";
+}
+
+function SignInWizard({
+  session,
+  cleanedOutput,
+  status,
+  configDir,
+  configDirEnv,
+  loginCommand,
+  onSend,
+  onDismiss,
+  error,
+}: {
+  session: PtySessionView;
+  cleanedOutput: string;
+  status: WizardStatus;
+  configDir: string;
+  configDirEnv: string;
+  loginCommand: string;
+  onSend: (data: string) => void;
+  onDismiss: () => void;
+  error: string | null;
+}) {
+  const [code, setCode] = React.useState("");
+  const [submitting, setSubmitting] = React.useState(false);
+  // Once the user has clicked "Open authorization page" we surface a small
+  // "Didn't see the page open?" hint with the raw URL — gives them a copy
+  // path without making the URL the primary affordance from the start.
+  const [opened, setOpened] = React.useState(false);
+  const codeInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  const url = extractFirstUrl(cleanedOutput);
+
+  // Stop the "Verifying…" spinner once the CLI either resolves or errors.
+  React.useEffect(() => {
+    if (status === "succeeded" || status === "failed") setSubmitting(false);
+    // Some CLIs print "Invalid code" or "Error" without exiting — peek for that.
+    if (/invalid|error|expired|failed/i.test(cleanedOutput)) setSubmitting(false);
+  }, [cleanedOutput, status]);
+
+  // Auto-focus the code input the moment the URL appears so the user can
+  // paste their code immediately after returning from the OAuth tab.
+  React.useEffect(() => {
+    if (status === "openLink" && codeInputRef.current) {
+      codeInputRef.current.focus();
+    }
+  }, [status]);
+
+  function submitCode(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = code.trim();
+    if (!trimmed || submitting) return;
+    setSubmitting(true);
+    onSend(`${trimmed}\r`);
+    setCode("");
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 dark:bg-slate-950 dark:border-slate-700">
+      <SignInWizardHeader
+        provider={session.provider}
+        status={status}
+        submitting={submitting}
+        onDismiss={onDismiss}
+      />
+
+      {(status === "starting" || status === "openLink" || (status === "succeeded" && submitting)) && (
+        <div className="flex flex-col gap-3">
+          <SignInStep
+            n={1}
+            title={
+              opened
+                ? "Authorize Genosyn in Anthropic"
+                : "Open the authorization page"
+            }
+            description={
+              opened
+                ? "Sign in with your Claude account, then copy the code Anthropic shows you."
+                : "We'll open Anthropic in a new tab. You'll get a code to paste below."
+            }
+            done={opened}
+            primary={
+              url ? (
+                <a
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setOpened(true)}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-950"
+                >
+                  {opened ? "Reopen authorization page" : `Open ${providerLabel(session.provider)} to authorize`}
+                  <ExternalLink size={14} />
+                </a>
+              ) : (
+                <Button size="sm" disabled>
+                  <Loader2 size={14} className="animate-spin" />
+                  Preparing the link…
+                </Button>
+              )
+            }
+            secondary={
+              url ? (
+                <CopyableUrl url={url} />
+              ) : null
+            }
+          />
+
+          <SignInStep
+            n={2}
+            title="Paste your code"
+            description="Anthropic will give you a one-time code after you authorize. Paste it here."
+            done={false}
+            primary={
+              <form onSubmit={submitCode} className="flex flex-col gap-2 sm:flex-row sm:items-start">
+                <Input
+                  ref={codeInputRef}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="paste your code here"
+                  className="flex-1 font-mono text-sm"
+                  disabled={status === "starting" || submitting}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <Button type="submit" disabled={!code.trim() || status === "starting" || submitting}>
+                  {submitting ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      Connecting…
+                    </>
+                  ) : (
+                    <>
+                      <PlugZap size={14} />
+                      Connect
+                    </>
+                  )}
+                </Button>
+              </form>
+            }
+          />
+        </div>
+      )}
+
+      {status === "succeeded" && !submitting && (
+        <div className="flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 dark:bg-emerald-950 dark:border-emerald-800">
+          <div className="rounded-md bg-emerald-100 p-1.5 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
+            <Check size={14} />
+          </div>
+          <div className="min-w-0 flex-1 text-sm text-emerald-800 dark:text-emerald-200">
+            <div className="font-medium">Signed in.</div>
+            <div className="text-xs text-emerald-700/80 dark:text-emerald-300/80">
+              Verifying credentials…
+            </div>
+          </div>
+        </div>
+      )}
+
+      {status === "failed" && (
+        <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-3 dark:bg-red-950 dark:border-red-800">
+          <div className="rounded-md bg-red-100 p-1.5 text-red-700 dark:bg-red-900 dark:text-red-300">
+            <X size={14} />
+          </div>
+          <div className="min-w-0 flex-1 text-sm">
+            <div className="font-medium text-red-800 dark:text-red-200">Sign-in didn&apos;t complete.</div>
+            <div className="mt-0.5 text-xs text-red-700 dark:text-red-300">
+              {error ??
+                "The CLI exited before the code could be verified. Open the terminal output below for details, then try again."}
+            </div>
+            <div className="mt-2">
+              <Button size="sm" variant="secondary" onClick={onDismiss}>
+                Try again
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <SignInWizardFooter
+        cleanedOutput={cleanedOutput}
+        configDir={configDir}
+        configDirEnv={configDirEnv}
+        loginCommand={loginCommand}
+        autoOpen={status === "failed"}
+      />
+    </div>
+  );
+}
+
+function SignInWizardHeader({
+  provider,
+  status,
+  submitting,
+  onDismiss,
+}: {
+  provider: PtySessionView["provider"];
+  status: WizardStatus;
+  submitting: boolean;
+  onDismiss: () => void;
+}) {
+  let pillIcon: React.ReactNode;
+  let pillText: string;
+  let pillTone: "indigo" | "emerald" | "red" | "slate";
+  if (status === "succeeded") {
+    pillIcon = <Check size={12} />;
+    pillText = "Signed in";
+    pillTone = "emerald";
+  } else if (status === "failed") {
+    pillIcon = <X size={12} />;
+    pillText = "Failed";
+    pillTone = "red";
+  } else if (submitting) {
+    pillIcon = <Loader2 size={12} className="animate-spin" />;
+    pillText = "Verifying";
+    pillTone = "indigo";
+  } else if (status === "openLink") {
+    pillIcon = <ExternalLink size={12} />;
+    pillText = "Awaiting authorization";
+    pillTone = "indigo";
+  } else {
+    pillIcon = <Loader2 size={12} className="animate-spin" />;
+    pillText = "Connecting";
+    pillTone = "slate";
+  }
+  const dismissLabel = status === "succeeded" || status === "failed" ? "Close" : "Cancel sign-in";
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+          Sign in to {providerLabel(provider)}
+        </span>
+        <StatusPill tone={pillTone} icon={pillIcon}>
+          {pillText}
+        </StatusPill>
+      </div>
+      <Button size="sm" variant="ghost" onClick={onDismiss}>
+        <X size={14} /> {dismissLabel}
+      </Button>
+    </div>
+  );
+}
+
+function SignInStep({
+  n,
+  title,
+  description,
+  done,
+  primary,
+  secondary,
+}: {
+  n: number;
+  title: string;
+  description: string;
+  done: boolean;
+  primary: React.ReactNode;
+  secondary?: React.ReactNode;
+}) {
+  return (
+    <div className="flex gap-3">
+      <div
+        className={
+          "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold " +
+          (done
+            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300"
+            : "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300")
+        }
+      >
+        {done ? <Check size={12} /> : n}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{title}</div>
+        <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{description}</div>
+        <div className="mt-2">{primary}</div>
+        {secondary && <div className="mt-2">{secondary}</div>}
+      </div>
+    </div>
+  );
+}
+
+function CopyableUrl({ url }: { url: string }) {
+  const [copied, setCopied] = React.useState(false);
+  return (
+    <details className="group rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:bg-slate-900 dark:border-slate-700">
+      <summary className="flex cursor-pointer items-center gap-1 text-slate-600 dark:text-slate-300">
+        <span className="font-medium">Page didn&apos;t open?</span>
+        <span className="text-slate-500 dark:text-slate-400">Copy the link manually.</span>
+      </summary>
+      <div className="mt-2 flex items-center gap-2">
+        <code className="flex-1 overflow-x-auto whitespace-nowrap rounded bg-white px-2 py-1 font-mono text-[11px] text-slate-700 dark:bg-slate-950 dark:text-slate-200">
+          {url}
+        </code>
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={async () => {
+            await navigator.clipboard.writeText(url);
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1500);
+          }}
+        >
+          {copied ? <Check size={12} /> : <Copy size={12} />}
+          {copied ? "Copied" : "Copy"}
+        </Button>
+      </div>
+    </details>
+  );
+}
+
+function SignInWizardFooter({
+  cleanedOutput,
+  configDir,
+  configDirEnv,
+  loginCommand,
+  autoOpen,
+}: {
+  cleanedOutput: string;
+  configDir: string;
+  configDirEnv: string;
+  loginCommand: string;
+  autoOpen: boolean;
+}) {
   const outRef = React.useRef<HTMLPreElement | null>(null);
-  // Auto-scroll the terminal as new output arrives, but don't fight a user
-  // who's scrolled back to read something earlier.
   const stickRef = React.useRef(true);
   React.useEffect(() => {
     const el = outRef.current;
     if (!el) return;
     if (stickRef.current) el.scrollTop = el.scrollHeight;
-  }, [session.output]);
+  }, [cleanedOutput]);
 
-  const url = extractFirstUrl(session.output);
-  const cleanedOutput = stripAnsi(session.output);
-  const heading =
-    phase === "installing"
-      ? `Installing ${session.provider}…`
-      : `Signing in to ${session.provider}…`;
-
+  const command = `${configDirEnv}=${shellQuote(configDir)} ${loginCommand}`;
+  const [copied, setCopied] = React.useState(false);
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:bg-slate-900 dark:border-slate-700">
+    <details
+      className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:bg-slate-900 dark:border-slate-700"
+      open={autoOpen}
+    >
+      <summary className="flex cursor-pointer items-center gap-2 text-slate-600 dark:text-slate-300">
+        <Terminal size={12} />
+        Show terminal output and SSH-equivalent
+      </summary>
+      <div className="mt-3 flex flex-col gap-3">
+        <div>
+          <div className="mb-1 text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Live output
+          </div>
+          <pre
+            ref={outRef}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              stickRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
+            }}
+            className="max-h-48 min-h-[5rem] overflow-auto whitespace-pre-wrap break-words rounded bg-slate-950 px-3 py-2 font-mono text-[11px] leading-snug text-slate-100"
+          >
+            {cleanedOutput.trim() || "Waiting for output…"}
+          </pre>
+        </div>
+        <div>
+          <div className="mb-1 text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            SSH-only host? Run this in a terminal instead.
+          </div>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 overflow-x-auto whitespace-nowrap rounded bg-white px-2 py-1 font-mono text-[11px] text-slate-800 dark:bg-slate-950 dark:text-slate-100">
+              {command}
+            </code>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={async () => {
+                await navigator.clipboard.writeText(command);
+                setCopied(true);
+                window.setTimeout(() => setCopied(false), 1500);
+              }}
+            >
+              {copied ? <Check size={12} /> : <Copy size={12} />}
+              {copied ? "Copied" : "Copy"}
+            </Button>
+          </div>
+        </div>
+        <div className="text-[10px] text-slate-500 dark:text-slate-400">
+          Credentials land at <code>{configDir}</code>
+        </div>
+      </div>
+    </details>
+  );
+}
+
+function InstallProgressPanel({
+  session,
+  cleanedOutput,
+  onDismiss,
+  error,
+}: {
+  session: PtySessionView;
+  cleanedOutput: string;
+  onDismiss: () => void;
+  error: string | null;
+}) {
+  const outRef = React.useRef<HTMLPreElement | null>(null);
+  const stickRef = React.useRef(true);
+  React.useEffect(() => {
+    const el = outRef.current;
+    if (!el) return;
+    if (stickRef.current) el.scrollTop = el.scrollHeight;
+  }, [cleanedOutput]);
+  const exitedOk = session.exited && session.exitCode === 0;
+  const failed = session.exited && session.exitCode !== 0;
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 dark:bg-slate-950 dark:border-slate-700">
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-sm font-medium text-slate-900 dark:text-slate-100">
-          {session.exited ? (
-            session.exitCode === 0 ? (
-              <Check size={14} className="text-emerald-600" />
-            ) : (
-              <X size={14} className="text-red-600" />
-            )
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+            Installing {providerLabel(session.provider)}
+          </span>
+          {failed ? (
+            <StatusPill tone="red" icon={<X size={12} />}>
+              Failed
+            </StatusPill>
+          ) : exitedOk ? (
+            <StatusPill tone="emerald" icon={<Check size={12} />}>
+              Installed
+            </StatusPill>
           ) : (
-            <Loader2 size={14} className="animate-spin text-indigo-600" />
+            <StatusPill tone="indigo" icon={<Loader2 size={12} className="animate-spin" />}>
+              Installing
+            </StatusPill>
           )}
-          <span>{heading}</span>
         </div>
         <Button size="sm" variant="ghost" onClick={onDismiss}>
           <X size={14} /> {session.exited ? "Close" : "Cancel"}
         </Button>
       </div>
-
-      {url && phase === "signingIn" && !session.exited && (
-        <div className="flex items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs dark:border-indigo-800 dark:bg-indigo-950">
-          <ExternalLink size={14} className="text-indigo-600 dark:text-indigo-300" />
-          <span className="flex-1 truncate text-slate-700 dark:text-slate-200">
-            Open this URL to authorize, then paste the code below:
-          </span>
-          <a
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2 py-1 text-xs font-medium text-white hover:bg-indigo-700"
-          >
-            Open <ExternalLink size={12} />
-          </a>
-        </div>
-      )}
-
       <pre
         ref={outRef}
         onScroll={(e) => {
           const el = e.currentTarget;
           stickRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
         }}
-        className="max-h-64 min-h-[8rem] overflow-auto whitespace-pre-wrap break-words rounded-md bg-slate-950 px-3 py-2 font-mono text-[11px] leading-snug text-slate-100"
+        className="max-h-48 min-h-[6rem] overflow-auto whitespace-pre-wrap break-words rounded-md bg-slate-950 px-3 py-2 font-mono text-[11px] leading-snug text-slate-100"
       >
-        {cleanedOutput || "Starting…"}
+        {cleanedOutput.trim() || "Starting installer…"}
       </pre>
-
-      {!session.exited && (
-        <form
-          className="flex items-center gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!input) return;
-            // ENTER is what advances every CLI prompt — claude login asks for
-            // a code, codex asks for a code, goose configure walks a wizard.
-            // Append \r so the pty sees a real newline.
-            onSend(`${input}\r`);
-            setInput("");
-          }}
-        >
-          <Input
-            value={input}
-            placeholder={
-              phase === "signingIn"
-                ? "Paste the code from your browser, then press Enter"
-                : "Type a response, then press Enter"
-            }
-            onChange={(e) => setInput(e.target.value)}
-            className="flex-1"
-          />
-          <Button type="submit" size="sm" disabled={!input}>
-            <Send size={14} /> Send
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            title="Send Enter"
-            onClick={() => onSend("\r")}
-          >
-            ↵
-          </Button>
-        </form>
-      )}
-
-      {session.exited && session.exitCode === 0 && phase === "installing" && (
+      {exitedOk && (
         <div className="text-xs text-emerald-700 dark:text-emerald-400">
-          Installed. Click &quot;Sign in&quot; below to continue.
+          Installed. Click &quot;Sign in&quot; to continue.
         </div>
       )}
-      {session.exited && session.exitCode === 0 && phase === "signingIn" && (
-        <div className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400">
-          <Loader2 size={12} className="animate-spin" />
-          Sign-in finished. Verifying credentials…
+      {failed && (
+        <div className="text-xs text-red-600 dark:text-red-400">
+          {error ?? "Installer exited with a non-zero status. See the log above for details."}
         </div>
       )}
-      {error && <div className="text-xs text-red-600 dark:text-red-400">{error}</div>}
-      <div className="text-[10px] text-slate-500 dark:text-slate-400">
-        Credentials land at <code>{configDir}</code>
-      </div>
     </div>
   );
+}
+
+function StatusPill({
+  tone,
+  icon,
+  children,
+}: {
+  tone: "indigo" | "emerald" | "red" | "slate";
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const palette: Record<typeof tone, string> = {
+    indigo:
+      "bg-indigo-50 text-indigo-700 ring-indigo-200 dark:bg-indigo-950 dark:text-indigo-300 dark:ring-indigo-900",
+    emerald:
+      "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:ring-emerald-900",
+    red:
+      "bg-red-50 text-red-700 ring-red-200 dark:bg-red-950 dark:text-red-300 dark:ring-red-900",
+    slate:
+      "bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700",
+  };
+  return (
+    <span
+      className={
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ring-1 " +
+        palette[tone]
+      }
+    >
+      {icon}
+      {children}
+    </span>
+  );
+}
+
+function providerLabel(p: PtySessionView["provider"]): string {
+  switch (p) {
+    case "claude-code":
+      return "Claude Code";
+    case "codex":
+      return "Codex";
+    case "opencode":
+      return "OpenCode";
+    case "goose":
+      return "Goose";
+  }
 }
 
 function ManualCommandFallback({ model }: { model: AIModel }) {

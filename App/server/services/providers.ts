@@ -123,8 +123,15 @@ export const PROVIDERS: Record<Provider, ProviderSpec> = {
     configDirEnv: "CLAUDE_CONFIG_DIR",
     apiKeyEnv: "ANTHROPIC_API_KEY",
     supportsApiKey: true,
-    loginCommand: "claude login",
-    loginArgv: { cmd: "claude", args: ["login"] },
+    // `claude auth login` is the OAuth-only path. The legacy alias `claude
+    // login` boots the full TUI first — theme picker, syntax-theme demo,
+    // workspace-trust dialog — before getting to OAuth. None of that is
+    // useful to a per-employee web flow, so we go straight to the auth
+    // subcommand. Output becomes a single line ("Opening browser to sign
+    // in… / If the browser didn't open, visit: <URL>") which is exactly
+    // what the in-browser wizard surfaces.
+    loginCommand: "claude auth login",
+    loginArgv: { cmd: "claude", args: ["auth", "login"] },
     binName: "claude",
     installArgv: { cmd: "npm", args: ["install", "-g", "@anthropic-ai/claude-code"] },
     configDir: employeeClaudeDir,
