@@ -3,13 +3,17 @@ import { Link, useNavigate } from "react-router-dom";
 import { ChevronDown, Network, Pencil, Plus, Users } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { Breadcrumbs } from "../components/AppShell";
-import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
+import {
+  Avatar,
+  employeeAvatarUrl,
+  memberAvatarUrl,
+} from "../components/ui/Avatar";
 import { Menu } from "../components/ui/Menu";
 import { Spinner } from "../components/ui/Spinner";
 import { FormError } from "../components/ui/FormError";
 import { useToast } from "../components/ui/Toast";
 import { clsx } from "../components/ui/clsx";
-import { api, Company, Employee, Team } from "../lib/api";
+import { api, Company, Employee, Member, Team } from "../lib/api";
 import { useEmployees } from "./employeesContext";
 
 /**
@@ -17,10 +21,22 @@ import { useEmployees } from "./employeesContext";
  * org chart driven by `reportsToEmployeeId`. Each card has an inline
  * editor for Team and Reports-to that PATCHes the employee, so members
  * can both *see* and *define* the chart from one screen.
+ *
+ * Humans (company members) render alongside AI employees so the chart
+ * reflects the full company. Human nodes don't have a reporting line in
+ * the schema yet, so they sit as roots above the AI hierarchy.
  */
 export default function EmployeesIndex({ company }: { company: Company }) {
   const { employees } = useEmployees();
   const navigate = useNavigate();
+  const [members, setMembers] = React.useState<Member[]>([]);
+
+  React.useEffect(() => {
+    api
+      .get<Member[]>(`/api/companies/${company.id}/members`)
+      .then(setMembers)
+      .catch(() => setMembers([]));
+  }, [company.id]);
 
   const crumbs = (
     <div className="mb-6">
@@ -72,7 +88,11 @@ export default function EmployeesIndex({ company }: { company: Company }) {
           <Plus size={14} /> New employee
         </Button>
       </div>
-      <OrgChartView company={company} employees={employees} />
+      <OrgChartView
+        company={company}
+        employees={employees}
+        members={members}
+      />
     </>
   );
 }
@@ -80,9 +100,11 @@ export default function EmployeesIndex({ company }: { company: Company }) {
 function OrgChartView({
   company,
   employees,
+  members,
 }: {
   company: Company;
   employees: Employee[];
+  members: Member[];
 }) {
   const { reload } = useEmployees();
   const [teams, setTeams] = React.useState<Team[] | null>(null);
@@ -133,6 +155,11 @@ function OrgChartView({
     byManager,
   };
 
+  const totalCount = employees.length + members.length;
+  const summary = hasHierarchy
+    ? `${totalCount} ${totalCount === 1 ? "person" : "people"} · ${byManager.size} manager${byManager.size === 1 ? "" : "s"}`
+    : `${totalCount} ${totalCount === 1 ? "person" : "people"}, no reporting lines yet`;
+
   return (
     <div className="rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50/50 to-white shadow-sm dark:border-slate-800 dark:from-slate-900/40 dark:to-slate-950">
       <div className="flex items-center justify-between gap-3 border-b border-slate-200/70 px-5 py-3 dark:border-slate-800/70">
@@ -145,13 +172,31 @@ function OrgChartView({
               Reporting structure
             </span>
             <span className="text-[11px] text-slate-500 dark:text-slate-400">
-              {hasHierarchy
-                ? `${employees.length} ${employees.length === 1 ? "person" : "people"} · ${byManager.size} manager${byManager.size === 1 ? "" : "s"}`
-                : `${employees.length} ${employees.length === 1 ? "person" : "people"}, no reporting lines yet`}
+              {summary}
             </span>
           </div>
         </div>
       </div>
+
+      {members.length > 0 && (
+        <div className="border-b border-slate-200/70 px-6 py-5 dark:border-slate-800/70">
+          <div className="mb-3 flex items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              People
+            </span>
+            <span className="text-[11px] text-slate-400 dark:text-slate-500">
+              {members.length} {members.length === 1 ? "human" : "humans"}
+            </span>
+          </div>
+          <ul className="flex flex-wrap gap-3">
+            {members.map((m) => (
+              <li key={m.userId}>
+                <MemberCard company={company} member={m} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {hasHierarchy ? (
         <div className="overflow-x-auto px-6 py-8">
@@ -187,6 +232,39 @@ function OrgChartView({
           </ul>
         </div>
       )}
+    </div>
+  );
+}
+
+function MemberCard({
+  company,
+  member,
+}: {
+  company: Company;
+  member: Member;
+}) {
+  const displayName = member.name || member.email || "Member";
+  return (
+    <div className="flex w-56 items-center gap-2.5 rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <Avatar
+        name={displayName}
+        kind="human"
+        size="md"
+        src={memberAvatarUrl(company.id, member.userId, member.avatarKey)}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+            {displayName}
+          </span>
+          <span className="inline-flex items-center rounded-md bg-indigo-50 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
+            Human
+          </span>
+        </div>
+        <div className="truncate text-[11px] capitalize text-slate-500 dark:text-slate-400">
+          {member.role}
+        </div>
+      </div>
     </div>
   );
 }
