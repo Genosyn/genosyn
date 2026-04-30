@@ -160,6 +160,11 @@ const SECTION_GROUPS: SectionGroup[] = [
         iconBg:
           "bg-fuchsia-100 text-fuchsia-600 dark:bg-fuchsia-500/15 dark:text-fuchsia-300",
       },
+    ],
+  },
+  {
+    label: "Automation",
+    items: [
       {
         key: "pipelines",
         label: "Pipelines",
@@ -407,7 +412,7 @@ function SectionMenu({
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-20 mt-2 grid w-[44rem] grid-cols-3 gap-6 rounded-xl border border-slate-200 bg-white p-5 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+          <div className="absolute left-0 top-full z-20 mt-2 grid w-[56rem] grid-cols-4 gap-6 rounded-xl border border-slate-200 bg-white p-5 shadow-lg dark:border-slate-700 dark:bg-slate-900">
             {SECTION_GROUPS.map((g) => (
               <div key={g.label} className="flex flex-col gap-1">
                 <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
