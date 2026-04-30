@@ -26,10 +26,7 @@ pnpm-debug.log*
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
-.claude/launch.json
-.claude/run-app.sh
-.claude/run-home.sh
-.claude/scheduled_tasks.lock
+.claude/
 *.swp
 *.swo
 
@@ -40,4 +37,3 @@ coverage/
 # Misc
 .cache/
 .tmp/
-.claude/settings.local.json
