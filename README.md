@@ -30,7 +30,7 @@ and **Routines** (scheduled, cron-driven work) — all stored in the database.
 Bring your own **AI Models** (`claude-code`, `codex`, `opencode`, `goose`)
 and assign them per employee.
 
-> **Disclaimer:** This software is AI generated. Use at your own risk. It is
+> **Disclaimer:** Some parts of this software are AI generated. Use at your own risk. It is
 > open source and provided **without warranty** of any kind — see
 > [`LICENSE`](./LICENSE).
 
