@@ -1,342 +1,83 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
+/**
+ * M18 — "Learnings" feature (later renamed to "Resources" by
+ * 1777554798118-RenameLearningsToResources). Adds two tables and drops the
+ * unused `runs.logsPath` column that older runs predated `logContent`.
+ *
+ * **Why this migration was rewritten in place.** The version originally
+ * emitted by `migration:generate` against a developer DB also tried to
+ * rename ~80 stable index names to TypeORM's hash-based names — some of
+ * which (e.g. `IDX_conversations_external`) belong to migrations with
+ * *later* timestamps that hadn't run yet on a fresh server. On any DB
+ * coming from upstream the migration aborted with `no such index:
+ * IDX_conversations_external` and rolled back. The rewrite drops the
+ * spurious renames and keeps only the work the M18 commit actually
+ * intended. The follow-up `RenameLearningsToResources` migration drops
+ * the two tables created here by the same hash-named indexes, so those
+ * names must not change.
+ */
 export class Learnings1777551492915 implements MigrationInterface {
-    name = 'Learnings1777551492915'
+  name = "Learnings1777551492915";
 
-    public async up(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`DROP INDEX "UQ_users_handle"`);
-        await queryRunner.query(`DROP INDEX "IDX_ai_models_employeeId"`);
-        await queryRunner.query(`DROP INDEX "IDX_projects_companyId_slug"`);
-        await queryRunner.query(`DROP INDEX "IDX_todos_projectId_number"`);
-        await queryRunner.query(`DROP INDEX "IDX_todo_comments_todoId"`);
-        await queryRunner.query(`DROP INDEX "IDX_conversations_external"`);
-        await queryRunner.query(`DROP INDEX "IDX_conversations_employeeId"`);
-        await queryRunner.query(`DROP INDEX "IDX_conversation_messages_conversationId"`);
-        await queryRunner.query(`DROP INDEX "IDX_journal_entries_employeeId"`);
-        await queryRunner.query(`DROP INDEX "IDX_approvals_kind"`);
-        await queryRunner.query(`DROP INDEX "IDX_approvals_routineId"`);
-        await queryRunner.query(`DROP INDEX "IDX_approvals_companyId"`);
-        await queryRunner.query(`DROP INDEX "IDX_mcp_servers_employee_name"`);
-        await queryRunner.query(`DROP INDEX "IDX_mcp_servers_employeeId"`);
-        await queryRunner.query(`DROP INDEX "IDX_secrets_company_name"`);
-        await queryRunner.query(`DROP INDEX "IDX_secrets_companyId"`);
-        await queryRunner.query(`DROP INDEX "IDX_audit_company_createdAt"`);
-        await queryRunner.query(`DROP INDEX "IDX_bases_companyId_slug"`);
-        await queryRunner.query(`DROP INDEX "IDX_base_tables_baseId_slug"`);
-        await queryRunner.query(`DROP INDEX "IDX_base_fields_tableId_sortOrder"`);
-        await queryRunner.query(`DROP INDEX "IDX_base_records_tableId_createdAt"`);
-        await queryRunner.query(`DROP INDEX "IDX_base_record_comments_recordId"`);
-        await queryRunner.query(`DROP INDEX "IDX_base_record_attachments_companyId"`);
-        await queryRunner.query(`DROP INDEX "IDX_base_record_attachments_recordId"`);
-        await queryRunner.query(`DROP INDEX "IDX_base_views_tableId_sortOrder"`);
-        await queryRunner.query(`DROP INDEX "IDX_base_views_tableId_slug"`);
-        await queryRunner.query(`DROP INDEX "IDX_backups_createdAt"`);
-        await queryRunner.query(`DROP INDEX "IDX_integration_connections_company_provider"`);
-        await queryRunner.query(`DROP INDEX "IDX_integration_connections_companyId"`);
-        await queryRunner.query(`DROP INDEX "IDX_employee_connection_grants_pair"`);
-        await queryRunner.query(`DROP INDEX "IDX_employee_connection_grants_connectionId"`);
-        await queryRunner.query(`DROP INDEX "IDX_employee_connection_grants_employeeId"`);
-        await queryRunner.query(`DROP INDEX "IDX_employee_base_grants_pair"`);
-        await queryRunner.query(`DROP INDEX "IDX_employee_base_grants_baseId"`);
-        await queryRunner.query(`DROP INDEX "IDX_employee_base_grants_employeeId"`);
-        await queryRunner.query(`DROP INDEX "IDX_employee_memory_items_employeeId"`);
-        await queryRunner.query(`DROP INDEX "UQ_channels_companyId_slug"`);
-        await queryRunner.query(`DROP INDEX "IDX_channels_companyId"`);
-        await queryRunner.query(`DROP INDEX "UQ_channel_members_channel_emp"`);
-        await queryRunner.query(`DROP INDEX "UQ_channel_members_channel_user"`);
-        await queryRunner.query(`DROP INDEX "IDX_channel_members_employeeId"`);
-        await queryRunner.query(`DROP INDEX "IDX_channel_members_userId"`);
-        await queryRunner.query(`DROP INDEX "IDX_channel_members_channelId"`);
-        await queryRunner.query(`DROP INDEX "IDX_channel_messages_channel_createdAt"`);
-        await queryRunner.query(`DROP INDEX "IDX_channel_messages_channelId"`);
-        await queryRunner.query(`DROP INDEX "UQ_message_reactions_msg_emoji_emp"`);
-        await queryRunner.query(`DROP INDEX "UQ_message_reactions_msg_emoji_user"`);
-        await queryRunner.query(`DROP INDEX "IDX_message_reactions_messageId"`);
-        await queryRunner.query(`DROP INDEX "IDX_attachments_messageId"`);
-        await queryRunner.query(`DROP INDEX "IDX_pipelines_nextRunAt"`);
-        await queryRunner.query(`DROP INDEX "IDX_pipelines_companyId_slug"`);
-        await queryRunner.query(`DROP INDEX "IDX_pipeline_runs_pipelineId_startedAt"`);
-        await queryRunner.query(`DROP INDEX "IDX_email_providers_company_default"`);
-        await queryRunner.query(`DROP INDEX "IDX_email_providers_companyId"`);
-        await queryRunner.query(`DROP INDEX "IDX_email_logs_status"`);
-        await queryRunner.query(`DROP INDEX "IDX_email_logs_company_createdAt"`);
-        await queryRunner.query(`DROP INDEX "IDX_notebooks_companyId_slug"`);
-        await queryRunner.query(`DROP INDEX "IDX_notes_notebookId_parentId"`);
-        await queryRunner.query(`DROP INDEX "IDX_notes_companyId_notebookId"`);
-        await queryRunner.query(`DROP INDEX "IDX_notes_companyId_slug"`);
-        await queryRunner.query(`DROP INDEX "IDX_employee_note_grants_employee_note"`);
-        await queryRunner.query(`DROP INDEX "IDX_employee_note_grants_noteId"`);
-        await queryRunner.query(`DROP INDEX "IDX_employee_note_grants_employeeId"`);
-        await queryRunner.query(`DROP INDEX "IDX_employee_notebook_grants_employee_notebook"`);
-        await queryRunner.query(`DROP INDEX "IDX_employee_notebook_grants_notebookId"`);
-        await queryRunner.query(`DROP INDEX "IDX_employee_notebook_grants_employeeId"`);
-        await queryRunner.query(`DROP INDEX "IDX_notifications_companyId_userId"`);
-        await queryRunner.query(`DROP INDEX "IDX_notifications_userId_createdAt"`);
-        await queryRunner.query(`DROP INDEX "IDX_notifications_userId_readAt"`);
-        await queryRunner.query(`DROP INDEX "IDX_teams_companyId_slug"`);
-        await queryRunner.query(`DROP INDEX "IDX_handoffs_fromEmployeeId"`);
-        await queryRunner.query(`DROP INDEX "IDX_handoffs_toEmployeeId_status"`);
-        await queryRunner.query(`DROP INDEX "IDX_handoffs_companyId_status"`);
-        await queryRunner.query(`DROP INDEX "IDX_api_keys_tokenHash"`);
-        await queryRunner.query(`DROP INDEX "IDX_api_keys_prefix"`);
-        await queryRunner.query(`DROP INDEX "IDX_api_keys_userId"`);
-        await queryRunner.query(`DROP INDEX "IDX_api_keys_companyId"`);
-        await queryRunner.query(`CREATE TABLE "learnings" ("id" varchar PRIMARY KEY NOT NULL, "companyId" varchar NOT NULL, "title" varchar NOT NULL, "slug" varchar NOT NULL, "sourceKind" varchar NOT NULL DEFAULT ('url'), "sourceUrl" varchar, "sourceFilename" varchar, "storageKey" varchar, "summary" text NOT NULL DEFAULT (''), "bodyText" text NOT NULL DEFAULT (''), "tags" varchar NOT NULL DEFAULT (''), "bytes" bigint NOT NULL DEFAULT (0), "status" varchar NOT NULL DEFAULT ('pending'), "errorMessage" text NOT NULL DEFAULT (''), "createdById" varchar, "createdByEmployeeId" varchar, "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "updatedAt" datetime NOT NULL DEFAULT (datetime('now')))`);
-        await queryRunner.query(`CREATE INDEX "IDX_0e31b3a842bb3bfc9eb2b00f14" ON "learnings" ("companyId", "status") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_5968fa55352eb5a71f45f02323" ON "learnings" ("companyId", "slug") `);
-        await queryRunner.query(`CREATE TABLE "employee_learning_grants" ("id" varchar PRIMARY KEY NOT NULL, "employeeId" varchar NOT NULL, "learningId" varchar NOT NULL, "accessLevel" varchar NOT NULL DEFAULT ('read'), "createdAt" datetime NOT NULL DEFAULT (datetime('now')))`);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_aa67e2f19cf2719d133a9057bd" ON "employee_learning_grants" ("employeeId", "learningId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_69b8b1f5be86152a92698eda85" ON "employee_learning_grants" ("learningId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_76666070ddf36fd1f3ee6316b0" ON "employee_learning_grants" ("employeeId") `);
-        await queryRunner.query(`CREATE TABLE "temporary_runs" ("id" varchar PRIMARY KEY NOT NULL, "routineId" varchar NOT NULL, "startedAt" datetime NOT NULL, "finishedAt" datetime, "status" varchar NOT NULL, "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "exitCode" integer, "logContent" text NOT NULL DEFAULT (''))`);
-        await queryRunner.query(`INSERT INTO "temporary_runs"("id", "routineId", "startedAt", "finishedAt", "status", "createdAt", "exitCode", "logContent") SELECT "id", "routineId", "startedAt", "finishedAt", "status", "createdAt", "exitCode", "logContent" FROM "runs"`);
-        await queryRunner.query(`DROP TABLE "runs"`);
-        await queryRunner.query(`ALTER TABLE "temporary_runs" RENAME TO "runs"`);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_91d1c91102a6576f36e643ac5f" ON "users" ("handle") WHERE handle IS NOT NULL`);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_d5513781afa125b0711d25898f" ON "ai_models" ("employeeId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_837f73e37f7433e200611d9384" ON "projects" ("companyId", "slug") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_fbbeb7fb00740df25d6e65d36b" ON "todos" ("projectId", "number") `);
-        await queryRunner.query(`CREATE INDEX "IDX_0a36029ae5b303dc642ebbdec6" ON "todo_comments" ("todoId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_6ff3d71f2dd0e7728bdd151bff" ON "conversations" ("employeeId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_7df471803dc181471c8c108a0e" ON "conversations" ("source", "connectionId", "externalKey") WHERE "externalKey" IS NOT NULL`);
-        await queryRunner.query(`CREATE INDEX "IDX_f5045a77718bdb593f309a1e25" ON "conversation_messages" ("conversationId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_cc1bd9b3ea5a8ca0a7bc2a42bb" ON "journal_entries" ("employeeId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_d571fb585e69f28df397ab416a" ON "approvals" ("companyId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_cec57feb0296840aa7d264e26b" ON "approvals" ("kind") `);
-        await queryRunner.query(`CREATE INDEX "IDX_b61cb09f5c269da403855c6080" ON "approvals" ("routineId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_9a29b53912c86234e774a1240f" ON "mcp_servers" ("employeeId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_4f45f9c05d800e60516016bce5" ON "mcp_servers" ("employeeId", "name") `);
-        await queryRunner.query(`CREATE INDEX "IDX_f22fb8e8be781c8f3bc0317dba" ON "secrets" ("companyId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_b8710c2243376a34889c7dc487" ON "secrets" ("companyId", "name") `);
-        await queryRunner.query(`CREATE INDEX "IDX_2323dcc5e0a78dbce80fc46a88" ON "audit_events" ("companyId", "createdAt") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_4ec4499371076dbc081147ffb4" ON "bases" ("companyId", "slug") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_1e6e53308ca740c41a1afe390d" ON "base_tables" ("baseId", "slug") `);
-        await queryRunner.query(`CREATE INDEX "IDX_8dafe22b2e5132c0a3fca59870" ON "base_fields" ("tableId", "sortOrder") `);
-        await queryRunner.query(`CREATE INDEX "IDX_8c613714d9343992b391fc4446" ON "base_records" ("tableId", "createdAt") `);
-        await queryRunner.query(`CREATE INDEX "IDX_08a863ead7d4c2920b80f39ec7" ON "base_record_comments" ("recordId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_aa07ef2036124b78b48be294b6" ON "base_record_attachments" ("recordId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_0010f1a26b84cf82258e4d6fbd" ON "base_record_attachments" ("companyId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_24fc0ad8a021716872c09b37fa" ON "base_views" ("tableId", "slug") `);
-        await queryRunner.query(`CREATE INDEX "IDX_2702d4fef8ceb699e737e98fc6" ON "base_views" ("tableId", "sortOrder") `);
-        await queryRunner.query(`CREATE INDEX "IDX_7a4897ff9d33ecf963e08e1138" ON "backups" ("createdAt") `);
-        await queryRunner.query(`CREATE INDEX "IDX_c21b565f0da77837f55f559c72" ON "integration_connections" ("companyId", "provider") `);
-        await queryRunner.query(`CREATE INDEX "IDX_b64d9c114497558461dba4ea24" ON "integration_connections" ("companyId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_434346aa3df6ee08abbc0a9452" ON "employee_connection_grants" ("employeeId", "connectionId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_5c09f13402d58f68b8b750c283" ON "employee_connection_grants" ("connectionId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_591db6bc51609c36a8271e734e" ON "employee_connection_grants" ("employeeId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_06786fefb5b1e5ebdacb00bc75" ON "employee_base_grants" ("employeeId", "baseId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_f2e210076cc313a970dcf467f4" ON "employee_base_grants" ("baseId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_1fc0735e741b5b77fcc1a0501f" ON "employee_base_grants" ("employeeId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_28769740072902fc05a0357e57" ON "employee_memory_items" ("employeeId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_9b44168388cb4cc8fcfa925a1b" ON "channels" ("companyId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_716d53d2dcff9d76151e514028" ON "channels" ("companyId", "slug") WHERE slug IS NOT NULL`);
-        await queryRunner.query(`CREATE INDEX "IDX_db73d12c31aa45d249f6efeaa0" ON "channel_members" ("channelId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_5672abbfbed6e0c5bd9c2d0a98" ON "channel_members" ("employeeId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_b497f2fef3c4a62173cdb6728e" ON "channel_members" ("userId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_0165ea2a104e3a1c468ef4a156" ON "channel_members" ("channelId", "employeeId") WHERE employeeId IS NOT NULL`);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_9de6ae514ccb81f9f604080e57" ON "channel_members" ("channelId", "userId") WHERE userId IS NOT NULL`);
-        await queryRunner.query(`CREATE INDEX "IDX_3d76c24eff9881b6f0ecd49f74" ON "channel_messages" ("channelId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_e46fa6635be01a4fba56dd98c4" ON "channel_messages" ("channelId", "createdAt") `);
-        await queryRunner.query(`CREATE INDEX "IDX_7623d77216e8457a552490259e" ON "message_reactions" ("messageId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_bbc9efe961e93e01ad60841e68" ON "message_reactions" ("messageId", "emoji", "employeeId") WHERE employeeId IS NOT NULL`);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_5c0b7eee1f860873f4c85e7248" ON "message_reactions" ("messageId", "emoji", "userId") WHERE userId IS NOT NULL`);
-        await queryRunner.query(`CREATE INDEX "IDX_b8d56ad5c1d70979b591d918e3" ON "attachments" ("companyId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_d25de32d1398e398a082f4f5d2" ON "attachments" ("messageId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_ddbbf16c57634b9362704cfc0d" ON "pipelines" ("companyId", "slug") `);
-        await queryRunner.query(`CREATE INDEX "IDX_eeef4a3165dc6b0548253c3e9a" ON "pipeline_runs" ("pipelineId", "startedAt") `);
-        await queryRunner.query(`CREATE INDEX "IDX_e083bf418a53a78eaca4c7f090" ON "email_providers" ("companyId", "isDefault") `);
-        await queryRunner.query(`CREATE INDEX "IDX_2240f54eb8b3cf4df0f8a09992" ON "email_providers" ("companyId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_23826d0c5be7cadcd5eeb88708" ON "email_logs" ("status") `);
-        await queryRunner.query(`CREATE INDEX "IDX_c2f2eb5a12bc81c2a9c72e797f" ON "email_logs" ("companyId", "createdAt") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_62271d1a397385375e65518254" ON "notebooks" ("companyId", "slug") `);
-        await queryRunner.query(`CREATE INDEX "IDX_000a18d188649b3c58bf3fe119" ON "notes" ("notebookId", "parentId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_7129d5171dfba822af60278150" ON "notes" ("companyId", "notebookId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_51e6709eddaa1a31469926e623" ON "notes" ("companyId", "slug") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_8c2407461f940f6d2d275129b3" ON "employee_note_grants" ("employeeId", "noteId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_1e89320b64727c4482a093543a" ON "employee_note_grants" ("noteId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_8a33d0269209e17ef930296a2f" ON "employee_note_grants" ("employeeId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_29ac82ae24547b577b05f141bb" ON "employee_notebook_grants" ("employeeId", "notebookId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_c168ae6ff2daa78f81c7f78953" ON "employee_notebook_grants" ("notebookId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_0c66efaa3e418444a2590c0db7" ON "employee_notebook_grants" ("employeeId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_f75420d3d6f41ccba03bc687b0" ON "notifications" ("companyId", "userId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_21e65af2f4f242d4c85a92aff4" ON "notifications" ("userId", "createdAt") `);
-        await queryRunner.query(`CREATE INDEX "IDX_eb224d6d3acf40220d84a63720" ON "notifications" ("userId", "readAt") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_86b0b7015bb112896829ead407" ON "teams" ("companyId", "slug") `);
-        await queryRunner.query(`CREATE INDEX "IDX_9a065800a22dc064b8e9e9bc50" ON "handoffs" ("fromEmployeeId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_d6ea363931bce72ed6ddc32f2d" ON "handoffs" ("toEmployeeId", "status") `);
-        await queryRunner.query(`CREATE INDEX "IDX_06f952b4ace7ed12375335c989" ON "handoffs" ("companyId", "status") `);
-        await queryRunner.query(`CREATE INDEX "IDX_40fbec27ca4b3ac70b1bbf2301" ON "api_keys" ("companyId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_6c2e267ae764a9413b863a2934" ON "api_keys" ("userId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_6f6105c8efe05b310d046cbdb3" ON "api_keys" ("prefix") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_145351578a50e59b090c1c06da" ON "api_keys" ("tokenHash") `);
-    }
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    // Learnings tables. `IF NOT EXISTS` is defensive: a previous failed
+    // run inside the same transaction would have rolled back, but a user
+    // who manually patched their DB shouldn't get a second error here.
+    await queryRunner.query(
+      `CREATE TABLE IF NOT EXISTS "learnings" ("id" varchar PRIMARY KEY NOT NULL, "companyId" varchar NOT NULL, "title" varchar NOT NULL, "slug" varchar NOT NULL, "sourceKind" varchar NOT NULL DEFAULT ('url'), "sourceUrl" varchar, "sourceFilename" varchar, "storageKey" varchar, "summary" text NOT NULL DEFAULT (''), "bodyText" text NOT NULL DEFAULT (''), "tags" varchar NOT NULL DEFAULT (''), "bytes" bigint NOT NULL DEFAULT (0), "status" varchar NOT NULL DEFAULT ('pending'), "errorMessage" text NOT NULL DEFAULT (''), "createdById" varchar, "createdByEmployeeId" varchar, "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "updatedAt" datetime NOT NULL DEFAULT (datetime('now')))`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "IDX_0e31b3a842bb3bfc9eb2b00f14" ON "learnings" ("companyId", "status") `,
+    );
+    await queryRunner.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS "IDX_5968fa55352eb5a71f45f02323" ON "learnings" ("companyId", "slug") `,
+    );
+    await queryRunner.query(
+      `CREATE TABLE IF NOT EXISTS "employee_learning_grants" ("id" varchar PRIMARY KEY NOT NULL, "employeeId" varchar NOT NULL, "learningId" varchar NOT NULL, "accessLevel" varchar NOT NULL DEFAULT ('read'), "createdAt" datetime NOT NULL DEFAULT (datetime('now')))`,
+    );
+    await queryRunner.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS "IDX_aa67e2f19cf2719d133a9057bd" ON "employee_learning_grants" ("employeeId", "learningId") `,
+    );
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "IDX_69b8b1f5be86152a92698eda85" ON "employee_learning_grants" ("learningId") `,
+    );
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "IDX_76666070ddf36fd1f3ee6316b0" ON "employee_learning_grants" ("employeeId") `,
+    );
 
-    public async down(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`DROP INDEX "IDX_145351578a50e59b090c1c06da"`);
-        await queryRunner.query(`DROP INDEX "IDX_6f6105c8efe05b310d046cbdb3"`);
-        await queryRunner.query(`DROP INDEX "IDX_6c2e267ae764a9413b863a2934"`);
-        await queryRunner.query(`DROP INDEX "IDX_40fbec27ca4b3ac70b1bbf2301"`);
-        await queryRunner.query(`DROP INDEX "IDX_06f952b4ace7ed12375335c989"`);
-        await queryRunner.query(`DROP INDEX "IDX_d6ea363931bce72ed6ddc32f2d"`);
-        await queryRunner.query(`DROP INDEX "IDX_9a065800a22dc064b8e9e9bc50"`);
-        await queryRunner.query(`DROP INDEX "IDX_86b0b7015bb112896829ead407"`);
-        await queryRunner.query(`DROP INDEX "IDX_eb224d6d3acf40220d84a63720"`);
-        await queryRunner.query(`DROP INDEX "IDX_21e65af2f4f242d4c85a92aff4"`);
-        await queryRunner.query(`DROP INDEX "IDX_f75420d3d6f41ccba03bc687b0"`);
-        await queryRunner.query(`DROP INDEX "IDX_0c66efaa3e418444a2590c0db7"`);
-        await queryRunner.query(`DROP INDEX "IDX_c168ae6ff2daa78f81c7f78953"`);
-        await queryRunner.query(`DROP INDEX "IDX_29ac82ae24547b577b05f141bb"`);
-        await queryRunner.query(`DROP INDEX "IDX_8a33d0269209e17ef930296a2f"`);
-        await queryRunner.query(`DROP INDEX "IDX_1e89320b64727c4482a093543a"`);
-        await queryRunner.query(`DROP INDEX "IDX_8c2407461f940f6d2d275129b3"`);
-        await queryRunner.query(`DROP INDEX "IDX_51e6709eddaa1a31469926e623"`);
-        await queryRunner.query(`DROP INDEX "IDX_7129d5171dfba822af60278150"`);
-        await queryRunner.query(`DROP INDEX "IDX_000a18d188649b3c58bf3fe119"`);
-        await queryRunner.query(`DROP INDEX "IDX_62271d1a397385375e65518254"`);
-        await queryRunner.query(`DROP INDEX "IDX_c2f2eb5a12bc81c2a9c72e797f"`);
-        await queryRunner.query(`DROP INDEX "IDX_23826d0c5be7cadcd5eeb88708"`);
-        await queryRunner.query(`DROP INDEX "IDX_2240f54eb8b3cf4df0f8a09992"`);
-        await queryRunner.query(`DROP INDEX "IDX_e083bf418a53a78eaca4c7f090"`);
-        await queryRunner.query(`DROP INDEX "IDX_eeef4a3165dc6b0548253c3e9a"`);
-        await queryRunner.query(`DROP INDEX "IDX_ddbbf16c57634b9362704cfc0d"`);
-        await queryRunner.query(`DROP INDEX "IDX_d25de32d1398e398a082f4f5d2"`);
-        await queryRunner.query(`DROP INDEX "IDX_b8d56ad5c1d70979b591d918e3"`);
-        await queryRunner.query(`DROP INDEX "IDX_5c0b7eee1f860873f4c85e7248"`);
-        await queryRunner.query(`DROP INDEX "IDX_bbc9efe961e93e01ad60841e68"`);
-        await queryRunner.query(`DROP INDEX "IDX_7623d77216e8457a552490259e"`);
-        await queryRunner.query(`DROP INDEX "IDX_e46fa6635be01a4fba56dd98c4"`);
-        await queryRunner.query(`DROP INDEX "IDX_3d76c24eff9881b6f0ecd49f74"`);
-        await queryRunner.query(`DROP INDEX "IDX_9de6ae514ccb81f9f604080e57"`);
-        await queryRunner.query(`DROP INDEX "IDX_0165ea2a104e3a1c468ef4a156"`);
-        await queryRunner.query(`DROP INDEX "IDX_b497f2fef3c4a62173cdb6728e"`);
-        await queryRunner.query(`DROP INDEX "IDX_5672abbfbed6e0c5bd9c2d0a98"`);
-        await queryRunner.query(`DROP INDEX "IDX_db73d12c31aa45d249f6efeaa0"`);
-        await queryRunner.query(`DROP INDEX "IDX_716d53d2dcff9d76151e514028"`);
-        await queryRunner.query(`DROP INDEX "IDX_9b44168388cb4cc8fcfa925a1b"`);
-        await queryRunner.query(`DROP INDEX "IDX_28769740072902fc05a0357e57"`);
-        await queryRunner.query(`DROP INDEX "IDX_1fc0735e741b5b77fcc1a0501f"`);
-        await queryRunner.query(`DROP INDEX "IDX_f2e210076cc313a970dcf467f4"`);
-        await queryRunner.query(`DROP INDEX "IDX_06786fefb5b1e5ebdacb00bc75"`);
-        await queryRunner.query(`DROP INDEX "IDX_591db6bc51609c36a8271e734e"`);
-        await queryRunner.query(`DROP INDEX "IDX_5c09f13402d58f68b8b750c283"`);
-        await queryRunner.query(`DROP INDEX "IDX_434346aa3df6ee08abbc0a9452"`);
-        await queryRunner.query(`DROP INDEX "IDX_b64d9c114497558461dba4ea24"`);
-        await queryRunner.query(`DROP INDEX "IDX_c21b565f0da77837f55f559c72"`);
-        await queryRunner.query(`DROP INDEX "IDX_7a4897ff9d33ecf963e08e1138"`);
-        await queryRunner.query(`DROP INDEX "IDX_2702d4fef8ceb699e737e98fc6"`);
-        await queryRunner.query(`DROP INDEX "IDX_24fc0ad8a021716872c09b37fa"`);
-        await queryRunner.query(`DROP INDEX "IDX_0010f1a26b84cf82258e4d6fbd"`);
-        await queryRunner.query(`DROP INDEX "IDX_aa07ef2036124b78b48be294b6"`);
-        await queryRunner.query(`DROP INDEX "IDX_08a863ead7d4c2920b80f39ec7"`);
-        await queryRunner.query(`DROP INDEX "IDX_8c613714d9343992b391fc4446"`);
-        await queryRunner.query(`DROP INDEX "IDX_8dafe22b2e5132c0a3fca59870"`);
-        await queryRunner.query(`DROP INDEX "IDX_1e6e53308ca740c41a1afe390d"`);
-        await queryRunner.query(`DROP INDEX "IDX_4ec4499371076dbc081147ffb4"`);
-        await queryRunner.query(`DROP INDEX "IDX_2323dcc5e0a78dbce80fc46a88"`);
-        await queryRunner.query(`DROP INDEX "IDX_b8710c2243376a34889c7dc487"`);
-        await queryRunner.query(`DROP INDEX "IDX_f22fb8e8be781c8f3bc0317dba"`);
-        await queryRunner.query(`DROP INDEX "IDX_4f45f9c05d800e60516016bce5"`);
-        await queryRunner.query(`DROP INDEX "IDX_9a29b53912c86234e774a1240f"`);
-        await queryRunner.query(`DROP INDEX "IDX_b61cb09f5c269da403855c6080"`);
-        await queryRunner.query(`DROP INDEX "IDX_cec57feb0296840aa7d264e26b"`);
-        await queryRunner.query(`DROP INDEX "IDX_d571fb585e69f28df397ab416a"`);
-        await queryRunner.query(`DROP INDEX "IDX_cc1bd9b3ea5a8ca0a7bc2a42bb"`);
-        await queryRunner.query(`DROP INDEX "IDX_f5045a77718bdb593f309a1e25"`);
-        await queryRunner.query(`DROP INDEX "IDX_7df471803dc181471c8c108a0e"`);
-        await queryRunner.query(`DROP INDEX "IDX_6ff3d71f2dd0e7728bdd151bff"`);
-        await queryRunner.query(`DROP INDEX "IDX_0a36029ae5b303dc642ebbdec6"`);
-        await queryRunner.query(`DROP INDEX "IDX_fbbeb7fb00740df25d6e65d36b"`);
-        await queryRunner.query(`DROP INDEX "IDX_837f73e37f7433e200611d9384"`);
-        await queryRunner.query(`DROP INDEX "IDX_d5513781afa125b0711d25898f"`);
-        await queryRunner.query(`DROP INDEX "IDX_91d1c91102a6576f36e643ac5f"`);
-        await queryRunner.query(`ALTER TABLE "runs" RENAME TO "temporary_runs"`);
-        await queryRunner.query(`CREATE TABLE "runs" ("id" varchar PRIMARY KEY NOT NULL, "routineId" varchar NOT NULL, "startedAt" datetime NOT NULL, "finishedAt" datetime, "status" varchar NOT NULL, "logsPath" varchar, "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "exitCode" integer, "logContent" text NOT NULL DEFAULT (''))`);
-        await queryRunner.query(`INSERT INTO "runs"("id", "routineId", "startedAt", "finishedAt", "status", "createdAt", "exitCode", "logContent") SELECT "id", "routineId", "startedAt", "finishedAt", "status", "createdAt", "exitCode", "logContent" FROM "temporary_runs"`);
-        await queryRunner.query(`DROP TABLE "temporary_runs"`);
-        await queryRunner.query(`DROP INDEX "IDX_76666070ddf36fd1f3ee6316b0"`);
-        await queryRunner.query(`DROP INDEX "IDX_69b8b1f5be86152a92698eda85"`);
-        await queryRunner.query(`DROP INDEX "IDX_aa67e2f19cf2719d133a9057bd"`);
-        await queryRunner.query(`DROP TABLE "employee_learning_grants"`);
-        await queryRunner.query(`DROP INDEX "IDX_5968fa55352eb5a71f45f02323"`);
-        await queryRunner.query(`DROP INDEX "IDX_0e31b3a842bb3bfc9eb2b00f14"`);
-        await queryRunner.query(`DROP TABLE "learnings"`);
-        await queryRunner.query(`CREATE INDEX "IDX_api_keys_companyId" ON "api_keys" ("companyId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_api_keys_userId" ON "api_keys" ("userId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_api_keys_prefix" ON "api_keys" ("prefix") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_api_keys_tokenHash" ON "api_keys" ("tokenHash") `);
-        await queryRunner.query(`CREATE INDEX "IDX_handoffs_companyId_status" ON "handoffs" ("companyId", "status") `);
-        await queryRunner.query(`CREATE INDEX "IDX_handoffs_toEmployeeId_status" ON "handoffs" ("toEmployeeId", "status") `);
-        await queryRunner.query(`CREATE INDEX "IDX_handoffs_fromEmployeeId" ON "handoffs" ("fromEmployeeId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_teams_companyId_slug" ON "teams" ("companyId", "slug") `);
-        await queryRunner.query(`CREATE INDEX "IDX_notifications_userId_readAt" ON "notifications" ("userId", "readAt") `);
-        await queryRunner.query(`CREATE INDEX "IDX_notifications_userId_createdAt" ON "notifications" ("userId", "createdAt") `);
-        await queryRunner.query(`CREATE INDEX "IDX_notifications_companyId_userId" ON "notifications" ("companyId", "userId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_employee_notebook_grants_employeeId" ON "employee_notebook_grants" ("employeeId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_employee_notebook_grants_notebookId" ON "employee_notebook_grants" ("notebookId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_employee_notebook_grants_employee_notebook" ON "employee_notebook_grants" ("employeeId", "notebookId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_employee_note_grants_employeeId" ON "employee_note_grants" ("employeeId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_employee_note_grants_noteId" ON "employee_note_grants" ("noteId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_employee_note_grants_employee_note" ON "employee_note_grants" ("employeeId", "noteId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_notes_companyId_slug" ON "notes" ("companyId", "slug") `);
-        await queryRunner.query(`CREATE INDEX "IDX_notes_companyId_notebookId" ON "notes" ("companyId", "notebookId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_notes_notebookId_parentId" ON "notes" ("notebookId", "parentId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_notebooks_companyId_slug" ON "notebooks" ("companyId", "slug") `);
-        await queryRunner.query(`CREATE INDEX "IDX_email_logs_company_createdAt" ON "email_logs" ("companyId", "createdAt") `);
-        await queryRunner.query(`CREATE INDEX "IDX_email_logs_status" ON "email_logs" ("status") `);
-        await queryRunner.query(`CREATE INDEX "IDX_email_providers_companyId" ON "email_providers" ("companyId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_email_providers_company_default" ON "email_providers" ("companyId", "isDefault") `);
-        await queryRunner.query(`CREATE INDEX "IDX_pipeline_runs_pipelineId_startedAt" ON "pipeline_runs" ("pipelineId", "startedAt") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_pipelines_companyId_slug" ON "pipelines" ("companyId", "slug") `);
-        await queryRunner.query(`CREATE INDEX "IDX_pipelines_nextRunAt" ON "pipelines" ("nextRunAt") `);
-        await queryRunner.query(`CREATE INDEX "IDX_attachments_messageId" ON "attachments" ("messageId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_message_reactions_messageId" ON "message_reactions" ("messageId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "UQ_message_reactions_msg_emoji_user" ON "message_reactions" ("messageId", "emoji", "userId") WHERE "userId" IS NOT NULL`);
-        await queryRunner.query(`CREATE UNIQUE INDEX "UQ_message_reactions_msg_emoji_emp" ON "message_reactions" ("messageId", "emoji", "employeeId") WHERE "employeeId" IS NOT NULL`);
-        await queryRunner.query(`CREATE INDEX "IDX_channel_messages_channelId" ON "channel_messages" ("channelId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_channel_messages_channel_createdAt" ON "channel_messages" ("channelId", "createdAt") `);
-        await queryRunner.query(`CREATE INDEX "IDX_channel_members_channelId" ON "channel_members" ("channelId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_channel_members_userId" ON "channel_members" ("userId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_channel_members_employeeId" ON "channel_members" ("employeeId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "UQ_channel_members_channel_user" ON "channel_members" ("channelId", "userId") WHERE "userId" IS NOT NULL`);
-        await queryRunner.query(`CREATE UNIQUE INDEX "UQ_channel_members_channel_emp" ON "channel_members" ("channelId", "employeeId") WHERE "employeeId" IS NOT NULL`);
-        await queryRunner.query(`CREATE INDEX "IDX_channels_companyId" ON "channels" ("companyId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "UQ_channels_companyId_slug" ON "channels" ("companyId", "slug") WHERE "slug" IS NOT NULL`);
-        await queryRunner.query(`CREATE INDEX "IDX_employee_memory_items_employeeId" ON "employee_memory_items" ("employeeId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_employee_base_grants_employeeId" ON "employee_base_grants" ("employeeId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_employee_base_grants_baseId" ON "employee_base_grants" ("baseId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_employee_base_grants_pair" ON "employee_base_grants" ("employeeId", "baseId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_employee_connection_grants_employeeId" ON "employee_connection_grants" ("employeeId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_employee_connection_grants_connectionId" ON "employee_connection_grants" ("connectionId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_employee_connection_grants_pair" ON "employee_connection_grants" ("employeeId", "connectionId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_integration_connections_companyId" ON "integration_connections" ("companyId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_integration_connections_company_provider" ON "integration_connections" ("companyId", "provider") `);
-        await queryRunner.query(`CREATE INDEX "IDX_backups_createdAt" ON "backups" ("createdAt") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_base_views_tableId_slug" ON "base_views" ("tableId", "slug") `);
-        await queryRunner.query(`CREATE INDEX "IDX_base_views_tableId_sortOrder" ON "base_views" ("tableId", "sortOrder") `);
-        await queryRunner.query(`CREATE INDEX "IDX_base_record_attachments_recordId" ON "base_record_attachments" ("recordId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_base_record_attachments_companyId" ON "base_record_attachments" ("companyId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_base_record_comments_recordId" ON "base_record_comments" ("recordId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_base_records_tableId_createdAt" ON "base_records" ("tableId", "createdAt") `);
-        await queryRunner.query(`CREATE INDEX "IDX_base_fields_tableId_sortOrder" ON "base_fields" ("tableId", "sortOrder") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_base_tables_baseId_slug" ON "base_tables" ("baseId", "slug") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_bases_companyId_slug" ON "bases" ("companyId", "slug") `);
-        await queryRunner.query(`CREATE INDEX "IDX_audit_company_createdAt" ON "audit_events" ("companyId", "createdAt") `);
-        await queryRunner.query(`CREATE INDEX "IDX_secrets_companyId" ON "secrets" ("companyId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_secrets_company_name" ON "secrets" ("companyId", "name") `);
-        await queryRunner.query(`CREATE INDEX "IDX_mcp_servers_employeeId" ON "mcp_servers" ("employeeId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_mcp_servers_employee_name" ON "mcp_servers" ("employeeId", "name") `);
-        await queryRunner.query(`CREATE INDEX "IDX_approvals_companyId" ON "approvals" ("companyId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_approvals_routineId" ON "approvals" ("routineId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_approvals_kind" ON "approvals" ("kind") `);
-        await queryRunner.query(`CREATE INDEX "IDX_journal_entries_employeeId" ON "journal_entries" ("employeeId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_conversation_messages_conversationId" ON "conversation_messages" ("conversationId") `);
-        await queryRunner.query(`CREATE INDEX "IDX_conversations_employeeId" ON "conversations" ("employeeId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_conversations_external" ON "conversations" ("source", "connectionId", "externalKey") WHERE "externalKey" IS NOT NULL`);
-        await queryRunner.query(`CREATE INDEX "IDX_todo_comments_todoId" ON "todo_comments" ("todoId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_todos_projectId_number" ON "todos" ("projectId", "number") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_projects_companyId_slug" ON "projects" ("companyId", "slug") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_ai_models_employeeId" ON "ai_models" ("employeeId") `);
-        await queryRunner.query(`CREATE UNIQUE INDEX "UQ_users_handle" ON "users" ("handle") WHERE "handle" IS NOT NULL`);
-    }
+    // Drop the now-unused `logsPath` column from `runs`. SQLite < 3.35
+    // can't `ALTER TABLE … DROP COLUMN`, so do the standard rename-table
+    // rebuild. `logContent` (added by 1777500000000-MarkdownToDb) and
+    // `exitCode` (added by 1776600000000-RunnerTimeouts) are preserved.
+    await queryRunner.query(
+      `CREATE TABLE "temporary_runs" ("id" varchar PRIMARY KEY NOT NULL, "routineId" varchar NOT NULL, "startedAt" datetime NOT NULL, "finishedAt" datetime, "status" varchar NOT NULL, "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "exitCode" integer, "logContent" text NOT NULL DEFAULT (''))`,
+    );
+    await queryRunner.query(
+      `INSERT INTO "temporary_runs"("id", "routineId", "startedAt", "finishedAt", "status", "createdAt", "exitCode", "logContent") SELECT "id", "routineId", "startedAt", "finishedAt", "status", "createdAt", "exitCode", "logContent" FROM "runs"`,
+    );
+    await queryRunner.query(`DROP TABLE "runs"`);
+    await queryRunner.query(`ALTER TABLE "temporary_runs" RENAME TO "runs"`);
+  }
 
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    // Restore the `logsPath` column on `runs`.
+    await queryRunner.query(
+      `CREATE TABLE "temporary_runs" ("id" varchar PRIMARY KEY NOT NULL, "routineId" varchar NOT NULL, "startedAt" datetime NOT NULL, "finishedAt" datetime, "status" varchar NOT NULL, "logsPath" varchar, "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "exitCode" integer, "logContent" text NOT NULL DEFAULT (''))`,
+    );
+    await queryRunner.query(
+      `INSERT INTO "temporary_runs"("id", "routineId", "startedAt", "finishedAt", "status", "createdAt", "exitCode", "logContent") SELECT "id", "routineId", "startedAt", "finishedAt", "status", "createdAt", "exitCode", "logContent" FROM "runs"`,
+    );
+    await queryRunner.query(`DROP TABLE "runs"`);
+    await queryRunner.query(`ALTER TABLE "temporary_runs" RENAME TO "runs"`);
+
+    // Drop the M18 Learnings tables.
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_76666070ddf36fd1f3ee6316b0"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_69b8b1f5be86152a92698eda85"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_aa67e2f19cf2719d133a9057bd"`);
+    await queryRunner.query(`DROP TABLE IF EXISTS "employee_learning_grants"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_5968fa55352eb5a71f45f02323"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_0e31b3a842bb3bfc9eb2b00f14"`);
+    await queryRunner.query(`DROP TABLE IF EXISTS "learnings"`);
+  }
 }
