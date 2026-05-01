@@ -30,7 +30,10 @@ import {
   WsInboundEvent,
   workspaceApi,
 } from "../lib/workspace";
-import { useCompanySocketSubscription } from "../components/CompanySocket";
+import {
+  useCompanySocket,
+  useCompanySocketSubscription,
+} from "../components/CompanySocket";
 import { EmojiPicker } from "../components/workspace/EmojiPicker";
 import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
@@ -91,6 +94,12 @@ export default function Workspace({ company, me }: WorkspaceProps) {
     activeChannelIdRef.current = activeChannelId;
   }, [activeChannelId]);
 
+  // Tracks every message id we've already counted toward an unread badge so
+  // a duplicate `message.new` frame (a flaky reconnect, two providers briefly
+  // overlapping during a remount, etc.) doesn't compound the badge past the
+  // server-authoritative count.
+  const countedMessageIdsRef = React.useRef<Set<string>>(new Set());
+
   // ──────────────── Initial load + realtime wiring ─────────────────────
 
   // Load channels / directory / mentionables once per company. Do NOT
@@ -121,6 +130,46 @@ export default function Workspace({ company, me }: WorkspaceProps) {
     };
   }, [company.id, toast]);
 
+  // Re-sync channels (and their server-authoritative unreadCount) from the
+  // server. WS-driven local increments can drift past the real count over a
+  // long-lived tab — a duplicate frame, a missed mark-read, another tab
+  // marking a channel read — and there's no other path to reconcile.
+  // Preserves unreadCount=0 on the active channel so a refetch that races
+  // an in-flight markRead doesn't re-paint the badge the user just cleared.
+  const refetchChannels = React.useCallback(async () => {
+    try {
+      const list = await workspaceApi.listChannels(company.id);
+      setChannels(() =>
+        list.map((c) =>
+          c.id === activeChannelIdRef.current ? { ...c, unreadCount: 0 } : c,
+        ),
+      );
+    } catch {
+      // Silent — background reconciliation, not a user action.
+    }
+  }, [company.id]);
+
+  React.useEffect(() => {
+    const onFocus = () => refetchChannels();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [refetchChannels]);
+
+  // After the WS reconnects (e.g. the laptop woke up), re-sync once. The hub
+  // doesn't replay missed frames, so without this the badges keep whatever
+  // count they had when the connection dropped.
+  const { status: wsStatus } = useCompanySocket();
+  const prevWsStatusRef = React.useRef(wsStatus);
+  React.useEffect(() => {
+    if (prevWsStatusRef.current !== "open" && wsStatus === "open") {
+      // Skip the very first transition; the mount fetch already ran.
+      if (prevWsStatusRef.current !== "connecting") {
+        refetchChannels();
+      }
+    }
+    prevWsStatusRef.current = wsStatus;
+  }, [wsStatus, refetchChannels]);
+
   // Land on the first channel if the URL has no channel and channels
   // have loaded. Separate from the data load so we don't refetch.
   React.useEffect(() => {
@@ -149,29 +198,33 @@ export default function Workspace({ company, me }: WorkspaceProps) {
       case "hello":
         return;
       case "message.new": {
+        const alreadyCounted = countedMessageIdsRef.current.has(ev.message.id);
+        countedMessageIdsRef.current.add(ev.message.id);
         setMessages((prev) => {
           const cur = prev[ev.channelId] ?? [];
           if (cur.some((m) => m.id === ev.message.id)) return prev;
           return { ...prev, [ev.channelId]: [...cur, ev.message] };
         });
         const isActiveChannel = ev.channelId === activeChannelIdRef.current;
-        setChannels((prev) => {
-          if (!prev) return prev;
-          return prev.map((c) => {
-            if (c.id !== ev.channelId) return c;
-            const unreadDelta =
-              ev.message.author?.kind === "user" && ev.message.author.id === me.id
-                ? 0
-                : isActiveChannel
+        if (!alreadyCounted) {
+          setChannels((prev) => {
+            if (!prev) return prev;
+            return prev.map((c) => {
+              if (c.id !== ev.channelId) return c;
+              const unreadDelta =
+                ev.message.author?.kind === "user" && ev.message.author.id === me.id
                   ? 0
-                  : 1;
-            return {
-              ...c,
-              lastMessageAt: ev.message.createdAt,
-              unreadCount: c.unreadCount + unreadDelta,
-            };
+                  : isActiveChannel
+                    ? 0
+                    : 1;
+              return {
+                ...c,
+                lastMessageAt: ev.message.createdAt,
+                unreadCount: c.unreadCount + unreadDelta,
+              };
+            });
           });
-        });
+        }
         // If the message landed in the channel the user is viewing, push
         // lastReadAt forward server-side so a reload doesn't re-surface it.
         if (isActiveChannel) {

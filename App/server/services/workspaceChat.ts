@@ -678,11 +678,19 @@ async function hydrateChannel(
   let unreadCount = 0;
   if (c.lastMessageAt) {
     const lastRead = myMember?.lastReadAt ?? null;
-    const threshold = lastRead ? lastRead : null;
+    // Bind the threshold as a TEXT string in the same UTC "YYYY-MM-DD
+    // HH:MM:SS.SSS" shape SQLite stores datetime columns as. Passing the
+    // Date object directly makes better-sqlite3 bind it as a number, and
+    // SQLite's `TEXT > INTEGER` is unconditionally true under type-affinity
+    // rules — which silently turned this whole filter into a no-op and made
+    // the unread badge equal the total count of non-self messages.
+    const threshold = lastRead
+      ? lastRead.toISOString().replace("T", " ").replace("Z", "")
+      : null;
     const qb = messages
       .createQueryBuilder("m")
       .where("m.channelId = :channelId", { channelId: c.id })
-      .andWhere("m.authorUserId IS NULL OR m.authorUserId != :viewerUserId", {
+      .andWhere("(m.authorUserId IS NULL OR m.authorUserId != :viewerUserId)", {
         viewerUserId,
       });
     if (threshold) qb.andWhere("m.createdAt > :threshold", { threshold });
