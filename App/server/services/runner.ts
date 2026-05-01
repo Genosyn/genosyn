@@ -7,7 +7,7 @@ import { Company } from "../db/entities/Company.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { Skill } from "../db/entities/Skill.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
-import { employeeDir, ensureDir } from "./paths.js";
+import { employeeDir, employeeOpenclawDir, ensureDir, openclawConfigPath } from "./paths.js";
 import { nextRunFor } from "./cron.js";
 import { PROVIDERS, isSubscriptionConnected, splitGooseModel } from "./providers.js";
 import { decryptSecret } from "../lib/secret.js";
@@ -362,12 +362,17 @@ function buildProviderEnv(
     "GOOSE_PROVIDER",
     "GOOSE_MODEL",
     "GOOSE_DISABLE_KEYRING",
+    "OPENCLAW_CONFIG_PATH",
+    "OPENCLAW_STATE_DIR",
   ]) {
     delete base[key];
   }
 
   if (model.authMode === "subscription") {
     const dir = spec.configDir(coSlug, empSlug);
+    if (!spec.supportsSubscription || !spec.loginCommand) {
+      return { error: `${model.provider} doesn't support subscription auth — use an API key.` };
+    }
     if (!isSubscriptionConnected(model.provider, coSlug, empSlug)) {
       return {
         error: `Subscription credentials not found. Run \`${spec.configDirEnv}=${dir} ${spec.loginCommand}\` and retry.`,
@@ -405,7 +410,16 @@ function buildProviderEnv(
   } catch {
     return { error: "Stored API key could not be decrypted (sessionSecret may have rotated)." };
   }
-  return { env: { ...base, [spec.apiKeyEnv]: key } };
+  const env: NodeJS.ProcessEnv = { ...base, [spec.apiKeyEnv]: key };
+  if (model.provider === "openclaw") {
+    // OpenClaw needs its config file path (OPENCLAW_CONFIG_PATH) and its
+    // runtime state dir (OPENCLAW_STATE_DIR) pinned per-employee. Without
+    // both, per-agent auth profiles would land in the operator's
+    // ~/.openclaw/ and leak across employees.
+    env.OPENCLAW_CONFIG_PATH = openclawConfigPath(coSlug, empSlug);
+    env.OPENCLAW_STATE_DIR = employeeOpenclawDir(coSlug, empSlug);
+  }
+  return { env };
 }
 
 /**
@@ -416,6 +430,11 @@ function buildProviderEnv(
  *  - goose:       `goose run --text <prompt> --no-session --quiet`
  *                 (router mode; provider + model are pinned via env vars
  *                 so the AIModel record stays authoritative)
+ *  - openclaw:    `openclaw agent --message <prompt>` (one-shot turn).
+ *                 Model + underlying provider live in openclaw.json (pointed
+ *                 at via OPENCLAW_CONFIG_PATH); v1 expects the operator to
+ *                 have run `openclaw onboard` once per employee dir before
+ *                 first use, since we don't materialize that file yet.
  *
  * `extraArgs` carries provider-specific MCP wiring that has to land on the
  * argv rather than a config file. Empty for everyone except goose today.
@@ -474,6 +493,11 @@ function buildInvocation(
       return {
         cmd: "goose",
         args: ["run", "--text", prompt, "--no-session", "--quiet", ...extraArgs],
+      };
+    case "openclaw":
+      return {
+        cmd: "openclaw",
+        args: ["agent", "--message", prompt, ...extraArgs],
       };
   }
 }

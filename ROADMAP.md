@@ -51,8 +51,9 @@ don't re-litigate them.
 - **Routine** — a scheduled recurring piece of work. Cron-triggered. Markdown
   brief on `Routine.body` alongside cron metadata.
 - **AI Model** — the brain of a single AI Employee. One-to-one with the
-  employee. Provider (`claude-code` / `codex` / `opencode` / `goose`), model
-  string, credentials on disk under the employee's data dir.
+  employee. Provider (`claude-code` / `codex` / `opencode` / `goose` /
+  `openclaw`), model string, credentials on disk under the employee's data
+  dir.
 - **Run** — a single execution of a routine. Captured stdout + stderr stored
   on `Run.logContent` (256 KB cap).
 - **Integration** — a connector type (Stripe, Gmail, Metabase, …). Static
@@ -202,6 +203,12 @@ export const config = {
 - [x] Runner spawns provider CLI in employee cwd with scoped env
 - [x] CLI install + sign-in flow brought into the browser
 - [x] Disconnect deletes DB row and wipes credentials
+- [x] `openclaw` provider added (apikey-only; v1 expects operator to run
+      `openclaw onboard` once per employee dir before first use)
+- [ ] OpenClaw built-in `genosyn` MCP server (pending upstream MCP
+      file-format docs)
+- [ ] OpenClaw `openclaw.json` materialization (so `openclaw onboard` is
+      no longer a manual step)
 
 ### M7 — Chat + Workspace ✅
 - [x] Top-nav sections with context-specific sidebars

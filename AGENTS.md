@@ -17,7 +17,8 @@ autonomously with AI employees**.
   three are plain markdown stored on the employee / skill / routine DB rows —
   there are no `SOUL.md` / `README.md` files on disk any more.
 - Each company can register multiple **AI Models** (`claude-code`, `codex`,
-  `opencode`, `goose` with custom model) and assign them to employees.
+  `opencode`, `goose`, `openclaw` with custom model) and assign them to
+  employees.
 
 Read `ROADMAP.md` for the full vocabulary, milestones, and backlog. **Do not
 duplicate content from ROADMAP.md here** — link to it.
@@ -132,9 +133,9 @@ Everything user-generated lives under `config.dataDir` (default `./data`):
 data/
 ├── app.sqlite
 └── companies/<company-slug>/employees/<emp-slug>/
-    ├── .claude/ .codex/ .opencode/ .goose/   # per-employee provider creds
-    ├── .mcp.json                              # materialized before every spawn
-    └── …                                      # whatever the CLI writes into cwd
+    ├── .claude/ .codex/ .opencode/ .goose/ .openclaw/   # per-employee provider creds
+    ├── .mcp.json                                          # materialized before every spawn
+    └── …                                                  # whatever the CLI writes into cwd
 ```
 
 - **The database is the source of truth** for Soul, Skill, and Routine prose
@@ -143,11 +144,12 @@ data/
   `skills/<slug>/README.md` / `routines/<slug>/README.md` on disk.
 - What stays on disk is the runtime surface the provider CLI needs: the
   per-employee credentials directories (`.claude`, `.codex`, `.opencode`,
-  `.goose`), the provider-specific MCP config we materialize before each
-  spawn, and any artifacts the CLI writes into its cwd. Each provider has
-  its own config shape and file location; every provider always includes a
-  built-in `genosyn` server so the employee can call back into Genosyn to
-  create Routines, Todos, journal notes, etc.:
+  `.goose`, `.openclaw`), the provider-specific MCP config we materialize
+  before each spawn, and any artifacts the CLI writes into its cwd. Each
+  provider has its own config shape and file location; every provider
+  (except openclaw, today) always includes a built-in `genosyn` server so
+  the employee can call back into Genosyn to create Routines, Todos,
+  journal notes, etc.:
     * **claude-code** → `.mcp.json` at the employee's cwd
     * **codex** → `$CODEX_HOME/config.toml` with `[mcp_servers.<name>]`
       blocks (HTTP-transport external servers are skipped with a note,
@@ -157,6 +159,12 @@ data/
       flags (`--with-extension`, `--with-streamable-http-extension`) so we
       don't fight with whatever `goose configure` wrote into the same
       `config.yaml`
+    * **openclaw** → no MCP wiring in v1. OpenClaw documents MCP support
+      via the `tools` key in `openclaw.json`, but the on-disk schema isn't
+      pinned down upstream yet, so the built-in `genosyn` server is not
+      attached. Operator runs `OPENCLAW_CONFIG_PATH=<employee>/.openclaw/openclaw.json
+      OPENCLAW_STATE_DIR=<employee>/.openclaw openclaw onboard` once per
+      employee dir before first use.
 - The `data/` directory is gitignored. Never commit anything inside it.
 - Slugs are derived once at create-time via `slugify`; renames update the
   display name but not the slug (so URLs and credential paths stay stable).

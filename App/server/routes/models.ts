@@ -30,13 +30,13 @@ export const modelsRouter = Router({ mergeParams: true });
 modelsRouter.use(requireAuth);
 modelsRouter.use(requireCompanyMember);
 
-const providerSchema = z.enum(["claude-code", "codex", "opencode", "goose"]);
+const providerSchema = z.enum(["claude-code", "codex", "opencode", "goose", "openclaw"]);
 const authModeSchema = z.enum(["subscription", "apikey"]);
 
 type PublicModel = {
   id: string;
   employeeId: string;
-  provider: "claude-code" | "codex" | "opencode" | "goose";
+  provider: "claude-code" | "codex" | "opencode" | "goose" | "openclaw";
   model: string;
   authMode: "subscription" | "apikey";
   connectedAt: string | null;
@@ -46,12 +46,14 @@ type PublicModel = {
   configDir: string;
   /** Env var name to prefix the login command with (e.g. CLAUDE_CONFIG_DIR). */
   configDirEnv: string;
-  /** The login command the operator runs in a terminal. */
-  loginCommand: string;
+  /** The login command the operator runs in a terminal. `null` for providers without a login flow (openclaw). */
+  loginCommand: string | null;
   /** Env var for pay-as-you-go keys, or null if this provider doesn't use one. */
   apiKeyEnv: string | null;
   /** Does this provider support the "Use an API key" flow at all? */
   supportsApiKey: boolean;
+  /** Does this provider support the "Sign in with subscription" flow at all? */
+  supportsSubscription: boolean;
   /** True if the provider's CLI binary resolves on PATH right now. */
   cliInstalled: boolean;
 };
@@ -88,6 +90,7 @@ function toPublic(m: AIModel, co: Company, emp: AIEmployee): PublicModel {
     loginCommand: spec.loginCommand,
     apiKeyEnv: spec.apiKeyEnv,
     supportsApiKey: spec.supportsApiKey,
+    supportsSubscription: spec.supportsSubscription,
     cliInstalled: isCliInstalled(m.provider),
   };
 }
@@ -130,6 +133,11 @@ modelsRouter.put("/", validateBody(upsertSchema), async (req, res) => {
     return res
       .status(400)
       .json({ error: `${body.provider} doesn't support API key auth — use subscription.` });
+  }
+  if (body.authMode === "subscription" && !PROVIDERS[body.provider].supportsSubscription) {
+    return res
+      .status(400)
+      .json({ error: `${body.provider} doesn't support subscription auth — use an API key.` });
   }
   const repo = AppDataSource.getRepository(AIModel);
   let m = await repo.findOneBy({ employeeId: ctx.emp.id });
@@ -295,6 +303,8 @@ function buildLoginEnv(configDir: string, configDirEnv: string): NodeJS.ProcessE
     "GOOSE_PROVIDER",
     "GOOSE_MODEL",
     "GOOSE_DISABLE_KEYRING",
+    "OPENCLAW_CONFIG_PATH",
+    "OPENCLAW_STATE_DIR",
   ]) {
     delete env[key];
   }
@@ -370,15 +380,21 @@ modelsRouter.post("/login", async (req, res) => {
   if (m.authMode !== "subscription") {
     return res.status(400).json({ error: "Model is not in subscription mode" });
   }
+  const spec = PROVIDERS[m.provider];
+  if (!spec.loginArgv || !spec.supportsSubscription) {
+    return res
+      .status(400)
+      .json({ error: `${m.provider} doesn't have a sign-in flow — use an API key.` });
+  }
   if (!isCliInstalled(m.provider)) {
     return res
       .status(409)
       .json({ error: `${m.provider} CLI is not installed yet. Install it first.` });
   }
-  const spec = PROVIDERS[m.provider];
   const configDir = spec.configDir(ctx.co.slug, ctx.emp.slug);
   ensureDir(configDir);
   ensureDir(path.dirname(spec.credsPath(ctx.co.slug, ctx.emp.slug)));
+  const loginArgv = spec.loginArgv;
   let session;
   try {
     session = createPtySession({
@@ -386,15 +402,15 @@ modelsRouter.post("/login", async (req, res) => {
       provider: m.provider,
       companyId: ctx.co.id,
       employeeId: ctx.emp.id,
-      cmd: spec.loginArgv.cmd,
-      args: spec.loginArgv.args,
+      cmd: loginArgv.cmd,
+      args: loginArgv.args,
       env: buildLoginEnv(configDir, spec.configDirEnv),
       cwd: configDir,
     });
   } catch (err) {
     if (err instanceof PtySpawnError) {
       return res.status(500).json({
-        error: `Couldn't start ${spec.loginArgv.cmd}. The CLI may have moved off PATH since the install check ran — try the install button again.`,
+        error: `Couldn't start ${loginArgv.cmd}. The CLI may have moved off PATH since the install check ran — try the install button again.`,
       });
     }
     throw err;

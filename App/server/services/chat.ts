@@ -4,7 +4,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { Skill } from "../db/entities/Skill.js";
-import { employeeDir, ensureDir } from "./paths.js";
+import { employeeDir, employeeOpenclawDir, ensureDir, openclawConfigPath } from "./paths.js";
 import { PROVIDERS, isSubscriptionConnected, splitGooseModel } from "./providers.js";
 import { decryptSecret } from "../lib/secret.js";
 import { materializeMcpConfig } from "./mcp.js";
@@ -245,12 +245,17 @@ function buildProviderEnv(
     "GOOSE_PROVIDER",
     "GOOSE_MODEL",
     "GOOSE_DISABLE_KEYRING",
+    "OPENCLAW_CONFIG_PATH",
+    "OPENCLAW_STATE_DIR",
   ]) {
     delete base[key];
   }
 
   if (model.authMode === "subscription") {
     const dir = spec.configDir(coSlug, empSlug);
+    if (!spec.supportsSubscription) {
+      return { error: `${model.provider} doesn't support subscription auth — use an API key.` };
+    }
     if (!isSubscriptionConnected(model.provider, coSlug, empSlug)) {
       return {
         error: `Subscription credentials not found. Sign ${model.provider} in from the Settings tab first.`,
@@ -287,7 +292,14 @@ function buildProviderEnv(
   } catch {
     return { error: "Stored API key could not be decrypted (sessionSecret may have rotated)." };
   }
-  return { env: { ...base, [spec.apiKeyEnv]: key } };
+  const env: NodeJS.ProcessEnv = { ...base, [spec.apiKeyEnv]: key };
+  if (model.provider === "openclaw") {
+    // Mirror of runner.ts: pin OpenClaw to per-employee config + state so
+    // auth profiles don't leak into the operator's ~/.openclaw/.
+    env.OPENCLAW_CONFIG_PATH = openclawConfigPath(coSlug, empSlug);
+    env.OPENCLAW_STATE_DIR = employeeOpenclawDir(coSlug, empSlug);
+  }
+  return { env };
 }
 
 type StreamParser = "text" | "claude-jsonl";
@@ -368,6 +380,16 @@ function buildInvocation(
       return {
         cmd: "goose",
         args: ["run", "--text", prompt, "--no-session", "--quiet", ...extraArgs],
+        parser: "text",
+      };
+    case "openclaw":
+      // OpenClaw's headless one-shot turn. v1 expects `openclaw onboard` to
+      // have been run once per employee dir so openclaw.json exists at
+      // OPENCLAW_CONFIG_PATH; until we materialize that file ourselves the
+      // operator bootstraps it manually.
+      return {
+        cmd: "openclaw",
+        args: ["agent", "--message", prompt, ...extraArgs],
         parser: "text",
       };
   }

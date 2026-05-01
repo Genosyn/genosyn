@@ -36,6 +36,7 @@ export function employeeDir(companySlug: string, employeeSlug: string): string {
  * - codex       → <employee>/.codex
  * - opencode    → <employee>/.opencode   (treated as XDG_DATA_HOME)
  * - goose       → <employee>/.goose      (treated as XDG_CONFIG_HOME)
+ * - openclaw    → <employee>/.openclaw   (OPENCLAW_STATE_DIR; OPENCLAW_CONFIG_PATH points at openclaw.json inside it)
  */
 export function employeeClaudeDir(
   companySlug: string,
@@ -101,6 +102,34 @@ export function gooseCredsPath(
   // file rather than the host's OS keychain — without that the per-employee
   // isolation breaks, since the keychain is shared across all employees.
   return path.join(employeeGooseDir(companySlug, employeeSlug), "goose", "config.yaml");
+}
+
+export function employeeOpenclawDir(
+  companySlug: string,
+  employeeSlug: string,
+): string {
+  return path.join(employeeDir(companySlug, employeeSlug), ".openclaw");
+}
+
+export function openclawConfigPath(
+  companySlug: string,
+  employeeSlug: string,
+): string {
+  // OpenClaw reads OPENCLAW_CONFIG_PATH as an absolute file path (not a dir).
+  // We materialize a per-employee openclaw.json inside the state dir so the
+  // CLI's auth profiles, agent UUIDs, and runtime state all stay isolated.
+  return path.join(employeeOpenclawDir(companySlug, employeeSlug), "openclaw.json");
+}
+
+export function openclawCredsPath(
+  companySlug: string,
+  employeeSlug: string,
+): string {
+  // OpenClaw writes per-agent auth into <state_dir>/agents/<agentId>/agent/auth-profiles.json.
+  // We don't know the agentId up front — it's allocated at first run — so the
+  // canonical "creds present" signal is openclaw.json itself, which the CLI
+  // creates the first time an API key is saved through it.
+  return openclawConfigPath(companySlug, employeeSlug);
 }
 
 export function ensureDir(p: string): void {

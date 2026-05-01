@@ -22,11 +22,17 @@ import { employeeCodexDir } from "./paths.js";
  *                   into the same `config.yaml`. The MCP env vars hitch a
  *                   ride on the goose parent process so the stdio child
  *                   inherits them.
+ *   - openclaw    → no MCP wiring in v1. OpenClaw documents MCP support
+ *                   ("tools" key in openclaw.json) but the on-disk schema
+ *                   isn't pinned down upstream yet. Employees can chat /
+ *                   run routines through OpenClaw, just can't call back
+ *                   into Genosyn's own tools. Tracked as a follow-up.
  *
- * Every provider gets the built-in `genosyn` server (read/write access to
- * Genosyn's own Routines / Todos / Journal / ...) merged with whatever the
- * user configured per-employee in the McpServer DB table. The mapping from
- * the DB schema to each provider's JSON/TOML shape is provider-specific.
+ * Every provider (except openclaw, today) gets the built-in `genosyn`
+ * server (read/write access to Genosyn's own Routines / Todos / Journal /
+ * ...) merged with whatever the user configured per-employee in the
+ * McpServer DB table. The mapping from the DB schema to each provider's
+ * JSON/TOML shape is provider-specific.
  */
 
 // ---------- Claude Code ----------
@@ -197,6 +203,11 @@ export async function materializeMcpConfig(
       return empty;
     case "goose":
       return buildGooseExtras(userServers, options.genosynToken);
+    case "openclaw":
+      // v1: no MCP wiring for openclaw — see file header comment. Returning
+      // empty extras leaves the spawn unchanged; user-configured MCP servers
+      // are silently ignored on this provider until upstream docs settle.
+      return empty;
   }
 }
 

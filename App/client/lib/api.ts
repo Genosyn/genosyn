@@ -215,7 +215,7 @@ export type RunLog = {
   startedAt?: string;
   finishedAt?: string | null;
 };
-export type Provider = "claude-code" | "codex" | "opencode" | "goose";
+export type Provider = "claude-code" | "codex" | "opencode" | "goose" | "openclaw";
 export type AuthMode = "subscription" | "apikey";
 export type AIModel = {
   id: string;
@@ -228,9 +228,10 @@ export type AIModel = {
   apiKeyMasked: string | null;
   configDir: string;
   configDirEnv: string;
-  loginCommand: string;
+  loginCommand: string | null;
   apiKeyEnv: string | null;
   supportsApiKey: boolean;
+  supportsSubscription: boolean;
   cliInstalled: boolean;
 };
 

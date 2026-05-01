@@ -10,8 +10,10 @@ import {
   employeeClaudeDir,
   employeeCodexDir,
   employeeGooseDir,
+  employeeOpenclawDir,
   employeeOpencodeDir,
   gooseCredsPath,
+  openclawCredsPath,
   opencodeCredsPath,
 } from "./paths.js";
 
@@ -36,15 +38,26 @@ export type ProviderSpec = {
   apiKeyEnv: string | null;
   /** Does this provider support the "Use an API key" flow at all? */
   supportsApiKey: boolean;
-  /** Shell command the operator runs to log in (scoped via configDirEnv). */
-  loginCommand: string;
+  /**
+   * Does this provider support a "Sign in with subscription" flow? Mirrors
+   * `supportsApiKey` for providers (like openclaw) whose primary auth model
+   * is API-key-only and have no first-class `<cli> login` subcommand.
+   */
+  supportsSubscription: boolean;
+  /**
+   * Shell command the operator runs to log in (scoped via configDirEnv).
+   * `null` for providers without a subscription flow (see
+   * `supportsSubscription`).
+   */
+  loginCommand: string | null;
   /**
    * argv form of the login command, used when we spawn it under a pty for
    * the in-browser sign-in flow. Must be the same effective command as
    * `loginCommand` (which is the human-readable shell version shown to
-   * operators who prefer to run it themselves).
+   * operators who prefer to run it themselves). `null` when
+   * `supportsSubscription` is false.
    */
-  loginArgv: { cmd: string; args: string[] };
+  loginArgv: { cmd: string; args: string[] } | null;
   /** Binary name to look up on PATH to decide if the CLI is installed. */
   binName: string;
   /**
@@ -78,6 +91,10 @@ export function isSubscriptionConnected(
   employeeSlug: string,
 ): boolean {
   const spec = PROVIDERS[provider];
+  // Providers without a subscription flow (api-key-only) can never be
+  // "subscription connected". Defensive — the UI and routes should never
+  // ask, but this keeps the predicate honest if they do.
+  if (!spec.supportsSubscription) return false;
   try {
     if (fs.existsSync(spec.credsPath(companySlug, employeeSlug))) return true;
   } catch {
@@ -123,6 +140,7 @@ export const PROVIDERS: Record<Provider, ProviderSpec> = {
     configDirEnv: "CLAUDE_CONFIG_DIR",
     apiKeyEnv: "ANTHROPIC_API_KEY",
     supportsApiKey: true,
+    supportsSubscription: true,
     // `claude auth login` is the OAuth-only path. The legacy alias `claude
     // login` boots the full TUI first — theme picker, syntax-theme demo,
     // workspace-trust dialog — before getting to OAuth. None of that is
@@ -143,6 +161,7 @@ export const PROVIDERS: Record<Provider, ProviderSpec> = {
     configDirEnv: "CODEX_HOME",
     apiKeyEnv: "OPENAI_API_KEY",
     supportsApiKey: true,
+    supportsSubscription: true,
     loginCommand: "codex login",
     loginArgv: { cmd: "codex", args: ["login"] },
     binName: "codex",
@@ -162,6 +181,7 @@ export const PROVIDERS: Record<Provider, ProviderSpec> = {
     // env var, so we disable the apikey flow here.
     apiKeyEnv: null,
     supportsApiKey: false,
+    supportsSubscription: true,
     loginCommand: "opencode auth login",
     loginArgv: { cmd: "opencode", args: ["auth", "login"] },
     binName: "opencode",
@@ -183,6 +203,7 @@ export const PROVIDERS: Record<Provider, ProviderSpec> = {
     // env var, so we disable the apikey flow.
     apiKeyEnv: null,
     supportsApiKey: false,
+    supportsSubscription: true,
     // GOOSE_DISABLE_KEYRING=1 keeps goose from stashing creds in the host's
     // OS keychain — without it, every employee would share whatever the host
     // has logged in. The login command in the UI is composed as
@@ -206,6 +227,35 @@ export const PROVIDERS: Record<Provider, ProviderSpec> = {
     },
     configDir: employeeGooseDir,
     credsPath: gooseCredsPath,
+  },
+  openclaw: {
+    label: "OpenClaw",
+    // OpenClaw is a router (calls underlying providers via plugins). Format
+    // mirrors opencode + goose so a single AIModel.model edit reroutes the
+    // brain without touching this spec.
+    defaultModel: "anthropic/claude-opus-4-7",
+    // OPENCLAW_CONFIG_PATH points at the openclaw.json file (not a directory,
+    // unlike CLAUDE_CONFIG_DIR / CODEX_HOME / XDG_*_HOME). The runner sets
+    // OPENCLAW_STATE_DIR alongside it so per-agent auth profiles also land
+    // inside the employee's `.openclaw/`.
+    configDirEnv: "OPENCLAW_CONFIG_PATH",
+    // The default model routes through Anthropic, so the user pastes an
+    // Anthropic key. Operators who flip the model to a different router
+    // target can still paste the corresponding key here — OpenClaw resolves
+    // it when the matching provider is selected at runtime.
+    apiKeyEnv: "ANTHROPIC_API_KEY",
+    supportsApiKey: true,
+    // OpenClaw has no first-class `<cli> login` subcommand — auth profiles
+    // are written directly to <state_dir>/agents/<id>/agent/auth-profiles.json.
+    // The OAuth convenience flow exists but isn't scriptable enough for the
+    // pty-driven wizard yet, so v1 ships api-key-only.
+    supportsSubscription: false,
+    loginCommand: null,
+    loginArgv: null,
+    binName: "openclaw",
+    installArgv: { cmd: "npm", args: ["install", "-g", "openclaw"] },
+    configDir: employeeOpenclawDir,
+    credsPath: openclawCredsPath,
   },
 };
 

@@ -940,12 +940,38 @@ function RoutineEditor({
 
 const PROVIDER_DEFAULTS: Record<
   Provider,
-  { label: string; model: string; supportsApiKey: boolean }
+  { label: string; model: string; supportsApiKey: boolean; supportsSubscription: boolean }
 > = {
-  "claude-code": { label: "claude-code", model: "claude-opus-4-6", supportsApiKey: true },
-  codex: { label: "codex", model: "gpt-5-codex", supportsApiKey: true },
-  opencode: { label: "opencode", model: "anthropic/claude-opus-4-6", supportsApiKey: false },
-  goose: { label: "goose", model: "anthropic/claude-opus-4-6", supportsApiKey: false },
+  "claude-code": {
+    label: "claude-code",
+    model: "claude-opus-4-6",
+    supportsApiKey: true,
+    supportsSubscription: true,
+  },
+  codex: {
+    label: "codex",
+    model: "gpt-5-codex",
+    supportsApiKey: true,
+    supportsSubscription: true,
+  },
+  opencode: {
+    label: "opencode",
+    model: "anthropic/claude-opus-4-6",
+    supportsApiKey: false,
+    supportsSubscription: true,
+  },
+  goose: {
+    label: "goose",
+    model: "anthropic/claude-opus-4-6",
+    supportsApiKey: false,
+    supportsSubscription: true,
+  },
+  openclaw: {
+    label: "openclaw",
+    model: "anthropic/claude-opus-4-7",
+    supportsApiKey: true,
+    supportsSubscription: false,
+  },
 };
 
 /**
@@ -1504,10 +1530,12 @@ function ModelForm({
   const [saving, setSaving] = React.useState(false);
   const { toast } = useToast();
   const supportsApiKey = PROVIDER_DEFAULTS[provider].supportsApiKey;
+  const supportsSubscription = PROVIDER_DEFAULTS[provider].supportsSubscription;
 
   React.useEffect(() => {
     if (!supportsApiKey && authMode === "apikey") setAuthMode("subscription");
-  }, [supportsApiKey, authMode]);
+    if (!supportsSubscription && authMode === "subscription") setAuthMode("apikey");
+  }, [supportsApiKey, supportsSubscription, authMode]);
 
   return (
     <form
@@ -1543,6 +1571,7 @@ function ModelForm({
           <option value="codex">codex</option>
           <option value="opencode">opencode</option>
           <option value="goose">goose</option>
+          <option value="openclaw">openclaw</option>
         </Select>
         <Input
           label="Model"
@@ -1558,10 +1587,15 @@ function ModelForm({
         <div className="grid gap-2 sm:grid-cols-2">
           <AuthModeChoice
             active={authMode === "subscription"}
-            onClick={() => setAuthMode("subscription")}
+            onClick={() => supportsSubscription && setAuthMode("subscription")}
+            disabled={!supportsSubscription}
             icon={<PlugZap size={16} />}
             title="Sign in with subscription"
-            description={subscriptionBlurb(provider)}
+            description={
+              supportsSubscription
+                ? subscriptionBlurb(provider)
+                : "Not supported for this provider."
+            }
           />
           <AuthModeChoice
             active={authMode === "apikey"}
@@ -1594,6 +1628,8 @@ function subscriptionBlurb(p: Provider): string {
       return "Sign in to any provider opencode supports.";
     case "goose":
       return "Sign in to any provider goose supports.";
+    case "openclaw":
+      return "";
   }
 }
 
@@ -1607,6 +1643,8 @@ function apiKeyBlurb(p: Provider): string {
       return "";
     case "goose":
       return "";
+    case "openclaw":
+      return "Pay-as-you-go via the underlying provider (Anthropic by default).";
   }
 }
 
@@ -2025,13 +2063,17 @@ function SubscriptionLoginInner({
   }
 
   // Step 3: a pty is running. Render the wizard.
+  // `loginCommand` is non-null whenever a session exists — the only way to
+  // reach this branch is through `startLogin`, which is gated on
+  // supportsSubscription which implies a real login command. The `?? ""`
+  // is defensive padding to satisfy the panel's non-nullable prop type.
   return (
     <PtySessionPanel
       session={session}
       phase={phase}
       configDir={model.configDir}
       configDirEnv={model.configDirEnv}
-      loginCommand={model.loginCommand}
+      loginCommand={model.loginCommand ?? ""}
       onSend={send}
       onDismiss={dismissSession}
       error={error}
@@ -2627,13 +2669,19 @@ function providerLabel(p: PtySessionView["provider"]): string {
       return "OpenCode";
     case "goose":
       return "Goose";
+    case "openclaw":
+      return "OpenClaw";
   }
 }
 
 function ManualCommandFallback({ model }: { model: AIModel }) {
-  const command = `${model.configDirEnv}=${shellQuote(model.configDir)} ${model.loginCommand}`;
   const [open, setOpen] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
+  // Providers without a login command (openclaw) have nothing to fall back to —
+  // the fallback only mirrors the in-browser sign-in button. Early return must
+  // come after the hooks above to keep the call order stable.
+  if (!model.loginCommand) return null;
+  const command = `${model.configDirEnv}=${shellQuote(model.configDir)} ${model.loginCommand}`;
   return (
     <details
       className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-950"
@@ -2697,6 +2745,18 @@ function shellQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
+function apiKeyPlaceholder(p: Provider): string {
+  switch (p) {
+    case "codex":
+      return "sk-…";
+    case "claude-code":
+    case "opencode":
+    case "goose":
+    case "openclaw":
+      return "sk-ant-…";
+  }
+}
+
 function ApiKeyPanel({
   company,
   emp,
@@ -2737,7 +2797,7 @@ function ApiKeyPanel({
         type="password"
         value={key}
         onChange={(e) => setKey(e.target.value)}
-        placeholder={model.provider === "codex" ? "sk-…" : "sk-ant-…"}
+        placeholder={apiKeyPlaceholder(model.provider)}
         required
       />
       <div className="text-xs text-slate-500 dark:text-slate-400">
