@@ -5,7 +5,7 @@ import { AppDataSource } from "../db/datasource.js";
 import { McpServer } from "../db/entities/McpServer.js";
 import type { Provider } from "../db/entities/AIModel.js";
 import { config } from "../../config.js";
-import { employeeCodexDir } from "./paths.js";
+import { employeeCodexDir, openclawConfigPath } from "./paths.js";
 
 /**
  * Each provider CLI has its own way of declaring MCP servers. We centralize
@@ -22,17 +22,19 @@ import { employeeCodexDir } from "./paths.js";
  *                   into the same `config.yaml`. The MCP env vars hitch a
  *                   ride on the goose parent process so the stdio child
  *                   inherits them.
- *   - openclaw    → no MCP wiring in v1. OpenClaw documents MCP support
- *                   ("tools" key in openclaw.json) but the on-disk schema
- *                   isn't pinned down upstream yet. Employees can chat /
- *                   run routines through OpenClaw, just can't call back
- *                   into Genosyn's own tools. Tracked as a follow-up.
+ *   - openclaw    → `mcp.servers.<name>` block inside the openclaw.json
+ *                   pointed at by OPENCLAW_CONFIG_PATH. The file holds
+ *                   non-MCP config (model defaults, gateway, channels) too,
+ *                   so we read-merge-write — preserving everything outside
+ *                   `mcp.servers` and overlaying our managed servers on
+ *                   top. If the file is absent, a minimal one is written
+ *                   with just the `mcp` block so OpenClaw still finds the
+ *                   tools (other sections fall back to its built-in defaults).
  *
- * Every provider (except openclaw, today) gets the built-in `genosyn`
- * server (read/write access to Genosyn's own Routines / Todos / Journal /
- * ...) merged with whatever the user configured per-employee in the
- * McpServer DB table. The mapping from the DB schema to each provider's
- * JSON/TOML shape is provider-specific.
+ * Every provider gets the built-in `genosyn` server (read/write access to
+ * Genosyn's own Routines / Todos / Journal / ...) merged with whatever the
+ * user configured per-employee in the McpServer DB table. The mapping from
+ * the DB schema to each provider's JSON/TOML shape is provider-specific.
  */
 
 // ---------- Claude Code ----------
@@ -203,11 +205,19 @@ export async function materializeMcpConfig(
       return empty;
     case "goose":
       return buildGooseExtras(userServers, options.genosynToken);
-    case "openclaw":
-      // v1: no MCP wiring for openclaw — see file header comment. Returning
-      // empty extras leaves the spawn unchanged; user-configured MCP servers
-      // are silently ignored on this provider until upstream docs settle.
+    case "openclaw": {
+      if (!options.companySlug || !options.employeeSlug) {
+        // Without slugs we can't locate the employee's openclaw.json, so
+        // skip materialization rather than write to the wrong path.
+        return empty;
+      }
+      writeOpenclawConfig(
+        openclawConfigPath(options.companySlug, options.employeeSlug),
+        userServers,
+        options.genosynToken,
+      );
       return empty;
+    }
   }
 }
 
@@ -483,6 +493,98 @@ function gooseStdioCommand(command: string, args: string[]): string {
 function shellQuoteIfNeeded(value: string): string {
   if (value.length > 0 && /^[A-Za-z0-9_./@:=+,-]+$/.test(value)) return value;
   return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+// ---------- openclaw ----------
+
+/**
+ * One MCP server entry inside `mcp.servers` in openclaw.json. OpenClaw
+ * accepts either a stdio entry (command + args) or a remote one (url +
+ * transport). Stdio is implicit when `command` is set; remote defaults to
+ * SSE unless `transport: "streamable-http"` is given.
+ */
+type OpenclawMcpEntry =
+  | {
+      command: string;
+      args?: string[];
+      env?: Record<string, string>;
+    }
+  | {
+      url: string;
+      transport?: "sse" | "streamable-http";
+      headers?: Record<string, string>;
+    };
+
+/**
+ * Materialize the `mcp.servers` block inside openclaw.json. Unlike the
+ * other providers, this file holds non-MCP config (model defaults, gateway
+ * settings, channels) the operator may set via `openclaw onboard` or hand-
+ * edit, so we read-merge-write — preserving everything outside `mcp.servers`
+ * and overlaying our managed entries on top. If no servers and no token are
+ * present and the file doesn't exist, we leave the filesystem untouched.
+ */
+function writeOpenclawConfig(
+  configPath: string,
+  userServers: NormalizedServer[],
+  token: string | undefined,
+): void {
+  const servers: Record<string, OpenclawMcpEntry> = {};
+
+  if (token) {
+    servers.genosyn = {
+      command: process.execPath,
+      args: [GENOSYN_MCP_BIN],
+      env: {
+        GENOSYN_MCP_API: internalApiBase(),
+        GENOSYN_MCP_TOKEN: token,
+      },
+    };
+  }
+
+  for (const s of userServers) {
+    if (s.transport === "http") {
+      servers[s.name] = { url: s.url, transport: "streamable-http" };
+    } else {
+      const entry: OpenclawMcpEntry = { command: s.command };
+      if (s.args.length > 0) entry.args = s.args;
+      if (Object.keys(s.env).length > 0) entry.env = s.env;
+      servers[s.name] = entry;
+    }
+  }
+
+  // Read-merge-write so we don't trample operator-set keys (models, gateway,
+  // channels). A malformed JSON on disk is treated as empty — better than
+  // refusing to spawn the agent.
+  let existing: Record<string, unknown> = {};
+  if (fs.existsSync(configPath)) {
+    try {
+      const raw = fs.readFileSync(configPath, "utf8");
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        existing = parsed as Record<string, unknown>;
+      }
+    } catch {
+      existing = {};
+    }
+  } else if (Object.keys(servers).length === 0) {
+    // Nothing to add and no file to update — leave the filesystem alone.
+    return;
+  }
+
+  const mcpBlock = (
+    typeof existing.mcp === "object" && existing.mcp !== null && !Array.isArray(existing.mcp)
+      ? { ...(existing.mcp as Record<string, unknown>) }
+      : {}
+  );
+  if (Object.keys(servers).length > 0) {
+    mcpBlock.servers = servers;
+  } else {
+    delete mcpBlock.servers;
+  }
+  existing.mcp = mcpBlock;
+
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, JSON.stringify(existing, null, 2), "utf8");
 }
 
 // ---------- parsing helpers ----------

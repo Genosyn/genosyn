@@ -383,10 +383,9 @@ function buildInvocation(
         parser: "text",
       };
     case "openclaw":
-      // OpenClaw's headless one-shot turn. v1 expects `openclaw onboard` to
-      // have been run once per employee dir so openclaw.json exists at
-      // OPENCLAW_CONFIG_PATH; until we materialize that file ourselves the
-      // operator bootstraps it manually.
+      // OpenClaw's headless one-shot turn. The genosyn MCP server lands in
+      // the `mcp.servers` block of openclaw.json (materialized by mcp.ts
+      // before this spawn); model defaults are OpenClaw's responsibility.
       return {
         cmd: "openclaw",
         args: ["agent", "--message", prompt, ...extraArgs],

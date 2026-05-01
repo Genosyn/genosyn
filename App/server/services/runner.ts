@@ -432,9 +432,11 @@ function buildProviderEnv(
  *                 so the AIModel record stays authoritative)
  *  - openclaw:    `openclaw agent --message <prompt>` (one-shot turn).
  *                 Model + underlying provider live in openclaw.json (pointed
- *                 at via OPENCLAW_CONFIG_PATH); v1 expects the operator to
- *                 have run `openclaw onboard` once per employee dir before
- *                 first use, since we don't materialize that file yet.
+ *                 at via OPENCLAW_CONFIG_PATH); we materialize that file's
+ *                 `mcp.servers` block before each spawn so the genosyn MCP
+ *                 server is always attached, but leave model defaults to
+ *                 OpenClaw (operator can run `openclaw onboard` to seed
+ *                 them, or rely on built-in defaults).
  *
  * `extraArgs` carries provider-specific MCP wiring that has to land on the
  * argv rather than a config file. Empty for everyone except goose today.

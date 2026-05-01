@@ -203,12 +203,9 @@ export const config = {
 - [x] Runner spawns provider CLI in employee cwd with scoped env
 - [x] CLI install + sign-in flow brought into the browser
 - [x] Disconnect deletes DB row and wipes credentials
-- [x] `openclaw` provider added (apikey-only; v1 expects operator to run
-      `openclaw onboard` once per employee dir before first use)
-- [ ] OpenClaw built-in `genosyn` MCP server (pending upstream MCP
-      file-format docs)
-- [ ] OpenClaw `openclaw.json` materialization (so `openclaw onboard` is
-      no longer a manual step)
+- [x] `openclaw` provider added (apikey-only)
+- [x] OpenClaw built-in `genosyn` MCP server (read-merge-write of the
+      `mcp.servers` block inside openclaw.json)
 
 ### M7 — Chat + Workspace ✅
 - [x] Top-nav sections with context-specific sidebars

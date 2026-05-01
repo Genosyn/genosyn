@@ -147,9 +147,8 @@ data/
   `.goose`, `.openclaw`), the provider-specific MCP config we materialize
   before each spawn, and any artifacts the CLI writes into its cwd. Each
   provider has its own config shape and file location; every provider
-  (except openclaw, today) always includes a built-in `genosyn` server so
-  the employee can call back into Genosyn to create Routines, Todos,
-  journal notes, etc.:
+  always includes a built-in `genosyn` server so the employee can call
+  back into Genosyn to create Routines, Todos, journal notes, etc.:
     * **claude-code** → `.mcp.json` at the employee's cwd
     * **codex** → `$CODEX_HOME/config.toml` with `[mcp_servers.<name>]`
       blocks (HTTP-transport external servers are skipped with a note,
@@ -159,12 +158,13 @@ data/
       flags (`--with-extension`, `--with-streamable-http-extension`) so we
       don't fight with whatever `goose configure` wrote into the same
       `config.yaml`
-    * **openclaw** → no MCP wiring in v1. OpenClaw documents MCP support
-      via the `tools` key in `openclaw.json`, but the on-disk schema isn't
-      pinned down upstream yet, so the built-in `genosyn` server is not
-      attached. Operator runs `OPENCLAW_CONFIG_PATH=<employee>/.openclaw/openclaw.json
-      OPENCLAW_STATE_DIR=<employee>/.openclaw openclaw onboard` once per
-      employee dir before first use.
+    * **openclaw** → `mcp.servers.<name>` block inside `openclaw.json`
+      pointed at by `OPENCLAW_CONFIG_PATH`. The file holds non-MCP config
+      (model defaults, gateway, channels) too, so we read-merge-write —
+      preserving everything outside `mcp.servers` and overlaying our
+      managed entries on top. Operator can run `OPENCLAW_CONFIG_PATH=…
+      OPENCLAW_STATE_DIR=… openclaw onboard` once per employee dir to
+      seed model defaults, or rely on OpenClaw's built-in defaults.
 - The `data/` directory is gitignored. Never commit anything inside it.
 - Slugs are derived once at create-time via `slugify`; renames update the
   display name but not the slug (so URLs and credential paths stay stable).
