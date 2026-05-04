@@ -1,9 +1,13 @@
 import { Router } from "express";
 import { z } from "zod";
 import { In } from "typeorm";
+import multer from "multer";
 import { AppDataSource } from "../db/datasource.js";
 import { Account, AccountType } from "../db/entities/Account.js";
+import { BankFeed, BankFeedKind } from "../db/entities/BankFeed.js";
+import { BankTransaction } from "../db/entities/BankTransaction.js";
 import { Customer } from "../db/entities/Customer.js";
+import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { Invoice } from "../db/entities/Invoice.js";
 import { InvoiceLineItem } from "../db/entities/InvoiceLineItem.js";
 import { InvoicePayment } from "../db/entities/InvoicePayment.js";
@@ -39,6 +43,14 @@ import {
   cashFlow,
   incomeStatement,
 } from "../services/reports.js";
+import {
+  autoMatchFeed,
+  findMatchCandidates,
+  importBankCsv,
+  manualMatch,
+  syncStripePayouts,
+  unmatch,
+} from "../services/reconcile.js";
 
 /**
  * Phase A of the Finance milestone (M19) — see ROADMAP.md.
@@ -1002,4 +1014,255 @@ financeRouter.get("/reports/account-activity", async (req, res) => {
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
+});
+
+// ─────────────────────── Bank feeds (Phase D) ──────────────────────────
+
+const FEED_KINDS: [BankFeedKind, ...BankFeedKind[]] = ["stripe_payouts", "csv"];
+
+const csvUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+financeRouter.get("/bank-feeds", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const feeds = await AppDataSource.getRepository(BankFeed).find({
+    where: { companyId: cid },
+    order: { createdAt: "ASC" },
+  });
+  res.json(feeds);
+});
+
+const feedCreateSchema = z.object({
+  name: z.string().min(1).max(120),
+  kind: z.enum(FEED_KINDS),
+  accountId: z.string().uuid(),
+  connectionId: z.string().uuid().nullable().optional(),
+});
+
+financeRouter.post(
+  "/bank-feeds",
+  validateBody(feedCreateSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const body = req.body as z.infer<typeof feedCreateSchema>;
+    const acct = await AppDataSource.getRepository(Account).findOneBy({
+      id: body.accountId,
+      companyId: cid,
+    });
+    if (!acct) return res.status(400).json({ error: "Invalid account" });
+    if (acct.type !== "asset") {
+      return res
+        .status(400)
+        .json({ error: "Bank feeds reconcile against asset accounts only" });
+    }
+    if (body.kind === "stripe_payouts") {
+      if (!body.connectionId) {
+        return res
+          .status(400)
+          .json({ error: "Stripe feeds need a connectionId" });
+      }
+      const conn = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
+        id: body.connectionId,
+        companyId: cid,
+      });
+      if (!conn || conn.provider !== "stripe") {
+        return res.status(400).json({ error: "Connection is not Stripe" });
+      }
+    }
+    const repo = AppDataSource.getRepository(BankFeed);
+    const f = repo.create({
+      companyId: cid,
+      name: body.name,
+      kind: body.kind,
+      accountId: body.accountId,
+      connectionId: body.connectionId ?? null,
+    });
+    await repo.save(f);
+    res.json(f);
+  },
+);
+
+financeRouter.delete("/bank-feeds/:id", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const repo = AppDataSource.getRepository(BankFeed);
+  const f = await repo.findOneBy({ id: req.params.id, companyId: cid });
+  if (!f) return res.status(404).json({ error: "Feed not found" });
+  await AppDataSource.getRepository(BankTransaction).delete({ feedId: f.id });
+  await repo.delete({ id: f.id });
+  res.json({ ok: true });
+});
+
+financeRouter.post("/bank-feeds/:id/sync", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const repo = AppDataSource.getRepository(BankFeed);
+  const f = await repo.findOneBy({ id: req.params.id, companyId: cid });
+  if (!f) return res.status(404).json({ error: "Feed not found" });
+  if (f.kind !== "stripe_payouts") {
+    return res.status(400).json({ error: "This feed type can only be imported via CSV" });
+  }
+  try {
+    const inserted = await syncStripePayouts(f);
+    const matched = await autoMatchFeed(f);
+    res.json({ inserted, matched });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+financeRouter.post(
+  "/bank-feeds/:id/import",
+  csvUpload.single("file"),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const repo = AppDataSource.getRepository(BankFeed);
+    const f = await repo.findOneBy({ id: req.params.id, companyId: cid });
+    if (!f) return res.status(404).json({ error: "Feed not found" });
+    if (!req.file) return res.status(400).json({ error: "Missing CSV file" });
+    try {
+      const text = req.file.buffer.toString("utf8");
+      const result = await importBankCsv(f, text);
+      const matched = await autoMatchFeed(f);
+      res.json({ ...result, matched });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+// ─────────────────────── Bank transactions ─────────────────────────────
+
+type HydratedBankTransaction = BankTransaction & {
+  match: null | {
+    kind: "payment";
+    paymentId: string;
+    invoiceNumber: string;
+    invoiceSlug: string;
+    customerName: string;
+  } | { kind: "ledger_entry"; entryId: string; memo: string };
+};
+
+async function hydrateBankTxns(
+  companyId: string,
+  txns: BankTransaction[],
+): Promise<HydratedBankTransaction[]> {
+  if (txns.length === 0) return [];
+  const paymentIds = [
+    ...new Set(txns.map((t) => t.matchedPaymentId).filter((x): x is string => !!x)),
+  ];
+  const entryIds = [
+    ...new Set(
+      txns.map((t) => t.matchedLedgerEntryId).filter((x): x is string => !!x),
+    ),
+  ];
+  const [payments, entries] = await Promise.all([
+    paymentIds.length
+      ? AppDataSource.getRepository(InvoicePayment).find({
+          where: { id: In(paymentIds) },
+        })
+      : Promise.resolve([]),
+    entryIds.length
+      ? AppDataSource.getRepository(LedgerEntry).find({
+          where: { id: In(entryIds), companyId },
+        })
+      : Promise.resolve([]),
+  ]);
+  const invIds = [...new Set(payments.map((p) => p.invoiceId))];
+  const invoices = invIds.length
+    ? await AppDataSource.getRepository(Invoice).find({
+        where: { id: In(invIds), companyId },
+      })
+    : [];
+  const customerIds = [...new Set(invoices.map((i) => i.customerId))];
+  const customers = customerIds.length
+    ? await AppDataSource.getRepository(Customer).find({
+        where: { id: In(customerIds), companyId },
+      })
+    : [];
+  const invById = new Map(invoices.map((i) => [i.id, i]));
+  const custById = new Map(customers.map((c) => [c.id, c]));
+  const payById = new Map(payments.map((p) => [p.id, p]));
+  const entryById = new Map(entries.map((e) => [e.id, e]));
+  return txns.map((t) => {
+    let match: HydratedBankTransaction["match"] = null;
+    if (t.matchedPaymentId) {
+      const p = payById.get(t.matchedPaymentId);
+      const inv = p ? invById.get(p.invoiceId) : null;
+      const cust = inv ? custById.get(inv.customerId) : null;
+      if (p && inv) {
+        match = {
+          kind: "payment",
+          paymentId: p.id,
+          invoiceNumber: inv.number || "(draft)",
+          invoiceSlug: inv.slug,
+          customerName: cust?.name ?? "—",
+        };
+      }
+    } else if (t.matchedLedgerEntryId) {
+      const e = entryById.get(t.matchedLedgerEntryId);
+      if (e) match = { kind: "ledger_entry", entryId: e.id, memo: e.memo };
+    }
+    return { ...t, match };
+  });
+}
+
+financeRouter.get("/bank-transactions", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const where: Record<string, unknown> = { companyId: cid };
+  if (typeof req.query.feedId === "string" && req.query.feedId) {
+    where.feedId = req.query.feedId;
+  }
+  let txns = await AppDataSource.getRepository(BankTransaction).find({
+    where,
+    order: { date: "DESC", createdAt: "DESC" },
+    take: 500,
+  });
+  if (String(req.query.unmatched ?? "") === "true") {
+    txns = txns.filter((t) => !t.reconciledAt);
+  }
+  res.json(await hydrateBankTxns(cid, txns));
+});
+
+financeRouter.get("/bank-transactions/:id/candidates", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const repo = AppDataSource.getRepository(BankTransaction);
+  const t = await repo.findOneBy({ id: req.params.id, companyId: cid });
+  if (!t) return res.status(404).json({ error: "Transaction not found" });
+  const candidates = await findMatchCandidates(t);
+  res.json(candidates);
+});
+
+const matchSchema = z.object({
+  paymentId: z.string().uuid().nullable().optional(),
+  ledgerEntryId: z.string().uuid().nullable().optional(),
+});
+
+financeRouter.post(
+  "/bank-transactions/:id/match",
+  validateBody(matchSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const repo = AppDataSource.getRepository(BankTransaction);
+    const t = await repo.findOneBy({ id: req.params.id, companyId: cid });
+    if (!t) return res.status(404).json({ error: "Transaction not found" });
+    const body = req.body as z.infer<typeof matchSchema>;
+    try {
+      const fresh = await manualMatch(t, body, req.userId ?? null);
+      const [hydrated] = await hydrateBankTxns(cid, [fresh]);
+      res.json(hydrated);
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+financeRouter.post("/bank-transactions/:id/unmatch", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const repo = AppDataSource.getRepository(BankTransaction);
+  const t = await repo.findOneBy({ id: req.params.id, companyId: cid });
+  if (!t) return res.status(404).json({ error: "Transaction not found" });
+  const fresh = await unmatch(t);
+  const [hydrated] = await hydrateBankTxns(cid, [fresh]);
+  res.json(hydrated);
 });

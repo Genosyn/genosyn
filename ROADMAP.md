@@ -431,10 +431,10 @@ Phased so each phase ships behind its own PR:
   + Tax Payable), invoice paid (DR Bank / CR AR), invoice voided
   (reverses every entry tied to the invoice). Manual journal entry
   UI for accountants. Trial balance view.
-- **Phase C — Reports.** Income Statement (P&L), Balance Sheet, Cash
-  Flow Statement. Period filters (this month / quarter / YTD /
+- [x] **Phase C — Reports.** Income Statement (P&L), Balance Sheet,
+  Cash Flow Statement. Period filters (this month / quarter / YTD /
   custom). Comparison columns (vs. prior period). Drill-through from
-  any line back to its source `JournalEntry`s.
+  any account row to a running-balance ledger of its source entries.
 - **Phase D — Reconciliation.** `BankFeed` (Stripe payouts as the
   first feed; CSV import as the universal fallback), `BankTransaction`
   ingestion with auto-match heuristics (amount + date proximity +

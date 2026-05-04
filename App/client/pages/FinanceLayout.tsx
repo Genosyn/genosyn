@@ -6,6 +6,7 @@ import {
   FileText,
   Layers,
   LineChart,
+  Link2,
   NotebookPen,
   Package,
   Percent,
@@ -72,6 +73,11 @@ export default function FinanceLayout({ company }: { company: Company }) {
           to={`${base}/reports`}
           icon={<LineChart size={14} />}
           label="Reports"
+        />
+        <SidebarLink
+          to={`${base}/reconcile`}
+          icon={<Link2 size={14} />}
+          label="Reconcile"
         />
         <div className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
           Catalog

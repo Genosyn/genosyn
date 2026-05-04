@@ -64,6 +64,8 @@ import { InvoicePayment } from "./entities/InvoicePayment.js";
 import { Account } from "./entities/Account.js";
 import { LedgerEntry } from "./entities/LedgerEntry.js";
 import { LedgerLine } from "./entities/LedgerLine.js";
+import { BankFeed } from "./entities/BankFeed.js";
+import { BankTransaction } from "./entities/BankTransaction.js";
 
 const entities = [
   User,
@@ -126,6 +128,8 @@ const entities = [
   Account,
   LedgerEntry,
   LedgerLine,
+  BankFeed,
+  BankTransaction,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

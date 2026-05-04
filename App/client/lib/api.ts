@@ -1633,3 +1633,60 @@ export function priorRangeOf(range: PeriodRange): PeriodRange {
     to: new Date(range.from.getTime() - 24 * 60 * 60 * 1000),
   };
 }
+
+// ─────────────────────── Reconciliation (M19 Phase D) ──────────────────
+
+export type BankFeedKind = "stripe_payouts" | "csv";
+
+export type BankFeed = {
+  id: string;
+  companyId: string;
+  name: string;
+  kind: BankFeedKind;
+  connectionId: string | null;
+  accountId: string;
+  lastSyncAt: string | null;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BankTransactionMatch =
+  | {
+      kind: "payment";
+      paymentId: string;
+      invoiceNumber: string;
+      invoiceSlug: string;
+      customerName: string;
+    }
+  | { kind: "ledger_entry"; entryId: string; memo: string };
+
+export type BankTransaction = {
+  id: string;
+  companyId: string;
+  feedId: string;
+  externalId: string | null;
+  date: string;
+  amountCents: number;
+  description: string;
+  reference: string;
+  raw: string;
+  matchedPaymentId: string | null;
+  matchedLedgerEntryId: string | null;
+  reconciledAt: string | null;
+  reconciledById: string | null;
+  createdAt: string;
+  match: BankTransactionMatch | null;
+};
+
+export type MatchCandidate = {
+  kind: "payment";
+  paymentId: string;
+  invoiceNumber: string;
+  invoiceSlug: string;
+  customerName: string;
+  amountCents: number;
+  paidAt: string;
+  method: string;
+  score: number;
+};
