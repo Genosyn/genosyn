@@ -1490,3 +1490,146 @@ export const ACCOUNT_TYPE_LABEL: Record<AccountType, string> = {
 export function formatBalanceMagnitude(cents: number, currency: string): string {
   return formatMoney(Math.abs(cents), currency);
 }
+
+// ─────────────────────────── Reports (M19 Phase C) ──────────────────────
+
+export type ReportRow = {
+  account: Pick<Account, "id" | "code" | "name" | "type">;
+  amountCents: number;
+};
+
+export type IncomeStatementReport = {
+  from: string;
+  to: string;
+  revenue: ReportRow[];
+  totalRevenue: number;
+  expenses: ReportRow[];
+  totalExpenses: number;
+  netIncome: number;
+};
+
+export type BalanceSheetReport = {
+  asOf: string;
+  assets: ReportRow[];
+  totalAssets: number;
+  liabilities: ReportRow[];
+  totalLiabilities: number;
+  equity: ReportRow[];
+  currentEarnings: number;
+  totalEquity: number;
+};
+
+export type CashFlowSection = {
+  label: string;
+  lines: { description: string; cents: number; entryId: string }[];
+  total: number;
+};
+
+export type CashFlowReport = {
+  from: string;
+  to: string;
+  openingBalance: number;
+  operating: CashFlowSection;
+  investing: CashFlowSection;
+  financing: CashFlowSection;
+  netChange: number;
+  closingBalance: number;
+};
+
+export type AccountActivityRow = {
+  entryId: string;
+  date: string;
+  source: LedgerEntrySource;
+  memo: string;
+  description: string;
+  debitCents: number;
+  creditCents: number;
+  runningBalanceCents: number;
+};
+
+export type AccountActivityReport = {
+  account: Pick<Account, "id" | "code" | "name" | "type">;
+  from: string | null;
+  to: string | null;
+  openingBalance: number;
+  rows: AccountActivityRow[];
+  closingBalance: number;
+};
+
+export type ReportEnvelope<T> = { current: T; prior: T | null };
+
+// ─────────────────────── Period preset helper ──────────────────────────
+
+export type PeriodPreset =
+  | "this_month"
+  | "this_quarter"
+  | "this_year"
+  | "last_month"
+  | "last_quarter"
+  | "last_year"
+  | "custom";
+
+export type PeriodRange = { from: Date; to: Date };
+
+/**
+ * Resolve a preset into a [from, to] date range based on `now`. All
+ * ranges are inclusive on both ends. UTC throughout — the server
+ * normalizes to start/end-of-day, so the timezone of `now` doesn't
+ * matter to the math.
+ */
+export function rangeFromPreset(preset: PeriodPreset, now: Date = new Date()): PeriodRange {
+  const y = now.getUTCFullYear();
+  const m = now.getUTCMonth();
+  switch (preset) {
+    case "this_month":
+      return {
+        from: new Date(Date.UTC(y, m, 1)),
+        to: new Date(Date.UTC(y, m + 1, 0)),
+      };
+    case "this_quarter": {
+      const qStart = Math.floor(m / 3) * 3;
+      return {
+        from: new Date(Date.UTC(y, qStart, 1)),
+        to: new Date(Date.UTC(y, qStart + 3, 0)),
+      };
+    }
+    case "this_year":
+      return {
+        from: new Date(Date.UTC(y, 0, 1)),
+        to: new Date(Date.UTC(y, 11, 31)),
+      };
+    case "last_month":
+      return {
+        from: new Date(Date.UTC(y, m - 1, 1)),
+        to: new Date(Date.UTC(y, m, 0)),
+      };
+    case "last_quarter": {
+      const qStart = Math.floor(m / 3) * 3 - 3;
+      return {
+        from: new Date(Date.UTC(y, qStart, 1)),
+        to: new Date(Date.UTC(y, qStart + 3, 0)),
+      };
+    }
+    case "last_year":
+      return {
+        from: new Date(Date.UTC(y - 1, 0, 1)),
+        to: new Date(Date.UTC(y - 1, 11, 31)),
+      };
+    case "custom":
+      // Caller picks; default to YTD.
+      return {
+        from: new Date(Date.UTC(y, 0, 1)),
+        to: new Date(Date.UTC(y, 11, 31)),
+      };
+  }
+}
+
+/** Compute the immediately-prior equal-length range. Used as the
+ *  default for the "compare to prior period" toggle. */
+export function priorRangeOf(range: PeriodRange): PeriodRange {
+  const span = range.to.getTime() - range.from.getTime();
+  return {
+    from: new Date(range.from.getTime() - span - 24 * 60 * 60 * 1000),
+    to: new Date(range.from.getTime() - 24 * 60 * 60 * 1000),
+  };
+}

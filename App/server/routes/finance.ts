@@ -33,6 +33,12 @@ import {
   seedChartOfAccounts,
   trialBalance,
 } from "../services/ledger.js";
+import {
+  accountActivity,
+  balanceSheet,
+  cashFlow,
+  incomeStatement,
+} from "../services/reports.js";
 
 /**
  * Phase A of the Finance milestone (M19) — see ROADMAP.md.
@@ -903,4 +909,97 @@ financeRouter.get("/ledger/trial-balance", async (req, res) => {
   }
   const rows = await trialBalance(cid, asOf);
   res.json({ asOf: asOf.toISOString(), rows });
+});
+
+// ───────────────────────────── Reports (Phase C) ───────────────────────
+
+/**
+ * Parse a query-string ISO date and validate it. Returns null when the
+ * param is missing/empty (caller picks a default), throws when the
+ * value is present but unparseable so the route can return 400.
+ */
+function parseDateParam(raw: unknown, label: string): Date | null {
+  if (typeof raw !== "string" || !raw) return null;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) {
+    throw new Error(`Invalid ${label} date`);
+  }
+  return d;
+}
+
+financeRouter.get("/reports/income-statement", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  try {
+    const from = parseDateParam(req.query.from, "from");
+    const to = parseDateParam(req.query.to, "to");
+    if (!from || !to) {
+      return res.status(400).json({ error: "from and to are required" });
+    }
+    const compareFrom = parseDateParam(req.query.compareFrom, "compareFrom");
+    const compareTo = parseDateParam(req.query.compareTo, "compareTo");
+    const current = await incomeStatement(cid, from, to);
+    const prior =
+      compareFrom && compareTo
+        ? await incomeStatement(cid, compareFrom, compareTo)
+        : null;
+    res.json({ current, prior });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+financeRouter.get("/reports/balance-sheet", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  try {
+    const asOfRaw = parseDateParam(req.query.asOf, "asOf");
+    const asOf = asOfRaw ?? new Date();
+    const compareAsOf = parseDateParam(req.query.compareAsOf, "compareAsOf");
+    const current = await balanceSheet(cid, asOf);
+    const prior = compareAsOf ? await balanceSheet(cid, compareAsOf) : null;
+    res.json({ current, prior });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+financeRouter.get("/reports/cash-flow", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  try {
+    const from = parseDateParam(req.query.from, "from");
+    const to = parseDateParam(req.query.to, "to");
+    if (!from || !to) {
+      return res.status(400).json({ error: "from and to are required" });
+    }
+    const compareFrom = parseDateParam(req.query.compareFrom, "compareFrom");
+    const compareTo = parseDateParam(req.query.compareTo, "compareTo");
+    const current = await cashFlow(cid, from, to);
+    const prior =
+      compareFrom && compareTo ? await cashFlow(cid, compareFrom, compareTo) : null;
+    res.json({ current, prior });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+/**
+ * Account activity feed for a single account in an optional date
+ * range. Powers the "click any line in a report to drill through"
+ * panel — the report rows post `accountId` plus the report's date
+ * range and get back a running-balance ledger.
+ */
+financeRouter.get("/reports/account-activity", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const accountId = req.query.accountId;
+  if (typeof accountId !== "string" || !accountId) {
+    return res.status(400).json({ error: "accountId is required" });
+  }
+  try {
+    const from = parseDateParam(req.query.from, "from");
+    const to = parseDateParam(req.query.to, "to");
+    const report = await accountActivity(cid, accountId, from, to);
+    if (!report) return res.status(404).json({ error: "Account not found" });
+    res.json(report);
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
 });

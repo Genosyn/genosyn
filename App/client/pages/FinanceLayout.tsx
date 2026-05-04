@@ -5,6 +5,7 @@ import {
   BookOpen,
   FileText,
   Layers,
+  LineChart,
   NotebookPen,
   Package,
   Percent,
@@ -66,6 +67,11 @@ export default function FinanceLayout({ company }: { company: Company }) {
           to={`${base}/trial-balance`}
           icon={<Layers size={14} />}
           label="Trial balance"
+        />
+        <SidebarLink
+          to={`${base}/reports`}
+          icon={<LineChart size={14} />}
+          label="Reports"
         />
         <div className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
           Catalog

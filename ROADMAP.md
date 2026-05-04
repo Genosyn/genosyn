@@ -421,13 +421,16 @@ Phased so each phase ships behind its own PR:
   emails the customer the HTML invoice via the company
   `EmailProvider`. Top-level "Finance" sidebar entry. **No ledger
   yet.**
-- **Phase B — General Ledger.** `Account` (chart of accounts; seeded
-  with a sane default CoA on first visit), `JournalEntry`,
+- [x] **Phase B — General Ledger.** `Account` (chart of accounts;
+  seeded with a sane default CoA on first visit), `LedgerEntry`,
   `LedgerLine` (double-entry, balanced enforcement at the service
-  layer). Auto-post from invoice issued (DR AR / CR Revenue + Tax
-  Payable), invoice paid (DR Bank / CR AR), invoice voided (reverse
-  the issue). Manual journal entry UI for accountants. Trial balance
-  view.
+  layer — the entity is named `LedgerEntry` rather than the
+  accountant-natural "JournalEntry" because the codebase already had
+  a `JournalEntry` for per-employee diary feeds; product copy still
+  says "journal"). Auto-post from invoice issued (DR AR / CR Revenue
+  + Tax Payable), invoice paid (DR Bank / CR AR), invoice voided
+  (reverses every entry tied to the invoice). Manual journal entry
+  UI for accountants. Trial balance view.
 - **Phase C — Reports.** Income Statement (P&L), Balance Sheet, Cash
   Flow Statement. Period filters (this month / quarter / YTD /
   custom). Comparison columns (vs. prior period). Drill-through from
