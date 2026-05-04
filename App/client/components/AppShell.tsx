@@ -19,6 +19,7 @@ import {
   Table2,
   UserCog,
   Users,
+  Wallet,
 } from "lucide-react";
 import { api, Company, Me } from "../lib/api";
 import { useToast } from "./ui/Toast";
@@ -81,6 +82,7 @@ type SectionKey =
   | "bases"
   | "notes"
   | "resources"
+  | "finance"
   | "pipelines"
   | "approvals"
   | "settings";
@@ -173,6 +175,20 @@ const SECTION_GROUPS: SectionGroup[] = [
         path: "/pipelines",
         iconBg:
           "bg-sky-100 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300",
+      },
+    ],
+  },
+  {
+    label: "Money",
+    items: [
+      {
+        key: "finance",
+        label: "Finance",
+        description: "Customers, invoices, and revenue.",
+        icon: Wallet,
+        path: "/finance",
+        iconBg:
+          "bg-teal-100 text-teal-600 dark:bg-teal-500/15 dark:text-teal-300",
       },
     ],
   },
@@ -362,6 +378,7 @@ function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/bases(\/|$)/.test(pathname)) return "bases";
   if (/\/c\/[^/]+\/notes(\/|$)/.test(pathname)) return "notes";
   if (/\/c\/[^/]+\/resources(\/|$)/.test(pathname)) return "resources";
+  if (/\/c\/[^/]+\/finance(\/|$)/.test(pathname)) return "finance";
   if (/\/c\/[^/]+\/pipelines(\/|$)/.test(pathname)) return "pipelines";
   if (/\/c\/[^/]+\/approvals(\/|$)/.test(pathname)) return "approvals";
   if (/\/c\/[^/]+\/settings(\/|$)/.test(pathname)) return "settings";

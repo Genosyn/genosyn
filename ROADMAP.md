@@ -392,6 +392,70 @@ once we know what the team actually queries.
 - [ ] Import a bundle to scaffold a new employee (extends Templates)
 - [ ] Public-by-URL share — landing page on Home consumes the bundle JSON
 
+### M19 — Finance (Invoicing + Accounting)
+
+Native finance suite for the company. Customers, products, tax rates;
+invoices with HTML render → browser-print to PDF and "Send" via the
+existing per-company `EmailProvider`; payments tracked against invoices;
+double-entry general ledger that auto-posts from the invoice lifecycle;
+financial reports (P&L, Balance Sheet, Cash Flow); reconciliation against
+Stripe payouts; multi-currency with FX gain/loss; period-close workflow;
+accountant exports; vendor/bills mirror of the invoice flow. Distinct
+from the Stripe **integration** (read-only catalog of customers /
+charges / subscriptions), which stays as-is.
+
+Money is stored as integer **minor units** (cents) plus a 3-letter ISO
+currency code on every row. Phase A defaults everything to USD with a
+per-invoice override; Phase E adds the FX rate engine. Invoice numbers
+are gapless per-company sequences (`numberSeq` int, displayed as
+`INV-0001`) — accountants need this for compliance.
+
+Phased so each phase ships behind its own PR:
+
+- **Phase A — Customers + Invoices.** `Customer`, `Product`, `TaxRate`,
+  `Invoice`, `InvoiceLineItem`, `InvoicePayment` entities. CRUD UI for
+  all four. Invoice creator with line items + per-line tax (inclusive
+  or exclusive). Status lifecycle draft → sent → paid (with manual
+  mark-as-paid for now) / overdue (computed) / void. Print-friendly
+  `InvoicePrint` page (browser → "Save as PDF"). "Send" button emails
+  the customer the HTML invoice via the company `EmailProvider`. Top-
+  level "Finance" sidebar entry. **No ledger yet.**
+- **Phase B — General Ledger.** `Account` (chart of accounts; seeded
+  with a sane default CoA on first visit), `JournalEntry`,
+  `LedgerLine` (double-entry, balanced enforcement at the service
+  layer). Auto-post from invoice issued (DR AR / CR Revenue + Tax
+  Payable), invoice paid (DR Bank / CR AR), invoice voided (reverse
+  the issue). Manual journal entry UI for accountants. Trial balance
+  view.
+- **Phase C — Reports.** Income Statement (P&L), Balance Sheet, Cash
+  Flow Statement. Period filters (this month / quarter / YTD /
+  custom). Comparison columns (vs. prior period). Drill-through from
+  any line back to its source `JournalEntry`s.
+- **Phase D — Reconciliation.** `BankFeed` (Stripe payouts as the
+  first feed; CSV import as the universal fallback), `BankTransaction`
+  ingestion with auto-match heuristics (amount + date proximity +
+  customer name), manual matching UI, lock-on-reconciled. Re-uses
+  existing Stripe `IntegrationConnection` for credentials.
+- **Phase E — Multi-currency + Tax engine.** `Currency` and
+  `ExchangeRate` (manual entry first, ECB daily fetch second).
+  Per-invoice currency with FX gain/loss accounts auto-posted on
+  payment. Composable tax rules (line + invoice level, jurisdiction
+  -aware) replacing Phase A's flat `TaxRate`.
+- **Phase F — Period close + Accountant exports.** `AccountingPeriod`
+  with open / closed status, period-close wizard with retained-
+  earnings rollover. CSV / IIF export of ledger / invoices /
+  customers in formats Xero, QuickBooks, and plain accountants
+  accept.
+- **Phase G — Vendor side.** `Vendor`, `Bill`, `BillLineItem`,
+  `BillPayment`. Mirror of invoices but inbound; auto-posts to AP /
+  Expense. Same UI shape under a "Bills" sub-nav.
+
+MCP surface (added phase by phase): `list_invoices`, `get_invoice`,
+`create_invoice`, `send_invoice`, `record_payment`, `void_invoice`,
+`list_customers`, `create_customer`, `get_pl`, `get_balance_sheet`,
+`post_journal_entry`, etc. Read-only tools land first; mutating tools
+gate behind the existing approval-by-amount pattern Lightning uses.
+
 ---
 
 ## V1 backlog (post-MVP)

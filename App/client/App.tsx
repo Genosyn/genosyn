@@ -66,6 +66,14 @@ import NotebookDetail from "./pages/NotebookDetail";
 import NoteDetail from "./pages/NoteDetail";
 import ResourcesIndex from "./pages/ResourcesIndex";
 import ResourceDetail from "./pages/ResourceDetail";
+import FinanceLayout from "./pages/FinanceLayout";
+import FinanceIndex from "./pages/FinanceIndex";
+import FinanceCustomers from "./pages/FinanceCustomers";
+import FinanceProducts from "./pages/FinanceProducts";
+import FinanceTaxRates from "./pages/FinanceTaxRates";
+import FinanceInvoices from "./pages/FinanceInvoices";
+import FinanceInvoiceNew from "./pages/FinanceInvoiceNew";
+import FinanceInvoiceDetail from "./pages/FinanceInvoiceDetail";
 
 type AuthState =
   | { status: "loading" }
@@ -247,6 +255,22 @@ function CompanyRoutes({
           path="resources/:slug"
           element={<ResourceDetail company={company} />}
         />
+
+        {/* Finance (M19 Phase A) — Customers, Products, Tax rates, Invoices.
+            Native invoicing with browser-print to PDF and email send via
+            the company's EmailProvider. */}
+        <Route path="finance" element={<FinanceLayout company={company} />}>
+          <Route index element={<FinanceIndex />} />
+          <Route path="customers" element={<FinanceCustomers />} />
+          <Route path="products" element={<FinanceProducts />} />
+          <Route path="tax-rates" element={<FinanceTaxRates />} />
+          <Route path="invoices" element={<FinanceInvoices />} />
+          <Route path="invoices/new" element={<FinanceInvoiceNew />} />
+          <Route
+            path="invoices/:invoiceSlug"
+            element={<FinanceInvoiceDetail />}
+          />
+        </Route>
 
         <Route path="approvals" element={<Approvals company={company} />} />
 

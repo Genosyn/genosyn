@@ -1239,3 +1239,168 @@ export type Notification = {
   readAt: string | null;
   createdAt: string;
 };
+
+// ─────────────────────────── Finance (M19) ──────────────────────────────
+
+export type Customer = {
+  id: string;
+  companyId: string;
+  name: string;
+  slug: string;
+  email: string;
+  phone: string;
+  billingAddress: string;
+  shippingAddress: string;
+  taxNumber: string;
+  currency: string;
+  notes: string;
+  archivedAt: string | null;
+  createdById: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Product = {
+  id: string;
+  companyId: string;
+  name: string;
+  slug: string;
+  description: string;
+  unitPriceCents: number;
+  currency: string;
+  defaultTaxRateId: string | null;
+  archivedAt: string | null;
+  createdById: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TaxRate = {
+  id: string;
+  companyId: string;
+  name: string;
+  ratePercent: number;
+  inclusive: boolean;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InvoiceStatus = "draft" | "sent" | "paid" | "void";
+
+export type InvoicePaymentMethod =
+  | "cash"
+  | "bank_transfer"
+  | "stripe"
+  | "lightning"
+  | "other";
+
+export type InvoiceLineItem = {
+  id: string;
+  invoiceId: string;
+  productId: string | null;
+  description: string;
+  quantity: number;
+  unitPriceCents: number;
+  taxRateId: string | null;
+  taxName: string;
+  taxPercent: number;
+  taxInclusive: boolean;
+  lineSubtotalCents: number;
+  lineTaxCents: number;
+  lineTotalCents: number;
+  sortOrder: number;
+};
+
+export type InvoicePayment = {
+  id: string;
+  invoiceId: string;
+  amountCents: number;
+  currency: string;
+  paidAt: string;
+  method: InvoicePaymentMethod;
+  reference: string;
+  notes: string;
+  createdById: string | null;
+  createdAt: string;
+};
+
+export type InvoiceCustomerStub = {
+  id: string;
+  name: string;
+  slug: string;
+  email: string;
+};
+
+export type Invoice = {
+  id: string;
+  companyId: string;
+  customerId: string;
+  slug: string;
+  numberSeq: number;
+  number: string;
+  status: InvoiceStatus;
+  issueDate: string;
+  dueDate: string;
+  currency: string;
+  subtotalCents: number;
+  taxCents: number;
+  totalCents: number;
+  paidCents: number;
+  balanceCents: number;
+  notes: string;
+  footer: string;
+  sentAt: string | null;
+  paidAt: string | null;
+  voidedAt: string | null;
+  createdById: string | null;
+  createdAt: string;
+  updatedAt: string;
+  customer: InvoiceCustomerStub | null;
+  lines: InvoiceLineItem[];
+  payments: InvoicePayment[];
+};
+
+export type InvoiceListItem = Omit<Invoice, "lines" | "payments"> & {
+  linesCount: number;
+  paymentsCount: number;
+};
+
+export type InvoiceLineDraft = {
+  productId?: string | null;
+  description: string;
+  quantity: number;
+  unitPriceCents: number;
+  taxRateId?: string | null;
+  sortOrder?: number;
+};
+
+export function formatMoney(cents: number, currency: string): string {
+  const c = currency || "USD";
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: c,
+      currencyDisplay: "symbol",
+    }).format(cents / 100);
+  } catch {
+    return `${(cents / 100).toFixed(2)} ${c}`;
+  }
+}
+
+export function parseMoneyToCents(input: string): number {
+  const cleaned = input.replace(/[^0-9.-]/g, "");
+  const n = Number(cleaned);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100);
+}
+
+export function displayInvoiceStatus(
+  inv: Pick<Invoice, "status" | "dueDate">,
+  now: Date = new Date(),
+): InvoiceStatus | "overdue" {
+  if (inv.status === "sent" && new Date(inv.dueDate).getTime() < now.getTime()) {
+    return "overdue";
+  }
+  return inv.status;
+}

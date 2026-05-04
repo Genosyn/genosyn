@@ -41,6 +41,7 @@ import { emailLogsRouter } from "./routes/emailLogs.js";
 import { notebooksRouter } from "./routes/notebooks.js";
 import { notesRouter } from "./routes/notes.js";
 import { resourcesRouter } from "./routes/resources.js";
+import { financeRouter } from "./routes/finance.js";
 import { notificationsRouter } from "./routes/notifications.js";
 import { teamsRouter } from "./routes/teams.js";
 import { handoffsRouter } from "./routes/handoffs.js";
@@ -155,6 +156,11 @@ async function main() {
   // Resources (M18) — knowledge ingestion. Humans paste URLs / pastes /
   // upload PDFs / EPUBs; AI employees query the result via MCP tools.
   app.use("/api/companies/:cid", resourcesRouter);
+
+  // Finance (M19 Phase A) — Customers, Products, Tax rates, Invoices.
+  // Native invoicing with HTML render + email send via the company's
+  // EmailProvider. Ledger / reports / reconciliation come in later phases.
+  app.use("/api/companies/:cid", financeRouter);
 
   // Per-company email providers (SMTP / SendGrid / Mailgun / Resend /
   // Postmark) and the append-only delivery log used by Settings → Email
