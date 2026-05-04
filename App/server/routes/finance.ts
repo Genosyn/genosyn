@@ -67,6 +67,22 @@ import {
   exportJournalCsv,
   exportTrialBalanceCsv,
 } from "../services/exports.js";
+import { Vendor } from "../db/entities/Vendor.js";
+import { Bill } from "../db/entities/Bill.js";
+import { BillLineItem } from "../db/entities/BillLineItem.js";
+import { BillPayment, BillPaymentMethod } from "../db/entities/BillPayment.js";
+import {
+  billDisplayStatus,
+  hydrateBills,
+  issueBill,
+  loadBillBySlug,
+  loadVendorBySlug,
+  postBillPayment,
+  recomputeBillTotals,
+  replaceBillLines,
+  reverseBillPayment,
+  voidBill,
+} from "../services/bills.js";
 
 /**
  * Phase A of the Finance milestone (M19) — see ROADMAP.md.
@@ -1533,4 +1549,374 @@ financeRouter.get("/exports/trial-balance.csv", async (req, res) => {
   const asOf = parseOptionalDate(req.query.asOf) ?? new Date();
   const csv = await exportTrialBalanceCsv(cid, asOf);
   res.type("text/csv").attachment("trial-balance.csv").send(csv);
+});
+
+// ─────────────────────────── Vendors (Phase G) ─────────────────────────
+
+async function uniqueVendorSlug(companyId: string, base: string): Promise<string> {
+  const repo = AppDataSource.getRepository(Vendor);
+  let slug = base || "vendor";
+  let n = 1;
+  while (await repo.findOneBy({ companyId, slug })) {
+    n += 1;
+    slug = `${base}-${n}`;
+  }
+  return slug;
+}
+
+financeRouter.get("/vendors", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const includeArchived = String(req.query.archived ?? "") === "true";
+  const list = await AppDataSource.getRepository(Vendor).find({
+    where: { companyId: cid },
+    order: { createdAt: "DESC" },
+  });
+  res.json(includeArchived ? list : list.filter((v) => !v.archivedAt));
+});
+
+const vendorWriteSchema = z.object({
+  name: z.string().min(1).max(120),
+  email: z.string().email().max(200).or(z.literal("")).optional(),
+  phone: z.string().max(60).optional(),
+  address: z.string().max(2000).optional(),
+  taxNumber: z.string().max(60).optional(),
+  currency: currencySchema.optional(),
+  notes: z.string().max(2000).optional(),
+});
+
+financeRouter.post(
+  "/vendors",
+  validateBody(vendorWriteSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const body = req.body as z.infer<typeof vendorWriteSchema>;
+    const slug = await uniqueVendorSlug(cid, toSlug(body.name));
+    const repo = AppDataSource.getRepository(Vendor);
+    const v = repo.create({
+      companyId: cid,
+      name: body.name,
+      slug,
+      email: body.email ?? "",
+      phone: body.phone ?? "",
+      address: body.address ?? "",
+      taxNumber: body.taxNumber ?? "",
+      currency: body.currency ?? "USD",
+      notes: body.notes ?? "",
+      createdById: req.userId ?? null,
+    });
+    await repo.save(v);
+    res.json(v);
+  },
+);
+
+financeRouter.patch(
+  "/vendors/:slug",
+  validateBody(vendorWriteSchema.extend({ archived: z.boolean().optional() }).partial()),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const v = await loadVendorBySlug(cid, req.params.slug);
+    if (!v) return res.status(404).json({ error: "Vendor not found" });
+    const body = req.body as Partial<z.infer<typeof vendorWriteSchema>> & {
+      archived?: boolean;
+    };
+    if (body.name !== undefined) v.name = body.name;
+    if (body.email !== undefined) v.email = body.email;
+    if (body.phone !== undefined) v.phone = body.phone;
+    if (body.address !== undefined) v.address = body.address;
+    if (body.taxNumber !== undefined) v.taxNumber = body.taxNumber;
+    if (body.currency !== undefined) v.currency = body.currency;
+    if (body.notes !== undefined) v.notes = body.notes;
+    if (body.archived !== undefined) {
+      v.archivedAt = body.archived ? new Date() : null;
+    }
+    await AppDataSource.getRepository(Vendor).save(v);
+    res.json(v);
+  },
+);
+
+financeRouter.delete("/vendors/:slug", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const v = await loadVendorBySlug(cid, req.params.slug);
+  if (!v) return res.status(404).json({ error: "Vendor not found" });
+  const billCount = await AppDataSource.getRepository(Bill).count({
+    where: { companyId: cid, vendorId: v.id },
+  });
+  if (billCount > 0) {
+    return res
+      .status(409)
+      .json({ error: "Vendor has bills. Archive instead or delete the bills first." });
+  }
+  await AppDataSource.getRepository(Vendor).delete({ id: v.id });
+  res.json({ ok: true });
+});
+
+// ─────────────────────────── Bills ─────────────────────────────────────
+
+async function draftBillSlug(companyId: string): Promise<string> {
+  const repo = AppDataSource.getRepository(Bill);
+  for (let i = 0; i < 16; i += 1) {
+    const slug = `bdraft-${Math.random().toString(36).slice(2, 8)}`;
+    if (!(await repo.findOneBy({ companyId, slug }))) return slug;
+  }
+  return `bdraft-${Date.now().toString(36)}`;
+}
+
+const billLineDraftSchema = z.object({
+  expenseAccountId: z.string().uuid().nullable().optional(),
+  description: z.string().min(1).max(500),
+  quantity: z.number().min(0).max(1_000_000),
+  unitPriceCents: z.number().int().min(-2_000_000_000).max(2_000_000_000),
+  taxRateId: z.string().uuid().nullable().optional(),
+  sortOrder: z.number().int().optional(),
+});
+
+const billCreateSchema = z.object({
+  vendorId: z.string().uuid(),
+  vendorRef: z.string().max(120).optional(),
+  issueDate: z.string().datetime().optional(),
+  dueDate: z.string().datetime().optional(),
+  currency: currencySchema.optional(),
+  notes: z.string().max(4000).optional(),
+  lines: z.array(billLineDraftSchema).max(200).optional(),
+});
+
+financeRouter.get("/bills", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const where: Record<string, unknown> = { companyId: cid };
+  if (typeof req.query.status === "string" && req.query.status) {
+    where.status = req.query.status;
+  }
+  if (typeof req.query.vendorId === "string" && req.query.vendorId) {
+    where.vendorId = req.query.vendorId;
+  }
+  const list = await AppDataSource.getRepository(Bill).find({
+    where,
+    order: { createdAt: "DESC" },
+  });
+  const hydrated = await hydrateBills(cid, list);
+  res.json(
+    hydrated.map(({ lines: _lines, payments: _payments, ...rest }) => ({
+      ...rest,
+      linesCount: _lines.length,
+      paymentsCount: _payments.length,
+    })),
+  );
+});
+
+financeRouter.post(
+  "/bills",
+  validateBody(billCreateSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const body = req.body as z.infer<typeof billCreateSchema>;
+    const vendor = await AppDataSource.getRepository(Vendor).findOneBy({
+      id: body.vendorId,
+      companyId: cid,
+    });
+    if (!vendor) return res.status(400).json({ error: "Invalid vendor" });
+    const repo = AppDataSource.getRepository(Bill);
+    const slug = await draftBillSlug(cid);
+    const issueDate = body.issueDate ? new Date(body.issueDate) : new Date();
+    const dueDate = body.dueDate
+      ? new Date(body.dueDate)
+      : new Date(issueDate.getTime() + 14 * 24 * 60 * 60 * 1000);
+    const b = repo.create({
+      companyId: cid,
+      vendorId: vendor.id,
+      slug,
+      numberSeq: 0,
+      number: "",
+      vendorRef: body.vendorRef ?? "",
+      status: "draft",
+      issueDate,
+      dueDate,
+      currency: body.currency ?? vendor.currency ?? "USD",
+      notes: body.notes ?? "",
+      createdById: req.userId ?? null,
+    });
+    await repo.save(b);
+    if (body.lines && body.lines.length > 0) {
+      await replaceBillLines(b, body.lines);
+    }
+    const recomputed = await recomputeBillTotals(b);
+    const [hydrated] = await hydrateBills(cid, [recomputed]);
+    res.json(hydrated);
+  },
+);
+
+financeRouter.get("/bills/:slug", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const b = await loadBillBySlug(cid, req.params.slug);
+  if (!b) return res.status(404).json({ error: "Bill not found" });
+  const [hydrated] = await hydrateBills(cid, [b]);
+  res.json(hydrated);
+});
+
+const billPatchSchema = z.object({
+  notes: z.string().max(4000).optional(),
+  vendorRef: z.string().max(120).optional(),
+  dueDate: z.string().datetime().optional(),
+  vendorId: z.string().uuid().optional(),
+  issueDate: z.string().datetime().optional(),
+  currency: currencySchema.optional(),
+  lines: z.array(billLineDraftSchema).max(200).optional(),
+});
+
+financeRouter.patch(
+  "/bills/:slug",
+  validateBody(billPatchSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const b = await loadBillBySlug(cid, req.params.slug);
+    if (!b) return res.status(404).json({ error: "Bill not found" });
+    if (b.status === "void") {
+      return res.status(409).json({ error: "Voided bills cannot be edited" });
+    }
+    const body = req.body as z.infer<typeof billPatchSchema>;
+    const draftOnly =
+      body.vendorId !== undefined ||
+      body.issueDate !== undefined ||
+      body.currency !== undefined ||
+      body.lines !== undefined;
+    if (draftOnly && b.status !== "draft") {
+      return res
+        .status(409)
+        .json({ error: "Lines and header (vendor/date/currency) are draft-only" });
+    }
+    if (body.notes !== undefined) b.notes = body.notes;
+    if (body.vendorRef !== undefined) b.vendorRef = body.vendorRef;
+    if (body.dueDate !== undefined) b.dueDate = new Date(body.dueDate);
+    if (body.vendorId !== undefined) {
+      const v = await AppDataSource.getRepository(Vendor).findOneBy({
+        id: body.vendorId,
+        companyId: cid,
+      });
+      if (!v) return res.status(400).json({ error: "Invalid vendor" });
+      b.vendorId = v.id;
+    }
+    if (body.issueDate !== undefined) b.issueDate = new Date(body.issueDate);
+    if (body.currency !== undefined) b.currency = body.currency;
+    await AppDataSource.getRepository(Bill).save(b);
+    if (body.lines !== undefined) await replaceBillLines(b, body.lines);
+    const recomputed = await recomputeBillTotals(b);
+    const [hydrated] = await hydrateBills(cid, [recomputed]);
+    res.json(hydrated);
+  },
+);
+
+financeRouter.delete("/bills/:slug", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const b = await loadBillBySlug(cid, req.params.slug);
+  if (!b) return res.status(404).json({ error: "Bill not found" });
+  if (b.status !== "draft") {
+    return res
+      .status(409)
+      .json({ error: "Only drafts can be deleted — void issued bills instead" });
+  }
+  await AppDataSource.getRepository(BillLineItem).delete({ billId: b.id });
+  await AppDataSource.getRepository(BillPayment).delete({ billId: b.id });
+  await AppDataSource.getRepository(Bill).delete({ id: b.id });
+  res.json({ ok: true });
+});
+
+financeRouter.post("/bills/:slug/issue", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const b = await loadBillBySlug(cid, req.params.slug);
+  if (!b) return res.status(404).json({ error: "Bill not found" });
+  if (b.status !== "draft") return res.status(409).json({ error: "Already issued" });
+  try {
+    const issued = await issueBill(b, req.userId ?? null);
+    const [hydrated] = await hydrateBills(cid, [issued]);
+    res.json(hydrated);
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+financeRouter.post("/bills/:slug/void", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const b = await loadBillBySlug(cid, req.params.slug);
+  if (!b) return res.status(404).json({ error: "Bill not found" });
+  try {
+    const voided = await voidBill(b, req.userId ?? null);
+    const [hydrated] = await hydrateBills(cid, [voided]);
+    res.json(hydrated);
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+const billPaymentSchema = z.object({
+  amountCents: z.number().int().min(1).max(2_000_000_000),
+  currency: currencySchema.optional(),
+  paidAt: z.string().datetime().optional(),
+  method: z.enum(["cash", "bank_transfer", "stripe", "lightning", "other"]).optional(),
+  reference: z.string().max(200).optional(),
+  notes: z.string().max(2000).optional(),
+});
+
+financeRouter.post(
+  "/bills/:slug/payments",
+  validateBody(billPaymentSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const b = await loadBillBySlug(cid, req.params.slug);
+    if (!b) return res.status(404).json({ error: "Bill not found" });
+    if (b.status === "draft") {
+      return res.status(409).json({ error: "Issue the bill before paying" });
+    }
+    if (b.status === "void") {
+      return res.status(409).json({ error: "Voided bills cannot be paid" });
+    }
+    const body = req.body as z.infer<typeof billPaymentSchema>;
+    const repo = AppDataSource.getRepository(BillPayment);
+    const p = await repo.save(
+      repo.create({
+        billId: b.id,
+        amountCents: body.amountCents,
+        currency: body.currency ?? b.currency,
+        paidAt: body.paidAt ? new Date(body.paidAt) : new Date(),
+        method: (body.method ?? "other") as BillPaymentMethod,
+        reference: body.reference ?? "",
+        notes: body.notes ?? "",
+        createdById: req.userId ?? null,
+      }),
+    );
+    try {
+      await postBillPayment(b, p, req.userId ?? null);
+    } catch (err) {
+      // Roll back the payment row if the ledger post fails (typical
+      // cause: a closed period covers the payment date).
+      await repo.delete({ id: p.id });
+      return res.status(400).json({ error: (err as Error).message });
+    }
+    const recomputed = await recomputeBillTotals(b);
+    const [hydrated] = await hydrateBills(cid, [recomputed]);
+    res.json(hydrated);
+  },
+);
+
+financeRouter.delete("/bills/:slug/payments/:pid", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const b = await loadBillBySlug(cid, req.params.slug);
+  if (!b) return res.status(404).json({ error: "Bill not found" });
+  const repo = AppDataSource.getRepository(BillPayment);
+  const p = await repo.findOneBy({ id: req.params.pid, billId: b.id });
+  if (!p) return res.status(404).json({ error: "Payment not found" });
+  await reverseBillPayment(b, p, req.userId ?? null);
+  await repo.delete({ id: p.id });
+  const recomputed = await recomputeBillTotals(b);
+  const [hydrated] = await hydrateBills(cid, [recomputed]);
+  res.json(hydrated);
+});
+
+// Convenience for the UI: a "display status" snapshot that promotes
+// `sent` → `overdue` past dueDate. The list endpoint above already
+// returns enough info for the client to compute this; this endpoint
+// exists so MCP tools (Phase H+) can ask the server for the same.
+financeRouter.get("/bills/:slug/display-status", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const b = await loadBillBySlug(cid, req.params.slug);
+  if (!b) return res.status(404).json({ error: "Bill not found" });
+  res.json({ status: billDisplayStatus(b) });
 });

@@ -1738,3 +1738,110 @@ export type AccountingPeriod = {
   closingEntryId: string | null;
   createdAt: string;
 };
+
+// ─────────────────────── Vendors + Bills (M19 Phase G) ─────────────────
+
+export type Vendor = {
+  id: string;
+  companyId: string;
+  name: string;
+  slug: string;
+  email: string;
+  phone: string;
+  address: string;
+  taxNumber: string;
+  currency: string;
+  notes: string;
+  archivedAt: string | null;
+  createdById: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BillStatus = "draft" | "sent" | "paid" | "void";
+export type BillPaymentMethod = InvoicePaymentMethod;
+
+export type BillLineItem = {
+  id: string;
+  billId: string;
+  expenseAccountId: string | null;
+  description: string;
+  quantity: number;
+  unitPriceCents: number;
+  taxRateId: string | null;
+  taxName: string;
+  taxPercent: number;
+  taxInclusive: boolean;
+  lineSubtotalCents: number;
+  lineTaxCents: number;
+  lineTotalCents: number;
+  sortOrder: number;
+};
+
+export type BillPayment = {
+  id: string;
+  billId: string;
+  amountCents: number;
+  currency: string;
+  paidAt: string;
+  method: BillPaymentMethod;
+  reference: string;
+  notes: string;
+  createdById: string | null;
+  createdAt: string;
+};
+
+export type VendorStub = { id: string; name: string; slug: string };
+
+export type Bill = {
+  id: string;
+  companyId: string;
+  vendorId: string;
+  slug: string;
+  numberSeq: number;
+  number: string;
+  vendorRef: string;
+  status: BillStatus;
+  issueDate: string;
+  dueDate: string;
+  currency: string;
+  subtotalCents: number;
+  taxCents: number;
+  totalCents: number;
+  paidCents: number;
+  balanceCents: number;
+  notes: string;
+  receivedAt: string | null;
+  paidAt: string | null;
+  voidedAt: string | null;
+  createdById: string | null;
+  createdAt: string;
+  updatedAt: string;
+  vendor: VendorStub | null;
+  lines: BillLineItem[];
+  payments: BillPayment[];
+};
+
+export type BillListItem = Omit<Bill, "lines" | "payments"> & {
+  linesCount: number;
+  paymentsCount: number;
+};
+
+export type BillLineDraft = {
+  expenseAccountId?: string | null;
+  description: string;
+  quantity: number;
+  unitPriceCents: number;
+  taxRateId?: string | null;
+  sortOrder?: number;
+};
+
+export function displayBillStatus(
+  bill: Pick<Bill, "status" | "dueDate">,
+  now: Date = new Date(),
+): BillStatus | "overdue" {
+  if (bill.status === "sent" && new Date(bill.dueDate).getTime() < now.getTime()) {
+    return "overdue";
+  }
+  return bill.status;
+}

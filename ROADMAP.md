@@ -450,14 +450,19 @@ Phased so each phase ships behind its own PR:
   Phase A's flat `TaxRate` continues to work and is sufficient for
   most jurisdictions; composable rules earn their complexity once a
   user actually hits the limit.
-- **Phase F — Period close + Accountant exports.** `AccountingPeriod`
-  with open / closed status, period-close wizard with retained-
-  earnings rollover. CSV / IIF export of ledger / invoices /
-  customers in formats Xero, QuickBooks, and plain accountants
-  accept.
-- **Phase G — Vendor side.** `Vendor`, `Bill`, `BillLineItem`,
-  `BillPayment`. Mirror of invoices but inbound; auto-posts to AP /
-  Expense. Same UI shape under a "Bills" sub-nav.
+- [x] **Phase F — Period close + Accountant exports.**
+  `AccountingPeriod` with open / closed status. Closing posts a
+  single balancing entry into 3100 Retained Earnings and locks the
+  window — `postLedgerEntry` refuses to write inside a closed
+  period. Plain-CSV exports (customers / invoices / general journal /
+  trial balance) cover the common accountant hand-off; IIF / Xero
+  -shaped exports are deferred until a real user asks for them.
+- [x] **Phase G — Vendor side.** `Vendor`, `Bill`, `BillLineItem`,
+  `BillPayment`. Mirror of invoices but inbound — issue auto-posts
+  DR per-line Expense / CR 2200 Accounts Payable; payment auto-posts
+  DR Accounts Payable / CR Bank with FX gain/loss for foreign-
+  currency bills (mirrors the customer flow). Vendors / Bills sub-
+  nav under Finance.
 
 MCP surface (added phase by phase): `list_invoices`, `get_invoice`,
 `create_invoice`, `send_invoice`, `record_payment`, `void_invoice`,

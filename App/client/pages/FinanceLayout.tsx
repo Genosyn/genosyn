@@ -3,9 +3,11 @@ import { Outlet } from "react-router-dom";
 import {
   BarChart3,
   BookOpen,
+  Building2,
   Calendar,
   Coins,
   FileText,
+  Inbox,
   Layers,
   LineChart,
   Link2,
@@ -52,6 +54,16 @@ export default function FinanceLayout({ company }: { company: Company }) {
           to={`${base}/customers`}
           icon={<Users size={14} />}
           label="Customers"
+        />
+        <SidebarLink
+          to={`${base}/bills`}
+          icon={<Inbox size={14} />}
+          label="Bills"
+        />
+        <SidebarLink
+          to={`${base}/vendors`}
+          icon={<Building2 size={14} />}
+          label="Vendors"
         />
         <div className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
           Ledger

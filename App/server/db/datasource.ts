@@ -70,6 +70,10 @@ import { Currency } from "./entities/Currency.js";
 import { ExchangeRate } from "./entities/ExchangeRate.js";
 import { CompanyFinanceSettings } from "./entities/CompanyFinanceSettings.js";
 import { AccountingPeriod } from "./entities/AccountingPeriod.js";
+import { Vendor } from "./entities/Vendor.js";
+import { Bill } from "./entities/Bill.js";
+import { BillLineItem } from "./entities/BillLineItem.js";
+import { BillPayment } from "./entities/BillPayment.js";
 
 const entities = [
   User,
@@ -138,6 +142,10 @@ const entities = [
   ExchangeRate,
   CompanyFinanceSettings,
   AccountingPeriod,
+  Vendor,
+  Bill,
+  BillLineItem,
+  BillPayment,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)
