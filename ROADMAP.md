@@ -535,6 +535,34 @@ of the original V1 backlog has shipped — what remains is mostly
 - [x] **Streaming logs to UI** (SSE on `employeeSurface.ts`)
 - [x] **Provider-level sandboxing** (codex `--sandbox workspace-write`,
       runner cwd-scoped)
+- [x] **Browser access for AI employees** — headless Chromium bundled in
+      the App container (Alpine `chromium` driven by `playwright-core`),
+      opt-in per employee via `AIEmployee.browserEnabled`. Reserved
+      built-in `browser` MCP exposes `browser_open`, `browser_snapshot`,
+      `browser_click`, `browser_fill`, `browser_press`,
+      `browser_screenshot`, `browser_close`, plus `browser_submit` and
+      `browser_resume` for human-gated form submits. Stamped into all
+      five providers' configs.
+  - [x] **URL allow list.** `AIEmployee.browserAllowedHosts` (newline-
+        separated host globs like `*.gmail.com`, `notion.so`). Empty list
+        = unrestricted. Enforced inside `browser_open` before navigation.
+  - [x] **Per-routine override.** `Routine.browserEnabledOverride`
+        (`true` / `false` / `null`). Null inherits the employee setting;
+        explicit values override either way. Materializer takes a
+        `routineId` option from the runner and applies the override
+        before stamping `.mcp.json`.
+  - [x] **Approval mode for form submits.**
+        `AIEmployee.browserApprovalRequired` boolean. When on, the new
+        `browser_submit` tool queues an `Approval` (kind=`browser_action`)
+        and returns `{status:"pending_approval", approvalId}`. The model
+        calls `browser_resume(approvalId)` to re-fire once a human
+        approves; rejections come back as a tool error.
+  - [x] **Browserbase remote backend.** `Company.browserBackend` =
+        `"local"` (default) or `"browserbase"`. When `browserbase`,
+        `Company.browserbaseApiKey` (encrypted) + `browserbaseProjectId`
+        are passed to the MCP via env; mcp-browser opens a Browserbase
+        session over CDP instead of launching the in-container Chromium.
+        Steel.dev backend is a future drop-in (same interface).
 - [ ] **Genosyn-level sandbox** (docker / lightweight jail around the
       child process — provider sandboxes don't fully contain the spawn)
 - [ ] **Per-run context window budget**

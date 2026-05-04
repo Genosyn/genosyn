@@ -412,7 +412,150 @@ export function SettingsCompany() {
           </form>
         </CardBody>
       </Card>
+      <CompanyBrowserSettingsCard companyId={company.id} />
     </>
+  );
+}
+
+type BrowserSettings = {
+  backend: "local" | "browserbase";
+  browserbaseProjectId: string | null;
+  browserbaseApiKeySet: boolean;
+  browserbaseApiKeyMasked: string | null;
+};
+
+/**
+ * Per-company browser-backend settings. The `local` backend runs the
+ * bundled headless Chromium inside the App container; `browserbase` opens
+ * sessions against api.browserbase.com using the company's API key +
+ * project id. Owner / admin only.
+ */
+function CompanyBrowserSettingsCard({ companyId }: { companyId: string }) {
+  const [settings, setSettings] = React.useState<BrowserSettings | null>(null);
+  const [backend, setBackend] = React.useState<"local" | "browserbase">("local");
+  const [projectId, setProjectId] = React.useState("");
+  const [apiKey, setApiKey] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const { toast } = useToast();
+
+  React.useEffect(() => {
+    api
+      .get<BrowserSettings>(`/api/companies/${companyId}/browser-settings`)
+      .then((s) => {
+        setSettings(s);
+        setBackend(s.backend);
+        setProjectId(s.browserbaseProjectId ?? "");
+      })
+      .catch((err: Error) => setError(err.message));
+  }, [companyId]);
+
+  const dirty =
+    settings !== null &&
+    (backend !== settings.backend ||
+      projectId !== (settings.browserbaseProjectId ?? "") ||
+      apiKey.length > 0);
+
+  async function save() {
+    if (!dirty || saving) return;
+    const patch: Partial<{ backend: "local" | "browserbase"; browserbaseProjectId: string | null; browserbaseApiKey: string }> = {};
+    if (settings && backend !== settings.backend) patch.backend = backend;
+    if (settings && projectId !== (settings.browserbaseProjectId ?? "")) {
+      patch.browserbaseProjectId = projectId.trim().length === 0 ? null : projectId.trim();
+    }
+    if (apiKey.length > 0) patch.browserbaseApiKey = apiKey;
+    setSaving(true);
+    setError(null);
+    try {
+      const next = await api.put<BrowserSettings>(
+        `/api/companies/${companyId}/browser-settings`,
+        patch,
+      );
+      setSettings(next);
+      setBackend(next.backend);
+      setProjectId(next.browserbaseProjectId ?? "");
+      setApiKey("");
+      toast("Browser settings saved", "success");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card className="mt-4">
+      <CardHeader>
+        <h2 className="text-sm font-semibold">Browser backend</h2>
+        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+          Where the built-in <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">browser</code> MCP server runs Chromium for AI employees.
+          The default <strong>Local</strong> backend uses the headless
+          Chromium bundled in the App container. <strong>Browserbase</strong>{" "}
+          opens cloud sessions against api.browserbase.com — useful for
+          residential IPs, persistent cookies, or self-hosters who would
+          rather not bundle Chromium.
+        </p>
+      </CardHeader>
+      <CardBody className="flex flex-col gap-3">
+        <FormError message={error} />
+        <div className="flex gap-1 rounded-md border border-slate-200 p-0.5 text-xs dark:border-slate-700">
+          {(
+            [
+              ["local", "Local Chromium"],
+              ["browserbase", "Browserbase"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setBackend(value)}
+              className={
+                "flex-1 rounded px-3 py-1.5 transition " +
+                (backend === value
+                  ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
+                  : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800")
+              }
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {backend === "browserbase" && (
+          <div className="flex flex-col gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
+            <Input
+              label="Browserbase project ID"
+              value={projectId}
+              onChange={(e) => setProjectId(e.target.value)}
+              placeholder="prj_..."
+            />
+            <div>
+              <Input
+                label={settings?.browserbaseApiKeySet ? "Replace API key" : "API key"}
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder={
+                  settings?.browserbaseApiKeySet
+                    ? "•••••••••• (leave blank to keep)"
+                    : "bb_..."
+                }
+                autoComplete="off"
+              />
+              {settings?.browserbaseApiKeySet && (
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  An API key is on file. Type a new value to replace it; clear and save to remove it.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+        <div className="flex justify-end pt-1">
+          <Button disabled={!dirty || saving} onClick={save}>
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        </div>
+      </CardBody>
+    </Card>
   );
 }
 

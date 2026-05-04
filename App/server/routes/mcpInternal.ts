@@ -16,6 +16,8 @@ import { routineTemplate, skillTemplate } from "../services/files.js";
 import { registerRoutine } from "../services/cron.js";
 import { recordAudit } from "../services/audit.js";
 import { resolveMcpToken } from "../services/mcpTokens.js";
+import { Approval } from "../db/entities/Approval.js";
+import { createBrowserActionApproval } from "../services/approvals.js";
 import { createNotification } from "../services/notifications.js";
 import {
   getGrantWithConnection,
@@ -3581,3 +3583,69 @@ async function notifyTodoReviewByEmployee(args: {
     entityId: todo.id,
   });
 }
+
+// --------------------------------------------------------------------------
+// Browser-action approvals
+// --------------------------------------------------------------------------
+//
+// Called by the built-in `browser` MCP child (`server/mcp-browser/`) when
+// `AIEmployee.browserApprovalRequired` is on and the model invokes
+// `browser_submit`. The MCP captures the live page URL + selector + key,
+// queues an Approval row here, and returns `pending_approval` to the
+// model. Once a human approves it from the UI, the model calls
+// `browser_resume(approvalId)` and the MCP re-fires the held action; the
+// server side never drives the browser itself.
+
+const queueBrowserApprovalSchema = z.object({
+  /** Free-text reason / target action shown to the approver. */
+  summary: z.string().trim().min(1).max(1000),
+  /** Page URL captured at queue time (best-effort; may be empty). */
+  pageUrl: z.string().max(2048).optional(),
+  /** Selector the MCP intends to act on. */
+  selector: z.string().min(1).max(1000),
+  /** Optional key press (e.g. `Enter`) — null/undefined for a click. */
+  key: z.string().max(60).nullish(),
+});
+
+mcpInternalRouter.post(
+  "/tools/queue_browser_approval",
+  validateBody(queueBrowserApprovalSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof queueBrowserApprovalSchema>;
+    const emp = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    if (!emp.browserApprovalRequired) {
+      return res.status(400).json({
+        error:
+          "browserApprovalRequired is off for this employee — queue rejected to avoid stranding the action",
+      });
+    }
+    const approval = await createBrowserActionApproval({
+      companyId: co.id,
+      employeeId: emp.id,
+      selector: body.selector,
+      key: body.key ?? null,
+      pageUrl: body.pageUrl ?? "",
+      summary: body.summary,
+    });
+    res.json({ approvalId: approval.id, status: approval.status });
+  },
+);
+
+mcpInternalRouter.get(
+  "/tools/check_browser_approval/:id",
+  async (req: McpRequest, res) => {
+    const id = req.params.id;
+    const emp = req.mcpEmployee!;
+    const approval = await AppDataSource.getRepository(Approval).findOneBy({ id });
+    if (!approval || approval.kind !== "browser_action") {
+      return res.status(404).json({ error: "Approval not found" });
+    }
+    if (approval.employeeId !== emp.id) {
+      // The MCP token resolves to one employee; refuse to leak status of
+      // a different employee's pending approvals.
+      return res.status(403).json({ error: "Approval belongs to another employee" });
+    }
+    res.json({ status: approval.status });
+  },
+);

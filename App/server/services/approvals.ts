@@ -60,8 +60,58 @@ function parsePaymentPayload(json: string | null): LightningPaymentPayload {
 }
 
 // --------------------------------------------------------------------------
+// Browser-action payload
+// --------------------------------------------------------------------------
+
+/**
+ * Captured by `browser_submit` when the employee's `browserApprovalRequired`
+ * flag is on. The MCP child holds the live page state — the server only
+ * stores enough metadata for the approver to make an informed call. On
+ * approve, the model retries via `browser_resume(approvalId)` and the MCP
+ * re-executes the action against the still-live browser context.
+ *
+ * Server side never re-fires this. The execute path for `browser_action`
+ * is a no-op because we don't have access to the browser session; the
+ * model is the only thing that can drive it.
+ */
+export type BrowserActionPayload = {
+  selector: string;
+  /** Optional key to press (e.g. "Enter") — null when the action is a click. */
+  key: string | null;
+  /** Page URL captured at queue time. Surfaced to the approver. */
+  pageUrl: string;
+};
+
+// --------------------------------------------------------------------------
 // Create helpers
 // --------------------------------------------------------------------------
+
+export async function createBrowserActionApproval(args: {
+  companyId: string;
+  employeeId: string;
+  selector: string;
+  key: string | null;
+  pageUrl: string;
+  summary: string;
+}): Promise<Approval> {
+  const repo = AppDataSource.getRepository(Approval);
+  const title = args.summary.length > 80 ? args.summary.slice(0, 77) + "..." : args.summary;
+  const approval = repo.create({
+    companyId: args.companyId,
+    kind: "browser_action",
+    routineId: "",
+    employeeId: args.employeeId,
+    status: "pending",
+    title,
+    summary: args.pageUrl ? `${args.summary}  ·  ${args.pageUrl}` : args.summary,
+    payloadJson: JSON.stringify({
+      selector: args.selector,
+      key: args.key,
+      pageUrl: args.pageUrl,
+    } satisfies BrowserActionPayload),
+  });
+  return repo.save(approval);
+}
 
 export async function createPaymentApproval(args: {
   companyId: string;
@@ -108,6 +158,10 @@ export async function executeApproval(approval: Approval): Promise<void> {
       return;
     case "lightning_payment":
       await executeLightningPaymentApproval(approval);
+      return;
+    case "browser_action":
+      // Server side has no browser. The model re-fires the held action
+      // via `browser_resume(approvalId)` once the row flips to approved.
       return;
     default:
       throw new Error(`Unknown approval kind: ${approval.kind}`);
@@ -206,6 +260,23 @@ export async function recordApprovalRejection(
           employeeId: approval.employeeId,
           kind: "system",
           title: approval.title ?? "Lightning payment rejected",
+          body: summary,
+          routineId: null,
+          runId: null,
+          authorUserId: approval.decidedByUserId,
+        }),
+      );
+      return;
+    }
+    case "browser_action": {
+      const summary = approval.summary
+        ? `Browser action rejected: ${approval.summary}`
+        : "Browser action rejected.";
+      await AppDataSource.getRepository(JournalEntry).save(
+        AppDataSource.getRepository(JournalEntry).create({
+          employeeId: approval.employeeId,
+          kind: "system",
+          title: approval.title ?? "Browser action rejected",
           body: summary,
           routineId: null,
           runId: null,

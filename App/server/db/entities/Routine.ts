@@ -70,6 +70,24 @@ export class Routine {
   @Column({ type: "varchar", nullable: true })
   webhookToken!: string | null;
 
+  /**
+   * Per-routine override for the employee's `browserEnabled` flag. Three
+   * states:
+   *
+   *   * `null` (default) — inherit `AIEmployee.browserEnabled`.
+   *   * `true` — force-enable for this routine even when the employee
+   *     setting is off (rare; useful for a single scheduled scrape on an
+   *     otherwise air-gapped employee).
+   *   * `false` — force-disable for this routine even when the employee
+   *     setting is on (common; keep the employee browser-capable for
+   *     ad-hoc chat work but withhold it from a noisy cron).
+   *
+   * Stored as a stringified boolean (`"true"` / `"false"`) so sqlite's
+   * boolean column can still distinguish the three cases via nullable.
+   */
+  @Column({ type: "boolean", nullable: true })
+  browserEnabledOverride!: boolean | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

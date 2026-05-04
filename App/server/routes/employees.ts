@@ -194,6 +194,11 @@ const patchSchema = z.object({
   teamId: z.string().uuid().nullable().optional(),
   reportsToEmployeeId: z.string().uuid().nullable().optional(),
   reportsToUserId: z.string().uuid().nullable().optional(),
+  browserEnabled: z.boolean().optional(),
+  // Newline-separated host globs. The materializer trims and parses;
+  // empty / whitespace-only strings clear the list.
+  browserAllowedHosts: z.string().max(4000).nullable().optional(),
+  browserApprovalRequired: z.boolean().optional(),
 });
 
 employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
@@ -267,6 +272,16 @@ employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
       emp.reportsToUserId = human.userId;
       emp.reportsToEmployeeId = null;
     }
+  }
+  if (body.browserEnabled !== undefined) {
+    emp.browserEnabled = body.browserEnabled;
+  }
+  if (body.browserAllowedHosts !== undefined) {
+    const next = body.browserAllowedHosts;
+    emp.browserAllowedHosts = next === null || next.trim().length === 0 ? null : next;
+  }
+  if (body.browserApprovalRequired !== undefined) {
+    emp.browserApprovalRequired = body.browserApprovalRequired;
   }
   if (body.slug !== undefined) {
     const normalized = toSlug(body.slug);

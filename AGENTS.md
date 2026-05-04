@@ -148,7 +148,9 @@ data/
   before each spawn, and any artifacts the CLI writes into its cwd. Each
   provider has its own config shape and file location; every provider
   always includes a built-in `genosyn` server so the employee can call
-  back into Genosyn to create Routines, Todos, journal notes, etc.:
+  back into Genosyn to create Routines, Todos, journal notes, etc., and
+  optionally a built-in `browser` server (when `AIEmployee.browserEnabled`
+  is true) that drives a headless Chromium for web tasks:
     * **claude-code** → `.mcp.json` at the employee's cwd
     * **codex** → `$CODEX_HOME/config.toml` with `[mcp_servers.<name>]`
       blocks (HTTP-transport external servers are skipped with a note,
@@ -290,9 +292,10 @@ Don't tag manually, don't edit version numbers in `package.json` files.
   skill, and routine bodies live on their DB rows; run logs live on the
   Run row. The filesystem under `data/` is only for provider credentials,
   `.mcp.json`, and CLI artifacts.
-- Naming a user-configurable MCP server `genosyn`. The name is reserved for
-  the built-in stdio binary at `server/mcp-genosyn/`. User-configured
-  servers with that name are dropped when `.mcp.json` is materialized.
+- Naming a user-configurable MCP server `genosyn` or `browser`. Both names
+  are reserved for built-in stdio binaries at `server/mcp-genosyn/` and
+  `server/mcp-browser/`. User-configured servers with those names are
+  dropped when `.mcp.json` is materialized.
 - Skipping the zod schema on a new endpoint.
 - Hand-writing a migration file. Always run
   `npm run migration:generate -- server/db/migrations/<Name>` and commit

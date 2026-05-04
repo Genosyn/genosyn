@@ -3,8 +3,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { AppDataSource } from "../db/datasource.js";
 import { McpServer } from "../db/entities/McpServer.js";
+import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { Routine } from "../db/entities/Routine.js";
+import { Company, type BrowserBackend } from "../db/entities/Company.js";
 import type { Provider } from "../db/entities/AIModel.js";
 import { config } from "../../config.js";
+import { decryptSecret } from "../lib/secret.js";
 import { employeeCodexDir, openclawConfigPath } from "./paths.js";
 
 /**
@@ -89,6 +93,135 @@ const GENOSYN_MCP_BIN = path.resolve(
 );
 
 /**
+ * Absolute path to the built-in `browser` MCP stdio binary. Same dev/prod
+ * resolution as `GENOSYN_MCP_BIN`. Stamped in only when the employee's
+ * `browserEnabled` flag is true so a stock install never wires Chromium
+ * tools into a model that doesn't need them.
+ */
+const BROWSER_MCP_BIN = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "mcp-browser",
+  "index.mjs",
+);
+
+/** Reserved server names — operators can't shadow our built-ins from the UI. */
+const RESERVED_SERVER_NAMES = new Set(["genosyn", "browser"]);
+
+/**
+ * Resolved browser configuration for one materialize pass. Combines:
+ *
+ *   * The employee's settings (`browserEnabled`, `browserAllowedHosts`,
+ *     `browserApprovalRequired`).
+ *   * The optional routine override (`browserEnabledOverride`), applied on
+ *     top of the employee setting.
+ *   * The company's backend choice (`local` / `browserbase`) plus
+ *     decrypted Browserbase credentials.
+ *
+ * Stamped into each provider's MCP config when `enabled` is true. The
+ * mcp-browser child process reads the env vars produced by
+ * {@link browserEnvFor} and acts on them at tool-call time.
+ */
+type BrowserConfig = {
+  enabled: boolean;
+  allowedHosts: string;
+  approvalRequired: boolean;
+  backend: BrowserBackend;
+  browserbaseApiKey: string | null;
+  browserbaseProjectId: string | null;
+};
+
+const BROWSER_CONFIG_DISABLED: BrowserConfig = {
+  enabled: false,
+  allowedHosts: "",
+  approvalRequired: false,
+  backend: "local",
+  browserbaseApiKey: null,
+  browserbaseProjectId: null,
+};
+
+/**
+ * Load the resolved browser config for an employee, factoring in an
+ * optional routine override and the company's backend choice. A failed
+ * Browserbase decrypt is treated as "no key" — the materializer logs
+ * nothing and the MCP child will fall back to local; this is preferred
+ * over throwing because browser disablement should never block an
+ * unrelated provider spawn.
+ */
+async function loadBrowserConfig(
+  employeeId: string,
+  options: { routineId?: string },
+): Promise<BrowserConfig> {
+  const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
+    id: employeeId,
+  });
+  if (!employee) return BROWSER_CONFIG_DISABLED;
+
+  let enabled = employee.browserEnabled;
+  if (options.routineId) {
+    const routine = await AppDataSource.getRepository(Routine).findOneBy({
+      id: options.routineId,
+    });
+    if (routine && routine.browserEnabledOverride !== null) {
+      enabled = routine.browserEnabledOverride;
+    }
+  }
+
+  const company = await AppDataSource.getRepository(Company).findOneBy({
+    id: employee.companyId,
+  });
+
+  let browserbaseApiKey: string | null = null;
+  if (company?.browserbaseApiKeyEnc) {
+    try {
+      browserbaseApiKey = decryptSecret(company.browserbaseApiKeyEnc);
+    } catch {
+      browserbaseApiKey = null;
+    }
+  }
+
+  return {
+    enabled,
+    allowedHosts: employee.browserAllowedHosts ?? "",
+    approvalRequired: employee.browserApprovalRequired,
+    backend: company?.browserBackend ?? "local",
+    browserbaseApiKey,
+    browserbaseProjectId: company?.browserbaseProjectId ?? null,
+  };
+}
+
+/**
+ * Build the env block stamped into the `browser` MCP server entry. Only
+ * non-empty values are included — keeps the materialized configs tidy when
+ * everything is at defaults. The genosyn token + API base are included
+ * whenever a token is available so the MCP child can call back to queue
+ * approvals from `browser_submit`.
+ */
+function browserEnvFor(
+  cfg: BrowserConfig,
+  token: string | undefined,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  if (token) {
+    env.GENOSYN_MCP_API = internalApiBase();
+    env.GENOSYN_MCP_TOKEN = token;
+  }
+  const allowed = cfg.allowedHosts.trim();
+  if (allowed) env.GENOSYN_BROWSER_ALLOWED_HOSTS = allowed;
+  if (cfg.approvalRequired) env.GENOSYN_BROWSER_APPROVAL_REQUIRED = "1";
+  if (cfg.backend === "browserbase") {
+    env.GENOSYN_BROWSER_BACKEND = "browserbase";
+    if (cfg.browserbaseApiKey) {
+      env.GENOSYN_BROWSERBASE_API_KEY = cfg.browserbaseApiKey;
+    }
+    if (cfg.browserbaseProjectId) {
+      env.GENOSYN_BROWSERBASE_PROJECT_ID = cfg.browserbaseProjectId;
+    }
+  }
+  return env;
+}
+
+/**
  * Loopback URL for the internal MCP API. We deliberately bypass
  * `config.publicUrl` (which may be an external hostname in prod) and dial
  * the Express process directly over 127.0.0.1 — the MCP binary always runs
@@ -120,9 +253,10 @@ async function loadUserServers(employeeId: string): Promise<NormalizedServer[]> 
   });
   const out: NormalizedServer[] = [];
   for (const s of rows) {
-    // "genosyn" is reserved for the built-in entry so users can't
-    // accidentally shadow it from the UI.
-    if (s.name === "genosyn") continue;
+    // Reserved names ("genosyn", "browser") map to built-in stdio binaries
+    // we always stamp in ourselves; drop any user rows that try to shadow
+    // them rather than letting the UI win silently.
+    if (RESERVED_SERVER_NAMES.has(s.name)) continue;
     if (s.transport === "http" && s.url) {
       out.push({ name: s.name, transport: "http", url: s.url });
     } else if (s.transport === "stdio" && s.command) {
@@ -175,36 +309,46 @@ export async function materializeMcpConfig(
     provider?: Provider;
     companySlug?: string;
     employeeSlug?: string;
+    /**
+     * Optional routine being materialized for. When set, the routine's
+     * `browserEnabledOverride` is applied on top of the employee's
+     * `browserEnabled` flag (see {@link loadBrowserConfig}).
+     */
+    routineId?: string;
   } = {},
 ): Promise<McpInvocationExtras> {
   const provider = options.provider ?? "claude-code";
   const userServers = await loadUserServers(employeeId);
+  const browser = await loadBrowserConfig(employeeId, {
+    routineId: options.routineId,
+  });
   const empty: McpInvocationExtras = { extraArgs: [], extraEnv: {} };
 
   switch (provider) {
     case "claude-code":
-      writeClaudeConfig(cwd, userServers, options.genosynToken);
+      writeClaudeConfig(cwd, userServers, options.genosynToken, browser);
       return empty;
     case "codex": {
       if (!options.companySlug || !options.employeeSlug) {
         // Without slugs we can't locate the employee's CODEX_HOME, so fall
         // back to the claude-shaped `.mcp.json` which codex also ignores —
         // same end result as before the multi-provider work.
-        writeClaudeConfig(cwd, userServers, options.genosynToken);
+        writeClaudeConfig(cwd, userServers, options.genosynToken, browser);
         return empty;
       }
       writeCodexConfig(
         employeeCodexDir(options.companySlug, options.employeeSlug),
         userServers,
         options.genosynToken,
+        browser,
       );
       return empty;
     }
     case "opencode":
-      writeOpencodeConfig(cwd, userServers, options.genosynToken);
+      writeOpencodeConfig(cwd, userServers, options.genosynToken, browser);
       return empty;
     case "goose":
-      return buildGooseExtras(userServers, options.genosynToken);
+      return buildGooseExtras(userServers, options.genosynToken, browser);
     case "openclaw": {
       if (!options.companySlug || !options.employeeSlug) {
         // Without slugs we can't locate the employee's openclaw.json, so
@@ -215,6 +359,7 @@ export async function materializeMcpConfig(
         openclawConfigPath(options.companySlug, options.employeeSlug),
         userServers,
         options.genosynToken,
+        browser,
       );
       return empty;
     }
@@ -227,6 +372,7 @@ function writeClaudeConfig(
   cwd: string,
   userServers: NormalizedServer[],
   token: string | undefined,
+  browser: BrowserConfig,
 ): void {
   const target = path.join(cwd, ".mcp.json");
   const file: ClaudeMcpFile = { mcpServers: {} };
@@ -239,6 +385,15 @@ function writeClaudeConfig(
         GENOSYN_MCP_API: internalApiBase(),
         GENOSYN_MCP_TOKEN: token,
       },
+    };
+  }
+
+  if (browser.enabled) {
+    const env = browserEnvFor(browser, token);
+    file.mcpServers.browser = {
+      command: process.execPath,
+      args: [BROWSER_MCP_BIN],
+      ...(Object.keys(env).length > 0 ? { env } : {}),
     };
   }
 
@@ -272,6 +427,7 @@ function writeCodexConfig(
   codexHome: string,
   userServers: NormalizedServer[],
   token: string | undefined,
+  browser: BrowserConfig,
 ): void {
   fs.mkdirSync(codexHome, { recursive: true });
   const target = path.join(codexHome, "config.toml");
@@ -287,6 +443,16 @@ function writeCodexConfig(
           GENOSYN_MCP_API: internalApiBase(),
           GENOSYN_MCP_TOKEN: token,
         },
+      }),
+    );
+  }
+
+  if (browser.enabled) {
+    blocks.push(
+      serializeCodexServer("browser", {
+        command: process.execPath,
+        args: [BROWSER_MCP_BIN],
+        env: browserEnvFor(browser, token),
       }),
     );
   }
@@ -381,6 +547,7 @@ function writeOpencodeConfig(
   cwd: string,
   userServers: NormalizedServer[],
   token: string | undefined,
+  browser: BrowserConfig,
 ): void {
   const target = path.join(cwd, "opencode.json");
   const file: OpenCodeConfigFile = {
@@ -398,6 +565,22 @@ function writeOpencodeConfig(
       },
       enabled: true,
     };
+  }
+
+  if (browser.enabled) {
+    const env = browserEnvFor(browser, token);
+    const entry: {
+      type: "local";
+      command: string[];
+      environment?: Record<string, string>;
+      enabled: boolean;
+    } = {
+      type: "local",
+      command: [process.execPath, BROWSER_MCP_BIN],
+      enabled: true,
+    };
+    if (Object.keys(env).length > 0) entry.environment = env;
+    file.mcp!.browser = entry;
   }
 
   for (const s of userServers) {
@@ -450,6 +633,7 @@ function writeOpencodeConfig(
 function buildGooseExtras(
   userServers: NormalizedServer[],
   token: string | undefined,
+  browser: BrowserConfig,
 ): McpInvocationExtras {
   const extraArgs: string[] = [];
   const extraEnv: Record<string, string> = {};
@@ -461,6 +645,20 @@ function buildGooseExtras(
     );
     extraEnv.GENOSYN_MCP_API = internalApiBase();
     extraEnv.GENOSYN_MCP_TOKEN = token;
+  }
+
+  if (browser.enabled) {
+    extraArgs.push(
+      "--with-extension",
+      gooseStdioCommand(process.execPath, [BROWSER_MCP_BIN]),
+    );
+    // Goose doesn't accept per-extension env, so the browser env vars ride
+    // along on the parent process; the extension subprocess inherits them.
+    // Keys collide with genosyn's only on namespaces that don't overlap
+    // (`GENOSYN_BROWSER_*` vs `GENOSYN_MCP_*`).
+    for (const [k, v] of Object.entries(browserEnvFor(browser, token))) {
+      if (!(k in extraEnv)) extraEnv[k] = v;
+    }
   }
 
   for (const s of userServers) {
@@ -527,6 +725,7 @@ function writeOpenclawConfig(
   configPath: string,
   userServers: NormalizedServer[],
   token: string | undefined,
+  browser: BrowserConfig,
 ): void {
   const servers: Record<string, OpenclawMcpEntry> = {};
 
@@ -539,6 +738,16 @@ function writeOpenclawConfig(
         GENOSYN_MCP_TOKEN: token,
       },
     };
+  }
+
+  if (browser.enabled) {
+    const env = browserEnvFor(browser, token);
+    const entry: OpenclawMcpEntry = {
+      command: process.execPath,
+      args: [BROWSER_MCP_BIN],
+    };
+    if (Object.keys(env).length > 0) (entry as { env?: Record<string, string> }).env = env;
+    servers.browser = entry;
   }
 
   for (const s of userServers) {

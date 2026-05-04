@@ -1,5 +1,5 @@
 import React from "react";
-import { Check, ShieldCheck, X, Zap } from "lucide-react";
+import { Check, Globe, ShieldCheck, X, Zap } from "lucide-react";
 import { api, Approval, ApprovalKind, ApprovalStatus, Company } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
@@ -47,6 +47,16 @@ function copyFor(a: Approval): ApprovalCopy {
         Icon: Zap,
         iconClass: "text-amber-500",
         approvedToast: "Approved — sending payment",
+      };
+    case "browser_action":
+      return {
+        title: a.title ?? "Browser submit",
+        subtitle: a.summary ?? "AI employee wants to submit a form",
+        Icon: Globe,
+        iconClass: "text-indigo-500",
+        // Browser actions don't run server-side — the model retries via
+        // browser_resume once it sees the row flip to approved.
+        approvedToast: "Approved — the AI will retry the submission",
       };
     case "routine":
     default:

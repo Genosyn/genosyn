@@ -127,6 +127,9 @@ const patchSchema = z.object({
   enabled: z.boolean().optional(),
   timeoutSec: z.number().int().min(10).max(6 * 60 * 60).optional(),
   requiresApproval: z.boolean().optional(),
+  // Three-valued: null inherits the employee's `browserEnabled`; explicit
+  // boolean overrides for this routine only.
+  browserEnabledOverride: z.boolean().nullable().optional(),
 });
 
 routinesRouter.patch(
@@ -149,6 +152,9 @@ routinesRouter.patch(
     if (body.enabled !== undefined) r.enabled = body.enabled;
     if (body.timeoutSec !== undefined) r.timeoutSec = body.timeoutSec;
     if (body.requiresApproval !== undefined) r.requiresApproval = body.requiresApproval;
+    if (body.browserEnabledOverride !== undefined) {
+      r.browserEnabledOverride = body.browserEnabledOverride;
+    }
     registerRoutine(r);
     await AppDataSource.getRepository(Routine).save(r);
     await recordAudit({

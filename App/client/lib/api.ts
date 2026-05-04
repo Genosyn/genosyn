@@ -112,6 +112,22 @@ export type Employee = {
   teamId?: string | null;
   reportsToEmployeeId?: string | null;
   reportsToUserId?: string | null;
+  /**
+   * Whether the built-in `browser` MCP server is wired into this employee's
+   * provider config. False on a stock install — operator opts in per
+   * employee from the Settings → General page.
+   */
+  browserEnabled?: boolean;
+  /**
+   * Newline-separated host globs (e.g. `*.gmail.com`). Empty / null = no
+   * restriction. Enforced inside the browser MCP's `browser_open` tool.
+   */
+  browserAllowedHosts?: string | null;
+  /**
+   * When true, `browser_submit` queues an Approval and the model has to
+   * call `browser_resume(approvalId)` after a human approves.
+   */
+  browserApprovalRequired?: boolean;
   /** Lightweight model summary, present only on the list endpoint. */
   model?: {
     provider: Provider;
@@ -173,10 +189,17 @@ export type Routine = {
   requiresApproval: boolean;
   webhookEnabled: boolean;
   webhookToken: string | null;
+  /**
+   * Per-routine override of `AIEmployee.browserEnabled`. Three states:
+   *   * `null` — inherit the employee setting.
+   *   * `true` — force-enable browser access for this routine only.
+   *   * `false` — force-disable browser access for this routine only.
+   */
+  browserEnabledOverride?: boolean | null;
 };
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
-export type ApprovalKind = "routine" | "lightning_payment";
+export type ApprovalKind = "routine" | "lightning_payment" | "browser_action";
 export type Approval = {
   id: string;
   companyId: string;

@@ -15,8 +15,15 @@ export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
  *   - `routine`           — cron tick for a routine marked `requiresApproval`
  *   - `lightning_payment` — a Lightning payment whose amount exceeded the
  *                            Connection's `requireApprovalAboveSats` knob
+ *   - `browser_action`    — a `browser_submit` call from an AI employee
+ *                            whose `browserApprovalRequired` flag is on.
+ *                            The MCP child holds the pending action; the
+ *                            model retries via `browser_resume(approvalId)`
+ *                            once status flips to `approved`. Server does
+ *                            not re-fire — only the MCP child can drive
+ *                            the live browser session.
  */
-export type ApprovalKind = "routine" | "lightning_payment";
+export type ApprovalKind = "routine" | "lightning_payment" | "browser_action";
 
 /**
  * Human-in-the-loop gate. Two flavors today (see `ApprovalKind`):

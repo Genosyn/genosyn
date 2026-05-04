@@ -9,6 +9,7 @@ import {
   Download,
   Edit3,
   ExternalLink,
+  Globe,
   KeyRound,
   Loader2,
   BookText,
@@ -829,6 +830,14 @@ function RoutineEditor({
   const [requiresApproval, setRequiresApproval] = React.useState(
     routine.requiresApproval ?? false,
   );
+  // Tri-state: "inherit" reads as null, "on"/"off" force a boolean override.
+  const [browserOverride, setBrowserOverride] = React.useState<"inherit" | "on" | "off">(
+    routine.browserEnabledOverride === true
+      ? "on"
+      : routine.browserEnabledOverride === false
+        ? "off"
+        : "inherit",
+  );
   const [webhookEnabled, setWebhookEnabled] = React.useState(routine.webhookEnabled);
   const [webhookToken, setWebhookToken] = React.useState(routine.webhookToken);
   const { toast } = useToast();
@@ -895,6 +904,38 @@ function RoutineEditor({
           <div className="-mt-2 text-xs text-slate-500 dark:text-slate-400">
             Manual &quot;Run now&quot; still runs immediately — a human is already in the loop.
           </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+              Browser access
+            </span>
+            <div className="flex gap-1 rounded-md border border-slate-200 p-0.5 text-xs dark:border-slate-700">
+              {(
+                [
+                  ["inherit", "Inherit"],
+                  ["on", "Force on"],
+                  ["off", "Force off"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setBrowserOverride(value)}
+                  className={
+                    "flex-1 rounded px-2 py-1 transition " +
+                    (browserOverride === value
+                      ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
+                      : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800")
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              Inherit uses the employee&apos;s Browser access setting. Override applies only to
+              this routine&apos;s scheduled runs.
+            </div>
+          </div>
           <WebhookField
             enabled={webhookEnabled}
             token={webhookToken}
@@ -912,6 +953,12 @@ function RoutineEditor({
                     enabled,
                     timeoutSec,
                     requiresApproval,
+                    browserEnabledOverride:
+                      browserOverride === "on"
+                        ? true
+                        : browserOverride === "off"
+                          ? false
+                          : null,
                   });
                   await api.put(
                     `/api/companies/${company.id}/routines/${routine.id}/readme`,
@@ -1051,6 +1098,7 @@ export function GeneralSettingsPage() {
       <EmployeeAvatarCard company={company} emp={emp} />
       <EmployeeBasicsCard company={company} emp={emp} />
       <EmployeeOrgCard company={company} emp={emp} />
+      <EmployeeBrowserAccessCard company={company} emp={emp} />
     </div>
   );
 }
@@ -1385,6 +1433,212 @@ function normalizeSlug(raw: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * Per-employee toggle for the built-in `browser` MCP server, plus the two
+ * shaping settings: an allow list of host globs and an approval gate that
+ * blocks form submits until a human says yes. Off by default — operator
+ * opts in per employee, then narrows further with the allow list /
+ * approval mode.
+ */
+function EmployeeBrowserAccessCard({
+  company,
+  emp,
+}: {
+  company: Company;
+  emp: Employee;
+}) {
+  const [enabled, setEnabled] = React.useState<boolean>(!!emp.browserEnabled);
+  const [allowedHosts, setAllowedHosts] = React.useState<string>(emp.browserAllowedHosts ?? "");
+  const [approval, setApproval] = React.useState<boolean>(!!emp.browserApprovalRequired);
+  const [savingToggle, setSavingToggle] = React.useState(false);
+  const [savingApproval, setSavingApproval] = React.useState(false);
+  const [savingHosts, setSavingHosts] = React.useState(false);
+  const { toast } = useToast();
+
+  React.useEffect(() => {
+    setEnabled(!!emp.browserEnabled);
+    setAllowedHosts(emp.browserAllowedHosts ?? "");
+    setApproval(!!emp.browserApprovalRequired);
+  }, [emp.id, emp.browserEnabled, emp.browserAllowedHosts, emp.browserApprovalRequired]);
+
+  const hostsDirty = (emp.browserAllowedHosts ?? "") !== allowedHosts;
+
+  async function toggle(next: boolean) {
+    if (savingToggle) return;
+    setEnabled(next);
+    setSavingToggle(true);
+    try {
+      await api.patch<Employee>(
+        `/api/companies/${company.id}/employees/${emp.id}`,
+        { browserEnabled: next },
+      );
+      toast(next ? "Browser access enabled" : "Browser access disabled", "success");
+      window.dispatchEvent(new CustomEvent("genosyn:employee-updated"));
+    } catch (err) {
+      setEnabled(!next);
+      toast((err as Error).message || "Could not update browser access", "error");
+    } finally {
+      setSavingToggle(false);
+    }
+  }
+
+  async function toggleApproval(next: boolean) {
+    if (savingApproval) return;
+    setApproval(next);
+    setSavingApproval(true);
+    try {
+      await api.patch<Employee>(
+        `/api/companies/${company.id}/employees/${emp.id}`,
+        { browserApprovalRequired: next },
+      );
+      toast(
+        next ? "Browser submits will require approval" : "Approval gate disabled",
+        "success",
+      );
+    } catch (err) {
+      setApproval(!next);
+      toast((err as Error).message || "Could not update approval mode", "error");
+    } finally {
+      setSavingApproval(false);
+    }
+  }
+
+  async function saveHosts() {
+    if (savingHosts) return;
+    setSavingHosts(true);
+    try {
+      await api.patch<Employee>(
+        `/api/companies/${company.id}/employees/${emp.id}`,
+        { browserAllowedHosts: allowedHosts },
+      );
+      toast("Allow list saved", "success");
+    } catch (err) {
+      toast((err as Error).message || "Could not save allow list", "error");
+    } finally {
+      setSavingHosts(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardBody className="flex flex-col gap-3">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="mt-0.5 rounded-md bg-slate-100 p-1.5 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              <Globe size={16} />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                Browser access
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Wire a headless Chromium into this employee&apos;s tools. Adds{" "}
+                <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
+                  browser_open
+                </code>
+                ,{" "}
+                <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
+                  browser_click
+                </code>
+                ,{" "}
+                <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
+                  browser_fill
+                </code>
+                , and screenshot tools so the employee can read and interact
+                with web pages. Off by default — narrow further with the
+                allow list and approval mode below.
+              </p>
+            </div>
+          </div>
+          <label className="relative inline-flex shrink-0 cursor-pointer items-center">
+            <input
+              type="checkbox"
+              className="peer sr-only"
+              checked={enabled}
+              disabled={savingToggle}
+              onChange={(e) => toggle(e.target.checked)}
+            />
+            <div className="h-5 w-9 rounded-full bg-slate-200 transition peer-checked:bg-indigo-500 peer-disabled:opacity-50 dark:bg-slate-700 dark:peer-checked:bg-indigo-500" />
+            <div className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-4" />
+          </label>
+        </div>
+
+        {enabled && (
+          <div className="flex flex-col gap-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+                Allow list
+              </label>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Newline-separated host globs (e.g.{" "}
+                <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
+                  *.gmail.com
+                </code>
+                ,{" "}
+                <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
+                  notion.so
+                </code>
+                ). Lines starting with{" "}
+                <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
+                  #
+                </code>{" "}
+                are comments. Leave blank for no restriction.
+              </p>
+              <textarea
+                rows={4}
+                value={allowedHosts}
+                onChange={(e) => setAllowedHosts(e.target.value)}
+                placeholder="# Examples:&#10;*.gmail.com&#10;github.com"
+                className="mt-2 w-full rounded-md border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-900 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              />
+              <div className="mt-2 flex justify-end">
+                <Button
+                  variant="secondary"
+                  disabled={!hostsDirty || savingHosts}
+                  onClick={saveHosts}
+                >
+                  {savingHosts ? "Saving…" : "Save allow list"}
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex items-start justify-between gap-4 border-t border-slate-100 pt-3 dark:border-slate-800">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                  Require approval for form submits
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Calls to{" "}
+                  <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
+                    browser_submit
+                  </code>{" "}
+                  queue an Approval row instead of firing immediately. The
+                  employee resumes via{" "}
+                  <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
+                    browser_resume
+                  </code>{" "}
+                  once a human approves.
+                </p>
+              </div>
+              <label className="relative inline-flex shrink-0 cursor-pointer items-center">
+                <input
+                  type="checkbox"
+                  className="peer sr-only"
+                  checked={approval}
+                  disabled={savingApproval}
+                  onChange={(e) => toggleApproval(e.target.checked)}
+                />
+                <div className="h-5 w-9 rounded-full bg-slate-200 transition peer-checked:bg-indigo-500 peer-disabled:opacity-50 dark:bg-slate-700 dark:peer-checked:bg-indigo-500" />
+                <div className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-4" />
+              </label>
+            </div>
+          </div>
+        )}
+      </CardBody>
+    </Card>
+  );
 }
 
 export function ModelSettingsPage() {
