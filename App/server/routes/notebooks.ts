@@ -12,11 +12,9 @@ import type { NoteAccessLevel } from "../db/entities/EmployeeNoteGrant.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
+import { uniqueNotebookSlug } from "../services/notebooks.js";
 import {
-  ensureDefaultNotebook,
-  uniqueNotebookSlug,
-} from "../services/notebooks.js";
-import {
+  deleteGrantsForNote,
   deleteGrantsForNotebook,
   listDirectNotebookGrants,
   upsertNotebookGrant,
@@ -24,9 +22,10 @@ import {
 
 /**
  * Notebooks — the top-level grouping shown in the Notes sidebar. Every
- * Note belongs to one Notebook; notebooks themselves do not nest. We
- * always keep at least one notebook per company so the create-note flow
- * has a default home.
+ * Note belongs to one Notebook; notebooks themselves do not nest. A
+ * company can sit at zero notebooks (the UI shows an empty hero) — the
+ * create-note path lazily seeds a default via ensureDefaultNotebook() the
+ * first time someone files a page.
  */
 export const notebooksRouter = Router({ mergeParams: true });
 notebooksRouter.use(requireAuth);
@@ -75,20 +74,14 @@ async function withCounts(
 
 notebooksRouter.get("/notebooks", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
-  // Seed a default notebook on first read for older companies whose row
-  // predates this feature and somehow missed the migration backfill.
   const repo = AppDataSource.getRepository(Notebook);
-  let rows = await repo.find({
+  const rows = await repo.find({
     where: { companyId: cid },
     order: { sortOrder: "ASC", createdAt: "ASC" },
   });
-  if (rows.length === 0) {
-    await ensureDefaultNotebook(cid, req.userId ?? null);
-    rows = await repo.find({
-      where: { companyId: cid },
-      order: { sortOrder: "ASC", createdAt: "ASC" },
-    });
-  }
+  // Empty list is fine — the create-note path lazily seeds a default
+  // notebook via ensureDefaultNotebook() when needed, and the UI shows
+  // an explicit empty state.
   res.json(await withCounts(cid, rows));
 });
 
@@ -167,28 +160,17 @@ notebooksRouter.delete("/notebooks/:nbSlug", async (req, res) => {
   const nb = await loadNotebook(cid, req.params.nbSlug);
   if (!nb) return res.status(404).json({ error: "Notebook not found" });
 
-  // Refuse to delete a notebook that still has any notes (live or trashed).
-  // Forces the caller to either move the pages first or empty the trash —
-  // we never silently orphan notes.
+  // Cascade: drop every page in the notebook (live + trashed) along with
+  // its grants, then the notebook's own grants. The GET endpoint seeds a
+  // fresh default notebook on next read if this leaves the company at zero,
+  // so we don't need a "minimum one" guard here.
   const notesRepo = AppDataSource.getRepository(Note);
-  const noteCount = await notesRepo.count({ where: { notebookId: nb.id } });
-  if (noteCount > 0) {
-    return res.status(400).json({
-      error: "Move or delete the notes inside this notebook first.",
-    });
-  }
-
-  // Don't let the company end up with zero notebooks — the create-note flow
-  // assumes there's always at least one home.
-  const total = await AppDataSource.getRepository(Notebook).count({
-    where: { companyId: cid },
+  const notes = await notesRepo.find({
+    where: { notebookId: nb.id },
+    select: ["id"],
   });
-  if (total <= 1) {
-    return res.status(400).json({
-      error: "A company must keep at least one notebook.",
-    });
-  }
-
+  for (const n of notes) await deleteGrantsForNote(n.id);
+  if (notes.length > 0) await notesRepo.delete({ notebookId: nb.id });
   await deleteGrantsForNotebook(nb.id);
   await AppDataSource.getRepository(Notebook).delete({ id: nb.id });
   res.json({ ok: true });

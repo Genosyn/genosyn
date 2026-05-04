@@ -169,12 +169,22 @@ export default function NotebookDetail({ company }: { company: Company }) {
 
   async function deleteNotebook() {
     if (!notebook) return;
+    const live = notebook.noteCount;
+    const trashed = notebook.archivedCount;
+    const total = live + trashed;
+    let message = "The notebook will be removed. This can't be undone.";
+    if (total > 0) {
+      const parts: string[] = [];
+      if (live > 0) parts.push(`${live} page${live === 1 ? "" : "s"}`);
+      if (trashed > 0)
+        parts.push(`${trashed} trashed page${trashed === 1 ? "" : "s"}`);
+      message = `This will permanently delete the notebook and ${parts.join(
+        " and ",
+      )}. This can't be undone.`;
+    }
     const ok = await dialog.confirm({
       title: `Delete notebook "${notebook.title}"?`,
-      message:
-        notebook.noteCount > 0 || notebook.archivedCount > 0
-          ? "This notebook still has pages — move or delete them first."
-          : "The notebook will be removed. This can't be undone.",
+      message,
       confirmLabel: "Delete notebook",
       variant: "danger",
     });
