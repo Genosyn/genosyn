@@ -80,6 +80,7 @@ import FinanceTrialBalance from "./pages/FinanceTrialBalance";
 import FinanceReports from "./pages/FinanceReports";
 import FinanceReconcile from "./pages/FinanceReconcile";
 import FinanceCurrencies from "./pages/FinanceCurrencies";
+import FinancePeriods from "./pages/FinancePeriods";
 
 type AuthState =
   | { status: "loading" }
@@ -282,6 +283,7 @@ function CompanyRoutes({
           <Route path="reports" element={<FinanceReports />} />
           <Route path="reconcile" element={<FinanceReconcile />} />
           <Route path="currencies" element={<FinanceCurrencies />} />
+          <Route path="periods" element={<FinancePeriods />} />
         </Route>
 
         <Route path="approvals" element={<Approvals company={company} />} />

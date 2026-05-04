@@ -1721,3 +1721,20 @@ export type CompanyFinanceSettings = {
   createdAt: string;
   updatedAt: string;
 };
+
+// ─────────────────────── Period close (M19 Phase F) ────────────────────
+
+export type AccountingPeriodStatus = "open" | "closed";
+
+export type AccountingPeriod = {
+  id: string;
+  companyId: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  status: AccountingPeriodStatus;
+  closedAt: string | null;
+  closedById: string | null;
+  closingEntryId: string | null;
+  createdAt: string;
+};

@@ -3,6 +3,7 @@ import { Outlet } from "react-router-dom";
 import {
   BarChart3,
   BookOpen,
+  Calendar,
   Coins,
   FileText,
   Layers,
@@ -79,6 +80,11 @@ export default function FinanceLayout({ company }: { company: Company }) {
           to={`${base}/reconcile`}
           icon={<Link2 size={14} />}
           label="Reconcile"
+        />
+        <SidebarLink
+          to={`${base}/periods`}
+          icon={<Calendar size={14} />}
+          label="Periods & exports"
         />
         <div className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
           Catalog

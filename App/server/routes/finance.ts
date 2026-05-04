@@ -59,6 +59,14 @@ import {
 } from "../services/fx.js";
 import { Currency } from "../db/entities/Currency.js";
 import { ExchangeRate } from "../db/entities/ExchangeRate.js";
+import { AccountingPeriod } from "../db/entities/AccountingPeriod.js";
+import { closePeriod, reopenPeriod } from "../services/periods.js";
+import {
+  exportCustomersCsv,
+  exportInvoicesCsv,
+  exportJournalCsv,
+  exportTrialBalanceCsv,
+} from "../services/exports.js";
 
 /**
  * Phase A of the Finance milestone (M19) — see ROADMAP.md.
@@ -1401,4 +1409,128 @@ financeRouter.delete("/exchange-rates/:id", async (req, res) => {
   if (!r) return res.status(404).json({ error: "Rate not found" });
   await repo.delete({ id: r.id });
   res.json({ ok: true });
+});
+
+// ─────────────────── Periods + exports (Phase F) ───────────────────────
+
+financeRouter.get("/periods", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const periods = await AppDataSource.getRepository(AccountingPeriod).find({
+    where: { companyId: cid },
+    order: { startDate: "DESC" },
+  });
+  res.json(periods);
+});
+
+const periodCreateSchema = z.object({
+  name: z.string().min(1).max(60),
+  startDate: z.string().datetime(),
+  endDate: z.string().datetime(),
+});
+
+financeRouter.post(
+  "/periods",
+  validateBody(periodCreateSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const body = req.body as z.infer<typeof periodCreateSchema>;
+    const start = new Date(body.startDate);
+    const end = new Date(body.endDate);
+    if (end.getTime() < start.getTime()) {
+      return res.status(400).json({ error: "endDate must be after startDate" });
+    }
+    const repo = AppDataSource.getRepository(AccountingPeriod);
+    const p = await repo.save(
+      repo.create({
+        companyId: cid,
+        name: body.name,
+        startDate: start,
+        endDate: end,
+      }),
+    );
+    res.json(p);
+  },
+);
+
+financeRouter.delete("/periods/:id", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const repo = AppDataSource.getRepository(AccountingPeriod);
+  const p = await repo.findOneBy({ id: req.params.id, companyId: cid });
+  if (!p) return res.status(404).json({ error: "Period not found" });
+  if (p.status === "closed") {
+    return res
+      .status(409)
+      .json({ error: "Re-open the period before deleting" });
+  }
+  await repo.delete({ id: p.id });
+  res.json({ ok: true });
+});
+
+financeRouter.post("/periods/:id/close", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const repo = AppDataSource.getRepository(AccountingPeriod);
+  const p = await repo.findOneBy({ id: req.params.id, companyId: cid });
+  if (!p) return res.status(404).json({ error: "Period not found" });
+  try {
+    const closed = await closePeriod(p, req.userId ?? null);
+    res.json(closed);
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+financeRouter.post("/periods/:id/reopen", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const repo = AppDataSource.getRepository(AccountingPeriod);
+  const p = await repo.findOneBy({ id: req.params.id, companyId: cid });
+  if (!p) return res.status(404).json({ error: "Period not found" });
+  try {
+    const opened = await reopenPeriod(p);
+    res.json(opened);
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+// CSV exports — text/csv with a Content-Disposition so the browser
+// saves to a sensible filename. `from` and `to` are optional ISO
+// dates; missing means unbounded on that side.
+
+function parseOptionalDate(raw: unknown): Date | null {
+  if (typeof raw !== "string" || !raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+financeRouter.get("/exports/customers.csv", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const csv = await exportCustomersCsv(cid);
+  res.type("text/csv").attachment("customers.csv").send(csv);
+});
+
+financeRouter.get("/exports/invoices.csv", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const csv = await exportInvoicesCsv(
+    cid,
+    parseOptionalDate(req.query.from),
+    parseOptionalDate(req.query.to),
+  );
+  res.type("text/csv").attachment("invoices.csv").send(csv);
+});
+
+financeRouter.get("/exports/journal.csv", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const csv = await exportJournalCsv(
+    cid,
+    parseOptionalDate(req.query.from),
+    parseOptionalDate(req.query.to),
+  );
+  res.type("text/csv").attachment("journal.csv").send(csv);
+});
+
+financeRouter.get("/exports/trial-balance.csv", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const asOf = parseOptionalDate(req.query.asOf) ?? new Date();
+  const csv = await exportTrialBalanceCsv(cid, asOf);
+  res.type("text/csv").attachment("trial-balance.csv").send(csv);
 });

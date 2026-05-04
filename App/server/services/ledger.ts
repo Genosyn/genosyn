@@ -1,6 +1,7 @@
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Account, AccountType } from "../db/entities/Account.js";
+import { AccountingPeriod } from "../db/entities/AccountingPeriod.js";
 import {
   LedgerEntry,
   LedgerEntrySource,
@@ -182,6 +183,19 @@ export async function postLedgerEntry(
   if (totalDebit !== totalCredit) {
     throw new Error(
       `Entry is unbalanced: debits ${totalDebit} ≠ credits ${totalCredit}`,
+    );
+  }
+  // Phase F: refuse to post inside a closed `AccountingPeriod` so
+  // accountants can rely on closed-period numbers staying frozen. The
+  // closePeriod routine itself sets `sourceRefId` to the period id;
+  // we let that one through (it's posting *into* the period it's
+  // about to close, ahead of flipping status).
+  const closed = await findClosedPeriodCovering(input.companyId, input.date);
+  if (closed && closed.id !== input.sourceRefId) {
+    throw new Error(
+      `Cannot post into closed period "${closed.name}" (${closed.startDate
+        .toISOString()
+        .slice(0, 10)} – ${closed.endDate.toISOString().slice(0, 10)})`,
     );
   }
   // Validate accounts. One IN query, then check membership + company +
@@ -384,4 +398,24 @@ export async function trialBalance(
         balanceCents: balance,
       };
     });
+}
+
+/**
+ * Local lookup so ledger.ts doesn't have to import periods.ts (which
+ * imports back into ledger.ts for `postLedgerEntry`). One small
+ * duplication beats a circular dep.
+ */
+async function findClosedPeriodCovering(
+  companyId: string,
+  date: Date,
+): Promise<AccountingPeriod | null> {
+  const periods = await AppDataSource.getRepository(AccountingPeriod).find({
+    where: { companyId, status: "closed" },
+  });
+  const t = date.getTime();
+  return (
+    periods.find(
+      (p) => p.startDate.getTime() <= t && p.endDate.getTime() >= t,
+    ) ?? null
+  );
 }
