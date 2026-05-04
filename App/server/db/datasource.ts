@@ -66,6 +66,9 @@ import { LedgerEntry } from "./entities/LedgerEntry.js";
 import { LedgerLine } from "./entities/LedgerLine.js";
 import { BankFeed } from "./entities/BankFeed.js";
 import { BankTransaction } from "./entities/BankTransaction.js";
+import { Currency } from "./entities/Currency.js";
+import { ExchangeRate } from "./entities/ExchangeRate.js";
+import { CompanyFinanceSettings } from "./entities/CompanyFinanceSettings.js";
 
 const entities = [
   User,
@@ -130,6 +133,9 @@ const entities = [
   LedgerLine,
   BankFeed,
   BankTransaction,
+  Currency,
+  ExchangeRate,
+  CompanyFinanceSettings,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

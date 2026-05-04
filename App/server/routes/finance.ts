@@ -51,6 +51,14 @@ import {
   syncStripePayouts,
   unmatch,
 } from "../services/reconcile.js";
+import {
+  getFinanceSettings,
+  seedCurrencies,
+  setHomeCurrency,
+  setRate,
+} from "../services/fx.js";
+import { Currency } from "../db/entities/Currency.js";
+import { ExchangeRate } from "../db/entities/ExchangeRate.js";
 
 /**
  * Phase A of the Finance milestone (M19) — see ROADMAP.md.
@@ -1265,4 +1273,132 @@ financeRouter.post("/bank-transactions/:id/unmatch", async (req, res) => {
   const fresh = await unmatch(t);
   const [hydrated] = await hydrateBankTxns(cid, [fresh]);
   res.json(hydrated);
+});
+
+// ─────────────────────── Multi-currency (Phase E) ──────────────────────
+
+financeRouter.get("/finance-settings", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const s = await getFinanceSettings(cid);
+  res.json(s);
+});
+
+const settingsPatchSchema = z.object({
+  homeCurrency: z.string().regex(/^[A-Za-z]{3}$/),
+});
+
+financeRouter.patch(
+  "/finance-settings",
+  validateBody(settingsPatchSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const body = req.body as z.infer<typeof settingsPatchSchema>;
+    const s = await setHomeCurrency(cid, body.homeCurrency);
+    res.json(s);
+  },
+);
+
+financeRouter.get("/currencies", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  res.json(await seedCurrencies(cid));
+});
+
+const currencyCreateSchema = z.object({
+  code: z.string().regex(/^[A-Za-z]{3}$/),
+  name: z.string().min(1).max(60),
+  symbol: z.string().max(8).optional(),
+  decimalPlaces: z.number().int().min(0).max(8).optional(),
+});
+
+financeRouter.post(
+  "/currencies",
+  validateBody(currencyCreateSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const body = req.body as z.infer<typeof currencyCreateSchema>;
+    const repo = AppDataSource.getRepository(Currency);
+    const code = body.code.toUpperCase();
+    const dup = await repo.findOneBy({ companyId: cid, code });
+    if (dup) return res.status(409).json({ error: "Currency already exists" });
+    const c = await repo.save(
+      repo.create({
+        companyId: cid,
+        code,
+        name: body.name,
+        symbol: body.symbol ?? "",
+        decimalPlaces: body.decimalPlaces ?? 2,
+      }),
+    );
+    res.json(c);
+  },
+);
+
+financeRouter.delete("/currencies/:id", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const repo = AppDataSource.getRepository(Currency);
+  const c = await repo.findOneBy({ id: req.params.id, companyId: cid });
+  if (!c) return res.status(404).json({ error: "Currency not found" });
+  const settings = await getFinanceSettings(cid);
+  if (settings.homeCurrency === c.code) {
+    return res.status(409).json({ error: "Cannot delete the home currency" });
+  }
+  await repo.delete({ id: c.id });
+  res.json({ ok: true });
+});
+
+financeRouter.get("/exchange-rates", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const where: Record<string, unknown> = { companyId: cid };
+  if (typeof req.query.from === "string" && req.query.from) {
+    where.fromCurrency = (req.query.from as string).toUpperCase();
+  }
+  if (typeof req.query.to === "string" && req.query.to) {
+    where.toCurrency = (req.query.to as string).toUpperCase();
+  }
+  const rates = await AppDataSource.getRepository(ExchangeRate).find({
+    where,
+    order: { date: "DESC" },
+    take: 200,
+  });
+  res.json(rates);
+});
+
+const rateUpsertSchema = z.object({
+  fromCurrency: z.string().regex(/^[A-Za-z]{3}$/),
+  toCurrency: z.string().regex(/^[A-Za-z]{3}$/),
+  date: z.string().datetime(),
+  rate: z.number().positive(),
+  source: z.string().max(120).optional(),
+});
+
+financeRouter.post(
+  "/exchange-rates",
+  validateBody(rateUpsertSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const body = req.body as z.infer<typeof rateUpsertSchema>;
+    if (body.fromCurrency.toUpperCase() === body.toCurrency.toUpperCase()) {
+      return res
+        .status(400)
+        .json({ error: "from and to currencies must differ" });
+    }
+    const r = await setRate(
+      cid,
+      body.fromCurrency,
+      body.toCurrency,
+      new Date(body.date),
+      body.rate,
+      body.source ?? "manual",
+    );
+    res.json(r);
+  },
+);
+
+financeRouter.delete("/exchange-rates/:id", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const repo = AppDataSource.getRepository(ExchangeRate);
+  const r = await repo.findOneBy({ id: req.params.id, companyId: cid });
+  if (!r) return res.status(404).json({ error: "Rate not found" });
+  await repo.delete({ id: r.id });
+  res.json({ ok: true });
 });

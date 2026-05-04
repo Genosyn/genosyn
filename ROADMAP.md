@@ -435,16 +435,21 @@ Phased so each phase ships behind its own PR:
   Cash Flow Statement. Period filters (this month / quarter / YTD /
   custom). Comparison columns (vs. prior period). Drill-through from
   any account row to a running-balance ledger of its source entries.
-- **Phase D — Reconciliation.** `BankFeed` (Stripe payouts as the
-  first feed; CSV import as the universal fallback), `BankTransaction`
-  ingestion with auto-match heuristics (amount + date proximity +
-  customer name), manual matching UI, lock-on-reconciled. Re-uses
-  existing Stripe `IntegrationConnection` for credentials.
-- **Phase E — Multi-currency + Tax engine.** `Currency` and
-  `ExchangeRate` (manual entry first, ECB daily fetch second).
-  Per-invoice currency with FX gain/loss accounts auto-posted on
-  payment. Composable tax rules (line + invoice level, jurisdiction
-  -aware) replacing Phase A's flat `TaxRate`.
+- [x] **Phase D — Reconciliation.** `BankFeed` (Stripe payouts as
+  the first feed; CSV import as the universal fallback),
+  `BankTransaction` ingestion with auto-match heuristics (amount +
+  date proximity), manual matching UI with ranked candidates, unmatch
+  escape on reconciled rows. Re-uses existing Stripe
+  `IntegrationConnection` for credentials.
+- **Phase E — Multi-currency.** `Currency`, `ExchangeRate`, and
+  `CompanyFinanceSettings` (home currency). Per-invoice currency with
+  FX gain/loss auto-posted on payment when the rate at payment differs
+  from the rate at issue. Per-line audit columns on `LedgerLine`
+  (`origCurrency`, `origAmountCents`, `rate`).
+  **Composable tax-rule engine deferred to a follow-up phase** —
+  Phase A's flat `TaxRate` continues to work and is sufficient for
+  most jurisdictions; composable rules earn their complexity once a
+  user actually hits the limit.
 - **Phase F — Period close + Accountant exports.** `AccountingPeriod`
   with open / closed status, period-close wizard with retained-
   earnings rollover. CSV / IIF export of ledger / invoices /

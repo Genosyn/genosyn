@@ -1690,3 +1690,34 @@ export type MatchCandidate = {
   method: string;
   score: number;
 };
+
+// ─────────────────────── Multi-currency (M19 Phase E) ──────────────────
+
+export type Currency = {
+  id: string;
+  companyId: string;
+  code: string;
+  name: string;
+  symbol: string;
+  decimalPlaces: number;
+  createdAt: string;
+};
+
+export type ExchangeRate = {
+  id: string;
+  companyId: string;
+  fromCurrency: string;
+  toCurrency: string;
+  date: string;
+  rate: number;
+  source: string;
+  createdAt: string;
+};
+
+export type CompanyFinanceSettings = {
+  id: string;
+  companyId: string;
+  homeCurrency: string;
+  createdAt: string;
+  updatedAt: string;
+};

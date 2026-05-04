@@ -51,4 +51,18 @@ export class LedgerLine {
 
   @Column({ type: "int", default: 0 })
   sortOrder!: number;
+
+  /** Multi-currency audit (Phase E). When the source transaction was
+   *  in a foreign currency, these capture the pre-conversion picture:
+   *  the original currency code, the original amount in cents (signed
+   *  the same way as debit-credit), and the FX rate used to convert
+   *  to home. Empty / 0 / 0 mean "no conversion happened". */
+  @Column({ type: "varchar", default: "" })
+  origCurrency!: string;
+
+  @Column({ type: "int", default: 0 })
+  origAmountCents!: number;
+
+  @Column({ type: "real", default: 0 })
+  rate!: number;
 }

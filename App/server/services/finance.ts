@@ -19,6 +19,7 @@ import {
   requireAccountsByCode,
   reverseLedgerEntriesForSources,
 } from "./ledger.js";
+import { convertCents, getFinanceSettings } from "./fx.js";
 
 /**
  * Finance service — pure orchestration over the Phase A entities. Routes
@@ -250,23 +251,62 @@ async function postInvoiceIssue(
   const ar = accounts.get("1200")!;
   const revenue = accounts.get("4000")!;
   const tax = accounts.get("2100")!;
+
+  // Multi-currency (Phase E): convert each invoice cent column to the
+  // company's home currency before posting so the ledger stays in a
+  // single reporting currency. The audit columns (origCurrency,
+  // origAmountCents, rate) carry the pre-conversion picture so reports
+  // can drill back to "what the invoice actually said".
+  const settings = await getFinanceSettings(invoice.companyId);
+  const home = settings.homeCurrency;
+  const total = await convertCents(
+    invoice.companyId,
+    invoice.totalCents,
+    invoice.currency,
+    home,
+    invoice.issueDate,
+  );
+  const subtotal = await convertCents(
+    invoice.companyId,
+    invoice.subtotalCents,
+    invoice.currency,
+    home,
+    invoice.issueDate,
+  );
+  const taxConverted = await convertCents(
+    invoice.companyId,
+    invoice.taxCents,
+    invoice.currency,
+    home,
+    invoice.issueDate,
+  );
+
   const lines = [
     {
       accountId: ar.id,
-      debitCents: invoice.totalCents,
+      debitCents: total.converted,
       description: `${invoice.number} — receivable`,
+      origCurrency: invoice.currency,
+      origAmountCents: invoice.totalCents,
+      rate: total.rate,
     },
     {
       accountId: revenue.id,
-      creditCents: invoice.subtotalCents,
+      creditCents: subtotal.converted,
       description: `${invoice.number} — revenue`,
+      origCurrency: invoice.currency,
+      origAmountCents: invoice.subtotalCents,
+      rate: subtotal.rate,
     },
   ];
   if (invoice.taxCents > 0) {
     lines.push({
       accountId: tax.id,
-      creditCents: invoice.taxCents,
+      creditCents: taxConverted.converted,
       description: `${invoice.number} — tax payable`,
+      origCurrency: invoice.currency,
+      origAmountCents: invoice.taxCents,
+      rate: taxConverted.rate,
     });
   }
   await postLedgerEntry({
@@ -295,12 +335,81 @@ export async function postInvoicePayment(
   ) {
     return;
   }
+  // Phase E: when the invoice currency differs from home, the rate at
+  // payment time will usually differ from the rate at issue. The Bank
+  // gets debited at the payment-time rate; AR is cleared at the
+  // issue-time rate; the difference lands in 4910 FX Gain or 6900 FX
+  // Loss. Same-currency payments fall through with delta = 0 and no
+  // FX line.
+  const settings = await getFinanceSettings(invoice.companyId);
+  const home = settings.homeCurrency;
   const accounts = await requireAccountsByCode(invoice.companyId, [
     "1100",
     "1200",
+    "4910",
+    "6900",
   ]);
   const bank = accounts.get("1100")!;
   const ar = accounts.get("1200")!;
+  const fxGain = accounts.get("4910")!;
+  const fxLoss = accounts.get("6900")!;
+
+  const atPayment = await convertCents(
+    invoice.companyId,
+    payment.amountCents,
+    invoice.currency,
+    home,
+    payment.paidAt,
+  );
+  const atIssue = await convertCents(
+    invoice.companyId,
+    payment.amountCents,
+    invoice.currency,
+    home,
+    invoice.issueDate,
+  );
+  const fxDelta = atPayment.converted - atIssue.converted;
+
+  const lines: Array<{
+    accountId: string;
+    debitCents?: number;
+    creditCents?: number;
+    description?: string;
+    origCurrency?: string;
+    origAmountCents?: number;
+    rate?: number;
+  }> = [
+    {
+      accountId: bank.id,
+      debitCents: atPayment.converted,
+      description: payment.reference || invoice.number,
+      origCurrency: invoice.currency,
+      origAmountCents: payment.amountCents,
+      rate: atPayment.rate,
+    },
+    {
+      accountId: ar.id,
+      creditCents: atIssue.converted,
+      description: invoice.number,
+      origCurrency: invoice.currency,
+      origAmountCents: payment.amountCents,
+      rate: atIssue.rate,
+    },
+  ];
+  if (fxDelta > 0) {
+    lines.push({
+      accountId: fxGain.id,
+      creditCents: fxDelta,
+      description: `FX gain on ${invoice.number}`,
+    });
+  } else if (fxDelta < 0) {
+    lines.push({
+      accountId: fxLoss.id,
+      debitCents: -fxDelta,
+      description: `FX loss on ${invoice.number}`,
+    });
+  }
+
   await postLedgerEntry({
     companyId: invoice.companyId,
     date: payment.paidAt,
@@ -308,18 +417,7 @@ export async function postInvoicePayment(
     source: "invoice_payment",
     sourceRefId: payment.id,
     createdById: actorUserId,
-    lines: [
-      {
-        accountId: bank.id,
-        debitCents: payment.amountCents,
-        description: payment.reference || invoice.number,
-      },
-      {
-        accountId: ar.id,
-        creditCents: payment.amountCents,
-        description: invoice.number,
-      },
-    ],
+    lines,
   });
 }
 

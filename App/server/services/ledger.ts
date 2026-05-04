@@ -126,6 +126,12 @@ export type LedgerLineDraft = {
   debitCents?: number;
   creditCents?: number;
   description?: string;
+  /** Multi-currency audit (Phase E). When the source transaction was
+   *  in a foreign currency, set these so the line records the original
+   *  picture. Defaults: empty / 0 / 0 = no conversion. */
+  origCurrency?: string;
+  origAmountCents?: number;
+  rate?: number;
 };
 
 export type PostLedgerEntryInput = {
@@ -214,6 +220,9 @@ export async function postLedgerEntry(
         creditCents: l.creditCents ?? 0,
         description: l.description ?? "",
         sortOrder: i,
+        origCurrency: l.origCurrency ?? "",
+        origAmountCents: l.origAmountCents ?? 0,
+        rate: l.rate ?? 0,
       }),
     ),
   );

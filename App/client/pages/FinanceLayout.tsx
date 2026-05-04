@@ -3,6 +3,7 @@ import { Outlet } from "react-router-dom";
 import {
   BarChart3,
   BookOpen,
+  Coins,
   FileText,
   Layers,
   LineChart,
@@ -91,6 +92,11 @@ export default function FinanceLayout({ company }: { company: Company }) {
           to={`${base}/tax-rates`}
           icon={<Percent size={14} />}
           label="Tax rates"
+        />
+        <SidebarLink
+          to={`${base}/currencies`}
+          icon={<Coins size={14} />}
+          label="Currencies"
         />
       </nav>
     </div>
