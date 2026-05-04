@@ -15,6 +15,7 @@ import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
+import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 const TYPES: AccountType[] = ["asset", "liability", "equity", "revenue", "expense"];
@@ -195,63 +196,58 @@ function RowMenu({
   onArchive: () => void;
   onDelete: () => void;
 }) {
-  const [open, setOpen] = React.useState(false);
+  const archived = !!account.archivedAt;
   return (
-    <div className="relative inline-block">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-        aria-label="Row menu"
-      >
-        <MoreHorizontal size={16} />
-      </button>
-      {open && (
+    <Menu
+      align="right"
+      width={176}
+      trigger={({ ref, onClick }) => (
+        <button
+          ref={ref}
+          onClick={onClick}
+          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          aria-label="Row menu"
+        >
+          <MoreHorizontal size={16} />
+        </button>
+      )}
+    >
+      {(close) => (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-lg border border-slate-200 bg-white py-1 text-left text-sm shadow-lg dark:border-slate-700 dark:bg-slate-900">
-            <button
-              onClick={() => {
-                setOpen(false);
-                onEdit();
+          <MenuItem
+            icon={<Pencil size={14} />}
+            label="Edit"
+            onSelect={() => {
+              close();
+              onEdit();
+            }}
+          />
+          {!account.isSystem && (
+            <MenuItem
+              icon={archived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+              label={archived ? "Unarchive" : "Archive"}
+              onSelect={() => {
+                close();
+                onArchive();
               }}
-              className="flex w-full items-center gap-2 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800"
-            >
-              <Pencil size={14} /> Edit
-            </button>
-            {!account.isSystem && (
-              <button
-                onClick={() => {
-                  setOpen(false);
-                  onArchive();
-                }}
-                className="flex w-full items-center gap-2 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800"
-              >
-                {account.archivedAt ? (
-                  <>
-                    <ArchiveRestore size={14} /> Unarchive
-                  </>
-                ) : (
-                  <>
-                    <Archive size={14} /> Archive
-                  </>
-                )}
-              </button>
-            )}
-            {!account.isSystem && (
-              <button
-                onClick={() => {
-                  setOpen(false);
+            />
+          )}
+          {!account.isSystem && (
+            <>
+              <MenuSeparator />
+              <MenuItem
+                icon={<Trash2 size={14} className="text-red-500" />}
+                label={<span className="text-red-600 dark:text-red-400">Delete</span>}
+                onSelect={() => {
+                  close();
                   onDelete();
                 }}
-                className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-red-600 hover:bg-red-50 dark:border-slate-800 dark:text-red-400 dark:hover:bg-red-500/10"
-              >
-                <Trash2 size={14} /> Delete
-              </button>
-            )}
-          </div>
+              />
+            </>
+          )}
         </>
       )}
-    </div>
+    </Menu>
   );
 }
 

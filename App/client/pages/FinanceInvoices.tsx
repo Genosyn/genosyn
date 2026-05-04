@@ -1,16 +1,20 @@
 import React from "react";
 import { Link, useOutletContext } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Ban, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import {
   api,
   displayInvoiceStatus,
   formatMoney,
+  Invoice,
   InvoiceListItem,
   InvoiceStatus,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
+import { Menu, MenuItem } from "../components/ui/Menu";
+import { useDialog } from "../components/ui/Dialog";
+import { useToast } from "../components/ui/Toast";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 type StatusFilter = "all" | InvoiceStatus | "overdue";
@@ -39,23 +43,56 @@ const STATUS_BADGE: Record<StatusFilter, string> = {
  */
 export default function FinanceInvoices() {
   const { company } = useOutletContext<FinanceOutletCtx>();
+  const { toast } = useToast();
+  const dialog = useDialog();
   const [invoices, setInvoices] = React.useState<InvoiceListItem[] | null>(null);
   const [filter, setFilter] = React.useState<StatusFilter>("all");
 
-  React.useEffect(() => {
-    let alive = true;
-    api
-      .get<InvoiceListItem[]>(`/api/companies/${company.id}/invoices`)
-      .then((list) => {
-        if (alive) setInvoices(list);
-      })
-      .catch(() => {
-        if (alive) setInvoices([]);
-      });
-    return () => {
-      alive = false;
-    };
+  const reload = React.useCallback(async () => {
+    const list = await api.get<InvoiceListItem[]>(
+      `/api/companies/${company.id}/invoices`,
+    );
+    setInvoices(list);
   }, [company.id]);
+
+  React.useEffect(() => {
+    reload().catch(() => setInvoices([]));
+  }, [reload]);
+
+  async function deleteDraft(inv: InvoiceListItem) {
+    const ok = await dialog.confirm({
+      title: "Delete this draft?",
+      message: "Drafts can be permanently deleted. Issued invoices must be voided instead.",
+      variant: "danger",
+      confirmLabel: "Delete",
+    });
+    if (!ok) return;
+    try {
+      await api.del(`/api/companies/${company.id}/invoices/${inv.slug}`);
+      reload();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
+
+  async function voidInvoice(inv: InvoiceListItem) {
+    const ok = await dialog.confirm({
+      title: `Void ${inv.number}?`,
+      message:
+        "Voiding cannot be undone. The invoice stays in records but won't count toward outstanding balance.",
+      variant: "danger",
+      confirmLabel: "Void",
+    });
+    if (!ok) return;
+    try {
+      await api.post<Invoice>(
+        `/api/companies/${company.id}/invoices/${inv.slug}/void`,
+      );
+      reload();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
 
   const filtered = React.useMemo(() => {
     if (!invoices) return null;
@@ -158,6 +195,7 @@ export default function FinanceInvoices() {
                 <th className="px-4 py-2 text-left font-medium">Due</th>
                 <th className="px-4 py-2 text-right font-medium">Total</th>
                 <th className="px-4 py-2 text-right font-medium">Balance</th>
+                <th className="w-10 px-4 py-2 text-right font-medium">&nbsp;</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -206,6 +244,13 @@ export default function FinanceInvoices() {
                         {formatMoney(inv.balanceCents, inv.currency)}
                       </span>
                     </td>
+                    <td className="px-4 py-3 text-right">
+                      <RowMenu
+                        invoice={inv}
+                        onDelete={() => deleteDraft(inv)}
+                        onVoid={() => voidInvoice(inv)}
+                      />
+                    </td>
                   </tr>
                 );
               })}
@@ -214,5 +259,62 @@ export default function FinanceInvoices() {
         </div>
       )}
     </div>
+  );
+}
+
+function RowMenu({
+  invoice,
+  onDelete,
+  onVoid,
+}: {
+  invoice: InvoiceListItem;
+  onDelete: () => void;
+  onVoid: () => void;
+}) {
+  const isDraft = invoice.status === "draft";
+  const isVoid = invoice.status === "void";
+  // Issued (sent / paid) invoices can only be voided, not deleted.
+  const canVoid = !isDraft && !isVoid;
+  if (!isDraft && !canVoid) return null;
+  return (
+    <Menu
+      align="right"
+      width={176}
+      trigger={({ ref, onClick }) => (
+        <button
+          ref={ref}
+          onClick={onClick}
+          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          aria-label="Row menu"
+        >
+          <MoreHorizontal size={16} />
+        </button>
+      )}
+    >
+      {(close) => (
+        <>
+          {canVoid && (
+            <MenuItem
+              icon={<Ban size={14} />}
+              label="Void"
+              onSelect={() => {
+                close();
+                onVoid();
+              }}
+            />
+          )}
+          {isDraft && (
+            <MenuItem
+              icon={<Trash2 size={14} className="text-red-500" />}
+              label={<span className="text-red-600 dark:text-red-400">Delete</span>}
+              onSelect={() => {
+                close();
+                onDelete();
+              }}
+            />
+          )}
+        </>
+      )}
+    </Menu>
   );
 }
