@@ -412,14 +412,15 @@ are gapless per-company sequences (`numberSeq` int, displayed as
 
 Phased so each phase ships behind its own PR:
 
-- **Phase A — Customers + Invoices.** `Customer`, `Product`, `TaxRate`,
-  `Invoice`, `InvoiceLineItem`, `InvoicePayment` entities. CRUD UI for
-  all four. Invoice creator with line items + per-line tax (inclusive
-  or exclusive). Status lifecycle draft → sent → paid (with manual
-  mark-as-paid for now) / overdue (computed) / void. Print-friendly
-  `InvoicePrint` page (browser → "Save as PDF"). "Send" button emails
-  the customer the HTML invoice via the company `EmailProvider`. Top-
-  level "Finance" sidebar entry. **No ledger yet.**
+- [x] **Phase A — Customers + Invoices.** `Customer`, `Product`,
+  `TaxRate`, `Invoice`, `InvoiceLineItem`, `InvoicePayment` entities.
+  CRUD UI for all four. Invoice creator with line items + per-line tax
+  (inclusive or exclusive). Status lifecycle draft → sent → paid (with
+  manual mark-as-paid for now) / overdue (computed) / void. Print-
+  friendly `InvoicePrint` page (browser → "Save as PDF"). "Send" button
+  emails the customer the HTML invoice via the company
+  `EmailProvider`. Top-level "Finance" sidebar entry. **No ledger
+  yet.**
 - **Phase B — General Ledger.** `Account` (chart of accounts; seeded
   with a sane default CoA on first visit), `JournalEntry`,
   `LedgerLine` (double-entry, balanced enforcement at the service

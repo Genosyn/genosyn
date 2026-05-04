@@ -1,10 +1,14 @@
 import { Router } from "express";
 import { z } from "zod";
+import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
+import { Account, AccountType } from "../db/entities/Account.js";
 import { Customer } from "../db/entities/Customer.js";
 import { Invoice } from "../db/entities/Invoice.js";
 import { InvoiceLineItem } from "../db/entities/InvoiceLineItem.js";
 import { InvoicePayment } from "../db/entities/InvoicePayment.js";
+import { LedgerEntry } from "../db/entities/LedgerEntry.js";
+import { LedgerLine } from "../db/entities/LedgerLine.js";
 import { Product } from "../db/entities/Product.js";
 import { TaxRate } from "../db/entities/TaxRate.js";
 import { validateBody } from "../middleware/validate.js";
@@ -16,12 +20,19 @@ import {
   loadCustomerBySlug,
   loadInvoiceBySlug,
   loadProductBySlug,
+  postInvoicePayment,
   recomputeInvoiceTotals,
   replaceInvoiceLines,
+  reverseInvoicePayment,
   sendInvoiceEmail,
   voidInvoice,
 } from "../services/finance.js";
 import { renderInvoiceHtmlForCompany } from "../services/invoiceHtml.js";
+import {
+  postLedgerEntry,
+  seedChartOfAccounts,
+  trialBalance,
+} from "../services/ledger.js";
 
 /**
  * Phase A of the Finance milestone (M19) — see ROADMAP.md.
@@ -520,7 +531,7 @@ financeRouter.delete("/invoices/:slug", async (req, res) => {
   res.json({ ok: true });
 });
 
-// Issue (mint number, lock lines)
+// Issue (mint number, lock lines, auto-post DR AR / CR Revenue + Tax)
 financeRouter.post("/invoices/:slug/issue", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const inv = await loadInvoiceBySlug(cid, req.params.slug);
@@ -529,7 +540,7 @@ financeRouter.post("/invoices/:slug/issue", async (req, res) => {
     return res.status(409).json({ error: "Already issued" });
   }
   try {
-    const issued = await issueInvoice(inv);
+    const issued = await issueInvoice(inv, req.userId ?? null);
     const [hydrated] = await hydrateInvoices(cid, [issued]);
     res.json(hydrated);
   } catch (err) {
@@ -546,7 +557,7 @@ financeRouter.post("/invoices/:slug/send", async (req, res) => {
     return res.status(409).json({ error: "Voided invoices cannot be sent" });
   }
   if (inv.status === "draft") {
-    inv = await issueInvoice(inv);
+    inv = await issueInvoice(inv, req.userId ?? null);
   }
   try {
     const result = await sendInvoiceEmail(cid, inv, req.userId ?? null);
@@ -562,7 +573,7 @@ financeRouter.post("/invoices/:slug/void", async (req, res) => {
   const inv = await loadInvoiceBySlug(cid, req.params.slug);
   if (!inv) return res.status(404).json({ error: "Invoice not found" });
   try {
-    const voided = await voidInvoice(inv);
+    const voided = await voidInvoice(inv, req.userId ?? null);
     const [hydrated] = await hydrateInvoices(cid, [voided]);
     res.json(hydrated);
   } catch (err) {
@@ -623,17 +634,20 @@ financeRouter.post(
     }
     const body = req.body as z.infer<typeof paymentCreateSchema>;
     const repo = AppDataSource.getRepository(InvoicePayment);
-    const p = repo.create({
-      invoiceId: inv.id,
-      amountCents: body.amountCents,
-      currency: body.currency ?? inv.currency,
-      paidAt: body.paidAt ? new Date(body.paidAt) : new Date(),
-      method: body.method ?? "other",
-      reference: body.reference ?? "",
-      notes: body.notes ?? "",
-      createdById: req.userId ?? null,
-    });
-    await repo.save(p);
+    const p = await repo.save(
+      repo.create({
+        invoiceId: inv.id,
+        amountCents: body.amountCents,
+        currency: body.currency ?? inv.currency,
+        paidAt: body.paidAt ? new Date(body.paidAt) : new Date(),
+        method: body.method ?? "other",
+        reference: body.reference ?? "",
+        notes: body.notes ?? "",
+        createdById: req.userId ?? null,
+      }),
+    );
+    // Auto-post DR Bank / CR AR. Phase B (M19) — see services/ledger.ts.
+    await postInvoicePayment(inv, p, req.userId ?? null);
     const recomputed = await recomputeInvoiceTotals(inv);
     const [hydrated] = await hydrateInvoices(cid, [recomputed]);
     res.json(hydrated);
@@ -647,8 +661,246 @@ financeRouter.delete("/invoices/:slug/payments/:pid", async (req, res) => {
   const payRepo = AppDataSource.getRepository(InvoicePayment);
   const p = await payRepo.findOneBy({ id: req.params.pid, invoiceId: inv.id });
   if (!p) return res.status(404).json({ error: "Payment not found" });
+  // Reverse the ledger entry first so the audit trail captures the
+  // original posting + the reversal — then hard-delete the payment row.
+  await reverseInvoicePayment(inv, p, req.userId ?? null);
   await payRepo.delete({ id: p.id });
   const recomputed = await recomputeInvoiceTotals(inv);
   const [hydrated] = await hydrateInvoices(cid, [recomputed]);
   res.json(hydrated);
+});
+
+// ─────────────────────────── Accounts (Phase B) ────────────────────────
+
+const ACCOUNT_TYPES: [AccountType, ...AccountType[]] = [
+  "asset",
+  "liability",
+  "equity",
+  "revenue",
+  "expense",
+];
+
+financeRouter.get("/accounts", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  // Auto-seed the default chart of accounts on first visit so the
+  // accounts page is never empty for a brand-new company.
+  const accounts = await seedChartOfAccounts(cid);
+  res.json(accounts);
+});
+
+const accountWriteSchema = z.object({
+  code: z.string().min(1).max(20).regex(/^[A-Za-z0-9._-]+$/),
+  name: z.string().min(1).max(120),
+  type: z.enum(ACCOUNT_TYPES),
+  parentId: z.string().uuid().nullable().optional(),
+});
+
+financeRouter.post(
+  "/accounts",
+  validateBody(accountWriteSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const body = req.body as z.infer<typeof accountWriteSchema>;
+    const repo = AppDataSource.getRepository(Account);
+    const dup = await repo.findOneBy({ companyId: cid, code: body.code });
+    if (dup) {
+      return res.status(409).json({ error: "An account with that code already exists" });
+    }
+    if (body.parentId) {
+      const parent = await repo.findOneBy({ id: body.parentId, companyId: cid });
+      if (!parent) return res.status(400).json({ error: "Invalid parent account" });
+    }
+    const a = repo.create({
+      companyId: cid,
+      code: body.code,
+      name: body.name,
+      type: body.type,
+      parentId: body.parentId ?? null,
+      isSystem: false,
+    });
+    await repo.save(a);
+    res.json(a);
+  },
+);
+
+financeRouter.patch(
+  "/accounts/:id",
+  validateBody(
+    accountWriteSchema.partial().extend({ archived: z.boolean().optional() }),
+  ),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const repo = AppDataSource.getRepository(Account);
+    const a = await repo.findOneBy({ id: req.params.id, companyId: cid });
+    if (!a) return res.status(404).json({ error: "Account not found" });
+    const body = req.body as Partial<z.infer<typeof accountWriteSchema>> & {
+      archived?: boolean;
+    };
+    if (body.code !== undefined && body.code !== a.code) {
+      if (a.isSystem) {
+        return res
+          .status(409)
+          .json({ error: "System account codes cannot be renumbered — auto-post depends on them" });
+      }
+      const dup = await repo.findOneBy({ companyId: cid, code: body.code });
+      if (dup) {
+        return res
+          .status(409)
+          .json({ error: "An account with that code already exists" });
+      }
+      a.code = body.code;
+    }
+    if (body.name !== undefined) a.name = body.name;
+    if (body.type !== undefined) {
+      if (a.isSystem) {
+        return res
+          .status(409)
+          .json({ error: "System account types cannot change" });
+      }
+      a.type = body.type;
+    }
+    if (body.parentId !== undefined) a.parentId = body.parentId;
+    if (body.archived !== undefined) {
+      if (a.isSystem && body.archived) {
+        return res
+          .status(409)
+          .json({ error: "System accounts cannot be archived" });
+      }
+      a.archivedAt = body.archived ? new Date() : null;
+    }
+    await repo.save(a);
+    res.json(a);
+  },
+);
+
+financeRouter.delete("/accounts/:id", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const repo = AppDataSource.getRepository(Account);
+  const a = await repo.findOneBy({ id: req.params.id, companyId: cid });
+  if (!a) return res.status(404).json({ error: "Account not found" });
+  if (a.isSystem) {
+    return res
+      .status(409)
+      .json({ error: "System accounts cannot be deleted — archive them instead" });
+  }
+  const used = await AppDataSource.getRepository(LedgerLine).count({
+    where: { accountId: a.id },
+  });
+  if (used > 0) {
+    return res
+      .status(409)
+      .json({ error: "Account has ledger lines — archive it instead" });
+  }
+  await repo.delete({ id: a.id });
+  res.json({ ok: true });
+});
+
+// ─────────────────────────── Ledger entries ────────────────────────────
+
+type HydratedLedgerEntry = LedgerEntry & {
+  lines: LedgerLine[];
+  totalCents: number;
+};
+
+async function hydrateLedgerEntries(
+  entries: LedgerEntry[],
+): Promise<HydratedLedgerEntry[]> {
+  if (entries.length === 0) return [];
+  const lines = await AppDataSource.getRepository(LedgerLine).find({
+    where: { ledgerEntryId: In(entries.map((e) => e.id)) },
+    order: { sortOrder: "ASC" },
+  });
+  const byEntry = new Map<string, LedgerLine[]>();
+  for (const l of lines) {
+    const arr = byEntry.get(l.ledgerEntryId) ?? [];
+    arr.push(l);
+    byEntry.set(l.ledgerEntryId, arr);
+  }
+  return entries.map((e) => {
+    const ls = byEntry.get(e.id) ?? [];
+    return {
+      ...e,
+      lines: ls,
+      totalCents: ls.reduce((s, l) => s + l.debitCents, 0),
+    };
+  });
+}
+
+financeRouter.get("/ledger-entries", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const where: Record<string, unknown> = { companyId: cid };
+  const source = req.query.source;
+  if (typeof source === "string" && source) where.source = source;
+  const entries = await AppDataSource.getRepository(LedgerEntry).find({
+    where,
+    order: { date: "DESC", createdAt: "DESC" },
+    take: 200,
+  });
+  res.json(await hydrateLedgerEntries(entries));
+});
+
+const ledgerLineDraftSchema = z.object({
+  accountId: z.string().uuid(),
+  debitCents: z.number().int().min(0).max(2_000_000_000).optional(),
+  creditCents: z.number().int().min(0).max(2_000_000_000).optional(),
+  description: z.string().max(500).optional(),
+});
+
+const ledgerEntryCreateSchema = z.object({
+  date: z.string().datetime().optional(),
+  memo: z.string().max(1000).optional(),
+  lines: z.array(ledgerLineDraftSchema).min(2).max(50),
+});
+
+financeRouter.post(
+  "/ledger-entries",
+  validateBody(ledgerEntryCreateSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const body = req.body as z.infer<typeof ledgerEntryCreateSchema>;
+    try {
+      const { entry } = await postLedgerEntry({
+        companyId: cid,
+        date: body.date ? new Date(body.date) : new Date(),
+        memo: body.memo ?? "",
+        source: "manual",
+        sourceRefId: null,
+        createdById: req.userId ?? null,
+        lines: body.lines,
+      });
+      const [hydrated] = await hydrateLedgerEntries([entry]);
+      res.json(hydrated);
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+financeRouter.delete("/ledger-entries/:id", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const repo = AppDataSource.getRepository(LedgerEntry);
+  const e = await repo.findOneBy({ id: req.params.id, companyId: cid });
+  if (!e) return res.status(404).json({ error: "Entry not found" });
+  if (e.source !== "manual") {
+    return res
+      .status(409)
+      .json({ error: "Auto-posted entries cannot be deleted directly — void the source instead" });
+  }
+  await AppDataSource.getRepository(LedgerLine).delete({ ledgerEntryId: e.id });
+  await repo.delete({ id: e.id });
+  res.json({ ok: true });
+});
+
+// ─────────────────────────── Trial balance ─────────────────────────────
+
+financeRouter.get("/ledger/trial-balance", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const asOfQ = req.query.asOf;
+  const asOf =
+    typeof asOfQ === "string" && asOfQ ? new Date(asOfQ) : new Date();
+  if (Number.isNaN(asOf.getTime())) {
+    return res.status(400).json({ error: "Invalid asOf date" });
+  }
+  const rows = await trialBalance(cid, asOf);
+  res.json({ asOf: asOf.toISOString(), rows });
 });

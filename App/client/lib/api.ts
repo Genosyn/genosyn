@@ -1404,3 +1404,89 @@ export function displayInvoiceStatus(
   }
   return inv.status;
 }
+
+// ─────────────────────────── Ledger (M19 Phase B) ───────────────────────
+
+export type AccountType =
+  | "asset"
+  | "liability"
+  | "equity"
+  | "revenue"
+  | "expense";
+
+export type Account = {
+  id: string;
+  companyId: string;
+  code: string;
+  name: string;
+  type: AccountType;
+  parentId: string | null;
+  isSystem: boolean;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LedgerEntrySource =
+  | "manual"
+  | "invoice_issue"
+  | "invoice_payment"
+  | "invoice_void";
+
+export type LedgerLine = {
+  id: string;
+  ledgerEntryId: string;
+  companyId: string;
+  accountId: string;
+  debitCents: number;
+  creditCents: number;
+  description: string;
+  sortOrder: number;
+};
+
+export type LedgerEntry = {
+  id: string;
+  companyId: string;
+  date: string;
+  memo: string;
+  source: LedgerEntrySource;
+  sourceRefId: string | null;
+  createdById: string | null;
+  createdAt: string;
+  lines: LedgerLine[];
+  totalCents: number;
+};
+
+export type LedgerLineDraft = {
+  accountId: string;
+  debitCents?: number;
+  creditCents?: number;
+  description?: string;
+};
+
+export type TrialBalanceRow = {
+  account: Pick<Account, "id" | "code" | "name" | "type">;
+  debitCents: number;
+  creditCents: number;
+  balanceCents: number;
+};
+
+export type TrialBalanceResponse = {
+  asOf: string;
+  rows: TrialBalanceRow[];
+};
+
+export const ACCOUNT_TYPE_LABEL: Record<AccountType, string> = {
+  asset: "Asset",
+  liability: "Liability",
+  equity: "Equity",
+  revenue: "Revenue",
+  expense: "Expense",
+};
+
+/** Display the cent magnitude in the conventional accounting layout —
+ *  no minus signs in the trial balance, since the column itself
+ *  encodes whether a value is a debit or a credit. */
+export function formatBalanceMagnitude(cents: number, currency: string): string {
+  return formatMoney(Math.abs(cents), currency);
+}

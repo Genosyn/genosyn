@@ -74,6 +74,9 @@ import FinanceTaxRates from "./pages/FinanceTaxRates";
 import FinanceInvoices from "./pages/FinanceInvoices";
 import FinanceInvoiceNew from "./pages/FinanceInvoiceNew";
 import FinanceInvoiceDetail from "./pages/FinanceInvoiceDetail";
+import FinanceAccounts from "./pages/FinanceAccounts";
+import FinanceJournal from "./pages/FinanceJournal";
+import FinanceTrialBalance from "./pages/FinanceTrialBalance";
 
 type AuthState =
   | { status: "loading" }
@@ -270,6 +273,9 @@ function CompanyRoutes({
             path="invoices/:invoiceSlug"
             element={<FinanceInvoiceDetail />}
           />
+          <Route path="accounts" element={<FinanceAccounts />} />
+          <Route path="journal" element={<FinanceJournal />} />
+          <Route path="trial-balance" element={<FinanceTrialBalance />} />
         </Route>
 
         <Route path="approvals" element={<Approvals company={company} />} />

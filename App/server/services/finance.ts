@@ -13,6 +13,12 @@ import {
 } from "../lib/money.js";
 import { sendEmail } from "./email.js";
 import { renderInvoiceHtml } from "./invoiceHtml.js";
+import {
+  hasEntryFor,
+  postLedgerEntry,
+  requireAccountsByCode,
+  reverseLedgerEntriesForSources,
+} from "./ledger.js";
 
 /**
  * Finance service — pure orchestration over the Phase A entities. Routes
@@ -198,9 +204,13 @@ export async function recomputeInvoiceTotals(invoice: Invoice): Promise<Invoice>
 /**
  * Move a draft to `sent`. Mints the gapless number, sets the slug to
  * `inv-NNNN`, stamps `sentAt`, recomputes totals so the cent columns
- * reflect the latest line edits.
+ * reflect the latest line edits, and posts the AR / Revenue / Tax-
+ * Payable journal entry into the general ledger (Phase B).
  */
-export async function issueInvoice(invoice: Invoice): Promise<Invoice> {
+export async function issueInvoice(
+  invoice: Invoice,
+  actorUserId: string | null = null,
+): Promise<Invoice> {
   if (invoice.status !== "draft") {
     throw new Error("Only drafts can be issued");
   }
@@ -211,17 +221,160 @@ export async function issueInvoice(invoice: Invoice): Promise<Invoice> {
   invoice.status = "sent";
   invoice.sentAt = new Date();
   await AppDataSource.getRepository(Invoice).save(invoice);
-  return recomputeInvoiceTotals(invoice);
+  const recomputed = await recomputeInvoiceTotals(invoice);
+  // Auto-post: DR Accounts Receivable / CR Sales Revenue + Tax Payable.
+  // Phase B (M19) — see services/ledger.ts and ROADMAP.md.
+  await postInvoiceIssue(recomputed, actorUserId);
+  return recomputed;
 }
 
-export async function voidInvoice(invoice: Invoice): Promise<Invoice> {
+/**
+ * Post the journal entry that records issuing this invoice. Idempotent
+ * — if an `invoice_issue` entry already exists for this invoice id, no
+ * new entry is written (so re-running issue after a partial failure is
+ * safe). Skips entirely when the invoice has no value (zero-total
+ * draft that someone issued by accident); accountants get a clean
+ * trial balance instead of a balanced-but-empty entry.
+ */
+async function postInvoiceIssue(
+  invoice: Invoice,
+  actorUserId: string | null,
+): Promise<void> {
+  if (invoice.totalCents <= 0) return;
+  if (await hasEntryFor(invoice.companyId, "invoice_issue", invoice.id)) return;
+  const accounts = await requireAccountsByCode(invoice.companyId, [
+    "1200",
+    "4000",
+    "2100",
+  ]);
+  const ar = accounts.get("1200")!;
+  const revenue = accounts.get("4000")!;
+  const tax = accounts.get("2100")!;
+  const lines = [
+    {
+      accountId: ar.id,
+      debitCents: invoice.totalCents,
+      description: `${invoice.number} — receivable`,
+    },
+    {
+      accountId: revenue.id,
+      creditCents: invoice.subtotalCents,
+      description: `${invoice.number} — revenue`,
+    },
+  ];
+  if (invoice.taxCents > 0) {
+    lines.push({
+      accountId: tax.id,
+      creditCents: invoice.taxCents,
+      description: `${invoice.number} — tax payable`,
+    });
+  }
+  await postLedgerEntry({
+    companyId: invoice.companyId,
+    date: invoice.issueDate,
+    memo: `Invoice ${invoice.number} issued`,
+    source: "invoice_issue",
+    sourceRefId: invoice.id,
+    createdById: actorUserId,
+    lines,
+  });
+}
+
+/**
+ * Post the journal entry for a single received payment: DR Bank /
+ * CR Accounts Receivable. Idempotent on `(invoice_payment, payment.id)`.
+ */
+export async function postInvoicePayment(
+  invoice: Invoice,
+  payment: InvoicePayment,
+  actorUserId: string | null,
+): Promise<void> {
+  if (payment.amountCents <= 0) return;
+  if (
+    await hasEntryFor(invoice.companyId, "invoice_payment", payment.id)
+  ) {
+    return;
+  }
+  const accounts = await requireAccountsByCode(invoice.companyId, [
+    "1100",
+    "1200",
+  ]);
+  const bank = accounts.get("1100")!;
+  const ar = accounts.get("1200")!;
+  await postLedgerEntry({
+    companyId: invoice.companyId,
+    date: payment.paidAt,
+    memo: `Payment for ${invoice.number} (${payment.method})`,
+    source: "invoice_payment",
+    sourceRefId: payment.id,
+    createdById: actorUserId,
+    lines: [
+      {
+        accountId: bank.id,
+        debitCents: payment.amountCents,
+        description: payment.reference || invoice.number,
+      },
+      {
+        accountId: ar.id,
+        creditCents: payment.amountCents,
+        description: invoice.number,
+      },
+    ],
+  });
+}
+
+/**
+ * Reverse the payment's ledger entry — used when a payment row is
+ * deleted. The original entry stays for audit; a new mirroring entry
+ * with debits and credits flipped lands alongside.
+ */
+export async function reverseInvoicePayment(
+  invoice: Invoice,
+  payment: InvoicePayment,
+  actorUserId: string | null,
+): Promise<void> {
+  await reverseLedgerEntriesForSources({
+    companyId: invoice.companyId,
+    sources: ["invoice_payment"],
+    sourceRefIds: [payment.id],
+    reverseAs: "invoice_void",
+    reverseRefId: `${payment.id}-deletion`,
+    date: new Date(),
+    memo: `Payment deletion for ${invoice.number}`,
+    createdById: actorUserId,
+  });
+}
+
+export async function voidInvoice(
+  invoice: Invoice,
+  actorUserId: string | null = null,
+): Promise<Invoice> {
   if (invoice.status === "void") return invoice;
   if (invoice.status === "draft") {
     throw new Error("Drafts cannot be voided — delete them instead");
   }
   invoice.status = "void";
   invoice.voidedAt = new Date();
-  return AppDataSource.getRepository(Invoice).save(invoice);
+  await AppDataSource.getRepository(Invoice).save(invoice);
+  // Reverse the issue + every payment posting tied to this invoice. Use
+  // `invoice_void` as the new source so the audit trail makes the void
+  // story obvious; the reversal is keyed off the invoice id (not a
+  // payment id) so re-voiding the same invoice is a no-op.
+  const payments = await AppDataSource.getRepository(InvoicePayment).find({
+    where: { invoiceId: invoice.id },
+    select: ["id"],
+  });
+  await reverseLedgerEntriesForSources({
+    companyId: invoice.companyId,
+    sources: ["invoice_issue", "invoice_payment"],
+    sourceRefIds: [invoice.id, ...payments.map((p) => p.id)],
+    reverseAs: "invoice_void",
+    reverseRefId: invoice.id,
+    date: new Date(),
+    memo: `Void of invoice ${invoice.number}`,
+    createdById: actorUserId,
+  });
+  return invoice;
 }
 
 // ─────────────────────────── Hydration ────────────────────────────────

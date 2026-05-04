@@ -2,7 +2,10 @@ import React from "react";
 import { Outlet } from "react-router-dom";
 import {
   BarChart3,
+  BookOpen,
   FileText,
+  Layers,
+  NotebookPen,
   Package,
   Percent,
   Users,
@@ -45,6 +48,24 @@ export default function FinanceLayout({ company }: { company: Company }) {
           to={`${base}/customers`}
           icon={<Users size={14} />}
           label="Customers"
+        />
+        <div className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+          Ledger
+        </div>
+        <SidebarLink
+          to={`${base}/journal`}
+          icon={<NotebookPen size={14} />}
+          label="Journal"
+        />
+        <SidebarLink
+          to={`${base}/accounts`}
+          icon={<BookOpen size={14} />}
+          label="Accounts"
+        />
+        <SidebarLink
+          to={`${base}/trial-balance`}
+          icon={<Layers size={14} />}
+          label="Trial balance"
         />
         <div className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
           Catalog
