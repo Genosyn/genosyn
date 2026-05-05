@@ -20,6 +20,7 @@ import { attachmentsForMessages, bindAttachmentsToMessage } from "./uploads.js";
 import { streamChatWithEmployee, ChatTurn } from "./chat.js";
 import { Company } from "../db/entities/Company.js";
 import { createNotifications } from "./notifications.js";
+import { ensureUserHandles } from "./userHandle.js";
 
 /**
  * The workspace-chat service: channels, DMs, messages, reactions.
@@ -1216,6 +1217,12 @@ export type Mentionable = {
   label: string;
   sublabel?: string;
   href: string;
+  /**
+   * Avatar URL for `user` / `ai` rows. Null when the row has no avatar
+   * uploaded; the client renders an initials pill in that case. Other
+   * mention kinds don't carry avatars.
+   */
+  avatarUrl?: string | null;
 };
 
 export async function listCompanyMentionables(
@@ -1232,6 +1239,9 @@ export async function listCompanyMentionables(
   const userRows = mems.length
     ? await users.findBy({ id: In(mems.map((m) => m.userId)) })
     : [];
+  // Older accounts can sit without a handle until they touch Profile
+  // settings. Backfill on read so every member is tag-able by default.
+  await ensureUserHandles(userRows);
 
   const bases = await AppDataSource.getRepository(Base).findBy({ companyId });
 
@@ -1253,19 +1263,25 @@ export async function listCompanyMentionables(
     if (!u.handle) continue;
     out.push({
       kind: "user",
-      handle: u.handle,
+      handle: `@${u.handle}`,
       label: u.name || u.email,
       sublabel: u.email,
       href: `${base}/settings/members?user=${u.id}`,
+      avatarUrl: u.avatarKey
+        ? `/api/companies/${companyId}/members/${u.id}/avatar?v=${encodeURIComponent(u.avatarKey)}`
+        : null,
     });
   }
   for (const e of empRows) {
     out.push({
       kind: "ai",
-      handle: e.slug,
+      handle: `@${e.slug}`,
       label: e.name,
       sublabel: e.role,
       href: `${base}/employees/${e.slug}/chat`,
+      avatarUrl: e.avatarKey
+        ? `/api/companies/${companyId}/employees/${e.id}/avatar?v=${encodeURIComponent(e.avatarKey)}`
+        : null,
     });
   }
   for (const ch of channelRows) {

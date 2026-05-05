@@ -9,6 +9,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth } from "../middleware/auth.js";
 import { sendEmail } from "../services/email.js";
+import { ensureUserHandle } from "../services/userHandle.js";
 import { generateToken } from "../lib/token.js";
 import {
   avatarAbsPath,
@@ -40,6 +41,7 @@ authRouter.post("/signup", validateBody(signupSchema), async (req, res) => {
     resetExpiresAt: null,
   });
   await repo.save(user);
+  await ensureUserHandle(user);
   req.session = { userId: user.id };
   void sendEmail({
     to: user.email,

@@ -35,6 +35,7 @@ import {
   useCompanySocketSubscription,
 } from "../components/CompanySocket";
 import { EmojiPicker } from "../components/workspace/EmojiPicker";
+import { Avatar as UIAvatar } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
 import { Spinner } from "../components/ui/Spinner";
@@ -1510,11 +1511,11 @@ function Composer({
         </Button>
 
         {mentionOpen && mentionCandidates.length > 0 && (
-          <div className="absolute bottom-full left-12 z-20 mb-2 w-72 rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
-            <div className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          <div className="absolute bottom-full left-12 z-20 mb-2 w-80 rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
+            <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
               {mentionPrefix === "@" ? "People" : "Resources"}
             </div>
-            <div className="max-h-64 overflow-y-auto">
+            <div className="max-h-72 overflow-y-auto pb-1">
               {mentionCandidates.map((x) => (
                 <button
                   key={`${x.kind}-${x.handle}`}
@@ -1522,15 +1523,35 @@ function Composer({
                     ev.preventDefault();
                     insertMention(x.handle);
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+                  className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800"
                 >
-                  <MentionIcon kind={x.kind} />
-                  <span className="font-medium text-slate-900 dark:text-slate-100">
-                    {x.handle}
-                  </span>
-                  <span className="ml-auto truncate text-xs text-slate-500 dark:text-slate-400">
-                    {x.label}
-                    {x.sublabel ? ` · ${x.sublabel}` : ""}
+                  {x.kind === "user" || x.kind === "ai" ? (
+                    <UIAvatar
+                      name={x.label}
+                      src={x.avatarUrl ?? null}
+                      kind={x.kind === "ai" ? "ai" : "human"}
+                      size="sm"
+                    />
+                  ) : (
+                    <span className="flex h-6 w-6 items-center justify-center rounded-md bg-slate-100 dark:bg-slate-800">
+                      <MentionIcon kind={x.kind} />
+                    </span>
+                  )}
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1.5">
+                      <span className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                        {x.label}
+                      </span>
+                      {x.kind === "ai" && (
+                        <span className="shrink-0 rounded bg-indigo-50 px-1 text-[10px] font-medium uppercase tracking-wide text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">
+                          AI
+                        </span>
+                      )}
+                    </span>
+                    <span className="block truncate text-xs text-slate-500 dark:text-slate-400">
+                      <span className="font-mono">{x.handle}</span>
+                      {x.sublabel ? ` · ${x.sublabel}` : ""}
+                    </span>
                   </span>
                 </button>
               ))}

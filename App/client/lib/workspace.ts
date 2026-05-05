@@ -80,6 +80,7 @@ export type Mentionable = {
   label: string;
   sublabel?: string;
   href: string;
+  avatarUrl?: string | null;
 };
 
 // ──────────────────────── REST wrappers ──────────────────────────────────
