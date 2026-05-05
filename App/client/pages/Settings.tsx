@@ -412,6 +412,125 @@ export function SettingsCompany() {
           </form>
         </CardBody>
       </Card>
+      <DangerZoneCard />
+    </>
+  );
+}
+
+function DangerZoneCard() {
+  const { company, me, onCompaniesChanged } = useCtx();
+  const [open, setOpen] = React.useState(false);
+  const [confirmText, setConfirmText] = React.useState("");
+  const [deleting, setDeleting] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const { toast } = useToast();
+
+  // Only the owner can hard-delete. Admins/members get nothing — the row
+  // would otherwise be a footgun for someone with limited authority.
+  if (company.role !== "owner") return null;
+
+  async function doDelete() {
+    if (confirmText !== company.name || deleting) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await api.del<{ ok: true }>(`/api/companies/${company.id}`);
+      // The current company is gone — bounce to the company switcher in
+      // AppShell. We refresh first so the dropdown reflects the new list.
+      onCompaniesChanged();
+      toast(`Deleted ${company.name}`, "success");
+      // Pick a destination that won't 404. The shell's redirect logic
+      // sends users with no companies to /onboarding; users with at least
+      // one will be re-routed to that company's home.
+      window.location.assign("/");
+    } catch (err) {
+      setError((err as Error).message);
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <>
+      <Card className="mt-4 border-rose-200 dark:border-rose-500/40">
+        <CardHeader>
+          <h2 className="text-sm font-semibold text-rose-700 dark:text-rose-300">
+            Danger zone
+          </h2>
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+            Permanently delete <strong>{company.name}</strong> and everything
+            inside it — employees, channels, bases, finance data, notes, and
+            uploaded files. This cannot be undone.
+          </p>
+        </CardHeader>
+        <CardBody>
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              Signed in as <span className="font-mono">{me.email}</span> ·
+              owner of this company.
+            </div>
+            <Button
+              variant="danger"
+              onClick={() => {
+                setConfirmText("");
+                setError(null);
+                setOpen(true);
+              }}
+            >
+              <Trash2 size={14} /> Delete company
+            </Button>
+          </div>
+        </CardBody>
+      </Card>
+      <Modal
+        open={open}
+        onClose={() => (deleting ? null : setOpen(false))}
+        title={`Delete ${company.name}?`}
+      >
+        <div className="flex flex-col gap-3">
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            This will permanently remove the company, all AI employees,
+            channels, bases, finance data, notes, attachments, and the on-disk
+            directory at{" "}
+            <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
+              data/companies/{company.slug}/
+            </code>
+            . It cannot be undone.
+          </p>
+          <FormError message={error} />
+          <Input
+            label={`Type "${company.name}" to confirm`}
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            autoFocus
+            placeholder={company.name}
+          />
+          <div className="flex justify-end gap-2 pt-1">
+            <Button
+              variant="secondary"
+              onClick={() => setOpen(false)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={doDelete}
+              disabled={confirmText !== company.name || deleting}
+            >
+              {deleting ? "Deleting…" : "Delete forever"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </>
+  );
+}
+
+export function SettingsBrowser() {
+  const { company } = useCtx();
+  return (
+    <>
+      <TopBar title="Browser" />
       <CompanyBrowserSettingsCard companyId={company.id} />
     </>
   );
@@ -484,7 +603,7 @@ function CompanyBrowserSettingsCard({ companyId }: { companyId: string }) {
   }
 
   return (
-    <Card className="mt-4">
+    <Card>
       <CardHeader>
         <h2 className="text-sm font-semibold">Browser backend</h2>
         <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">

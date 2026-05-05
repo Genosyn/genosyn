@@ -18,6 +18,7 @@ import EmployeeLayout from "./pages/EmployeeLayout";
 import EmployeeNew from "./pages/EmployeeNew";
 import EmployeeChat from "./pages/EmployeeChat";
 import {
+  BrowserSettingsPage,
   GeneralSettingsPage,
   ModelSettingsPage,
   JournalPage,
@@ -32,6 +33,7 @@ import SettingsLayout from "./pages/SettingsLayout";
 import {
   SettingsAccount,
   SettingsBackup,
+  SettingsBrowser,
   SettingsCompany,
   SettingsMembers,
   SettingsSecrets,
@@ -215,6 +217,7 @@ function CompanyRoutes({
             <Route path="general" element={<GeneralSettingsPage />} />
             <Route path="soul" element={<SoulSettingsPage />} />
             <Route path="model" element={<ModelSettingsPage />} />
+            <Route path="browser" element={<BrowserSettingsPage />} />
           </Route>
         </Route>
 
@@ -317,6 +320,7 @@ function CompanyRoutes({
           <Route path="members" element={<SettingsMembers />} />
           <Route path="teams" element={<SettingsTeams />} />
           <Route path="integrations" element={<SettingsIntegrations />} />
+          <Route path="browser" element={<SettingsBrowser />} />
           <Route path="secrets" element={<SettingsSecrets />} />
           <Route path="api-keys" element={<SettingsApiKeys />} />
           <Route path="backup" element={<SettingsBackup />} />

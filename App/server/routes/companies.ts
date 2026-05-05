@@ -13,6 +13,7 @@ import { toSlug } from "../lib/slug.js";
 import { generateToken } from "../lib/token.js";
 import { sendEmail } from "../services/email.js";
 import { ensureDefaultNotebook } from "../services/notebooks.js";
+import { deleteCompanyCascade } from "../services/companyDelete.js";
 import { companyDir } from "../services/paths.js";
 import { avatarAbsPath, mimeFromKey } from "../services/avatars.js";
 import { config } from "../../config.js";
@@ -204,8 +205,7 @@ companiesRouter.delete("/:cid", requireCompanyMember, async (req, res) => {
   const co = await AppDataSource.getRepository(Company).findOneBy({ id: req.params.cid });
   if (!co) return res.status(404).json({ error: "Not found" });
   if (co.ownerId !== req.userId) return res.status(403).json({ error: "Owner only" });
-  await AppDataSource.getRepository(Membership).delete({ companyId: co.id });
-  await AppDataSource.getRepository(Company).delete({ id: co.id });
+  await deleteCompanyCascade({ companyId: co.id, companySlug: co.slug });
   res.json({ ok: true });
 });
 

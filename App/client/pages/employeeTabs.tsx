@@ -1048,6 +1048,7 @@ function SettingsSideNav() {
         <SettingsNavItem to="general" icon={<UserRound size={14} />} label="General" />
         <SettingsNavItem to="soul" icon={<Sparkles size={14} />} label="Soul" />
         <SettingsNavItem to="model" icon={<BrainCircuit size={14} />} label="Model" />
+        <SettingsNavItem to="browser" icon={<Globe size={14} />} label="Browser" />
       </ul>
     </nav>
   );
@@ -1098,9 +1099,13 @@ export function GeneralSettingsPage() {
       <EmployeeAvatarCard company={company} emp={emp} />
       <EmployeeBasicsCard company={company} emp={emp} />
       <EmployeeOrgCard company={company} emp={emp} />
-      <EmployeeBrowserAccessCard company={company} emp={emp} />
     </div>
   );
+}
+
+export function BrowserSettingsPage() {
+  const { company, emp } = useCtx();
+  return <EmployeeBrowserAccessCard company={company} emp={emp} />;
 }
 
 function EmployeeOrgCard({
