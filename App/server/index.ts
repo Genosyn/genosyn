@@ -49,6 +49,7 @@ import { inboxRouter } from "./routes/inbox.js";
 import { apiKeysRouter } from "./routes/apiKeys.js";
 import { openapiRouter } from "./routes/openapi.js";
 import { browserSessionsRouter } from "./routes/browserSessions.js";
+import { browserRpcRouter } from "./routes/browserRpc.js";
 import { bootBrowserSessionSweeper } from "./services/browserSessions.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -95,6 +96,11 @@ async function main() {
   // earlier — session-less on purpose, but mounted before the session router
   // anyway so no cookie state leaks into these requests.
   app.use("/api/internal/mcp", mcpInternalRouter);
+
+  // Built-in browser-tool RPC. The (now stripped down) `browser` MCP child
+  // posts every tool call here; the App owns Chromium so it persists
+  // across MCP child spawns / chat turns.
+  app.use("/api/internal/browser/sessions/:id", browserRpcRouter);
 
   // Public OpenAPI document + Swagger UI. Mounted before the session router
   // so the docs page works for unauthenticated visitors — the spec describes

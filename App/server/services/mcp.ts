@@ -217,15 +217,16 @@ function browserEnvFor(
     env.GENOSYN_MCP_API = internalApiBase();
     env.GENOSYN_MCP_TOKEN = token;
   }
-  const allowed = cfg.allowedHosts.trim();
-  if (allowed) env.GENOSYN_BROWSER_ALLOWED_HOSTS = allowed;
   if (cfg.approvalRequired) env.GENOSYN_BROWSER_APPROVAL_REQUIRED = "1";
   if (cfg.sessionId && cfg.sessionToken) {
-    env.GENOSYN_BROWSER_LIVEVIEW = "1";
-    env.GENOSYN_BROWSER_SESSION_ID = cfg.sessionId;
+    env.GENOSYN_BROWSER_API = `${internalHttpBase()}/api/internal/browser/sessions/${cfg.sessionId}`;
     env.GENOSYN_BROWSER_SESSION_TOKEN = cfg.sessionToken;
-    env.GENOSYN_BROWSER_LIVEVIEW_WS = `${internalWsBase()}/api/internal/mcp/browser-sessions/${cfg.sessionId}/stream`;
   }
+  // Allow-list is enforced server-side (the App owns Chromium now), but
+  // forwarded to the MCP child for documentation parity. The child no
+  // longer reads it.
+  const allowed = cfg.allowedHosts.trim();
+  if (allowed) env.GENOSYN_BROWSER_ALLOWED_HOSTS = allowed;
   return env;
 }
 
@@ -239,9 +240,9 @@ function internalApiBase(): string {
   return `http://127.0.0.1:${config.port}/api/internal/mcp`;
 }
 
-/** Loopback ws:// origin for the live-view screencast socket. */
-function internalWsBase(): string {
-  return `ws://127.0.0.1:${config.port}`;
+/** Loopback http:// origin for the App's internal RPC surfaces. */
+function internalHttpBase(): string {
+  return `http://127.0.0.1:${config.port}`;
 }
 
 /** Normalized view of a user-configured MCP server ready for serialization. */

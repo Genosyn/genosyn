@@ -5,30 +5,36 @@ import {
   BrowserSession,
   type BrowserSessionCloseReason,
 } from "../db/entities/BrowserSession.js";
+import { getRuntime, holdRuntime, releaseRuntime, markActivity } from "./browserChromium.js";
 
 /**
  * Browser-session lifecycle + in-memory fanout hub.
  *
- * Two distinct WebSocket cohorts join each session:
+ * Architecture (post-v0.3.23):
  *
- *   * **MCP child** — exactly one. Pushes binary screencast frames up;
- *     receives input events back.
- *   * **Viewers** — zero or more humans watching the iframe. Receive frames;
- *     send mouse/keyboard events when they "take over."
+ *   * The App owns Chromium per `BrowserSession` (`browserChromium.ts`).
+ *     Chromium outlives any individual MCP child spawn so the agent can
+ *     promise "I'll wait" without lying — the same browser is still up
+ *     when the next chat turn fires.
+ *   * The MCP child is a thin RPC translator. Each browser tool the model
+ *     calls (`browser_open`, `browser_click`, …) is forwarded as an HTTP
+ *     POST to the App, which performs it on the App-owned Chromium.
+ *   * Screencast frames flow from the App's CDP session straight into the
+ *     fanout hub here, then out to every connected viewer's WebSocket.
+ *   * Viewer input events (mouse + keyboard, when "Take over" is on) are
+ *     dispatched directly to the App's CDP session.
  *
- * Frames are not persisted. The hub keeps just enough per-session state to
- * fan out frames, aggregate viewer-side acks, and tell the MCP child when
- * to start / stop the screencast (saves CPU when no humans are watching).
+ * Frames are not persisted. Recording is out of scope.
  */
 
 const MCP_TOKEN_TTL_MS = 60 * 60 * 1000; // 1h
 const EXPIRE_GRACE_MS = 30_000;
 
 /**
- * Outbound message shape from MCP child / App → viewers, and from viewers →
- * MCP child via the App. Encoded as JSON over the WebSocket. Frame payloads
- * are inline base64 — small enough at JPEG q60 for v1, and avoids the
- * complications of binary WebSocket framing across the proxy.
+ * Outbound message shape, used for both viewer-side WS and the
+ * cross-module fan-out helpers. Encoded as JSON over the WebSocket. Frame
+ * payloads are inline base64 — small enough at JPEG q60 for v1, and
+ * avoids the complications of binary WebSocket framing across proxies.
  */
 export type LiveMessage =
   | { type: "hello"; sessionId: string; viewportWidth: number; viewportHeight: number; pageUrl: string; pageTitle: string | null }
@@ -52,16 +58,19 @@ type SessionState = {
   id: string;
   companyId: string;
   employeeId: string;
-  mcp: WebSocket | null;
   viewers: Set<ViewerSocket>;
-  /** Frames waiting on viewer-side ack before we tell the MCP to advance. */
-  pendingAcks: Map<number, Set<ViewerSocket>>;
-  /** Last frame metadata we saw, replayed to viewers that connect mid-stream. */
+  /** Frames waiting on viewer-side ack before we tell CDP to advance. */
+  pendingCdpAcks: Map<number, string>; // ourFrameId → cdpSessionId
+  /** Last frame we saw, replayed to viewers that connect mid-stream. */
   lastFrame: LiveMessage | null;
   pageUrl: string;
   pageTitle: string | null;
   viewportWidth: number;
   viewportHeight: number;
+  /** True while a CDP `Page.startScreencast` is active. */
+  screencasting: boolean;
+  /** Increments per emitted frame so viewers can ack by id. */
+  frameCounter: number;
 };
 
 const sessions = new Map<string, SessionState>();
@@ -75,8 +84,10 @@ function newToken(): string {
 }
 
 /**
- * Create a new BrowserSession row for an upcoming MCP spawn. Called from
- * the MCP materializer when the employee's `browserEnabled` is on.
+ * Find an existing live `BrowserSession` for this conversation/run, or
+ * mint a fresh one. Reusing across turns of the same chat is what makes
+ * the agent's "I'll wait" actually work — Chromium and the page state
+ * persist as long as the row stays `live` or `pending`.
  */
 export async function createBrowserSession(args: {
   companyId: string;
@@ -87,6 +98,24 @@ export async function createBrowserSession(args: {
   viewportHeight?: number;
 }): Promise<BrowserSession> {
   const repo = AppDataSource.getRepository(BrowserSession);
+
+  // Reuse an existing live/pending session when one already covers this
+  // conversation or run. The conversation-keyed lookup is the primary
+  // path — a routine spawn never reuses (each Run gets its own session).
+  if (args.conversationId) {
+    const existing = await repo
+      .createQueryBuilder("s")
+      .where("s.companyId = :companyId", { companyId: args.companyId })
+      .andWhere("s.employeeId = :employeeId", { employeeId: args.employeeId })
+      .andWhere("s.conversationId = :conversationId", { conversationId: args.conversationId })
+      .andWhere("s.status IN (:...statuses)", { statuses: ["pending", "live"] })
+      .orderBy("s.createdAt", "DESC")
+      .getOne();
+    if (existing && existing.mcpTokenExpiresAt.getTime() > Date.now()) {
+      return existing;
+    }
+  }
+
   const row = repo.create({
     companyId: args.companyId,
     employeeId: args.employeeId,
@@ -106,14 +135,14 @@ export async function createBrowserSession(args: {
   return row;
 }
 
-/** Resolve an MCP-side bearer token to its session id, or null. */
+/** Resolve the MCP-side bearer token to its session id, or null. */
 export function resolveBrowserSessionToken(token: string): string | null {
   return tokenToSessionId.get(token) ?? null;
 }
 
 /**
  * Mark a session closed and tear down its hub state. Idempotent — repeated
- * calls (e.g. MCP socket close + manual UI close racing) are no-ops after
+ * calls (e.g. idle watchdog + manual UI close racing) are no-ops after
  * the first.
  */
 export async function closeBrowserSession(
@@ -131,25 +160,19 @@ export async function closeBrowserSession(
   row.closeReason = reason;
   row.closedAt = new Date();
   await repo.save(row);
-  // Notify any connected viewers, then drop the hub entry.
   const state = sessions.get(sessionId);
   if (state) {
     broadcastToViewers(state, { type: "closed", reason });
     for (const v of state.viewers) {
       try { v.ws.close(1000, "session closed"); } catch { /* best-effort */ }
     }
-    if (state.mcp && state.mcp.readyState === WebSocket.OPEN) {
-      try { state.mcp.close(1000, "session closed"); } catch { /* best-effort */ }
-    }
   }
+  tokenToSessionId.delete(row.mcpToken);
   teardown(sessionId);
 }
 
 function teardown(sessionId: string): void {
-  const state = sessions.get(sessionId);
-  if (state) {
-    sessions.delete(sessionId);
-  }
+  sessions.delete(sessionId);
 }
 
 /**
@@ -183,114 +206,99 @@ export function bootBrowserSessionSweeper(): void {
   if (typeof sweepTimer.unref === "function") sweepTimer.unref();
 }
 
-// ---------- hub: MCP-side socket ----------
+// ---------- App-side activity surface (called by the MCP RPC routes) ----------
 
 /**
- * Attach the MCP child's WebSocket to a session. Called once from the WS
- * upgrade handler in `realtime.ts` after the bearer-token check.
+ * Flip the row from `pending` to `live` once the App actually launches
+ * Chromium for it. Called by `mcpInternalRouter` after the first tool
+ * call succeeds.
  */
-export async function attachMcpSocket(sessionId: string, ws: WebSocket): Promise<void> {
-  const state = ensureState(sessionId);
-  state.mcp = ws;
-
-  // Flip status to live + record startedAt on first attach.
+export async function markSessionLive(sessionId: string): Promise<void> {
   const repo = AppDataSource.getRepository(BrowserSession);
   const row = await repo.findOneBy({ id: sessionId });
-  if (row && row.status === "pending") {
+  if (!row) return;
+  if (row.status === "pending") {
     row.status = "live";
     row.startedAt = new Date();
     await repo.save(row);
-    state.companyId = row.companyId;
-    state.employeeId = row.employeeId;
-    state.pageUrl = row.pageUrl;
-    state.pageTitle = row.pageTitle;
-    state.viewportWidth = row.viewportWidth;
-    state.viewportHeight = row.viewportHeight;
   }
+}
 
-  // Tell the child how many viewers are already watching so it can decide
-  // whether to start the screencast right away.
-  sendToMcp(state, { type: "viewers", count: state.viewers.size });
+/** Update the cached page URL/title and notify viewers. */
+export function broadcastNav(sessionId: string, url: string, title: string | null): void {
+  const state = ensureState(sessionId);
+  state.pageUrl = url;
+  state.pageTitle = title;
+  broadcastToViewers(state, { type: "nav", url, title });
+}
 
-  ws.on("message", (raw) => {
-    let msg: LiveMessage | null = null;
-    try {
-      msg = JSON.parse(String(raw)) as LiveMessage;
-    } catch {
-      return;
-    }
-    handleMcpMessage(state, msg).catch(() => {
-      // Errors here just drop the message — the MCP will retry on next frame.
+// ---------- screencast control (called when viewers come and go) ----------
+
+async function startScreencast(state: SessionState): Promise<void> {
+  if (state.screencasting) return;
+  const runtime = getRuntime(state.id);
+  if (!runtime) return;
+  const cdp = runtime.cdp as { send: (m: string, p?: unknown) => Promise<unknown>; on: (ev: string, cb: (e: unknown) => void) => void } | null;
+  if (!cdp) return;
+
+  // Wire the frame listener once per runtime; it stays attached for the
+  // lifetime of the CDP session and we toggle screencasting via
+  // start/stop.
+  if (!cdpListenerAttached.has(state.id)) {
+    cdp.on("Page.screencastFrame", (event) => {
+      const ev = event as {
+        sessionId: string;
+        data: string;
+        metadata: NonNullable<Extract<LiveMessage, { type: "frame" }>["metadata"]>;
+      };
+      const id = ++state.frameCounter;
+      const msg: LiveMessage = { type: "frame", frameId: id, data: ev.data, metadata: ev.metadata };
+      state.lastFrame = msg;
+      if (state.viewers.size === 0) {
+        // No viewers — ack the frame to CDP immediately so Chromium doesn't
+        // pile up a backlog on a frame nobody's drawing.
+        cdp.send("Page.screencastFrameAck", { sessionId: ev.sessionId }).catch(() => { /* ignore */ });
+        return;
+      }
+      state.pendingCdpAcks.set(id, ev.sessionId);
+      broadcastToViewers(state, msg);
     });
-  });
+    cdpListenerAttached.add(state.id);
+  }
 
-  ws.on("close", () => {
-    if (state.mcp === ws) state.mcp = null;
-    // The child closing is not necessarily a session end (it might reconnect
-    // after a transient blip). Mark closed only when the session row's TTL
-    // expires; the sweeper handles that.
-    void closeBrowserSession(sessionId, "shutdown");
-  });
-
-  ws.on("error", () => {
-    // Let close handler clean up.
-  });
+  try {
+    await cdp.send("Page.startScreencast", {
+      format: "jpeg",
+      quality: 60,
+      maxWidth: state.viewportWidth,
+      maxHeight: state.viewportHeight,
+      everyNthFrame: 1,
+    });
+    state.screencasting = true;
+  } catch {
+    // ignore — Chromium may have just been torn down
+  }
 }
 
-async function handleMcpMessage(state: SessionState, msg: LiveMessage): Promise<void> {
-  if (msg.type === "frame") {
-    state.lastFrame = msg;
-    if (state.viewers.size === 0) {
-      // No viewers — ack immediately so the child doesn't pile up frames.
-      sendToMcp(state, { type: "frame.ack", frameId: msg.frameId });
-      return;
-    }
-    state.pendingAcks.set(msg.frameId, new Set(state.viewers));
-    broadcastToViewers(state, msg);
-    return;
-  }
-  if (msg.type === "nav") {
-    state.pageUrl = msg.url;
-    state.pageTitle = msg.title;
-    const repo = AppDataSource.getRepository(BrowserSession);
-    const row = await repo.findOneBy({ id: state.id });
-    if (row) {
-      row.pageUrl = msg.url;
-      row.pageTitle = msg.title;
-      await repo.save(row);
-    }
-    broadcastToViewers(state, msg);
-    return;
-  }
-  if (msg.type === "hello") {
-    state.viewportWidth = msg.viewportWidth;
-    state.viewportHeight = msg.viewportHeight;
-    state.pageUrl = msg.pageUrl;
-    state.pageTitle = msg.pageTitle;
-    const repo = AppDataSource.getRepository(BrowserSession);
-    const row = await repo.findOneBy({ id: state.id });
-    if (row) {
-      row.viewportWidth = msg.viewportWidth;
-      row.viewportHeight = msg.viewportHeight;
-      row.pageUrl = msg.pageUrl;
-      row.pageTitle = msg.pageTitle;
-      await repo.save(row);
-    }
-    broadcastToViewers(state, msg);
-    return;
-  }
-  if (msg.type === "closed") {
-    await closeBrowserSession(state.id, msg.reason ?? "shutdown");
-    return;
+async function stopScreencast(state: SessionState): Promise<void> {
+  if (!state.screencasting) return;
+  const runtime = getRuntime(state.id);
+  state.screencasting = false;
+  state.pendingCdpAcks.clear();
+  if (!runtime) return;
+  const cdp = runtime.cdp as { send: (m: string, p?: unknown) => Promise<unknown> } | null;
+  if (!cdp) return;
+  try {
+    await cdp.send("Page.stopScreencast");
+  } catch {
+    // ignore
   }
 }
+
+const cdpListenerAttached = new Set<string>();
 
 // ---------- hub: viewer-side socket ----------
 
-/**
- * Attach a viewer's WebSocket to a session. Returns a teardown function the
- * upgrade handler invokes on close.
- */
 export function attachViewerSocket(args: {
   sessionId: string;
   ws: WebSocket;
@@ -302,8 +310,11 @@ export function attachViewerSocket(args: {
   const wasEmpty = state.viewers.size === 0;
   state.viewers.add(viewer);
 
-  // Send a hello so the viewer knows the current viewport / page context
-  // even if no frames have arrived yet.
+  // Suspend Chromium's idle timer while a viewer is watching — even if
+  // the agent has finished its turn, we don't want the browser to die
+  // from under the human's cursor.
+  holdRuntime(sessionId);
+
   const hello: LiveMessage = {
     type: "hello",
     sessionId,
@@ -314,16 +325,16 @@ export function attachViewerSocket(args: {
   };
   sendToWs(ws, hello);
 
-  // Replay the last frame so the viewer sees the current page rather than
-  // a blank canvas while the MCP is between frames.
   if (state.lastFrame) {
     sendToWs(ws, state.lastFrame);
-    state.pendingAcks.get((state.lastFrame as { frameId: number }).frameId)?.add(viewer);
+    const frame = state.lastFrame as { frameId: number };
+    state.pendingCdpAcks.has(frame.frameId);
   }
 
-  // Inform MCP of new viewer count — first viewer kicks the screencast on.
+  broadcastViewerCount(state);
+
   if (wasEmpty) {
-    sendToMcp(state, { type: "viewers", count: state.viewers.size });
+    void startScreencast(state);
   }
 
   ws.on("message", (raw) => {
@@ -333,22 +344,17 @@ export function attachViewerSocket(args: {
     } catch {
       return;
     }
-    handleViewerMessage(state, viewer, msg);
+    handleViewerMessage(state, viewer, msg).catch(() => {
+      // ignore
+    });
   });
 
   ws.on("close", () => {
     state.viewers.delete(viewer);
-    // Drop this viewer from any pending acks so a slow tab close doesn't
-    // gate frame advancement for everyone else.
-    for (const [frameId, set] of state.pendingAcks) {
-      set.delete(viewer);
-      if (set.size === 0) {
-        state.pendingAcks.delete(frameId);
-        sendToMcp(state, { type: "frame.ack", frameId });
-      }
-    }
+    broadcastViewerCount(state);
+    releaseRuntime(sessionId);
     if (state.viewers.size === 0) {
-      sendToMcp(state, { type: "viewers", count: 0 });
+      void stopScreencast(state);
     }
   });
 
@@ -357,28 +363,66 @@ export function attachViewerSocket(args: {
   });
 }
 
-function handleViewerMessage(state: SessionState, viewer: ViewerSocket, msg: LiveMessage): void {
+async function handleViewerMessage(
+  state: SessionState,
+  viewer: ViewerSocket,
+  msg: LiveMessage,
+): Promise<void> {
   if (msg.type === "frame.ack") {
-    const set = state.pendingAcks.get(msg.frameId);
-    if (!set) return;
-    set.delete(viewer);
-    if (set.size === 0) {
-      state.pendingAcks.delete(msg.frameId);
-      sendToMcp(state, { type: "frame.ack", frameId: msg.frameId });
-    }
+    const cdpSid = state.pendingCdpAcks.get(msg.frameId);
+    if (!cdpSid) return;
+    state.pendingCdpAcks.delete(msg.frameId);
+    const runtime = getRuntime(state.id);
+    if (!runtime) return;
+    const cdp = runtime.cdp as { send: (m: string, p?: unknown) => Promise<unknown> } | null;
+    if (!cdp) return;
+    try { await cdp.send("Page.screencastFrameAck", { sessionId: cdpSid }); } catch { /* ignore */ }
     return;
   }
   if (msg.type === "control.takeover") {
     viewer.takeover = !!msg.takeover;
     return;
   }
-  if (msg.type === "input.mouse" || msg.type === "input.key" || msg.type === "viewport.set") {
-    // Only forward input from viewers in takeover mode. Without this, two
-    // observers fighting for control would race.
-    if (!viewer.takeover && msg.type !== "viewport.set") return;
-    sendToMcp(state, msg);
+  if (msg.type === "input.mouse" || msg.type === "input.key") {
+    if (!viewer.takeover) return;
+    markActivity(state.id);
+    const runtime = getRuntime(state.id);
+    if (!runtime) return;
+    const cdp = runtime.cdp as { send: (m: string, p?: unknown) => Promise<unknown> } | null;
+    if (!cdp) return;
+    if (msg.type === "input.mouse") {
+      try {
+        await cdp.send("Input.dispatchMouseEvent", {
+          type: msg.action,
+          x: msg.x,
+          y: msg.y,
+          button: msg.button ?? "none",
+          buttons: 0,
+          clickCount: msg.clickCount ?? 0,
+          deltaX: msg.deltaX ?? 0,
+          deltaY: msg.deltaY ?? 0,
+          modifiers: msg.modifiers ?? 0,
+        });
+      } catch { /* ignore */ }
+    } else {
+      try {
+        await cdp.send("Input.dispatchKeyEvent", {
+          type: msg.action,
+          key: msg.key,
+          code: msg.code,
+          text: msg.text,
+          unmodifiedText: msg.text,
+          modifiers: msg.modifiers ?? 0,
+          windowsVirtualKeyCode: msg.windowsVirtualKeyCode,
+        });
+      } catch { /* ignore */ }
+    }
     return;
   }
+}
+
+function broadcastViewerCount(state: SessionState): void {
+  broadcastToViewers(state, { type: "viewers", count: state.viewers.size });
 }
 
 // ---------- helpers ----------
@@ -390,14 +434,15 @@ function ensureState(sessionId: string): SessionState {
       id: sessionId,
       companyId: "",
       employeeId: "",
-      mcp: null,
       viewers: new Set(),
-      pendingAcks: new Map(),
+      pendingCdpAcks: new Map(),
       lastFrame: null,
       pageUrl: "",
       pageTitle: null,
       viewportWidth: 1280,
       viewportHeight: 800,
+      screencasting: false,
+      frameCounter: 0,
     };
     sessions.set(sessionId, state);
   }
@@ -410,11 +455,6 @@ function broadcastToViewers(state: SessionState, msg: LiveMessage): void {
     if (v.ws.readyState !== WebSocket.OPEN) continue;
     try { v.ws.send(payload); } catch { /* best-effort */ }
   }
-}
-
-function sendToMcp(state: SessionState, msg: LiveMessage): void {
-  if (!state.mcp || state.mcp.readyState !== WebSocket.OPEN) return;
-  try { state.mcp.send(JSON.stringify(msg)); } catch { /* best-effort */ }
 }
 
 function sendToWs(ws: WebSocket, msg: LiveMessage): void {
@@ -439,6 +479,9 @@ export function getSessionSnapshot(sessionId: string): {
     pageTitle: state.pageTitle,
     viewportWidth: state.viewportWidth,
     viewportHeight: state.viewportHeight,
-    hasMcp: !!state.mcp,
+    // `hasMcp` is no longer the right name post-refactor — it now means
+    // "is App-side Chromium up?". Kept under the same key so the existing
+    // panel polling code keeps working unchanged.
+    hasMcp: getRuntime(sessionId) !== null,
   };
 }

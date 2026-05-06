@@ -5,11 +5,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { AppDataSource } from "../db/datasource.js";
 import { Membership } from "../db/entities/Membership.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
-import {
-  attachMcpSocket,
-  attachViewerSocket,
-  resolveBrowserSessionToken,
-} from "./browserSessions.js";
+import { attachViewerSocket } from "./browserSessions.js";
 
 /**
  * In-process WebSocket hub for the workspace-chat surface.
@@ -197,16 +193,6 @@ async function userHasMembership(
  *      membership, then stashes {userId, companyId} on the socket record.
  */
 /**
- * Match `/api/internal/mcp/browser-sessions/<uuid>/stream` for the MCP-side
- * upgrade. Returns the captured session id or null. Kept loose on the
- * suffix so future versions can append querystrings.
- */
-function matchMcpStreamPath(pathname: string): string | null {
-  const m = /^\/api\/internal\/mcp\/browser-sessions\/([0-9a-fA-F-]{36})\/stream$/.exec(pathname);
-  return m ? m[1] : null;
-}
-
-/**
  * Match `/api/companies/<cid>/employees/<eid>/browser-sessions/<sid>/ws`.
  */
 function matchViewerWsPath(pathname: string): { cid: string; eid: string; sid: string } | null {
@@ -229,39 +215,6 @@ export function attachRealtime(httpServer: HttpServer): WebSocketServer {
       parsed = new URL(url, "http://localhost");
     } catch {
       socket.destroy();
-      return;
-    }
-
-    // ---------- MCP-side screencast upload ----------
-    const mcpStreamSid = matchMcpStreamPath(parsed.pathname);
-    if (mcpStreamSid) {
-      try {
-        const token = parsed.searchParams.get("token") ?? "";
-        const sid = resolveBrowserSessionToken(token);
-        if (!sid || sid !== mcpStreamSid) {
-          socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-          socket.destroy();
-          return;
-        }
-        const row = await AppDataSource.getRepository(BrowserSession).findOneBy({ id: sid });
-        if (!row || row.status === "closed" || row.status === "expired") {
-          socket.write("HTTP/1.1 410 Gone\r\n\r\n");
-          socket.destroy();
-          return;
-        }
-        if (row.mcpTokenExpiresAt.getTime() < Date.now()) {
-          socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-          socket.destroy();
-          return;
-        }
-        browserWss.handleUpgrade(req, socket, head, (ws) => {
-          attachMcpSocket(sid, ws).catch(() => {
-            try { ws.close(1011, "attach failed"); } catch { /* ignore */ }
-          });
-        });
-      } catch {
-        socket.destroy();
-      }
       return;
     }
 
