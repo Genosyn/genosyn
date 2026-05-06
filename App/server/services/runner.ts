@@ -175,6 +175,7 @@ export async function startRoutineRun(
         companySlug: co.slug,
         employeeSlug: emp.slug,
         routineId: routine.id,
+        runId: saved.id,
       });
       // goose returns extra CLI flags + env (it has no config file we can write
       // without clobbering `goose configure`'s state). Other providers return

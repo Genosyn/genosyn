@@ -4,6 +4,12 @@ import crypto from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { AppDataSource } from "../db/datasource.js";
 import { Membership } from "../db/entities/Membership.js";
+import { BrowserSession } from "../db/entities/BrowserSession.js";
+import {
+  attachMcpSocket,
+  attachViewerSocket,
+  resolveBrowserSessionToken,
+} from "./browserSessions.js";
 
 /**
  * In-process WebSocket hub for the workspace-chat surface.
@@ -190,14 +196,126 @@ async function userHasMembership(
  *   3. Server consumes the token here (single-use), re-confirms
  *      membership, then stashes {userId, companyId} on the socket record.
  */
+/**
+ * Match `/api/internal/mcp/browser-sessions/<uuid>/stream` for the MCP-side
+ * upgrade. Returns the captured session id or null. Kept loose on the
+ * suffix so future versions can append querystrings.
+ */
+function matchMcpStreamPath(pathname: string): string | null {
+  const m = /^\/api\/internal\/mcp\/browser-sessions\/([0-9a-fA-F-]{36})\/stream$/.exec(pathname);
+  return m ? m[1] : null;
+}
+
+/**
+ * Match `/api/companies/<cid>/employees/<eid>/browser-sessions/<sid>/ws`.
+ */
+function matchViewerWsPath(pathname: string): { cid: string; eid: string; sid: string } | null {
+  const m = /^\/api\/companies\/([0-9a-fA-F-]{36})\/employees\/([0-9a-fA-F-]{36})\/browser-sessions\/([0-9a-fA-F-]{36})\/ws$/.exec(
+    pathname,
+  );
+  return m ? { cid: m[1], eid: m[2], sid: m[3] } : null;
+}
+
 export function attachRealtime(httpServer: HttpServer): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
+  const browserWss = new WebSocketServer({ noServer: true });
 
   httpServer.on("upgrade", async (req: IncomingMessage, socket: Socket, head) => {
     const url = req.url ?? "";
+    if (!url.startsWith("/api/")) return;
+
+    let parsed: URL;
+    try {
+      parsed = new URL(url, "http://localhost");
+    } catch {
+      socket.destroy();
+      return;
+    }
+
+    // ---------- MCP-side screencast upload ----------
+    const mcpStreamSid = matchMcpStreamPath(parsed.pathname);
+    if (mcpStreamSid) {
+      try {
+        const token = parsed.searchParams.get("token") ?? "";
+        const sid = resolveBrowserSessionToken(token);
+        if (!sid || sid !== mcpStreamSid) {
+          socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        const row = await AppDataSource.getRepository(BrowserSession).findOneBy({ id: sid });
+        if (!row || row.status === "closed" || row.status === "expired") {
+          socket.write("HTTP/1.1 410 Gone\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        if (row.mcpTokenExpiresAt.getTime() < Date.now()) {
+          socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        browserWss.handleUpgrade(req, socket, head, (ws) => {
+          attachMcpSocket(sid, ws).catch(() => {
+            try { ws.close(1011, "attach failed"); } catch { /* ignore */ }
+          });
+        });
+      } catch {
+        socket.destroy();
+      }
+      return;
+    }
+
+    // ---------- Viewer-side iframe socket ----------
+    const viewerMatch = matchViewerWsPath(parsed.pathname);
+    if (viewerMatch) {
+      try {
+        const token = parsed.searchParams.get("token") ?? "";
+        const rec = consumeWsToken(token);
+        if (!rec) {
+          socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        if (rec.companyId !== viewerMatch.cid) {
+          socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        const ok = await userHasMembership(rec.userId, rec.companyId);
+        if (!ok) {
+          socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        const row = await AppDataSource.getRepository(BrowserSession).findOneBy({
+          id: viewerMatch.sid,
+        });
+        if (!row || row.companyId !== rec.companyId || row.employeeId !== viewerMatch.eid) {
+          socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        if (row.status === "closed" || row.status === "expired") {
+          socket.write("HTTP/1.1 410 Gone\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        browserWss.handleUpgrade(req, socket, head, (ws) => {
+          attachViewerSocket({
+            sessionId: row.id,
+            ws,
+            userId: rec.userId,
+          });
+        });
+      } catch {
+        socket.destroy();
+      }
+      return;
+    }
+
+    // ---------- Workspace chat (default) ----------
     if (!url.startsWith("/api/ws")) return;
     try {
-      const parsed = new URL(url, "http://localhost");
       const token = parsed.searchParams.get("token");
       if (!token) {
         socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");

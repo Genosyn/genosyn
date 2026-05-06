@@ -557,12 +557,17 @@ of the original V1 backlog has shipped — what remains is mostly
         and returns `{status:"pending_approval", approvalId}`. The model
         calls `browser_resume(approvalId)` to re-fire once a human
         approves; rejections come back as a tool error.
-  - [x] **Browserbase remote backend.** `Company.browserBackend` =
-        `"local"` (default) or `"browserbase"`. When `browserbase`,
-        `Company.browserbaseApiKey` (encrypted) + `browserbaseProjectId`
-        are passed to the MCP via env; mcp-browser opens a Browserbase
-        session over CDP instead of launching the in-container Chromium.
-        Steel.dev backend is a future drop-in (same interface).
+  - [x] **Live view + take-over.** Every browser-enabled spawn mints a
+        `BrowserSession` row; the MCP child opens a CDP screencast
+        (`Page.startScreencast`, JPEG q60) and pushes frames over a
+        WebSocket up to the App, which fans them out to viewers
+        connected at `/api/companies/:cid/employees/:eid/browser-sessions/
+        :id/view`. The viewer page is a plain HTML+canvas iframe that
+        also forwards mouse / keyboard events back via CDP
+        `Input.dispatchMouseEvent` / `dispatchKeyEvent` when the human
+        flips into "Take over" mode. Solves captcha / 2FA without an
+        external service. The async `browser_submit` Approval flow
+        stays as the fallback for unattended routines.
 - [ ] **Genosyn-level sandbox** (docker / lightweight jail around the
       child process — provider sandboxes don't fully contain the spawn)
 - [ ] **Per-run context window budget**

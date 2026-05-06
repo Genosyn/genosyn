@@ -5,17 +5,24 @@
  *
  * Spawned by the provider CLI (claude / codex / opencode / goose / openclaw)
  * as a stdio MCP server when the AI employee has `browserEnabled = true`.
- * Drives a single Chromium instance — either bundled in the App container
- * (default, "local" backend) or a remote Browserbase session — and exposes
- * a small tool surface (open, snapshot, click, fill, press, screenshot,
- * close, submit, resume) the model can use to read and interact with web
- * pages.
+ * Drives a single bundled headless Chromium and exposes a small tool
+ * surface (open, snapshot, click, fill, press, screenshot, close, submit,
+ * resume) the model can use to read and interact with web pages.
  *
  * Browser state:
  *   - One Chromium per spawn, reused across tool calls.
  *   - One persistent context + one page, recreated on demand.
  *   - Idle watchdog: after `IDLE_TIMEOUT_MS` with no tool call, the browser
  *     is shut down to release ~150 MB of RSS. The next call relaunches.
+ *
+ * Live view:
+ *   - When `GENOSYN_BROWSER_LIVEVIEW=1`, the MCP attaches a CDP screencast
+ *     to the active page and pushes JPEG frames over a WebSocket up to the
+ *     App. Humans watching the iframe panel see the page live; if they hit
+ *     "Take over," their mouse/keyboard events arrive on the same socket
+ *     and we forward them to CDP `Input.dispatchMouseEvent` /
+ *     `dispatchKeyEvent`. The screencast only runs when at least one
+ *     viewer is connected — saves CPU when nobody's watching.
  *
  * Env vars (set by `services/mcp.ts` at materialize time):
  *
@@ -35,18 +42,18 @@
  *     When set, `browser_submit` doesn't fire its target action — it
  *     queues an Approval row and returns `pending_approval` to the model.
  *
- *   GENOSYN_BROWSER_BACKEND            ("local" / "browserbase")
- *   GENOSYN_BROWSERBASE_API_KEY
- *   GENOSYN_BROWSERBASE_PROJECT_ID
- *     Browserbase backend selection + creds. When backend is browserbase,
- *     we POST a session-create call and connect over CDP instead of
- *     launching the in-container Chromium.
+ *   GENOSYN_BROWSER_LIVEVIEW           ("1" / unset)
+ *   GENOSYN_BROWSER_SESSION_ID
+ *   GENOSYN_BROWSER_SESSION_TOKEN
+ *   GENOSYN_BROWSER_LIVEVIEW_WS
+ *     Live-view session id, bearer, and full ws:// URL the MCP child dials
+ *     to ship screencast frames. All four are set together by the
+ *     materializer when liveview is enabled; absence disables the feature.
  *
  *   PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
- *     Path to the local Chromium binary for the local backend. Set in the
- *     App Dockerfile. Unset on dev hosts that haven't installed Chromium —
- *     in that case `browser_open` returns a friendly error rather than
- *     hanging.
+ *     Path to the local Chromium binary. Set in the App Dockerfile. Unset
+ *     on dev hosts that haven't installed Chromium — in that case
+ *     `browser_open` returns a friendly error rather than hanging.
  *
  * Protocol surface implemented:
  *   - initialize
@@ -58,18 +65,23 @@
 
 import readline from "node:readline";
 import crypto from "node:crypto";
+import { WebSocket } from "ws";
 
 const API_BASE = process.env.GENOSYN_MCP_API ?? "";
 const TOKEN = process.env.GENOSYN_MCP_TOKEN ?? "";
 const ALLOWED_HOSTS = parseAllowList(process.env.GENOSYN_BROWSER_ALLOWED_HOSTS ?? "");
 const APPROVAL_REQUIRED = process.env.GENOSYN_BROWSER_APPROVAL_REQUIRED === "1";
-const BACKEND = process.env.GENOSYN_BROWSER_BACKEND === "browserbase" ? "browserbase" : "local";
-const BROWSERBASE_API_KEY = process.env.GENOSYN_BROWSERBASE_API_KEY ?? "";
-const BROWSERBASE_PROJECT_ID = process.env.GENOSYN_BROWSERBASE_PROJECT_ID ?? "";
 const CHROMIUM_PATH = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined;
+
+const LIVEVIEW_ENABLED = process.env.GENOSYN_BROWSER_LIVEVIEW === "1";
+const LIVEVIEW_SESSION_ID = process.env.GENOSYN_BROWSER_SESSION_ID ?? "";
+const LIVEVIEW_TOKEN = process.env.GENOSYN_BROWSER_SESSION_TOKEN ?? "";
+const LIVEVIEW_WS_URL = process.env.GENOSYN_BROWSER_LIVEVIEW_WS ?? "";
 
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_TIMEOUT_MS = 30_000;
+const VIEWPORT_WIDTH = 1280;
+const VIEWPORT_HEIGHT = 800;
 
 /** @type {{ chromium: any } | null} */
 let playwright = null;
@@ -85,6 +97,16 @@ let page = null;
 
 /** @type {NodeJS.Timeout | null} */
 let idleTimer = null;
+
+/** @type {any} */
+let cdp = null;
+
+/** @type {WebSocket | null} */
+let liveSocket = null;
+let liveReconnectTimer = null;
+let viewerCount = 0;
+let screencastRunning = false;
+let screencastFrameCounter = 0;
 
 /**
  * In-memory map of approval IDs to the action the MCP child is waiting to
@@ -119,94 +141,102 @@ async function getPlaywright() {
 }
 
 /**
- * Launch (or reuse) a Chromium instance and return a ready-to-use page.
- *
- * Local backend: launch in-container Chromium with `--no-sandbox` + heap
- * tweaks, pointed at the apk-installed binary via
- * `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`.
- *
- * Browserbase backend: POST a session create, then `connectOverCDP` to the
- * returned websocket URL. The session belongs to the company's project; we
- * pass `keepAlive: false` so the session disappears with our context.
+ * Launch (or reuse) Chromium and return a ready-to-use page. Always uses
+ * the in-container headless Chromium — Browserbase / remote backends were
+ * removed in favor of the in-process live-view stream that any operator
+ * gets without an external service.
  */
 async function ensurePage() {
   resetIdleTimer();
   const pw = await getPlaywright();
   if (!browser) {
-    if (BACKEND === "browserbase") {
-      browser = await launchBrowserbase(pw);
-    } else {
-      browser = await pw.chromium.launch({
-        headless: true,
-        executablePath: CHROMIUM_PATH,
-        args: ["--no-sandbox", "--disable-dev-shm-usage"],
-      });
-    }
+    browser = await pw.chromium.launch({
+      headless: true,
+      executablePath: CHROMIUM_PATH,
+      args: ["--no-sandbox", "--disable-dev-shm-usage"],
+    });
   }
   if (!context) {
-    if (BACKEND === "browserbase") {
-      // Browserbase sessions hand us a context already; reuse the first.
-      const contexts = browser.contexts();
-      context = contexts.length > 0 ? contexts[0] : await browser.newContext();
-    } else {
-      context = await browser.newContext({
-        viewport: { width: 1280, height: 800 },
-        userAgent:
-          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Genosyn/0.1 Safari/537.36",
-      });
-    }
+    context = await browser.newContext({
+      viewport: { width: VIEWPORT_WIDTH, height: VIEWPORT_HEIGHT },
+      userAgent:
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Genosyn/0.4 Safari/537.36",
+    });
   }
   if (!page || page.isClosed()) {
-    if (BACKEND === "browserbase") {
-      const pages = context.pages();
-      page = pages.length > 0 ? pages[0] : await context.newPage();
-    } else {
-      page = await context.newPage();
-    }
+    page = await context.newPage();
+    cdp = null;
+    await attachCdp();
+    page.on("framenavigated", async (frame) => {
+      if (frame !== page.mainFrame()) return;
+      try {
+        const url = frame.url();
+        const title = await page.title().catch(() => "");
+        sendLive({ type: "nav", url, title });
+      } catch {
+        // best-effort
+      }
+    });
+  }
+  if (LIVEVIEW_ENABLED && !liveSocket) {
+    ensureLiveSocket();
   }
   return page;
 }
 
-/**
- * Open a Browserbase session via REST and connect Playwright to its CDP
- * endpoint. Errors here surface as the friendly tool error so the model
- * knows the credentials or quota is the problem.
- */
-async function launchBrowserbase(pw) {
-  if (!BROWSERBASE_API_KEY || !BROWSERBASE_PROJECT_ID) {
-    throw new Error(
-      "Browserbase backend selected but credentials are missing. Set the API key and project id at Settings → Company → Browser.",
-    );
-  }
-  let session;
+async function attachCdp() {
+  if (!page) return;
   try {
-    const r = await fetch("https://api.browserbase.com/v1/sessions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-BB-API-Key": BROWSERBASE_API_KEY,
-      },
-      body: JSON.stringify({ projectId: BROWSERBASE_PROJECT_ID }),
+    cdp = await page.context().newCDPSession(page);
+    cdp.on("Page.screencastFrame", async (event) => {
+      if (!liveSocket || liveSocket.readyState !== WebSocket.OPEN) {
+        // No transport — ack immediately so Chromium doesn't stall.
+        try { await cdp.send("Page.screencastFrameAck", { sessionId: event.sessionId }); } catch { /* ignore */ }
+        return;
+      }
+      screencastFrameCounter += 1;
+      const frameId = screencastFrameCounter;
+      pendingFrameAcks.set(frameId, event.sessionId);
+      sendLive({
+        type: "frame",
+        frameId,
+        data: event.data,
+        metadata: event.metadata,
+      });
     });
-    if (!r.ok) {
-      const body = await r.text();
-      throw new Error(`Browserbase session create returned ${r.status}: ${body.slice(0, 200)}`);
-    }
-    session = await r.json();
-  } catch (err) {
-    throw new Error(
-      `Could not start a Browserbase session: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
+  } catch {
+    cdp = null;
   }
-  if (!session?.id) {
-    throw new Error("Browserbase session response missing `id`");
+}
+
+/** @type {Map<number, number>} */
+const pendingFrameAcks = new Map();
+
+async function startScreencast() {
+  if (screencastRunning || !cdp) return;
+  try {
+    await cdp.send("Page.startScreencast", {
+      format: "jpeg",
+      quality: 60,
+      maxWidth: VIEWPORT_WIDTH,
+      maxHeight: VIEWPORT_HEIGHT,
+      everyNthFrame: 1,
+    });
+    screencastRunning = true;
+  } catch {
+    screencastRunning = false;
   }
-  // Browserbase exposes a CDP endpoint; Playwright's connectOverCDP attaches
-  // to the existing browser instance in their cloud.
-  const wsUrl = `wss://connect.browserbase.com?apiKey=${encodeURIComponent(BROWSERBASE_API_KEY)}&sessionId=${encodeURIComponent(session.id)}`;
-  return pw.chromium.connectOverCDP(wsUrl);
+}
+
+async function stopScreencast() {
+  if (!screencastRunning || !cdp) return;
+  try {
+    await cdp.send("Page.stopScreencast");
+  } catch {
+    // ignore
+  }
+  screencastRunning = false;
+  pendingFrameAcks.clear();
 }
 
 async function shutdown() {
@@ -214,22 +244,30 @@ async function shutdown() {
     clearTimeout(idleTimer);
     idleTimer = null;
   }
+  await stopScreencast();
+  sendLive({ type: "closed", reason: "shutdown" });
+  if (liveSocket) {
+    try { liveSocket.close(1000); } catch { /* ignore */ }
+    liveSocket = null;
+  }
+  if (liveReconnectTimer) {
+    clearTimeout(liveReconnectTimer);
+    liveReconnectTimer = null;
+  }
   const oldPage = page;
   const oldContext = context;
   const oldBrowser = browser;
   page = null;
   context = null;
   browser = null;
+  cdp = null;
   try {
     if (oldPage) await oldPage.close();
   } catch {
     // intentionally ignored — nothing to retry
   }
   try {
-    // Browserbase contexts are owned by their cloud session; closing them
-    // locally just detaches Playwright. We try anyway — the close is a
-    // no-op when the context was never created.
-    if (oldContext && BACKEND !== "browserbase") await oldContext.close();
+    if (oldContext) await oldContext.close();
   } catch {
     // intentionally ignored
   }
@@ -243,10 +281,140 @@ async function shutdown() {
 function resetIdleTimer() {
   if (idleTimer) clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
+    sendLive({ type: "closed", reason: "idle" });
     shutdown().catch(() => {
       // shutdown() already swallows; this is the unhandled-rejection guard
     });
   }, IDLE_TIMEOUT_MS);
+}
+
+// ---------- live socket ----------
+
+function ensureLiveSocket() {
+  if (!LIVEVIEW_ENABLED || !LIVEVIEW_WS_URL || !LIVEVIEW_TOKEN) return;
+  if (liveSocket) return;
+  const url = `${LIVEVIEW_WS_URL}?token=${encodeURIComponent(LIVEVIEW_TOKEN)}`;
+  let ws;
+  try {
+    ws = new WebSocket(url);
+  } catch (err) {
+    process.stderr.write(`[genosyn-browser-mcp] live socket dial failed: ${err}\n`);
+    scheduleLiveReconnect();
+    return;
+  }
+  liveSocket = ws;
+
+  ws.on("open", () => {
+    sendLive({
+      type: "hello",
+      sessionId: LIVEVIEW_SESSION_ID,
+      viewportWidth: VIEWPORT_WIDTH,
+      viewportHeight: VIEWPORT_HEIGHT,
+      pageUrl: page ? page.url() : "",
+      pageTitle: null,
+    });
+  });
+
+  ws.on("message", (raw) => {
+    let msg = null;
+    try {
+      msg = JSON.parse(String(raw));
+    } catch {
+      return;
+    }
+    handleLiveMessage(msg).catch(() => { /* ignore */ });
+  });
+
+  ws.on("close", () => {
+    if (liveSocket === ws) liveSocket = null;
+    scheduleLiveReconnect();
+  });
+
+  ws.on("error", () => {
+    // close handler does the cleanup
+  });
+}
+
+let liveReconnectAttempts = 0;
+function scheduleLiveReconnect() {
+  if (!LIVEVIEW_ENABLED) return;
+  if (liveReconnectTimer) return;
+  liveReconnectAttempts = Math.min(liveReconnectAttempts + 1, 5);
+  const delay = Math.min(5_000, 500 * 2 ** (liveReconnectAttempts - 1));
+  liveReconnectTimer = setTimeout(() => {
+    liveReconnectTimer = null;
+    if (browser) ensureLiveSocket();
+  }, delay);
+}
+
+function sendLive(msg) {
+  if (!liveSocket || liveSocket.readyState !== WebSocket.OPEN) return;
+  try {
+    liveSocket.send(JSON.stringify(msg));
+  } catch {
+    // ignore
+  }
+}
+
+async function handleLiveMessage(msg) {
+  if (!msg || typeof msg !== "object") return;
+  if (msg.type === "frame.ack") {
+    const sessionId = pendingFrameAcks.get(msg.frameId);
+    pendingFrameAcks.delete(msg.frameId);
+    if (cdp && sessionId !== undefined) {
+      try { await cdp.send("Page.screencastFrameAck", { sessionId }); } catch { /* ignore */ }
+    }
+    return;
+  }
+  if (msg.type === "viewers") {
+    viewerCount = Math.max(0, msg.count | 0);
+    if (viewerCount > 0 && page && !screencastRunning) {
+      await startScreencast();
+    } else if (viewerCount === 0 && screencastRunning) {
+      await stopScreencast();
+    }
+    return;
+  }
+  if (msg.type === "input.mouse") {
+    if (!cdp) return;
+    const action = String(msg.action || "");
+    if (!["mouseMoved", "mousePressed", "mouseReleased", "mouseWheel"].includes(action)) return;
+    try {
+      await cdp.send("Input.dispatchMouseEvent", {
+        type: action,
+        x: msg.x | 0,
+        y: msg.y | 0,
+        button: msg.button ?? "none",
+        buttons: 0,
+        clickCount: msg.clickCount | 0,
+        deltaX: typeof msg.deltaX === "number" ? msg.deltaX : 0,
+        deltaY: typeof msg.deltaY === "number" ? msg.deltaY : 0,
+        modifiers: msg.modifiers | 0,
+      });
+    } catch {
+      // ignore — the page may have navigated
+    }
+    return;
+  }
+  if (msg.type === "input.key") {
+    if (!cdp) return;
+    const action = String(msg.action || "");
+    if (!["keyDown", "keyUp", "char"].includes(action)) return;
+    try {
+      await cdp.send("Input.dispatchKeyEvent", {
+        type: action,
+        key: msg.key,
+        code: msg.code,
+        text: msg.text,
+        unmodifiedText: msg.text,
+        modifiers: msg.modifiers | 0,
+        windowsVirtualKeyCode: msg.windowsVirtualKeyCode,
+      });
+    } catch {
+      // ignore
+    }
+    return;
+  }
 }
 
 // ---------- allow list ----------
@@ -268,13 +436,7 @@ function parseAllowList(raw) {
 
 /**
  * Glob match a hostname against a single allow-list pattern. Only `*` is
- * a wildcard (matches one or more host segments at the position). All
- * matching is case-insensitive. Examples:
- *
- *   `*.gmail.com` matches `mail.gmail.com` but not `gmail.com`
- *   `gmail.com`   matches `gmail.com` exactly
- *   `*.notion.so` matches `notion.so` and any subdomain (we permit the
- *                 bare host since users naturally write the suffix form)
+ * a wildcard. Matching is case-insensitive.
  *
  * @param {string} hostname
  * @param {string} pattern
@@ -289,7 +451,6 @@ function hostMatches(hostname, pattern) {
     if (h.endsWith("." + suffix)) return true;
     return false;
   }
-  // Fallback: regex from glob, anchored.
   const escaped = p.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
   return new RegExp(`^${escaped}$`).test(h);
 }
@@ -413,10 +574,6 @@ async function waitForIdle(p) {
 
 // ---------- approval callbacks ----------
 
-/**
- * POST a body to the internal MCP API and return parsed JSON. Errors are
- * thrown — the caller wraps them in tool-error results.
- */
 async function callGenosyn(endpoint, body) {
   if (!API_BASE || !TOKEN) {
     throw new Error(
@@ -532,22 +689,6 @@ async function browserClose() {
   return textResult("Browser closed.");
 }
 
-/**
- * Submit a form. When approval mode is on this is the gated tool — calling
- * it queues an Approval and returns `pending_approval`; the model has to
- * call `browser_resume(approvalId)` to actually fire the action once a
- * human approves. When approval mode is off it behaves like a click on
- * `selector` (or an Enter press if `key: "Enter"` is supplied) so models
- * can use it uniformly without branching.
- *
- * Args:
- *   selector  — element to act on (a submit button, or the input that
- *               should receive the key press).
- *   key       — optional. "Enter" / "Tab" / etc. When set, the action is
- *               a key press on `selector` instead of a click.
- *   summary   — short human-readable description of why this submit is
- *               happening; surfaced to the approver.
- */
 async function browserSubmit(args) {
   const selector = String(args?.selector ?? "").trim();
   if (!selector) throw new Error("`selector` is required");
@@ -559,15 +700,12 @@ async function browserSubmit(args) {
     return executeSubmit(selector, key);
   }
 
-  // Approval gate is on. Snapshot the current URL so the approver has
-  // context, then queue the Approval and stash the action.
   const p = await ensurePage();
   let pageUrl = "";
   try {
     pageUrl = p.url();
   } catch {
-    // best-effort — empty pageUrl means we couldn't grab the URL but we
-    // still go ahead with the queue
+    // best-effort
   }
   const id = crypto.randomUUID();
   pendingActions.set(id, { tool: "submit", selector, key });
@@ -580,8 +718,6 @@ async function browserSubmit(args) {
       key: key ?? null,
     });
     const approvalId = reply?.approvalId ?? id;
-    // Server may have minted its own id — re-key the pending entry so
-    // `browser_resume(approvalId)` finds the action.
     if (approvalId !== id) {
       pendingActions.set(approvalId, pendingActions.get(id));
       pendingActions.delete(id);
@@ -607,12 +743,6 @@ async function executeSubmit(selector, key) {
   return textResult(await pageSnapshot(p));
 }
 
-/**
- * Poll the status of a queued browser-action approval. When the row flips
- * to `approved`, re-fire the held action and return the post-action
- * snapshot. `pending` and `rejected` come back as informational results
- * (no isError flag for pending — the model is supposed to retry).
- */
 async function browserResume(args) {
   const approvalId = String(args?.approvalId ?? "").trim();
   if (!approvalId) throw new Error("`approvalId` is required");
@@ -657,7 +787,7 @@ const TOOLS = [
   {
     name: "browser_open",
     description:
-      "Navigate to an absolute http(s) URL in the headless browser and return a snapshot of the loaded page (URL, title, accessibility tree, visible text). Use this first to land on a page. Some employees have an allow list; opening an off-list URL returns an error.",
+      "Navigate to an absolute http(s) URL in the headless browser and return a snapshot of the loaded page (URL, title, accessibility tree, visible text). Use this first to land on a page. Some employees have an allow list; opening an off-list URL returns an error. Humans can watch the page live in the chat panel.",
     inputSchema: {
       type: "object",
       properties: {
@@ -722,7 +852,7 @@ const TOOLS = [
   {
     name: "browser_screenshot",
     description:
-      "Capture a PNG screenshot of the current viewport and return it as image content. Use sparingly — screenshots are heavy in the context window. Prefer browser_snapshot when you only need text.",
+      "Capture a PNG screenshot of the current viewport and return it as image content. Use sparingly — screenshots are heavy in the context window. Prefer browser_snapshot when you only need text. Humans can also watch the page live in the chat panel.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     handler: browserScreenshot,
   },
@@ -791,7 +921,7 @@ function toolError(message) {
 
 // ---------- protocol handler ----------
 
-const SERVER_INFO = { name: "genosyn-browser", version: "0.2.0" };
+const SERVER_INFO = { name: "genosyn-browser", version: "0.3.0" };
 const CAPABILITIES = { tools: {} };
 
 async function handle(msg, send) {

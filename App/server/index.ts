@@ -48,6 +48,8 @@ import { handoffsRouter } from "./routes/handoffs.js";
 import { inboxRouter } from "./routes/inbox.js";
 import { apiKeysRouter } from "./routes/apiKeys.js";
 import { openapiRouter } from "./routes/openapi.js";
+import { browserSessionsRouter } from "./routes/browserSessions.js";
+import { bootBrowserSessionSweeper } from "./services/browserSessions.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -57,6 +59,7 @@ async function main() {
   await bootCron();
   await bootBackups();
   await bootPipelineCron();
+  bootBrowserSessionSweeper();
   // Long-polling Telegram listener — one outbound HTTP loop per Telegram
   // Connection. Fires asynchronously so a slow Telegram API doesn't gate
   // server startup; failures inside each loop are logged + retried.
@@ -134,6 +137,13 @@ async function main() {
   // Per-employee model (one-to-one with AIEmployee). See ROADMAP §5.
   app.use("/api/companies/:cid/employees/:eid/model", modelsRouter);
   app.use("/api/companies/:cid/employees/:eid/mcp", mcpRouter);
+
+  // Live browser-view sessions — the iframe-able viewer + WS plumbing for
+  // the headless Chromium the AI employee drives. See `services/browserSessions.ts`.
+  app.use(
+    "/api/companies/:cid/employees/:eid/browser-sessions",
+    browserSessionsRouter,
+  );
 
   // Integrations + Connections. Company-scoped because connections belong
   // to the company and are granted out to employees.

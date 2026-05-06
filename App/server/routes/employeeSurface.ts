@@ -366,6 +366,7 @@ employeeSurfaceRouter.post(
         body.message,
         replay,
         (chunk) => writeEvent("chunk", { text: chunk }),
+        { conversationId: conv.id },
       );
 
       const actions = await captureTurnActions(cid, eid, turnStart);

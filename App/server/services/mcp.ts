@@ -5,11 +5,11 @@ import { AppDataSource } from "../db/datasource.js";
 import { McpServer } from "../db/entities/McpServer.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Routine } from "../db/entities/Routine.js";
-import { Company, type BrowserBackend } from "../db/entities/Company.js";
 import type { Provider } from "../db/entities/AIModel.js";
 import { config } from "../../config.js";
-import { decryptSecret } from "../lib/secret.js";
 import { employeeCodexDir, openclawConfigPath } from "./paths.js";
+import { createBrowserSession } from "./browserSessions.js";
+import { BrowserSession } from "../db/entities/BrowserSession.js";
 
 /**
  * Each provider CLI has its own way of declaring MCP servers. We centralize
@@ -123,8 +123,9 @@ const RESERVED_SERVER_NAMES = new Set(["genosyn", "browser"]);
  *     `browserApprovalRequired`).
  *   * The optional routine override (`browserEnabledOverride`), applied on
  *     top of the employee setting.
- *   * The company's backend choice (`local` / `browserbase`) plus
- *     decrypted Browserbase credentials.
+ *   * Live-view session bookkeeping — the `BrowserSession` row + bearer
+ *     token the MCP child uses to reach the App over its outbound
+ *     screencast WebSocket.
  *
  * Stamped into each provider's MCP config when `enabled` is true. The
  * mcp-browser child process reads the env vars produced by
@@ -134,31 +135,29 @@ type BrowserConfig = {
   enabled: boolean;
   allowedHosts: string;
   approvalRequired: boolean;
-  backend: BrowserBackend;
-  browserbaseApiKey: string | null;
-  browserbaseProjectId: string | null;
+  /** Live-view session id the MCP child reports against. Null when disabled. */
+  sessionId: string | null;
+  /** Bearer for the live-view WebSocket. Distinct from `GENOSYN_MCP_TOKEN`. */
+  sessionToken: string | null;
 };
 
 const BROWSER_CONFIG_DISABLED: BrowserConfig = {
   enabled: false,
   allowedHosts: "",
   approvalRequired: false,
-  backend: "local",
-  browserbaseApiKey: null,
-  browserbaseProjectId: null,
+  sessionId: null,
+  sessionToken: null,
 };
 
 /**
  * Load the resolved browser config for an employee, factoring in an
- * optional routine override and the company's backend choice. A failed
- * Browserbase decrypt is treated as "no key" — the materializer logs
- * nothing and the MCP child will fall back to local; this is preferred
- * over throwing because browser disablement should never block an
- * unrelated provider spawn.
+ * optional routine override. When browser is enabled, a fresh
+ * `BrowserSession` row is minted so the MCP child can stream frames over a
+ * dedicated WebSocket and humans can iframe the live view.
  */
 async function loadBrowserConfig(
   employeeId: string,
-  options: { routineId?: string },
+  options: { routineId?: string; conversationId?: string },
 ): Promise<BrowserConfig> {
   const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
     id: employeeId,
@@ -175,26 +174,30 @@ async function loadBrowserConfig(
     }
   }
 
-  const company = await AppDataSource.getRepository(Company).findOneBy({
-    id: employee.companyId,
-  });
-
-  let browserbaseApiKey: string | null = null;
-  if (company?.browserbaseApiKeyEnc) {
-    try {
-      browserbaseApiKey = decryptSecret(company.browserbaseApiKeyEnc);
-    } catch {
-      browserbaseApiKey = null;
-    }
+  if (!enabled) {
+    return {
+      enabled: false,
+      allowedHosts: employee.browserAllowedHosts ?? "",
+      approvalRequired: employee.browserApprovalRequired,
+      sessionId: null,
+      sessionToken: null,
+    };
   }
 
+  // Mint a live-view session so humans can watch / take over.
+  const session = await createBrowserSession({
+    companyId: employee.companyId,
+    employeeId: employee.id,
+    conversationId: options.conversationId ?? null,
+    runId: options.routineId ? null : null, // overridden below if we have a runId
+  });
+
   return {
-    enabled,
+    enabled: true,
     allowedHosts: employee.browserAllowedHosts ?? "",
     approvalRequired: employee.browserApprovalRequired,
-    backend: company?.browserBackend ?? "local",
-    browserbaseApiKey,
-    browserbaseProjectId: company?.browserbaseProjectId ?? null,
+    sessionId: session.id,
+    sessionToken: session.mcpToken,
   };
 }
 
@@ -217,14 +220,11 @@ function browserEnvFor(
   const allowed = cfg.allowedHosts.trim();
   if (allowed) env.GENOSYN_BROWSER_ALLOWED_HOSTS = allowed;
   if (cfg.approvalRequired) env.GENOSYN_BROWSER_APPROVAL_REQUIRED = "1";
-  if (cfg.backend === "browserbase") {
-    env.GENOSYN_BROWSER_BACKEND = "browserbase";
-    if (cfg.browserbaseApiKey) {
-      env.GENOSYN_BROWSERBASE_API_KEY = cfg.browserbaseApiKey;
-    }
-    if (cfg.browserbaseProjectId) {
-      env.GENOSYN_BROWSERBASE_PROJECT_ID = cfg.browserbaseProjectId;
-    }
+  if (cfg.sessionId && cfg.sessionToken) {
+    env.GENOSYN_BROWSER_LIVEVIEW = "1";
+    env.GENOSYN_BROWSER_SESSION_ID = cfg.sessionId;
+    env.GENOSYN_BROWSER_SESSION_TOKEN = cfg.sessionToken;
+    env.GENOSYN_BROWSER_LIVEVIEW_WS = `${internalWsBase()}/api/internal/mcp/browser-sessions/${cfg.sessionId}/stream`;
   }
   return env;
 }
@@ -237,6 +237,11 @@ function browserEnvFor(
  */
 function internalApiBase(): string {
   return `http://127.0.0.1:${config.port}/api/internal/mcp`;
+}
+
+/** Loopback ws:// origin for the live-view screencast socket. */
+function internalWsBase(): string {
+  return `ws://127.0.0.1:${config.port}`;
 }
 
 /** Normalized view of a user-configured MCP server ready for serialization. */
@@ -320,16 +325,33 @@ export async function materializeMcpConfig(
     /**
      * Optional routine being materialized for. When set, the routine's
      * `browserEnabledOverride` is applied on top of the employee's
-     * `browserEnabled` flag (see {@link loadBrowserConfig}).
+     * `browserEnabled` flag (see {@link loadBrowserConfig}). Also tags the
+     * created live-view session so humans can find it from the run modal.
      */
     routineId?: string;
+    /** When chat-spawned, the live-view session is keyed to this conversation. */
+    conversationId?: string;
+    /** When routine-spawned, the live-view session is keyed to this run. */
+    runId?: string;
   } = {},
 ): Promise<McpInvocationExtras> {
   const provider = options.provider ?? "claude-code";
   const userServers = await loadUserServers(employeeId);
   const browser = await loadBrowserConfig(employeeId, {
     routineId: options.routineId,
+    conversationId: options.conversationId,
   });
+  if (browser.enabled && options.runId && browser.sessionId) {
+    // Stamp the runId after the session row exists. Done as a separate
+    // write so loadBrowserConfig can stay focused on employee/routine
+    // resolution.
+    const repo = AppDataSource.getRepository(BrowserSession);
+    const row = await repo.findOneBy({ id: browser.sessionId });
+    if (row) {
+      row.runId = options.runId;
+      await repo.save(row);
+    }
+  }
   const empty: McpInvocationExtras = { extraArgs: [], extraEnv: {} };
 
   switch (provider) {

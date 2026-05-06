@@ -26,6 +26,7 @@ import {
 import { useEmployeeSession } from "../lib/chatSessions";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
+import { BrowserLivePanel } from "../components/BrowserLivePanel";
 import type { EmployeeOutletCtx } from "./EmployeeLayout";
 
 /**
@@ -226,6 +227,14 @@ export default function EmployeeChat() {
           empName={emp.name}
         />
       </section>
+
+      {emp.browserEnabled && activeConvId && (
+        <BrowserLivePanel
+          companyId={company.id}
+          employeeId={emp.id}
+          conversationId={activeConvId}
+        />
+      )}
 
       {inspectAction && (
         <ActionDetailModal

@@ -9,7 +9,7 @@
     "dev": "tsx watch --ignore='**/vite.config.*' --ignore='client/**' --ignore='dist/**' --ignore='data/**' server/index.ts",
     "postinstall": "node scripts/rebuild-node-pty.mjs",
     "build": "npm run build:server && npm run build:client",
-    "build:server": "tsc -p tsconfig.server.json && mkdir -p dist/server/mcp-genosyn dist/server/mcp-browser && cp server/mcp-genosyn/*.mjs dist/server/mcp-genosyn/ && cp server/mcp-browser/*.mjs dist/server/mcp-browser/",
+    "build:server": "tsc -p tsconfig.server.json && mkdir -p dist/server/mcp-genosyn dist/server/mcp-browser/viewer && cp server/mcp-genosyn/*.mjs dist/server/mcp-genosyn/ && cp server/mcp-browser/*.mjs dist/server/mcp-browser/ && cp server/mcp-browser/viewer/index.html server/mcp-browser/viewer/viewer.js dist/server/mcp-browser/viewer/",
     "build:client": "vite build",
     "start": "node dist/server/index.js",
     "lint": "eslint . --ext .ts,.tsx",

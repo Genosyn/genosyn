@@ -4,7 +4,6 @@ import {
   Archive,
   BarChart3,
   Building2,
-  Globe,
   KeyRound,
   Mail,
   Network,
@@ -37,7 +36,6 @@ const SETTINGS_TAB_LABEL: Record<string, string> = {
   members: "Members",
   teams: "Teams",
   integrations: "Integrations",
-  browser: "Browser",
   email: "Email",
   providers: "Providers",
   logs: "Logs",
@@ -79,7 +77,6 @@ export default function SettingsLayout({
         <SidebarLink to={`${base}/members`} icon={<Users size={14} />} label="Members" />
         <SidebarLink to={`${base}/teams`} icon={<Network size={14} />} label="Teams" />
         <SidebarLink to={`${base}/integrations`} icon={<Plug size={14} />} label="Integrations" />
-        <SidebarLink to={`${base}/browser`} icon={<Globe size={14} />} label="Browser" />
         <SidebarLink to={`${base}/email`} icon={<Mail size={14} />} label="Email" />
         <SidebarLink to={`${base}/secrets`} icon={<KeyRound size={14} />} label="Secrets" />
         <SidebarLink to={`${base}/api-keys`} icon={<TerminalSquare size={14} />} label="API keys" />

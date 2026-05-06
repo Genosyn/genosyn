@@ -17,7 +17,6 @@ import { deleteCompanyCascade } from "../services/companyDelete.js";
 import { companyDir } from "../services/paths.js";
 import { avatarAbsPath, mimeFromKey } from "../services/avatars.js";
 import { config } from "../../config.js";
-import { encryptSecret, maskSecret } from "../lib/secret.js";
 
 export const companiesRouter = Router();
 
@@ -125,81 +124,6 @@ companiesRouter.patch("/:cid", requireCompanyMember, validateBody(patchSchema), 
   await repo.save(co);
   res.json({ id: co.id, name: co.name, slug: co.slug });
 });
-
-// --------------------------------------------------------------------------
-// Browser backend settings (used by the built-in `browser` MCP server when
-// `AIEmployee.browserEnabled` is on). Owner/admin only — the Browserbase
-// API key is encrypted at rest via the same AES-GCM helpers as model keys.
-// --------------------------------------------------------------------------
-
-companiesRouter.get(
-  "/:cid/browser-settings",
-  requireCompanyMember,
-  async (req, res) => {
-    const co = await AppDataSource.getRepository(Company).findOneBy({
-      id: req.params.cid,
-    });
-    if (!co) return res.status(404).json({ error: "Not found" });
-    res.json({
-      backend: co.browserBackend,
-      browserbaseProjectId: co.browserbaseProjectId,
-      browserbaseApiKeySet: !!co.browserbaseApiKeyEnc,
-      browserbaseApiKeyMasked: co.browserbaseApiKeyEnc ? "•••••••••" : null,
-    });
-  },
-);
-
-const browserSettingsSchema = z
-  .object({
-    backend: z.enum(["local", "browserbase"]).optional(),
-    browserbaseProjectId: z.string().max(200).nullable().optional(),
-    /**
-     * New API key in plaintext. Empty string explicitly clears the stored
-     * key. Omitting the field leaves the existing key in place.
-     */
-    browserbaseApiKey: z.string().max(500).optional(),
-  })
-  .refine(
-    (v) =>
-      v.backend !== undefined ||
-      v.browserbaseProjectId !== undefined ||
-      v.browserbaseApiKey !== undefined,
-    { message: "Provide at least one field" },
-  );
-
-companiesRouter.put(
-  "/:cid/browser-settings",
-  requireCompanyMember,
-  validateBody(browserSettingsSchema),
-  async (req, res) => {
-    const role = (req as unknown as { role: string }).role;
-    if (role !== "owner" && role !== "admin") {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-    const repo = AppDataSource.getRepository(Company);
-    const co = await repo.findOneBy({ id: req.params.cid });
-    if (!co) return res.status(404).json({ error: "Not found" });
-    const body = req.body as z.infer<typeof browserSettingsSchema>;
-    if (body.backend !== undefined) co.browserBackend = body.backend;
-    if (body.browserbaseProjectId !== undefined) {
-      co.browserbaseProjectId =
-        body.browserbaseProjectId === null || body.browserbaseProjectId.trim().length === 0
-          ? null
-          : body.browserbaseProjectId.trim();
-    }
-    if (body.browserbaseApiKey !== undefined) {
-      const next = body.browserbaseApiKey;
-      co.browserbaseApiKeyEnc = next.trim().length === 0 ? null : encryptSecret(next.trim());
-    }
-    await repo.save(co);
-    res.json({
-      backend: co.browserBackend,
-      browserbaseProjectId: co.browserbaseProjectId,
-      browserbaseApiKeySet: !!co.browserbaseApiKeyEnc,
-      browserbaseApiKeyMasked: co.browserbaseApiKeyEnc ? maskSecret("••••••••••") : null,
-    });
-  },
-);
 
 companiesRouter.delete("/:cid", requireCompanyMember, async (req, res) => {
   const co = await AppDataSource.getRepository(Company).findOneBy({ id: req.params.cid });

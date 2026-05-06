@@ -46,8 +46,16 @@ export async function chatWithEmployee(
   employeeId: string,
   message: string,
   history: ChatTurn[],
+  options: { conversationId?: string } = {},
 ): Promise<ChatResult> {
-  return streamChatWithEmployee(companyId, employeeId, message, history, () => {});
+  return streamChatWithEmployee(
+    companyId,
+    employeeId,
+    message,
+    history,
+    () => {},
+    options,
+  );
 }
 
 /**
@@ -55,6 +63,10 @@ export async function chatWithEmployee(
  * surfaced chunk-by-chunk via `onChunk` as it arrives from the CLI. The
  * returned ChatResult's `reply` still contains the full accumulated text so
  * callers don't have to buffer on their own.
+ *
+ * `options.conversationId` lets the caller tag the optional live-view
+ * `BrowserSession` to the active chat thread — the panel UI keys off it
+ * to surface the iframe in the right conversation.
  */
 export async function streamChatWithEmployee(
   companyId: string,
@@ -62,6 +74,7 @@ export async function streamChatWithEmployee(
   message: string,
   history: ChatTurn[],
   onChunk: (chunk: string) => void,
+  options: { conversationId?: string } = {},
 ): Promise<ChatResult> {
   const empRepo = AppDataSource.getRepository(AIEmployee);
   const coRepo = AppDataSource.getRepository(Company);
@@ -109,6 +122,7 @@ export async function streamChatWithEmployee(
     provider: model.provider,
     companySlug: co.slug,
     employeeSlug: emp.slug,
+    conversationId: options.conversationId,
   });
   // goose returns extra CLI flags + env (it has no config file we can write
   // without clobbering `goose configure`'s state). Other providers return
