@@ -363,6 +363,7 @@ function buildProviderEnv(
     "GOOSE_PROVIDER",
     "GOOSE_MODEL",
     "GOOSE_DISABLE_KEYRING",
+    "GOOSE_MODE",
     "OPENCLAW_CONFIG_PATH",
     "OPENCLAW_STATE_DIR",
   ]) {
@@ -384,8 +385,11 @@ function buildProviderEnv(
       // Pin keys to config.yaml (not the host keychain) so per-employee
       // isolation actually holds. Pass through provider/model selection so
       // the AIModel record stays authoritative even if the user's
-      // `goose configure` choice drifts.
+      // `goose configure` choice drifts. `GOOSE_MODE=auto` puts goose into
+      // autonomous mode so it doesn't block on tool-call confirmations
+      // during routine runs.
       env.GOOSE_DISABLE_KEYRING = "1";
+      env.GOOSE_MODE = "auto";
       const { provider: gp, model: gm } = splitGooseModel(model.model);
       if (gp) env.GOOSE_PROVIDER = gp;
       if (gm) env.GOOSE_MODEL = gm;
@@ -412,6 +416,11 @@ function buildProviderEnv(
     return { error: "Stored API key could not be decrypted (sessionSecret may have rotated)." };
   }
   const env: NodeJS.ProcessEnv = { ...base, [spec.apiKeyEnv]: key };
+  if (model.provider === "goose") {
+    // Same autonomous-mode flip as the subscription branch — goose's
+    // default `approve` mode would block routine runs on the first tool.
+    env.GOOSE_MODE = "auto";
+  }
   if (model.provider === "openclaw") {
     // OpenClaw needs its config file path (OPENCLAW_CONFIG_PATH) and its
     // runtime state dir (OPENCLAW_STATE_DIR) pinned per-employee. Without

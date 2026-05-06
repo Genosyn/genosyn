@@ -76,6 +76,14 @@ type OpenCodeConfigFile = {
         enabled?: boolean;
       }
   >;
+  /** Per-tool approval policy. Each key takes "allow" | "ask" | "deny";
+   * we default everything to "allow" so AI employees aren't blocked on
+   * approval prompts during autonomous routine runs. */
+  permission?: {
+    bash?: "allow" | "ask" | "deny";
+    edit?: "allow" | "ask" | "deny";
+    webfetch?: "allow" | "ask" | "deny";
+  };
 };
 
 /**
@@ -617,6 +625,15 @@ function writeOpencodeConfig(
   const file: OpenCodeConfigFile = {
     $schema: "https://opencode.ai/config.json",
     mcp: {},
+    // Default everything to "allow" so AI employees aren't blocked on per-tool
+    // consent prompts during autonomous routine runs. Genosyn is the trust
+    // boundary — the employee is sandboxed in its own cwd and only sees the
+    // MCP servers we wired.
+    permission: {
+      bash: "allow",
+      edit: "allow",
+      webfetch: "allow",
+    },
   };
 
   if (token) {
@@ -668,9 +685,12 @@ function writeOpencodeConfig(
     }
   }
 
+  // Drop the empty `mcp` block when nothing is wired so the file stays
+  // tidy. We still write the file because the `permission` block is the
+  // whole point — without it, opencode prompts the operator on every
+  // bash / edit / webfetch tool call.
   if (Object.keys(file.mcp!).length === 0) {
-    if (fs.existsSync(target)) fs.unlinkSync(target);
-    return;
+    delete file.mcp;
   }
 
   fs.writeFileSync(target, JSON.stringify(file, null, 2), "utf8");
