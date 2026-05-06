@@ -1323,6 +1323,7 @@ function Composer({
   const [emojiOpen, setEmojiOpen] = React.useState(false);
   const [mentionOpen, setMentionOpen] = React.useState(false);
   const [mentionQuery, setMentionQuery] = React.useState("");
+  const [mentionIndex, setMentionIndex] = React.useState(0);
   const fileRef = React.useRef<HTMLInputElement | null>(null);
   const textRef = React.useRef<HTMLTextAreaElement | null>(null);
   const { toast } = useToast();
@@ -1390,6 +1391,7 @@ function Composer({
       setMentionOpen(true);
       setMentionPrefix(m[1] as "@" | "#");
       setMentionQuery(m[2].toLowerCase());
+      setMentionIndex(0);
     } else {
       setMentionOpen(false);
       setMentionPrefix(null);
@@ -1431,6 +1433,17 @@ function Composer({
       })
       .slice(0, 30);
   }, [mentionables, mentionPrefix, mentionQuery]);
+
+  // Clamp the highlighted index back into range whenever the candidate list
+  // shrinks (e.g. the user keeps typing and narrows the matches).
+  React.useEffect(() => {
+    setMentionIndex((i) => {
+      if (mentionCandidates.length === 0) return 0;
+      if (i >= mentionCandidates.length) return mentionCandidates.length - 1;
+      if (i < 0) return 0;
+      return i;
+    });
+  }, [mentionCandidates.length]);
 
   return (
     <div className="shrink-0 border-t border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
@@ -1477,6 +1490,36 @@ function Composer({
           value={draft}
           onChange={(e) => updateDraft(e.target.value)}
           onKeyDown={(e) => {
+            if (mentionOpen && mentionCandidates.length > 0) {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setMentionIndex(
+                  (i) => (i + 1) % mentionCandidates.length,
+                );
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setMentionIndex(
+                  (i) =>
+                    (i - 1 + mentionCandidates.length) %
+                    mentionCandidates.length,
+                );
+                return;
+              }
+              if (e.key === "Enter" || e.key === "Tab") {
+                e.preventDefault();
+                const pick =
+                  mentionCandidates[mentionIndex] ?? mentionCandidates[0];
+                if (pick) insertMention(pick.handle);
+                return;
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setMentionOpen(false);
+                return;
+              }
+            }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               void handleSend();
@@ -1516,14 +1559,20 @@ function Composer({
               {mentionPrefix === "@" ? "People" : "Resources"}
             </div>
             <div className="max-h-72 overflow-y-auto pb-1">
-              {mentionCandidates.map((x) => (
+              {mentionCandidates.map((x, i) => (
                 <button
                   key={`${x.kind}-${x.handle}`}
                   onMouseDown={(ev) => {
                     ev.preventDefault();
                     insertMention(x.handle);
                   }}
-                  className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800"
+                  onMouseEnter={() => setMentionIndex(i)}
+                  className={
+                    "flex w-full items-center gap-2.5 px-3 py-1.5 text-left " +
+                    (i === mentionIndex
+                      ? "bg-slate-100 dark:bg-slate-800"
+                      : "hover:bg-slate-50 dark:hover:bg-slate-800")
+                  }
                 >
                   {x.kind === "user" || x.kind === "ai" ? (
                     <UIAvatar
