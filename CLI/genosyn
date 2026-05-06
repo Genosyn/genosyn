@@ -49,6 +49,16 @@ human_size() {
   }'
 }
 
+# Read the org.opencontainers.image.version label off a Docker image. Empty
+# string when the image is missing, the label is unset, or docker isn't
+# available. Used by `genosyn upgrade` to show the before/after transition.
+image_version_label() {
+  [ -n "$1" ] || return 0
+  docker image inspect \
+    --format '{{index .Config.Labels "org.opencontainers.image.version"}}' \
+    "$1" 2>/dev/null
+}
+
 # Resolve the absolute path of the running genosyn script.
 self_path() {
   local p="${BASH_SOURCE[0]}"
@@ -280,13 +290,22 @@ cmd_upgrade() {
   fi
 
   step "Pulling ${IMAGE}"
-  local before after
+  local before after before_ver after_ver
   before="$(docker image inspect --format '{{.Id}}' "${IMAGE}" 2>/dev/null || true)"
+  before_ver="$(image_version_label "${before}")"
   docker pull "${IMAGE}" >/dev/null
   after="$(docker image inspect --format '{{.Id}}' "${IMAGE}")"
+  after_ver="$(image_version_label "${after}")"
+
+  local ver_msg=""
+  if [ -n "${before_ver}" ] && [ -n "${after_ver}" ] && [ "${before_ver}" != "${after_ver}" ]; then
+    ver_msg=" (${before_ver} → ${after_ver})"
+  elif [ -n "${after_ver}" ]; then
+    ver_msg=" (${after_ver})"
+  fi
 
   if [ -n "${before}" ] && [ "${before}" = "${after}" ]; then
-    ok "Already on the latest image."
+    ok "Already on the latest image${ver_msg}."
     if container_running; then
       return 0
     fi
@@ -304,7 +323,7 @@ cmd_upgrade() {
     docker image rm "${before}" >/dev/null 2>&1 || true
   fi
 
-  ok "Genosyn upgraded."
+  ok "Genosyn upgraded${ver_msg}."
   print_post_install
 }
 

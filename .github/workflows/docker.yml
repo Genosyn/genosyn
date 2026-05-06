@@ -76,6 +76,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Read VERSION
+        if: steps.exists.outputs.ready == 'true'
+        id: ver
+        run: echo "value=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+
       - name: Extract metadata
         if: steps.exists.outputs.ready == 'true'
         id: meta
@@ -98,6 +103,11 @@ jobs:
           file: ./${{ matrix.project }}/Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          # Append after meta.outputs.labels so this overrides the auto-derived
+          # version (which is "main" / "latest" for non-tag builds). genosyn
+          # CLI reads this label to display the upgrade transition.
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+            org.opencontainers.image.version=${{ steps.ver.outputs.value }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,scope=${{ matrix.image }},mode=max
