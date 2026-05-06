@@ -430,7 +430,8 @@ export type IntegrationAuthMode =
   | "apikey"
   | "oauth2"
   | "service_account"
-  | "github_app";
+  | "github_app"
+  | "browser";
 export type IntegrationCatalogField = {
   key: string;
   label: string;
@@ -487,6 +488,10 @@ export type IntegrationCatalogEntry = {
   };
   githubApp?: {
     setupDocs?: string;
+  };
+  browserLogin?: {
+    fields: IntegrationCatalogField[];
+    description?: string;
   };
   enabled: boolean;
   disabledReason?: string;

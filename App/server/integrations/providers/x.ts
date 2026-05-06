@@ -6,6 +6,17 @@ import type {
   IntegrationScopeGroup,
   OauthTokenSet,
 } from "../types.js";
+import {
+  deleteTweetViaBrowser,
+  followUserViaBrowser,
+  likeTweetViaBrowser,
+  postTweetViaBrowser,
+  retweetViaBrowser,
+  runWithXBrowser,
+  unfollowUserViaBrowser,
+  unlikeTweetViaBrowser,
+  type XBrowserConfig,
+} from "./x-browser.js";
 
 /**
  * X.com (Twitter) — OAuth 2.0 + PKCE integration.
@@ -455,10 +466,56 @@ export const xProvider: IntegrationProvider = {
       setupDocs:
         "https://docs.x.com/resources/fundamentals/authentication/oauth-2-0/authorization-code",
     },
+    browserLogin: {
+      description:
+        "Skip the X dev project entirely. We store the username + password encrypted at rest and drive a headless browser for posts, likes, retweets, replies, and follows. Heavier than OAuth and best-effort against X's anti-automation defences — accounts with 2FA aren't supported, and X may ask for an unusual-activity verification on first login (provide a Verification value below if so).",
+      fields: [
+        {
+          key: "username",
+          label: "Username (handle)",
+          type: "text",
+          placeholder: "yourhandle",
+          required: true,
+          hint: "Without the leading @. Same value you type into x.com/login.",
+        },
+        {
+          key: "password",
+          label: "Password",
+          type: "password",
+          required: true,
+          hint: "Encrypted at rest with the app's session secret.",
+        },
+        {
+          key: "verification",
+          label: "Verification email or phone (optional)",
+          type: "text",
+          required: false,
+          placeholder: "you@example.com",
+          hint: "Used only when X shows the \"unusual activity\" prompt the first time we log in. Skip if you've never seen that prompt for this account.",
+        },
+      ],
+    },
     enabled: true,
   },
 
   tools: X_TOOLS,
+
+  async buildBrowserLoginConfig(input) {
+    const username = (input.username ?? "").trim().replace(/^@/, "");
+    const password = input.password ?? "";
+    const verification = (input.verification ?? "").trim();
+    if (!username) throw new Error("Username is required");
+    if (!password) throw new Error("Password is required");
+    const cfg: XBrowserConfig = {
+      username,
+      password,
+      verification: verification || undefined,
+    };
+    return {
+      config: cfg as unknown as IntegrationConfig,
+      accountHint: `@${username}`,
+    };
+  },
 
   buildOauthConfig({ tokens, userInfo, clientId, clientSecret, scopeGroups }) {
     if (!tokens.refreshToken) {
@@ -491,6 +548,16 @@ export const xProvider: IntegrationProvider = {
   },
 
   async checkStatus(ctx) {
+    if (ctx.authMode === "browser") {
+      // For browser-mode we don't fire a real login on every status check —
+      // that would burn 30+s and trip X's "too many login attempts" gate.
+      // We only verify that credentials are present.
+      const cfg = ctx.config as XBrowserConfig;
+      if (!cfg.username || !cfg.password) {
+        return { ok: false, message: "Missing username or password" };
+      }
+      return { ok: true };
+    }
     try {
       await ensureFreshToken(ctx);
       const cfg = ctx.config as XOauthConfig;
@@ -508,9 +575,12 @@ export const xProvider: IntegrationProvider = {
   },
 
   async invokeTool(name, args, ctx) {
+    const a = (args as Record<string, unknown>) ?? {};
+    if (ctx.authMode === "browser") {
+      return invokeXBrowserTool(name, a, ctx);
+    }
     await ensureFreshToken(ctx);
     const cfg = ctx.config as XOauthConfig;
-    const a = (args as Record<string, unknown>) ?? {};
     switch (name) {
       case "get_me":
         return xFetch(cfg.accessToken, "/users/me", {
@@ -693,6 +763,113 @@ export const xProvider: IntegrationProvider = {
     }
   },
 };
+
+// ---------- Browser-mode dispatch ----------
+//
+// Browser-mode connections drive the x.com UI through a headless Chromium
+// instead of hitting the v2 API. We support the high-value subset of the
+// OAuth tool list — post, reply, like / unlike, retweet, delete, follow /
+// unfollow. The read-only and DM tools fall through with a clear error
+// because the UI doesn't expose them in a stable shape.
+
+async function invokeXBrowserTool(
+  name: string,
+  a: Record<string, unknown>,
+  ctx: IntegrationRuntimeContext,
+): Promise<unknown> {
+  const cfg = ctx.config as XBrowserConfig;
+  if (!cfg.username || !cfg.password) {
+    throw new Error(
+      "Browser-login connection is missing credentials — reconnect from Settings → Integrations.",
+    );
+  }
+  switch (name) {
+    case "get_me":
+      return { id: "", username: cfg.username, name: cfg.displayName ?? "" };
+
+    case "post_tweet": {
+      const text = requireString(a.text, "text");
+      const replyToTweetId = strOrUndef(a.replyToTweetId);
+      return runWithXBrowser({
+        cfg,
+        ctx,
+        action: (page) => postTweetViaBrowser(page, { text, replyToTweetId }),
+      });
+    }
+
+    case "delete_tweet": {
+      const tweetId = requireString(a.tweetId, "tweetId");
+      return runWithXBrowser({
+        cfg,
+        ctx,
+        action: (page) => deleteTweetViaBrowser(page, { tweetId }),
+      });
+    }
+
+    case "like_tweet": {
+      const tweetId = requireString(a.tweetId, "tweetId");
+      return runWithXBrowser({
+        cfg,
+        ctx,
+        action: (page) => likeTweetViaBrowser(page, { tweetId }),
+      });
+    }
+
+    case "unlike_tweet": {
+      const tweetId = requireString(a.tweetId, "tweetId");
+      return runWithXBrowser({
+        cfg,
+        ctx,
+        action: (page) => unlikeTweetViaBrowser(page, { tweetId }),
+      });
+    }
+
+    case "retweet": {
+      const tweetId = requireString(a.tweetId, "tweetId");
+      return runWithXBrowser({
+        cfg,
+        ctx,
+        action: (page) => retweetViaBrowser(page, { tweetId }),
+      });
+    }
+
+    case "follow_user": {
+      // Browser mode follows by handle (the route is /<handle>); the OAuth
+      // tool takes a user id. We accept either: if `userId` was passed and
+      // looks numeric, fall back to a clear error rather than guessing.
+      const handle = strOrUndef(a.handle) ?? strOrUndef(a.username);
+      if (handle) {
+        return runWithXBrowser({
+          cfg,
+          ctx,
+          action: (page) => followUserViaBrowser(page, { handle }),
+        });
+      }
+      throw new Error(
+        "Browser-login follow_user needs `handle` (the @username), not a numeric userId.",
+      );
+    }
+
+    case "unfollow_user": {
+      const handle = strOrUndef(a.handle) ?? strOrUndef(a.username);
+      if (handle) {
+        return runWithXBrowser({
+          cfg,
+          ctx,
+          action: (page) => unfollowUserViaBrowser(page, { handle }),
+        });
+      }
+      throw new Error(
+        "Browser-login unfollow_user needs `handle` (the @username), not a numeric userId.",
+      );
+    }
+
+    default:
+      throw new Error(
+        `Tool "${name}" is not available on browser-login X connections. Use an OAuth connection for read-only and DM tools.`,
+      );
+  }
+}
 
 // ---------- Token lifecycle ----------
 

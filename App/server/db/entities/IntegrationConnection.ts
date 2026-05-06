@@ -11,7 +11,8 @@ export type IntegrationAuthMode =
   | "apikey"
   | "oauth2"
   | "service_account"
-  | "github_app";
+  | "github_app"
+  | "browser";
 export type IntegrationConnectionStatus = "connected" | "error" | "expired";
 
 /**
@@ -36,6 +37,12 @@ export type IntegrationConnectionStatus = "connected" | "error" | "expired";
  *                         scopes, impersonationEmail?, accessToken?,
  *                         expiresAt? } — JWT-bearer auth; access tokens are
  *                         re-minted on demand (no refresh token concept).
+ *   - browser         : { username, password, ...providerExtras,
+ *                         storageStateJson?, lastLoginAt? } — credentials
+ *                         the headless-browser driver replays at runtime.
+ *                         `storageStateJson` is the cached Playwright
+ *                         storageState (cookies + localStorage) so we don't
+ *                         re-login on every tool call.
  *
  * AI employees access a Connection via an `EmployeeConnectionGrant`; the
  * raw credential never leaves the server.

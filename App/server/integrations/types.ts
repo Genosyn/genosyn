@@ -19,7 +19,8 @@ export type IntegrationAuthMode =
   | "apikey"
   | "oauth2"
   | "service_account"
-  | "github_app";
+  | "github_app"
+  | "browser";
 
 /**
  * High-level grouping for the catalog UI. The order here is the order
@@ -127,6 +128,19 @@ export type IntegrationCatalogEntry = {
    * installation to use. */
   githubApp?: {
     setupDocs?: string;
+  };
+  /** When set, this integration accepts a username + password (and optional
+   * extra fields) that drive a headless browser at runtime. The connect
+   * modal renders a "Browser login" tab for it. Used for sites where the
+   * official API is rate-limited, paywalled, or simply doesn't exist. */
+  browserLogin?: {
+    /** Form fields collected at create-time (typically username + password,
+     * sometimes email/phone for verification). Same shape as `fields` for
+     * apikey integrations. */
+    fields: IntegrationCatalogField[];
+    /** Short blurb explaining the trade-offs (rate-limits, anti-bot) so the
+     * operator knows what they're signing up for. Rendered above the form. */
+    description?: string;
   };
   /** Whether this integration can be used right now. With the move to
    * per-Connection credentials, OAuth integrations are always enabled —
@@ -257,6 +271,18 @@ export type IntegrationProvider = {
     privateKey: string;
     installationId: string;
   }): Promise<{ config: IntegrationConfig; accountHint: string }>;
+
+  /**
+   * Browser-login providers implement this. Receives the form fields the
+   * operator typed (username + password + whatever else the catalog asked
+   * for) and returns the persisted config blob. Implementations should NOT
+   * attempt a full browser login at create-time — login flows on these
+   * sites are slow and fragile, so the first real login happens lazily on
+   * the first tool call. Throw if a required field is missing or empty.
+   */
+  buildBrowserLoginConfig?(
+    input: Record<string, string>,
+  ): Promise<{ config: IntegrationConfig; accountHint: string }>;
 
   /**
    * Cheap read-only health check. Called on demand from the UI and when the

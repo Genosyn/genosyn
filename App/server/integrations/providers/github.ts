@@ -782,7 +782,12 @@ export const githubProvider: IntegrationProvider = {
  * OAuth row whose access token was never saved). Callers should treat that as
  * a hard skip.
  */
-type GithubAuthMode = "apikey" | "oauth2" | "service_account" | "github_app";
+type GithubAuthMode =
+  | "apikey"
+  | "oauth2"
+  | "service_account"
+  | "github_app"
+  | "browser";
 
 export async function resolveGithubCredentials(
   cfg: IntegrationConfig,

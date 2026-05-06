@@ -7,6 +7,7 @@ import { validateBody } from "../middleware/validate.js";
 import { getProvider, listCatalog } from "../integrations/index.js";
 import {
   createApiKeyConnection,
+  createBrowserLoginConnection,
   createGithubAppConnection,
   createServiceAccountConnection,
   decryptConnectionConfig,
@@ -21,6 +22,7 @@ import {
   revokeAccess,
   serializeConnection,
   updateApiKeyCredentials,
+  updateBrowserLoginCredentials,
   updateConnectionLabel,
   updateGithubAppCredentials,
   updateServiceAccountCredentials,
@@ -372,6 +374,90 @@ integrationsRouter.put(
         targetId: updated.id,
         targetLabel: `${updated.provider} · ${updated.label}`,
         metadata: { provider: updated.provider, authMode: "github_app" },
+      });
+      res.json(serializeConnection(updated));
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : "Failed to reconnect",
+      });
+    }
+  },
+);
+
+// ---------- Browser-login ----------
+//
+// Username + password the headless browser replays at runtime. Used today
+// for X (Twitter) — see `providers/x.ts` browser-mode dispatch.
+
+const browserLoginCreateSchema = z.object({
+  provider: z.string().min(1).max(64),
+  label: z.string().min(1).max(80),
+  fields: z.record(z.string().max(20_000)),
+});
+
+integrationsRouter.post(
+  "/connections/browser-login",
+  validateBody(browserLoginCreateSchema),
+  async (req, res) => {
+    const { cid } = req.params as Record<string, string>;
+    const body = req.body as z.infer<typeof browserLoginCreateSchema>;
+    const provider = getProvider(body.provider);
+    if (!provider) return res.status(400).json({ error: "Unknown integration" });
+    if (!provider.catalog.browserLogin) {
+      return res.status(400).json({
+        error: `${provider.catalog.name} does not support browser login.`,
+      });
+    }
+    try {
+      const row = await createBrowserLoginConnection({
+        companyId: cid,
+        provider: body.provider,
+        label: body.label,
+        fields: body.fields,
+      });
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "connection.create",
+        targetType: "connection",
+        targetId: row.id,
+        targetLabel: `${provider.catalog.name} · ${row.label}`,
+        metadata: { provider: row.provider, authMode: "browser" },
+      });
+      res.json(serializeConnection(row));
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : "Failed to create connection",
+      });
+    }
+  },
+);
+
+const browserLoginReconnectSchema = z.object({
+  fields: z.record(z.string().max(20_000)),
+});
+
+integrationsRouter.put(
+  "/connections/:connId/browser-login",
+  validateBody(browserLoginReconnectSchema),
+  async (req, res) => {
+    const { cid, connId } = req.params as Record<string, string>;
+    const body = req.body as z.infer<typeof browserLoginReconnectSchema>;
+    try {
+      const updated = await updateBrowserLoginCredentials({
+        companyId: cid,
+        connectionId: connId,
+        fields: body.fields,
+      });
+      if (!updated) return res.status(404).json({ error: "Connection not found" });
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "connection.reconnect",
+        targetType: "connection",
+        targetId: updated.id,
+        targetLabel: `${updated.provider} · ${updated.label}`,
+        metadata: { provider: updated.provider, authMode: "browser" },
       });
       res.json(serializeConnection(updated));
     } catch (err) {

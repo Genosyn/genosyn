@@ -29,7 +29,7 @@ export type ConnectionDTO = {
   companyId: string;
   provider: string;
   label: string;
-  authMode: "apikey" | "oauth2" | "service_account" | "github_app";
+  authMode: "apikey" | "oauth2" | "service_account" | "github_app" | "browser";
   accountHint: string;
   status: "connected" | "error" | "expired";
   statusMessage: string;
@@ -65,7 +65,7 @@ export function serializeConnection(c: IntegrationConnection): ConnectionDTO {
  * we can't decrypt — the UI treats `[]` as "no scope groups picked".
  */
 function readScopeGroups(c: IntegrationConnection): string[] {
-  if (c.authMode === "apikey") return [];
+  if (c.authMode === "apikey" || c.authMode === "browser") return [];
   try {
     const cfg = decryptConnectionConfig(c) as { scopeGroups?: unknown };
     if (Array.isArray(cfg.scopeGroups)) {
@@ -224,6 +224,80 @@ export async function createServiceAccountConnection(args: {
   await repo.save(row);
   notifyConnectionChanged(row.id, row.provider);
   return row;
+}
+
+/**
+ * Create a Connection from a username/password the headless browser will
+ * replay at runtime. We deliberately do NOT attempt a real login at
+ * create-time — login on these sites is slow, fragile, and often gated by
+ * "unusual activity" challenges. The first tool call performs the login,
+ * caches a `storageState`, and from then on subsequent calls reuse the
+ * cached cookies. The provider's `buildBrowserLoginConfig` shapes the
+ * persisted blob.
+ */
+export async function createBrowserLoginConnection(args: {
+  companyId: string;
+  provider: string;
+  label: string;
+  fields: Record<string, string>;
+}): Promise<IntegrationConnection> {
+  const provider = getProvider(args.provider);
+  if (!provider) throw new Error(`Unknown integration: ${args.provider}`);
+  if (!provider.catalog.browserLogin) {
+    throw new Error(`${provider.catalog.name} does not support browser login`);
+  }
+  if (!provider.buildBrowserLoginConfig) {
+    throw new Error(
+      `${provider.catalog.name} declared browser-login support but has no validator`,
+    );
+  }
+  const { config, accountHint } = await provider.buildBrowserLoginConfig(args.fields);
+  const repo = AppDataSource.getRepository(IntegrationConnection);
+  const row = repo.create({
+    companyId: args.companyId,
+    provider: args.provider,
+    label: args.label.trim() || provider.catalog.name,
+    authMode: "browser",
+    encryptedConfig: encryptConnectionConfig(config),
+    accountHint,
+    status: "connected",
+    statusMessage: "",
+    lastCheckedAt: new Date(),
+  });
+  await repo.save(row);
+  notifyConnectionChanged(row.id, row.provider);
+  return row;
+}
+
+export async function updateBrowserLoginCredentials(args: {
+  companyId: string;
+  connectionId: string;
+  fields: Record<string, string>;
+}): Promise<IntegrationConnection | null> {
+  const repo = AppDataSource.getRepository(IntegrationConnection);
+  const existing = await repo.findOneBy({
+    companyId: args.companyId,
+    id: args.connectionId,
+  });
+  if (!existing) return null;
+  if (existing.authMode !== "browser") {
+    throw new Error(
+      `Connection is ${existing.authMode}, not browser-login — use the matching reconnect flow.`,
+    );
+  }
+  const provider = getProvider(existing.provider);
+  if (!provider || !provider.buildBrowserLoginConfig) {
+    throw new Error(`Unknown integration: ${existing.provider}`);
+  }
+  const { config, accountHint } = await provider.buildBrowserLoginConfig(args.fields);
+  existing.encryptedConfig = encryptConnectionConfig(config);
+  existing.accountHint = accountHint;
+  existing.status = "connected";
+  existing.statusMessage = "";
+  existing.lastCheckedAt = new Date();
+  await repo.save(existing);
+  notifyConnectionChanged(existing.id, existing.provider);
+  return existing;
 }
 
 /**
