@@ -63,7 +63,8 @@ Day-to-day management:
 
 ```bash
 genosyn status           # show running state, image, volume, port
-genosyn upgrade          # pull latest image and recreate container
+genosyn upgrade          # self-update the CLI, pull latest image, recreate
+genosyn self-upgrade     # update only the genosyn CLI script
 genosyn logs -f          # tail server logs
 genosyn backup           # tarball the data volume
 genosyn restore <file>   # restore a backup

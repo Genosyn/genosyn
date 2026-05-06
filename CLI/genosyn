@@ -9,6 +9,8 @@
 #   GENOSYN_NAME     container name       (default: genosyn)
 #   GENOSYN_VOLUME   data volume name     (default: genosyn-data)
 #   GENOSYN_IMAGE    image reference      (default: ghcr.io/genosyn/app:latest)
+#   GENOSYN_CLI_URL  fetch URL for the CLI script used by self-upgrade
+#                    (default: https://genosyn.com/genosyn)
 
 set -euo pipefail
 
@@ -18,6 +20,7 @@ PORT="${GENOSYN_PORT:-8471}"
 NAME="${GENOSYN_NAME:-genosyn}"
 VOLUME="${GENOSYN_VOLUME:-genosyn-data}"
 IMAGE="${GENOSYN_IMAGE:-ghcr.io/genosyn/app:latest}"
+CLI_URL="${GENOSYN_CLI_URL:-https://genosyn.com/genosyn}"
 
 # ---------- output helpers ----------
 
@@ -44,6 +47,95 @@ human_size() {
     i=1; while (b >= 1024 && i < 5) { b /= 1024; i++ }
     if (i == 1) printf "%dB", b; else printf "%.1f%s", b, u[i]
   }'
+}
+
+# Resolve the absolute path of the running genosyn script.
+self_path() {
+  local p="${BASH_SOURCE[0]}"
+  if command -v realpath >/dev/null 2>&1; then
+    realpath "${p}" 2>/dev/null || printf '%s' "${p}"
+  elif command -v readlink >/dev/null 2>&1 && readlink -f / >/dev/null 2>&1; then
+    readlink -f "${p}" 2>/dev/null || printf '%s' "${p}"
+  else
+    case "${p}" in
+      /*) printf '%s' "${p}" ;;
+      *)  printf '%s/%s' "$(pwd)" "${p}" ;;
+    esac
+  fi
+}
+
+# Compute SHA-256 of a file. Outputs the hex digest, or empty if unavailable.
+file_sha256() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" 2>/dev/null | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" 2>/dev/null | awk '{print $1}'
+  else
+    printf ''
+  fi
+}
+
+# Download the latest CLI from CLI_URL and replace the running script if it
+# differs. Returns 0 if no change (already up to date or download skipped),
+# 1 if the binary on disk was replaced (caller should re-exec to pick it up).
+self_upgrade() {
+  local quiet="${1:-}"
+  local url="${CLI_URL}"
+  local sp
+  sp="$(self_path)"
+
+  local fetcher=""
+  if command -v curl >/dev/null 2>&1; then fetcher="curl"
+  elif command -v wget >/dev/null 2>&1; then fetcher="wget"
+  else
+    [ "${quiet}" = "1" ] || warn "Neither curl nor wget is available — skipping CLI self-upgrade."
+    return 0
+  fi
+
+  [ "${quiet}" = "1" ] || step "Checking for CLI updates"
+
+  local tmp
+  tmp="$(mktemp -t genosyn-cli.XXXXXX)"
+  local rc=0
+  if [ "${fetcher}" = "curl" ]; then
+    curl -fsSL "${url}" -o "${tmp}" 2>/dev/null || rc=$?
+  else
+    wget -q "${url}" -O "${tmp}" 2>/dev/null || rc=$?
+  fi
+  if [ "${rc}" -ne 0 ] || [ ! -s "${tmp}" ]; then
+    rm -f "${tmp}"
+    [ "${quiet}" = "1" ] || warn "Could not fetch ${url} — keeping current CLI."
+    return 0
+  fi
+
+  if ! head -1 "${tmp}" | grep -q '^#!'; then
+    rm -f "${tmp}"
+    [ "${quiet}" = "1" ] || warn "Downloaded CLI does not look like a shell script — keeping current."
+    return 0
+  fi
+
+  local cur_hash new_hash
+  cur_hash="$(file_sha256 "${sp}")"
+  new_hash="$(file_sha256 "${tmp}")"
+  if [ -n "${cur_hash}" ] && [ "${cur_hash}" = "${new_hash}" ]; then
+    rm -f "${tmp}"
+    [ "${quiet}" = "1" ] || ok "CLI is already up to date."
+    return 0
+  fi
+
+  step "Updating CLI at ${sp}"
+  if [ -w "${sp}" ] 2>/dev/null; then
+    install -m 0755 "${tmp}" "${sp}"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo install -m 0755 "${tmp}" "${sp}"
+  else
+    rm -f "${tmp}"
+    warn "Cannot write ${sp} and sudo is unavailable — keeping current CLI."
+    return 0
+  fi
+  rm -f "${tmp}"
+  ok "CLI updated."
+  return 1
 }
 
 # ---------- preconditions ----------
@@ -162,8 +254,26 @@ cmd_install() {
 }
 
 cmd_upgrade() {
+  local original_args=("$@")
+  local skip_self=0
   parse_common_flags "$@"
+  set -- ${REMAINING[@]+"${REMAINING[@]}"}
+  while [ $# -gt 0 ]; do
+    case "${1:-}" in
+      ""               ) shift ;;
+      --no-self-upgrade) skip_self=1; shift ;;
+      *) die "Unknown argument to upgrade: $1" ;;
+    esac
+  done
+
   require_docker
+
+  if [ "${skip_self}" = "0" ]; then
+    if ! self_upgrade; then
+      step "Re-running with updated CLI"
+      exec "$(self_path)" upgrade --no-self-upgrade ${original_args[@]+"${original_args[@]}"}
+    fi
+  fi
 
   if ! container_exists; then
     die "No container named '${NAME}' found. Run 'genosyn install' first."
@@ -430,6 +540,11 @@ cmd_uninstall() {
   ok "Uninstalled."
 }
 
+cmd_self_upgrade() {
+  parse_common_flags "$@"
+  self_upgrade || true
+}
+
 cmd_prune() {
   local dry_run=0
   local assume_yes=0
@@ -521,7 +636,10 @@ ${C_BOLD}Usage:${C_RESET}
 
 ${C_BOLD}Commands:${C_RESET}
   install              Pull the image and start the container (idempotent).
-  upgrade              Pull the latest image and recreate the container.
+  upgrade              Self-upgrade the CLI, pull the latest image, recreate
+                       the container. Pass --no-self-upgrade to skip the
+                       script update.
+  self-upgrade         Update only the genosyn CLI script in place.
   start                Start a stopped container.
   stop                 Stop the running container.
   restart              Stop, then start.
@@ -574,6 +692,7 @@ main() {
     restore)           cmd_restore   "$@" ;;
     uninstall|remove)  cmd_uninstall "$@" ;;
     prune|clean)       cmd_prune     "$@" ;;
+    self-upgrade|self-update) cmd_self_upgrade "$@" ;;
     version|--version|-v) cmd_version ;;
     help|--help|-h)    cmd_help ;;
     *) die "Unknown command: ${sub}. Run 'genosyn help' for usage." ;;
