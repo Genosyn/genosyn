@@ -532,6 +532,7 @@ export function SettingsBrowser() {
     <>
       <TopBar title="Browser" />
       <CompanyBrowserSettingsCard companyId={company.id} />
+      <DangerZoneCard />
     </>
   );
 }

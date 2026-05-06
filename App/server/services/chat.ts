@@ -312,11 +312,13 @@ function buildInvocation(
 ): { cmd: string; args: string[]; parser: StreamParser } {
   switch (provider) {
     case "claude-code":
-      // `--allowedTools "mcp__genosyn"` pre-approves every tool the built-in
-      // Genosyn MCP server exposes. Without it, `claude -p` silently skips
-      // MCP servers from `.mcp.json` (the interactive approval prompt can't
-      // fire in headless mode) and the model hallucinates actions it never
-      // actually performed.
+      // `--dangerously-skip-permissions` disables Claude Code's per-tool
+      // approval prompts entirely. Genosyn is the trust boundary — the AI
+      // employee is sandboxed in its own working dir, talks to MCP servers
+      // we wired ourselves, and runs autonomously in routines where nobody
+      // is around to click "Allow". Without this flag, the AI would block
+      // on the first tool call (browser_open, Bash, …) and the routine
+      // would silently hang.
       //
       // `--output-format stream-json --verbose --include-partial-messages`
       // flips claude into line-delimited JSON events. The default text
@@ -334,8 +336,7 @@ function buildInvocation(
           prompt,
           "--model",
           modelStr,
-          "--allowedTools",
-          "mcp__genosyn",
+          "--dangerously-skip-permissions",
           "--output-format",
           "stream-json",
           "--verbose",

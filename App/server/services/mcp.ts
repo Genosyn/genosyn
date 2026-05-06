@@ -411,10 +411,74 @@ function writeClaudeConfig(
 
   if (Object.keys(file.mcpServers).length === 0) {
     if (fs.existsSync(target)) fs.unlinkSync(target);
-    return;
+  } else {
+    fs.writeFileSync(target, JSON.stringify(file, null, 2), "utf8");
   }
 
-  fs.writeFileSync(target, JSON.stringify(file, null, 2), "utf8");
+  // Project-level Claude Code settings: pre-approve everything we registered
+  // so AI employees aren't blocked on per-tool consent prompts during
+  // autonomous routine runs. Genosyn is the trust boundary — if you didn't
+  // want a server's tools available, you wouldn't have wired the server at
+  // the company level.
+  writeClaudeSettingsLocal(cwd, Object.keys(file.mcpServers));
+}
+
+/**
+ * Write `<cwd>/.claude/settings.local.json` with a permissive allow list
+ * covering every MCP server we registered plus the standard developer tool
+ * surface (Bash, Read, Write, Edit, …). Without this, Claude Code prompts
+ * the operator for approval the first time the AI employee invokes any tool
+ * — fine in interactive `chat`, fatal in headless routine runs which run
+ * with no human in the loop.
+ *
+ * The file is `settings.local.json` (gitignored by Claude Code's defaults),
+ * not `settings.json`, so it stays a runtime artifact and never lands in
+ * any repo the AI employee might be working in.
+ */
+function writeClaudeSettingsLocal(cwd: string, mcpServerNames: string[]): void {
+  const dir = path.join(cwd, ".claude");
+  const target = path.join(dir, "settings.local.json");
+
+  // Allow every MCP server we registered. The `mcp__<server>` form grants
+  // every tool that server exposes — we list it twice (with and without
+  // the trailing wildcard) because some Claude Code releases match the
+  // bare form, others match the wildcard explicitly.
+  const mcpAllow: string[] = [];
+  for (const name of mcpServerNames) {
+    mcpAllow.push(`mcp__${name}`);
+    mcpAllow.push(`mcp__${name}__*`);
+  }
+
+  // The standard agent toolset. AI employees need these to be useful;
+  // gating them behind per-call prompts breaks autonomous operation.
+  const builtinAllow = [
+    "Bash",
+    "Read",
+    "Write",
+    "Edit",
+    "MultiEdit",
+    "NotebookEdit",
+    "Glob",
+    "Grep",
+    "WebFetch",
+    "WebSearch",
+    "TodoWrite",
+    "Task",
+  ];
+
+  const settings = {
+    permissions: {
+      allow: [...mcpAllow, ...builtinAllow],
+    },
+  };
+
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(target, JSON.stringify(settings, null, 2), "utf8");
+  } catch {
+    // The settings file is a UX nicety; if we can't write it the spawn
+    // still works, the operator just sees approval prompts. Swallow.
+  }
 }
 
 /**

@@ -33,6 +33,7 @@ import {
   PipelineRunDetail,
   PipelineRunSummary,
 } from "../lib/api";
+import { copyToClipboard } from "../lib/clipboard";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -996,8 +997,8 @@ function WebhookCallout({
           </code>
           <button
             onClick={async () => {
-              await navigator.clipboard.writeText(url);
-              toast("Copied", "success");
+              const ok = await copyToClipboard(url);
+              toast(ok ? "Copied" : "Could not access clipboard", ok ? "success" : "error");
             }}
             className="rounded p-1 text-slate-500 hover:bg-slate-200 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-100"
             title="Copy URL"

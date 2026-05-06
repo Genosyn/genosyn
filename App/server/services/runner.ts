@@ -450,9 +450,10 @@ function buildInvocation(
 ): { cmd: string; args: string[] } {
   switch (provider) {
     case "claude-code":
-      // See the mirror in `chat.ts` — `--allowedTools "mcp__genosyn"`
-      // pre-approves the built-in MCP tools so `claude -p` actually attaches
-      // them instead of silently dropping the server.
+      // See the mirror in `chat.ts` — `--dangerously-skip-permissions`
+      // disables the per-tool approval gate entirely. Routine runs are
+      // autonomous (no human to click "Allow"), and the employee is
+      // already sandboxed in its own cwd, so the gate is a footgun.
       return {
         cmd: "claude",
         args: [
@@ -460,8 +461,7 @@ function buildInvocation(
           prompt,
           "--model",
           modelStr,
-          "--allowedTools",
-          "mcp__genosyn",
+          "--dangerously-skip-permissions",
           ...extraArgs,
         ],
       };

@@ -2,6 +2,7 @@ import React from "react";
 import { useOutletContext } from "react-router-dom";
 import { BookOpen, Check, Copy, KeyRound, Trash2 } from "lucide-react";
 import { api, ApiKey, ApiKeyCreated, Company } from "../lib/api";
+import { copyToClipboard } from "../lib/clipboard";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { FormError } from "../components/ui/FormError";
@@ -328,11 +329,11 @@ function NewKeyTokenModal({
               variant="secondary"
               size="sm"
               onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(created.token);
+                const ok = await copyToClipboard(created.token);
+                if (ok) {
                   setCopied(true);
                   toast("Copied to clipboard", "success");
-                } catch {
+                } else {
                   toast("Could not access clipboard — copy manually", "error");
                 }
               }}

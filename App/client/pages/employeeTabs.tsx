@@ -46,6 +46,7 @@ import {
   McpTransport,
   Team,
 } from "../lib/api";
+import { copyToClipboard } from "../lib/clipboard";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Card, CardBody } from "../components/ui/Card";
@@ -2726,7 +2727,8 @@ function CopyableUrl({ url }: { url: string }) {
           size="sm"
           variant="secondary"
           onClick={async () => {
-            await navigator.clipboard.writeText(url);
+            const ok = await copyToClipboard(url);
+            if (!ok) return;
             setCopied(true);
             window.setTimeout(() => setCopied(false), 1500);
           }}
@@ -2799,7 +2801,8 @@ function SignInWizardFooter({
               size="sm"
               variant="secondary"
               onClick={async () => {
-                await navigator.clipboard.writeText(command);
+                const ok = await copyToClipboard(command);
+                if (!ok) return;
                 setCopied(true);
                 window.setTimeout(() => setCopied(false), 1500);
               }}
@@ -2959,7 +2962,8 @@ function ManualCommandFallback({ model }: { model: AIModel }) {
           size="sm"
           variant="secondary"
           onClick={async () => {
-            await navigator.clipboard.writeText(command);
+            const ok = await copyToClipboard(command);
+            if (!ok) return;
             setCopied(true);
             window.setTimeout(() => setCopied(false), 1500);
           }}
@@ -3124,9 +3128,9 @@ function WebhookField({
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => {
-              navigator.clipboard.writeText(url);
-              toast("Copied", "success");
+            onClick={async () => {
+              const ok = await copyToClipboard(url);
+              toast(ok ? "Copied" : "Could not access clipboard", ok ? "success" : "error");
             }}
           >
             <Copy size={12} />
