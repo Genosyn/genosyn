@@ -227,6 +227,20 @@ function virtualKeyCode(ev) {
   return typeof ev.keyCode === "number" && ev.keyCode > 0 ? ev.keyCode : undefined;
 }
 
+// Some special keys still need a `text` payload on keyDown for their
+// default action to fire — Chromium triggers implicit form submission off
+// the keypress event (charCode 13), and CDP only emits keypress when
+// `text` is present. Without `\r` here, Enter dispatches a keydown that
+// the page sees but never submits the form. Same for Tab. Modifier-held
+// variants (Cmd+Enter etc.) skip the text so onKeyDown shortcut handlers
+// fire without a stray textInput.
+function specialKeyText(ev) {
+  if (ev.ctrlKey || ev.metaKey || ev.altKey) return undefined;
+  if (ev.key === "Enter") return "\r";
+  if (ev.key === "Tab") return "\t";
+  return undefined;
+}
+
 canvas.addEventListener("keydown", (ev) => {
   if (!takeover) return;
   // Let the iframe's parent keep ⌘R / ⌘W / browser shortcuts.
@@ -238,7 +252,8 @@ canvas.addEventListener("keydown", (ev) => {
   // textInput — modern React apps listen for `keydown` to update state, so
   // skipping it leaves the input field's React state empty even though the
   // character appears visually.
-  const text = isPrintable(ev.key) && !ev.ctrlKey && !ev.metaKey ? ev.key : undefined;
+  const printableText = isPrintable(ev.key) && !ev.ctrlKey && !ev.metaKey ? ev.key : undefined;
+  const text = printableText ?? specialKeyText(ev);
   send({
     type: "input.key",
     action: "keyDown",
