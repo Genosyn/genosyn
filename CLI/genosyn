@@ -38,6 +38,14 @@ ok()   { printf '%s✓%s %s\n' "${C_GREEN}"  "${C_RESET}" "$*"; }
 warn() { printf '%s!%s %s\n' "${C_YELLOW}" "${C_RESET}" "$*" >&2; }
 die()  { printf '%s✗%s %s\n' "${C_RED}"    "${C_RESET}" "$*" >&2; exit 1; }
 
+human_size() {
+  awk -v b="$1" 'BEGIN {
+    u[1]="B"; u[2]="KB"; u[3]="MB"; u[4]="GB"; u[5]="TB";
+    i=1; while (b >= 1024 && i < 5) { b /= 1024; i++ }
+    if (i == 1) printf "%dB", b; else printf "%.1f%s", b, u[i]
+  }'
+}
+
 # ---------- preconditions ----------
 
 require_docker() {
@@ -180,6 +188,11 @@ cmd_upgrade() {
   run_container
 
   wait_for_ready || warn "Upgraded but container did not answer HTTP in time. Check 'genosyn logs'."
+
+  if [ -n "${before}" ] && [ "${before}" != "${after}" ]; then
+    step "Removing previous image"
+    docker image rm "${before}" >/dev/null 2>&1 || true
+  fi
 
   ok "Genosyn upgraded."
   print_post_install
@@ -417,6 +430,79 @@ cmd_uninstall() {
   ok "Uninstalled."
 }
 
+cmd_prune() {
+  local dry_run=0
+  local assume_yes=0
+  parse_common_flags "$@"
+  set -- "${REMAINING[@]-}"
+  while [ $# -gt 0 ]; do
+    case "${1:-}" in
+      ""        ) shift ;;
+      --dry-run ) dry_run=1; shift ;;
+      -y|--yes  ) assume_yes=1; shift ;;
+      *) die "Unknown argument to prune: $1" ;;
+    esac
+  done
+
+  require_docker
+
+  step "Finding old Genosyn images"
+
+  local current
+  current="$(docker image inspect --format '{{.Id}}' "${IMAGE}" 2>/dev/null || true)"
+
+  local repo="${IMAGE%:*}"
+
+  local victims=()
+  local id refs
+  while IFS= read -r id; do
+    [ -n "${id}" ] || continue
+    [ "${id}" = "${current}" ] && continue
+    refs="$(docker image inspect --format '{{range .RepoDigests}}{{.}} {{end}}{{range .RepoTags}}{{.}} {{end}}' "${id}" 2>/dev/null || true)"
+    case "${refs}" in
+      *"${repo}@"*|*"${repo}:"*) victims+=("${id}") ;;
+    esac
+  done < <(docker images --no-trunc --format '{{.ID}}' | sort -u)
+
+  if [ "${#victims[@]}" -eq 0 ]; then
+    ok "Nothing to prune."
+    return 0
+  fi
+
+  printf '\nFound %s%d%s old image(s) for %s:\n' "${C_BOLD}" "${#victims[@]}" "${C_RESET}" "${repo}"
+  local total_size=0
+  local short tags size
+  for id in "${victims[@]}"; do
+    short="${id#sha256:}"; short="${short:0:12}"
+    tags="$(docker image inspect --format '{{if .RepoTags}}{{join .RepoTags ", "}}{{else}}<none>{{end}}' "${id}" 2>/dev/null || echo '<none>')"
+    size="$(docker image inspect --format '{{.Size}}' "${id}" 2>/dev/null || echo 0)"
+    total_size=$((total_size + size))
+    printf '  %s  %8s  %s\n' "${short}" "$(human_size "${size}")" "${tags}"
+  done
+  printf '%sTotal:%s %s\n\n' "${C_DIM}" "${C_RESET}" "$(human_size "${total_size}")"
+
+  if [ "${dry_run}" = "1" ]; then
+    ok "Dry run — nothing removed."
+    return 0
+  fi
+
+  if [ "${assume_yes}" != "1" ]; then
+    confirm "Remove these ${#victims[@]} image(s)?" || die "Aborted."
+  fi
+
+  local removed=0
+  for id in "${victims[@]}"; do
+    if docker image rm "${id}" >/dev/null 2>&1; then
+      removed=$((removed + 1))
+    fi
+  done
+
+  ok "Removed ${removed} of ${#victims[@]} image(s)."
+  if [ "${removed}" -lt "${#victims[@]}" ]; then
+    warn "Some images are still referenced by other containers and were skipped."
+  fi
+}
+
 cmd_version() {
   printf 'genosyn cli  %s\n' "${CLI_VERSION}"
   if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 && container_exists; then
@@ -444,6 +530,7 @@ ${C_BOLD}Commands:${C_RESET}
   backup [--out FILE]  Tarball the data volume (default: timestamped file in cwd).
   restore <FILE> [-y]  Restore a backup tarball. Destructive; prompts unless -y.
   uninstall [--purge]  Remove the container. --purge also deletes the data volume.
+  prune [--dry-run]    Remove orphaned Genosyn images left over from prior upgrades.
   version              Print CLI and container image versions.
   help                 Show this message.
 
@@ -486,6 +573,7 @@ main() {
     backup)            cmd_backup    "$@" ;;
     restore)           cmd_restore   "$@" ;;
     uninstall|remove)  cmd_uninstall "$@" ;;
+    prune|clean)       cmd_prune     "$@" ;;
     version|--version|-v) cmd_version ;;
     help|--help|-h)    cmd_help ;;
     *) die "Unknown command: ${sub}. Run 'genosyn help' for usage." ;;

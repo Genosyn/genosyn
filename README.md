@@ -67,6 +67,7 @@ genosyn upgrade          # pull latest image and recreate container
 genosyn logs -f          # tail server logs
 genosyn backup           # tarball the data volume
 genosyn restore <file>   # restore a backup
+genosyn prune            # remove orphaned images from prior upgrades
 genosyn stop | start | restart
 genosyn uninstall [--purge]
 genosyn help             # full command reference
