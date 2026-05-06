@@ -43,7 +43,7 @@ export type LiveMessage =
   | { type: "nav"; url: string; title: string | null }
   | { type: "viewers"; count: number }
   | { type: "closed"; reason: BrowserSessionCloseReason }
-  | { type: "input.mouse"; action: "mousePressed" | "mouseReleased" | "mouseMoved" | "mouseWheel"; x: number; y: number; button?: "none" | "left" | "middle" | "right"; clickCount?: number; deltaX?: number; deltaY?: number; modifiers?: number }
+  | { type: "input.mouse"; action: "mousePressed" | "mouseReleased" | "mouseMoved" | "mouseWheel"; x: number; y: number; button?: "none" | "left" | "middle" | "right"; buttons?: number; clickCount?: number; deltaX?: number; deltaY?: number; modifiers?: number }
   | { type: "input.key"; action: "keyDown" | "keyUp" | "char"; key?: string; code?: string; text?: string; modifiers?: number; windowsVirtualKeyCode?: number }
   | { type: "viewport.set"; width: number; height: number }
   | { type: "control.takeover"; userId: string; takeover: boolean };
@@ -397,7 +397,7 @@ async function handleViewerMessage(
           x: msg.x,
           y: msg.y,
           button: msg.button ?? "none",
-          buttons: 0,
+          buttons: msg.buttons ?? 0,
           clickCount: msg.clickCount ?? 0,
           deltaX: msg.deltaX ?? 0,
           deltaY: msg.deltaY ?? 0,

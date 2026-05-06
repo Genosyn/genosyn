@@ -156,6 +156,7 @@ canvas.addEventListener("mousemove", (ev) => {
     x,
     y,
     button: ev.buttons & 1 ? "left" : ev.buttons & 2 ? "right" : ev.buttons & 4 ? "middle" : "none",
+    buttons: ev.buttons,
     modifiers: modifiersFrom(ev),
   });
 });
@@ -171,6 +172,7 @@ canvas.addEventListener("mousedown", (ev) => {
     x,
     y,
     button: buttonName(ev.button),
+    buttons: ev.buttons,
     clickCount: ev.detail || 1,
     modifiers: modifiersFrom(ev),
   });
@@ -186,6 +188,7 @@ canvas.addEventListener("mouseup", (ev) => {
     x,
     y,
     button: buttonName(ev.button),
+    buttons: ev.buttons,
     clickCount: ev.detail || 1,
     modifiers: modifiersFrom(ev),
   });
@@ -206,12 +209,22 @@ canvas.addEventListener("wheel", (ev) => {
     y,
     deltaX: ev.deltaX,
     deltaY: ev.deltaY,
+    buttons: ev.buttons,
     modifiers: modifiersFrom(ev),
   });
 }, { passive: false });
 
 function isPrintable(key) {
   return typeof key === "string" && key.length === 1;
+}
+
+// CDP's Input.dispatchKeyEvent requires windowsVirtualKeyCode for non-character
+// keys (Backspace, Tab, Enter, Arrows, modifiers, …) to actually trigger their
+// default action inside Chromium. Browsers still populate `ev.keyCode` for
+// every key event, and for the keys we care about it matches the Windows VK
+// code 1:1, so we just forward it.
+function virtualKeyCode(ev) {
+  return typeof ev.keyCode === "number" && ev.keyCode > 0 ? ev.keyCode : undefined;
 }
 
 canvas.addEventListener("keydown", (ev) => {
@@ -221,14 +234,19 @@ canvas.addEventListener("keydown", (ev) => {
     return;
   }
   ev.preventDefault();
+  // Always send keyDown (not char). CDP's `char` type only fires keypress/
+  // textInput — modern React apps listen for `keydown` to update state, so
+  // skipping it leaves the input field's React state empty even though the
+  // character appears visually.
   const text = isPrintable(ev.key) && !ev.ctrlKey && !ev.metaKey ? ev.key : undefined;
   send({
     type: "input.key",
-    action: text ? "char" : "keyDown",
+    action: "keyDown",
     key: ev.key,
     code: ev.code,
     text,
     modifiers: modifiersFrom(ev),
+    windowsVirtualKeyCode: virtualKeyCode(ev),
   });
 });
 
@@ -241,6 +259,7 @@ canvas.addEventListener("keyup", (ev) => {
     key: ev.key,
     code: ev.code,
     modifiers: modifiersFrom(ev),
+    windowsVirtualKeyCode: virtualKeyCode(ev),
   });
 });
 
