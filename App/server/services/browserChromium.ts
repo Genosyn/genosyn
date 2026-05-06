@@ -1,6 +1,7 @@
 import { AppDataSource } from "../db/datasource.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
 import { closeBrowserSession } from "./browserSessions.js";
+import { loadStorageState, saveStorageState } from "./browserStorage.js";
 
 /**
  * App-owned headless Chromium per `BrowserSession`. Decoupled from the MCP
@@ -57,6 +58,9 @@ const CHROME_SEC_CH_UA = `"Chromium";v="${CHROME_MAJOR}", "Google Chrome";v="${C
 
 type SessionRuntime = {
   id: string;
+  /** Cached so the teardown path can persist storageState without a re-lookup. */
+  companyId: string;
+  employeeId: string;
   browser: unknown; // Playwright Browser
   context: unknown; // Playwright BrowserContext
   page: unknown; // Playwright Page
@@ -105,6 +109,16 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
     return existing.page;
   }
 
+  // Look up the session row so we know which employee to load state for.
+  // Storage persistence is keyed by employee — every session for the same
+  // employee shares cookies / localStorage so logging into X.com once
+  // sticks across conversations and container restarts.
+  const sessionRow = await AppDataSource.getRepository(BrowserSession).findOneBy({ id: sessionId });
+  if (!sessionRow) {
+    throw new Error(`browser session ${sessionId} not found in DB`);
+  }
+  const storageState = await loadStorageState(sessionRow.companyId, sessionRow.employeeId);
+
   const pw = await getPlaywright();
   const browser = await pw.chromium.launch({
     headless: true,
@@ -130,6 +144,7 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"macOS"',
     },
+    storageState,
   });
   await (context as {
     addInitScript: (script: { content: string }) => Promise<void>;
@@ -139,6 +154,8 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
 
   const runtime: SessionRuntime = {
     id: sessionId,
+    companyId: sessionRow.companyId,
+    employeeId: sessionRow.employeeId,
     browser,
     context,
     page,
@@ -238,6 +255,13 @@ export async function releasePage(
   if (!r) return;
   runtimes.delete(sessionId);
   if (r.idleTimer) clearTimeout(r.idleTimer);
+  // Snapshot cookies + localStorage before the context is torn down so the
+  // next session for this employee picks up where we left off. Skip on
+  // `error` — a context that crashed mid-flight may have a corrupted
+  // storage state we don't want to overwrite the last good snapshot with.
+  if (reason !== "error") {
+    await saveStorageState(r.companyId, r.employeeId, r.context);
+  }
   try {
     const pg = r.page as { close: () => Promise<void> } | null;
     if (pg) await pg.close();
