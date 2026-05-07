@@ -17,6 +17,7 @@ import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { recordAudit } from "../services/audit.js";
 import {
+  RESOURCE_BODY_TEXT_CAP,
   RESOURCE_MAX_BYTES,
   deleteGrantsForResource,
   deleteResourceBytes,
@@ -390,7 +391,26 @@ resourcesRouter.get("/resources/:slug/file", async (req, res) => {
   if (!co) return res.status(404).json({ error: "Company not found" });
   const abs = resolveResourceFile(co.slug, row.storageKey);
   if (!abs) return res.status(404).json({ error: "File missing on disk" });
-  res.download(abs, row.sourceFilename ?? path.basename(abs));
+  // `disposition=attachment` forces a download; default is inline so the
+  // browser can render PDFs and our EPUB viewer can fetch the bytes via
+  // an in-page request without triggering the download dialog.
+  const filename = row.sourceFilename ?? path.basename(abs);
+  const disposition =
+    (req.query.disposition as string | undefined) === "attachment"
+      ? "attachment"
+      : "inline";
+  const contentType =
+    row.sourceKind === "pdf"
+      ? "application/pdf"
+      : row.sourceKind === "epub"
+        ? "application/epub+zip"
+        : undefined;
+  if (contentType) res.setHeader("Content-Type", contentType);
+  res.setHeader(
+    "Content-Disposition",
+    `${disposition}; filename="${filename.replace(/"/g, "")}"`,
+  );
+  res.sendFile(abs);
 });
 
 // ----- PATCH -----
@@ -399,6 +419,7 @@ const patchSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   summary: z.string().max(2000).optional(),
   tags: z.string().max(500).optional(),
+  body: z.string().max(RESOURCE_BODY_TEXT_CAP).optional(),
 });
 
 resourcesRouter.patch(
@@ -412,6 +433,28 @@ resourcesRouter.patch(
     if (body.title !== undefined) row.title = body.title;
     if (body.summary !== undefined) row.summary = body.summary.trim();
     if (body.tags !== undefined) row.tags = body.tags.trim();
+    if (body.body !== undefined) {
+      // Only `text` resources are editable — for PDF/EPUB/URL the body is
+      // an extracted preview that should match the original source, so
+      // letting humans drift it would silently break search results.
+      if (row.sourceKind !== "text") {
+        return res
+          .status(400)
+          .json({ error: "Only text resources can have their body edited" });
+      }
+      const trimmed = trimBodyText(body.body);
+      row.bodyText = trimmed;
+      row.bytes = trimmed.length;
+      // Auto-regenerate the summary when the caller didn't pass one — the
+      // detail page no longer surfaces the summary, but the index list
+      // still uses it as preview text and a stale summary would be
+      // misleading.
+      if (body.summary === undefined) {
+        row.summary = summarize(trimmed);
+      }
+      row.status = "ready";
+      row.errorMessage = "";
+    }
     await AppDataSource.getRepository(Resource).save(row);
     const [hydrated] = await hydrate(cid, [row], { includeBody: true });
     res.json(hydrated);

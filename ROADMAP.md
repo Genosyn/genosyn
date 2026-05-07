@@ -361,19 +361,28 @@ not write**, ingested once, queried on demand via the MCP surface.
         soon" note (no ASR dep)
 - [x] HTTP routes under `/api/companies/:cid/resources`: list, create
       (URL / paste / upload via multer, 25 MB cap), detail, patch
-      (rename + retag), delete, plus grant CRUD.
+      (rename + retag + body for `text`-kind), delete, plus grant CRUD.
+      The `/file` endpoint serves inline by default (so PDFs render in a
+      browser viewer and the EPUB reader can fetch the bytes); pass
+      `?disposition=attachment` to force a download.
 - [x] MCP tools — `list_resources`, `search_resources`, `get_resource`
       mirroring the Notes pattern. Read-only for AI; humans curate.
 - [x] React UI under `/c/<co>/resources`: Notion-style centered layout
       with quick-add tiles (URL / Paste / Upload), search-as-you-type,
-      compact list view, document-style detail page, share modal.
+      compact list view, share modal. Detail page is type-aware —
+      text resources are an editable markdown document, PDFs render in
+      a native browser iframe, EPUBs render via `epubjs` with TOC and
+      progress, videos use `<video>`, URL resources surface as a
+      prominent "Open original" card. The auto-summary section was
+      dropped from the detail page (still produced for the index list).
 - [x] AppShell sidebar entry under "Knowledge".
 
-**New dependency:** `pdf-parse` (small, well-maintained, Node 22 OK).
-Avoided the bigger choice of an embeddings store + vector search; v1
-relies on substring matching over titles, summaries, and `bodyText`,
-same as `search_notes`. Embeddings + RAG land in a future milestone
-once we know what the team actually queries.
+**New dependencies:** `pdf-parse` (small, well-maintained, Node 22 OK)
+for ingestion; `epubjs` + `jszip` for the EPUB reader on the detail
+page. Avoided the bigger choice of an embeddings store + vector
+search; v1 relies on substring matching over titles, summaries, and
+`bodyText`, same as `search_notes`. Embeddings + RAG land in a future
+milestone once we know what the team actually queries.
 
 ### M15 — 2FA / TOTP (planned)
 - [ ] `User` gets `totpSecret` (encrypted), `totpEnabledAt`, `recoveryCodes`
