@@ -1,5 +1,7 @@
 import React from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import {
   AlertCircle,
   ArrowLeft,
@@ -300,13 +302,20 @@ export default function ResourceDetail({ company }: { company: Company }) {
 
           <section>
             <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Extracted text
+              {row.sourceKind === "text" ? "Body" : "Extracted text"}
             </h2>
             {row.bodyText ? (
               <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
-                <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap p-5 font-sans text-sm leading-7 text-slate-800 dark:text-slate-200">
-                  {row.bodyText}
-                </pre>
+                {row.sourceKind === "text" ? (
+                  <ResourceMarkdown
+                    body={row.bodyText}
+                    className="chat-md max-h-[60vh] overflow-auto break-words p-5 text-sm leading-7 text-slate-800 dark:text-slate-200"
+                  />
+                ) : (
+                  <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap p-5 font-sans text-sm leading-7 text-slate-800 dark:text-slate-200">
+                    {row.bodyText}
+                  </pre>
+                )}
               </div>
             ) : (
               <p className="text-sm italic text-slate-400 dark:text-slate-500">
@@ -325,6 +334,29 @@ export default function ResourceDetail({ company }: { company: Company }) {
       />
     </div>
   );
+}
+
+/**
+ * Render a paste-text resource body as GitHub-flavored markdown. Same
+ * marked + DOMPurify pipeline the chat surface uses, reusing the `chat-md`
+ * styles for consistent typography.
+ */
+function ResourceMarkdown({
+  body,
+  className,
+}: {
+  body: string;
+  className: string;
+}) {
+  const html = React.useMemo(() => {
+    const raw = marked.parse(body, {
+      async: false,
+      gfm: true,
+      breaks: true,
+    }) as string;
+    return DOMPurify.sanitize(raw);
+  }, [body]);
+  return <div className={className} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 function StatusBadge({ status }: { status: Resource["status"] }) {
