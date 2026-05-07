@@ -10,8 +10,9 @@ import { Resource } from "../db/entities/Resource.js";
 import type { ResourceSourceKind } from "../db/entities/Resource.js";
 import {
   EmployeeResourceGrant,
+  RESOURCE_ACCESS_RANK,
 } from "../db/entities/EmployeeResourceGrant.js";
-import type { NoteAccessLevel } from "../db/entities/EmployeeNoteGrant.js";
+import type { ResourceAccessLevel } from "../db/entities/EmployeeResourceGrant.js";
 import { Company } from "../db/entities/Company.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { companyDir, ensureDir } from "./paths.js";
@@ -315,7 +316,7 @@ export function inferSourceKindFromFilename(
 export async function upsertResourceGrant(
   employeeId: string,
   resourceId: string,
-  accessLevel: NoteAccessLevel,
+  accessLevel: ResourceAccessLevel,
 ): Promise<EmployeeResourceGrant> {
   const repo = AppDataSource.getRepository(EmployeeResourceGrant);
   const existing = await repo.findOneBy({ employeeId, resourceId });
@@ -360,14 +361,13 @@ export async function listAccessibleResourceIds(
 export async function hasResourceAccess(
   employeeId: string,
   resourceId: string,
-  required: NoteAccessLevel,
+  required: ResourceAccessLevel,
 ): Promise<boolean> {
   const grant = await AppDataSource.getRepository(
     EmployeeResourceGrant,
   ).findOneBy({ employeeId, resourceId });
   if (!grant) return false;
-  if (required === "read") return true;
-  return grant.accessLevel === "write";
+  return RESOURCE_ACCESS_RANK[grant.accessLevel] >= RESOURCE_ACCESS_RANK[required];
 }
 
 export async function listResourcesByIds(

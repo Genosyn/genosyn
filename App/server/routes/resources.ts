@@ -11,7 +11,7 @@ import { User } from "../db/entities/User.js";
 import {
   EmployeeResourceGrant,
 } from "../db/entities/EmployeeResourceGrant.js";
-import type { NoteAccessLevel } from "../db/entities/EmployeeNoteGrant.js";
+import type { ResourceAccessLevel } from "../db/entities/EmployeeResourceGrant.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
@@ -42,17 +42,20 @@ import fs from "node:fs";
  * uploading a file (PDF / EPUB / TXT / MD / HTML), or pasting raw text.
  * The server extracts plain text on the spot, stores it on `bodyText`,
  * and surfaces the resulting Resource to AI employees through the MCP
- * tool surface (`list_resources` / `search_resources` / `get_resource` for
- * reading; `create_resource` / `update_resource` / `delete_resource` for
- * curating, gated by a `write` grant) and to humans through the React UI.
- *
- * Access for AI is gated by `EmployeeResourceGrant`; humans bypass.
+ * tool surface (`list_resources` / `search_resources` / `get_resource`
+ * for reading; `create_resource` / `update_resource` / `delete_resource`
+ * for curating). The AI surface uses three escalating grants:
+ * `read` < `edit` < `delete`. Humans bypass the grant table.
  */
 export const resourcesRouter = Router({ mergeParams: true });
 resourcesRouter.use(requireAuth);
 resourcesRouter.use(requireCompanyMember);
 
-const ACCESS_LEVELS: [NoteAccessLevel, ...NoteAccessLevel[]] = ["read", "write"];
+const ACCESS_LEVELS: [ResourceAccessLevel, ...ResourceAccessLevel[]] = [
+  "read",
+  "edit",
+  "delete",
+];
 
 type AuthorRef =
   | { kind: "human"; id: string; name: string; email: string | null }

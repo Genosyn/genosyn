@@ -38,10 +38,10 @@ import {
   api,
   Company,
   Resource,
+  ResourceAccessLevel,
   ResourceGrant,
   ResourceGrantCandidate,
   ResourceGrantsResponse,
-  NoteAccessLevel,
 } from "../lib/api";
 import { SourceKindIcon, formatBodyLength } from "./ResourcesIndex";
 
@@ -871,7 +871,7 @@ function ShareModal({
     reload();
   }, [reload]);
 
-  async function add(employeeId: string, accessLevel: NoteAccessLevel) {
+  async function add(employeeId: string, accessLevel: ResourceAccessLevel) {
     setBusy(true);
     try {
       await api.post<ResourceGrant>(
@@ -887,7 +887,7 @@ function ShareModal({
     }
   }
 
-  async function changeLevel(grant: ResourceGrant, next: NoteAccessLevel) {
+  async function changeLevel(grant: ResourceGrant, next: ResourceAccessLevel) {
     if (grant.accessLevel === next) return;
     setBusy(true);
     try {
@@ -925,9 +925,11 @@ function ShareModal({
     <Modal open={open} onClose={onClose} title="Share with AI employees" size="lg">
       <div className="flex flex-col gap-5">
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Every AI employee gets read access on ingest. Flip an employee to{" "}
-          <span className="font-medium">Can edit</span> to let it modify this
-          resource through its MCP tools, or revoke access entirely.
+          Pick what each AI employee can do with this resource through its
+          MCP tools — <span className="font-medium">View only</span> reads
+          it, <span className="font-medium">Can edit</span> also modifies
+          it, <span className="font-medium">Can delete</span> can also
+          remove it. Authors keep full control of the rows they create.
         </p>
         <div>
           <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
@@ -1014,10 +1016,18 @@ function ShareModal({
                     </Button>
                     <Button
                       size="sm"
-                      onClick={() => add(c.id, "write")}
+                      variant="secondary"
+                      onClick={() => add(c.id, "edit")}
                       disabled={busy}
                     >
                       <Plus size={12} /> Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => add(c.id, "delete")}
+                      disabled={busy}
+                    >
+                      <Plus size={12} /> Delete
                     </Button>
                   </div>
                 </li>
@@ -1035,12 +1045,37 @@ function AccessLevelMenu({
   busy,
   onChange,
 }: {
-  level: NoteAccessLevel;
+  level: ResourceAccessLevel;
   busy: boolean;
-  onChange: (next: NoteAccessLevel) => void;
+  onChange: (next: ResourceAccessLevel) => void;
 }) {
   const [open, setOpen] = React.useState(false);
-  const label = level === "write" ? "Can edit" : "View only";
+  const options: {
+    value: ResourceAccessLevel;
+    label: string;
+    hint: string;
+    icon: React.ReactNode;
+  }[] = [
+    {
+      value: "read",
+      label: "View only",
+      hint: "Can list, search, and read",
+      icon: <Eye size={14} />,
+    },
+    {
+      value: "edit",
+      label: "Can edit",
+      hint: "Also modifies title, body, tags",
+      icon: <Pencil size={14} />,
+    },
+    {
+      value: "delete",
+      label: "Can delete",
+      hint: "Also removes the resource",
+      icon: <Trash2 size={14} />,
+    },
+  ];
+  const current = options.find((o) => o.value === level) ?? options[0];
   return (
     <div className="relative">
       <button
@@ -1049,45 +1084,40 @@ function AccessLevelMenu({
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:border-indigo-300 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-indigo-700"
       >
-        {label}
+        {current.label}
         <ChevronDown size={12} className="text-slate-400" />
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-lg border border-slate-200 bg-white py-1 text-sm shadow-lg dark:border-slate-700 dark:bg-slate-900">
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                onChange("write");
-              }}
-              className={
-                "flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800 " +
-                (level === "write"
-                  ? "text-indigo-600 dark:text-indigo-300"
-                  : "text-slate-700 dark:text-slate-200")
-              }
-            >
-              <Pencil size={14} /> Can edit
-              {level === "write" && <Check size={12} className="ml-auto" />}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                onChange("read");
-              }}
-              className={
-                "flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800 " +
-                (level === "read"
-                  ? "text-indigo-600 dark:text-indigo-300"
-                  : "text-slate-700 dark:text-slate-200")
-              }
-            >
-              <Eye size={14} /> View only
-              {level === "read" && <Check size={12} className="ml-auto" />}
-            </button>
+          <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-lg border border-slate-200 bg-white py-1 text-sm shadow-lg dark:border-slate-700 dark:bg-slate-900">
+            {options.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  onChange(o.value);
+                }}
+                className={
+                  "flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800 " +
+                  (level === o.value
+                    ? "text-indigo-600 dark:text-indigo-300"
+                    : "text-slate-700 dark:text-slate-200")
+                }
+              >
+                <span className="mt-0.5">{o.icon}</span>
+                <span className="flex-1">
+                  <span className="block">{o.label}</span>
+                  <span className="block text-[11px] text-slate-500 dark:text-slate-400">
+                    {o.hint}
+                  </span>
+                </span>
+                {level === o.value && (
+                  <Check size={12} className="mt-1 shrink-0" />
+                )}
+              </button>
+            ))}
           </div>
         </>
       )}

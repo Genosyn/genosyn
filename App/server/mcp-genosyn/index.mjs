@@ -1068,7 +1068,7 @@ const TOOLS = [
   {
     name: "create_resource",
     description:
-      "Add a new Resource that the team can study. Use this to capture an external URL the team should index, or to paste in a long-form note that's better filed as a Resource than a Note (e.g. a transcript, a primer, a research summary). Pass `sourceKind: 'url'` with `url` to fetch + extract a page; pass `sourceKind: 'text'` with `title` and `body` (markdown) to file a paste. The author gets `write` access automatically; teammates start at `read`. URL fetches that fail still create the row with `status: 'failed'` so a human can fix it. PDF/EPUB uploads are humans-only — use the React UI for those.",
+      "Add a new Resource that the team can study. Use this to capture an external URL the team should index, or to paste in a long-form note that's better filed as a Resource than a Note (e.g. a transcript, a primer, a research summary). Pass `sourceKind: 'url'` with `url` to fetch + extract a page; pass `sourceKind: 'text'` with `title` and `body` (markdown) to file a paste. The author gets `delete` access automatically (full control); teammates start at `read`. URL fetches that fail still create the row with `status: 'failed'` so a human can fix it. PDF/EPUB uploads are humans-only — use the React UI for those.",
     endpoint: "/tools/create_resource",
     inputSchema: {
       type: "object",
@@ -1109,7 +1109,7 @@ const TOOLS = [
   {
     name: "update_resource",
     description:
-      "Update an existing Resource's title, summary, tags, or markdown body. The body can only be edited on `text`-kind resources — for PDFs/EPUBs/URLs the body is the extracted preview that has to match the original source. Requires `write` access (granted automatically to the creator; teammates need a human to grant it via the share modal).",
+      "Update an existing Resource's title, summary, tags, or markdown body. The body can only be edited on `text`-kind resources — for PDFs/EPUBs/URLs the body is the extracted preview that has to match the original source. Requires at least `edit` access; rows you created via `create_resource` already have it. For other rows, ask a human to promote you in the share modal — they pick between View only, Can edit, and Can delete.",
     endpoint: "/tools/update_resource",
     inputSchema: {
       type: "object",
@@ -1131,7 +1131,7 @@ const TOOLS = [
   {
     name: "delete_resource",
     description:
-      "Permanently delete a Resource (and any uploaded bytes on disk). Requires `write` access. Use sparingly — there is no undo. Prefer `update_resource` to fix a mistake when possible.",
+      "Permanently delete a Resource (and any uploaded bytes on disk). Requires `delete` access — strictly more than `edit`. Rows you created via `create_resource` already have it; for other rows, ask a human to promote you. There is no undo, so prefer `update_resource` to correct a mistake when possible.",
     endpoint: "/tools/delete_resource",
     inputSchema: {
       type: "object",

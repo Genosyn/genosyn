@@ -350,8 +350,10 @@ not write**, ingested once, queried on demand via the MCP surface.
       summary, bodyText (extracted plain text, capped at 1 MiB),
       tags (comma-joined string), bytes, status
       (`pending` | `ready` | `failed`), errorMessage, author bookkeeping.
-- [x] `EmployeeResourceGrant` entity — employee → resource, with the
-      same `read` / `write` access levels as Notes.
+- [x] `EmployeeResourceGrant` entity — employee → resource, with three
+      escalating capabilities `read` < `edit` < `delete` (richer than
+      notes' `read` / `write` because the team often wants employees
+      that can keep a page tidy without authority to remove it).
 - [x] Ingestion service `services/resources.ts`:
       * URL → `fetch` + minimal HTML→text (no jsdom/readability dep)
       * Plain text / `.txt` / `.md` / `.html` upload → store + index
@@ -365,11 +367,13 @@ not write**, ingested once, queried on demand via the MCP surface.
       The `/file` endpoint serves inline by default (so PDFs render in a
       browser viewer and the EPUB reader can fetch the bytes); pass
       `?disposition=attachment` to force a download.
-- [x] MCP tools — read: `list_resources`, `search_resources`,
-      `get_resource`; write (gated by a `write` grant): `create_resource`
-      (text or URL — file uploads stay humans-only), `update_resource`,
-      `delete_resource`. Authors get `write` on the rows they create;
-      teammates start at `read` and humans toggle from the share modal.
+- [x] MCP tools — read (any grant): `list_resources`,
+      `search_resources`, `get_resource`. `create_resource` (text or URL
+      — file uploads stay humans-only) is open to everyone and grants the
+      author `delete` on the row. `update_resource` requires `edit` or
+      higher; `delete_resource` requires `delete`. Teammates start at
+      `read` on rows they didn't author and humans promote them from the
+      share modal.
 - [x] React UI under `/c/<co>/resources`: Notion-style centered layout
       with quick-add tiles (URL / Paste / Upload), search-as-you-type,
       compact list view, share modal. Detail page is type-aware —

@@ -1243,11 +1243,19 @@ export type ResourceGrantEmployee = {
   avatarKey: string | null;
 };
 
+/**
+ * Resources have three escalating capabilities (vs. notes which only have
+ * read | write): read → edit → delete. The MCP tools check
+ * `RESOURCE_ACCESS_RANK[grant] >= RESOURCE_ACCESS_RANK[required]`, so an
+ * `edit` grant covers `update_resource` but not `delete_resource`.
+ */
+export type ResourceAccessLevel = "read" | "edit" | "delete";
+
 export type ResourceGrant = {
   id: string;
   employeeId: string;
   resourceId: string;
-  accessLevel: NoteAccessLevel;
+  accessLevel: ResourceAccessLevel;
   createdAt: string;
   employee: ResourceGrantEmployee | null;
 };

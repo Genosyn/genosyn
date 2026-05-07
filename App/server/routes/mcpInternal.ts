@@ -3649,11 +3649,11 @@ mcpInternalRouter.post(
     });
     await repo.save(row);
 
-    // The author always gets `write` so it can keep curating its own page
-    // without a human round-trip; teammates start at `read` per the M18
-    // default — write access for them stays a deliberate human decision in
-    // the share modal.
-    await upsertResourceGrant(self.id, row.id, "write");
+    // The author always gets `delete` (full control) so it can keep
+    // curating its own page without a human round-trip — including
+    // removing it if asked. Teammates start at `read`; humans promote
+    // them to `edit` or `delete` from the share modal as needed.
+    await upsertResourceGrant(self.id, row.id, "delete");
     const teammates = await AppDataSource.getRepository(AIEmployee).find({
       where: { companyId: co.id },
       select: ["id"],
@@ -3705,10 +3705,10 @@ mcpInternalRouter.post(
       slug: body.resourceSlug,
     });
     if (!row) return res.status(404).json({ error: "Resource not found" });
-    if (!(await hasResourceAccess(self.id, row.id, "write"))) {
+    if (!(await hasResourceAccess(self.id, row.id, "edit"))) {
       return res
         .status(403)
-        .json({ error: "No write access on that resource" });
+        .json({ error: "No edit permission on that resource" });
     }
 
     if (body.title !== undefined) row.title = body.title;
@@ -3770,10 +3770,10 @@ mcpInternalRouter.post(
       slug: body.resourceSlug,
     });
     if (!row) return res.status(404).json({ error: "Resource not found" });
-    if (!(await hasResourceAccess(self.id, row.id, "write"))) {
+    if (!(await hasResourceAccess(self.id, row.id, "delete"))) {
       return res
         .status(403)
-        .json({ error: "No write access on that resource" });
+        .json({ error: "No delete permission on that resource" });
     }
 
     await deleteGrantsForResource(row.id);
