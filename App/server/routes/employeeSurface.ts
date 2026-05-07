@@ -518,10 +518,17 @@ employeeSurfaceRouter.post(
         }),
       );
 
+      // Bind any files the AI uploaded mid-turn (via the
+      // `send_chat_attachment` MCP tool) to the assistant message so the
+      // human sees them as download chips on the reply bubble.
+      const replyAttachments = result.attachmentIds.length
+        ? await bindAttachmentsToMessage(result.attachmentIds, assistantMsg.id, cid)
+        : [];
+
       conv.updatedAt = new Date();
       await convRepo.save(conv);
 
-      writeEvent("assistant", serializeMessage(assistantMsg));
+      writeEvent("assistant", serializeMessage(assistantMsg, replyAttachments));
       writeEvent("conversation", serializeConversation(conv, conv.updatedAt));
       writeEvent("done", {});
       res.end();

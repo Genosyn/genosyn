@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { Router, Request, Response, NextFunction } from "express";
 import cron from "node-cron";
 import { z } from "zod";
@@ -15,7 +16,14 @@ import { toSlug } from "../lib/slug.js";
 import { routineTemplate, skillTemplate } from "../services/files.js";
 import { registerRoutine } from "../services/cron.js";
 import { recordAudit } from "../services/audit.js";
-import { resolveMcpToken } from "../services/mcpTokens.js";
+import {
+  resolveMcpToken,
+  stageAttachmentForToken,
+} from "../services/mcpTokens.js";
+import { recordAttachmentBytes } from "../services/uploads.js";
+import { resolveAttachmentFile } from "../services/uploads.js";
+import { Attachment } from "../db/entities/Attachment.js";
+import { PDFDocument, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup } from "pdf-lib";
 import { Approval } from "../db/entities/Approval.js";
 import { createBrowserActionApproval } from "../services/approvals.js";
 import { createNotification } from "../services/notifications.js";
@@ -103,6 +111,9 @@ export const mcpInternalRouter = Router();
 type McpRequest = Request & {
   mcpEmployee?: AIEmployee;
   mcpCompany?: Company;
+  /** Raw bearer token — stashed so route handlers can stage per-token
+   * state (e.g. chat-attachment uploads) without re-parsing the header. */
+  mcpToken?: string;
 };
 
 async function requireMcpToken(req: McpRequest, res: Response, next: NextFunction) {
@@ -121,6 +132,7 @@ async function requireMcpToken(req: McpRequest, res: Response, next: NextFunctio
   }
   req.mcpEmployee = emp;
   req.mcpCompany = co;
+  req.mcpToken = token;
   next();
 }
 
@@ -3647,5 +3659,269 @@ mcpInternalRouter.get(
       return res.status(403).json({ error: "Approval belongs to another employee" });
     }
     res.json({ status: approval.status });
+  },
+);
+
+// ───────────────────── Chat attachments + PDF tools ─────────────────────
+
+/** Cap for AI-driven chat uploads; mirrors the human-side ATTACHMENTS_MAX_BYTES. */
+const CHAT_ATTACHMENT_AI_MAX_BYTES = 10 * 1024 * 1024;
+
+const sendChatAttachmentSchema = z
+  .object({
+    filename: z.string().min(1).max(200),
+    mimeType: z.string().max(120).optional(),
+    contentBase64: z.string().optional(),
+    contentText: z.string().optional(),
+  })
+  .strict()
+  .refine(
+    (b) => (b.contentText !== undefined) !== (b.contentBase64 !== undefined),
+    "Provide exactly one of contentText or contentBase64",
+  );
+
+/**
+ * Upload a file the AI just generated (e.g. a filled PDF) and stage it
+ * for the current chat turn. The chat seam drains the staged ids when
+ * the spawn ends and binds them to the assistant message — so the human
+ * sees a download chip on the reply bubble.
+ */
+mcpInternalRouter.post(
+  "/tools/send_chat_attachment",
+  validateBody(sendChatAttachmentSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof sendChatAttachmentSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const token = req.mcpToken!;
+
+    let bytes: Buffer;
+    let mimeType = body.mimeType;
+    if (body.contentText !== undefined) {
+      bytes = Buffer.from(body.contentText, "utf8");
+      if (!mimeType) mimeType = "text/plain; charset=utf-8";
+    } else {
+      try {
+        bytes = Buffer.from(body.contentBase64 ?? "", "base64");
+      } catch {
+        return res.status(400).json({ error: "Invalid base64" });
+      }
+      if (!mimeType) mimeType = "application/octet-stream";
+    }
+    if (bytes.length === 0) return res.status(400).json({ error: "Empty file" });
+    if (bytes.length > CHAT_ATTACHMENT_AI_MAX_BYTES) {
+      return res.status(413).json({
+        error: `Attachment exceeds the ${CHAT_ATTACHMENT_AI_MAX_BYTES / (1024 * 1024)} MB AI upload cap`,
+      });
+    }
+
+    const row = await recordAttachmentBytes({
+      companyId: co.id,
+      companySlug: co.slug,
+      filename: body.filename,
+      mimeType,
+      bytes,
+      uploadedByUserId: null,
+    });
+    stageAttachmentForToken(token, row.id);
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "chat_attachment.create",
+      targetType: "attachment",
+      targetId: row.id,
+      targetLabel: row.filename,
+      metadata: { via: "mcp", filename: row.filename, sizeBytes: Number(row.sizeBytes) },
+    });
+    await journal(
+      self.id,
+      `${self.name} attached "${body.filename}" to a chat reply`,
+      `Mime: ${mimeType}, ${bytes.length} bytes.`,
+    );
+    res.json({
+      attachment: {
+        id: row.id,
+        filename: row.filename,
+        mimeType: row.mimeType,
+        sizeBytes: Number(row.sizeBytes),
+      },
+    });
+  },
+);
+
+const pdfFieldsSchema = z.object({ attachmentId: z.string().uuid() }).strict();
+
+async function loadAttachmentPdf(
+  attachmentId: string,
+  companyId: string,
+): Promise<{ row: Attachment; doc: PDFDocument } | { error: string; status: number }> {
+  const resolved = await resolveAttachmentFile(attachmentId, companyId);
+  if (!resolved) return { error: "Attachment not found", status: 404 };
+  const ext = resolved.row.filename.toLowerCase().endsWith(".pdf");
+  const isPdfMime = resolved.row.mimeType === "application/pdf";
+  if (!ext && !isPdfMime) {
+    return { error: "Attachment is not a PDF", status: 400 };
+  }
+  const buf = await fs.promises.readFile(resolved.absPath);
+  try {
+    const doc = await PDFDocument.load(buf, { ignoreEncryption: true });
+    return { row: resolved.row, doc };
+  } catch (err) {
+    return {
+      error: `Could not parse PDF: ${err instanceof Error ? err.message : String(err)}`,
+      status: 400,
+    };
+  }
+}
+
+function describePdfFieldType(field: unknown): string {
+  if (field instanceof PDFTextField) return "text";
+  if (field instanceof PDFCheckBox) return "checkbox";
+  if (field instanceof PDFRadioGroup) return "radio";
+  if (field instanceof PDFDropdown) return "dropdown";
+  return "unknown";
+}
+
+/**
+ * List the form fields in a PDF attachment so the AI knows what to fill.
+ * Returns each field's name, type, and current value (if any). For radio
+ * groups and dropdowns, also returns the option set.
+ */
+mcpInternalRouter.post(
+  "/tools/read_pdf_fields",
+  validateBody(pdfFieldsSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof pdfFieldsSchema>;
+    const co = req.mcpCompany!;
+    const loaded = await loadAttachmentPdf(body.attachmentId, co.id);
+    if ("error" in loaded) {
+      return res.status(loaded.status).json({ error: loaded.error });
+    }
+    const form = loaded.doc.getForm();
+    const fields = form.getFields().map((f) => {
+      const name = f.getName();
+      const type = describePdfFieldType(f);
+      const out: Record<string, unknown> = { name, type };
+      if (f instanceof PDFTextField) {
+        out.value = f.getText() ?? "";
+      } else if (f instanceof PDFCheckBox) {
+        out.value = f.isChecked();
+      } else if (f instanceof PDFDropdown) {
+        out.value = f.getSelected();
+        out.options = f.getOptions();
+      } else if (f instanceof PDFRadioGroup) {
+        out.value = f.getSelected() ?? "";
+        out.options = f.getOptions();
+      }
+      return out;
+    });
+    res.json({ filename: loaded.row.filename, fields });
+  },
+);
+
+const fillPdfSchema = z
+  .object({
+    attachmentId: z.string().uuid(),
+    /** Map of field name → value. Strings for text fields, booleans for
+     * checkboxes, the option string for dropdowns/radio groups. */
+    fields: z.record(z.union([z.string(), z.boolean()])),
+    /** Filename for the produced PDF; defaults to the source's name with a
+     * `-filled` suffix. */
+    outputFilename: z.string().min(1).max(200).optional(),
+    /** When true (default) the form is flattened so the values are baked
+     * in and the PDF can't be edited further. */
+    flatten: z.boolean().optional(),
+  })
+  .strict();
+
+/**
+ * Fill an existing PDF form with the supplied values and stage the
+ * resulting file as a chat attachment. The AI gets back the new
+ * attachment's metadata; the chat seam binds it to the reply bubble.
+ */
+mcpInternalRouter.post(
+  "/tools/fill_pdf_form",
+  validateBody(fillPdfSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof fillPdfSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const token = req.mcpToken!;
+    const loaded = await loadAttachmentPdf(body.attachmentId, co.id);
+    if ("error" in loaded) {
+      return res.status(loaded.status).json({ error: loaded.error });
+    }
+    const form = loaded.doc.getForm();
+    const fieldByName = new Map(form.getFields().map((f) => [f.getName(), f]));
+
+    const unknownFields: string[] = [];
+    for (const [name, value] of Object.entries(body.fields)) {
+      const field = fieldByName.get(name);
+      if (!field) {
+        unknownFields.push(name);
+        continue;
+      }
+      if (field instanceof PDFTextField) {
+        field.setText(typeof value === "boolean" ? String(value) : value);
+      } else if (field instanceof PDFCheckBox) {
+        const truthy =
+          value === true ||
+          (typeof value === "string" && /^(true|yes|on|x|checked)$/i.test(value));
+        if (truthy) field.check();
+        else field.uncheck();
+      } else if (field instanceof PDFDropdown) {
+        if (typeof value === "string") field.select(value);
+      } else if (field instanceof PDFRadioGroup) {
+        if (typeof value === "string") field.select(value);
+      }
+    }
+
+    if (unknownFields.length > 0) {
+      return res.status(400).json({
+        error: `PDF has no field named: ${unknownFields.join(", ")}. Run read_pdf_fields first to list them.`,
+      });
+    }
+
+    if (body.flatten !== false) form.flatten();
+    const out = await loaded.doc.save();
+    const outputName =
+      body.outputFilename ||
+      loaded.row.filename.replace(/\.pdf$/i, "") + "-filled.pdf";
+
+    const row = await recordAttachmentBytes({
+      companyId: co.id,
+      companySlug: co.slug,
+      filename: outputName,
+      mimeType: "application/pdf",
+      bytes: Buffer.from(out),
+      uploadedByUserId: null,
+    });
+    stageAttachmentForToken(token, row.id);
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "pdf.fill",
+      targetType: "attachment",
+      targetId: row.id,
+      targetLabel: outputName,
+      metadata: {
+        via: "mcp",
+        sourceAttachmentId: body.attachmentId,
+        filledFields: Object.keys(body.fields).length,
+      },
+    });
+    await journal(
+      self.id,
+      `${self.name} filled PDF "${loaded.row.filename}" → "${outputName}"`,
+      `Filled ${Object.keys(body.fields).length} field(s).`,
+    );
+    res.json({
+      attachment: {
+        id: row.id,
+        filename: row.filename,
+        mimeType: row.mimeType,
+        sizeBytes: Number(row.sizeBytes),
+      },
+    });
   },
 );

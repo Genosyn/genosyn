@@ -98,6 +98,50 @@ export async function recordAttachment(params: {
 }
 
 /**
+ * Sibling of {@link recordAttachment} for callers that already hold the
+ * file bytes in memory (e.g. an AI employee uploading via MCP, where the
+ * provider CLI doesn't speak multer). Writes the bytes to disk under the
+ * company's attachments dir and persists the row. `uploadedByUserId` is
+ * null when the uploader is an AI employee — the row's authorship is
+ * recorded separately via the journal/audit log.
+ */
+export async function recordAttachmentBytes(params: {
+  companyId: string;
+  companySlug: string;
+  filename: string;
+  mimeType: string;
+  bytes: Buffer;
+  uploadedByUserId?: string | null;
+}): Promise<Attachment> {
+  if (params.bytes.length === 0) {
+    throw new Error("Cannot record an empty attachment");
+  }
+  if (params.bytes.length > ATTACHMENTS_MAX_BYTES) {
+    throw new Error(
+      `Attachment exceeds the ${ATTACHMENTS_MAX_BYTES / (1024 * 1024)} MB cap`,
+    );
+  }
+  const ext = safeExt(params.filename);
+  const storageKey = `${crypto.randomUUID()}${ext}`;
+  const root = attachmentsRoot(params.companySlug);
+  const abs = path.join(root, storageKey);
+  await fs.promises.writeFile(abs, params.bytes);
+
+  const repo = AppDataSource.getRepository(Attachment);
+  const attachment = repo.create({
+    companyId: params.companyId,
+    messageId: null,
+    filename: params.filename,
+    mimeType: params.mimeType || "application/octet-stream",
+    sizeBytes: params.bytes.length,
+    storageKey,
+    uploadedByUserId: params.uploadedByUserId ?? null,
+  });
+  await repo.save(attachment);
+  return attachment;
+}
+
+/**
  * Resolve an attachment id → absolute path on disk. Guards against path
  * traversal by re-joining from the company's attachment root so an attacker
  * can't smuggle `..` through `storageKey`. Returns null if the file is

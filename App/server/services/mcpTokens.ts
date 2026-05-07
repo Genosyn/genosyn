@@ -26,6 +26,17 @@ const TTL_MS = 60 * 60 * 1000; // 1h covers the longest routine timeoutSec cap
 const tokens = new Map<string, McpTokenInfo>();
 
 /**
+ * Per-token staging area for attachment ids the AI uploaded during this
+ * turn via the `send_chat_attachment` MCP tool. The chat seam drains this
+ * before revoking the token and the caller (employee/workspace chat)
+ * binds the ids to the assistant message after persisting.
+ *
+ * Kept separate from the McpTokenInfo struct so callers that don't care
+ * about attachments don't have to plumb empty arrays around.
+ */
+const stagedAttachments = new Map<string, string[]>();
+
+/**
  * Mint a fresh token for an employee + company. 32 random bytes gives ~128
  * bits of entropy — plenty for a token that lives in memory and expires on
  * the hour.
@@ -40,6 +51,21 @@ export function issueMcpToken(employeeId: string, companyId: string): string {
     expiresAt: Date.now() + TTL_MS,
   });
   return token;
+}
+
+export function stageAttachmentForToken(
+  token: string,
+  attachmentId: string,
+): void {
+  const list = stagedAttachments.get(token) ?? [];
+  list.push(attachmentId);
+  stagedAttachments.set(token, list);
+}
+
+export function drainAttachmentsForToken(token: string): string[] {
+  const list = stagedAttachments.get(token);
+  stagedAttachments.delete(token);
+  return list ?? [];
 }
 
 /**
@@ -63,11 +89,15 @@ export function resolveMcpToken(token: string): McpTokenInfo | null {
  */
 export function revokeMcpToken(token: string): void {
   tokens.delete(token);
+  stagedAttachments.delete(token);
 }
 
 function sweep(): void {
   const now = Date.now();
   for (const [k, v] of tokens) {
-    if (v.expiresAt < now) tokens.delete(k);
+    if (v.expiresAt < now) {
+      tokens.delete(k);
+      stagedAttachments.delete(k);
+    }
   }
 }

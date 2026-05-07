@@ -8,7 +8,11 @@ import { employeeDir, employeeOpenclawDir, ensureDir, openclawConfigPath } from 
 import { PROVIDERS, isSubscriptionConnected, splitGooseModel } from "./providers.js";
 import { decryptSecret } from "../lib/secret.js";
 import { materializeMcpConfig } from "./mcp.js";
-import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
+import {
+  drainAttachmentsForToken,
+  issueMcpToken,
+  revokeMcpToken,
+} from "./mcpTokens.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
 import { materializeReposForEmployee } from "./repoSync.js";
@@ -35,10 +39,17 @@ import { materializeReposForEmployee } from "./repoSync.js";
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
+/**
+ * `attachmentIds` carries any files the AI uploaded mid-turn via the
+ * `send_chat_attachment` MCP tool. Empty for ordinary text replies. The
+ * caller is responsible for binding these to the persisted assistant
+ * message — the chat seam itself doesn't know which channel/conversation
+ * row the reply lives on.
+ */
 export type ChatResult =
-  | { status: "ok"; reply: string }
-  | { status: "skipped"; reply: string }
-  | { status: "error"; reply: string };
+  | { status: "ok"; reply: string; attachmentIds: string[] }
+  | { status: "skipped"; reply: string; attachmentIds: string[] }
+  | { status: "error"; reply: string; attachmentIds: string[] };
 
 /** Non-streaming wrapper. Equivalent to the old `chatWithEmployee`. */
 export async function chatWithEmployee(
@@ -82,9 +93,9 @@ export async function streamChatWithEmployee(
   const skillRepo = AppDataSource.getRepository(Skill);
 
   const emp = await empRepo.findOneBy({ id: employeeId, companyId });
-  if (!emp) return { status: "error", reply: "Employee not found." };
+  if (!emp) return { status: "error", reply: "Employee not found.", attachmentIds: [] };
   const co = await coRepo.findOneBy({ id: companyId });
-  if (!co) return { status: "error", reply: "Company not found." };
+  if (!co) return { status: "error", reply: "Company not found.", attachmentIds: [] };
   const model = await modelRepo.findOneBy({ employeeId: emp.id });
   const skills = await skillRepo.find({ where: { employeeId: emp.id } });
 
@@ -92,13 +103,16 @@ export async function streamChatWithEmployee(
     return {
       status: "skipped",
       reply: `${emp.name} has no AI Model connected. Open Settings on this employee to connect one.`,
+      attachmentIds: [],
     };
   }
 
   const memoryContext = await composeMemoryContext(emp.id);
   const prompt = composeChatPrompt({ co, emp, skills, history, message, memoryContext });
   const envResult = buildProviderEnv(co.slug, emp.slug, model);
-  if (envResult.error !== undefined) return { status: "error", reply: envResult.error };
+  if (envResult.error !== undefined) {
+    return { status: "error", reply: envResult.error, attachmentIds: [] };
+  }
   const childEnv = envResult.env;
   try {
     const secrets = await loadCompanySecretsEnv(co.id);
@@ -147,16 +161,19 @@ export async function streamChatWithEmployee(
       onChunk,
       parser: invocation.parser,
     });
-    return { status: "ok", reply: stdout.trim() || "(no reply)" };
+    const attachmentIds = drainAttachmentsForToken(mcpToken);
+    return { status: "ok", reply: stdout.trim() || "(no reply)", attachmentIds };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    const attachmentIds = drainAttachmentsForToken(mcpToken);
     if (msg.includes("ENOENT")) {
       return {
         status: "skipped",
         reply: `\`${invocation.cmd}\` CLI is not installed on this server. Install it to chat with ${emp.name}.`,
+        attachmentIds,
       };
     }
-    return { status: "error", reply: msg };
+    return { status: "error", reply: msg, attachmentIds };
   } finally {
     revokeMcpToken(mcpToken);
   }
@@ -212,6 +229,8 @@ function toolsBriefing(): string {
     "- `add_journal_entry` to log decisions or observations on your own diary (the last ~7 days of your journal are auto-injected into every prompt you receive)",
     "- `add_memory`, `update_memory`, `delete_memory` to curate durable facts that are auto-injected into every prompt — preferences, conventions, stable teammate context",
     "- Bases (Airtable-style data, only the ones a teammate granted you): `list_bases`, `get_base`, `list_base_rows`, `create_base_row`, `update_base_row`, `delete_base_row`",
+    "- Chat attachments: `send_chat_attachment` to send a generated file (PDF, CSV, markdown, …) back to the human as a download chip on your reply. Use it instead of pasting long deliverables into the reply text.",
+    "- PDF forms: `read_pdf_fields` lists the form fields in a PDF the human attached; `fill_pdf_form` fills those fields and sends the result back as a chat attachment. Use when a teammate uploads a PDF form and asks you to fill it.",
     "- Workspace chat admin: `list_workspace_channels`, `create_workspace_channel`, `rename_workspace_channel`, `archive_workspace_channel`. Use these when a teammate asks to spin up or tidy a channel.",
     "- Read-only helpers: `get_self`, `list_employees`, `list_routines`, `list_projects`, `list_todos`, `list_skills`, `list_journal`, `list_memory`",
     "",

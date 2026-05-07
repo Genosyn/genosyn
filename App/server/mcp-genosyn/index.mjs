@@ -1213,6 +1213,91 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: "send_chat_attachment",
+    description:
+      "Send a file to the human as part of your current chat reply. Provide either `contentText` (for text/markdown/CSV/JSON) OR `contentBase64` (for binary blobs like PDFs or images). Caps at 10 MB per upload. The file shows up as a download chip on your reply bubble; the human can click to download it. Use this whenever you generated a deliverable the human asked for — a filled PDF, a CSV report, a written document — instead of pasting it as a wall of text into your reply.",
+    endpoint: "/tools/send_chat_attachment",
+    inputSchema: {
+      type: "object",
+      properties: {
+        filename: {
+          type: "string",
+          description: "Filename including extension, e.g. 'invoice-filled.pdf'.",
+        },
+        mimeType: {
+          type: "string",
+          description:
+            "Optional. Defaults to text/plain for contentText, application/octet-stream for contentBase64. Use 'application/pdf' for PDFs.",
+        },
+        contentText: {
+          type: "string",
+          description:
+            "UTF-8 text content. Use for plain text, markdown, CSV, JSON, etc.",
+        },
+        contentBase64: {
+          type: "string",
+          description:
+            "Base64-encoded bytes. Use for PDFs and other binary files.",
+        },
+      },
+      required: ["filename"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "read_pdf_fields",
+    description:
+      "List the form fields in a PDF the human attached to chat. Returns each field's name, type (text/checkbox/radio/dropdown), current value, and (for dropdowns/radio groups) the option set. Use this BEFORE `fill_pdf_form` so you know what fields exist and what values they expect — e.g. don't guess at field names like 'Company Name' when the actual field is named 'CompanyName' or 'company_name'.",
+    endpoint: "/tools/read_pdf_fields",
+    inputSchema: {
+      type: "object",
+      properties: {
+        attachmentId: {
+          type: "string",
+          description:
+            "Id of a chat attachment the human uploaded. PDFs only.",
+        },
+      },
+      required: ["attachmentId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "fill_pdf_form",
+    description:
+      "Fill an existing PDF form's fields and send the result back to the human as a chat attachment. `fields` is a {fieldName: value} map — strings for text fields, booleans for checkboxes, the option string for dropdowns/radio groups. Run `read_pdf_fields` first to confirm the field names. By default the form is flattened so values are baked in; pass `flatten: false` if the human still needs to edit it.",
+    endpoint: "/tools/fill_pdf_form",
+    inputSchema: {
+      type: "object",
+      properties: {
+        attachmentId: {
+          type: "string",
+          description: "Id of the source PDF attachment the human uploaded.",
+        },
+        fields: {
+          type: "object",
+          additionalProperties: {
+            type: ["string", "boolean"],
+          },
+          description:
+            "Map of field name to value. Use the names from read_pdf_fields verbatim.",
+        },
+        outputFilename: {
+          type: "string",
+          description:
+            "Filename for the produced PDF. Defaults to the source's name with a '-filled' suffix.",
+        },
+        flatten: {
+          type: "boolean",
+          description:
+            "When true (default) values are baked in and the form can't be edited further. Set to false to leave fields editable.",
+        },
+      },
+      required: ["attachmentId", "fields"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 const TOOL_BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));

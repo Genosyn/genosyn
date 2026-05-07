@@ -1017,6 +1017,13 @@ async function handleMentions(args: {
         deletedAt: null,
       }),
     );
+    if (result.attachmentIds.length > 0) {
+      await bindAttachmentsToMessage(
+        result.attachmentIds,
+        reply.id,
+        args.channel.companyId,
+      );
+    }
     await channels.update({ id: args.channel.id }, { lastMessageAt: reply.createdAt });
     const viewerUserId =
       args.trigger.kind === "user" ? args.trigger.userId : null;
