@@ -21,6 +21,10 @@ import { streamChatWithEmployee, ChatTurn } from "./chat.js";
 import { Company } from "../db/entities/Company.js";
 import { createNotifications } from "./notifications.js";
 import { ensureUserHandles } from "./userHandle.js";
+import {
+  historicalAttachmentSummaries,
+  inlineAttachmentsForMessage,
+} from "./attachmentText.js";
 
 /**
  * The workspace-chat service: channels, DMs, messages, reactions.
@@ -960,12 +964,21 @@ async function handleMentions(args: {
       recentRows,
       emp.id,
       args.channel.id,
+      args.message.id,
     );
     const triggerLabel =
       args.trigger.kind === "user"
         ? await userLabelFor(args.trigger.userId)
         : await employeeLabelFor(args.trigger.employeeId);
-    const framed = framedMention(args.message.content, triggerLabel);
+    const triggerAttachments = await inlineAttachmentsForMessage(
+      args.message.id,
+      args.channel.companyId,
+    );
+    const framed = framedMention(
+      args.message.content,
+      triggerLabel,
+      triggerAttachments,
+    );
 
     // Broadcast typing every 3 s while the CLI is thinking so teammates
     // see a "{name} is typing..." pill instead of silence. The interval
@@ -1020,6 +1033,7 @@ async function historyForEmployee(
   rows: ChannelMessage[],
   employeeId: string,
   channelId: string,
+  triggerMessageId: string,
 ): Promise<ChatTurn[]> {
   const { users, employees } = repos();
   const turns: ChatTurn[] = [];
@@ -1029,16 +1043,23 @@ async function historyForEmployee(
   const empIds = Array.from(
     new Set(rows.filter((r) => r.authorEmployeeId).map((r) => r.authorEmployeeId!)),
   );
-  const [u, e] = await Promise.all([
+  const [u, e, attachmentSummaries] = await Promise.all([
     userIds.length ? users.findBy({ id: In(userIds) }) : Promise.resolve([]),
     empIds.length ? employees.findBy({ id: In(empIds) }) : Promise.resolve([]),
+    historicalAttachmentSummaries(
+      rows.filter((r) => r.id !== triggerMessageId).map((r) => r.id),
+    ),
   ]);
   const uMap = new Map(u.map((x) => [x.id, x.name || x.email]));
   const eMap = new Map(e.map((x) => [x.id, x.name]));
+  const annotate = (msgId: string, body: string): string => {
+    const note = attachmentSummaries.get(msgId);
+    return note ? `${body}\n[attached: ${note}]` : body;
+  };
   for (const r of rows) {
     if (r.deletedAt) continue;
     if (r.authorKind === "ai" && r.authorEmployeeId === employeeId) {
-      turns.push({ role: "assistant", content: r.content });
+      turns.push({ role: "assistant", content: annotate(r.id, r.content) });
     } else {
       const name =
         r.authorKind === "user" && r.authorUserId
@@ -1046,7 +1067,7 @@ async function historyForEmployee(
           : r.authorKind === "ai" && r.authorEmployeeId
           ? eMap.get(r.authorEmployeeId) ?? "AI teammate"
           : "system";
-      turns.push({ role: "user", content: `${name}: ${r.content}` });
+      turns.push({ role: "user", content: annotate(r.id, `${name}: ${r.content}`) });
     }
   }
   // Drop the very last turn — it's the triggering message, which we pass as
@@ -1169,11 +1190,18 @@ function previewText(body: string): string {
   return oneLine.length > 140 ? `${oneLine.slice(0, 140)}…` : oneLine;
 }
 
-function framedMention(content: string, userLabel: string): string {
+function framedMention(
+  content: string,
+  userLabel: string,
+  attachmentBlock: string,
+): string {
   // Prefix the user name so the AI sees who it's talking to, and strip the
-  // @mention token so the model doesn't echo it back.
+  // @mention token so the model doesn't echo it back. Append any attachment
+  // content the user uploaded with this message — without this, files like
+  // PDFs were posted to the channel but invisible to the AI.
   const cleaned = content.replace(MENTION_RE, (_full, pre: string) => pre);
-  return `${userLabel} (in a group channel): ${cleaned.trim()}`;
+  const head = `${userLabel} (in a group channel): ${cleaned.trim()}`;
+  return attachmentBlock ? `${head}\n\n${attachmentBlock}` : head;
 }
 
 // ──────────────────────── Directory lookups ──────────────────────────────
