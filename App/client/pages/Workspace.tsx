@@ -710,10 +710,16 @@ function ChannelView({
 }) {
   const endRef = React.useRef<HTMLDivElement | null>(null);
   const [showMembers, setShowMembers] = React.useState(false);
+  const [editingMessageId, setEditingMessageId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
   }, [messages?.length, channel.id]);
+
+  // Cancel any in-progress edit when switching channels.
+  React.useEffect(() => {
+    setEditingMessageId(null);
+  }, [channel.id]);
 
   return (
     <>
@@ -760,6 +766,8 @@ function ChannelView({
             meId={me.id}
             mentionables={mentionables}
             onAttachmentUrl={onAttachmentUrl}
+            editingMessageId={editingMessageId}
+            onSetEditing={setEditingMessageId}
             onEdit={async (m, content) => {
               await workspaceApi.editMessage(company.id, m.id, content);
             }}
@@ -781,6 +789,9 @@ function ChannelView({
         channel={channel}
         directory={directory}
         mentionables={mentionables}
+        messages={messages ?? []}
+        meId={me.id}
+        onEditMessage={setEditingMessageId}
       />
 
       <MembersModal
@@ -824,6 +835,8 @@ function MessageList({
   meId,
   mentionables,
   onAttachmentUrl,
+  editingMessageId,
+  onSetEditing,
   onEdit,
   onDelete,
   onReact,
@@ -832,6 +845,8 @@ function MessageList({
   meId: string;
   mentionables: Mentionable[];
   onAttachmentUrl: (id: string) => string;
+  editingMessageId: string | null;
+  onSetEditing: (id: string | null) => void;
   onEdit: (m: WorkspaceMessage, content: string) => Promise<void>;
   onDelete: (m: WorkspaceMessage) => Promise<void>;
   onReact: (m: WorkspaceMessage, emoji: string) => Promise<void>;
@@ -853,6 +868,8 @@ function MessageList({
             meId={meId}
             mentionables={mentionables}
             onAttachmentUrl={onAttachmentUrl}
+            editing={editingMessageId === m.id}
+            onSetEditing={onSetEditing}
             onEdit={onEdit}
             onDelete={onDelete}
             onReact={onReact}
@@ -885,6 +902,8 @@ function MessageRow({
   meId,
   mentionables,
   onAttachmentUrl,
+  editing,
+  onSetEditing,
   onEdit,
   onDelete,
   onReact,
@@ -894,16 +913,28 @@ function MessageRow({
   meId: string;
   mentionables: Mentionable[];
   onAttachmentUrl: (id: string) => string;
+  editing: boolean;
+  onSetEditing: (id: string | null) => void;
   onEdit: (m: WorkspaceMessage, content: string) => Promise<void>;
   onDelete: (m: WorkspaceMessage) => Promise<void>;
   onReact: (m: WorkspaceMessage, emoji: string) => Promise<void>;
 }) {
-  const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(message.content);
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [emojiOpen, setEmojiOpen] = React.useState(false);
+  const rowRef = React.useRef<HTMLDivElement | null>(null);
   const dialog = useDialog();
   const { toast } = useToast();
+
+  // When edit mode is entered (often via ↑ from the composer), refresh the
+  // draft from the latest message content and bring the row into view.
+  React.useEffect(() => {
+    if (editing) {
+      setDraft(message.content);
+      rowRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
 
   const isMine =
     message.author?.kind === "user" && "id" in message.author && message.author.id === meId;
@@ -920,6 +951,7 @@ function MessageRow({
 
   return (
     <div
+      ref={rowRef}
       className={
         "group relative flex gap-3 rounded-md px-2 py-1 " +
         (bundled ? "" : "mt-3 ") +
@@ -961,6 +993,23 @@ function MessageRow({
               className="min-h-[36px] w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-800 outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={async (e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setDraft(message.content);
+                  onSetEditing(null);
+                  return;
+                }
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  try {
+                    await onEdit(message, draft);
+                    onSetEditing(null);
+                  } catch (err) {
+                    toast((err as Error).message, "error");
+                  }
+                }
+              }}
               autoFocus
             />
             <Button
@@ -968,7 +1017,7 @@ function MessageRow({
               onClick={async () => {
                 try {
                   await onEdit(message, draft);
-                  setEditing(false);
+                  onSetEditing(null);
                 } catch (e) {
                   toast((e as Error).message, "error");
                 }
@@ -981,7 +1030,7 @@ function MessageRow({
               variant="ghost"
               onClick={() => {
                 setDraft(message.content);
-                setEditing(false);
+                onSetEditing(null);
               }}
             >
               Cancel
@@ -1064,7 +1113,7 @@ function MessageRow({
               <div className="absolute right-0 top-full z-30 mt-1 w-32 rounded-md border border-slate-200 bg-white py-1 text-sm shadow-lg dark:border-slate-700 dark:bg-slate-900">
                 <button
                   onClick={() => {
-                    setEditing(true);
+                    onSetEditing(message.id);
                     setMenuOpen(false);
                   }}
                   className="block w-full px-3 py-1.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800"
@@ -1306,16 +1355,35 @@ function formatBytes(n: number): string {
 
 // ────────────────────────── Composer ────────────────────────────────────
 
+function findLastOwnMessage(
+  messages: WorkspaceMessage[],
+  meId: string,
+): WorkspaceMessage | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.deletedAt) continue;
+    const a = m.author;
+    if (a && a.kind === "user" && "id" in a && a.id === meId) return m;
+  }
+  return null;
+}
+
 function Composer({
   company,
   channel,
   directory,
   mentionables,
+  messages,
+  meId,
+  onEditMessage,
 }: {
   company: Company;
   channel: WorkspaceChannel;
   directory: WorkspaceDirectory | null;
   mentionables: Mentionable[];
+  messages: WorkspaceMessage[];
+  meId: string;
+  onEditMessage: (id: string) => void;
 }) {
   const [draft, setDraft] = React.useState("");
   const [attachments, setAttachments] = React.useState<WorkspaceAttachment[]>([]);
@@ -1520,6 +1588,24 @@ function Composer({
                 return;
               }
             }
+            // Slack/iMessage convention: ↑ on an empty composer pulls up the
+            // most recent message you sent in this channel for editing.
+            if (
+              e.key === "ArrowUp" &&
+              !e.shiftKey &&
+              !e.metaKey &&
+              !e.ctrlKey &&
+              !e.altKey &&
+              draft === "" &&
+              attachments.length === 0
+            ) {
+              const lastOwn = findLastOwnMessage(messages, meId);
+              if (lastOwn) {
+                e.preventDefault();
+                onEditMessage(lastOwn.id);
+                return;
+              }
+            }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               void handleSend();
@@ -1609,7 +1695,7 @@ function Composer({
         )}
       </div>
       <div className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-        Press <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">Enter</kbd> to send · <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">Shift+Enter</kbd> newline · <span className="font-mono">@</span> for people · <span className="font-mono">#</span> for channels, bases &amp; connections
+        Press <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">Enter</kbd> to send · <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">Shift+Enter</kbd> newline · <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">↑</kbd> edit last · <span className="font-mono">@</span> for people · <span className="font-mono">#</span> for channels, bases &amp; connections
       </div>
     </div>
   );
