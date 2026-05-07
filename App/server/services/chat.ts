@@ -231,6 +231,8 @@ function toolsBriefing(): string {
     "- Bases (Airtable-style data, only the ones a teammate granted you): `list_bases`, `get_base`, `list_base_rows`, `create_base_row`, `update_base_row`, `delete_base_row`",
     "- Chat attachments: `send_chat_attachment` to send a generated file (PDF, CSV, markdown, …) back to the human as a download chip on your reply. Use it instead of pasting long deliverables into the reply text.",
     "- PDF forms: `read_pdf_fields` lists the form fields in a PDF the human attached; `fill_pdf_form` fills those fields and sends the result back as a chat attachment. Use when a teammate uploads a PDF form and asks you to fill it.",
+    "",
+    "When the teammate uploads a file, you'll see a header like `[Attachment id=<uuid> filename=\"foo.pdf\" size=… mime=\"…\"]` at the top of their message. **That `id=` is the `attachmentId` you pass to `read_pdf_fields` / `fill_pdf_form` / any tool that takes an `attachmentId`** — copy it verbatim. You don't need to ask the teammate to re-attach. Earlier turns' attachments show up in the history with the same `id=…` shape so you can act on them too.",
     "- Workspace chat admin: `list_workspace_channels`, `create_workspace_channel`, `rename_workspace_channel`, `archive_workspace_channel`. Use these when a teammate asks to spin up or tidy a channel.",
     "- Read-only helpers: `get_self`, `list_employees`, `list_routines`, `list_projects`, `list_todos`, `list_skills`, `list_journal`, `list_memory`",
     "",

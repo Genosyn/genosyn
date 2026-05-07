@@ -101,9 +101,13 @@ export async function inlineAttachmentsForMessage(
 
   const blocks: string[] = [];
   for (const a of attachments) {
-    const header = `[Attachment: ${a.filename} (${formatAttachmentBytes(
+    // The id has to be in the header — without it the AI can see the file
+    // but has no handle to pass to read_pdf_fields / fill_pdf_form / any
+    // tool that takes an `attachmentId`. Naming it `id` (not `attachmentId`)
+    // matches how every MCP tool's input parameter is named.
+    const header = `[Attachment id=${a.id} filename="${a.filename}" size=${formatAttachmentBytes(
       Number(a.sizeBytes),
-    )}, ${a.mimeType})]`;
+    )} mime="${a.mimeType}"]`;
     const abs = path.join(root, path.basename(a.storageKey));
     if (!abs.startsWith(root) || !fs.existsSync(abs)) {
       blocks.push(`${header}\n(File missing on disk — cannot include content.)`);
@@ -157,7 +161,9 @@ export async function historicalAttachmentSummaries(
     .getMany();
   for (const r of rows) {
     if (!r.messageId) continue;
-    const piece = `${r.filename} (${r.mimeType})`;
+    // Same id-first shape as the inline header so the AI can act on
+    // attachments from earlier turns without re-asking the human to upload.
+    const piece = `id=${r.id} ${r.filename} (${r.mimeType})`;
     const prev = out.get(r.messageId);
     out.set(r.messageId, prev ? `${prev}, ${piece}` : piece);
   }
