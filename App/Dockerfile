@@ -25,6 +25,14 @@ FROM node:22-alpine AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Build context is ./App, so .git lives outside it. CI passes the version
+# and short commit SHA as build args; vite.config.ts reads them from env
+# and bakes them into the client bundle so the UI footer shows what
+# operators are actually running.
+ARG APP_VERSION=dev
+ARG APP_COMMIT=local
+ENV APP_VERSION=$APP_VERSION
+ENV APP_COMMIT=$APP_COMMIT
 # Expects "build" script to compile both server (tsc) and client (vite build)
 RUN npm run build
 
