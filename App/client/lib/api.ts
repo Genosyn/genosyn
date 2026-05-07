@@ -92,6 +92,23 @@ export const api = {
   patch: <T>(url: string, body?: unknown) => request<T>("PATCH", url, body),
   del: <T>(url: string) => request<T>("DELETE", url),
   stream: streamPost,
+  /** Multipart upload of a single file under field name `file`. */
+  uploadFile: async <T>(url: string, file: File): Promise<T> => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(url, {
+      method: "POST",
+      credentials: "same-origin",
+      body: form,
+    });
+    const text = await res.text();
+    const data = text ? JSON.parse(text) : null;
+    if (!res.ok) {
+      const msg = (data && (data.error || data.message)) || res.statusText;
+      throw new Error(msg);
+    }
+    return data as T;
+  },
 };
 
 export type Me = {
@@ -313,6 +330,13 @@ export type MessageActionMetadata = {
   resultPreview?: string;
   error?: string;
 };
+export type ChatAttachment = {
+  id: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  isImage: boolean;
+};
 export type ConversationMessage = {
   id: string;
   conversationId: string;
@@ -320,6 +344,7 @@ export type ConversationMessage = {
   content: string;
   status: ConversationMessageStatus | null;
   actions?: MessageAction[];
+  attachments?: ChatAttachment[];
   createdAt: string;
 };
 export type ConversationDetail = {

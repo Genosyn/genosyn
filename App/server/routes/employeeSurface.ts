@@ -10,12 +10,24 @@ import {
   MessageAction,
   MessageActionMetadata,
 } from "../db/entities/ConversationMessage.js";
+import { Attachment } from "../db/entities/Attachment.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { EmployeeMemory } from "../db/entities/EmployeeMemory.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { streamChatWithEmployee } from "../services/chat.js";
+import {
+  attachmentsForMessages,
+  bindAttachmentsToMessage,
+  recordAttachment,
+  resolveAttachmentFile,
+  uploadMiddleware,
+} from "../services/uploads.js";
+import {
+  historicalAttachmentSummaries,
+  inlineAttachmentsForMessage,
+} from "../services/attachmentText.js";
 
 /**
  * Chat + per-employee surface endpoints. Split from `employees.ts` to keep
@@ -25,6 +37,18 @@ import { streamChatWithEmployee } from "../services/chat.js";
 export const employeeSurfaceRouter = Router({ mergeParams: true });
 employeeSurfaceRouter.use(requireAuth);
 employeeSurfaceRouter.use(requireCompanyMember);
+
+// Hydrate `req.company` from the URL `cid` so the multer destination
+// callback (which runs before any handler) can compute the per-company
+// attachments dir. Same shape as the workspace router.
+employeeSurfaceRouter.use(async (req, res, next) => {
+  const cid = (req.params as Record<string, string>).cid;
+  if (!cid) return next();
+  const co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
+  if (!co) return res.status(404).json({ error: "Company not found" });
+  (req as unknown as { company: Company }).company = co;
+  next();
+});
 
 async function loadEmpAndCompany(
   cid: string,
@@ -70,7 +94,28 @@ function serializeConversation(c: Conversation, lastMessageAt: Date | null = nul
   };
 }
 
-function serializeMessage(m: ConversationMessage) {
+type AttachmentSummary = {
+  id: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  isImage: boolean;
+};
+
+function summarizeAttachment(a: Attachment): AttachmentSummary {
+  return {
+    id: a.id,
+    filename: a.filename,
+    mimeType: a.mimeType,
+    sizeBytes: Number(a.sizeBytes),
+    isImage: a.mimeType.startsWith("image/"),
+  };
+}
+
+function serializeMessage(
+  m: ConversationMessage,
+  attachments: Attachment[] = [],
+) {
   return {
     id: m.id,
     conversationId: m.conversationId,
@@ -78,6 +123,7 @@ function serializeMessage(m: ConversationMessage) {
     content: m.content,
     status: m.status,
     actions: parseActions(m.actionsJson),
+    attachments: attachments.map(summarizeAttachment),
     createdAt: m.createdAt,
   };
 }
@@ -210,9 +256,12 @@ employeeSurfaceRouter.get("/:eid/conversations/:convId", async (req, res) => {
     where: { conversationId: conv.id },
     order: { createdAt: "ASC" },
   });
+  const attachmentsByMsg = await attachmentsForMessages(messages.map((m) => m.id));
   res.json({
     conversation: serializeConversation(conv, conv.updatedAt),
-    messages: messages.map(serializeMessage),
+    messages: messages.map((m) =>
+      serializeMessage(m, attachmentsByMsg.get(m.id) ?? []),
+    ),
   });
 });
 
@@ -264,8 +313,57 @@ employeeSurfaceRouter.delete("/:eid/conversations/:convId", async (req, res) => 
   res.json({ ok: true });
 });
 
+// ---------- Chat attachments ----------
+
+/**
+ * Upload a single file to be attached to the next chat message. Anonymous
+ * until the composer sends — at which point `attachmentIds` on the send
+ * payload binds the row to the user message. Storage and validation reuse
+ * the workspace upload pipeline so both surfaces share one on-disk layout.
+ */
+employeeSurfaceRouter.post(
+  "/:eid/chat-attachments",
+  uploadMiddleware.single("file"),
+  async (req, res) => {
+    const { cid, eid } = req.params as Record<string, string>;
+    const loaded = await loadEmpAndCompany(cid, eid);
+    if (!loaded) return res.status(404).json({ error: "Not found" });
+    const file = (req as unknown as { file?: Express.Multer.File }).file;
+    if (!file) return res.status(400).json({ error: "No file uploaded" });
+    const row = await recordAttachment({
+      companyId: loaded.co.id,
+      companySlug: loaded.co.slug,
+      file,
+      uploadedByUserId: req.userId!,
+    });
+    res.status(201).json(summarizeAttachment(row));
+  },
+);
+
+employeeSurfaceRouter.get(
+  "/:eid/chat-attachments/:attachmentId",
+  async (req, res) => {
+    const { cid, eid, attachmentId } = req.params as Record<string, string>;
+    const loaded = await loadEmpAndCompany(cid, eid);
+    if (!loaded) return res.status(404).json({ error: "Not found" });
+    const resolved = await resolveAttachmentFile(attachmentId, loaded.co.id);
+    if (!resolved) {
+      return res.status(404).json({ error: "Attachment not found" });
+    }
+    res.setHeader("Content-Type", resolved.row.mimeType);
+    const inline = resolved.row.mimeType.startsWith("image/");
+    const disposition = inline ? "inline" : "attachment";
+    res.setHeader(
+      "Content-Disposition",
+      `${disposition}; filename="${encodeURIComponent(resolved.row.filename)}"`,
+    );
+    res.sendFile(resolved.absPath);
+  },
+);
+
 const sendSchema = z.object({
-  message: z.string().min(1).max(8000),
+  message: z.string().max(8000).default(""),
+  attachmentIds: z.array(z.string().uuid()).max(20).optional().default([]),
 });
 
 /**
@@ -324,6 +422,15 @@ employeeSurfaceRouter.post(
         return res.end();
       }
 
+      // Reject empty turns — the schema makes both fields optional so the
+      // composer can decide which one is required, but a totally empty
+      // submit shouldn't spawn a CLI.
+      if (!body.message.trim() && body.attachmentIds.length === 0) {
+        writeEvent("error", { message: "Message or attachment required" });
+        writeEvent("done", {});
+        return res.end();
+      }
+
       // Persist the user turn first so it survives a CLI crash / timeout.
       const userMsg = await msgRepo.save(
         msgRepo.create({
@@ -334,26 +441,56 @@ employeeSurfaceRouter.post(
         }),
       );
 
-      // Set the conversation title on first send so the sidebar stops
-      // showing "New conversation".
+      const boundAttachments = body.attachmentIds.length
+        ? await bindAttachmentsToMessage(body.attachmentIds, userMsg.id, cid)
+        : [];
+
+      // Title comes from the typed text when present; falls back to the
+      // first attachment's filename for upload-only turns.
       if (!conv.title) {
-        conv.title = deriveTitle(body.message);
+        const seed = body.message.trim() || boundAttachments[0]?.filename || "";
+        if (seed) conv.title = deriveTitle(seed);
       }
       conv.updatedAt = new Date();
       await convRepo.save(conv);
 
-      writeEvent("user", serializeMessage(userMsg));
+      writeEvent("user", serializeMessage(userMsg, boundAttachments));
 
       // Replay the tail of the thread (excluding the just-saved user msg)
-      // to the CLI so it has recent context.
+      // to the CLI so it has recent context. History gets a brief
+      // "(attached: foo.pdf)" annotation per turn so the employee can tell
+      // when an earlier message shipped files; the trigger message gets
+      // the full extracted text inlined below.
       const prior = await msgRepo.find({
         where: { conversationId: conv.id },
         order: { createdAt: "ASC" },
       });
+      const priorIds = prior
+        .filter((m) => m.id !== userMsg.id)
+        .map((m) => m.id);
+      const priorAttachmentNotes = await historicalAttachmentSummaries(priorIds);
       const replay = prior
         .filter((m) => m.id !== userMsg.id)
         .slice(-MAX_REPLAY_TURNS)
-        .map((m) => ({ role: m.role, content: m.content }));
+        .map((m) => {
+          const note = priorAttachmentNotes.get(m.id);
+          return {
+            role: m.role,
+            content: note ? `${m.content}\n[attached: ${note}]` : m.content,
+          };
+        });
+
+      // Inline the just-uploaded attachments (full extracted text, capped)
+      // into the user-facing prompt so the AI can read PDFs / docs the
+      // teammate just dropped into the composer.
+      const attachmentBlock = boundAttachments.length
+        ? await inlineAttachmentsForMessage(userMsg.id, cid)
+        : "";
+      const promptMessage = attachmentBlock
+        ? body.message.trim()
+          ? `${body.message}\n\n${attachmentBlock}`
+          : attachmentBlock
+        : body.message;
 
       // Watermark just before the spawn — anything the employee audits
       // after this is attributable to this turn. Subtract a few ms to be
@@ -363,7 +500,7 @@ employeeSurfaceRouter.post(
       const result = await streamChatWithEmployee(
         cid,
         eid,
-        body.message,
+        promptMessage,
         replay,
         (chunk) => writeEvent("chunk", { text: chunk }),
         { conversationId: conv.id },

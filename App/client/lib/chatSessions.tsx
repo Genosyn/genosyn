@@ -1,6 +1,7 @@
 import React from "react";
 import {
   api,
+  ChatAttachment,
   ConversationDetail,
   ConversationMessage,
   ConversationSummary,
@@ -82,7 +83,7 @@ type ChatActions = {
     companyId: string,
     empId: string,
     message: string,
-    opts?: { clearInput?: boolean },
+    opts?: { clearInput?: boolean; attachments?: ChatAttachment[] },
   ) => Promise<string | null>;
 };
 
@@ -256,10 +257,11 @@ export function ChatSessionsProvider({
       companyId: string,
       empId: string,
       message: string,
-      opts?: { clearInput?: boolean },
+      opts?: { clearInput?: boolean; attachments?: ChatAttachment[] },
     ): Promise<string | null> => {
       const msg = message.trim();
-      if (!msg) return null;
+      const attachments = opts?.attachments ?? [];
+      if (!msg && attachments.length === 0) return null;
       const base = `/api/companies/${companyId}/employees/${empId}`;
       const clearInput = opts?.clearInput ?? true;
       const tempId = `temp-${Date.now()}`;
@@ -269,6 +271,7 @@ export function ChatSessionsProvider({
         role: "user",
         content: msg,
         status: null,
+        attachments,
         createdAt: new Date().toISOString(),
       };
 
@@ -309,7 +312,7 @@ export function ChatSessionsProvider({
 
         await api.stream(
           `${base}/conversations/${streamConvId}/messages`,
-          { message: msg },
+          { message: msg, attachmentIds: attachments.map((a) => a.id) },
           (event, data) => {
             if (event === "user") {
               const userMsg = data as ConversationMessage;

@@ -11,6 +11,7 @@ import {
   ChevronRight,
   CircleSlash,
   MessageSquarePlus,
+  Paperclip,
   Plug,
   Send,
   Sparkles,
@@ -19,6 +20,8 @@ import {
   Zap,
 } from "lucide-react";
 import {
+  api,
+  ChatAttachment,
   ConversationMessage,
   ConversationSummary,
   MessageAction,
@@ -57,8 +60,20 @@ export default function EmployeeChat() {
   /** Action whose details are open in the logs modal; null when closed. */
   const [inspectAction, setInspectAction] =
     React.useState<MessageAction | null>(null);
+  /** Files staged for the next send. Stored on the page so the chips persist
+   * if the textarea remounts and so we can clear them after a successful
+   * send / when switching conversations. */
+  const [pendingAttachments, setPendingAttachments] = React.useState<
+    ChatAttachment[]
+  >([]);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
+
+  // Reset staged attachments when the active conversation changes — leaving
+  // them around would attach to the wrong thread on the next send.
+  React.useEffect(() => {
+    setPendingAttachments([]);
+  }, [activeConvId]);
 
   // Fetch the conversation list for this employee the first time we mount.
   // `initEmployee` is a no-op once `convsLoaded` is true, so coming back to
@@ -139,12 +154,35 @@ export default function EmployeeChat() {
   async function send(messageOverride?: string) {
     if (sending) return;
     const msg = (messageOverride ?? input).trim();
-    if (!msg) return;
+    const atts = messageOverride ? [] : pendingAttachments;
+    if (!msg && atts.length === 0) return;
+    if (!messageOverride) setPendingAttachments([]);
     const err = await actions.send(company.id, emp.id, msg, {
       clearInput: !messageOverride,
+      attachments: atts,
     });
-    if (err) toast(err, "error");
+    if (err) {
+      toast(err, "error");
+      // Restore the chips so the human can retry without re-uploading.
+      if (!messageOverride) setPendingAttachments(atts);
+    }
     inputRef.current?.focus();
+  }
+
+  async function uploadAttachment(file: File): Promise<void> {
+    try {
+      const a = await api.uploadFile<ChatAttachment>(
+        `/api/companies/${company.id}/employees/${emp.id}/chat-attachments`,
+        file,
+      );
+      setPendingAttachments((prev) => [...prev, a]);
+    } catch (err) {
+      toast(`Upload failed: ${(err as Error).message}`, "error");
+    }
+  }
+
+  function removePendingAttachment(id: string) {
+    setPendingAttachments((prev) => prev.filter((a) => a.id !== id));
   }
 
   const activeConv = convs.find((c) => c.id === activeConvId) ?? null;
@@ -198,7 +236,9 @@ export default function EmployeeChat() {
                   key={m.id}
                   message={m}
                   authorName={emp.name}
+                  companyId={company.id}
                   companySlug={company.slug}
+                  employeeId={emp.id}
                   employeeSlug={emp.slug}
                   showAvatar={i === 0 || messages[i - 1].role !== m.role}
                   onInspectAction={setInspectAction}
@@ -225,6 +265,9 @@ export default function EmployeeChat() {
           onSubmit={() => send()}
           disabled={sending}
           empName={emp.name}
+          attachments={pendingAttachments}
+          onUpload={uploadAttachment}
+          onRemoveAttachment={removePendingAttachment}
         />
       </section>
 
@@ -492,28 +535,44 @@ function ChatHeader({
 function TurnBubble({
   message,
   authorName,
+  companyId,
   companySlug,
+  employeeId,
   employeeSlug,
   showAvatar,
   onInspectAction,
 }: {
   message: ConversationMessage;
   authorName: string;
+  companyId: string;
   companySlug: string;
+  employeeId: string;
   employeeSlug: string;
   showAvatar: boolean;
   onInspectAction: (a: MessageAction) => void;
 }) {
   const mine = message.role === "user";
+  const attachments = message.attachments ?? [];
+  const attachmentUrl = (id: string) =>
+    `/api/companies/${companyId}/employees/${employeeId}/chat-attachments/${id}`;
 
   if (mine) {
     return (
       <div className="flex justify-end">
-        <div className="group max-w-[85%] sm:max-w-[75%]">
-          <div className="rounded-2xl rounded-br-md bg-indigo-600 px-3.5 py-2 text-sm leading-relaxed text-white shadow-sm">
-            <div className="whitespace-pre-wrap break-words">{message.content}</div>
-          </div>
-          <div className="mt-1 pr-1 text-right text-[10px] text-slate-400 opacity-0 transition group-hover:opacity-100 dark:text-slate-500">
+        <div className="group flex max-w-[85%] flex-col items-end gap-1.5 sm:max-w-[75%]">
+          {message.content.trim() && (
+            <div className="rounded-2xl rounded-br-md bg-indigo-600 px-3.5 py-2 text-sm leading-relaxed text-white shadow-sm">
+              <div className="whitespace-pre-wrap break-words">{message.content}</div>
+            </div>
+          )}
+          {attachments.length > 0 && (
+            <div className="flex flex-col items-end gap-1.5">
+              {attachments.map((a) => (
+                <AttachmentPreview key={a.id} attachment={a} url={attachmentUrl(a.id)} />
+              ))}
+            </div>
+          )}
+          <div className="pr-1 text-right text-[10px] text-slate-400 opacity-0 transition group-hover:opacity-100 dark:text-slate-500">
             {formatTime(message.createdAt)}
           </div>
         </div>
@@ -709,6 +768,9 @@ function Composer({
   onSubmit,
   disabled,
   empName,
+  attachments,
+  onUpload,
+  onRemoveAttachment,
 }: {
   inputRef: React.RefObject<HTMLTextAreaElement>;
   value: string;
@@ -716,8 +778,28 @@ function Composer({
   onSubmit: () => void;
   disabled: boolean;
   empName: string;
+  attachments: ChatAttachment[];
+  onUpload: (file: File) => Promise<void>;
+  onRemoveAttachment: (id: string) => void;
 }) {
-  const canSend = value.trim().length > 0 && !disabled;
+  const canSend =
+    (value.trim().length > 0 || attachments.length > 0) && !disabled;
+  const fileRef = React.useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = React.useState(false);
+
+  async function handleFiles(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    try {
+      for (const f of Array.from(files)) {
+        await onUpload(f);
+      }
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
   return (
     <form
       className="border-t border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950 sm:px-6"
@@ -726,6 +808,30 @@ function Composer({
         onSubmit();
       }}
     >
+      {attachments.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-2">
+          {attachments.map((a) => (
+            <div
+              key={a.id}
+              className="flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-800"
+            >
+              <Paperclip size={12} className="text-slate-400" />
+              <span className="max-w-[180px] truncate text-slate-700 dark:text-slate-200">
+                {a.filename}
+              </span>
+              <span className="text-slate-400">{formatBytes(a.sizeBytes)}</span>
+              <button
+                type="button"
+                onClick={() => onRemoveAttachment(a.id)}
+                className="ml-1 rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-700"
+                aria-label={`Remove ${a.filename}`}
+              >
+                <X size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       <div
         className={
           "flex items-end gap-2 rounded-2xl border bg-white px-3 py-2 transition dark:bg-slate-900 " +
@@ -733,6 +839,23 @@ function Composer({
           "dark:border-slate-700 dark:focus-within:border-indigo-500"
         }
       >
+        <input
+          type="file"
+          ref={fileRef}
+          className="hidden"
+          multiple
+          onChange={(e) => handleFiles(e.target.files)}
+        />
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          disabled={disabled || uploading}
+          aria-label="Attach file"
+          title="Attach file"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+        >
+          <Paperclip size={16} />
+        </button>
         <textarea
           ref={inputRef}
           value={value}
@@ -774,9 +897,53 @@ function Composer({
           </kbd>{" "}
           for newline
         </span>
-        {disabled && <span className="italic">Waiting for reply…</span>}
+        {uploading ? (
+          <span className="italic">Uploading…</span>
+        ) : disabled ? (
+          <span className="italic">Waiting for reply…</span>
+        ) : null}
       </div>
     </form>
+  );
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function AttachmentPreview({
+  attachment,
+  url,
+}: {
+  attachment: ChatAttachment;
+  url: string;
+}) {
+  if (attachment.isImage) {
+    return (
+      <a href={url} target="_blank" rel="noreferrer" className="block">
+        <img
+          src={url}
+          alt={attachment.filename}
+          className="max-h-64 max-w-xs rounded-lg border border-slate-200 object-cover dark:border-slate-700"
+        />
+      </a>
+    );
+  }
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+    >
+      <Paperclip size={12} />
+      <span className="max-w-[240px] truncate">{attachment.filename}</span>
+      <span className="text-slate-400 dark:text-slate-500">
+        {formatBytes(attachment.sizeBytes)}
+      </span>
+    </a>
   );
 }
 
