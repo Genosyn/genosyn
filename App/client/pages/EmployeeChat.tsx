@@ -155,6 +155,20 @@ export default function EmployeeChat() {
     if (sending) return;
     const msg = (messageOverride ?? input).trim();
     const atts = messageOverride ? [] : pendingAttachments;
+    // Slash commands intercept the send. `/new` swaps to a fresh thread
+    // without sending the slash itself as a message — same effect as
+    // clicking the "New conversation" button but reachable from the
+    // keyboard alone.
+    if (!messageOverride && msg === "/new" && atts.length === 0) {
+      actions.update(emp.id, { input: "" });
+      try {
+        await actions.newConversation(company.id, emp.id);
+      } catch (err) {
+        toast((err as Error).message, "error");
+      }
+      inputRef.current?.focus();
+      return;
+    }
     if (!msg && atts.length === 0) return;
     if (!messageOverride) setPendingAttachments([]);
     const err = await actions.send(company.id, emp.id, msg, {
