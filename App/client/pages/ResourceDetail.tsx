@@ -8,6 +8,7 @@ import {
   AlertCircle,
   ArrowLeft,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -886,6 +887,23 @@ function ShareModal({
     }
   }
 
+  async function changeLevel(grant: ResourceGrant, next: NoteAccessLevel) {
+    if (grant.accessLevel === next) return;
+    setBusy(true);
+    try {
+      await api.patch(
+        `/api/companies/${company.id}/resources/${resource.slug}/grants/${grant.id}`,
+        { accessLevel: next },
+      );
+      await reload();
+      onChanged?.();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function remove(grantId: string) {
     setBusy(true);
     try {
@@ -907,9 +925,9 @@ function ShareModal({
     <Modal open={open} onClose={onClose} title="Share with AI employees" size="lg">
       <div className="flex flex-col gap-5">
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Every AI employee gets read access on ingest. Revoke individuals
-          here, or grant access to anyone who joined the company after this
-          resource was added.
+          Every AI employee gets read access on ingest. Flip an employee to{" "}
+          <span className="font-medium">Can edit</span> to let it modify this
+          resource through its MCP tools, or revoke access entirely.
         </p>
         <div>
           <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
@@ -924,7 +942,7 @@ function ShareModal({
               {grants.map((g) => (
                 <li
                   key={g.id}
-                  className="flex items-center justify-between px-3 py-2"
+                  className="flex items-center justify-between gap-3 px-3 py-2"
                 >
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
@@ -937,18 +955,25 @@ function ShareModal({
                       </span>
                     </div>
                     <div className="ml-[18px] truncate text-xs text-slate-500 dark:text-slate-400">
-                      {g.employee?.role ?? ""} ·{" "}
-                      <span className="capitalize">{g.accessLevel}</span>
+                      {g.employee?.role ?? ""}
                     </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => remove(g.id)}
-                    disabled={busy}
-                  >
-                    <X size={12} /> Revoke
-                  </Button>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <AccessLevelMenu
+                      level={g.accessLevel}
+                      busy={busy}
+                      onChange={(next) => changeLevel(g, next)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => remove(g.id)}
+                      disabled={busy}
+                      title="Revoke access"
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50 dark:text-slate-500 dark:hover:bg-rose-500/10 dark:hover:text-rose-400"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -968,7 +993,7 @@ function ShareModal({
               {ungranted.map((c) => (
                 <li
                   key={c.id}
-                  className="flex items-center justify-between px-3 py-2"
+                  className="flex items-center justify-between gap-2 px-3 py-2"
                 >
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
@@ -978,13 +1003,23 @@ function ShareModal({
                       {c.role}
                     </div>
                   </div>
-                  <Button
-                    size="sm"
-                    onClick={() => add(c.id, "read")}
-                    disabled={busy}
-                  >
-                    <Plus size={12} /> Grant read
-                  </Button>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => add(c.id, "read")}
+                      disabled={busy}
+                    >
+                      <Plus size={12} /> View
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => add(c.id, "write")}
+                      disabled={busy}
+                    >
+                      <Plus size={12} /> Edit
+                    </Button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -992,5 +1027,70 @@ function ShareModal({
         </div>
       </div>
     </Modal>
+  );
+}
+
+function AccessLevelMenu({
+  level,
+  busy,
+  onChange,
+}: {
+  level: NoteAccessLevel;
+  busy: boolean;
+  onChange: (next: NoteAccessLevel) => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const label = level === "write" ? "Can edit" : "View only";
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:border-indigo-300 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-indigo-700"
+      >
+        {label}
+        <ChevronDown size={12} className="text-slate-400" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-lg border border-slate-200 bg-white py-1 text-sm shadow-lg dark:border-slate-700 dark:bg-slate-900">
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onChange("write");
+              }}
+              className={
+                "flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800 " +
+                (level === "write"
+                  ? "text-indigo-600 dark:text-indigo-300"
+                  : "text-slate-700 dark:text-slate-200")
+              }
+            >
+              <Pencil size={14} /> Can edit
+              {level === "write" && <Check size={12} className="ml-auto" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onChange("read");
+              }}
+              className={
+                "flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800 " +
+                (level === "read"
+                  ? "text-indigo-600 dark:text-indigo-300"
+                  : "text-slate-700 dark:text-slate-200")
+              }
+            >
+              <Eye size={14} /> View only
+              {level === "read" && <Check size={12} className="ml-auto" />}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }

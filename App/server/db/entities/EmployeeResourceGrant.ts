@@ -8,14 +8,14 @@ import {
 import type { NoteAccessLevel } from "./EmployeeNoteGrant.js";
 
 /**
- * Grants an AI employee access to a Resource. We reuse the
- * `NoteAccessLevel` (`read` | `write`) so the share UI doesn't need a
- * second vocabulary, even though the AI surface is read-only today —
- * `write` exists so a future curation tool (re-summarize, re-tag) has a
- * permission to gate on.
+ * Grants an AI employee access to a Resource. Reuses the
+ * `NoteAccessLevel` (`read` | `write`) vocabulary so the share UI is
+ * symmetric with notes. `write` gates the MCP `update_resource` /
+ * `delete_resource` tools; `create_resource` auto-grants `write` to the
+ * author so it can keep curating its own page without a human round-trip.
  *
  * Humans (members) bypass this table; it only governs what AI employees
- * see through their MCP surface.
+ * see and can edit through their MCP surface.
  */
 @Entity("employee_resource_grants")
 @Index(["employeeId"])

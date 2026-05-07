@@ -89,8 +89,16 @@ import {
 } from "../services/notes.js";
 import { ensureDefaultNotebook } from "../services/notebooks.js";
 import {
+  RESOURCE_BODY_TEXT_CAP,
+  deleteGrantsForResource,
+  deleteResourceBytes,
+  fetchUrlAsText,
   hasResourceAccess,
   listAccessibleResourceIds,
+  summarize,
+  trimBodyText,
+  uniqueResourceSlug,
+  upsertResourceGrant,
 } from "../services/resources.js";
 
 /**
@@ -3558,6 +3566,240 @@ mcpInternalRouter.post(
       return res.status(403).json({ error: "No access to that resource" });
     }
     res.json({ resource: serializeResource(row, { includeBody: true }) });
+  },
+);
+
+const createResourceSchema = z
+  .object({
+    sourceKind: z.enum(["text", "url"]),
+    title: z.string().min(1).max(200).optional(),
+    url: z.string().url().max(2000).optional(),
+    body: z.string().max(RESOURCE_BODY_TEXT_CAP).optional(),
+    summary: z.string().max(2000).optional(),
+    tags: z.string().max(500).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/create_resource",
+  validateBody(createResourceSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof createResourceSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+
+    let title = body.title?.trim() ?? "";
+    let bodyText = "";
+    let sourceUrl: string | null = null;
+    let status: "ready" | "failed" = "ready";
+    let errorMessage = "";
+    let bytes = 0;
+
+    if (body.sourceKind === "url") {
+      if (!body.url) {
+        return res
+          .status(400)
+          .json({ error: "`url` is required when sourceKind is 'url'" });
+      }
+      sourceUrl = body.url;
+      try {
+        const fetched = await fetchUrlAsText(body.url);
+        title = (title || fetched.title || body.url).slice(0, 200);
+        bodyText = trimBodyText(fetched.text);
+        bytes = bodyText.length;
+      } catch (err) {
+        title = (title || body.url).slice(0, 200);
+        status = "failed";
+        errorMessage = err instanceof Error ? err.message : String(err);
+      }
+    } else {
+      if (!title) {
+        return res
+          .status(400)
+          .json({ error: "`title` is required when sourceKind is 'text'" });
+      }
+      if (!body.body || !body.body.trim()) {
+        return res
+          .status(400)
+          .json({ error: "`body` is required when sourceKind is 'text'" });
+      }
+      bodyText = trimBodyText(body.body);
+      bytes = bodyText.length;
+    }
+
+    const repo = AppDataSource.getRepository(Resource);
+    const slug = await uniqueResourceSlug(co.id, toSlug(title) || "resource");
+    const summary = summarize(bodyText, body.summary);
+    const row = repo.create({
+      companyId: co.id,
+      title,
+      slug,
+      sourceKind: body.sourceKind,
+      sourceUrl,
+      sourceFilename: null,
+      storageKey: null,
+      summary,
+      bodyText,
+      tags: (body.tags ?? "").trim(),
+      bytes,
+      status,
+      errorMessage,
+      createdById: null,
+      createdByEmployeeId: self.id,
+    });
+    await repo.save(row);
+
+    // The author always gets `write` so it can keep curating its own page
+    // without a human round-trip; teammates start at `read` per the M18
+    // default — write access for them stays a deliberate human decision in
+    // the share modal.
+    await upsertResourceGrant(self.id, row.id, "write");
+    const teammates = await AppDataSource.getRepository(AIEmployee).find({
+      where: { companyId: co.id },
+      select: ["id"],
+    });
+    for (const e of teammates) {
+      if (e.id === self.id) continue;
+      await upsertResourceGrant(e.id, row.id, "read");
+    }
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "resource.create",
+      targetType: "resource",
+      targetId: row.id,
+      targetLabel: row.title,
+      metadata: { via: "mcp", sourceKind: row.sourceKind, status: row.status },
+    });
+    await journal(
+      self.id,
+      `${self.name} created resource "${row.title}"`,
+      `Slug: \`${row.slug}\`. Created via the built-in MCP tool.`,
+    );
+
+    res.json({ resource: serializeResource(row, { includeBody: true }) });
+  },
+);
+
+const updateResourceSchema = z
+  .object({
+    resourceSlug: z.string().min(1).max(160),
+    title: z.string().min(1).max(200).optional(),
+    summary: z.string().max(2000).optional(),
+    tags: z.string().max(500).optional(),
+    body: z.string().max(RESOURCE_BODY_TEXT_CAP).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/update_resource",
+  validateBody(updateResourceSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof updateResourceSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const repo = AppDataSource.getRepository(Resource);
+    const row = await repo.findOneBy({
+      companyId: co.id,
+      slug: body.resourceSlug,
+    });
+    if (!row) return res.status(404).json({ error: "Resource not found" });
+    if (!(await hasResourceAccess(self.id, row.id, "write"))) {
+      return res
+        .status(403)
+        .json({ error: "No write access on that resource" });
+    }
+
+    if (body.title !== undefined) row.title = body.title;
+    if (body.summary !== undefined) row.summary = body.summary.trim();
+    if (body.tags !== undefined) row.tags = body.tags.trim();
+    if (body.body !== undefined) {
+      // Mirroring the HTTP route: only `text` resources have an editable
+      // body. Extracted text on PDFs/EPUBs/URLs has to match the original
+      // source or search results silently drift.
+      if (row.sourceKind !== "text") {
+        return res.status(400).json({
+          error: "Only text resources can have their body edited",
+        });
+      }
+      const trimmed = trimBodyText(body.body);
+      row.bodyText = trimmed;
+      row.bytes = trimmed.length;
+      if (body.summary === undefined) row.summary = summarize(trimmed);
+      row.status = "ready";
+      row.errorMessage = "";
+    }
+    await repo.save(row);
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "resource.update",
+      targetType: "resource",
+      targetId: row.id,
+      targetLabel: row.title,
+      metadata: { via: "mcp" },
+    });
+    await journal(
+      self.id,
+      `${self.name} updated resource "${row.title}"`,
+      "Via the built-in MCP tool.",
+    );
+
+    res.json({ resource: serializeResource(row, { includeBody: true }) });
+  },
+);
+
+const deleteResourceSchema = z
+  .object({
+    resourceSlug: z.string().min(1).max(160),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/delete_resource",
+  validateBody(deleteResourceSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof deleteResourceSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const repo = AppDataSource.getRepository(Resource);
+    const row = await repo.findOneBy({
+      companyId: co.id,
+      slug: body.resourceSlug,
+    });
+    if (!row) return res.status(404).json({ error: "Resource not found" });
+    if (!(await hasResourceAccess(self.id, row.id, "write"))) {
+      return res
+        .status(403)
+        .json({ error: "No write access on that resource" });
+    }
+
+    await deleteGrantsForResource(row.id);
+    if (row.storageKey) {
+      // AI may be deleting a human-uploaded PDF/EPUB; mirror the HTTP
+      // route's cleanup so we don't orphan bytes on disk.
+      await deleteResourceBytes(row.storageKey, co.slug);
+    }
+    await repo.delete({ id: row.id });
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "resource.delete",
+      targetType: "resource",
+      targetId: row.id,
+      targetLabel: row.title,
+      metadata: { via: "mcp" },
+    });
+    await journal(
+      self.id,
+      `${self.name} deleted resource "${row.title}"`,
+      "Permanent delete via the built-in MCP tool.",
+    );
+
+    res.json({ ok: true });
   },
 );
 

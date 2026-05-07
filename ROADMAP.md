@@ -365,8 +365,11 @@ not write**, ingested once, queried on demand via the MCP surface.
       The `/file` endpoint serves inline by default (so PDFs render in a
       browser viewer and the EPUB reader can fetch the bytes); pass
       `?disposition=attachment` to force a download.
-- [x] MCP tools — `list_resources`, `search_resources`, `get_resource`
-      mirroring the Notes pattern. Read-only for AI; humans curate.
+- [x] MCP tools — read: `list_resources`, `search_resources`,
+      `get_resource`; write (gated by a `write` grant): `create_resource`
+      (text or URL — file uploads stay humans-only), `update_resource`,
+      `delete_resource`. Authors get `write` on the rows they create;
+      teammates start at `read` and humans toggle from the share modal.
 - [x] React UI under `/c/<co>/resources`: Notion-style centered layout
       with quick-add tiles (URL / Paste / Upload), search-as-you-type,
       compact list view, share modal. Detail page is type-aware —

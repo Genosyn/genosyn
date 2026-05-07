@@ -42,7 +42,9 @@ import fs from "node:fs";
  * uploading a file (PDF / EPUB / TXT / MD / HTML), or pasting raw text.
  * The server extracts plain text on the spot, stores it on `bodyText`,
  * and surfaces the resulting Resource to AI employees through the MCP
- * tool surface (read-only) and to humans through the React UI.
+ * tool surface (`list_resources` / `search_resources` / `get_resource` for
+ * reading; `create_resource` / `update_resource` / `delete_resource` for
+ * curating, gated by a `write` grant) and to humans through the React UI.
  *
  * Access for AI is gated by `EmployeeResourceGrant`; humans bypass.
  */

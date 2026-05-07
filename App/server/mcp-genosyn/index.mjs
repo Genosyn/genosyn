@@ -1066,6 +1066,83 @@ const TOOLS = [
     },
   },
   {
+    name: "create_resource",
+    description:
+      "Add a new Resource that the team can study. Use this to capture an external URL the team should index, or to paste in a long-form note that's better filed as a Resource than a Note (e.g. a transcript, a primer, a research summary). Pass `sourceKind: 'url'` with `url` to fetch + extract a page; pass `sourceKind: 'text'` with `title` and `body` (markdown) to file a paste. The author gets `write` access automatically; teammates start at `read`. URL fetches that fail still create the row with `status: 'failed'` so a human can fix it. PDF/EPUB uploads are humans-only — use the React UI for those.",
+    endpoint: "/tools/create_resource",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sourceKind: {
+          type: "string",
+          enum: ["text", "url"],
+          description: "'text' for a paste, 'url' to fetch and extract.",
+        },
+        title: {
+          type: "string",
+          description:
+            "Required for `text`; optional for `url` (defaults to the page title).",
+        },
+        url: {
+          type: "string",
+          description: "The URL to fetch. Required when sourceKind is 'url'.",
+        },
+        body: {
+          type: "string",
+          description:
+            "Markdown content. Required when sourceKind is 'text'.",
+        },
+        summary: {
+          type: "string",
+          description:
+            "Optional short summary surfaced alongside the title. Auto-generated from the body if omitted.",
+        },
+        tags: {
+          type: "string",
+          description: "Optional comma-separated tags, e.g. 'pricing, b2b'.",
+        },
+      },
+      required: ["sourceKind"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_resource",
+    description:
+      "Update an existing Resource's title, summary, tags, or markdown body. The body can only be edited on `text`-kind resources — for PDFs/EPUBs/URLs the body is the extracted preview that has to match the original source. Requires `write` access (granted automatically to the creator; teammates need a human to grant it via the share modal).",
+    endpoint: "/tools/update_resource",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resourceSlug: { type: "string" },
+        title: { type: "string" },
+        summary: { type: "string" },
+        tags: { type: "string" },
+        body: {
+          type: "string",
+          description:
+            "Markdown body. Only valid on text-kind resources; rejected with 400 otherwise.",
+        },
+      },
+      required: ["resourceSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_resource",
+    description:
+      "Permanently delete a Resource (and any uploaded bytes on disk). Requires `write` access. Use sparingly — there is no undo. Prefer `update_resource` to fix a mistake when possible.",
+    endpoint: "/tools/delete_resource",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resourceSlug: { type: "string" },
+      },
+      required: ["resourceSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_base_record",
     description:
       "Open a single Base record like a form: returns the row's fields + values, every field definition for the table, the comment thread, and the list of file attachments. Use this when a teammate asks you to read or update a specific row, or before posting a comment so you know the row's context. Pair with `update_base_row` (existing) for cell edits, `create_record_comment` to discuss, and `attach_file_to_record` to drop in supporting files.",
