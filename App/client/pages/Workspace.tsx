@@ -1403,11 +1403,22 @@ function Composer({
     setAttachments([]);
   }, [channel.id]);
 
-  function autoResize(el: HTMLTextAreaElement | null) {
+  // Drive the textarea height from the rendered value rather than from the
+  // input/keydown handler. Reading scrollHeight inside an event handler
+  // sees the pre-render DOM, so clearing the draft on Enter would leave
+  // the textarea pinned to the multi-line height it grew to while typing
+  // — which then squeezed out the message list and made new sends look
+  // like they hadn't scrolled.
+  React.useEffect(() => {
+    const el = textRef.current;
     if (!el) return;
-    el.style.height = "0px";
+    // "auto" lets the textarea fall back to its natural single-row height
+    // so scrollHeight reads the content's actual height. Setting it to
+    // "0px" makes scrollHeight return whatever space the flex parent
+    // offered up — which is huge — and the cap below pins it to 240px.
+    el.style.height = "auto";
     el.style.height = `${Math.min(240, el.scrollHeight)}px`;
-  }
+  }, [draft]);
 
   async function handleSend() {
     const trimmed = draft.trim();
@@ -1422,7 +1433,6 @@ function Composer({
       setAttachments([]);
       setEmojiOpen(false);
       setMentionOpen(false);
-      autoResize(textRef.current);
     } catch (e) {
       toast((e as Error).message, "error");
     } finally {
@@ -1449,7 +1459,7 @@ function Composer({
 
   function updateDraft(next: string) {
     setDraft(next);
-    autoResize(textRef.current);
+    // Height is reapplied by the useEffect on `draft` after React renders.
     const el = textRef.current;
     if (!el) return;
     const caret = el.selectionStart ?? next.length;
@@ -1479,7 +1489,6 @@ function Composer({
       el.focus();
       const pos = replaced.length;
       el.setSelectionRange(pos, pos);
-      autoResize(el);
     });
   }
 
@@ -1615,7 +1624,7 @@ function Composer({
             }
           }}
           placeholder={`Message ${channelPlaceholder(channel)}`}
-          className="min-h-[28px] w-full resize-none bg-transparent px-1 py-1 text-sm text-slate-800 outline-none placeholder:text-slate-400 dark:text-slate-100"
+          className="min-h-[28px] min-w-0 flex-1 resize-none bg-transparent px-1 py-1 text-sm text-slate-800 outline-none placeholder:text-slate-400 dark:text-slate-100"
           rows={1}
         />
         <div className="relative">
