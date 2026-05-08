@@ -1066,6 +1066,29 @@ const TOOLS = [
     },
   },
   {
+    name: "export_resource",
+    description:
+      "Render a Resource's body in a downloadable format and return it as base64 — use this when a teammate asks for a Resource as a PDF, HTML, plain-text, or markdown file. PDFs go through Chromium so the result honours headings, tables, code blocks, and the same styling humans see in the browser, no manual layout required. The base64 in `contentBase64` plugs straight into `send_chat_attachment` (most common — the human gets a download chip on your reply) or `attach_file_to_record` (when filing the deliverable on a Base row). Capped at 8 MiB per export; large EPUBs may exceed that and have to be downloaded by a human from the resource page.",
+    endpoint: "/tools/export_resource",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resourceSlug: {
+          type: "string",
+          description: "Slug from list_resources / search_resources.",
+        },
+        format: {
+          type: "string",
+          enum: ["pdf", "html", "md", "txt"],
+          description:
+            "'pdf' for a printable document, 'html' for a styled standalone page, 'md' for the raw markdown source, 'txt' for plain text.",
+        },
+      },
+      required: ["resourceSlug", "format"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "create_resource",
     description:
       "Add a new Resource that the team can study. Use this to capture an external URL the team should index, or to paste in a long-form note that's better filed as a Resource than a Note (e.g. a transcript, a primer, a research summary). Pass `sourceKind: 'url'` with `url` to fetch + extract a page; pass `sourceKind: 'text'` with `title` and `body` (markdown) to file a paste. The author gets `delete` access automatically (full control); teammates start at `read`. URL fetches that fail still create the row with `status: 'failed'` so a human can fix it. PDF/EPUB uploads are humans-only — use the React UI for those.",

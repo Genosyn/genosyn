@@ -100,6 +100,11 @@ import {
   uniqueResourceSlug,
   upsertResourceGrant,
 } from "../services/resources.js";
+import {
+  EXPORT_FORMATS,
+  exportResource,
+  isExportFormat,
+} from "../services/resourceExport.js";
 
 /**
  * Internal HTTP surface called by the built-in Genosyn MCP server binary.
@@ -3566,6 +3571,61 @@ mcpInternalRouter.post(
       return res.status(403).json({ error: "No access to that resource" });
     }
     res.json({ resource: serializeResource(row, { includeBody: true }) });
+  },
+);
+
+const exportResourceSchema = z
+  .object({
+    resourceSlug: z.string().min(1).max(160),
+    format: z.enum(EXPORT_FORMATS as [string, ...string[]]),
+  })
+  .strict();
+
+const EXPORT_RESOURCE_MAX_BYTES = 8 * 1024 * 1024; // 8 MiB cap on the base64 round-trip
+
+mcpInternalRouter.post(
+  "/tools/export_resource",
+  validateBody(exportResourceSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof exportResourceSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    if (!isExportFormat(body.format)) {
+      return res.status(400).json({
+        error: `Unsupported format. Use one of: ${EXPORT_FORMATS.join(", ")}.`,
+      });
+    }
+    const row = await AppDataSource.getRepository(Resource).findOneBy({
+      companyId: co.id,
+      slug: body.resourceSlug,
+    });
+    if (!row) return res.status(404).json({ error: "Resource not found" });
+    if (!(await hasResourceAccess(self.id, row.id, "read"))) {
+      return res.status(403).json({ error: "No access to that resource" });
+    }
+    if (!row.bodyText || row.bodyText.length === 0) {
+      return res
+        .status(400)
+        .json({ error: "Resource has no body to export." });
+    }
+    try {
+      const artifact = await exportResource(row, body.format);
+      if (artifact.buffer.length > EXPORT_RESOURCE_MAX_BYTES) {
+        return res.status(413).json({
+          error: `Rendered ${body.format} is ${artifact.buffer.length} bytes, over the 8 MiB MCP cap. Ask a human to download it from the resource page.`,
+        });
+      }
+      res.json({
+        format: artifact.ext,
+        mimeType: artifact.mime,
+        filename: artifact.filename,
+        bytes: artifact.buffer.length,
+        contentBase64: artifact.buffer.toString("base64"),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: `Failed to export: ${message}` });
+    }
   },
 );
 

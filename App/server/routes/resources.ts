@@ -35,6 +35,11 @@ import {
   uniqueResourceSlug,
   upsertResourceGrant,
 } from "../services/resources.js";
+import {
+  EXPORT_FORMATS,
+  exportResource,
+  isExportFormat,
+} from "../services/resourceExport.js";
 import fs from "node:fs";
 
 /**
@@ -416,6 +421,45 @@ resourcesRouter.get("/resources/:slug/file", async (req, res) => {
     `${disposition}; filename="${filename.replace(/"/g, "")}"`,
   );
   res.sendFile(abs);
+});
+
+// ----- EXPORT -----
+
+/**
+ * Render a resource body in a downloadable format. Used by the human
+ * Download menu and by the `export_resource` MCP tool. Markdown / plain
+ * text are passed through; HTML is rendered via `marked`; PDF
+ * round-trips that HTML through Chromium so the result honours the same
+ * styling humans see in the browser.
+ */
+resourcesRouter.get("/resources/:slug/export", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const format = (req.query.format as string | undefined) ?? "pdf";
+  if (!isExportFormat(format)) {
+    return res.status(400).json({
+      error: `Unsupported format. Use one of: ${EXPORT_FORMATS.join(", ")}.`,
+    });
+  }
+  const row = await loadResource(cid, req.params.slug);
+  if (!row) return res.status(404).json({ error: "Resource not found" });
+  if (!row.bodyText || row.bodyText.length === 0) {
+    return res
+      .status(400)
+      .json({ error: "Resource has no body to export." });
+  }
+  try {
+    const artifact = await exportResource(row, format);
+    res.setHeader("Content-Type", artifact.mime);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${artifact.filename.replace(/"/g, "")}"`,
+    );
+    res.setHeader("Content-Length", String(artifact.buffer.length));
+    res.end(artifact.buffer);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: `Failed to export: ${message}` });
+  }
 });
 
 // ----- PATCH -----

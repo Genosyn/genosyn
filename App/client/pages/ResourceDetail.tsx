@@ -11,16 +11,19 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Code,
   Download,
   ExternalLink,
   Eye,
   FileText,
+  Hash,
   List,
   Loader2,
   Maximize2,
   Minimize2,
   Pencil,
   Plus,
+  Printer,
   Save,
   Tag,
   Trash2,
@@ -255,6 +258,13 @@ export default function ResourceDetail({ company }: { company: Company }) {
                 <Button variant="secondary" onClick={() => setShowShare(true)}>
                   <Users size={14} /> Share
                 </Button>
+                {row.sourceKind === "text" && (
+                  <DownloadMenu
+                    companyId={company.id}
+                    slug={row.slug}
+                    hasBody={(row.bodyText ?? "").trim().length > 0}
+                  />
+                )}
                 {row.storageKey && (
                   <a
                     href={downloadUrl}
@@ -415,6 +425,147 @@ function TextContent({
       <Markdown body={bodyText} />
     </article>
   );
+}
+
+// ─────────────────────────── Download menu ─────────────────────────────
+
+/**
+ * Text-resource downloader. The body is stored as markdown; the server
+ * `/resources/:slug/export` endpoint renders it on demand into one of
+ * four formats. PDF in particular is rendered through Chromium so the
+ * file the human downloads is the same document the AI employees see
+ * via the `export_resource` MCP tool — no print-dialog detour, no
+ * client-side PDF library bloat.
+ */
+function DownloadMenu({
+  companyId,
+  slug,
+  hasBody,
+}: {
+  companyId: string;
+  slug: string;
+  hasBody: boolean;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [busy, setBusy] = React.useState<string | null>(null);
+  const { toast } = useToast();
+  const disabled = !hasBody;
+
+  async function download(format: "md" | "txt" | "html" | "pdf") {
+    setBusy(format);
+    try {
+      const res = await fetch(
+        `/api/companies/${companyId}/resources/${slug}/export?format=${format}`,
+      );
+      if (!res.ok) {
+        let msg = `Export failed (${res.status})`;
+        try {
+          const body = (await res.json()) as { error?: string };
+          if (body.error) msg = body.error;
+        } catch {
+          // body wasn't JSON — keep the status-code message
+        }
+        throw new Error(msg);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filenameFromContentDisposition(
+        res.headers.get("Content-Disposition"),
+      ) ?? `${slug}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setOpen(false);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const options: {
+    label: string;
+    hint: string;
+    icon: React.ReactNode;
+    format: "md" | "txt" | "html" | "pdf";
+  }[] = [
+    {
+      label: "PDF",
+      hint: ".pdf — printable document",
+      icon: <Printer size={14} />,
+      format: "pdf",
+    },
+    {
+      label: "HTML",
+      hint: ".html — rendered web page",
+      icon: <Code size={14} />,
+      format: "html",
+    },
+    {
+      label: "Markdown",
+      hint: ".md — original source",
+      icon: <Hash size={14} />,
+      format: "md",
+    },
+    {
+      label: "Plain text",
+      hint: ".txt",
+      icon: <FileText size={14} />,
+      format: "txt",
+    },
+  ];
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        disabled={disabled || busy !== null}
+        onClick={() => setOpen((v) => !v)}
+        title={disabled ? "Nothing to download yet" : "Download as…"}
+        className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:border-slate-300 disabled:opacity-50 disabled:hover:border-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-600 dark:disabled:hover:border-slate-700"
+      >
+        {busy ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+        {busy ? `Rendering ${busy.toUpperCase()}…` : "Download"}
+        {!busy && <ChevronDown size={12} className="text-slate-400" />}
+      </button>
+      {open && !busy && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 top-full z-20 mt-1 w-64 rounded-lg border border-slate-200 bg-white py-1 text-sm shadow-lg dark:border-slate-700 dark:bg-slate-900">
+            {options.map((o) => (
+              <button
+                key={o.format}
+                type="button"
+                onClick={() => download(o.format)}
+                className="flex w-full items-start gap-2 px-3 py-2 text-left text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                <span className="mt-0.5 text-slate-400 dark:text-slate-500">
+                  {o.icon}
+                </span>
+                <span className="flex-1">
+                  <span className="block">{o.label}</span>
+                  <span className="block text-[11px] text-slate-500 dark:text-slate-400">
+                    {o.hint}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function filenameFromContentDisposition(
+  header: string | null,
+): string | null {
+  if (!header) return null;
+  const match = /filename="?([^";]+)"?/i.exec(header);
+  return match ? match[1] : null;
 }
 
 // ─────────────────────────── PDF viewer ────────────────────────────────
