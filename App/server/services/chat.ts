@@ -467,7 +467,7 @@ function buildInvocation(
  *                   default text format stays silent on stdout while claude
  *                   is in a tool-call loop.
  */
-const CHAT_HARD_TIMEOUT_MS = 10 * 60_000;
+const CHAT_HARD_TIMEOUT_MS = 60 * 60_000;
 const CHAT_IDLE_TIMEOUT_MS = 3 * 60_000;
 
 function spawnAndStream(
