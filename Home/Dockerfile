@@ -19,6 +19,12 @@ WORKDIR /build/Home
 COPY --from=deps /build/Home/node_modules ./node_modules
 COPY Home /build/Home
 COPY CLI /build/CLI
+# CI passes the version as a build arg; vite.config.ts reads it from env
+# and bakes it into the client bundle so the hero badge shows what's
+# actually shipped. The repo-root VERSION file isn't copied into this
+# stage, so the env var is what makes the production build accurate.
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
 RUN npm run build
 
 # ---------- runtime ----------
