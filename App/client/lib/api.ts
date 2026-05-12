@@ -256,7 +256,7 @@ export type RunLog = {
   finishedAt?: string | null;
 };
 export type Provider = "claude-code" | "codex" | "opencode" | "goose" | "openclaw";
-export type AuthMode = "subscription" | "apikey";
+export type AuthMode = "subscription" | "apikey" | "customEndpoint";
 export type AIModel = {
   id: string;
   employeeId: string;
@@ -272,6 +272,10 @@ export type AIModel = {
   apiKeyEnv: string | null;
   supportsApiKey: boolean;
   supportsSubscription: boolean;
+  supportsCustomEndpoint: boolean;
+  customEndpointHost: string | null;
+  customEndpointModelId: string | null;
+  customEndpointHasApiKey: boolean;
   cliInstalled: boolean;
 };
 

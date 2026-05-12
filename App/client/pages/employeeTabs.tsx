@@ -18,6 +18,7 @@ import {
   Plug,
   PlugZap,
   Plus,
+  Server,
   Sparkles,
   Terminal,
   Trash2,
@@ -988,37 +989,48 @@ function RoutineEditor({
 
 const PROVIDER_DEFAULTS: Record<
   Provider,
-  { label: string; model: string; supportsApiKey: boolean; supportsSubscription: boolean }
+  {
+    label: string;
+    model: string;
+    supportsApiKey: boolean;
+    supportsSubscription: boolean;
+    supportsCustomEndpoint: boolean;
+  }
 > = {
   "claude-code": {
     label: "claude-code",
     model: "claude-opus-4-6",
     supportsApiKey: true,
     supportsSubscription: true,
+    supportsCustomEndpoint: false,
   },
   codex: {
     label: "codex",
     model: "gpt-5-codex",
     supportsApiKey: true,
     supportsSubscription: true,
+    supportsCustomEndpoint: false,
   },
   opencode: {
     label: "opencode",
     model: "anthropic/claude-opus-4-6",
     supportsApiKey: false,
     supportsSubscription: true,
+    supportsCustomEndpoint: true,
   },
   goose: {
     label: "goose",
     model: "anthropic/claude-opus-4-6",
     supportsApiKey: false,
     supportsSubscription: true,
+    supportsCustomEndpoint: true,
   },
   openclaw: {
     label: "openclaw",
     model: "anthropic/claude-opus-4-7",
     supportsApiKey: true,
     supportsSubscription: false,
+    supportsCustomEndpoint: false,
   },
 };
 
@@ -1791,11 +1803,15 @@ function ModelForm({
   const { toast } = useToast();
   const supportsApiKey = PROVIDER_DEFAULTS[provider].supportsApiKey;
   const supportsSubscription = PROVIDER_DEFAULTS[provider].supportsSubscription;
+  const supportsCustomEndpoint = PROVIDER_DEFAULTS[provider].supportsCustomEndpoint;
 
   React.useEffect(() => {
     if (!supportsApiKey && authMode === "apikey") setAuthMode("subscription");
     if (!supportsSubscription && authMode === "subscription") setAuthMode("apikey");
-  }, [supportsApiKey, supportsSubscription, authMode]);
+    if (!supportsCustomEndpoint && authMode === "customEndpoint") {
+      setAuthMode(supportsSubscription ? "subscription" : "apikey");
+    }
+  }, [supportsApiKey, supportsSubscription, supportsCustomEndpoint, authMode]);
 
   return (
     <form
@@ -1804,9 +1820,15 @@ function ModelForm({
         e.preventDefault();
         setSaving(true);
         try {
+          // For customEndpoint we send a placeholder model so the PUT
+          // schema's `min(1)` passes. The real model id is set by the
+          // CustomEndpointPanel that renders after this save.
+          const slug = provider === "opencode" ? "local" : "openai";
+          const modelToSend =
+            authMode === "customEndpoint" ? `${slug}/configure` : modelStr;
           await api.put(`/api/companies/${company.id}/employees/${emp.id}/model`, {
             provider,
-            model: modelStr,
+            model: modelToSend,
             authMode,
           });
           onSaved();
@@ -1817,9 +1839,9 @@ function ModelForm({
         }
       }}
     >
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className={authMode === "customEndpoint" ? "" : "grid gap-3 sm:grid-cols-2"}>
         <Select
-          label="Provider"
+          label={authMode === "customEndpoint" ? "Harness" : "Provider"}
           value={provider}
           onChange={(e) => {
             const p = e.target.value as Provider;
@@ -1827,24 +1849,35 @@ function ModelForm({
             setModelStr(PROVIDER_DEFAULTS[p].model);
           }}
         >
-          <option value="claude-code">claude-code</option>
-          <option value="codex">codex</option>
-          <option value="opencode">opencode</option>
-          <option value="goose">goose</option>
-          <option value="openclaw">openclaw</option>
+          {authMode === "customEndpoint" ? (
+            <>
+              <option value="opencode">opencode</option>
+              <option value="goose">goose</option>
+            </>
+          ) : (
+            <>
+              <option value="claude-code">claude-code</option>
+              <option value="codex">codex</option>
+              <option value="opencode">opencode</option>
+              <option value="goose">goose</option>
+              <option value="openclaw">openclaw</option>
+            </>
+          )}
         </Select>
-        <Input
-          label="Model"
-          value={modelStr}
-          onChange={(e) => setModelStr(e.target.value)}
-          required
-        />
+        {authMode !== "customEndpoint" && (
+          <Input
+            label="Model"
+            value={modelStr}
+            onChange={(e) => setModelStr(e.target.value)}
+            required
+          />
+        )}
       </div>
       <div className="flex flex-col gap-2">
         <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Authentication
         </div>
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2 sm:grid-cols-3">
           <AuthModeChoice
             active={authMode === "subscription"}
             onClick={() => supportsSubscription && setAuthMode("subscription")}
@@ -1865,6 +1898,18 @@ function ModelForm({
             title="Use an API key"
             description={
               supportsApiKey ? apiKeyBlurb(provider) : "Not supported for this provider."
+            }
+          />
+          <AuthModeChoice
+            active={authMode === "customEndpoint"}
+            onClick={() => supportsCustomEndpoint && setAuthMode("customEndpoint")}
+            disabled={!supportsCustomEndpoint}
+            icon={<Server size={16} />}
+            title="Custom OpenAI-compatible endpoint"
+            description={
+              supportsCustomEndpoint
+                ? "Point this employee at a self-hosted server — Ollama, vLLM, llama.cpp, LM Studio."
+                : "Pick opencode or goose as the harness to enable."
             }
           />
         </div>
@@ -2000,10 +2045,18 @@ function ModelStatusCard({
       if (model.authMode === "subscription") {
         return `Signed in with ${model.provider} subscription`;
       }
+      if (model.authMode === "customEndpoint") {
+        return model.customEndpointHost
+          ? `Pointed at ${model.customEndpointHost} via ${model.provider}`
+          : `Custom endpoint configured via ${model.provider}`;
+      }
       return `Authenticated with ${model.apiKeyEnv ?? "API"} key`;
     }
     if (model.authMode === "subscription") {
       return `Not signed in yet — finish the steps below to connect ${model.provider}.`;
+    }
+    if (model.authMode === "customEndpoint") {
+      return "Enter the local server's base URL and model id below to connect.";
     }
     return `No ${model.apiKeyEnv ?? "API"} key on file yet — paste one below to connect.`;
   })();
@@ -2041,6 +2094,14 @@ function ModelStatusCard({
         )}
         {!connected && model.authMode === "apikey" && (
           <ApiKeyPanel company={company} emp={emp} model={model} onSaved={onChanged} />
+        )}
+        {model.authMode === "customEndpoint" && (
+          <CustomEndpointPanel
+            company={company}
+            emp={emp}
+            model={model}
+            onSaved={onChanged}
+          />
         )}
       </CardBody>
     </Card>
@@ -3073,6 +3134,102 @@ function ApiKeyPanel({
       </div>
     </form>
   );
+}
+
+/**
+ * Form for the customEndpoint auth mode. Three fields: base URL, model id,
+ * optional API key. The harness (opencode / goose) is implicit in the
+ * model row's `provider` field — the user picks it via the provider
+ * dropdown above this panel. Base URL is the load-bearing signal: until
+ * it's saved the model row stays in "Waiting" status even though
+ * authMode + provider are already configured.
+ */
+function CustomEndpointPanel({
+  company,
+  emp,
+  model,
+  onSaved,
+}: {
+  company: Company;
+  emp: Employee;
+  model: AIModel;
+  onSaved: () => void;
+}) {
+  const initialPlaceholder = baseUrlPlaceholder(model.provider);
+  const [baseURL, setBaseURL] = React.useState("");
+  const [modelId, setModelId] = React.useState(model.customEndpointModelId ?? "");
+  const [apiKey, setApiKey] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const { toast } = useToast();
+  const harnessLabel = model.provider === "opencode" ? "opencode" : "goose";
+  const connected = model.status === "connected";
+  return (
+    <form
+      className="flex flex-col gap-3"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setSaving(true);
+        try {
+          await api.post(
+            `/api/companies/${company.id}/employees/${emp.id}/model/custom-endpoint`,
+            {
+              baseURL,
+              modelId,
+              ...(apiKey ? { apiKey } : {}),
+            },
+          );
+          setApiKey("");
+          toast(connected ? "Endpoint updated" : "Endpoint connected", "success");
+          onSaved();
+        } catch (err) {
+          toast((err as Error).message, "error");
+        } finally {
+          setSaving(false);
+        }
+      }}
+    >
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Input
+          label="Base URL"
+          value={baseURL}
+          onChange={(e) => setBaseURL(e.target.value)}
+          placeholder={initialPlaceholder}
+          required
+        />
+        <Input
+          label="Model id"
+          value={modelId}
+          onChange={(e) => setModelId(e.target.value)}
+          placeholder="qwen2.5-coder:32b"
+          required
+        />
+      </div>
+      <Input
+        label={`API key (optional — most local servers ignore this)`}
+        type="password"
+        value={apiKey}
+        onChange={(e) => setApiKey(e.target.value)}
+        placeholder={model.customEndpointHasApiKey ? "•••••••• (replace to update)" : "leave blank if not needed"}
+      />
+      <div className="text-xs text-slate-500 dark:text-slate-400">
+        Routed through <span className="font-medium">{harnessLabel}</span>. We
+        materialize its config before each spawn — the user never has to run a
+        CLI command. Base URL + key are stored encrypted at rest.
+      </div>
+      <div>
+        <Button type="submit" disabled={saving || baseURL.length === 0 || modelId.length === 0}>
+          {saving ? "Saving…" : connected ? "Update endpoint" : "Save & connect"}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function baseUrlPlaceholder(provider: Provider): string {
+  // Common defaults the operator can paste. Ollama's port is the easiest
+  // sanity check; vLLM and llama-server are also documented in /docs.
+  if (provider === "opencode") return "http://host.docker.internal:11434/v1";
+  return "http://host.docker.internal:11434";
 }
 
 function WebhookField({
