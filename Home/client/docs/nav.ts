@@ -35,6 +35,12 @@ export const DOCS_NAV: DocsSection[] = [
     ],
   },
   {
+    label: "Analytics",
+    pages: [
+      { path: "/docs/explore", title: "Explore", blurb: "Self-serve BI — Charts and Dashboards over your database integrations." },
+    ],
+  },
+  {
     label: "Self-hosting",
     pages: [
       { path: "/docs/self-hosting", title: "Configuration", blurb: "config.ts, the data directory, backups." },
