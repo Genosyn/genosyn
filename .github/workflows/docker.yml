@@ -24,10 +24,18 @@ concurrency:
 env:
   REGISTRY: ghcr.io
 
+# Multi-arch is split across native runners (amd64 on ubuntu-latest, arm64 on
+# ubuntu-24.04-arm) rather than QEMU emulation — App took ~7m under emulation
+# and the native arm64 runner cuts that to under 3m. Each platform job pushes
+# its image by digest only (no tag); the per-project merge job then composes
+# all platform digests into a single multi-arch manifest carrying the tags.
+#
+# Reference: https://docs.docker.com/build/ci/github-actions/multi-platform/
+
 jobs:
   build:
-    name: Build ${{ matrix.project }}
-    runs-on: ubuntu-latest
+    name: Build ${{ matrix.project }} (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
@@ -38,11 +46,25 @@ jobs:
           - project: App
             image: app
             context: ./App
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - project: App
+            image: app
+            context: ./App
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
           - project: Home
             # Build from repo root so Home's prebuild (sync-cli) can reach
             # ../CLI/. See Home/Dockerfile for details.
             image: home
             context: .
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - project: Home
+            image: home
+            context: .
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -64,15 +86,16 @@ jobs:
           OWNER="${GITHUB_REPOSITORY_OWNER,,}"
           echo "name=${{ env.REGISTRY }}/${OWNER}/${{ matrix.image }}" >> "$GITHUB_OUTPUT"
 
-      # QEMU registers binfmt handlers so buildx can cross-build arm64 on
-      # this amd64 runner. arm64 builds are slow under emulation (chromium
-      # apk + node-pty native rebuild dominate), but acceptable for a
-      # release-cadence workflow.
-      - name: Set up QEMU
+      # Filename-safe platform suffix used for the digest artifact name and
+      # the per-platform cache scope — actions/upload-artifact rejects "/" in
+      # names, and platform-scoped caches keep cross-arch layers from
+      # clobbering each other.
+      - name: Compute platform suffix
         if: steps.exists.outputs.ready == 'true'
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
+        id: plat
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: echo "suffix=${PLATFORM//\//-}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         if: steps.exists.outputs.ready == 'true'
@@ -91,6 +114,119 @@ jobs:
         id: ver
         run: echo "value=$(cat VERSION)" >> "$GITHUB_OUTPUT"
 
+      # Compute labels here (not tags — the merge job owns tag generation, so
+      # the platform manifests stay tag-less and only the final manifest list
+      # carries the tags). Labels still want to be baked into each per-arch
+      # image so docker inspect on either platform reports the right version.
+      - name: Extract metadata (labels only)
+        if: steps.exists.outputs.ready == 'true'
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.img.outputs.name }}
+
+      # Push by digest only. The merge job downloads every platform's digest
+      # and composes the multi-arch manifest list with the real tags.
+      - name: Build and push by digest
+        if: steps.exists.outputs.ready == 'true'
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ./${{ matrix.project }}/Dockerfile
+          platforms: ${{ matrix.platform }}
+          # Append after meta.outputs.labels so this overrides the auto-derived
+          # version (which is "main" / "latest" for non-tag builds). The
+          # genosyn CLI reads this label to display the upgrade transition.
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+            org.opencontainers.image.version=${{ steps.ver.outputs.value }}
+          # APP_VERSION + APP_COMMIT are baked into the App client bundle by
+          # vite.config.ts (.git is outside App's build context). The Home
+          # Dockerfile ignores these args, which is harmless.
+          build-args: |
+            APP_VERSION=${{ steps.ver.outputs.value }}
+            APP_COMMIT=${{ github.sha }}
+          outputs: type=image,name=${{ steps.img.outputs.name }},push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ steps.plat.outputs.suffix }}
+          cache-to: type=gha,scope=${{ matrix.image }}-${{ steps.plat.outputs.suffix }},mode=max
+
+      # Stash the digest as an empty file (filename = the digest itself) so
+      # the merge job can collect them via a wildcard glob.
+      - name: Export digest
+        if: steps.exists.outputs.ready == 'true' && github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/digests"
+          touch "${RUNNER_TEMP}/digests/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        if: steps.exists.outputs.ready == 'true' && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.image }}-${{ steps.plat.outputs.suffix }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Merge ${{ matrix.project }} manifest
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: App
+            image: app
+          - project: Home
+            image: home
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check Dockerfile exists
+        id: exists
+        run: |
+          if [ -f "${{ matrix.project }}/Dockerfile" ] && [ -f "${{ matrix.project }}/package.json" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::${{ matrix.project }} is not buildable yet — skipping."
+          fi
+
+      - name: Set image name (lowercase owner)
+        if: steps.exists.outputs.ready == 'true'
+        id: img
+        run: |
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "name=${{ env.REGISTRY }}/${OWNER}/${{ matrix.image }}" >> "$GITHUB_OUTPUT"
+
+      - name: Download digests
+        if: steps.exists.outputs.ready == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digest-${{ matrix.image }}-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        if: steps.exists.outputs.ready == 'true'
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        if: steps.exists.outputs.ready == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Extract metadata
         if: steps.exists.outputs.ready == 'true'
         id: meta
@@ -105,31 +241,21 @@ jobs:
             type=sha,format=short
             type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
 
-      - name: Build and push
+      # Build the manifest list: one `-t` per tag from metadata-action, and
+      # one `image@sha256:<digest>` argument per per-platform digest file.
+      - name: Create manifest list and push
         if: steps.exists.outputs.ready == 'true'
-        uses: docker/build-push-action@v7
-        with:
-          context: ${{ matrix.context }}
-          file: ./${{ matrix.project }}/Dockerfile
-          # Publish multi-arch manifests covering both server fleets and
-          # Apple Silicon dev machines. Alpine's chromium and node:22-alpine
-          # both ship arm64; node-pty's postinstall rebuild handles the
-          # native addon; goose's installer has `|| true` so an unsupported
-          # arch falls back to the in-app installer.
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          # Append after meta.outputs.labels so this overrides the auto-derived
-          # version (which is "main" / "latest" for non-tag builds). genosyn
-          # CLI reads this label to display the upgrade transition.
-          labels: |
-            ${{ steps.meta.outputs.labels }}
-            org.opencontainers.image.version=${{ steps.ver.outputs.value }}
-          # APP_VERSION + APP_COMMIT are baked into the App client bundle by
-          # vite.config.ts (.git is outside App's build context). The Home
-          # Dockerfile ignores these args, which is harmless.
-          build-args: |
-            APP_VERSION=${{ steps.ver.outputs.value }}
-            APP_COMMIT=${{ github.sha }}
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,scope=${{ matrix.image }},mode=max
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          IMAGE: ${{ steps.img.outputs.name }}
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "${IMAGE}@sha256:%s " *)
+
+      - name: Inspect
+        if: steps.exists.outputs.ready == 'true'
+        env:
+          IMAGE: ${{ steps.img.outputs.name }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: docker buildx imagetools inspect "${IMAGE}:${VERSION}"
