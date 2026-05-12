@@ -64,6 +64,16 @@ jobs:
           OWNER="${GITHUB_REPOSITORY_OWNER,,}"
           echo "name=${{ env.REGISTRY }}/${OWNER}/${{ matrix.image }}" >> "$GITHUB_OUTPUT"
 
+      # QEMU registers binfmt handlers so buildx can cross-build arm64 on
+      # this amd64 runner. arm64 builds are slow under emulation (chromium
+      # apk + node-pty native rebuild dominate), but acceptable for a
+      # release-cadence workflow.
+      - name: Set up QEMU
+        if: steps.exists.outputs.ready == 'true'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
       - name: Set up Docker Buildx
         if: steps.exists.outputs.ready == 'true'
         uses: docker/setup-buildx-action@v4
@@ -101,11 +111,12 @@ jobs:
         with:
           context: ${{ matrix.context }}
           file: ./${{ matrix.project }}/Dockerfile
-          # Pin to linux/amd64 for now. The Dockerfiles have arch-sensitive
-          # bits — node-pty's native rebuild, the goose curl|bash installer,
-          # the alpine chromium pull — so adding linux/arm64 wants a deliberate
-          # test run rather than a silent flip via the default.
-          platforms: linux/amd64
+          # Publish multi-arch manifests covering both server fleets and
+          # Apple Silicon dev machines. Alpine's chromium and node:22-alpine
+          # both ship arm64; node-pty's postinstall rebuild handles the
+          # native addon; goose's installer has `|| true` so an unsupported
+          # arch falls back to the in-app installer.
+          platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           # Append after meta.outputs.labels so this overrides the auto-derived
