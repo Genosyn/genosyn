@@ -1,6 +1,7 @@
 import React from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
+  BarChart3,
   ChevronDown,
   ChevronRight,
   GitBranch,
@@ -82,6 +83,7 @@ type SectionKey =
   | "bases"
   | "notes"
   | "resources"
+  | "explore"
   | "finance"
   | "pipelines"
   | "approvals"
@@ -161,6 +163,15 @@ const SECTION_GROUPS: SectionGroup[] = [
         path: "/resources",
         iconBg:
           "bg-fuchsia-100 text-fuchsia-600 dark:bg-fuchsia-500/15 dark:text-fuchsia-300",
+      },
+      {
+        key: "explore",
+        label: "Explore",
+        description: "Saved SQL charts and dashboards.",
+        icon: BarChart3,
+        path: "/explore",
+        iconBg:
+          "bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300",
       },
     ],
   },
@@ -384,6 +395,7 @@ function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/bases(\/|$)/.test(pathname)) return "bases";
   if (/\/c\/[^/]+\/notes(\/|$)/.test(pathname)) return "notes";
   if (/\/c\/[^/]+\/resources(\/|$)/.test(pathname)) return "resources";
+  if (/\/c\/[^/]+\/explore(\/|$)/.test(pathname)) return "explore";
   if (/\/c\/[^/]+\/finance(\/|$)/.test(pathname)) return "finance";
   if (/\/c\/[^/]+\/pipelines(\/|$)/.test(pathname)) return "pipelines";
   if (/\/c\/[^/]+\/approvals(\/|$)/.test(pathname)) return "approvals";

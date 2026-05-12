@@ -1398,6 +1398,180 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  // ---------- Explore (M20) — Metabase-style analytics ----------
+  {
+    name: "list_charts",
+    description:
+      "List every saved Chart in this company. A Chart is a saved SQL query + visualization (table / scalar / bar / line / area / pie) bound to a postgres / mysql / clickhouse Integration Connection. Use this to discover what's already been authored before creating a duplicate.",
+    endpoint: "/tools/list_charts",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_chart",
+    description:
+      "Fetch one Chart by slug — returns title, description, SQL, viz config, and the connection it runs against. Pair with `run_chart` to actually execute the query.",
+    endpoint: "/tools/get_chart",
+    inputSchema: {
+      type: "object",
+      properties: {
+        chartSlug: {
+          type: "string",
+          description: "Slug from list_charts.",
+        },
+      },
+      required: ["chartSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "run_chart",
+    description:
+      "Execute a saved Chart and return its rows. SQL runs against the chart's bound database Connection with a 30s timeout and 5,000-row cap. Use this when a teammate asks 'what's our MRR' / 'which orgs signed up last week' — find a Chart with `list_charts`, run it, summarise the result.",
+    endpoint: "/tools/run_chart",
+    inputSchema: {
+      type: "object",
+      properties: {
+        chartSlug: {
+          type: "string",
+          description: "Slug from list_charts.",
+        },
+        maxRows: {
+          type: "integer",
+          minimum: 1,
+          maximum: 5000,
+          description: "Cap on rows returned (default 1000, max 5000).",
+        },
+      },
+      required: ["chartSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_chart",
+    description:
+      "Author a new Chart. Use this to capture a useful query so the team can re-run it later instead of re-typing the SQL. `connectionId` is the UUID of the Integration Connection the SQL runs against — look it up via the integrations surface. `vizType` defaults to 'table'; for `scalar` the first cell of the first row is shown, for `bar` / `line` / `area` set `vizConfig.dimension` to the X-axis column and `vizConfig.measures` to one or more numeric column names. For `pie` use `dimension` + a single `measure`.",
+    endpoint: "/tools/create_chart",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Display title." },
+        connectionId: {
+          type: "string",
+          description: "UUID of an Integration Connection (postgres / mysql / clickhouse).",
+        },
+        sql: { type: "string", description: "The SQL the chart runs." },
+        description: {
+          type: "string",
+          description: "Optional short description shown next to the title.",
+        },
+        vizType: {
+          type: "string",
+          enum: ["table", "scalar", "bar", "line", "area", "pie"],
+          description: "Visualization kind. Defaults to table.",
+        },
+        vizConfig: {
+          type: "object",
+          description:
+            "Per-type config: bar/line/area = { dimension, measures[] }; pie = { dimension, measure }; scalar = { measure?, prefix?, suffix? }.",
+          additionalProperties: true,
+        },
+      },
+      required: ["title", "connectionId", "sql"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_chart",
+    description:
+      "Edit an existing Chart's title, description, SQL, or visualization. Pass only the fields you want to change.",
+    endpoint: "/tools/update_chart",
+    inputSchema: {
+      type: "object",
+      properties: {
+        chartSlug: { type: "string" },
+        title: { type: "string" },
+        description: { type: "string" },
+        sql: { type: "string" },
+        vizType: {
+          type: "string",
+          enum: ["table", "scalar", "bar", "line", "area", "pie"],
+        },
+        vizConfig: { type: "object", additionalProperties: true },
+      },
+      required: ["chartSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_chart",
+    description:
+      "Permanently remove a Chart and detach it from any Dashboards it was on. Be careful — humans see the same charts you do.",
+    endpoint: "/tools/delete_chart",
+    inputSchema: {
+      type: "object",
+      properties: {
+        chartSlug: { type: "string" },
+      },
+      required: ["chartSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_dashboards",
+    description:
+      "List every Dashboard in this company. A Dashboard is a grid of Chart cards arranged for a human reader.",
+    endpoint: "/tools/list_dashboards",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_dashboard",
+    description:
+      "Fetch one Dashboard by slug along with its cards and the Charts those cards reference. Use this when a teammate asks 'what's on the Revenue dashboard'.",
+    endpoint: "/tools/get_dashboard",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dashboardSlug: { type: "string" },
+      },
+      required: ["dashboardSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_dashboard",
+    description:
+      "Create a new empty Dashboard. Add cards afterwards with `add_dashboard_card`.",
+    endpoint: "/tools/create_dashboard",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        description: { type: "string" },
+      },
+      required: ["title"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "add_dashboard_card",
+    description:
+      "Pin a Chart onto a Dashboard. `x`/`y`/`w`/`h` position it on a 12-column grid; omit them to append a 6×4 card to the bottom. `titleOverride` lets the card show a different label than the underlying chart.",
+    endpoint: "/tools/add_dashboard_card",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dashboardSlug: { type: "string" },
+        chartSlug: { type: "string" },
+        x: { type: "integer", minimum: 0, maximum: 11 },
+        y: { type: "integer", minimum: 0 },
+        w: { type: "integer", minimum: 1, maximum: 12 },
+        h: { type: "integer", minimum: 1, maximum: 40 },
+        titleOverride: { type: "string" },
+      },
+      required: ["dashboardSlug", "chartSlug"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 const TOOL_BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));

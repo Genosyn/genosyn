@@ -107,6 +107,7 @@ genosyn/
   source dispatch, action pills serialized into `actionsJson`)
 - **Workspace chat (M9):** `Channel`, `ChannelMember`, `ChannelMessage`,
   `MessageReaction`, `Attachment`
+- **Explore (M20):** `Chart`, `Dashboard`, `DashboardCard`
 - **Notes (M11):** `Notebook`, `Note`, `EmployeeNotebookGrant`,
   `EmployeeNoteGrant`
 - **Bases (M11.5):** `Base`, `BaseTable`, `BaseField`, `BaseView`,
@@ -390,6 +391,57 @@ page. Avoided the bigger choice of an embeddings store + vector
 search; v1 relies on substring matching over titles, summaries, and
 `bodyText`, same as `search_notes`. Embeddings + RAG land in a future
 milestone once we know what the team actually queries.
+
+### M20 — Explore (Metabase-style BI)
+
+Self-serve analytics over the database integrations the company already
+connects. Distinct from `Base` (Airtable-style structured workspaces the
+team writes into) and from running queries by hand inside the Postgres /
+MySQL / ClickHouse integration tools: an **Explore** surface lets humans
+and AI employees save SQL queries as named **Charts**, pick a
+visualization (table, scalar, bar, line, area, pie), and pin those charts
+onto **Dashboards** that other members can read at a glance.
+
+Phase A — Foundation (this milestone)
+
+- [x] **Entities.** `Chart` (companyId, slug, title, description,
+      connectionId → IntegrationConnection, sql, vizType, vizConfig JSON,
+      author bookkeeping). `Dashboard` (companyId, slug, title,
+      description, author bookkeeping). `DashboardCard` (dashboardId,
+      chartId, x/y/w/h grid placement, optional title override).
+- [x] **Executor service** at `services/explore.ts` that resolves an
+      `IntegrationConnection` of provider `postgres` / `mysql` /
+      `clickhouse`, decrypts the per-provider config, and runs the
+      caller's SQL through `pg` / `mysql2` / `@clickhouse/client`
+      respectively. Wall-clock timeout 30s, row cap 5,000 — same envelope
+      as the integration tools. Read-only is **not** enforced; users
+      should connect with a least-privileged role.
+- [x] **HTTP routes** under `/api/companies/:cid/explore/*`: list
+      database-shaped connections, run ad-hoc SQL (`POST /run`), CRUD
+      Charts + Dashboards, run a saved Chart, add/move/remove
+      DashboardCards.
+- [x] **Visualization** — six built-in types implemented as inline SVG
+      so we don't add another chart-lib dep: `table`, `scalar`, `bar`,
+      `line`, `area`, `pie`. A `ChartRenderer` component picks one based
+      on `vizType` + `vizConfig` (which column is the dimension, which
+      column(s) are measures, and stack/orientation flags for bar).
+- [x] **React pages** at `/c/<co>/explore`: index (recent charts +
+      dashboards + database sources), chart editor (SQL textarea +
+      result preview + viz picker + viz config side panel), dashboard
+      view (grid render), dashboard edit (drag-grid of cards).
+- [x] **MCP tools** — `list_charts`, `get_chart`, `run_chart`,
+      `create_chart`, `update_chart`, `delete_chart`, `list_dashboards`,
+      `get_dashboard`, `create_dashboard`, `add_dashboard_card`. AI
+      employees can author Charts the team will see in the same way
+      they already author Notes and Bases.
+
+Phase B+ (deferred — out of this PR)
+- Parameters / filters (date range, dropdown bound to a column).
+- Scheduled deliveries (email a PNG of the dashboard at 9am).
+- Embedding (public read-only links, signed).
+- Snowflake / BigQuery / Redshift connectors.
+- Native (no-SQL) query builder over a column picker.
+- AI-suggested charts on a new connection.
 
 ### M15 — 2FA / TOTP (planned)
 - [ ] `User` gets `totpSecret` (encrypted), `totpEnabledAt`, `recoveryCodes`

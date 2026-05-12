@@ -86,6 +86,10 @@ import FinanceVendors from "./pages/FinanceVendors";
 import FinanceBills from "./pages/FinanceBills";
 import FinanceBillNew from "./pages/FinanceBillNew";
 import FinanceBillDetail from "./pages/FinanceBillDetail";
+import ExploreLayout from "./pages/ExploreLayout";
+import ExploreIndex from "./pages/ExploreIndex";
+import ExploreChartDetail from "./pages/ExploreChartDetail";
+import ExploreDashboardDetail from "./pages/ExploreDashboardDetail";
 
 type AuthState =
   | { status: "loading" }
@@ -294,6 +298,21 @@ function CompanyRoutes({
           <Route path="bills" element={<FinanceBills />} />
           <Route path="bills/new" element={<FinanceBillNew />} />
           <Route path="bills/:billSlug" element={<FinanceBillDetail />} />
+        </Route>
+
+        {/* Explore (M20) — Metabase-style analytics. Saved Charts (SQL +
+            viz) and Dashboards (grids of cards) over the company's
+            postgres / mysql / clickhouse Integration Connections. */}
+        <Route path="explore" element={<ExploreLayout company={company} />}>
+          <Route index element={<ExploreIndex company={company} />} />
+          <Route
+            path="charts/:slug"
+            element={<ExploreChartDetail company={company} />}
+          />
+          <Route
+            path="dashboards/:slug"
+            element={<ExploreDashboardDetail company={company} />}
+          />
         </Route>
 
         <Route path="approvals" element={<Approvals company={company} />} />

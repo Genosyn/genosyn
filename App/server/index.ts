@@ -42,6 +42,7 @@ import { notebooksRouter } from "./routes/notebooks.js";
 import { notesRouter } from "./routes/notes.js";
 import { resourcesRouter } from "./routes/resources.js";
 import { financeRouter } from "./routes/finance.js";
+import { exploreRouter } from "./routes/explore.js";
 import { notificationsRouter } from "./routes/notifications.js";
 import { teamsRouter } from "./routes/teams.js";
 import { handoffsRouter } from "./routes/handoffs.js";
@@ -177,6 +178,11 @@ async function main() {
   // Native invoicing with HTML render + email send via the company's
   // EmailProvider. Ledger / reports / reconciliation come in later phases.
   app.use("/api/companies/:cid", financeRouter);
+
+  // Explore (M20) — Metabase-style analytics. Saved SQL queries (Charts) +
+  // grids of charts (Dashboards) re-using the company's postgres/mysql/
+  // clickhouse Integration Connections as the data source.
+  app.use("/api/companies/:cid", exploreRouter);
 
   // Per-company email providers (SMTP / SendGrid / Mailgun / Resend /
   // Postmark) and the append-only delivery log used by Settings → Email

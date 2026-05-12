@@ -105,6 +105,19 @@ import {
   exportResource,
   isExportFormat,
 } from "../services/resourceExport.js";
+import { Chart } from "../db/entities/Chart.js";
+import { Dashboard } from "../db/entities/Dashboard.js";
+import { DashboardCard } from "../db/entities/DashboardCard.js";
+import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
+import {
+  isExploreProvider,
+  runSqlAgainstConnection,
+  serializeCard,
+  serializeChart,
+  serializeDashboard,
+  uniqueChartSlug,
+  uniqueDashboardSlug,
+} from "../services/explore.js";
 
 /**
  * Internal HTTP surface called by the built-in Genosyn MCP server binary.
@@ -4225,5 +4238,374 @@ mcpInternalRouter.post(
         sizeBytes: Number(row.sizeBytes),
       },
     });
+  },
+);
+
+// ---------------- Explore (M20) ----------------
+//
+// Charts + Dashboards. AI employees can list/run/create charts and pin
+// them to dashboards the team will see. SQL runs through the company's
+// existing postgres/mysql/clickhouse Integration Connections — no extra
+// auth, same 30s / 5,000-row envelope as the integration tools.
+
+const listChartsSchema = z.object({}).strict();
+
+mcpInternalRouter.post(
+  "/tools/list_charts",
+  validateBody(listChartsSchema),
+  async (req: McpRequest, res) => {
+    const co = req.mcpCompany!;
+    const rows = await AppDataSource.getRepository(Chart).find({
+      where: { companyId: co.id },
+      order: { updatedAt: "DESC" },
+    });
+    res.json({ charts: rows.map((r) => serializeChart(r)) });
+  },
+);
+
+const getChartSchema = z
+  .object({ chartSlug: z.string().min(1).max(160) })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/get_chart",
+  validateBody(getChartSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof getChartSchema>;
+    const co = req.mcpCompany!;
+    const row = await AppDataSource.getRepository(Chart).findOneBy({
+      companyId: co.id,
+      slug: body.chartSlug,
+    });
+    if (!row) return res.status(404).json({ error: "Chart not found" });
+    res.json({ chart: serializeChart(row) });
+  },
+);
+
+const runChartMcpSchema = z
+  .object({
+    chartSlug: z.string().min(1).max(160),
+    maxRows: z.number().int().min(1).max(5000).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/run_chart",
+  validateBody(runChartMcpSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof runChartMcpSchema>;
+    const co = req.mcpCompany!;
+    const row = await AppDataSource.getRepository(Chart).findOneBy({
+      companyId: co.id,
+      slug: body.chartSlug,
+    });
+    if (!row) return res.status(404).json({ error: "Chart not found" });
+    const conn = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
+      id: row.connectionId,
+      companyId: co.id,
+    });
+    if (!conn) {
+      return res
+        .status(400)
+        .json({ error: "Chart's connection no longer exists" });
+    }
+    try {
+      const result = await runSqlAgainstConnection(conn, row.sql, {
+        maxRows: body.maxRows,
+      });
+      res.json(result);
+    } catch (err) {
+      res
+        .status(400)
+        .json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  },
+);
+
+const VIZ_ENUM_MCP = [
+  "table",
+  "scalar",
+  "bar",
+  "line",
+  "area",
+  "pie",
+] as [string, ...string[]];
+
+const createChartMcpSchema = z
+  .object({
+    title: z.string().min(1).max(200),
+    connectionId: z.string().uuid(),
+    sql: z.string().min(1).max(50_000),
+    description: z.string().max(2000).optional(),
+    vizType: z.enum(VIZ_ENUM_MCP).optional(),
+    vizConfig: z.record(z.unknown()).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/create_chart",
+  validateBody(createChartMcpSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof createChartMcpSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const conn = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
+      id: body.connectionId,
+      companyId: co.id,
+    });
+    if (!conn) return res.status(400).json({ error: "Unknown connection" });
+    if (!isExploreProvider(conn.provider)) {
+      return res
+        .status(400)
+        .json({ error: "Connection is not a supported Explore source" });
+    }
+    const repo = AppDataSource.getRepository(Chart);
+    const slug = await uniqueChartSlug(co.id, body.title);
+    const row = repo.create({
+      companyId: co.id,
+      title: body.title,
+      slug,
+      description: body.description ?? "",
+      connectionId: body.connectionId,
+      sql: body.sql,
+      vizType: (body.vizType ?? "table") as Chart["vizType"],
+      vizConfig: JSON.stringify(body.vizConfig ?? {}),
+      createdById: null,
+      createdByEmployeeId: self.id,
+    });
+    await repo.save(row);
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "chart.create",
+      targetType: "chart",
+      targetId: row.id,
+      targetLabel: row.title,
+      metadata: { via: "mcp", vizType: row.vizType },
+    });
+    await journal(self.id, `${self.name} created chart "${row.title}"`);
+    res.json({ chart: serializeChart(row) });
+  },
+);
+
+const updateChartMcpSchema = z
+  .object({
+    chartSlug: z.string().min(1).max(160),
+    title: z.string().min(1).max(200).optional(),
+    description: z.string().max(2000).optional(),
+    sql: z.string().min(1).max(50_000).optional(),
+    vizType: z.enum(VIZ_ENUM_MCP).optional(),
+    vizConfig: z.record(z.unknown()).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/update_chart",
+  validateBody(updateChartMcpSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof updateChartMcpSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const row = await AppDataSource.getRepository(Chart).findOneBy({
+      companyId: co.id,
+      slug: body.chartSlug,
+    });
+    if (!row) return res.status(404).json({ error: "Chart not found" });
+    if (body.title !== undefined) row.title = body.title;
+    if (body.description !== undefined) row.description = body.description;
+    if (body.sql !== undefined) row.sql = body.sql;
+    if (body.vizType !== undefined) row.vizType = body.vizType as Chart["vizType"];
+    if (body.vizConfig !== undefined) row.vizConfig = JSON.stringify(body.vizConfig);
+    await AppDataSource.getRepository(Chart).save(row);
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "chart.update",
+      targetType: "chart",
+      targetId: row.id,
+      targetLabel: row.title,
+      metadata: { via: "mcp" },
+    });
+    res.json({ chart: serializeChart(row) });
+  },
+);
+
+const deleteChartMcpSchema = z
+  .object({ chartSlug: z.string().min(1).max(160) })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/delete_chart",
+  validateBody(deleteChartMcpSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof deleteChartMcpSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const row = await AppDataSource.getRepository(Chart).findOneBy({
+      companyId: co.id,
+      slug: body.chartSlug,
+    });
+    if (!row) return res.status(404).json({ error: "Chart not found" });
+    await AppDataSource.getRepository(DashboardCard).delete({ chartId: row.id });
+    await AppDataSource.getRepository(Chart).delete({ id: row.id });
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "chart.delete",
+      targetType: "chart",
+      targetId: row.id,
+      targetLabel: row.title,
+      metadata: { via: "mcp" },
+    });
+    res.json({ ok: true });
+  },
+);
+
+const listDashboardsSchema = z.object({}).strict();
+
+mcpInternalRouter.post(
+  "/tools/list_dashboards",
+  validateBody(listDashboardsSchema),
+  async (req: McpRequest, res) => {
+    const co = req.mcpCompany!;
+    const rows = await AppDataSource.getRepository(Dashboard).find({
+      where: { companyId: co.id },
+      order: { updatedAt: "DESC" },
+    });
+    res.json({ dashboards: rows.map((r) => serializeDashboard(r)) });
+  },
+);
+
+const getDashboardSchema = z
+  .object({ dashboardSlug: z.string().min(1).max(160) })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/get_dashboard",
+  validateBody(getDashboardSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof getDashboardSchema>;
+    const co = req.mcpCompany!;
+    const row = await AppDataSource.getRepository(Dashboard).findOneBy({
+      companyId: co.id,
+      slug: body.dashboardSlug,
+    });
+    if (!row) return res.status(404).json({ error: "Dashboard not found" });
+    const cards = await AppDataSource.getRepository(DashboardCard).find({
+      where: { dashboardId: row.id },
+      order: { y: "ASC", x: "ASC" },
+    });
+    const chartIds = [...new Set(cards.map((c) => c.chartId))];
+    const charts = chartIds.length
+      ? await AppDataSource.getRepository(Chart).find({
+          where: { id: In(chartIds), companyId: co.id },
+        })
+      : [];
+    res.json({
+      dashboard: serializeDashboard(row),
+      cards: cards.map(serializeCard),
+      charts: charts.map(serializeChart),
+    });
+  },
+);
+
+const createDashboardMcpSchema = z
+  .object({
+    title: z.string().min(1).max(200),
+    description: z.string().max(2000).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/create_dashboard",
+  validateBody(createDashboardMcpSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof createDashboardMcpSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const repo = AppDataSource.getRepository(Dashboard);
+    const slug = await uniqueDashboardSlug(co.id, body.title);
+    const row = repo.create({
+      companyId: co.id,
+      title: body.title,
+      slug,
+      description: body.description ?? "",
+      createdById: null,
+      createdByEmployeeId: self.id,
+    });
+    await repo.save(row);
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "dashboard.create",
+      targetType: "dashboard",
+      targetId: row.id,
+      targetLabel: row.title,
+      metadata: { via: "mcp" },
+    });
+    await journal(self.id, `${self.name} created dashboard "${row.title}"`);
+    res.json({ dashboard: serializeDashboard(row) });
+  },
+);
+
+const addDashboardCardSchema = z
+  .object({
+    dashboardSlug: z.string().min(1).max(160),
+    chartSlug: z.string().min(1).max(160),
+    x: z.number().int().min(0).max(11).optional(),
+    y: z.number().int().min(0).max(10_000).optional(),
+    w: z.number().int().min(1).max(12).optional(),
+    h: z.number().int().min(1).max(40).optional(),
+    titleOverride: z.string().max(200).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/add_dashboard_card",
+  validateBody(addDashboardCardSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof addDashboardCardSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const dashboard = await AppDataSource.getRepository(Dashboard).findOneBy({
+      companyId: co.id,
+      slug: body.dashboardSlug,
+    });
+    if (!dashboard) return res.status(404).json({ error: "Dashboard not found" });
+    const chart = await AppDataSource.getRepository(Chart).findOneBy({
+      companyId: co.id,
+      slug: body.chartSlug,
+    });
+    if (!chart) return res.status(400).json({ error: "Unknown chart" });
+    let defaultY = 0;
+    if (body.y === undefined) {
+      const existing = await AppDataSource.getRepository(DashboardCard).find({
+        where: { dashboardId: dashboard.id },
+        order: { y: "DESC" },
+        take: 12,
+      });
+      defaultY = existing.reduce((m, c) => Math.max(m, c.y + c.h), 0);
+    }
+    const repo = AppDataSource.getRepository(DashboardCard);
+    const card = repo.create({
+      dashboardId: dashboard.id,
+      chartId: chart.id,
+      x: body.x ?? 0,
+      y: body.y ?? defaultY,
+      w: body.w ?? 6,
+      h: body.h ?? 4,
+      titleOverride: body.titleOverride ?? "",
+    });
+    await repo.save(card);
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "dashboard.card.add",
+      targetType: "dashboard",
+      targetId: dashboard.id,
+      targetLabel: dashboard.title,
+      metadata: { via: "mcp", chartId: chart.id },
+    });
+    res.json({ card: serializeCard(card) });
   },
 );

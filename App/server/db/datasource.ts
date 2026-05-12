@@ -75,6 +75,9 @@ import { Bill } from "./entities/Bill.js";
 import { BillLineItem } from "./entities/BillLineItem.js";
 import { BillPayment } from "./entities/BillPayment.js";
 import { BrowserSession } from "./entities/BrowserSession.js";
+import { Chart } from "./entities/Chart.js";
+import { Dashboard } from "./entities/Dashboard.js";
+import { DashboardCard } from "./entities/DashboardCard.js";
 
 const entities = [
   User,
@@ -148,6 +151,9 @@ const entities = [
   BillLineItem,
   BillPayment,
   BrowserSession,
+  Chart,
+  Dashboard,
+  DashboardCard,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)
