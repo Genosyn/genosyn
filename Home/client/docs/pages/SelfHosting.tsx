@@ -1,0 +1,200 @@
+import {
+  Callout,
+  Code,
+  DocLink,
+  H2,
+  H3,
+  KeyList,
+  LI,
+  P,
+  PageHeader,
+  Pre,
+  Strong,
+  UL,
+} from "@/docs/Prose";
+
+export function SelfHosting() {
+  return (
+    <>
+      <PageHeader
+        eyebrow="Self-hosting"
+        title="Configuration"
+        lead={
+          <>
+            One file: <Code>App/config.ts</Code>. No <Code>.env</Code>, no YAML
+            stack, no secret loader. Self-hosters edit one TypeScript object
+            with commented JSON shape — and that&apos;s the whole story.
+          </>
+        }
+      />
+
+      <Callout kind="warn" title="No .env, ever.">
+        Genosyn doesn&apos;t use <Code>dotenv</Code>, per-environment files, or
+        a config service. If a tutorial or PR adds one, it&apos;s wrong. There
+        is one config object; users override values in-place.
+      </Callout>
+
+      <H2 id="config-ts">config.ts</H2>
+      <P>
+        The shape, with the same comments you&apos;ll see in the file:
+      </P>
+      <Pre lang="ts">{`export const config = {
+  // Where all user-generated data lives.
+  dataDir: "./data",
+
+  db: {
+    // "sqlite" (default) or "postgres".
+    driver: "sqlite",
+    sqlitePath: "./data/app.sqlite",
+    postgresUrl: "",
+  },
+
+  // HTTP port + the URL the app should think it lives at.
+  port: 8471,
+  publicUrl: "http://localhost:8471",
+
+  // 32+ random bytes. Rotate to log everyone out.
+  sessionSecret: "change-me-in-production",
+
+  // Global SMTP fallback. Per-company EmailProvider rows take precedence.
+  smtp: {
+    host: "", port: 587, secure: false,
+    user: "", pass: "",
+    from: "Genosyn <no-reply@genosyn.local>",
+  },
+
+  // OAuth client credentials for integrations that need them.
+  integrations: {
+    google: { clientId: "", clientSecret: "" },
+    // ...
+  },
+} as const;`}</Pre>
+
+      <H2 id="db-driver">Switching to Postgres</H2>
+      <P>
+        Genosyn ships on SQLite by default — single file, zero install. To
+        switch to Postgres, flip the driver and point at a connection URL:
+      </P>
+      <Pre lang="ts">{`db: {
+  driver: "postgres",
+  sqlitePath: "",
+  postgresUrl: "postgresql://user:pass@host:5432/genosyn",
+},`}</Pre>
+      <P>
+        All entities and migrations work on both drivers. On startup Genosyn
+        calls <Code>AppDataSource.runMigrations()</Code> — any pending
+        migrations apply automatically.
+      </P>
+
+      <H2 id="data-dir">The data directory</H2>
+      <P>
+        Everything user-generated — the SQLite file, employee credentials,
+        materialized git checkouts, MCP configs, uploaded attachments — lives
+        under <Code>dataDir</Code>:
+      </P>
+      <pre className="mt-4 overflow-x-auto rounded-xl border border-zinc-200 bg-zinc-50 px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-zinc-700">
+        {`data/
+├── app.sqlite
+└── companies/<co-slug>/employees/<emp-slug>/
+    ├── .claude/   .codex/   .opencode/   .goose/   .openclaw/
+    ├── .mcp.json
+    ├── repos/<owner>/<name>/
+    └── ...`}
+      </pre>
+      <P>
+        In the Docker image, this is mounted at <Code>/app/data</Code>. The
+        installer maps a named volume <Code>genosyn-data</Code> there — back
+        that volume up and you&apos;ve backed up everything.
+      </P>
+
+      <H2 id="email">Email</H2>
+      <P>
+        Email transport is per-company: every <Code>Company</Code> can have one
+        or more <Code>EmailProvider</Code> rows. Supported transports today:
+      </P>
+      <UL>
+        <LI>
+          <Strong>SMTP</Strong> via <Code>nodemailer</Code>.
+        </LI>
+        <LI>
+          <Strong>SendGrid</Strong>, <Strong>Mailgun</Strong>,{" "}
+          <Strong>Resend</Strong>, <Strong>Postmark</Strong> — REST-based,
+          paste an API key.
+        </LI>
+      </UL>
+      <P>
+        If no per-company provider is configured, sends fall back to the
+        global SMTP block in <Code>config.ts</Code>. If that&apos;s blank too,
+        sends fall back to logging to the server console — useful for local
+        dev. Every send appends an <Code>EmailLog</Code> row you can read at{" "}
+        <Code>Settings → Email Logs</Code>.
+      </P>
+
+      <H2 id="secrets">Secrets</H2>
+      <P>
+        Three places store secrets, each for a different lifecycle:
+      </P>
+      <KeyList
+        rows={[
+          {
+            term: "sessionSecret",
+            def: (
+              <>
+                In <Code>config.ts</Code>. Used to sign cookies. Rotating it
+                invalidates every session.
+              </>
+            ),
+          },
+          {
+            term: "Connection config",
+            def: (
+              <>
+                Encrypted per-Connection blobs on{" "}
+                <Code>IntegrationConnection.encryptedConfig</Code>{" "}
+                (AES-256-GCM). Decrypted at tool-call time.
+              </>
+            ),
+          },
+          {
+            term: "Secret entity",
+            def: (
+              <>
+                Free-form encrypted key/value pairs scoped to a company,
+                editable from <Code>Settings → Secrets</Code>. Surfaced to
+                Pipelines.
+              </>
+            ),
+          },
+        ]}
+      />
+
+      <H2 id="backups">Backups</H2>
+      <P>
+        Use the CLI to tarball the data volume:
+      </P>
+      <Pre lang="bash">{`genosyn backup --out ~/backups/genosyn-$(date +%F).tar.gz
+genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
+      <P>
+        For an automated schedule, the in-app{" "}
+        <Code>BackupSchedule</Code> entity lets you configure recurring backups
+        per company. See <DocLink to="/docs/cli">CLI reference</DocLink> for
+        the flag list.
+      </P>
+
+      <H2 id="upgrading">Upgrading</H2>
+      <P>
+        <Code>genosyn upgrade</Code> pulls the latest image and recreates the
+        container, preserving the data volume. Or rerun the installer:
+      </P>
+      <Pre lang="bash">{`curl -fsSL https://genosyn.com/install.sh | bash`}</Pre>
+
+      <H3 id="ports-and-reverse-proxies">Ports and reverse proxies</H3>
+      <P>
+        The container listens on <Code>8471</Code>. Stick a reverse proxy
+        (Caddy, nginx, Traefik) in front of it for TLS and a real hostname.
+        Update <Code>publicUrl</Code> in <Code>config.ts</Code> so the app
+        generates absolute links correctly (invite emails, OAuth callbacks).
+      </P>
+    </>
+  );
+}

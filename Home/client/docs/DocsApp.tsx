@@ -1,0 +1,52 @@
+import { useEffect } from "react";
+import { usePathname } from "@/lib/router";
+import { DocsShell } from "@/docs/DocsShell";
+import { findPageMeta } from "@/docs/nav";
+import { Introduction } from "@/docs/pages/Introduction";
+import { Install } from "@/docs/pages/Install";
+import { Employees } from "@/docs/pages/Employees";
+import { Soul } from "@/docs/pages/Soul";
+import { Skills } from "@/docs/pages/Skills";
+import { Routines } from "@/docs/pages/Routines";
+import { Models } from "@/docs/pages/Models";
+import { Integrations } from "@/docs/pages/Integrations";
+import { SelfHosting } from "@/docs/pages/SelfHosting";
+import { Cli } from "@/docs/pages/Cli";
+import { Vocabulary } from "@/docs/pages/Vocabulary";
+import { NotFound } from "@/docs/pages/NotFound";
+
+const PAGES: Record<string, () => JSX.Element> = {
+  "/docs": Introduction,
+  "/docs/install": Install,
+  "/docs/employees": Employees,
+  "/docs/soul": Soul,
+  "/docs/skills": Skills,
+  "/docs/routines": Routines,
+  "/docs/models": Models,
+  "/docs/integrations": Integrations,
+  "/docs/self-hosting": SelfHosting,
+  "/docs/cli": Cli,
+  "/docs/vocabulary": Vocabulary,
+};
+
+function normalizePath(pathname: string): string {
+  const trimmed = pathname.replace(/\/+$/, "");
+  return trimmed === "" ? "/docs" : trimmed;
+}
+
+export function DocsApp() {
+  const path = normalizePath(usePathname());
+  const Page = PAGES[path] ?? NotFound;
+  const meta = findPageMeta(path);
+
+  useEffect(() => {
+    const suffix = meta ? `${meta.title} · Genosyn Docs` : "Genosyn Docs";
+    document.title = suffix;
+  }, [meta]);
+
+  return (
+    <DocsShell pathname={path}>
+      <Page />
+    </DocsShell>
+  );
+}

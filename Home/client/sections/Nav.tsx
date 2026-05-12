@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { Github, Menu, X } from "lucide-react";
 import { GITHUB_URL } from "@/lib/constants";
 import { Logo } from "@/components/Logo";
+import { Link } from "@/lib/router";
 
 const LINKS = [
   { href: "#primitives", label: "How it works" },
   { href: "#platform", label: "Tools" },
   { href: "#quickstart", label: "Install" },
+  { href: "/docs", label: "Docs" },
   { href: "#cli", label: "CLI" },
 ];
 
@@ -30,19 +32,19 @@ export function Nav() {
       }`}
     >
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-6 px-6">
-        <a href="/" className="flex items-center text-zinc-950" aria-label="Genosyn">
+        <Link href="/" className="flex items-center text-zinc-950" aria-label="Genosyn">
           <Logo className="h-7 w-auto" />
-        </a>
+        </Link>
 
         <nav className="hidden items-center gap-1 md:flex">
           {LINKS.map((l) => (
-            <a
+            <Link
               key={l.href}
               href={l.href}
               className="rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 transition hover:bg-zinc-50 hover:text-zinc-950"
             >
               {l.label}
-            </a>
+            </Link>
           ))}
         </nav>
 
@@ -78,14 +80,14 @@ export function Nav() {
         <div className="border-t border-zinc-200 bg-white md:hidden">
           <nav className="mx-auto flex max-w-7xl flex-col gap-1 px-6 py-3">
             {LINKS.map((l) => (
-              <a
+              <Link
                 key={l.href}
                 href={l.href}
                 onClick={() => setOpen(false)}
                 className="rounded-md px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
               >
                 {l.label}
-              </a>
+              </Link>
             ))}
             <a
               href={GITHUB_URL}

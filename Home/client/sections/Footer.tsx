@@ -1,6 +1,7 @@
 import { ArrowRight, Github, Terminal } from "lucide-react";
 import { GITHUB_URL, ROADMAP_URL } from "@/lib/constants";
 import { Logo } from "@/components/Logo";
+import { Link } from "@/lib/router";
 
 const ISSUES_URL = `${GITHUB_URL}/issues`;
 
@@ -63,6 +64,9 @@ export function Footer() {
             <span>© {new Date().getFullYear()} HackerBay, Inc. · Built in the open.</span>
           </div>
           <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+            <Link href="/docs" className="hover:text-zinc-900">
+              Docs
+            </Link>
             <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="hover:text-zinc-900">
               GitHub
             </a>
@@ -75,7 +79,7 @@ export function Footer() {
             <a href="/install.sh" className="hover:text-zinc-900">
               install.sh
             </a>
-            <span className="font-mono text-zinc-400">v0.3.1</span>
+            <span className="font-mono text-zinc-400">v{__APP_VERSION__}</span>
           </nav>
         </div>
         <p className="mt-6 text-center text-[11px] leading-relaxed text-zinc-400 sm:text-left">
