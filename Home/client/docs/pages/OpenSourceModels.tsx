@@ -161,20 +161,15 @@ llama-server \\
 
       <H2 id="wire-into-genosyn">Step 2 — Wire it into Genosyn</H2>
       <P>
-        From the app:
+        From the app, either during the hire wizard (Step 2: Model) or
+        afterwards at <Code>Settings → AI Model</Code>:
       </P>
       <OL>
         <LI>
-          Open the AI Employee, go to <Code>Settings → AI Model</Code>.
-        </LI>
-        <LI>
-          <Strong>Pick the harness</Strong>. Auth mode →{" "}
-          <Code>Custom OpenAI-compatible endpoint</Code>. The provider
-          dropdown will narrow to <Code>opencode</Code> and <Code>goose</Code>.
-          See below for which to pick.
-        </LI>
-        <LI>
-          Click <Code>Continue</Code>. The connect panel appears.
+          Click the <Code>Custom OpenAI-compatible endpoint</Code> auth-mode
+          tile. The harness flips to <Code>opencode</Code> automatically
+          (you can switch to <Code>goose</Code> from the Harness
+          dropdown — see below for which to pick).
         </LI>
         <LI>
           <Strong>Base URL</Strong>: <Code>http://host.docker.internal:11434/v1</Code>{" "}
@@ -190,8 +185,8 @@ llama-server \\
           llama.cpp. Most local servers ignore the key entirely.
         </LI>
         <LI>
-          Click <Code>Save &amp; connect</Code>. That&apos;s it — the next
-          chat or routine run hits your endpoint.
+          Click <Code>Continue</Code>. That&apos;s it — the next chat or
+          routine run hits your endpoint.
         </LI>
       </OL>
 

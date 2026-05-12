@@ -1800,6 +1800,11 @@ function ModelForm({
   const [modelStr, setModelStr] = React.useState(initial.model);
   const [authMode, setAuthMode] = React.useState<AuthMode>(initial.authMode);
   const [saving, setSaving] = React.useState(false);
+  // customEndpoint inputs live on the same form so onboarding is one submit —
+  // no Continue intermediate, no "now configure the endpoint" surprise.
+  const [baseURL, setBaseURL] = React.useState("");
+  const [modelId, setModelId] = React.useState("");
+  const [apiKey, setApiKey] = React.useState("");
   const { toast } = useToast();
   const supportsApiKey = PROVIDER_DEFAULTS[provider].supportsApiKey;
   const supportsSubscription = PROVIDER_DEFAULTS[provider].supportsSubscription;
@@ -1813,6 +1818,19 @@ function ModelForm({
     }
   }, [supportsApiKey, supportsSubscription, supportsCustomEndpoint, authMode]);
 
+  // Clicking the customEndpoint tile while on a provider that doesn't host it
+  // (claude-code / codex / openclaw) is a clear signal of intent — flip to
+  // opencode (the default harness) instead of greying the tile out.
+  const pickCustomEndpoint = () => {
+    if (supportsCustomEndpoint) {
+      setAuthMode("customEndpoint");
+      return;
+    }
+    setProvider("opencode");
+    setModelStr(PROVIDER_DEFAULTS["opencode"].model);
+    setAuthMode("customEndpoint");
+  };
+
   return (
     <form
       className="flex flex-col gap-4"
@@ -1820,15 +1838,32 @@ function ModelForm({
         e.preventDefault();
         setSaving(true);
         try {
-          // For customEndpoint we send a placeholder model so the PUT
-          // schema's `min(1)` passes. The real model id is set by the
-          // CustomEndpointPanel that renders after this save.
-          const slug = provider === "opencode" ? "local" : "openai";
-          const modelToSend =
-            authMode === "customEndpoint" ? `${slug}/configure` : modelStr;
+          if (authMode === "customEndpoint") {
+            // Two-call save: first the model row in customEndpoint mode (PUT
+            // schema requires a non-empty model — a slug/configure placeholder
+            // satisfies it and gets rewritten in the POST below), then the
+            // encrypted endpoint config that flips status to connected.
+            const slug = provider === "opencode" ? "local" : "openai";
+            await api.put(`/api/companies/${company.id}/employees/${emp.id}/model`, {
+              provider,
+              model: `${slug}/configure`,
+              authMode: "customEndpoint",
+            });
+            await api.post(
+              `/api/companies/${company.id}/employees/${emp.id}/model/custom-endpoint`,
+              {
+                baseURL,
+                modelId,
+                ...(apiKey ? { apiKey } : {}),
+              },
+            );
+            setApiKey("");
+            onSaved();
+            return;
+          }
           await api.put(`/api/companies/${company.id}/employees/${emp.id}/model`, {
             provider,
-            model: modelToSend,
+            model: modelStr,
             authMode,
           });
           onSaved();
@@ -1902,20 +1937,59 @@ function ModelForm({
           />
           <AuthModeChoice
             active={authMode === "customEndpoint"}
-            onClick={() => supportsCustomEndpoint && setAuthMode("customEndpoint")}
-            disabled={!supportsCustomEndpoint}
+            onClick={pickCustomEndpoint}
+            disabled={false}
             icon={<Server size={16} />}
             title="Custom OpenAI-compatible endpoint"
             description={
               supportsCustomEndpoint
                 ? "Point this employee at a self-hosted server — Ollama, vLLM, llama.cpp, LM Studio."
-                : "Pick opencode or goose as the harness to enable."
+                : "Click to switch to opencode and connect a self-hosted server."
             }
           />
         </div>
       </div>
+      {authMode === "customEndpoint" && (
+        <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Input
+              label="Base URL"
+              value={baseURL}
+              onChange={(e) => setBaseURL(e.target.value)}
+              placeholder={baseUrlPlaceholder(provider)}
+              required
+            />
+            <Input
+              label="Model id"
+              value={modelId}
+              onChange={(e) => setModelId(e.target.value)}
+              placeholder="qwen2.5-coder:32b"
+              required
+            />
+          </div>
+          <Input
+            label="API key (optional — most local servers ignore this)"
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder="leave blank if not needed"
+          />
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            Routed through <span className="font-medium">{provider}</span>. We
+            materialize its config before each spawn — the user never has to
+            run a CLI command. Base URL + key are stored encrypted at rest.
+          </div>
+        </div>
+      )}
       <div>
-        <Button type="submit" disabled={saving}>
+        <Button
+          type="submit"
+          disabled={
+            saving ||
+            (authMode === "customEndpoint" &&
+              (baseURL.trim().length === 0 || modelId.trim().length === 0))
+          }
+        >
           {saving ? "Saving…" : submitLabel}
         </Button>
       </div>
