@@ -110,13 +110,22 @@ import { Dashboard } from "../db/entities/Dashboard.js";
 import { DashboardCard } from "../db/entities/DashboardCard.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import {
+  deleteGrantsForChart,
+  grantChartToAllEmployees,
+  grantDashboardToAllEmployees,
+  hasChartAccess,
+  hasDashboardAccess,
   isExploreProvider,
+  listAccessibleChartIds,
+  listAccessibleDashboardIds,
   runSqlAgainstConnection,
   serializeCard,
   serializeChart,
   serializeDashboard,
   uniqueChartSlug,
   uniqueDashboardSlug,
+  upsertChartGrant,
+  upsertDashboardGrant,
 } from "../services/explore.js";
 
 /**
@@ -4255,8 +4264,11 @@ mcpInternalRouter.post(
   validateBody(listChartsSchema),
   async (req: McpRequest, res) => {
     const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const accessible = await listAccessibleChartIds(self.id);
+    if (accessible.size === 0) return res.json({ charts: [] });
     const rows = await AppDataSource.getRepository(Chart).find({
-      where: { companyId: co.id },
+      where: { companyId: co.id, id: In([...accessible]) },
       order: { updatedAt: "DESC" },
     });
     res.json({ charts: rows.map((r) => serializeChart(r)) });
@@ -4273,11 +4285,15 @@ mcpInternalRouter.post(
   async (req: McpRequest, res) => {
     const body = req.body as z.infer<typeof getChartSchema>;
     const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
     const row = await AppDataSource.getRepository(Chart).findOneBy({
       companyId: co.id,
       slug: body.chartSlug,
     });
     if (!row) return res.status(404).json({ error: "Chart not found" });
+    if (!(await hasChartAccess(self.id, row.id, "read"))) {
+      return res.status(403).json({ error: "No access to that chart" });
+    }
     res.json({ chart: serializeChart(row) });
   },
 );
@@ -4295,11 +4311,15 @@ mcpInternalRouter.post(
   async (req: McpRequest, res) => {
     const body = req.body as z.infer<typeof runChartMcpSchema>;
     const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
     const row = await AppDataSource.getRepository(Chart).findOneBy({
       companyId: co.id,
       slug: body.chartSlug,
     });
     if (!row) return res.status(404).json({ error: "Chart not found" });
+    if (!(await hasChartAccess(self.id, row.id, "read"))) {
+      return res.status(403).json({ error: "No access to that chart" });
+    }
     const conn = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
       id: row.connectionId,
       companyId: co.id,
@@ -4374,6 +4394,9 @@ mcpInternalRouter.post(
       createdByEmployeeId: self.id,
     });
     await repo.save(row);
+    // Seed grants: read for the team, write for the author.
+    await grantChartToAllEmployees(co.id, row.id);
+    await upsertChartGrant(self.id, row.id, "write");
     await recordAudit({
       companyId: co.id,
       actorEmployeeId: self.id,
@@ -4411,6 +4434,11 @@ mcpInternalRouter.post(
       slug: body.chartSlug,
     });
     if (!row) return res.status(404).json({ error: "Chart not found" });
+    if (!(await hasChartAccess(self.id, row.id, "write"))) {
+      return res
+        .status(403)
+        .json({ error: "Write access required to edit that chart" });
+    }
     if (body.title !== undefined) row.title = body.title;
     if (body.description !== undefined) row.description = body.description;
     if (body.sql !== undefined) row.sql = body.sql;
@@ -4446,7 +4474,13 @@ mcpInternalRouter.post(
       slug: body.chartSlug,
     });
     if (!row) return res.status(404).json({ error: "Chart not found" });
+    if (!(await hasChartAccess(self.id, row.id, "write"))) {
+      return res
+        .status(403)
+        .json({ error: "Write access required to delete that chart" });
+    }
     await AppDataSource.getRepository(DashboardCard).delete({ chartId: row.id });
+    await deleteGrantsForChart(row.id);
     await AppDataSource.getRepository(Chart).delete({ id: row.id });
     await recordAudit({
       companyId: co.id,
@@ -4468,8 +4502,11 @@ mcpInternalRouter.post(
   validateBody(listDashboardsSchema),
   async (req: McpRequest, res) => {
     const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const accessible = await listAccessibleDashboardIds(self.id);
+    if (accessible.size === 0) return res.json({ dashboards: [] });
     const rows = await AppDataSource.getRepository(Dashboard).find({
-      where: { companyId: co.id },
+      where: { companyId: co.id, id: In([...accessible]) },
       order: { updatedAt: "DESC" },
     });
     res.json({ dashboards: rows.map((r) => serializeDashboard(r)) });
@@ -4486,24 +4523,36 @@ mcpInternalRouter.post(
   async (req: McpRequest, res) => {
     const body = req.body as z.infer<typeof getDashboardSchema>;
     const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
     const row = await AppDataSource.getRepository(Dashboard).findOneBy({
       companyId: co.id,
       slug: body.dashboardSlug,
     });
     if (!row) return res.status(404).json({ error: "Dashboard not found" });
+    if (!(await hasDashboardAccess(self.id, row.id, "read"))) {
+      return res.status(403).json({ error: "No access to that dashboard" });
+    }
     const cards = await AppDataSource.getRepository(DashboardCard).find({
       where: { dashboardId: row.id },
       order: { y: "ASC", x: "ASC" },
     });
     const chartIds = [...new Set(cards.map((c) => c.chartId))];
-    const charts = chartIds.length
+    // Hide cards whose underlying Chart this employee can't read. A
+    // dashboard read grant is not transitive to its charts — without
+    // this we'd leak the SQL/data behind a chart the human meant to
+    // scope tighter.
+    const allCharts = chartIds.length
       ? await AppDataSource.getRepository(Chart).find({
           where: { id: In(chartIds), companyId: co.id },
         })
       : [];
+    const accessibleChartIds = await listAccessibleChartIds(self.id);
+    const charts = allCharts.filter((c) => accessibleChartIds.has(c.id));
+    const visibleChartIdSet = new Set(charts.map((c) => c.id));
+    const visibleCards = cards.filter((c) => visibleChartIdSet.has(c.chartId));
     res.json({
       dashboard: serializeDashboard(row),
-      cards: cards.map(serializeCard),
+      cards: visibleCards.map(serializeCard),
       charts: charts.map(serializeChart),
     });
   },
@@ -4534,6 +4583,8 @@ mcpInternalRouter.post(
       createdByEmployeeId: self.id,
     });
     await repo.save(row);
+    await grantDashboardToAllEmployees(co.id, row.id);
+    await upsertDashboardGrant(self.id, row.id, "write");
     await recordAudit({
       companyId: co.id,
       actorEmployeeId: self.id,
@@ -4572,11 +4623,21 @@ mcpInternalRouter.post(
       slug: body.dashboardSlug,
     });
     if (!dashboard) return res.status(404).json({ error: "Dashboard not found" });
+    if (!(await hasDashboardAccess(self.id, dashboard.id, "write"))) {
+      return res
+        .status(403)
+        .json({ error: "Write access required to edit that dashboard" });
+    }
     const chart = await AppDataSource.getRepository(Chart).findOneBy({
       companyId: co.id,
       slug: body.chartSlug,
     });
     if (!chart) return res.status(400).json({ error: "Unknown chart" });
+    if (!(await hasChartAccess(self.id, chart.id, "read"))) {
+      return res
+        .status(403)
+        .json({ error: "Read access on the chart is required to pin it" });
+    }
     let defaultY = 0;
     if (body.y === undefined) {
       const existing = await AppDataSource.getRepository(DashboardCard).find({

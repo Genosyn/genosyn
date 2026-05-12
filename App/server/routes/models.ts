@@ -11,6 +11,12 @@ import { ensureDir } from "../services/paths.js";
 import { PROVIDERS, isCliInstalled, isModelConnected } from "../services/providers.js";
 import { removeDir } from "../services/files.js";
 import { encryptSecret, maskSecret } from "../lib/secret.js";
+import {
+  CUSTOM_GOOSE_PROVIDER_SLUG,
+  CUSTOM_OPENCODE_PROVIDER_SLUG,
+  clearHarnessCacheDir,
+  previewBaseURL,
+} from "../services/customEndpoint.js";
 import { recordAudit } from "../services/audit.js";
 import {
   createPtySession,
@@ -31,14 +37,14 @@ modelsRouter.use(requireAuth);
 modelsRouter.use(requireCompanyMember);
 
 const providerSchema = z.enum(["claude-code", "codex", "opencode", "goose", "openclaw"]);
-const authModeSchema = z.enum(["subscription", "apikey"]);
+const authModeSchema = z.enum(["subscription", "apikey", "customEndpoint"]);
 
 type PublicModel = {
   id: string;
   employeeId: string;
   provider: "claude-code" | "codex" | "opencode" | "goose" | "openclaw";
   model: string;
-  authMode: "subscription" | "apikey";
+  authMode: "subscription" | "apikey" | "customEndpoint";
   connectedAt: string | null;
   status: "not_connected" | "connected";
   apiKeyMasked: string | null;
@@ -54,6 +60,14 @@ type PublicModel = {
   supportsApiKey: boolean;
   /** Does this provider support the "Sign in with subscription" flow at all? */
   supportsSubscription: boolean;
+  /** Does this provider support a custom OpenAI-compatible endpoint (UI-driven)? */
+  supportsCustomEndpoint: boolean;
+  /** Host-only preview of the configured base URL — `null` when unset. */
+  customEndpointHost: string | null;
+  /** The raw model id stored on configJson (e.g. "qwen2.5-coder:32b") — `null` when unset. */
+  customEndpointModelId: string | null;
+  /** True if a custom-endpoint API key is on file (we never echo the plaintext). */
+  customEndpointHasApiKey: boolean;
   /** True if the provider's CLI binary resolves on PATH right now. */
   cliInstalled: boolean;
 };
@@ -74,6 +88,12 @@ function toPublic(m: AIModel, co: Company, emp: AIEmployee): PublicModel {
   const apiKeyEncrypted = typeof cfg.apiKeyEncrypted === "string"
     ? (cfg.apiKeyEncrypted as string)
     : null;
+  const customEndpointHost = typeof cfg.baseURLPreview === "string"
+    ? (cfg.baseURLPreview as string)
+    : null;
+  const customEndpointModelId = typeof cfg.modelId === "string"
+    ? (cfg.modelId as string)
+    : null;
   const spec = PROVIDERS[m.provider];
   const connected = isModelConnected(m, co, emp);
   return {
@@ -91,6 +111,10 @@ function toPublic(m: AIModel, co: Company, emp: AIEmployee): PublicModel {
     apiKeyEnv: spec.apiKeyEnv,
     supportsApiKey: spec.supportsApiKey,
     supportsSubscription: spec.supportsSubscription,
+    supportsCustomEndpoint: spec.supportsCustomEndpoint,
+    customEndpointHost,
+    customEndpointModelId,
+    customEndpointHasApiKey: m.authMode === "customEndpoint" && Boolean(apiKeyEncrypted),
     cliInstalled: isCliInstalled(m.provider),
   };
 }
@@ -138,6 +162,11 @@ modelsRouter.put("/", validateBody(upsertSchema), async (req, res) => {
     return res
       .status(400)
       .json({ error: `${body.provider} doesn't support subscription auth — use an API key.` });
+  }
+  if (body.authMode === "customEndpoint" && !PROVIDERS[body.provider].supportsCustomEndpoint) {
+    return res.status(400).json({
+      error: `${body.provider} can't host a custom OpenAI-compatible endpoint — pick opencode or goose.`,
+    });
   }
   const repo = AppDataSource.getRepository(AIModel);
   let m = await repo.findOneBy({ employeeId: ctx.emp.id });
@@ -219,6 +248,93 @@ modelsRouter.post("/apikey", validateBody(apiKeySchema), async (req, res) => {
   });
   res.json(toPublic(m, ctx.co, ctx.emp));
 });
+
+// POST /api/companies/:cid/employees/:eid/model/custom-endpoint
+//
+// Save (or update) a custom OpenAI-compatible endpoint configuration.
+// The model row must already be in customEndpoint authMode (set via PUT /).
+// The base URL is required; the API key is optional (most local LLMs don't
+// enforce one). modelId is the raw model name the upstream server exposes
+// (e.g. "qwen2.5-coder:32b") — we synthesize the harness-side
+// `<provider>/<model>` string when we save to AIModel.model so the
+// existing buildInvocation path doesn't need to know about customEndpoint.
+const customEndpointSchema = z.object({
+  baseURL: z
+    .string()
+    .trim()
+    .min(1)
+    .max(500)
+    .refine((s) => {
+      try {
+        const u = new URL(s);
+        return u.protocol === "http:" || u.protocol === "https:";
+      } catch {
+        return false;
+      }
+    }, "baseURL must be an http(s) URL"),
+  modelId: z.string().trim().min(1).max(200),
+  apiKey: z.string().trim().min(1).max(500).optional(),
+});
+
+modelsRouter.post(
+  "/custom-endpoint",
+  validateBody(customEndpointSchema),
+  async (req, res) => {
+    const p = req.params as Record<string, string>;
+    const ctx = await loadContext(p.cid, p.eid);
+    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+    const repo = AppDataSource.getRepository(AIModel);
+    const m = await repo.findOneBy({ employeeId: ctx.emp.id });
+    if (!m) return res.status(404).json({ error: "Configure provider/model first" });
+    if (m.authMode !== "customEndpoint") {
+      return res.status(400).json({ error: "Model is not in custom-endpoint mode" });
+    }
+    if (!PROVIDERS[m.provider].supportsCustomEndpoint) {
+      return res.status(400).json({
+        error: `${m.provider} can't host a custom OpenAI-compatible endpoint.`,
+      });
+    }
+    const { baseURL, modelId, apiKey } = req.body as z.infer<typeof customEndpointSchema>;
+    const cfg = safeParseConfig(m.configJson);
+    cfg.baseURLEncrypted = encryptSecret(baseURL);
+    cfg.baseURLPreview = previewBaseURL(baseURL);
+    cfg.modelId = modelId;
+    if (apiKey) {
+      cfg.apiKeyEncrypted = encryptSecret(apiKey);
+      cfg.apiKeyPreview = maskSecret(apiKey);
+    } else {
+      // Clear any previously-set key so toggling apiKey off actually unsets it.
+      delete cfg.apiKeyEncrypted;
+      delete cfg.apiKeyPreview;
+    }
+    m.configJson = JSON.stringify(cfg);
+    // Mirror the harness-prefixed string into AIModel.model so the existing
+    // invocation path (which passes model.model to `--model`) just works.
+    const slug =
+      m.provider === "opencode" ? CUSTOM_OPENCODE_PROVIDER_SLUG : CUSTOM_GOOSE_PROVIDER_SLUG;
+    m.model = `${slug}/${modelId}`;
+    m.connectedAt = new Date();
+    // Wipe any stale subscription/apikey state lying in the harness cache dir.
+    // Spawn-time materializers re-create whatever the runner needs.
+    clearHarnessCacheDir(m.provider, ctx.co.slug, ctx.emp.slug);
+    await repo.save(m);
+    await recordAudit({
+      companyId: ctx.co.id,
+      actorUserId: req.userId ?? null,
+      action: "model.customEndpoint.set",
+      targetType: "employee",
+      targetId: ctx.emp.id,
+      targetLabel: ctx.emp.name,
+      metadata: {
+        provider: m.provider,
+        host: cfg.baseURLPreview,
+        modelId,
+        hasApiKey: Boolean(apiKey),
+      },
+    });
+    res.json(toPublic(m, ctx.co, ctx.emp));
+  },
+);
 
 // POST /api/companies/:cid/employees/:eid/model/refresh
 // For subscription mode: re-check whether the creds file has appeared.

@@ -6,9 +6,11 @@ import {
   LineChart as LineIcon,
   Play,
   Save,
+  Share2,
   Table,
   Trash2,
 } from "lucide-react";
+import { ExploreShareModal } from "./ExploreShareModal";
 import { api, Company } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
@@ -97,6 +99,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
   const [running, setRunning] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [dirty, setDirty] = React.useState(false);
+  const [sharing, setSharing] = React.useState(false);
 
   // Load connections once.
   React.useEffect(() => {
@@ -300,6 +303,11 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
         />
         <div className="flex items-center gap-2">
           {!isNew && (
+            <Button variant="secondary" size="sm" onClick={() => setSharing(true)}>
+              <Share2 size={14} /> Share
+            </Button>
+          )}
+          {!isNew && (
             <Button variant="ghost" size="sm" onClick={destroy}>
               <Trash2 size={14} className="text-red-500" />
             </Button>
@@ -445,6 +453,16 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
           )}
         </div>
       </div>
+      {!isNew && (
+        <ExploreShareModal
+          open={sharing}
+          onClose={() => setSharing(false)}
+          companyId={company.id}
+          kind="chart"
+          slug={slug}
+          rowTitle={title}
+        />
+      )}
     </div>
   );
 }

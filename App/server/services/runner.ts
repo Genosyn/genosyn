@@ -12,6 +12,13 @@ import { nextRunFor } from "./cron.js";
 import { PROVIDERS, isSubscriptionConnected, splitGooseModel } from "./providers.js";
 import { decryptSecret } from "../lib/secret.js";
 import { materializeMcpConfig } from "./mcp.js";
+import {
+  buildGooseCustomEndpointEnv,
+  buildOpencodeProviderBlock,
+  materializeGooseCustomEndpoint,
+  materializeOpencodeCustomEndpoint,
+  readCustomEndpoint,
+} from "./customEndpoint.js";
 import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
@@ -169,6 +176,13 @@ export async function startRoutineRun(
       // this employee's behalf for the duration of the run. Revoked in `finally`
       // so a killed run doesn't leave a usable token behind.
       const mcpToken = issueMcpToken(emp.id, co.id);
+      const opencodeCustomProvider =
+        model.provider === "opencode" && model.authMode === "customEndpoint"
+          ? (() => {
+              const cep = readCustomEndpoint(model);
+              return cep ? buildOpencodeProviderBlock(cep) : undefined;
+            })()
+          : undefined;
       const mcpExtras = await materializeMcpConfig(emp.id, cwd, {
         genosynToken: mcpToken,
         provider: model.provider,
@@ -176,6 +190,7 @@ export async function startRoutineRun(
         employeeSlug: emp.slug,
         routineId: routine.id,
         runId: saved.id,
+        opencodeCustomProvider,
       });
       // goose returns extra CLI flags + env (it has no config file we can write
       // without clobbering `goose configure`'s state). Other providers return
@@ -396,6 +411,48 @@ function buildProviderEnv(
       if (gm) env.GOOSE_MODEL = gm;
     }
     return { env };
+  }
+
+  if (model.authMode === "customEndpoint") {
+    if (!spec.supportsCustomEndpoint) {
+      return {
+        error: `${model.provider} doesn't support custom OpenAI-compatible endpoints — pick opencode or goose.`,
+      };
+    }
+    const cfg = readCustomEndpoint(model);
+    if (!cfg) {
+      return {
+        error: "Custom endpoint isn't fully configured. Open the model settings and re-enter the base URL.",
+      };
+    }
+    if (model.provider === "opencode") {
+      // XDG_DATA_HOME points at the employee's `.opencode` dir so auth.json
+      // lands at `.opencode/opencode/auth.json` where opencode expects it.
+      // The matching `provider` block goes into `opencode.json` at the cwd —
+      // see materializeOpencodeCustomEndpoint + the call below to
+      // materializeMcpConfig with `opencodeCustomProvider`.
+      materializeOpencodeCustomEndpoint(coSlug, empSlug, cfg);
+      const env: NodeJS.ProcessEnv = {
+        ...base,
+        [spec.configDirEnv]: spec.configDir(coSlug, empSlug),
+      };
+      return { env };
+    }
+    if (model.provider === "goose") {
+      // Goose refuses to start if GOOSE_PROVIDER references a provider not
+      // listed in config.yaml — so we materialize the minimal YAML before
+      // injecting env vars. Both have to be in place every spawn (the user
+      // can rewrite the model on the row without changing auth mode).
+      materializeGooseCustomEndpoint(coSlug, empSlug, cfg);
+      const env: NodeJS.ProcessEnv = {
+        ...base,
+        [spec.configDirEnv]: spec.configDir(coSlug, empSlug),
+        GOOSE_DISABLE_KEYRING: "1",
+        ...buildGooseCustomEndpointEnv(cfg),
+      };
+      return { env };
+    }
+    return { error: `${model.provider} can't host a customEndpoint configuration.` };
   }
 
   // apikey mode

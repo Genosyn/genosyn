@@ -84,6 +84,16 @@ type OpenCodeConfigFile = {
     edit?: "allow" | "ask" | "deny";
     webfetch?: "allow" | "ask" | "deny";
   };
+  /** Synthetic provider declarations for customEndpoint auth mode. Same
+   * shape opencode expects when a user adds a custom provider by hand. */
+  provider?: Record<
+    string,
+    {
+      npm: string;
+      options: { baseURL: string };
+      models: Record<string, Record<string, never>>;
+    }
+  >;
 };
 
 /**
@@ -334,6 +344,13 @@ export async function materializeMcpConfig(
     conversationId?: string;
     /** When routine-spawned, the live-view session is keyed to this run. */
     runId?: string;
+    /**
+     * Synthetic `provider` block to splice into opencode.json when the
+     * employee's AIModel is in `customEndpoint` mode. Built upstream by
+     * `services/customEndpoint.ts` so this file doesn't have to know
+     * about the auth-mode plumbing. Ignored for non-opencode providers.
+     */
+    opencodeCustomProvider?: OpenCodeConfigFile["provider"];
   } = {},
 ): Promise<McpInvocationExtras> {
   const provider = options.provider ?? "claude-code";
@@ -376,7 +393,13 @@ export async function materializeMcpConfig(
       return empty;
     }
     case "opencode":
-      writeOpencodeConfig(cwd, userServers, options.genosynToken, browser);
+      writeOpencodeConfig(
+        cwd,
+        userServers,
+        options.genosynToken,
+        browser,
+        options.opencodeCustomProvider,
+      );
       return empty;
     case "goose":
       return buildGooseExtras(userServers, options.genosynToken, browser);
@@ -643,6 +666,7 @@ function writeOpencodeConfig(
   userServers: NormalizedServer[],
   token: string | undefined,
   browser: BrowserConfig,
+  customProvider?: OpenCodeConfigFile["provider"],
 ): void {
   const target = path.join(cwd, "opencode.json");
   const file: OpenCodeConfigFile = {
@@ -714,6 +738,16 @@ function writeOpencodeConfig(
   // bash / edit / webfetch tool call.
   if (Object.keys(file.mcp!).length === 0) {
     delete file.mcp;
+  }
+
+  // Splice in the customEndpoint provider declaration when the employee's
+  // AIModel is configured for a custom OpenAI-compatible endpoint. The
+  // block is built by services/customEndpoint.ts (provider slug + base URL
+  // + model id) and gets dropped straight into opencode's `provider`
+  // top-level field — same shape opencode reads when a user adds a custom
+  // provider by hand.
+  if (customProvider && Object.keys(customProvider).length > 0) {
+    file.provider = customProvider;
   }
 
   fs.writeFileSync(target, JSON.stringify(file, null, 2), "utf8");

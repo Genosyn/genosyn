@@ -9,6 +9,13 @@ import { PROVIDERS, isSubscriptionConnected, splitGooseModel } from "./providers
 import { decryptSecret } from "../lib/secret.js";
 import { materializeMcpConfig } from "./mcp.js";
 import {
+  buildGooseCustomEndpointEnv,
+  buildOpencodeProviderBlock,
+  materializeGooseCustomEndpoint,
+  materializeOpencodeCustomEndpoint,
+  readCustomEndpoint,
+} from "./customEndpoint.js";
+import {
   drainAttachmentsForToken,
   issueMcpToken,
   revokeMcpToken,
@@ -131,12 +138,20 @@ export async function streamChatWithEmployee(
   // this employee's behalf for the duration of the CLI spawn. Revoked in
   // `finally` so it doesn't linger in memory past the reply.
   const mcpToken = issueMcpToken(emp.id, co.id);
+  const opencodeCustomProvider =
+    model.provider === "opencode" && model.authMode === "customEndpoint"
+      ? (() => {
+          const cep = readCustomEndpoint(model);
+          return cep ? buildOpencodeProviderBlock(cep) : undefined;
+        })()
+      : undefined;
   const mcpExtras = await materializeMcpConfig(emp.id, cwd, {
     genosynToken: mcpToken,
     provider: model.provider,
     companySlug: co.slug,
     employeeSlug: emp.slug,
     conversationId: options.conversationId,
+    opencodeCustomProvider,
   });
   // goose returns extra CLI flags + env (it has no config file we can write
   // without clobbering `goose configure`'s state). Other providers return
@@ -285,6 +300,39 @@ function buildProviderEnv(
     "OPENCLAW_STATE_DIR",
   ]) {
     delete base[key];
+  }
+
+  if (model.authMode === "customEndpoint") {
+    if (!spec.supportsCustomEndpoint) {
+      return {
+        error: `${model.provider} doesn't support custom OpenAI-compatible endpoints — pick opencode or goose.`,
+      };
+    }
+    const cfg = readCustomEndpoint(model);
+    if (!cfg) {
+      return {
+        error: "Custom endpoint isn't fully configured. Open the model settings and re-enter the base URL.",
+      };
+    }
+    if (model.provider === "opencode") {
+      materializeOpencodeCustomEndpoint(coSlug, empSlug, cfg);
+      const env: NodeJS.ProcessEnv = {
+        ...base,
+        [spec.configDirEnv]: spec.configDir(coSlug, empSlug),
+      };
+      return { env };
+    }
+    if (model.provider === "goose") {
+      materializeGooseCustomEndpoint(coSlug, empSlug, cfg);
+      const env: NodeJS.ProcessEnv = {
+        ...base,
+        [spec.configDirEnv]: spec.configDir(coSlug, empSlug),
+        GOOSE_DISABLE_KEYRING: "1",
+        ...buildGooseCustomEndpointEnv(cfg),
+      };
+      return { env };
+    }
+    return { error: `${model.provider} can't host a customEndpoint configuration.` };
   }
 
   if (model.authMode === "subscription") {

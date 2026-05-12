@@ -6,6 +6,16 @@ import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { Chart } from "../db/entities/Chart.js";
 import { Dashboard } from "../db/entities/Dashboard.js";
 import { DashboardCard } from "../db/entities/DashboardCard.js";
+import {
+  EmployeeChartGrant,
+  CHART_ACCESS_RANK,
+  type ChartAccessLevel,
+} from "../db/entities/EmployeeChartGrant.js";
+import {
+  EmployeeDashboardGrant,
+  type DashboardAccessLevel,
+} from "../db/entities/EmployeeDashboardGrant.js";
+import { AIEmployee } from "../db/entities/AIEmployee.js";
 import type { ChartVizType } from "../db/entities/Chart.js";
 import { decryptSecret } from "../lib/secret.js";
 import { toSlug } from "../lib/slug.js";
@@ -407,4 +417,157 @@ export function serializeDashboard(d: Dashboard): DashboardDTO {
     createdAt: d.createdAt.toISOString(),
     updatedAt: d.updatedAt.toISOString(),
   };
+}
+
+// ---------- Grant helpers ----------
+//
+// Charts and Dashboards each have a per-employee grant table that
+// governs the MCP surface. Humans bypass these tables — they only
+// gate what AI employees can see and do through `tools/...` calls.
+//
+// The two grant kinds have identical shapes, so the helpers are
+// structurally parallel. They're kept separate (rather than parameterised
+// over a union) because the entity name is what TypeORM uses to pick the
+// table, and a thin wrapper is clearer than a generic over Repository.
+
+export async function upsertChartGrant(
+  employeeId: string,
+  chartId: string,
+  accessLevel: ChartAccessLevel,
+): Promise<EmployeeChartGrant> {
+  const repo = AppDataSource.getRepository(EmployeeChartGrant);
+  const existing = await repo.findOneBy({ employeeId, chartId });
+  if (existing) {
+    if (existing.accessLevel !== accessLevel) {
+      existing.accessLevel = accessLevel;
+      await repo.save(existing);
+    }
+    return existing;
+  }
+  return repo.save(repo.create({ employeeId, chartId, accessLevel }));
+}
+
+export async function listDirectChartGrants(
+  chartId: string,
+): Promise<EmployeeChartGrant[]> {
+  return AppDataSource.getRepository(EmployeeChartGrant).find({
+    where: { chartId },
+    order: { createdAt: "ASC" },
+  });
+}
+
+export async function deleteGrantsForChart(chartId: string): Promise<void> {
+  await AppDataSource.getRepository(EmployeeChartGrant).delete({ chartId });
+}
+
+export async function listAccessibleChartIds(
+  employeeId: string,
+): Promise<Set<string>> {
+  const grants = await AppDataSource.getRepository(EmployeeChartGrant).find({
+    where: { employeeId },
+  });
+  return new Set(grants.map((g) => g.chartId));
+}
+
+export async function hasChartAccess(
+  employeeId: string,
+  chartId: string,
+  required: ChartAccessLevel,
+): Promise<boolean> {
+  const grant = await AppDataSource.getRepository(EmployeeChartGrant).findOneBy({
+    employeeId,
+    chartId,
+  });
+  if (!grant) return false;
+  return CHART_ACCESS_RANK[grant.accessLevel] >= CHART_ACCESS_RANK[required];
+}
+
+/**
+ * Grant `read` to every employee in the company on a freshly-created
+ * Chart. Mirrors `grantResourceToAllEmployees` — without this a new
+ * Chart would land invisible to every AI employee until a human walked
+ * into the share modal. Idempotent (uses upsert) but does not retro-fit
+ * employees hired after creation; humans re-share if they want a new
+ * hire to see existing charts.
+ */
+export async function grantChartToAllEmployees(
+  companyId: string,
+  chartId: string,
+): Promise<number> {
+  const emps = await AppDataSource.getRepository(AIEmployee).find({
+    where: { companyId },
+    select: ["id"],
+  });
+  for (const e of emps) {
+    await upsertChartGrant(e.id, chartId, "read");
+  }
+  return emps.length;
+}
+
+export async function upsertDashboardGrant(
+  employeeId: string,
+  dashboardId: string,
+  accessLevel: DashboardAccessLevel,
+): Promise<EmployeeDashboardGrant> {
+  const repo = AppDataSource.getRepository(EmployeeDashboardGrant);
+  const existing = await repo.findOneBy({ employeeId, dashboardId });
+  if (existing) {
+    if (existing.accessLevel !== accessLevel) {
+      existing.accessLevel = accessLevel;
+      await repo.save(existing);
+    }
+    return existing;
+  }
+  return repo.save(repo.create({ employeeId, dashboardId, accessLevel }));
+}
+
+export async function listDirectDashboardGrants(
+  dashboardId: string,
+): Promise<EmployeeDashboardGrant[]> {
+  return AppDataSource.getRepository(EmployeeDashboardGrant).find({
+    where: { dashboardId },
+    order: { createdAt: "ASC" },
+  });
+}
+
+export async function deleteGrantsForDashboard(dashboardId: string): Promise<void> {
+  await AppDataSource.getRepository(EmployeeDashboardGrant).delete({
+    dashboardId,
+  });
+}
+
+export async function listAccessibleDashboardIds(
+  employeeId: string,
+): Promise<Set<string>> {
+  const grants = await AppDataSource.getRepository(EmployeeDashboardGrant).find({
+    where: { employeeId },
+  });
+  return new Set(grants.map((g) => g.dashboardId));
+}
+
+export async function hasDashboardAccess(
+  employeeId: string,
+  dashboardId: string,
+  required: DashboardAccessLevel,
+): Promise<boolean> {
+  const grant = await AppDataSource.getRepository(EmployeeDashboardGrant).findOneBy({
+    employeeId,
+    dashboardId,
+  });
+  if (!grant) return false;
+  return CHART_ACCESS_RANK[grant.accessLevel] >= CHART_ACCESS_RANK[required];
+}
+
+export async function grantDashboardToAllEmployees(
+  companyId: string,
+  dashboardId: string,
+): Promise<number> {
+  const emps = await AppDataSource.getRepository(AIEmployee).find({
+    where: { companyId },
+    select: ["id"],
+  });
+  for (const e of emps) {
+    await upsertDashboardGrant(e.id, dashboardId, "read");
+  }
+  return emps.length;
 }

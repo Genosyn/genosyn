@@ -1402,7 +1402,7 @@ const TOOLS = [
   {
     name: "list_charts",
     description:
-      "List every saved Chart in this company. A Chart is a saved SQL query + visualization (table / scalar / bar / line / area / pie) bound to a postgres / mysql / clickhouse Integration Connection. Use this to discover what's already been authored before creating a duplicate.",
+      "List every saved Chart you have access to. A Chart is a saved SQL query + visualization (table / scalar / bar / line / area / pie) bound to a postgres / mysql / clickhouse Integration Connection. You start at `read` on every chart and `write` on the ones you author; humans manage per-employee grants from the chart's share modal.",
     endpoint: "/tools/list_charts",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
@@ -1483,7 +1483,7 @@ const TOOLS = [
   {
     name: "update_chart",
     description:
-      "Edit an existing Chart's title, description, SQL, or visualization. Pass only the fields you want to change.",
+      "Edit an existing Chart's title, description, SQL, or visualization. Pass only the fields you want to change. Requires `write` access on the chart — authors have it; teammates need a human to promote them via the share modal.",
     endpoint: "/tools/update_chart",
     inputSchema: {
       type: "object",
@@ -1505,7 +1505,7 @@ const TOOLS = [
   {
     name: "delete_chart",
     description:
-      "Permanently remove a Chart and detach it from any Dashboards it was on. Be careful — humans see the same charts you do.",
+      "Permanently remove a Chart and detach it from any Dashboards it was on. Be careful — humans see the same charts you do. Requires `write` access on the chart.",
     endpoint: "/tools/delete_chart",
     inputSchema: {
       type: "object",
@@ -1519,7 +1519,7 @@ const TOOLS = [
   {
     name: "list_dashboards",
     description:
-      "List every Dashboard in this company. A Dashboard is a grid of Chart cards arranged for a human reader.",
+      "List every Dashboard you have access to. A Dashboard is a grid of Chart cards arranged for a human reader. You start at `read` and `write` on dashboards you author; humans manage per-employee grants from the share modal.",
     endpoint: "/tools/list_dashboards",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
@@ -1555,7 +1555,7 @@ const TOOLS = [
   {
     name: "add_dashboard_card",
     description:
-      "Pin a Chart onto a Dashboard. `x`/`y`/`w`/`h` position it on a 12-column grid; omit them to append a 6×4 card to the bottom. `titleOverride` lets the card show a different label than the underlying chart.",
+      "Pin a Chart onto a Dashboard. `x`/`y`/`w`/`h` position it on a 12-column grid; omit them to append a 6×4 card to the bottom. `titleOverride` lets the card show a different label than the underlying chart. Requires `write` access on the dashboard and `read` on the chart.",
     endpoint: "/tools/add_dashboard_card",
     inputSchema: {
       type: "object",

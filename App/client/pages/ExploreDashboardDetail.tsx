@@ -6,9 +6,11 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Share2,
   Trash2,
   X,
 } from "lucide-react";
+import { ExploreShareModal } from "./ExploreShareModal";
 import { api, Company } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
@@ -80,6 +82,7 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
   const [loading, setLoading] = React.useState(true);
   const [editing, setEditing] = React.useState(false);
   const [picking, setPicking] = React.useState(false);
+  const [sharing, setSharing] = React.useState(false);
   const [runs, setRuns] = React.useState<Record<string, RunState>>({});
 
   const reload = React.useCallback(async () => {
@@ -251,6 +254,9 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
         }}>
           <RefreshCw size={14} /> Refresh
         </Button>
+        <Button variant="secondary" size="sm" onClick={() => setSharing(true)}>
+          <Share2 size={14} /> Share
+        </Button>
         <Button
           variant={editing ? "primary" : "secondary"}
           size="sm"
@@ -371,6 +377,15 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
           onPick={(chartId) => addCard(chartId)}
         />
       )}
+
+      <ExploreShareModal
+        open={sharing}
+        onClose={() => setSharing(false)}
+        companyId={company.id}
+        kind="dashboard"
+        slug={data.slug}
+        rowTitle={data.title}
+      />
     </div>
   );
 }

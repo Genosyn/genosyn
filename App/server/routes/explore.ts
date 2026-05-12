@@ -6,19 +6,34 @@ import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { Chart } from "../db/entities/Chart.js";
 import { Dashboard } from "../db/entities/Dashboard.js";
 import { DashboardCard } from "../db/entities/DashboardCard.js";
+import { AIEmployee } from "../db/entities/AIEmployee.js";
+import {
+  EmployeeChartGrant,
+  CHART_ACCESS_LEVELS,
+  type ChartAccessLevel,
+} from "../db/entities/EmployeeChartGrant.js";
+import { EmployeeDashboardGrant } from "../db/entities/EmployeeDashboardGrant.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { recordAudit } from "../services/audit.js";
 import { params } from "../lib/params.js";
 import {
   EXPLORE_PROVIDERS,
+  deleteGrantsForChart,
+  deleteGrantsForDashboard,
+  grantChartToAllEmployees,
+  grantDashboardToAllEmployees,
   isExploreProvider,
+  listDirectChartGrants,
+  listDirectDashboardGrants,
   runSqlAgainstConnection,
   serializeCard,
   serializeChart,
   serializeDashboard,
   uniqueChartSlug,
   uniqueDashboardSlug,
+  upsertChartGrant,
+  upsertDashboardGrant,
   VIZ_TYPES,
 } from "../services/explore.js";
 
@@ -157,6 +172,7 @@ exploreRouter.post(
       createdByEmployeeId: null,
     });
     await repo.save(row);
+    const granted = await grantChartToAllEmployees(cid, row.id);
     await recordAudit({
       companyId: cid,
       actorUserId: req.userId ?? null,
@@ -164,7 +180,11 @@ exploreRouter.post(
       targetType: "chart",
       targetId: row.id,
       targetLabel: row.title,
-      metadata: { vizType: row.vizType, connectionId: row.connectionId },
+      metadata: {
+        vizType: row.vizType,
+        connectionId: row.connectionId,
+        grantedToEmployees: granted,
+      },
     });
     res.status(201).json(serializeChart(row));
   },
@@ -233,6 +253,7 @@ exploreRouter.delete("/explore/charts/:slug", async (req, res) => {
   // render placeholders. Done in the same request to keep the cleanup
   // visible — Charts and Cards don't have a FK constraint.
   await AppDataSource.getRepository(DashboardCard).delete({ chartId: row.id });
+  await deleteGrantsForChart(row.id);
   await AppDataSource.getRepository(Chart).delete({ id: row.id });
   await recordAudit({
     companyId: cid,
@@ -334,6 +355,7 @@ exploreRouter.post(
       createdByEmployeeId: null,
     });
     await repo.save(row);
+    const granted = await grantDashboardToAllEmployees(cid, row.id);
     await recordAudit({
       companyId: cid,
       actorUserId: req.userId ?? null,
@@ -341,6 +363,7 @@ exploreRouter.post(
       targetType: "dashboard",
       targetId: row.id,
       targetLabel: row.title,
+      metadata: { grantedToEmployees: granted },
     });
     res.status(201).json(serializeDashboard(row));
   },
@@ -399,6 +422,7 @@ exploreRouter.delete("/explore/dashboards/:slug", async (req, res) => {
   const row = await loadDashboard(cid, slug);
   if (!row) return res.status(404).json({ error: "Dashboard not found" });
   await AppDataSource.getRepository(DashboardCard).delete({ dashboardId: row.id });
+  await deleteGrantsForDashboard(row.id);
   await AppDataSource.getRepository(Dashboard).delete({ id: row.id });
   await recordAudit({
     companyId: cid,
@@ -502,6 +526,272 @@ exploreRouter.delete(
     const card = await repo.findOneBy({ id: cardId, dashboardId: dashboard.id });
     if (!card) return res.status(404).json({ error: "Card not found" });
     await repo.delete({ id: card.id });
+    res.json({ ok: true });
+  },
+);
+
+// ---------- Grants ----------
+//
+// Two near-identical shapes — one per row kind. Charts and Dashboards
+// each carry their own grant table; an employee needs `read` on a chart
+// to run it through MCP and `write` to edit / delete. Humans (members)
+// bypass these gates entirely; they only govern the AI surface.
+
+const ACCESS_LEVEL_ENUM = CHART_ACCESS_LEVELS as [string, ...string[]];
+
+type EmployeeRef = {
+  id: string;
+  name: string;
+  slug: string;
+  role: string;
+  avatarKey: string | null;
+};
+
+type ChartGrantWithEmployee = EmployeeChartGrant & {
+  employee: EmployeeRef | null;
+};
+type DashboardGrantWithEmployee = EmployeeDashboardGrant & {
+  employee: EmployeeRef | null;
+};
+
+async function hydrateChartGrants(
+  companyId: string,
+  grants: EmployeeChartGrant[],
+): Promise<ChartGrantWithEmployee[]> {
+  if (grants.length === 0) return [];
+  const empIds = [...new Set(grants.map((g) => g.employeeId))];
+  const emps = await AppDataSource.getRepository(AIEmployee).find({
+    where: { id: In(empIds), companyId },
+  });
+  const byId = new Map(emps.map((e) => [e.id, e]));
+  return grants.map((g) => {
+    const e = byId.get(g.employeeId);
+    return Object.assign(g, {
+      employee: e
+        ? {
+            id: e.id,
+            name: e.name,
+            slug: e.slug,
+            role: e.role,
+            avatarKey: e.avatarKey ?? null,
+          }
+        : null,
+    });
+  });
+}
+
+async function hydrateDashboardGrants(
+  companyId: string,
+  grants: EmployeeDashboardGrant[],
+): Promise<DashboardGrantWithEmployee[]> {
+  if (grants.length === 0) return [];
+  const empIds = [...new Set(grants.map((g) => g.employeeId))];
+  const emps = await AppDataSource.getRepository(AIEmployee).find({
+    where: { id: In(empIds), companyId },
+  });
+  const byId = new Map(emps.map((e) => [e.id, e]));
+  return grants.map((g) => {
+    const e = byId.get(g.employeeId);
+    return Object.assign(g, {
+      employee: e
+        ? {
+            id: e.id,
+            name: e.name,
+            slug: e.slug,
+            role: e.role,
+            avatarKey: e.avatarKey ?? null,
+          }
+        : null,
+    });
+  });
+}
+
+// Chart grants
+
+exploreRouter.get("/explore/charts/:slug/grants", async (req, res) => {
+  const { cid, slug } = params(req);
+  const row = await loadChart(cid, slug);
+  if (!row) return res.status(404).json({ error: "Chart not found" });
+  const direct = await listDirectChartGrants(row.id);
+  res.json({ direct: await hydrateChartGrants(cid, direct) });
+});
+
+exploreRouter.get("/explore/charts/:slug/grant-candidates", async (req, res) => {
+  const { cid, slug } = params(req);
+  const row = await loadChart(cid, slug);
+  if (!row) return res.status(404).json({ error: "Chart not found" });
+  const [emps, direct] = await Promise.all([
+    AppDataSource.getRepository(AIEmployee).find({
+      where: { companyId: cid },
+      order: { createdAt: "ASC" },
+    }),
+    listDirectChartGrants(row.id),
+  ]);
+  const grantedSet = new Set(direct.map((g) => g.employeeId));
+  res.json(
+    emps.map((e) => ({
+      id: e.id,
+      name: e.name,
+      slug: e.slug,
+      role: e.role,
+      avatarKey: e.avatarKey ?? null,
+      alreadyGranted: grantedSet.has(e.id),
+    })),
+  );
+});
+
+const createChartGrantSchema = z.object({
+  employeeId: z.string().uuid(),
+  accessLevel: z.enum(ACCESS_LEVEL_ENUM).optional(),
+});
+
+exploreRouter.post(
+  "/explore/charts/:slug/grants",
+  validateBody(createChartGrantSchema),
+  async (req, res) => {
+    const { cid, slug } = params(req);
+    const row = await loadChart(cid, slug);
+    if (!row) return res.status(404).json({ error: "Chart not found" });
+    const body = req.body as z.infer<typeof createChartGrantSchema>;
+    const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
+      id: body.employeeId,
+      companyId: cid,
+    });
+    if (!emp) return res.status(400).json({ error: "Unknown employee" });
+    const grant = await upsertChartGrant(
+      emp.id,
+      row.id,
+      (body.accessLevel ?? "read") as ChartAccessLevel,
+    );
+    const [hydrated] = await hydrateChartGrants(cid, [grant]);
+    res.json(hydrated);
+  },
+);
+
+const patchChartGrantSchema = z.object({
+  accessLevel: z.enum(ACCESS_LEVEL_ENUM),
+});
+
+exploreRouter.patch(
+  "/explore/charts/:slug/grants/:grantId",
+  validateBody(patchChartGrantSchema),
+  async (req, res) => {
+    const { cid, slug, grantId } = params(req);
+    const row = await loadChart(cid, slug);
+    if (!row) return res.status(404).json({ error: "Chart not found" });
+    const repo = AppDataSource.getRepository(EmployeeChartGrant);
+    const grant = await repo.findOneBy({ id: grantId, chartId: row.id });
+    if (!grant) return res.status(404).json({ error: "Grant not found" });
+    const body = req.body as z.infer<typeof patchChartGrantSchema>;
+    grant.accessLevel = body.accessLevel as ChartAccessLevel;
+    await repo.save(grant);
+    const [hydrated] = await hydrateChartGrants(cid, [grant]);
+    res.json(hydrated);
+  },
+);
+
+exploreRouter.delete(
+  "/explore/charts/:slug/grants/:grantId",
+  async (req, res) => {
+    const { cid, slug, grantId } = params(req);
+    const row = await loadChart(cid, slug);
+    if (!row) return res.status(404).json({ error: "Chart not found" });
+    const repo = AppDataSource.getRepository(EmployeeChartGrant);
+    const grant = await repo.findOneBy({ id: grantId, chartId: row.id });
+    if (!grant) return res.status(404).json({ error: "Grant not found" });
+    await repo.delete({ id: grant.id });
+    res.json({ ok: true });
+  },
+);
+
+// Dashboard grants
+
+exploreRouter.get("/explore/dashboards/:slug/grants", async (req, res) => {
+  const { cid, slug } = params(req);
+  const row = await loadDashboard(cid, slug);
+  if (!row) return res.status(404).json({ error: "Dashboard not found" });
+  const direct = await listDirectDashboardGrants(row.id);
+  res.json({ direct: await hydrateDashboardGrants(cid, direct) });
+});
+
+exploreRouter.get(
+  "/explore/dashboards/:slug/grant-candidates",
+  async (req, res) => {
+    const { cid, slug } = params(req);
+    const row = await loadDashboard(cid, slug);
+    if (!row) return res.status(404).json({ error: "Dashboard not found" });
+    const [emps, direct] = await Promise.all([
+      AppDataSource.getRepository(AIEmployee).find({
+        where: { companyId: cid },
+        order: { createdAt: "ASC" },
+      }),
+      listDirectDashboardGrants(row.id),
+    ]);
+    const grantedSet = new Set(direct.map((g) => g.employeeId));
+    res.json(
+      emps.map((e) => ({
+        id: e.id,
+        name: e.name,
+        slug: e.slug,
+        role: e.role,
+        avatarKey: e.avatarKey ?? null,
+        alreadyGranted: grantedSet.has(e.id),
+      })),
+    );
+  },
+);
+
+exploreRouter.post(
+  "/explore/dashboards/:slug/grants",
+  validateBody(createChartGrantSchema),
+  async (req, res) => {
+    const { cid, slug } = params(req);
+    const row = await loadDashboard(cid, slug);
+    if (!row) return res.status(404).json({ error: "Dashboard not found" });
+    const body = req.body as z.infer<typeof createChartGrantSchema>;
+    const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
+      id: body.employeeId,
+      companyId: cid,
+    });
+    if (!emp) return res.status(400).json({ error: "Unknown employee" });
+    const grant = await upsertDashboardGrant(
+      emp.id,
+      row.id,
+      (body.accessLevel ?? "read") as ChartAccessLevel,
+    );
+    const [hydrated] = await hydrateDashboardGrants(cid, [grant]);
+    res.json(hydrated);
+  },
+);
+
+exploreRouter.patch(
+  "/explore/dashboards/:slug/grants/:grantId",
+  validateBody(patchChartGrantSchema),
+  async (req, res) => {
+    const { cid, slug, grantId } = params(req);
+    const row = await loadDashboard(cid, slug);
+    if (!row) return res.status(404).json({ error: "Dashboard not found" });
+    const repo = AppDataSource.getRepository(EmployeeDashboardGrant);
+    const grant = await repo.findOneBy({ id: grantId, dashboardId: row.id });
+    if (!grant) return res.status(404).json({ error: "Grant not found" });
+    const body = req.body as z.infer<typeof patchChartGrantSchema>;
+    grant.accessLevel = body.accessLevel as ChartAccessLevel;
+    await repo.save(grant);
+    const [hydrated] = await hydrateDashboardGrants(cid, [grant]);
+    res.json(hydrated);
+  },
+);
+
+exploreRouter.delete(
+  "/explore/dashboards/:slug/grants/:grantId",
+  async (req, res) => {
+    const { cid, slug, grantId } = params(req);
+    const row = await loadDashboard(cid, slug);
+    if (!row) return res.status(404).json({ error: "Dashboard not found" });
+    const repo = AppDataSource.getRepository(EmployeeDashboardGrant);
+    const grant = await repo.findOneBy({ id: grantId, dashboardId: row.id });
+    if (!grant) return res.status(404).json({ error: "Grant not found" });
+    await repo.delete({ id: grant.id });
     res.json({ ok: true });
   },
 );

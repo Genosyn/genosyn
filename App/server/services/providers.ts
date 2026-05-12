@@ -45,6 +45,15 @@ export type ProviderSpec = {
    */
   supportsSubscription: boolean;
   /**
+   * Does this provider support pointing at a custom OpenAI-compatible
+   * endpoint from the Genosyn UI? True for the two router CLIs (opencode,
+   * goose) — for both the runner materializes their provider config file
+   * before each spawn (opencode.json + auth.json for opencode;
+   * config.yaml for goose) and injects matching env vars, so the user
+   * never has to drop into a terminal.
+   */
+  supportsCustomEndpoint: boolean;
+  /**
    * Shell command the operator runs to log in (scoped via configDirEnv).
    * `null` for providers without a subscription flow (see
    * `supportsSubscription`).
@@ -116,8 +125,10 @@ export function isSubscriptionConnected(
 
 /**
  * A Model is "connected" if credentials are actually usable:
- *  - subscription: provider's on-disk login signal is present
- *  - apikey:      an encrypted key is present in configJson
+ *  - subscription:   provider's on-disk login signal is present
+ *  - apikey:         an encrypted key is present in configJson
+ *  - customEndpoint: an encrypted base URL is present in configJson
+ *                    (API key is optional — most local LLMs don't enforce one)
  */
 export function isModelConnected(m: AIModel, co: Company, emp: AIEmployee): boolean {
   if (m.authMode === "apikey") {
@@ -130,6 +141,18 @@ export function isModelConnected(m: AIModel, co: Company, emp: AIEmployee): bool
     }
     return typeof cfg.apiKeyEncrypted === "string" && (cfg.apiKeyEncrypted as string).length > 0;
   }
+  if (m.authMode === "customEndpoint") {
+    let cfg: Record<string, unknown> = {};
+    try {
+      const v = JSON.parse(m.configJson || "{}");
+      if (v && typeof v === "object") cfg = v as Record<string, unknown>;
+    } catch {
+      // fall through
+    }
+    // The endpoint URL is the load-bearing field. API key is optional —
+    // most local servers (Ollama, llama.cpp) don't enforce one.
+    return typeof cfg.baseURLEncrypted === "string" && (cfg.baseURLEncrypted as string).length > 0;
+  }
   return isSubscriptionConnected(m.provider, co.slug, emp.slug);
 }
 
@@ -141,6 +164,7 @@ export const PROVIDERS: Record<Provider, ProviderSpec> = {
     apiKeyEnv: "ANTHROPIC_API_KEY",
     supportsApiKey: true,
     supportsSubscription: true,
+    supportsCustomEndpoint: false,
     // `claude auth login` is the OAuth-only path. The legacy alias `claude
     // login` boots the full TUI first — theme picker, syntax-theme demo,
     // workspace-trust dialog — before getting to OAuth. None of that is
@@ -162,6 +186,7 @@ export const PROVIDERS: Record<Provider, ProviderSpec> = {
     apiKeyEnv: "OPENAI_API_KEY",
     supportsApiKey: true,
     supportsSubscription: true,
+    supportsCustomEndpoint: false,
     loginCommand: "codex login",
     loginArgv: { cmd: "codex", args: ["login"] },
     binName: "codex",
@@ -182,6 +207,11 @@ export const PROVIDERS: Record<Provider, ProviderSpec> = {
     apiKeyEnv: null,
     supportsApiKey: false,
     supportsSubscription: true,
+    // opencode is a router that can call any OpenAI-compatible HTTP endpoint
+    // via a synthetic provider block in opencode.json. We materialize that
+    // block + auth.json before each spawn, so the user can configure a local
+    // Ollama / vLLM / llama.cpp endpoint entirely from the Genosyn UI.
+    supportsCustomEndpoint: true,
     loginCommand: "opencode auth login",
     loginArgv: { cmd: "opencode", args: ["auth", "login"] },
     binName: "opencode",
@@ -204,6 +234,12 @@ export const PROVIDERS: Record<Provider, ProviderSpec> = {
     apiKeyEnv: null,
     supportsApiKey: false,
     supportsSubscription: true,
+    // goose's built-in `openai` provider accepts an OPENAI_HOST override,
+    // so any OpenAI-compatible HTTP server (Ollama, vLLM, llama.cpp, …) works
+    // here. The runner materializes a minimal config.yaml + injects the
+    // GOOSE_PROVIDER / GOOSE_MODEL / OPENAI_HOST / OPENAI_API_KEY env vars
+    // before each spawn.
+    supportsCustomEndpoint: true,
     // GOOSE_DISABLE_KEYRING=1 keeps goose from stashing creds in the host's
     // OS keychain — without it, every employee would share whatever the host
     // has logged in. The login command in the UI is composed as
@@ -250,6 +286,11 @@ export const PROVIDERS: Record<Provider, ProviderSpec> = {
     // The OAuth convenience flow exists but isn't scriptable enough for the
     // pty-driven wizard yet, so v1 ships api-key-only.
     supportsSubscription: false,
+    // OpenClaw's provider/agent schema is the newest of the three routers
+    // and the most likely to drift across versions. Skipping
+    // customEndpoint here until someone asks for it — opencode + goose
+    // already cover the popular local-LLM stacks.
+    supportsCustomEndpoint: false,
     loginCommand: null,
     loginArgv: null,
     binName: "openclaw",
