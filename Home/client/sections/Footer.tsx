@@ -67,6 +67,9 @@ export function Footer() {
             <Link href="/docs" className="hover:text-zinc-900">
               Docs
             </Link>
+            <Link href="/enterprise" className="hover:text-zinc-900">
+              Enterprise
+            </Link>
             <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="hover:text-zinc-900">
               GitHub
             </a>

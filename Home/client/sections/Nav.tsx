@@ -10,6 +10,7 @@ const LINKS = [
   { href: "#quickstart", label: "Install" },
   { href: "/docs", label: "Docs" },
   { href: "#cli", label: "CLI" },
+  { href: "/enterprise", label: "Enterprise" },
 ];
 
 export function Nav() {
