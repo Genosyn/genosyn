@@ -1,6 +1,7 @@
 import {
   Callout,
   Code,
+  DocLink,
   H2,
   H3,
   LI,
@@ -31,6 +32,13 @@ export function Models() {
         Genosyn supports five provider CLIs today. None of them are written by
         Genosyn — they&apos;re the official tools from each vendor. Genosyn
         just wraps them in a per-employee sandbox.
+      </P>
+      <P>
+        Three of them (<Code>opencode</Code>, <Code>goose</Code>,{" "}
+        <Code>openclaw</Code>) are routers and can point at an
+        OpenAI-compatible endpoint you host yourself — see{" "}
+        <DocLink to="/docs/open-source-models">Open-source LLMs</DocLink>{" "}
+        for that flow.
       </P>
 
       <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">

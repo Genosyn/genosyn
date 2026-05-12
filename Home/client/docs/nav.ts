@@ -30,6 +30,7 @@ export const DOCS_NAV: DocsSection[] = [
     label: "Brains & tools",
     pages: [
       { path: "/docs/models", title: "AI Models", blurb: "Pick a CLI: Claude Code, Codex, opencode, Goose, OpenClaw." },
+      { path: "/docs/open-source-models", title: "Open-source LLMs", blurb: "Run Ollama, vLLM, or llama.cpp and point an employee at it." },
       { path: "/docs/integrations", title: "Integrations", blurb: "Connections, Grants, and the MCP surface." },
     ],
   },
