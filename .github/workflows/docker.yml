@@ -101,6 +101,11 @@ jobs:
         with:
           context: ${{ matrix.context }}
           file: ./${{ matrix.project }}/Dockerfile
+          # Pin to linux/amd64 for now. The Dockerfiles have arch-sensitive
+          # bits — node-pty's native rebuild, the goose curl|bash installer,
+          # the alpine chromium pull — so adding linux/arm64 wants a deliberate
+          # test run rather than a silent flip via the default.
+          platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           # Append after meta.outputs.labels so this overrides the auto-derived
