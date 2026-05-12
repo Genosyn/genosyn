@@ -163,7 +163,7 @@ jobs:
 
       - name: Upload digest
         if: steps.exists.outputs.ready == 'true' && github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: digest-${{ matrix.image }}-${{ steps.plat.outputs.suffix }}
           path: ${{ runner.temp }}/digests/*
@@ -209,7 +209,7 @@ jobs:
 
       - name: Download digests
         if: steps.exists.outputs.ready == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: digest-${{ matrix.image }}-*
           path: ${{ runner.temp }}/digests
