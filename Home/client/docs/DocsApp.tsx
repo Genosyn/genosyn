@@ -14,6 +14,7 @@ import { Integrations } from "@/docs/pages/Integrations";
 import { Explore } from "@/docs/pages/Explore";
 import { SelfHosting } from "@/docs/pages/SelfHosting";
 import { Cli } from "@/docs/pages/Cli";
+import { Kubernetes } from "@/docs/pages/Kubernetes";
 import { Vocabulary } from "@/docs/pages/Vocabulary";
 import { NotFound } from "@/docs/pages/NotFound";
 
@@ -30,6 +31,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/explore": Explore,
   "/docs/self-hosting": SelfHosting,
   "/docs/cli": Cli,
+  "/docs/kubernetes": Kubernetes,
   "/docs/vocabulary": Vocabulary,
 };
 

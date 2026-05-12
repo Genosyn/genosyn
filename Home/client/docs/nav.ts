@@ -45,6 +45,7 @@ export const DOCS_NAV: DocsSection[] = [
     pages: [
       { path: "/docs/self-hosting", title: "Configuration", blurb: "config.ts, the data directory, backups." },
       { path: "/docs/cli", title: "CLI reference", blurb: "Every genosyn command, every flag." },
+      { path: "/docs/kubernetes", title: "Kubernetes", blurb: "Raw manifests for running Genosyn on a cluster." },
     ],
   },
   {
