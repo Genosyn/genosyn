@@ -261,7 +261,40 @@ milestone is done, drive the happy path in a browser (via the `browse` /
 
 ---
 
-## 10. Commits & PRs
+## 10. Documentation
+
+The marketing site at `Home/` ships the user-facing docs under
+`Home/client/docs/pages/`. When you change something a user can see —
+a new UI surface, a new auth mode, a renamed concept, a new
+`genosyn` CLI subcommand, a new MCP tool, a config knob — **update
+the docs in the same PR** as the feature. Stale docs are worse than
+no docs: users follow the steps, hit a different reality, and lose
+trust in the rest of the page.
+
+What "update the docs" looks like in practice:
+
+- Find the page the change belongs on. The current index lives in
+  [`Home/client/docs/nav.ts`](./Home/client/docs/nav.ts); add a new
+  page there only if the topic has no natural home.
+- Lead with the in-app flow. Terminals and config-file paths can stay
+  in an "Advanced" section, but the primary instructions should match
+  what a user clicking through the UI actually sees — same labels,
+  same button copy, same field names.
+- Cross-link to related pages with `<DocLink to="/docs/...">` so
+  readers can navigate without going back to the sidebar.
+- If you removed a feature, **delete** the doc for it. Don't leave a
+  page reading "this is deprecated" — that's clutter.
+- Keep each page short. If a page is creeping past 400 lines, that's
+  a signal to split, not to keep adding.
+
+You don't need to update `ROADMAP.md` for every doc change — the
+roadmap tracks shipped milestones, not the docs we wrote about them.
+But if the feature itself is new, mark the milestone `[x]` in the
+same PR.
+
+---
+
+## 11. Commits & PRs
 
 - Commit messages: imperative mood, 1–3 sentence body explaining *why* the
   change exists, not *what* it does.
@@ -281,7 +314,7 @@ Don't tag manually, don't edit version numbers in `package.json` files.
 
 ---
 
-## 11. Things that will get your PR rejected
+## 12. Things that will get your PR rejected
 
 - Introducing Next.js, JWT libraries, Prisma/Drizzle, or a component library
   without prior discussion.
@@ -305,9 +338,11 @@ Don't tag manually, don't edit version numbers in `package.json` files.
 - Pushing a commit that breaks `npm run lint` or `npm run build` in either
   `App/` or `Home/`. CI runs both on every push to `main`; run them locally
   first. See section 7 for the ESLint rules that keep biting.
+- Shipping a user-visible change without updating the docs at
+  `Home/client/docs/pages/` in the same PR. See section 10.
 
 ---
 
-## 12. When in doubt
+## 13. When in doubt
 
 Re-read `ROADMAP.md`, then ask the human. Don't guess on product decisions.

@@ -76,7 +76,8 @@ export function Models() {
 
       <H2 id="auth-modes">Auth modes</H2>
       <P>
-        Two flows ship for every provider that supports both:
+        Three flows ship across the picker. Each provider opts into the ones
+        that make sense for it — see the cards above.
       </P>
       <UL>
         <LI>
@@ -89,6 +90,15 @@ export function Models() {
           <Strong>API key.</Strong> Paste a key, Genosyn AES-256-GCM encrypts
           it, and decrypts it back into env vars only at spawn time. The
           plaintext never lives on disk.
+        </LI>
+        <LI>
+          <Strong>Custom OpenAI-compatible endpoint.</Strong> opencode and
+          goose only. Paste a base URL + model id (and optionally an API
+          key); Genosyn materializes the harness&apos;s config files
+          (opencode.json + auth.json, or goose&apos;s config.yaml) before
+          each spawn pointed at your endpoint. The path for any self-hosted
+          LLM — see{" "}
+          <DocLink to="/docs/open-source-models">Open-source LLMs</DocLink>.
         </LI>
       </UL>
 
