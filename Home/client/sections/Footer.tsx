@@ -5,10 +5,10 @@ import { Link } from "@/lib/router";
 
 const ISSUES_URL = `${GITHUB_URL}/issues`;
 
-export function Footer() {
+export function InstallCta() {
   return (
-    <footer className="relative bg-white">
-      <div className="mx-auto max-w-7xl px-6 py-16">
+    <section className="relative bg-white">
+      <div className="mx-auto max-w-7xl px-6 pt-16">
         <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 px-8 py-14 text-center sm:px-12 sm:py-20">
           <div
             aria-hidden
@@ -57,8 +57,16 @@ export function Footer() {
             </div>
           </div>
         </div>
+      </div>
+    </section>
+  );
+}
 
-        <div className="mt-14 flex flex-col items-center justify-between gap-6 border-t border-zinc-100 pt-8 text-xs text-zinc-500 sm:flex-row">
+export function Footer() {
+  return (
+    <footer className="relative bg-white">
+      <div className="mx-auto max-w-7xl px-6 pt-14 pb-16">
+        <div className="flex flex-col items-center justify-between gap-6 border-t border-zinc-100 pt-8 text-xs text-zinc-500 sm:flex-row">
           <div className="flex items-center gap-3 text-zinc-700">
             <Logo className="h-5 w-auto" />
             <span>© {new Date().getFullYear()} HackerBay, Inc. · Built in the open.</span>

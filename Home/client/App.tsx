@@ -7,7 +7,7 @@ import { Features } from "@/sections/Features";
 import { HowItWorks } from "@/sections/HowItWorks";
 import { CliShowcase } from "@/sections/CliShowcase";
 import { Principles } from "@/sections/Principles";
-import { Footer } from "@/sections/Footer";
+import { Footer, InstallCta } from "@/sections/Footer";
 import { Enterprise } from "@/sections/Enterprise";
 import { DocsApp } from "@/docs/DocsApp";
 import { usePathname } from "@/lib/router";
@@ -47,6 +47,7 @@ function Landing() {
         <HowItWorks />
         <CliShowcase />
         <Principles />
+        <InstallCta />
       </main>
       <Footer />
     </div>
