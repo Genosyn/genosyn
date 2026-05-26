@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Download,
   Mail,
+  Pencil,
   Send,
   Trash2,
   XCircle,
@@ -290,6 +291,15 @@ export default function FinanceEstimateDetail() {
         </div>
         <div className="flex flex-wrap gap-2">
           {estimate.status === "draft" && (
+            <Link
+              to={`/c/${company.slug}/finance/estimates/${estimate.slug}/edit`}
+            >
+              <Button variant="secondary" disabled={busy}>
+                <Pencil size={14} /> Edit
+              </Button>
+            </Link>
+          )}
+          {estimate.status === "draft" && (
             <Button onClick={issue} disabled={busy}>
               <CheckCircle2 size={14} /> Issue
             </Button>
@@ -368,8 +378,8 @@ export default function FinanceEstimateDetail() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+      <div className="space-y-6">
+        <div>
           <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <div className="grid grid-cols-2 gap-6 text-sm">
               <div>
@@ -503,47 +513,43 @@ export default function FinanceEstimateDetail() {
           </div>
         </div>
 
-        <div className="space-y-4">
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Activity
-            </h3>
-            <ul className="mt-3 space-y-1.5 text-xs text-slate-500 dark:text-slate-400">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            Activity
+          </h3>
+          <ul className="mt-3 grid gap-1.5 text-xs text-slate-500 dark:text-slate-400 sm:grid-cols-2 lg:grid-cols-3">
+            <li>
+              Created {new Date(estimate.createdAt).toISOString().slice(0, 10)}
+            </li>
+            {estimate.sentAt && (
               <li>
-                Created{" "}
-                {new Date(estimate.createdAt).toISOString().slice(0, 10)}
+                Sent {new Date(estimate.sentAt).toISOString().slice(0, 10)}
               </li>
-              {estimate.sentAt && (
-                <li>
-                  Sent {new Date(estimate.sentAt).toISOString().slice(0, 10)}
-                </li>
-              )}
-              {estimate.acceptedAt && (
-                <li>
-                  Accepted{" "}
-                  {new Date(estimate.acceptedAt).toISOString().slice(0, 10)}
-                </li>
-              )}
-              {estimate.declinedAt && (
-                <li>
-                  Declined{" "}
-                  {new Date(estimate.declinedAt).toISOString().slice(0, 10)}
-                </li>
-              )}
-              {estimate.convertedAt && (
-                <li>
-                  Invoiced{" "}
-                  {new Date(estimate.convertedAt).toISOString().slice(0, 10)}
-                </li>
-              )}
-              {estimate.voidedAt && (
-                <li>
-                  Voided{" "}
-                  {new Date(estimate.voidedAt).toISOString().slice(0, 10)}
-                </li>
-              )}
-            </ul>
-          </div>
+            )}
+            {estimate.acceptedAt && (
+              <li>
+                Accepted{" "}
+                {new Date(estimate.acceptedAt).toISOString().slice(0, 10)}
+              </li>
+            )}
+            {estimate.declinedAt && (
+              <li>
+                Declined{" "}
+                {new Date(estimate.declinedAt).toISOString().slice(0, 10)}
+              </li>
+            )}
+            {estimate.convertedAt && (
+              <li>
+                Invoiced{" "}
+                {new Date(estimate.convertedAt).toISOString().slice(0, 10)}
+              </li>
+            )}
+            {estimate.voidedAt && (
+              <li>
+                Voided {new Date(estimate.voidedAt).toISOString().slice(0, 10)}
+              </li>
+            )}
+          </ul>
         </div>
       </div>
     </div>

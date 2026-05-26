@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useNavigate, useOutletContext } from "react-router-dom";
+import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import {
   api,
@@ -40,26 +40,45 @@ function emptyLine(): LineRow {
   };
 }
 
+function lineRowFromExisting(l: {
+  productId: string | null;
+  description: string;
+  quantity: number;
+  unitPriceCents: number;
+  taxRateId: string | null;
+}): LineRow {
+  return {
+    key: Math.random().toString(36).slice(2, 10),
+    productId: l.productId,
+    description: l.description,
+    quantityText: String(l.quantity),
+    priceText: (l.unitPriceCents / 100).toFixed(2),
+    taxRateId: l.taxRateId ?? "",
+  };
+}
+
 /**
- * Invoice creator. Phase A of the Finance milestone (M19) — see
- * ROADMAP.md.
+ * Invoice form — handles both create (no `:invoiceSlug` route param)
+ * and edit (param present, status must be `draft`). The form composes
+ * line items inline (no separate per-line modal); selecting a product
+ * pre-fills description / unit price / default tax rate, and the choice
+ * is snapshotted onto each line at save time.
  *
- * The form composes line items inline (no separate per-line modal) so a
- * typical 2-3 line invoice is one short scroll. Selecting a product
- * pre-fills description / unit price / default tax rate; users can edit
- * any of these freely (the choice is snapshotted onto the line at save).
- *
- * Submitting saves a draft. Issue + send happens on the detail page so
- * users can preview the rendered HTML before customers see it.
+ * Lifecycle actions (Issue / Send / Mark paid / Void) live on the
+ * detail page so users can preview the rendered HTML before sending.
  */
 export default function FinanceInvoiceNew() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { invoiceSlug } = useParams();
+  const isEdit = Boolean(invoiceSlug);
 
   const [customers, setCustomers] = React.useState<Customer[] | null>(null);
   const [products, setProducts] = React.useState<Product[]>([]);
   const [taxRates, setTaxRates] = React.useState<TaxRate[]>([]);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [ready, setReady] = React.useState(false);
 
   const [customerId, setCustomerId] = React.useState("");
   const [issueDate, setIssueDate] = React.useState(
@@ -75,21 +94,49 @@ export default function FinanceInvoiceNew() {
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
-    Promise.all([
-      api.get<Customer[]>(`/api/companies/${company.id}/customers`),
-      api.get<Product[]>(`/api/companies/${company.id}/products`),
-      api.get<TaxRate[]>(`/api/companies/${company.id}/tax-rates`),
-    ]).then(([c, p, t]) => {
-      setCustomers(c);
-      setProducts(p);
-      setTaxRates(t);
-      // Auto-pick the first customer to get the user moving.
-      if (c.length > 0) {
-        setCustomerId(c[0].id);
-        setCurrency(c[0].currency || "USD");
+    (async () => {
+      try {
+        const [c, p, t] = await Promise.all([
+          api.get<Customer[]>(`/api/companies/${company.id}/customers`),
+          api.get<Product[]>(`/api/companies/${company.id}/products`),
+          api.get<TaxRate[]>(`/api/companies/${company.id}/tax-rates`),
+        ]);
+        setCustomers(c);
+        setProducts(p);
+        setTaxRates(t);
+        if (isEdit && invoiceSlug) {
+          const existing = await api.get<Invoice>(
+            `/api/companies/${company.id}/invoices/${invoiceSlug}`,
+          );
+          if (existing.status !== "draft") {
+            setLoadError(
+              "This invoice has already been issued. Only drafts can be edited.",
+            );
+            setReady(true);
+            return;
+          }
+          setCustomerId(existing.customerId);
+          setIssueDate(new Date(existing.issueDate).toISOString().slice(0, 10));
+          setDueDate(new Date(existing.dueDate).toISOString().slice(0, 10));
+          setCurrency(existing.currency);
+          setNotes(existing.notes);
+          setFooter(existing.footer);
+          setLines(
+            existing.lines.length === 0
+              ? [emptyLine()]
+              : existing.lines.map(lineRowFromExisting),
+          );
+        } else if (c.length > 0) {
+          setCustomerId(c[0].id);
+          setCurrency(c[0].currency || "USD");
+        }
+        setReady(true);
+      } catch (err) {
+        setLoadError((err as Error).message);
+        setReady(true);
       }
-    });
-  }, [company.id]);
+    })();
+  }, [company.id, invoiceSlug, isEdit]);
 
   // When the customer changes, also adopt their default currency (the user
   // can override before saving).
@@ -176,7 +223,7 @@ export default function FinanceInvoiceNew() {
           taxRateId: l.taxRateId || null,
           sortOrder: i,
         }));
-      const inv = await api.post<Invoice>(`/api/companies/${company.id}/invoices`, {
+      const body = {
         customerId,
         issueDate: new Date(issueDate).toISOString(),
         dueDate: new Date(dueDate).toISOString(),
@@ -184,7 +231,14 @@ export default function FinanceInvoiceNew() {
         notes,
         footer,
         lines: lineDrafts,
-      });
+      };
+      const inv =
+        isEdit && invoiceSlug
+          ? await api.patch<Invoice>(
+              `/api/companies/${company.id}/invoices/${invoiceSlug}`,
+              body,
+            )
+          : await api.post<Invoice>(`/api/companies/${company.id}/invoices`, body);
       navigate(`/c/${company.slug}/finance/invoices/${inv.slug}`);
     } catch (err) {
       toast((err as Error).message, "error");
@@ -193,7 +247,7 @@ export default function FinanceInvoiceNew() {
     }
   }
 
-  if (customers === null) {
+  if (!ready || customers === null) {
     return (
       <div className="flex justify-center p-16">
         <Spinner size={20} />
@@ -201,7 +255,35 @@ export default function FinanceInvoiceNew() {
     );
   }
 
-  if (customers.length === 0) {
+  if (loadError) {
+    return (
+      <div className="mx-auto max-w-3xl p-8">
+        <Breadcrumbs
+          items={[
+            { label: "Finance", to: `/c/${company.slug}/finance` },
+            { label: "Invoices", to: `/c/${company.slug}/finance/invoices` },
+            { label: isEdit ? "Edit" : "New" },
+          ]}
+        />
+        <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+          {loadError}
+        </div>
+        <div className="mt-4">
+          <Link
+            to={
+              invoiceSlug
+                ? `/c/${company.slug}/finance/invoices/${invoiceSlug}`
+                : `/c/${company.slug}/finance/invoices`
+            }
+          >
+            <Button variant="secondary">Back</Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isEdit && customers.length === 0) {
     return (
       <div className="mx-auto max-w-3xl p-8">
         <Breadcrumbs
@@ -235,7 +317,7 @@ export default function FinanceInvoiceNew() {
           items={[
             { label: "Finance", to: `/c/${company.slug}/finance` },
             { label: "Invoices", to: `/c/${company.slug}/finance/invoices` },
-            { label: "New" },
+            { label: isEdit ? "Edit" : "New" },
           ]}
         />
       </div>
@@ -243,23 +325,33 @@ export default function FinanceInvoiceNew() {
       <div className="mb-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link
-            to={`/c/${company.slug}/finance/invoices`}
+            to={
+              isEdit && invoiceSlug
+                ? `/c/${company.slug}/finance/invoices/${invoiceSlug}`
+                : `/c/${company.slug}/finance/invoices`
+            }
             className="rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             <ArrowLeft size={18} />
           </Link>
           <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-            New invoice
+            {isEdit ? "Edit invoice" : "New invoice"}
           </h1>
         </div>
         <div className="flex gap-2">
-          <Link to={`/c/${company.slug}/finance/invoices`}>
+          <Link
+            to={
+              isEdit && invoiceSlug
+                ? `/c/${company.slug}/finance/invoices/${invoiceSlug}`
+                : `/c/${company.slug}/finance/invoices`
+            }
+          >
             <Button type="button" variant="secondary" disabled={busy}>
               Cancel
             </Button>
           </Link>
           <Button type="submit" disabled={busy || !canSave}>
-            Save draft
+            {isEdit ? "Save changes" : "Save draft"}
           </Button>
         </div>
       </div>

@@ -290,11 +290,19 @@ function CompanyRoutes({
             path="invoices/:invoiceSlug"
             element={<FinanceInvoiceDetail />}
           />
+          <Route
+            path="invoices/:invoiceSlug/edit"
+            element={<FinanceInvoiceNew />}
+          />
           <Route path="estimates" element={<FinanceEstimates />} />
           <Route path="estimates/new" element={<FinanceEstimateNew />} />
           <Route
             path="estimates/:estimateSlug"
             element={<FinanceEstimateDetail />}
+          />
+          <Route
+            path="estimates/:estimateSlug/edit"
+            element={<FinanceEstimateNew />}
           />
           <Route path="accounts" element={<FinanceAccounts />} />
           <Route path="journal" element={<FinanceJournal />} />

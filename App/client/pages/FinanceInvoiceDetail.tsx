@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Download,
   Mail,
+  Pencil,
   Plus,
   Send,
   Trash2,
@@ -234,6 +235,15 @@ export default function FinanceInvoiceDetail() {
         </div>
         <div className="flex flex-wrap gap-2">
           {invoice.status === "draft" && (
+            <Link
+              to={`/c/${company.slug}/finance/invoices/${invoice.slug}/edit`}
+            >
+              <Button variant="secondary" disabled={busy}>
+                <Pencil size={14} /> Edit
+              </Button>
+            </Link>
+          )}
+          {invoice.status === "draft" && (
             <Button onClick={issue} disabled={busy}>
               <CheckCircle2 size={14} /> Issue
             </Button>
@@ -278,8 +288,8 @@ export default function FinanceInvoiceDetail() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+      <div className="space-y-6">
+        <div>
           <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <div className="grid grid-cols-2 gap-6 text-sm">
               <div>
@@ -418,59 +428,65 @@ export default function FinanceInvoiceDetail() {
           </div>
         </div>
 
-        <div className="space-y-4">
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Payments
-            </h3>
-            {invoice.payments.length === 0 ? (
-              <div className="mt-3 text-sm text-slate-400">No payments yet.</div>
-            ) : (
-              <ul className="mt-3 space-y-2 text-sm">
-                {invoice.payments.map((p) => (
-                  <li
-                    key={p.id}
-                    className="flex items-start justify-between gap-2 rounded-md border border-slate-100 p-2 dark:border-slate-800"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="font-medium tabular-nums text-slate-900 dark:text-slate-100">
-                        {formatMoney(p.amountCents, p.currency)}
-                      </div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">
-                        {new Date(p.paidAt).toISOString().slice(0, 10)} ·{" "}
-                        {p.method}
-                        {p.reference ? ` · ${p.reference}` : ""}
-                      </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            Payments
+          </h3>
+          {invoice.payments.length === 0 ? (
+            <div className="mt-3 text-sm text-slate-400">No payments yet.</div>
+          ) : (
+            <ul className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+              {invoice.payments.map((p) => (
+                <li
+                  key={p.id}
+                  className="flex items-start justify-between gap-2 rounded-md border border-slate-100 p-2 dark:border-slate-800"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium tabular-nums text-slate-900 dark:text-slate-100">
+                      {formatMoney(p.amountCents, p.currency)}
                     </div>
-                    <button
-                      onClick={() => deletePayment(p.id)}
-                      className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
-                      aria-label="Delete payment"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Activity
-            </h3>
-            <ul className="mt-3 space-y-1.5 text-xs text-slate-500 dark:text-slate-400">
-              <li>Created {new Date(invoice.createdAt).toISOString().slice(0, 10)}</li>
-              {invoice.sentAt && (
-                <li>Issued {new Date(invoice.sentAt).toISOString().slice(0, 10)}</li>
-              )}
-              {invoice.paidAt && (
-                <li>Paid {new Date(invoice.paidAt).toISOString().slice(0, 10)}</li>
-              )}
-              {invoice.voidedAt && (
-                <li>Voided {new Date(invoice.voidedAt).toISOString().slice(0, 10)}</li>
-              )}
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                      {new Date(p.paidAt).toISOString().slice(0, 10)} ·{" "}
+                      {p.method}
+                      {p.reference ? ` · ${p.reference}` : ""}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => deletePayment(p.id)}
+                    className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+                    aria-label="Delete payment"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </li>
+              ))}
             </ul>
-          </div>
+          )}
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            Activity
+          </h3>
+          <ul className="mt-3 grid gap-1.5 text-xs text-slate-500 dark:text-slate-400 sm:grid-cols-2 lg:grid-cols-3">
+            <li>
+              Created {new Date(invoice.createdAt).toISOString().slice(0, 10)}
+            </li>
+            {invoice.sentAt && (
+              <li>
+                Issued {new Date(invoice.sentAt).toISOString().slice(0, 10)}
+              </li>
+            )}
+            {invoice.paidAt && (
+              <li>
+                Paid {new Date(invoice.paidAt).toISOString().slice(0, 10)}
+              </li>
+            )}
+            {invoice.voidedAt && (
+              <li>
+                Voided {new Date(invoice.voidedAt).toISOString().slice(0, 10)}
+              </li>
+            )}
+          </ul>
         </div>
       </div>
 
