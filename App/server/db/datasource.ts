@@ -56,6 +56,7 @@ import { ApiKey } from "./entities/ApiKey.js";
 import { Resource } from "./entities/Resource.js";
 import { EmployeeResourceGrant } from "./entities/EmployeeResourceGrant.js";
 import { Customer } from "./entities/Customer.js";
+import { CustomerContact } from "./entities/CustomerContact.js";
 import { Product } from "./entities/Product.js";
 import { TaxRate } from "./entities/TaxRate.js";
 import { Invoice } from "./entities/Invoice.js";
@@ -136,6 +137,7 @@ const entities = [
   Resource,
   EmployeeResourceGrant,
   Customer,
+  CustomerContact,
   Product,
   TaxRate,
   Invoice,

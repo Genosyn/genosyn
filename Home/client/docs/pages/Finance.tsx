@@ -45,7 +45,8 @@ export function Finance() {
         <LI>
           <Strong>Customers</Strong> and <Strong>Vendors</Strong> —
           counterparties for sales and purchases, each with billing
-          details, tax IDs, and a default currency.
+          details, tax IDs, a default currency, and any number of
+          named <Strong>contacts</Strong> (people at that account).
         </LI>
         <LI>
           <Strong>Catalog</Strong> — reusable <Code>Products</Code> and{" "}
@@ -127,6 +128,18 @@ export function Finance() {
         <Code>Resend email</Code>, delivered through whichever{" "}
         <DocLink to="/docs/integrations">EmailProvider</DocLink> the
         company has configured.
+      </P>
+
+      <H2 id="customers">Customers and contacts</H2>
+      <P>
+        A <Strong>Customer</Strong> is the billable account — the
+        company name, primary billing email, tax ID, default currency,
+        and address that appear on every invoice. Each customer can
+        additionally carry any number of <Strong>contacts</Strong>: the
+        humans at that account, each with their own name, role,
+        email, and phone. Mark one as the primary contact to surface
+        it first in the UI. Add, edit, or remove contacts inline from
+        the customer modal in <Code>Finance → Customers</Code>.
       </P>
 
       <H2 id="invoices">Invoices</H2>

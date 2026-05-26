@@ -7,6 +7,7 @@ import { Account, AccountType } from "../db/entities/Account.js";
 import { BankFeed, BankFeedKind } from "../db/entities/BankFeed.js";
 import { BankTransaction } from "../db/entities/BankTransaction.js";
 import { Customer } from "../db/entities/Customer.js";
+import { CustomerContact } from "../db/entities/CustomerContact.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { Invoice } from "../db/entities/Invoice.js";
 import { InvoiceLineItem } from "../db/entities/InvoiceLineItem.js";
@@ -132,6 +133,66 @@ async function uniqueCustomerSlug(companyId: string, base: string): Promise<stri
   return slug;
 }
 
+// ─────────────────────── Customer contacts ────────────────────────────
+
+type CustomerWithContacts = Customer & { contacts: CustomerContact[] };
+
+/**
+ * Attach the `contacts` array to one or many customer rows in a single
+ * query. Returns hydrated copies — `Customer` itself is untouched so
+ * archived-filter math doesn't see a derived field.
+ */
+async function hydrateCustomers(
+  companyId: string,
+  customers: Customer[],
+): Promise<CustomerWithContacts[]> {
+  if (customers.length === 0) return [];
+  const contacts = await AppDataSource.getRepository(CustomerContact).find({
+    where: { companyId, customerId: In(customers.map((c) => c.id)) },
+    order: { sortOrder: "ASC", createdAt: "ASC" },
+  });
+  const byCustomer = new Map<string, CustomerContact[]>();
+  for (const ct of contacts) {
+    const arr = byCustomer.get(ct.customerId) ?? [];
+    arr.push(ct);
+    byCustomer.set(ct.customerId, arr);
+  }
+  return customers.map((c) => ({
+    ...c,
+    contacts: byCustomer.get(c.id) ?? [],
+  }));
+}
+
+const contactWriteSchema = z.object({
+  name: z.string().min(1).max(120),
+  email: z.string().email().max(200).or(z.literal("")).optional(),
+  phone: z.string().max(60).optional(),
+  role: z.string().max(120).optional(),
+  isPrimary: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
+});
+
+/**
+ * Ensure at most one contact per customer carries the `isPrimary` flag.
+ * If the caller toggled a contact on, clear the flag on any other rows
+ * for the same customer in the same operation so the database stays
+ * single-source-of-truth instead of relying on UI to enforce it.
+ */
+async function clearOtherPrimaries(
+  customerId: string,
+  exceptId: string | null,
+): Promise<void> {
+  const repo = AppDataSource.getRepository(CustomerContact);
+  const others = await repo.find({
+    where: { customerId, isPrimary: true },
+  });
+  for (const ct of others) {
+    if (ct.id === exceptId) continue;
+    ct.isPrimary = false;
+    await repo.save(ct);
+  }
+}
+
 financeRouter.get("/customers", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const includeArchived = String(req.query.archived ?? "") === "true";
@@ -142,7 +203,8 @@ financeRouter.get("/customers", async (req, res) => {
   const filtered = includeArchived
     ? customers
     : customers.filter((c) => !c.archivedAt);
-  res.json(filtered);
+  const hydrated = await hydrateCustomers(cid, filtered);
+  res.json(hydrated);
 });
 
 const customerWriteSchema = z.object({
@@ -154,6 +216,9 @@ const customerWriteSchema = z.object({
   taxNumber: z.string().max(60).optional(),
   currency: currencySchema.optional(),
   notes: z.string().max(2000).optional(),
+  /** Optional inline contacts so the create flow can land a customer
+   *  plus several people in one round-trip. */
+  contacts: z.array(contactWriteSchema).max(50).optional(),
 });
 
 financeRouter.post(
@@ -178,7 +243,31 @@ financeRouter.post(
       createdById: req.userId ?? null,
     });
     await repo.save(c);
-    res.json(c);
+
+    if (body.contacts && body.contacts.length > 0) {
+      const contactRepo = AppDataSource.getRepository(CustomerContact);
+      let primaryAlreadyAssigned = false;
+      for (let i = 0; i < body.contacts.length; i += 1) {
+        const draft = body.contacts[i];
+        const isPrimary = !!draft.isPrimary && !primaryAlreadyAssigned;
+        if (isPrimary) primaryAlreadyAssigned = true;
+        await contactRepo.save(
+          contactRepo.create({
+            companyId: cid,
+            customerId: c.id,
+            name: draft.name,
+            email: draft.email ?? "",
+            phone: draft.phone ?? "",
+            role: draft.role ?? "",
+            isPrimary,
+            sortOrder: draft.sortOrder ?? i,
+          }),
+        );
+      }
+    }
+
+    const [hydrated] = await hydrateCustomers(cid, [c]);
+    res.json(hydrated);
   },
 );
 
@@ -186,7 +275,8 @@ financeRouter.get("/customers/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const c = await loadCustomerBySlug(cid, req.params.slug);
   if (!c) return res.status(404).json({ error: "Customer not found" });
-  res.json(c);
+  const [hydrated] = await hydrateCustomers(cid, [c]);
+  res.json(hydrated);
 });
 
 financeRouter.patch(
@@ -200,7 +290,7 @@ financeRouter.patch(
     const cid = (req.params as Record<string, string>).cid;
     const c = await loadCustomerBySlug(cid, req.params.slug);
     if (!c) return res.status(404).json({ error: "Customer not found" });
-    const body = req.body as z.infer<typeof customerWriteSchema> & {
+    const body = req.body as Partial<z.infer<typeof customerWriteSchema>> & {
       archived?: boolean;
     };
     if (body.name !== undefined) c.name = body.name;
@@ -215,7 +305,8 @@ financeRouter.patch(
       c.archivedAt = body.archived ? new Date() : null;
     }
     await AppDataSource.getRepository(Customer).save(c);
-    res.json(c);
+    const [hydrated] = await hydrateCustomers(cid, [c]);
+    res.json(hydrated);
   },
 );
 
@@ -233,9 +324,89 @@ financeRouter.delete("/customers/:slug", async (req, res) => {
       error: "Customer has invoices. Archive them or delete the invoices first.",
     });
   }
+  await AppDataSource.getRepository(CustomerContact).delete({ customerId: c.id });
   await AppDataSource.getRepository(Customer).delete({ id: c.id });
   res.json({ ok: true });
 });
+
+financeRouter.get("/customers/:slug/contacts", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const c = await loadCustomerBySlug(cid, req.params.slug);
+  if (!c) return res.status(404).json({ error: "Customer not found" });
+  const contacts = await AppDataSource.getRepository(CustomerContact).find({
+    where: { customerId: c.id },
+    order: { sortOrder: "ASC", createdAt: "ASC" },
+  });
+  res.json(contacts);
+});
+
+financeRouter.post(
+  "/customers/:slug/contacts",
+  validateBody(contactWriteSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const c = await loadCustomerBySlug(cid, req.params.slug);
+    if (!c) return res.status(404).json({ error: "Customer not found" });
+    const body = req.body as z.infer<typeof contactWriteSchema>;
+    const repo = AppDataSource.getRepository(CustomerContact);
+    const ct = repo.create({
+      companyId: cid,
+      customerId: c.id,
+      name: body.name,
+      email: body.email ?? "",
+      phone: body.phone ?? "",
+      role: body.role ?? "",
+      isPrimary: !!body.isPrimary,
+      sortOrder: body.sortOrder ?? 0,
+    });
+    await repo.save(ct);
+    if (ct.isPrimary) await clearOtherPrimaries(c.id, ct.id);
+    res.json(ct);
+  },
+);
+
+financeRouter.patch(
+  "/customers/:slug/contacts/:contactId",
+  validateBody(contactWriteSchema.partial()),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const c = await loadCustomerBySlug(cid, req.params.slug);
+    if (!c) return res.status(404).json({ error: "Customer not found" });
+    const repo = AppDataSource.getRepository(CustomerContact);
+    const ct = await repo.findOneBy({
+      id: req.params.contactId,
+      customerId: c.id,
+    });
+    if (!ct) return res.status(404).json({ error: "Contact not found" });
+    const body = req.body as Partial<z.infer<typeof contactWriteSchema>>;
+    if (body.name !== undefined) ct.name = body.name;
+    if (body.email !== undefined) ct.email = body.email;
+    if (body.phone !== undefined) ct.phone = body.phone;
+    if (body.role !== undefined) ct.role = body.role;
+    if (body.isPrimary !== undefined) ct.isPrimary = body.isPrimary;
+    if (body.sortOrder !== undefined) ct.sortOrder = body.sortOrder;
+    await repo.save(ct);
+    if (ct.isPrimary) await clearOtherPrimaries(c.id, ct.id);
+    res.json(ct);
+  },
+);
+
+financeRouter.delete(
+  "/customers/:slug/contacts/:contactId",
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const c = await loadCustomerBySlug(cid, req.params.slug);
+    if (!c) return res.status(404).json({ error: "Customer not found" });
+    const repo = AppDataSource.getRepository(CustomerContact);
+    const ct = await repo.findOneBy({
+      id: req.params.contactId,
+      customerId: c.id,
+    });
+    if (!ct) return res.status(404).json({ error: "Contact not found" });
+    await repo.delete({ id: ct.id });
+    res.json({ ok: true });
+  },
+);
 
 // ──────────────────────────── Products ─────────────────────────────────
 

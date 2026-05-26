@@ -1307,6 +1307,29 @@ export type Notification = {
 
 // ─────────────────────────── Finance (M19) ──────────────────────────────
 
+export type CustomerContact = {
+  id: string;
+  companyId: string;
+  customerId: string;
+  name: string;
+  email: string;
+  phone: string;
+  role: string;
+  isPrimary: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CustomerContactDraft = {
+  name: string;
+  email?: string;
+  phone?: string;
+  role?: string;
+  isPrimary?: boolean;
+  sortOrder?: number;
+};
+
 export type Customer = {
   id: string;
   companyId: string;
@@ -1323,6 +1346,9 @@ export type Customer = {
   createdById: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Additional people at this account. Populated by GET /customers and
+   *  GET /customers/:slug; empty array when none have been added. */
+  contacts: CustomerContact[];
 };
 
 export type Product = {
