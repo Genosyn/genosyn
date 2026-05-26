@@ -36,6 +36,7 @@ import {
 } from "../services/finance.js";
 import { renderInvoiceHtmlForCompany } from "../services/invoiceHtml.js";
 import { renderEstimateHtmlForCompany } from "../services/estimateHtml.js";
+import { htmlToPdf } from "../services/htmlToPdf.js";
 import {
   acceptEstimate,
   convertEstimateToInvoice,
@@ -817,29 +818,89 @@ financeRouter.post("/invoices/:slug/void", async (req, res) => {
   }
 });
 
-// Printable HTML — used by the React InvoicePrint route via iframe so the
-// browser's File → Print menu produces a clean PDF without our app chrome.
-financeRouter.get("/invoices/:slug/html", async (req, res) => {
-  const cid = (req.params as Record<string, string>).cid;
-  const inv = await loadInvoiceBySlug(cid, req.params.slug);
-  if (!inv) return res.status(404).type("text/plain").send("Not found");
+/**
+ * Load the full set of rows the printable / PDF view needs in one go:
+ * invoice header, customer, lines, payments. Returns null when any of
+ * the required pieces is missing so route handlers can 404 uniformly.
+ */
+async function loadInvoicePrintBundle(
+  companyId: string,
+  slug: string,
+): Promise<
+  | null
+  | {
+      invoice: Invoice;
+      customer: Customer;
+      lines: InvoiceLineItem[];
+      payments: InvoicePayment[];
+    }
+> {
+  const invoice = await loadInvoiceBySlug(companyId, slug);
+  if (!invoice) return null;
   const customer = await AppDataSource.getRepository(Customer).findOneBy({
-    id: inv.customerId,
-    companyId: cid,
+    id: invoice.customerId,
+    companyId,
   });
-  if (!customer) return res.status(404).type("text/plain").send("Customer missing");
+  if (!customer) return null;
   const [lines, payments] = await Promise.all([
     AppDataSource.getRepository(InvoiceLineItem).find({
-      where: { invoiceId: inv.id },
+      where: { invoiceId: invoice.id },
       order: { sortOrder: "ASC" },
     }),
     AppDataSource.getRepository(InvoicePayment).find({
-      where: { invoiceId: inv.id },
+      where: { invoiceId: invoice.id },
       order: { paidAt: "ASC" },
     }),
   ]);
-  const html = await renderInvoiceHtmlForCompany(cid, inv, customer, lines, payments);
+  return { invoice, customer, lines, payments };
+}
+
+// Printable HTML — kept for previews and the email-send path. Browsers
+// can still File → Print this page if a user wants the print dialog.
+financeRouter.get("/invoices/:slug/html", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const bundle = await loadInvoicePrintBundle(cid, req.params.slug);
+  if (!bundle) return res.status(404).type("text/plain").send("Not found");
+  const html = await renderInvoiceHtmlForCompany(
+    cid,
+    bundle.invoice,
+    bundle.customer,
+    bundle.lines,
+    bundle.payments,
+  );
   res.type("text/html").send(html);
+});
+
+// Server-rendered PDF for the "Download PDF" button. Falls back to a 503
+// if Chromium isn't available so the UI can surface a meaningful error
+// instead of a generic 500.
+financeRouter.get("/invoices/:slug/pdf", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const bundle = await loadInvoicePrintBundle(cid, req.params.slug);
+  if (!bundle) return res.status(404).type("text/plain").send("Not found");
+  const html = await renderInvoiceHtmlForCompany(
+    cid,
+    bundle.invoice,
+    bundle.customer,
+    bundle.lines,
+    bundle.payments,
+  );
+  try {
+    const pdf = await htmlToPdf(html);
+    const filename = `${bundle.invoice.number || "draft"}.pdf`;
+    res
+      .type("application/pdf")
+      .setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename}"`,
+      )
+      .send(pdf);
+  } catch (err) {
+    res
+      .status(503)
+      .type("text/plain")
+      .send(`PDF rendering unavailable: ${(err as Error).message}`);
+  }
 });
 
 // ───────────────────────────── Payments ────────────────────────────────
@@ -1171,26 +1232,73 @@ financeRouter.post(
   },
 );
 
-// Printable HTML — used by the React detail page via a target=_blank
-// anchor so the browser's File → Print menu produces a clean PDF
-// without our app chrome.
-financeRouter.get("/estimates/:slug/html", async (req, res) => {
-  const cid = (req.params as Record<string, string>).cid;
-  const est = await loadEstimateBySlug(cid, req.params.slug);
-  if (!est) return res.status(404).type("text/plain").send("Not found");
+async function loadEstimatePrintBundle(
+  companyId: string,
+  slug: string,
+): Promise<
+  | null
+  | {
+      estimate: Estimate;
+      customer: Customer;
+      lines: EstimateLineItem[];
+    }
+> {
+  const estimate = await loadEstimateBySlug(companyId, slug);
+  if (!estimate) return null;
   const customer = await AppDataSource.getRepository(Customer).findOneBy({
-    id: est.customerId,
-    companyId: cid,
+    id: estimate.customerId,
+    companyId,
   });
-  if (!customer) {
-    return res.status(404).type("text/plain").send("Customer missing");
-  }
+  if (!customer) return null;
   const lines = await AppDataSource.getRepository(EstimateLineItem).find({
-    where: { estimateId: est.id },
+    where: { estimateId: estimate.id },
     order: { sortOrder: "ASC" },
   });
-  const html = await renderEstimateHtmlForCompany(cid, est, customer, lines);
+  return { estimate, customer, lines };
+}
+
+// Printable HTML — kept for previews and the email-send path.
+financeRouter.get("/estimates/:slug/html", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const bundle = await loadEstimatePrintBundle(cid, req.params.slug);
+  if (!bundle) return res.status(404).type("text/plain").send("Not found");
+  const html = await renderEstimateHtmlForCompany(
+    cid,
+    bundle.estimate,
+    bundle.customer,
+    bundle.lines,
+  );
   res.type("text/html").send(html);
+});
+
+// Server-rendered PDF for the "Download PDF" button. 503 on Chromium
+// failure so the UI can surface a meaningful error.
+financeRouter.get("/estimates/:slug/pdf", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const bundle = await loadEstimatePrintBundle(cid, req.params.slug);
+  if (!bundle) return res.status(404).type("text/plain").send("Not found");
+  const html = await renderEstimateHtmlForCompany(
+    cid,
+    bundle.estimate,
+    bundle.customer,
+    bundle.lines,
+  );
+  try {
+    const pdf = await htmlToPdf(html);
+    const filename = `${bundle.estimate.number || "draft"}.pdf`;
+    res
+      .type("application/pdf")
+      .setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename}"`,
+      )
+      .send(pdf);
+  } catch (err) {
+    res
+      .status(503)
+      .type("text/plain")
+      .send(`PDF rendering unavailable: ${(err as Error).message}`);
+  }
 });
 
 // ─────────────────────────── Accounts (Phase B) ────────────────────────

@@ -4,9 +4,9 @@ import {
   ArrowLeft,
   Ban,
   CheckCircle2,
+  Download,
   Mail,
   Plus,
-  Printer,
   Send,
   Trash2,
 } from "lucide-react";
@@ -258,12 +258,11 @@ export default function FinanceInvoiceDetail() {
             </Button>
           )}
           <a
-            href={`/api/companies/${company.id}/invoices/${invoice.slug}/html`}
-            target="_blank"
-            rel="noreferrer"
+            href={`/api/companies/${company.id}/invoices/${invoice.slug}/pdf`}
+            download={`${invoice.number || "draft"}.pdf`}
           >
             <Button variant="secondary" disabled={busy}>
-              <Printer size={14} /> Print / PDF
+              <Download size={14} /> Download PDF
             </Button>
           </a>
           {invoice.status !== "void" && invoice.status !== "draft" && (

@@ -5,8 +5,8 @@ import {
   ArrowRight,
   Ban,
   CheckCircle2,
+  Download,
   Mail,
-  Printer,
   Send,
   Trash2,
   XCircle,
@@ -322,12 +322,11 @@ export default function FinanceEstimateDetail() {
               </Button>
             )}
           <a
-            href={`/api/companies/${company.id}/estimates/${estimate.slug}/html`}
-            target="_blank"
-            rel="noreferrer"
+            href={`/api/companies/${company.id}/estimates/${estimate.slug}/pdf`}
+            download={`${estimate.number || "draft"}.pdf`}
           >
             <Button variant="secondary" disabled={busy}>
-              <Printer size={14} /> Print / PDF
+              <Download size={14} /> Download PDF
             </Button>
           </a>
           {!isTerminal && estimate.status !== "draft" && (
