@@ -71,6 +71,7 @@ import {
 import {
   getFinanceSettings,
   seedCurrencies,
+  setFinanceTemplates,
   setHomeCurrency,
   setRate,
 } from "../services/fx.js";
@@ -1889,7 +1890,9 @@ financeRouter.get("/finance-settings", async (req, res) => {
 });
 
 const settingsPatchSchema = z.object({
-  homeCurrency: z.string().regex(/^[A-Za-z]{3}$/),
+  homeCurrency: z.string().regex(/^[A-Za-z]{3}$/).optional(),
+  defaultFromBlock: z.string().max(4000).optional(),
+  defaultFooter: z.string().max(2000).optional(),
 });
 
 financeRouter.patch(
@@ -1898,8 +1901,19 @@ financeRouter.patch(
   async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const body = req.body as z.infer<typeof settingsPatchSchema>;
-    const s = await setHomeCurrency(cid, body.homeCurrency);
-    res.json(s);
+    if (body.homeCurrency !== undefined) {
+      await setHomeCurrency(cid, body.homeCurrency);
+    }
+    if (
+      body.defaultFromBlock !== undefined ||
+      body.defaultFooter !== undefined
+    ) {
+      await setFinanceTemplates(cid, {
+        defaultFromBlock: body.defaultFromBlock,
+        defaultFooter: body.defaultFooter,
+      });
+    }
+    res.json(await getFinanceSettings(cid));
   },
 );
 

@@ -10,6 +10,7 @@ import {
   FileText,
   Inbox,
   Layers,
+  LayoutTemplate,
   LineChart,
   Link2,
   NotebookPen,
@@ -121,6 +122,11 @@ export default function FinanceLayout({ company }: { company: Company }) {
           to={`${base}/currencies`}
           icon={<Coins size={14} />}
           label="Currencies"
+        />
+        <SidebarLink
+          to={`${base}/templates`}
+          icon={<LayoutTemplate size={14} />}
+          label="Templates"
         />
       </nav>
     </div>

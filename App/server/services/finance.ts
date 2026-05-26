@@ -13,6 +13,7 @@ import {
 } from "../lib/money.js";
 import { sendEmail } from "./email.js";
 import { renderInvoiceHtml } from "./invoiceHtml.js";
+import { Company } from "../db/entities/Company.js";
 import {
   hasEntryFor,
   postLedgerEntry,
@@ -56,15 +57,24 @@ export async function findCustomerByName(
 // ───────────────────────────── Numbering ──────────────────────────────
 
 /**
- * Mint the next gapless invoice sequence for a company. Read-then-write
- * inside a single request is safe under SQLite (synchronous driver) and
- * `requireCompanyMember` already serialized us this far. When this
- * project moves to Postgres, swap to `INSERT … RETURNING` against a
- * dedicated counter row to make this concurrent-safe.
+ * Mint the next gapless invoice sequence for a (company, customer)
+ * pair. Customers each have their own running counter starting at 1 —
+ * "INV-0001" addressed to Acme is a different invoice from "INV-0001"
+ * addressed to Globex, and they coexist in the same company without
+ * collision. Slug uniqueness within the company is handled at issue
+ * time by prefixing the customer slug onto the invoice slug.
+ *
+ * Read-then-write inside a single request is safe under SQLite (the
+ * driver is synchronous and `requireCompanyMember` already serialized
+ * us this far). When this project moves to Postgres, swap to
+ * `INSERT … RETURNING` against a dedicated counter row.
  */
-export async function mintNextInvoiceSeq(companyId: string): Promise<number> {
+export async function mintNextInvoiceSeq(
+  companyId: string,
+  customerId: string,
+): Promise<number> {
   const last = await AppDataSource.getRepository(Invoice).findOne({
-    where: { companyId },
+    where: { companyId, customerId },
     order: { numberSeq: "DESC" },
     select: ["numberSeq"],
   });
@@ -215,10 +225,19 @@ export async function issueInvoice(
   if (invoice.status !== "draft") {
     throw new Error("Only drafts can be issued");
   }
-  const seq = await mintNextInvoiceSeq(invoice.companyId);
+  const customer = await AppDataSource.getRepository(Customer).findOneBy({
+    id: invoice.customerId,
+    companyId: invoice.companyId,
+  });
+  if (!customer) {
+    throw new Error("Customer for this invoice no longer exists");
+  }
+  const seq = await mintNextInvoiceSeq(invoice.companyId, invoice.customerId);
   invoice.numberSeq = seq;
   invoice.number = formatInvoiceNumber(seq);
-  invoice.slug = invoice.number.toLowerCase();
+  // Slug includes the customer slug so two customers can both have
+  // INV-0001 without colliding on the unique (companyId, slug) index.
+  invoice.slug = `${customer.slug}-${invoice.number.toLowerCase()}`;
   invoice.status = "sent";
   invoice.sentAt = new Date();
   await AppDataSource.getRepository(Invoice).save(invoice);
@@ -584,7 +603,19 @@ export async function sendInvoiceEmail(
       order: { paidAt: "ASC" },
     }),
   ]);
-  const html = renderInvoiceHtml({ invoice, customer, lines, payments });
+  const [company, settings] = await Promise.all([
+    AppDataSource.getRepository(Company).findOneBy({ id: companyId }),
+    getFinanceSettings(companyId),
+  ]);
+  const html = renderInvoiceHtml({
+    invoice,
+    customer,
+    lines,
+    payments,
+    companyName: company?.name ?? "",
+    defaultFromBlock: settings.defaultFromBlock,
+    defaultFooter: settings.defaultFooter,
+  });
   const text =
     `Invoice ${invoice.number || "(draft)"} from your supplier — ` +
     `${formatMoney(invoice.balanceCents, invoice.currency)} due ` +

@@ -109,6 +109,26 @@ export async function setHomeCurrency(
   return repo.save(s);
 }
 
+/**
+ * Update the printable header / footer templates used on every rendered
+ * invoice and estimate. Pass undefined to leave a field unchanged so
+ * callers can patch them independently.
+ */
+export async function setFinanceTemplates(
+  companyId: string,
+  patch: { defaultFromBlock?: string; defaultFooter?: string },
+): Promise<CompanyFinanceSettings> {
+  const repo = AppDataSource.getRepository(CompanyFinanceSettings);
+  const s = await getFinanceSettings(companyId);
+  if (patch.defaultFromBlock !== undefined) {
+    s.defaultFromBlock = patch.defaultFromBlock;
+  }
+  if (patch.defaultFooter !== undefined) {
+    s.defaultFooter = patch.defaultFooter;
+  }
+  return repo.save(s);
+}
+
 // ────────────────────────── Rate lookups ──────────────────────────────
 
 /**

@@ -4,6 +4,7 @@ import type { EstimateLineItem } from "../db/entities/EstimateLineItem.js";
 import { Company } from "../db/entities/Company.js";
 import { AppDataSource } from "../db/datasource.js";
 import { formatMoney } from "../lib/money.js";
+import { getFinanceSettings } from "./fx.js";
 
 /**
  * Render an Estimate as a self-contained HTML document. Used as both
@@ -24,6 +25,11 @@ export type EstimateHtmlInput = {
   /** Optional company override so callers that already have it don't
    *  pay for a second query. */
   companyName?: string;
+  /** Multi-line text shown in the "From" column. Falls back to
+   *  `companyName` when empty so legacy companies keep working. */
+  defaultFromBlock?: string;
+  /** Default footer when the estimate has no `footer` of its own. */
+  defaultFooter?: string;
 };
 
 const STYLES = `
@@ -214,8 +220,10 @@ export function renderEstimateHtml(input: EstimateHtmlInput): string {
   const notesBlock = estimate.notes
     ? `<div class="notes">${esc(estimate.notes)}</div>`
     : "";
-  const footerBlock = estimate.footer
-    ? `<div class="footer">${esc(estimate.footer)}</div>`
+  // Per-doc footer wins; company-wide default fills in when blank.
+  const footerText = estimate.footer || input.defaultFooter || "";
+  const footerBlock = footerText
+    ? `<div class="footer">${esc(footerText)}</div>`
     : "";
 
   const numberDisplay = estimate.number || "DRAFT";
@@ -263,7 +271,11 @@ export function renderEstimateHtml(input: EstimateHtmlInput): string {
       </div>
       <div>
         <div class="party-label">From</div>
-        <div class="party-name">${esc(input.companyName || "")}</div>
+        ${
+          input.defaultFromBlock
+            ? `<div class="party-detail">${esc(input.defaultFromBlock)}</div>`
+            : `<div class="party-name">${esc(input.companyName || "")}</div>`
+        }
       </div>
     </div>
 
@@ -292,20 +304,23 @@ export function renderEstimateHtml(input: EstimateHtmlInput): string {
 </html>`;
 }
 
-/** Convenience wrapper that loads the company name itself. */
+/** Convenience wrapper that loads the company name + templates itself. */
 export async function renderEstimateHtmlForCompany(
   companyId: string,
   estimate: Estimate,
   customer: Customer,
   lines: EstimateLineItem[],
 ): Promise<string> {
-  const company = await AppDataSource.getRepository(Company).findOneBy({
-    id: companyId,
-  });
+  const [company, settings] = await Promise.all([
+    AppDataSource.getRepository(Company).findOneBy({ id: companyId }),
+    getFinanceSettings(companyId),
+  ]);
   return renderEstimateHtml({
     estimate,
     customer,
     lines,
     companyName: company?.name ?? "",
+    defaultFromBlock: settings.defaultFromBlock,
+    defaultFooter: settings.defaultFooter,
   });
 }

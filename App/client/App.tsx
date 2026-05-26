@@ -78,6 +78,7 @@ import FinanceInvoiceDetail from "./pages/FinanceInvoiceDetail";
 import FinanceEstimates from "./pages/FinanceEstimates";
 import FinanceEstimateNew from "./pages/FinanceEstimateNew";
 import FinanceEstimateDetail from "./pages/FinanceEstimateDetail";
+import FinanceTemplates from "./pages/FinanceTemplates";
 import FinanceAccounts from "./pages/FinanceAccounts";
 import FinanceJournal from "./pages/FinanceJournal";
 import FinanceTrialBalance from "./pages/FinanceTrialBalance";
@@ -310,6 +311,7 @@ function CompanyRoutes({
           <Route path="reports" element={<FinanceReports />} />
           <Route path="reconcile" element={<FinanceReconcile />} />
           <Route path="currencies" element={<FinanceCurrencies />} />
+          <Route path="templates" element={<FinanceTemplates />} />
           <Route path="periods" element={<FinancePeriods />} />
           <Route path="vendors" element={<FinanceVendors />} />
           <Route path="bills" element={<FinanceBills />} />

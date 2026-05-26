@@ -1911,6 +1911,12 @@ export type CompanyFinanceSettings = {
   id: string;
   companyId: string;
   homeCurrency: string;
+  /** Multi-line text rendered in the "From" column on every invoice
+   *  and estimate. Empty means fall back to the bare company name. */
+  defaultFromBlock: string;
+  /** Default printable footer for invoices and estimates that don't
+   *  have one of their own. Per-doc footers always win. */
+  defaultFooter: string;
   createdAt: string;
   updatedAt: string;
 };

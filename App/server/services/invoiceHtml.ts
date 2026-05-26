@@ -5,6 +5,7 @@ import type { InvoicePayment } from "../db/entities/InvoicePayment.js";
 import { Company } from "../db/entities/Company.js";
 import { AppDataSource } from "../db/datasource.js";
 import { formatMoney } from "../lib/money.js";
+import { getFinanceSettings } from "./fx.js";
 
 /**
  * Render an Invoice as a self-contained HTML document. Used as both the
@@ -24,6 +25,11 @@ export type InvoiceHtmlInput = {
   /** Optional company override so callers that already have it don't
    *  pay for a second query. */
   companyName?: string;
+  /** Multi-line text shown in the "From" column. Falls back to
+   *  `companyName` when empty so legacy companies keep working. */
+  defaultFromBlock?: string;
+  /** Default footer when the invoice has no `footer` of its own. */
+  defaultFooter?: string;
 };
 
 const STYLES = `
@@ -258,8 +264,12 @@ export function renderInvoiceHtml(input: InvoiceHtmlInput): string {
   const notesBlock = invoice.notes
     ? `<div class="notes">${esc(invoice.notes)}</div>`
     : "";
-  const footerBlock = invoice.footer
-    ? `<div class="footer">${esc(invoice.footer)}</div>`
+  // Per-doc footer wins; the company-wide default is used only when the
+  // invoice has none. Keeping the precedence here means a user who clears
+  // a per-doc footer to "" still sees the default they configured.
+  const footerText = invoice.footer || input.defaultFooter || "";
+  const footerBlock = footerText
+    ? `<div class="footer">${esc(footerText)}</div>`
     : "";
 
   const numberDisplay = invoice.number || "DRAFT";
@@ -307,7 +317,11 @@ export function renderInvoiceHtml(input: InvoiceHtmlInput): string {
       </div>
       <div>
         <div class="party-label">From</div>
-        <div class="party-name">${esc(input.companyName || "")}</div>
+        ${
+          input.defaultFromBlock
+            ? `<div class="party-detail">${esc(input.defaultFromBlock)}</div>`
+            : `<div class="party-name">${esc(input.companyName || "")}</div>`
+        }
       </div>
     </div>
 
@@ -339,7 +353,7 @@ export function renderInvoiceHtml(input: InvoiceHtmlInput): string {
 </html>`;
 }
 
-/** Convenience wrapper that loads the company name itself. */
+/** Convenience wrapper that loads the company name + templates itself. */
 export async function renderInvoiceHtmlForCompany(
   companyId: string,
   invoice: Invoice,
@@ -347,14 +361,17 @@ export async function renderInvoiceHtmlForCompany(
   lines: InvoiceLineItem[],
   payments: InvoicePayment[],
 ): Promise<string> {
-  const company = await AppDataSource.getRepository(Company).findOneBy({
-    id: companyId,
-  });
+  const [company, settings] = await Promise.all([
+    AppDataSource.getRepository(Company).findOneBy({ id: companyId }),
+    getFinanceSettings(companyId),
+  ]);
   return renderInvoiceHtml({
     invoice,
     customer,
     lines,
     payments,
     companyName: company?.name ?? "",
+    defaultFromBlock: settings.defaultFromBlock,
+    defaultFooter: settings.defaultFooter,
   });
 }

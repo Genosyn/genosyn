@@ -12,7 +12,7 @@ import {
   formatMoney,
 } from "../lib/money.js";
 import { sendEmail } from "./email.js";
-import { renderEstimateHtml } from "./estimateHtml.js";
+import { renderEstimateHtmlForCompany } from "./estimateHtml.js";
 import { issueInvoice, type LineDraft } from "./finance.js";
 
 /**
@@ -40,13 +40,18 @@ import { issueInvoice, type LineDraft } from "./finance.js";
 // ───────────────────────────── Numbering ──────────────────────────────
 
 /**
- * Mint the next gapless estimate sequence for a company. Read-then-write
- * inside a single request is safe under SQLite (synchronous driver) —
- * see the matching note on `mintNextInvoiceSeq` for the Postgres path.
+ * Mint the next gapless estimate sequence for a (company, customer)
+ * pair — each customer has their own counter starting at 1. Slug
+ * uniqueness within the company is handled at issue time by prefixing
+ * the customer slug. See `mintNextInvoiceSeq` for the Postgres
+ * concurrency note.
  */
-export async function mintNextEstimateSeq(companyId: string): Promise<number> {
+export async function mintNextEstimateSeq(
+  companyId: string,
+  customerId: string,
+): Promise<number> {
   const last = await AppDataSource.getRepository(Estimate).findOne({
-    where: { companyId },
+    where: { companyId, customerId },
     order: { numberSeq: "DESC" },
     select: ["numberSeq"],
   });
@@ -157,10 +162,19 @@ export async function issueEstimate(
   if (estimate.status !== "draft") {
     throw new Error("Only drafts can be issued");
   }
-  const seq = await mintNextEstimateSeq(estimate.companyId);
+  const customer = await AppDataSource.getRepository(Customer).findOneBy({
+    id: estimate.customerId,
+    companyId: estimate.companyId,
+  });
+  if (!customer) {
+    throw new Error("Customer for this estimate no longer exists");
+  }
+  const seq = await mintNextEstimateSeq(estimate.companyId, estimate.customerId);
   estimate.numberSeq = seq;
   estimate.number = formatEstimateNumber(seq);
-  estimate.slug = estimate.number.toLowerCase();
+  // Slug includes the customer slug so two customers can both have
+  // EST-0001 without colliding on the unique (companyId, slug) index.
+  estimate.slug = `${customer.slug}-${estimate.number.toLowerCase()}`;
   estimate.status = "sent";
   estimate.sentAt = new Date();
   await AppDataSource.getRepository(Estimate).save(estimate);
@@ -426,7 +440,12 @@ export async function sendEstimateEmail(
     where: { estimateId: estimate.id },
     order: { sortOrder: "ASC" },
   });
-  const html = renderEstimateHtml({ estimate, customer, lines });
+  const html = await renderEstimateHtmlForCompany(
+    companyId,
+    estimate,
+    customer,
+    lines,
+  );
   const text =
     `Estimate ${estimate.number || "(draft)"} — total ` +
     `${formatMoney(estimate.totalCents, estimate.currency)} valid until ` +
