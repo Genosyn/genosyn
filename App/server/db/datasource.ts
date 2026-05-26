@@ -61,6 +61,8 @@ import { TaxRate } from "./entities/TaxRate.js";
 import { Invoice } from "./entities/Invoice.js";
 import { InvoiceLineItem } from "./entities/InvoiceLineItem.js";
 import { InvoicePayment } from "./entities/InvoicePayment.js";
+import { Estimate } from "./entities/Estimate.js";
+import { EstimateLineItem } from "./entities/EstimateLineItem.js";
 import { Account } from "./entities/Account.js";
 import { LedgerEntry } from "./entities/LedgerEntry.js";
 import { LedgerLine } from "./entities/LedgerLine.js";
@@ -139,6 +141,8 @@ const entities = [
   Invoice,
   InvoiceLineItem,
   InvoicePayment,
+  Estimate,
+  EstimateLineItem,
   Account,
   LedgerEntry,
   LedgerLine,

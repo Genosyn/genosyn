@@ -1470,6 +1470,108 @@ export function displayInvoiceStatus(
   return inv.status;
 }
 
+// ──────────────────────────── Estimates ─────────────────────────────────
+
+export type EstimateStatus =
+  | "draft"
+  | "sent"
+  | "accepted"
+  | "declined"
+  | "void";
+
+export type EstimateLineItem = {
+  id: string;
+  estimateId: string;
+  productId: string | null;
+  description: string;
+  quantity: number;
+  unitPriceCents: number;
+  taxRateId: string | null;
+  taxName: string;
+  taxPercent: number;
+  taxInclusive: boolean;
+  lineSubtotalCents: number;
+  lineTaxCents: number;
+  lineTotalCents: number;
+  sortOrder: number;
+};
+
+export type EstimateCustomerStub = {
+  id: string;
+  name: string;
+  slug: string;
+  email: string;
+};
+
+export type EstimateInvoiceStub = {
+  id: string;
+  slug: string;
+  number: string;
+  status: string;
+};
+
+export type Estimate = {
+  id: string;
+  companyId: string;
+  customerId: string;
+  slug: string;
+  numberSeq: number;
+  number: string;
+  status: EstimateStatus;
+  issueDate: string;
+  validUntil: string;
+  currency: string;
+  subtotalCents: number;
+  taxCents: number;
+  totalCents: number;
+  notes: string;
+  footer: string;
+  sentAt: string | null;
+  acceptedAt: string | null;
+  declinedAt: string | null;
+  voidedAt: string | null;
+  invoiceId: string | null;
+  convertedAt: string | null;
+  createdById: string | null;
+  createdAt: string;
+  updatedAt: string;
+  customer: EstimateCustomerStub | null;
+  lines: EstimateLineItem[];
+  invoice: EstimateInvoiceStub | null;
+};
+
+export type EstimateListItem = Omit<Estimate, "lines"> & {
+  linesCount: number;
+};
+
+export type EstimateLineDraft = {
+  productId?: string | null;
+  description: string;
+  quantity: number;
+  unitPriceCents: number;
+  taxRateId?: string | null;
+  sortOrder?: number;
+};
+
+export type DisplayEstimateStatus =
+  | EstimateStatus
+  | "expired"
+  | "invoiced";
+
+export function displayEstimateStatus(
+  est: Pick<Estimate, "status" | "validUntil" | "invoiceId">,
+  now: Date = new Date(),
+): DisplayEstimateStatus {
+  if (est.invoiceId) return "invoiced";
+  if (
+    (est.status === "sent" || est.status === "accepted") &&
+    new Date(est.validUntil).getTime() < now.getTime()
+  ) {
+    return "expired";
+  }
+  return est.status;
+}
+
 // ─────────────────────────── Ledger (M19 Phase B) ───────────────────────
 
 export type AccountType =

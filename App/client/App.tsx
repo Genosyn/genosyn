@@ -75,6 +75,9 @@ import FinanceTaxRates from "./pages/FinanceTaxRates";
 import FinanceInvoices from "./pages/FinanceInvoices";
 import FinanceInvoiceNew from "./pages/FinanceInvoiceNew";
 import FinanceInvoiceDetail from "./pages/FinanceInvoiceDetail";
+import FinanceEstimates from "./pages/FinanceEstimates";
+import FinanceEstimateNew from "./pages/FinanceEstimateNew";
+import FinanceEstimateDetail from "./pages/FinanceEstimateDetail";
 import FinanceAccounts from "./pages/FinanceAccounts";
 import FinanceJournal from "./pages/FinanceJournal";
 import FinanceTrialBalance from "./pages/FinanceTrialBalance";
@@ -286,6 +289,12 @@ function CompanyRoutes({
           <Route
             path="invoices/:invoiceSlug"
             element={<FinanceInvoiceDetail />}
+          />
+          <Route path="estimates" element={<FinanceEstimates />} />
+          <Route path="estimates/new" element={<FinanceEstimateNew />} />
+          <Route
+            path="estimates/:estimateSlug"
+            element={<FinanceEstimateDetail />}
           />
           <Route path="accounts" element={<FinanceAccounts />} />
           <Route path="journal" element={<FinanceJournal />} />

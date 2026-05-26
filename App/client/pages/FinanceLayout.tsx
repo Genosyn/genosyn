@@ -6,6 +6,7 @@ import {
   Building2,
   Calendar,
   Coins,
+  FileSignature,
   FileText,
   Inbox,
   Layers,
@@ -45,6 +46,11 @@ export default function FinanceLayout({ company }: { company: Company }) {
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
         <SidebarLink to={base} end icon={<BarChart3 size={14} />} label="Overview" />
+        <SidebarLink
+          to={`${base}/estimates`}
+          icon={<FileSignature size={14} />}
+          label="Estimates"
+        />
         <SidebarLink
           to={`${base}/invoices`}
           icon={<FileText size={14} />}

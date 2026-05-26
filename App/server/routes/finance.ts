@@ -11,6 +11,8 @@ import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { Invoice } from "../db/entities/Invoice.js";
 import { InvoiceLineItem } from "../db/entities/InvoiceLineItem.js";
 import { InvoicePayment } from "../db/entities/InvoicePayment.js";
+import { Estimate } from "../db/entities/Estimate.js";
+import { EstimateLineItem } from "../db/entities/EstimateLineItem.js";
 import { LedgerEntry } from "../db/entities/LedgerEntry.js";
 import { LedgerLine } from "../db/entities/LedgerLine.js";
 import { Product } from "../db/entities/Product.js";
@@ -32,6 +34,19 @@ import {
   voidInvoice,
 } from "../services/finance.js";
 import { renderInvoiceHtmlForCompany } from "../services/invoiceHtml.js";
+import { renderEstimateHtmlForCompany } from "../services/estimateHtml.js";
+import {
+  acceptEstimate,
+  convertEstimateToInvoice,
+  declineEstimate,
+  hydrateEstimates,
+  issueEstimate,
+  loadEstimateBySlug,
+  recomputeEstimateTotals,
+  replaceEstimateLines,
+  sendEstimateEmail,
+  voidEstimate,
+} from "../services/estimates.js";
 import {
   postLedgerEntry,
   seedChartOfAccounts,
@@ -718,6 +733,293 @@ financeRouter.delete("/invoices/:slug/payments/:pid", async (req, res) => {
   const recomputed = await recomputeInvoiceTotals(inv);
   const [hydrated] = await hydrateInvoices(cid, [recomputed]);
   res.json(hydrated);
+});
+
+// ───────────────────────────── Estimates ──────────────────────────────
+
+async function draftEstimateSlug(companyId: string): Promise<string> {
+  const repo = AppDataSource.getRepository(Estimate);
+  for (let i = 0; i < 16; i += 1) {
+    const slug = `edraft-${Math.random().toString(36).slice(2, 8)}`;
+    if (!(await repo.findOneBy({ companyId, slug }))) return slug;
+  }
+  return `edraft-${Date.now().toString(36)}`;
+}
+
+const estimateCreateSchema = z.object({
+  customerId: z.string().uuid(),
+  issueDate: z.string().datetime().optional(),
+  validUntil: z.string().datetime().optional(),
+  currency: currencySchema.optional(),
+  notes: z.string().max(4000).optional(),
+  footer: z.string().max(1000).optional(),
+  lines: z.array(lineDraftSchema).max(200).optional(),
+});
+
+financeRouter.get("/estimates", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const where: Record<string, unknown> = { companyId: cid };
+  const status = req.query.status;
+  if (typeof status === "string" && status) where.status = status;
+  const customerId = req.query.customerId;
+  if (typeof customerId === "string" && customerId) where.customerId = customerId;
+  const estimates = await AppDataSource.getRepository(Estimate).find({
+    where,
+    order: { createdAt: "DESC" },
+  });
+  const hydrated = await hydrateEstimates(cid, estimates);
+  // Strip lines from the list view so payloads stay small — detail
+  // page calls /estimates/:slug for the full thing.
+  res.json(
+    hydrated.map(({ lines: _lines, ...rest }) => ({
+      ...rest,
+      linesCount: _lines.length,
+    })),
+  );
+});
+
+financeRouter.post(
+  "/estimates",
+  validateBody(estimateCreateSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const body = req.body as z.infer<typeof estimateCreateSchema>;
+    const customer = await AppDataSource.getRepository(Customer).findOneBy({
+      id: body.customerId,
+      companyId: cid,
+    });
+    if (!customer) return res.status(400).json({ error: "Invalid customer" });
+
+    const repo = AppDataSource.getRepository(Estimate);
+    const slug = await draftEstimateSlug(cid);
+    const issueDate = body.issueDate ? new Date(body.issueDate) : new Date();
+    const validUntil = body.validUntil
+      ? new Date(body.validUntil)
+      : new Date(issueDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const est = repo.create({
+      companyId: cid,
+      customerId: customer.id,
+      slug,
+      numberSeq: 0,
+      number: "",
+      status: "draft",
+      issueDate,
+      validUntil,
+      currency: body.currency ?? customer.currency ?? "USD",
+      notes: body.notes ?? "",
+      footer: body.footer ?? "",
+      createdById: req.userId ?? null,
+    });
+    await repo.save(est);
+    if (body.lines && body.lines.length > 0) {
+      await replaceEstimateLines(est, body.lines);
+    }
+    const recomputed = await recomputeEstimateTotals(est);
+    const [hydrated] = await hydrateEstimates(cid, [recomputed]);
+    res.json(hydrated);
+  },
+);
+
+financeRouter.get("/estimates/:slug", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const est = await loadEstimateBySlug(cid, req.params.slug);
+  if (!est) return res.status(404).json({ error: "Estimate not found" });
+  const [hydrated] = await hydrateEstimates(cid, [est]);
+  res.json(hydrated);
+});
+
+const estimatePatchSchema = z.object({
+  notes: z.string().max(4000).optional(),
+  footer: z.string().max(1000).optional(),
+  validUntil: z.string().datetime().optional(),
+  customerId: z.string().uuid().optional(),
+  issueDate: z.string().datetime().optional(),
+  currency: currencySchema.optional(),
+  lines: z.array(lineDraftSchema).max(200).optional(),
+});
+
+financeRouter.patch(
+  "/estimates/:slug",
+  validateBody(estimatePatchSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const est = await loadEstimateBySlug(cid, req.params.slug);
+    if (!est) return res.status(404).json({ error: "Estimate not found" });
+    if (est.status === "void") {
+      return res.status(409).json({ error: "Voided estimates cannot be edited" });
+    }
+    const body = req.body as z.infer<typeof estimatePatchSchema>;
+    const draftOnly =
+      body.customerId !== undefined ||
+      body.issueDate !== undefined ||
+      body.currency !== undefined ||
+      body.lines !== undefined;
+    if (draftOnly && est.status !== "draft") {
+      return res
+        .status(409)
+        .json({ error: "Lines and header (customer/date/currency) are draft-only" });
+    }
+
+    if (body.notes !== undefined) est.notes = body.notes;
+    if (body.footer !== undefined) est.footer = body.footer;
+    if (body.validUntil !== undefined) est.validUntil = new Date(body.validUntil);
+    if (body.customerId !== undefined) {
+      const c = await AppDataSource.getRepository(Customer).findOneBy({
+        id: body.customerId,
+        companyId: cid,
+      });
+      if (!c) return res.status(400).json({ error: "Invalid customer" });
+      est.customerId = c.id;
+    }
+    if (body.issueDate !== undefined) est.issueDate = new Date(body.issueDate);
+    if (body.currency !== undefined) est.currency = body.currency;
+    await AppDataSource.getRepository(Estimate).save(est);
+
+    if (body.lines !== undefined) {
+      await replaceEstimateLines(est, body.lines);
+    }
+    const recomputed = await recomputeEstimateTotals(est);
+    const [hydrated] = await hydrateEstimates(cid, [recomputed]);
+    res.json(hydrated);
+  },
+);
+
+financeRouter.delete("/estimates/:slug", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const est = await loadEstimateBySlug(cid, req.params.slug);
+  if (!est) return res.status(404).json({ error: "Estimate not found" });
+  if (est.status !== "draft") {
+    return res
+      .status(409)
+      .json({ error: "Only drafts can be deleted — void issued estimates instead" });
+  }
+  await AppDataSource.getRepository(EstimateLineItem).delete({
+    estimateId: est.id,
+  });
+  await AppDataSource.getRepository(Estimate).delete({ id: est.id });
+  res.json({ ok: true });
+});
+
+financeRouter.post("/estimates/:slug/issue", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const est = await loadEstimateBySlug(cid, req.params.slug);
+  if (!est) return res.status(404).json({ error: "Estimate not found" });
+  if (est.status !== "draft") {
+    return res.status(409).json({ error: "Already issued" });
+  }
+  try {
+    const issued = await issueEstimate(est, req.userId ?? null);
+    const [hydrated] = await hydrateEstimates(cid, [issued]);
+    res.json(hydrated);
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+financeRouter.post("/estimates/:slug/send", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  let est = await loadEstimateBySlug(cid, req.params.slug);
+  if (!est) return res.status(404).json({ error: "Estimate not found" });
+  if (est.status === "void") {
+    return res.status(409).json({ error: "Voided estimates cannot be sent" });
+  }
+  if (est.status === "draft") {
+    est = await issueEstimate(est, req.userId ?? null);
+  }
+  try {
+    const result = await sendEstimateEmail(cid, est, req.userId ?? null);
+    const [hydrated] = await hydrateEstimates(cid, [est]);
+    res.json({ estimate: hydrated, send: result });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+financeRouter.post("/estimates/:slug/accept", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const est = await loadEstimateBySlug(cid, req.params.slug);
+  if (!est) return res.status(404).json({ error: "Estimate not found" });
+  try {
+    const updated = await acceptEstimate(est, req.userId ?? null);
+    const [hydrated] = await hydrateEstimates(cid, [updated]);
+    res.json(hydrated);
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+financeRouter.post("/estimates/:slug/decline", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const est = await loadEstimateBySlug(cid, req.params.slug);
+  if (!est) return res.status(404).json({ error: "Estimate not found" });
+  try {
+    const updated = await declineEstimate(est, req.userId ?? null);
+    const [hydrated] = await hydrateEstimates(cid, [updated]);
+    res.json(hydrated);
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+financeRouter.post("/estimates/:slug/void", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const est = await loadEstimateBySlug(cid, req.params.slug);
+  if (!est) return res.status(404).json({ error: "Estimate not found" });
+  try {
+    const voided = await voidEstimate(est, req.userId ?? null);
+    const [hydrated] = await hydrateEstimates(cid, [voided]);
+    res.json(hydrated);
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+const estimateConvertSchema = z.object({
+  dueInDays: z.number().int().min(0).max(365).optional(),
+});
+
+financeRouter.post(
+  "/estimates/:slug/convert",
+  validateBody(estimateConvertSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const est = await loadEstimateBySlug(cid, req.params.slug);
+    if (!est) return res.status(404).json({ error: "Estimate not found" });
+    const body = req.body as z.infer<typeof estimateConvertSchema>;
+    try {
+      const { estimate: updated, invoice } = await convertEstimateToInvoice(
+        est,
+        req.userId ?? null,
+        { dueInDays: body.dueInDays },
+      );
+      const [hydrated] = await hydrateEstimates(cid, [updated]);
+      res.json({ estimate: hydrated, invoice });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+// Printable HTML — used by the React detail page via a target=_blank
+// anchor so the browser's File → Print menu produces a clean PDF
+// without our app chrome.
+financeRouter.get("/estimates/:slug/html", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const est = await loadEstimateBySlug(cid, req.params.slug);
+  if (!est) return res.status(404).type("text/plain").send("Not found");
+  const customer = await AppDataSource.getRepository(Customer).findOneBy({
+    id: est.customerId,
+    companyId: cid,
+  });
+  if (!customer) {
+    return res.status(404).type("text/plain").send("Customer missing");
+  }
+  const lines = await AppDataSource.getRepository(EstimateLineItem).find({
+    where: { estimateId: est.id },
+    order: { sortOrder: "ASC" },
+  });
+  const html = await renderEstimateHtmlForCompany(cid, est, customer, lines);
+  res.type("text/html").send(html);
 });
 
 // ─────────────────────────── Accounts (Phase B) ────────────────────────

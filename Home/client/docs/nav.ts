@@ -41,6 +41,12 @@ export const DOCS_NAV: DocsSection[] = [
     ],
   },
   {
+    label: "Operations",
+    pages: [
+      { path: "/docs/finance", title: "Finance", blurb: "Estimates, invoices, bills, ledger, and reports — native double-entry accounting." },
+    ],
+  },
+  {
     label: "Self-hosting",
     pages: [
       { path: "/docs/self-hosting", title: "Configuration", blurb: "config.ts, the data directory, backups." },

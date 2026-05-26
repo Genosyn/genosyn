@@ -93,3 +93,12 @@ export function formatMoney(cents: number, currency: string): string {
 export function formatInvoiceNumber(seq: number): string {
   return `INV-${String(seq).padStart(4, "0")}`;
 }
+
+/**
+ * Display string for an estimate number — `EST-` prefix + zero-padded
+ * sequence. Mirrors `formatInvoiceNumber` so the two documents look like
+ * a family across the UI and the printable PDFs.
+ */
+export function formatEstimateNumber(seq: number): string {
+  return `EST-${String(seq).padStart(4, "0")}`;
+}
