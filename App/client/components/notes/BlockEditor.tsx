@@ -581,7 +581,9 @@ export function BlockEditor({
       }
     }
 
-    if (e.key === "Enter" && !e.shiftKey) {
+    // Ignore Enter while IME composition is active — the user is committing
+    // a candidate, not asking us to split the block.
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       const offset = currentCaretOffset(e.currentTarget);
       // Empty list item → demote to paragraph instead of creating another
@@ -593,12 +595,14 @@ export function BlockEditor({
           block.type === "todo" ||
           block.type === "quote")
       ) {
+        const newId = nid();
         replaceBlock(block.id, {
           ...block,
-          id: nid(),
+          id: newId,
           type: "paragraph",
           checked: undefined,
         });
+        focusTargetRef.current = { id: newId, offset: 0 };
         return;
       }
       splitBlock(block.id, offset);
@@ -612,25 +616,14 @@ export function BlockEditor({
       if (collapsed && offset === 0) {
         e.preventDefault();
         if (block.type !== "paragraph") {
+          const newId = nid();
           replaceBlock(block.id, {
             ...block,
-            id: nid(),
+            id: newId,
             type: "paragraph",
             checked: undefined,
           });
-          focusTargetRef.current = { id: nid(), offset: 0 };
-          // Re-set focus target with the new id we just used:
-          // replaceBlock above gave the block a fresh id — read it back.
-          // (Cheap fix: schedule a microtask to find it.)
-          queueMicrotask(() => {
-            setBlocks((prev) => {
-              const cur = prev.find((b) => b.text === block.text);
-              if (cur) {
-                focusTargetRef.current = { id: cur.id, offset: 0 };
-              }
-              return prev;
-            });
-          });
+          focusTargetRef.current = { id: newId, offset: 0 };
           return;
         }
         mergeWithPrevious(block.id);
@@ -971,7 +964,12 @@ function BlockRow({
   // (which is how we model "this is a different block now"). React keys
   // already remount the element on id change, so this effect runs fresh
   // for each new id.
-  React.useEffect(() => {
+  //
+  // useLayoutEffect (not useEffect) is load-bearing: the parent's focus
+  // effect runs during commit and looks the new block up in a ref map. If
+  // we registered after paint, pressing Enter would create the new block
+  // but lose focus, leaving the user with a dead caret.
+  React.useLayoutEffect(() => {
     if (!editableRef.current) return;
     if ((editableRef.current.textContent ?? "") !== block.text) {
       editableRef.current.textContent = block.text;
