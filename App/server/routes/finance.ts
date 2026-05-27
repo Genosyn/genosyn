@@ -22,6 +22,7 @@ import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import {
+  duplicateInvoice,
   hydrateInvoices,
   issueInvoice,
   loadCustomerBySlug,
@@ -41,6 +42,7 @@ import {
   acceptEstimate,
   convertEstimateToInvoice,
   declineEstimate,
+  duplicateEstimate,
   hydrateEstimates,
   issueEstimate,
   loadEstimateBySlug,
@@ -819,6 +821,22 @@ financeRouter.post("/invoices/:slug/void", async (req, res) => {
   }
 });
 
+// Duplicate (clone into a fresh draft — works on any status, including
+// paid and void; payments and status timestamps are intentionally not
+// copied).
+financeRouter.post("/invoices/:slug/duplicate", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const inv = await loadInvoiceBySlug(cid, req.params.slug);
+  if (!inv) return res.status(404).json({ error: "Invoice not found" });
+  try {
+    const draft = await duplicateInvoice(inv, req.userId ?? null);
+    const [hydrated] = await hydrateInvoices(cid, [draft]);
+    res.json(hydrated);
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
 /**
  * Load the full set of rows the printable / PDF view needs in one go:
  * invoice header, customer, lines, payments. Returns null when any of
@@ -1201,6 +1219,22 @@ financeRouter.post("/estimates/:slug/void", async (req, res) => {
   try {
     const voided = await voidEstimate(est, req.userId ?? null);
     const [hydrated] = await hydrateEstimates(cid, [voided]);
+    res.json(hydrated);
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+// Duplicate (clone into a fresh draft — works on any status, including
+// void/declined/invoiced; the resulting invoice link is intentionally
+// not copied).
+financeRouter.post("/estimates/:slug/duplicate", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const est = await loadEstimateBySlug(cid, req.params.slug);
+  if (!est) return res.status(404).json({ error: "Estimate not found" });
+  try {
+    const draft = await duplicateEstimate(est, req.userId ?? null);
+    const [hydrated] = await hydrateEstimates(cid, [draft]);
     res.json(hydrated);
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });

@@ -316,6 +316,83 @@ export async function convertEstimateToInvoice(
   return { estimate: savedEstimate, invoice: issued };
 }
 
+// ─────────────────────────── Duplicate ───────────────────────────────
+
+/**
+ * Create a fresh `draft` estimate that copies the customer, currency,
+ * notes, footer, and (tax-snapshotted) line items from `source`. Used
+ * by the "Duplicate" action on any estimate regardless of status — you
+ * can fork a void or declined estimate back into a new draft without
+ * touching the original.
+ *
+ * The new estimate gets a brand-new `edraft-…` slug, `numberSeq = 0`,
+ * `number = ""`, and `issueDate` / `validUntil` reset to "today + 30
+ * days" so the dates are sensible defaults instead of stale copies.
+ * Status timestamps (`sentAt`, `acceptedAt`, etc.) and `invoiceId` are
+ * intentionally not carried over.
+ */
+export async function duplicateEstimate(
+  source: Estimate,
+  actorUserId: string | null,
+): Promise<Estimate> {
+  const repo = AppDataSource.getRepository(Estimate);
+  const slug = await uniqueDraftEstimateSlug(source.companyId);
+  const issueDate = new Date();
+  const validUntil = new Date(issueDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const draft = repo.create({
+    companyId: source.companyId,
+    customerId: source.customerId,
+    slug,
+    numberSeq: 0,
+    number: "",
+    status: "draft",
+    issueDate,
+    validUntil,
+    currency: source.currency,
+    notes: source.notes,
+    footer: source.footer,
+    createdById: actorUserId,
+  });
+  await repo.save(draft);
+
+  const sourceLines = await AppDataSource.getRepository(EstimateLineItem).find({
+    where: { estimateId: source.id },
+    order: { sortOrder: "ASC" },
+  });
+  if (sourceLines.length > 0) {
+    const lineRepo = AppDataSource.getRepository(EstimateLineItem);
+    await lineRepo.save(
+      sourceLines.map((l) =>
+        lineRepo.create({
+          estimateId: draft.id,
+          productId: l.productId,
+          description: l.description,
+          quantity: l.quantity,
+          unitPriceCents: l.unitPriceCents,
+          taxRateId: l.taxRateId,
+          taxName: l.taxName,
+          taxPercent: l.taxPercent,
+          taxInclusive: l.taxInclusive,
+          lineSubtotalCents: l.lineSubtotalCents,
+          lineTaxCents: l.lineTaxCents,
+          lineTotalCents: l.lineTotalCents,
+          sortOrder: l.sortOrder,
+        }),
+      ),
+    );
+  }
+  return recomputeEstimateTotals(draft);
+}
+
+async function uniqueDraftEstimateSlug(companyId: string): Promise<string> {
+  const repo = AppDataSource.getRepository(Estimate);
+  for (let i = 0; i < 16; i += 1) {
+    const slug = `edraft-${Math.random().toString(36).slice(2, 8)}`;
+    if (!(await repo.findOneBy({ companyId, slug }))) return slug;
+  }
+  return `edraft-${Date.now().toString(36)}`;
+}
+
 // ─────────────────────────── Hydration ────────────────────────────────
 
 export type EstimateCustomerStub = {

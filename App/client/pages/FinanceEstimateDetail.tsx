@@ -5,8 +5,10 @@ import {
   ArrowRight,
   Ban,
   CheckCircle2,
+  Copy,
   Download,
   Mail,
+  MoreHorizontal,
   Pencil,
   Send,
   Trash2,
@@ -21,6 +23,7 @@ import {
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
+import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
@@ -212,6 +215,21 @@ export default function FinanceEstimateDetail() {
     }
   }
 
+  async function duplicate() {
+    if (!estimate) return;
+    setBusy(true);
+    try {
+      const draft = await api.post<Estimate>(
+        `/api/companies/${company.id}/estimates/${estimate.slug}/duplicate`,
+      );
+      toast("Estimate duplicated as draft", "success");
+      navigate(`/c/${company.slug}/finance/estimates/${draft.slug}/edit`);
+    } catch (err) {
+      toast((err as Error).message, "error");
+      setBusy(false);
+    }
+  }
+
   async function deleteDraft() {
     if (!estimate) return;
     const ok = await dialog.confirm({
@@ -289,66 +307,139 @@ export default function FinanceEstimateDetail() {
             {ds}
           </span>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {estimate.status === "draft" && (
-            <Link
-              to={`/c/${company.slug}/finance/estimates/${estimate.slug}/edit`}
-            >
-              <Button variant="secondary" disabled={busy}>
-                <Pencil size={14} /> Edit
+            <>
+              <Link
+                to={`/c/${company.slug}/finance/estimates/${estimate.slug}/edit`}
+              >
+                <Button variant="secondary" disabled={busy}>
+                  <Pencil size={14} /> Edit
+                </Button>
+              </Link>
+              <Button onClick={send} disabled={busy}>
+                <Send size={14} /> Issue & send
               </Button>
-            </Link>
-          )}
-          {estimate.status === "draft" && (
-            <Button onClick={issue} disabled={busy}>
-              <CheckCircle2 size={14} /> Issue
-            </Button>
-          )}
-          {estimate.status === "draft" && (
-            <Button onClick={send} disabled={busy}>
-              <Send size={14} /> Issue & send
-            </Button>
-          )}
-          {(estimate.status === "sent" || estimate.status === "accepted") &&
-            !isConverted && (
-              <Button variant="secondary" onClick={send} disabled={busy}>
-                <Mail size={14} /> Resend email
-              </Button>
-            )}
-          {estimate.status === "sent" && !isConverted && (
-            <Button onClick={accept} disabled={busy}>
-              <CheckCircle2 size={14} /> Mark accepted
-            </Button>
+            </>
           )}
           {estimate.status === "sent" && !isConverted && (
-            <Button variant="secondary" onClick={decline} disabled={busy}>
-              <XCircle size={14} /> Mark declined
-            </Button>
-          )}
-          {(estimate.status === "sent" || estimate.status === "accepted") &&
-            !isConverted && (
+            <>
+              <Button variant="secondary" onClick={accept} disabled={busy}>
+                <CheckCircle2 size={14} /> Mark accepted
+              </Button>
               <Button onClick={convert} disabled={busy}>
                 <ArrowRight size={14} /> Convert to invoice
               </Button>
+            </>
+          )}
+          {estimate.status === "accepted" && !isConverted && (
+            <Button onClick={convert} disabled={busy}>
+              <ArrowRight size={14} /> Convert to invoice
+            </Button>
+          )}
+
+          <Menu
+            align="right"
+            width={208}
+            trigger={({ ref, onClick }) => (
+              <Button
+                ref={ref}
+                variant="secondary"
+                onClick={onClick}
+                disabled={busy}
+                aria-label="More actions"
+              >
+                <MoreHorizontal size={14} />
+              </Button>
             )}
-          <a
-            href={`/api/companies/${company.id}/estimates/${estimate.slug}/pdf`}
-            download={`${estimate.number || "draft"}.pdf`}
           >
-            <Button variant="secondary" disabled={busy}>
-              <Download size={14} /> Download PDF
-            </Button>
-          </a>
-          {!isTerminal && estimate.status !== "draft" && (
-            <Button variant="secondary" onClick={voidEstimate} disabled={busy}>
-              <Ban size={14} /> Void
-            </Button>
-          )}
-          {estimate.status === "draft" && (
-            <Button variant="secondary" onClick={deleteDraft} disabled={busy}>
-              <Trash2 size={14} /> Delete
-            </Button>
-          )}
+            {(close) => (
+              <>
+                {estimate.status === "draft" && (
+                  <MenuItem
+                    icon={<CheckCircle2 size={14} />}
+                    label="Issue without sending"
+                    onSelect={() => {
+                      close();
+                      issue();
+                    }}
+                  />
+                )}
+                {(estimate.status === "sent" ||
+                  estimate.status === "accepted") &&
+                  !isConverted && (
+                    <MenuItem
+                      icon={<Mail size={14} />}
+                      label="Resend email"
+                      onSelect={() => {
+                        close();
+                        send();
+                      }}
+                    />
+                  )}
+                {estimate.status === "sent" && !isConverted && (
+                  <MenuItem
+                    icon={<XCircle size={14} />}
+                    label="Mark declined"
+                    onSelect={() => {
+                      close();
+                      decline();
+                    }}
+                  />
+                )}
+                <MenuItem
+                  icon={<Download size={14} />}
+                  label="Download PDF"
+                  onSelect={() => {
+                    close();
+                    window.location.href = `/api/companies/${company.id}/estimates/${estimate.slug}/pdf`;
+                  }}
+                />
+                <MenuItem
+                  icon={<Copy size={14} />}
+                  label="Duplicate"
+                  onSelect={() => {
+                    close();
+                    duplicate();
+                  }}
+                />
+                {!isTerminal && estimate.status !== "draft" && (
+                  <>
+                    <MenuSeparator />
+                    <MenuItem
+                      icon={<Ban size={14} className="text-red-500" />}
+                      label={
+                        <span className="text-red-600 dark:text-red-400">
+                          Void
+                        </span>
+                      }
+                      onSelect={() => {
+                        close();
+                        voidEstimate();
+                      }}
+                    />
+                  </>
+                )}
+                {estimate.status === "draft" && (
+                  <>
+                    <MenuSeparator />
+                    <MenuItem
+                      icon={<Trash2 size={14} className="text-red-500" />}
+                      label={
+                        <span className="text-red-600 dark:text-red-400">
+                          Delete
+                        </span>
+                      }
+                      onSelect={() => {
+                        close();
+                        deleteDraft();
+                      }}
+                    />
+                  </>
+                )}
+              </>
+            )}
+          </Menu>
         </div>
       </div>
 

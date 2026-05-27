@@ -25,23 +25,24 @@ const sizeClasses: Record<Size, string> = {
   md: "h-10 px-4 text-sm",
 };
 
-export function Button({
-  variant = "primary",
-  size = "md",
-  className,
-  ...rest
-}: ButtonProps) {
-  return (
-    <button
-      {...rest}
-      className={clsx(
-        "inline-flex items-center justify-center gap-2 rounded-lg font-medium transition",
-        "focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1",
-        "disabled:cursor-not-allowed",
-        variantClasses[variant],
-        sizeClasses[size],
-        className,
-      )}
-    />
-  );
-}
+export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  function Button(
+    { variant = "primary", size = "md", className, ...rest },
+    ref,
+  ) {
+    return (
+      <button
+        ref={ref}
+        {...rest}
+        className={clsx(
+          "inline-flex items-center justify-center gap-2 rounded-lg font-medium transition",
+          "focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1",
+          "disabled:cursor-not-allowed",
+          variantClasses[variant],
+          sizeClasses[size],
+          className,
+        )}
+      />
+    );
+  },
+);

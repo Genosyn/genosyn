@@ -1,6 +1,6 @@
 import React from "react";
-import { Link, useOutletContext } from "react-router-dom";
-import { Ban, MoreHorizontal, Plus, Trash2 } from "lucide-react";
+import { Link, useNavigate, useOutletContext } from "react-router-dom";
+import { Ban, Copy, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import {
   api,
   displayInvoiceStatus,
@@ -45,6 +45,7 @@ export default function FinanceInvoices() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const { toast } = useToast();
   const dialog = useDialog();
+  const navigate = useNavigate();
   const [invoices, setInvoices] = React.useState<InvoiceListItem[] | null>(null);
   const [filter, setFilter] = React.useState<StatusFilter>("all");
 
@@ -70,6 +71,18 @@ export default function FinanceInvoices() {
     try {
       await api.del(`/api/companies/${company.id}/invoices/${inv.slug}`);
       reload();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
+
+  async function duplicate(inv: InvoiceListItem) {
+    try {
+      const draft = await api.post<Invoice>(
+        `/api/companies/${company.id}/invoices/${inv.slug}/duplicate`,
+      );
+      toast("Invoice duplicated as draft", "success");
+      navigate(`/c/${company.slug}/finance/invoices/${draft.slug}/edit`);
     } catch (err) {
       toast((err as Error).message, "error");
     }
@@ -248,6 +261,7 @@ export default function FinanceInvoices() {
                       <RowMenu
                         invoice={inv}
                         onDelete={() => deleteDraft(inv)}
+                        onDuplicate={() => duplicate(inv)}
                         onVoid={() => voidInvoice(inv)}
                       />
                     </td>
@@ -265,17 +279,18 @@ export default function FinanceInvoices() {
 function RowMenu({
   invoice,
   onDelete,
+  onDuplicate,
   onVoid,
 }: {
   invoice: InvoiceListItem;
   onDelete: () => void;
+  onDuplicate: () => void;
   onVoid: () => void;
 }) {
   const isDraft = invoice.status === "draft";
   const isVoid = invoice.status === "void";
   // Issued (sent / paid) invoices can only be voided, not deleted.
   const canVoid = !isDraft && !isVoid;
-  if (!isDraft && !canVoid) return null;
   return (
     <Menu
       align="right"
@@ -293,6 +308,14 @@ function RowMenu({
     >
       {(close) => (
         <>
+          <MenuItem
+            icon={<Copy size={14} />}
+            label="Duplicate"
+            onSelect={() => {
+              close();
+              onDuplicate();
+            }}
+          />
           {canVoid && (
             <MenuItem
               icon={<Ban size={14} />}

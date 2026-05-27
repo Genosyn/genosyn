@@ -117,6 +117,19 @@ export function Finance() {
         quote produced which sale.
       </P>
 
+      <H3 id="estimates-duplicate">Duplicate</H3>
+      <P>
+        Click <Code>Duplicate</Code> on any estimate (from the row menu
+        or the detail page) to fork it into a fresh draft. The customer,
+        currency, line items, notes, and footer are copied verbatim;{" "}
+        <Code>issueDate</Code> resets to today and <Code>validUntil</Code>{" "}
+        to thirty days out. The new draft has no number until you issue
+        it, and the original is untouched — handy for re-quoting an
+        expired estimate or sending the same package to a different
+        customer (open the duplicate, switch the customer in edit mode,
+        and issue).
+      </P>
+
       <H3 id="estimates-printing">Sending and printing</H3>
       <P>
         Every issued estimate has a Print / PDF view at{" "}
@@ -151,6 +164,15 @@ export function Finance() {
         <Code>DR Bank / CR Accounts Receivable</Code> entry. Once the
         cumulative paid amount reaches the invoice total, the status
         flips from <Code>sent</Code> to <Code>paid</Code>.
+      </P>
+      <P>
+        <Code>Duplicate</Code> works the same way as on estimates —
+        from the row menu or the detail page, you can fork any invoice
+        (even one that&apos;s already paid or void) into a fresh draft.
+        Lines, customer, currency, notes, and footer come along;
+        payments and status timestamps do not. The new draft picks up
+        <em> today</em> as its issue date and a fourteen-day default due
+        date, and stays unnumbered until you issue it.
       </P>
 
       <H2 id="ledger">Ledger and reports</H2>

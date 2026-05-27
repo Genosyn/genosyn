@@ -4,8 +4,10 @@ import {
   ArrowLeft,
   Ban,
   CheckCircle2,
+  Copy,
   Download,
   Mail,
+  MoreHorizontal,
   Pencil,
   Plus,
   Send,
@@ -21,6 +23,7 @@ import {
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
+import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
@@ -144,6 +147,21 @@ export default function FinanceInvoiceDetail() {
     }
   }
 
+  async function duplicate() {
+    if (!invoice) return;
+    setBusy(true);
+    try {
+      const draft = await api.post<Invoice>(
+        `/api/companies/${company.id}/invoices/${invoice.slug}/duplicate`,
+      );
+      toast("Invoice duplicated as draft", "success");
+      navigate(`/c/${company.slug}/finance/invoices/${draft.slug}/edit`);
+    } catch (err) {
+      toast((err as Error).message, "error");
+      setBusy(false);
+    }
+  }
+
   async function deleteDraft() {
     if (!invoice) return;
     const ok = await dialog.confirm({
@@ -233,58 +251,132 @@ export default function FinanceInvoiceDetail() {
             {ds}
           </span>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {invoice.status === "draft" && (
-            <Link
-              to={`/c/${company.slug}/finance/invoices/${invoice.slug}/edit`}
-            >
-              <Button variant="secondary" disabled={busy}>
-                <Pencil size={14} /> Edit
+            <>
+              <Link
+                to={`/c/${company.slug}/finance/invoices/${invoice.slug}/edit`}
+              >
+                <Button variant="secondary" disabled={busy}>
+                  <Pencil size={14} /> Edit
+                </Button>
+              </Link>
+              <Button onClick={send} disabled={busy}>
+                <Send size={14} /> Issue & send
               </Button>
-            </Link>
+            </>
           )}
-          {invoice.status === "draft" && (
-            <Button onClick={issue} disabled={busy}>
-              <CheckCircle2 size={14} /> Issue
+          {invoice.status === "sent" && (
+            <Button onClick={() => setShowPay(true)} disabled={busy}>
+              <Plus size={14} /> Record payment
             </Button>
           )}
-          {(invoice.status === "sent" || invoice.status === "paid") && (
+          {invoice.status === "paid" && (
             <Button variant="secondary" onClick={send} disabled={busy}>
               <Mail size={14} /> Resend email
             </Button>
           )}
-          {invoice.status === "draft" && (
-            <Button onClick={send} disabled={busy}>
-              <Send size={14} /> Issue & send
-            </Button>
-          )}
-          {invoice.status !== "void" && invoice.status !== "draft" && (
-            <Button
-              variant="secondary"
-              onClick={() => setShowPay(true)}
-              disabled={busy}
-            >
-              <Plus size={14} /> Record payment
-            </Button>
-          )}
-          <a
-            href={`/api/companies/${company.id}/invoices/${invoice.slug}/pdf`}
-            download={`${invoice.number || "draft"}.pdf`}
+
+          <Menu
+            align="right"
+            width={208}
+            trigger={({ ref, onClick }) => (
+              <Button
+                ref={ref}
+                variant="secondary"
+                onClick={onClick}
+                disabled={busy}
+                aria-label="More actions"
+              >
+                <MoreHorizontal size={14} />
+              </Button>
+            )}
           >
-            <Button variant="secondary" disabled={busy}>
-              <Download size={14} /> Download PDF
-            </Button>
-          </a>
-          {invoice.status !== "void" && invoice.status !== "draft" && (
-            <Button variant="secondary" onClick={voidInvoice} disabled={busy}>
-              <Ban size={14} /> Void
-            </Button>
-          )}
-          {invoice.status === "draft" && (
-            <Button variant="secondary" onClick={deleteDraft} disabled={busy}>
-              <Trash2 size={14} /> Delete
-            </Button>
-          )}
+            {(close) => (
+              <>
+                {invoice.status === "draft" && (
+                  <MenuItem
+                    icon={<CheckCircle2 size={14} />}
+                    label="Issue without sending"
+                    onSelect={() => {
+                      close();
+                      issue();
+                    }}
+                  />
+                )}
+                {invoice.status === "sent" && (
+                  <MenuItem
+                    icon={<Mail size={14} />}
+                    label="Resend email"
+                    onSelect={() => {
+                      close();
+                      send();
+                    }}
+                  />
+                )}
+                {invoice.status === "paid" && (
+                  <MenuItem
+                    icon={<Plus size={14} />}
+                    label="Record payment"
+                    onSelect={() => {
+                      close();
+                      setShowPay(true);
+                    }}
+                  />
+                )}
+                <MenuItem
+                  icon={<Download size={14} />}
+                  label="Download PDF"
+                  onSelect={() => {
+                    close();
+                    window.location.href = `/api/companies/${company.id}/invoices/${invoice.slug}/pdf`;
+                  }}
+                />
+                <MenuItem
+                  icon={<Copy size={14} />}
+                  label="Duplicate"
+                  onSelect={() => {
+                    close();
+                    duplicate();
+                  }}
+                />
+                {invoice.status !== "void" && invoice.status !== "draft" && (
+                  <>
+                    <MenuSeparator />
+                    <MenuItem
+                      icon={<Ban size={14} className="text-red-500" />}
+                      label={
+                        <span className="text-red-600 dark:text-red-400">
+                          Void
+                        </span>
+                      }
+                      onSelect={() => {
+                        close();
+                        voidInvoice();
+                      }}
+                    />
+                  </>
+                )}
+                {invoice.status === "draft" && (
+                  <>
+                    <MenuSeparator />
+                    <MenuItem
+                      icon={<Trash2 size={14} className="text-red-500" />}
+                      label={
+                        <span className="text-red-600 dark:text-red-400">
+                          Delete
+                        </span>
+                      }
+                      onSelect={() => {
+                        close();
+                        deleteDraft();
+                      }}
+                    />
+                  </>
+                )}
+              </>
+            )}
+          </Menu>
         </div>
       </div>
 

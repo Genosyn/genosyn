@@ -494,6 +494,83 @@ export async function voidInvoice(
   return invoice;
 }
 
+// ─────────────────────────── Duplicate ───────────────────────────────
+
+/**
+ * Create a fresh `draft` invoice that copies the customer, currency,
+ * notes, footer, and (tax-snapshotted) line items from `source`. Used
+ * by the "Duplicate" action on any invoice regardless of status — you
+ * can fork a paid or void invoice back into a new draft without
+ * touching the original (and without copying payments).
+ *
+ * The new invoice gets a brand-new `draft-…` slug, `numberSeq = 0`,
+ * `number = ""`, and `issueDate` / `dueDate` reset to "today + 14
+ * days" so the dates are sensible defaults instead of stale copies.
+ * Status timestamps (`sentAt`, `paidAt`, `voidedAt`) and payments are
+ * intentionally not carried over.
+ */
+export async function duplicateInvoice(
+  source: Invoice,
+  actorUserId: string | null,
+): Promise<Invoice> {
+  const repo = AppDataSource.getRepository(Invoice);
+  const slug = await uniqueDraftInvoiceSlug(source.companyId);
+  const issueDate = new Date();
+  const dueDate = new Date(issueDate.getTime() + 14 * 24 * 60 * 60 * 1000);
+  const draft = repo.create({
+    companyId: source.companyId,
+    customerId: source.customerId,
+    slug,
+    numberSeq: 0,
+    number: "",
+    status: "draft",
+    issueDate,
+    dueDate,
+    currency: source.currency,
+    notes: source.notes,
+    footer: source.footer,
+    createdById: actorUserId,
+  });
+  await repo.save(draft);
+
+  const sourceLines = await AppDataSource.getRepository(InvoiceLineItem).find({
+    where: { invoiceId: source.id },
+    order: { sortOrder: "ASC" },
+  });
+  if (sourceLines.length > 0) {
+    const lineRepo = AppDataSource.getRepository(InvoiceLineItem);
+    await lineRepo.save(
+      sourceLines.map((l) =>
+        lineRepo.create({
+          invoiceId: draft.id,
+          productId: l.productId,
+          description: l.description,
+          quantity: l.quantity,
+          unitPriceCents: l.unitPriceCents,
+          taxRateId: l.taxRateId,
+          taxName: l.taxName,
+          taxPercent: l.taxPercent,
+          taxInclusive: l.taxInclusive,
+          lineSubtotalCents: l.lineSubtotalCents,
+          lineTaxCents: l.lineTaxCents,
+          lineTotalCents: l.lineTotalCents,
+          sortOrder: l.sortOrder,
+        }),
+      ),
+    );
+  }
+  return recomputeInvoiceTotals(draft);
+}
+
+async function uniqueDraftInvoiceSlug(companyId: string): Promise<string> {
+  const repo = AppDataSource.getRepository(Invoice);
+  for (let i = 0; i < 16; i += 1) {
+    const slug = `draft-${Math.random().toString(36).slice(2, 8)}`;
+    if (!(await repo.findOneBy({ companyId, slug }))) return slug;
+  }
+  return `draft-${Date.now().toString(36)}`;
+}
+
 // ─────────────────────────── Hydration ────────────────────────────────
 
 export type CustomerStub = {

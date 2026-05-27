@@ -1,6 +1,6 @@
 import React from "react";
-import { Link, useOutletContext } from "react-router-dom";
-import { Ban, MoreHorizontal, Plus, Trash2 } from "lucide-react";
+import { Link, useNavigate, useOutletContext } from "react-router-dom";
+import { Ban, Copy, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import {
   api,
   DisplayEstimateStatus,
@@ -48,6 +48,7 @@ export default function FinanceEstimates() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const { toast } = useToast();
   const dialog = useDialog();
+  const navigate = useNavigate();
   const [estimates, setEstimates] = React.useState<EstimateListItem[] | null>(null);
   const [filter, setFilter] = React.useState<StatusFilter>("all");
 
@@ -74,6 +75,18 @@ export default function FinanceEstimates() {
     try {
       await api.del(`/api/companies/${company.id}/estimates/${est.slug}`);
       reload();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
+
+  async function duplicate(est: EstimateListItem) {
+    try {
+      const draft = await api.post<Estimate>(
+        `/api/companies/${company.id}/estimates/${est.slug}/duplicate`,
+      );
+      toast("Estimate duplicated as draft", "success");
+      navigate(`/c/${company.slug}/finance/estimates/${draft.slug}/edit`);
     } catch (err) {
       toast((err as Error).message, "error");
     }
@@ -245,6 +258,7 @@ export default function FinanceEstimates() {
                       <RowMenu
                         estimate={est}
                         onDelete={() => deleteDraft(est)}
+                        onDuplicate={() => duplicate(est)}
                         onVoid={() => voidEstimate(est)}
                       />
                     </td>
@@ -262,16 +276,17 @@ export default function FinanceEstimates() {
 function RowMenu({
   estimate,
   onDelete,
+  onDuplicate,
   onVoid,
 }: {
   estimate: EstimateListItem;
   onDelete: () => void;
+  onDuplicate: () => void;
   onVoid: () => void;
 }) {
   const isDraft = estimate.status === "draft";
   const isVoid = estimate.status === "void";
   const canVoid = !isDraft && !isVoid;
-  if (!isDraft && !canVoid) return null;
   return (
     <Menu
       align="right"
@@ -289,6 +304,14 @@ function RowMenu({
     >
       {(close) => (
         <>
+          <MenuItem
+            icon={<Copy size={14} />}
+            label="Duplicate"
+            onSelect={() => {
+              close();
+              onDuplicate();
+            }}
+          />
           {canVoid && (
             <MenuItem
               icon={<Ban size={14} />}
