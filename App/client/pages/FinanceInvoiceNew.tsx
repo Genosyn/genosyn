@@ -406,7 +406,6 @@ export default function FinanceInvoiceNew() {
               <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                 <tr>
                   <th className="px-3 py-2 text-left font-medium">Product</th>
-                  <th className="px-3 py-2 text-left font-medium">Description</th>
                   <th className="w-20 px-3 py-2 text-right font-medium">Qty</th>
                   <th className="w-32 px-3 py-2 text-right font-medium">Unit price</th>
                   <th className="w-40 px-3 py-2 text-left font-medium">Tax</th>
@@ -414,19 +413,26 @@ export default function FinanceInvoiceNew() {
                   <th className="w-10" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {lines.map((l, i) => {
-                  const qty = Number(l.quantityText) || 0;
-                  const unit = parseMoneyToCents(l.priceText);
-                  const gross = Math.round(qty * unit);
-                  const rate = taxRates.find((r) => r.id === l.taxRateId);
-                  let lineTotal = gross;
-                  if (rate && !rate.inclusive) {
-                    lineTotal = gross + Math.round((gross * rate.ratePercent) / 100);
-                  }
-                  return (
-                    <tr key={l.key}>
-                      <td className="px-2 py-2 align-top">
+              {lines.map((l, i) => {
+                const qty = Number(l.quantityText) || 0;
+                const unit = parseMoneyToCents(l.priceText);
+                const gross = Math.round(qty * unit);
+                const rate = taxRates.find((r) => r.id === l.taxRateId);
+                let lineTotal = gross;
+                if (rate && !rate.inclusive) {
+                  lineTotal = gross + Math.round((gross * rate.ratePercent) / 100);
+                }
+                return (
+                  <tbody
+                    key={l.key}
+                    className={
+                      i > 0
+                        ? "border-t border-slate-100 dark:border-slate-800"
+                        : ""
+                    }
+                  >
+                    <tr>
+                      <td className="px-2 pt-2 align-top">
                         <select
                           value={l.productId ?? ""}
                           onChange={(e) => pickProduct(i, e.target.value)}
@@ -440,17 +446,7 @@ export default function FinanceInvoiceNew() {
                           ))}
                         </select>
                       </td>
-                      <td className="px-2 py-2 align-top">
-                        <input
-                          value={l.description}
-                          onChange={(e) =>
-                            patchLine(i, { description: e.target.value })
-                          }
-                          placeholder="Item description"
-                          className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
-                        />
-                      </td>
-                      <td className="px-2 py-2 align-top">
+                      <td className="px-2 pt-2 align-top">
                         <input
                           value={l.quantityText}
                           onChange={(e) =>
@@ -460,7 +456,7 @@ export default function FinanceInvoiceNew() {
                           className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-right text-sm tabular-nums dark:border-slate-700 dark:bg-slate-900"
                         />
                       </td>
-                      <td className="px-2 py-2 align-top">
+                      <td className="px-2 pt-2 align-top">
                         <input
                           value={l.priceText}
                           onChange={(e) => patchLine(i, { priceText: e.target.value })}
@@ -468,7 +464,7 @@ export default function FinanceInvoiceNew() {
                           className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-right text-sm tabular-nums dark:border-slate-700 dark:bg-slate-900"
                         />
                       </td>
-                      <td className="px-2 py-2 align-top">
+                      <td className="px-2 pt-2 align-top">
                         <select
                           value={l.taxRateId}
                           onChange={(e) => patchLine(i, { taxRateId: e.target.value })}
@@ -483,10 +479,10 @@ export default function FinanceInvoiceNew() {
                           ))}
                         </select>
                       </td>
-                      <td className="px-3 py-2 text-right align-middle text-sm tabular-nums text-slate-700 dark:text-slate-200">
+                      <td className="px-3 pt-2 text-right align-middle text-sm tabular-nums text-slate-700 dark:text-slate-200">
                         {formatMoney(lineTotal, currency)}
                       </td>
-                      <td className="px-2 py-2 text-center align-middle">
+                      <td className="px-2 pt-2 text-center align-middle">
                         <button
                           type="button"
                           onClick={() => removeLine(i)}
@@ -498,9 +494,22 @@ export default function FinanceInvoiceNew() {
                         </button>
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
+                    <tr>
+                      <td colSpan={6} className="px-2 pb-3 pt-2">
+                        <textarea
+                          value={l.description}
+                          onChange={(e) =>
+                            patchLine(i, { description: e.target.value })
+                          }
+                          placeholder="Item description"
+                          rows={2}
+                          className="block w-full resize-y rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+                        />
+                      </td>
+                    </tr>
+                  </tbody>
+                );
+              })}
             </table>
           </div>
           <div className="mt-2">
