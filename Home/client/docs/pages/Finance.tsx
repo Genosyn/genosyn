@@ -39,6 +39,12 @@ export function Finance() {
           tax snapshots, payments, and email / print-to-PDF rendering.
         </LI>
         <LI>
+          <Strong>Recurring invoices</Strong> — invoice templates that
+          fire on a cron schedule (monthly retainers, annual licences).
+          Each tick materializes a fresh invoice into the regular
+          invoice list.
+        </LI>
+        <LI>
           <Strong>Bills</Strong> — the AP mirror of invoices, for what
           your company owes vendors.
         </LI>
@@ -173,6 +179,44 @@ export function Finance() {
         payments and status timestamps do not. The new draft picks up
         <em> today</em> as its issue date and a fourteen-day default due
         date, and stays unnumbered until you issue it.
+      </P>
+
+      <H2 id="recurring-invoices">Recurring invoices</H2>
+      <P>
+        Open <Code>Finance → Recurring</Code> and click{" "}
+        <Code>New schedule</Code> to set up a template. Pick a customer,
+        write a cron expression (or pick one of the presets — every
+        month on the 1st, every quarter, weekly on Friday, etc.), and
+        compose the line items just like a normal invoice. A
+        human-readable summary of the schedule appears below the cron
+        field so you can confirm{" "}
+        <Code>0 9 1 * *</Code> really means &quot;9am on the 1st of every
+        month&quot;.
+      </P>
+
+      <H3 id="recurring-modes">Draft vs auto-send</H3>
+      <P>
+        Each schedule has an <Strong>Auto-issue and email</Strong>{" "}
+        toggle. Off (the default), every tick lands as a fresh draft —
+        you review and click <Code>Send</Code> on each one. On, the
+        tick issues the invoice (minting an <Code>INV-####</Code> and
+        posting the AR / Revenue ledger entry) and emails it to the
+        customer through the company&apos;s configured EmailProvider —
+        same path a human-sent invoice takes, so the email log captures
+        it identically.
+      </P>
+
+      <H3 id="recurring-controls">Pausing, ending, running now</H3>
+      <P>
+        From the detail page, <Code>Pause</Code> stops scheduled runs
+        without losing the template; <Code>Resume</Code> restarts the
+        next tick from now. <Code>End</Code> is terminal — the schedule
+        becomes read-only but every invoice it already created stays in
+        your books. <Code>Run now</Code> generates an invoice
+        immediately without consuming the scheduled slot, useful for
+        catch-up runs or testing the template. Optional caps — max
+        runs and end date — flip the status to{" "}
+        <Code>ended</Code> automatically once hit.
       </P>
 
       <H2 id="ledger">Ledger and reports</H2>

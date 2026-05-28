@@ -62,6 +62,8 @@ import { TaxRate } from "./entities/TaxRate.js";
 import { Invoice } from "./entities/Invoice.js";
 import { InvoiceLineItem } from "./entities/InvoiceLineItem.js";
 import { InvoicePayment } from "./entities/InvoicePayment.js";
+import { RecurringInvoice } from "./entities/RecurringInvoice.js";
+import { RecurringInvoiceLineItem } from "./entities/RecurringInvoiceLineItem.js";
 import { Estimate } from "./entities/Estimate.js";
 import { EstimateLineItem } from "./entities/EstimateLineItem.js";
 import { Account } from "./entities/Account.js";
@@ -143,6 +145,8 @@ const entities = [
   Invoice,
   InvoiceLineItem,
   InvoicePayment,
+  RecurringInvoice,
+  RecurringInvoiceLineItem,
   Estimate,
   EstimateLineItem,
   Account,

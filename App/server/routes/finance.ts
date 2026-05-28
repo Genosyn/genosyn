@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { In } from "typeorm";
 import multer from "multer";
+import cron from "node-cron";
 import { AppDataSource } from "../db/datasource.js";
 import { Account, AccountType } from "../db/entities/Account.js";
 import { BankFeed, BankFeedKind } from "../db/entities/BankFeed.js";
@@ -12,6 +13,8 @@ import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { Invoice } from "../db/entities/Invoice.js";
 import { InvoiceLineItem } from "../db/entities/InvoiceLineItem.js";
 import { InvoicePayment } from "../db/entities/InvoicePayment.js";
+import { RecurringInvoice } from "../db/entities/RecurringInvoice.js";
+import { RecurringInvoiceLineItem } from "../db/entities/RecurringInvoiceLineItem.js";
 import { Estimate } from "../db/entities/Estimate.js";
 import { EstimateLineItem } from "../db/entities/EstimateLineItem.js";
 import { LedgerEntry } from "../db/entities/LedgerEntry.js";
@@ -35,6 +38,14 @@ import {
   sendInvoiceEmail,
   voidInvoice,
 } from "../services/finance.js";
+import {
+  applyRecurringInvoiceStatus,
+  generateInvoiceFromRecurring,
+  hydrateRecurringInvoices,
+  loadRecurringInvoiceBySlug,
+  registerRecurringInvoice,
+  replaceRecurringInvoiceLines,
+} from "../services/recurringInvoices.js";
 import { renderInvoiceHtmlForCompany } from "../services/invoiceHtml.js";
 import { renderEstimateHtmlForCompany } from "../services/estimateHtml.js";
 import { htmlToPdf } from "../services/htmlToPdf.js";
@@ -2548,4 +2559,225 @@ financeRouter.get("/bills/:slug/display-status", async (req, res) => {
   const b = await loadBillBySlug(cid, req.params.slug);
   if (!b) return res.status(404).json({ error: "Bill not found" });
   res.json({ status: billDisplayStatus(b) });
+});
+
+// ──────────────────────── Recurring invoices ───────────────────────────
+//
+// Schedule-driven invoice templates. Each row carries a cron expression
+// and a set of template line items; the heartbeat in
+// `services/recurringInvoices.ts` materializes a fresh Invoice on each
+// fire. See ROADMAP.md M19 (Phase A follow-up).
+
+async function uniqueRecurringInvoiceSlug(companyId: string): Promise<string> {
+  const repo = AppDataSource.getRepository(RecurringInvoice);
+  for (let i = 0; i < 16; i += 1) {
+    const slug = `ri-${Math.random().toString(36).slice(2, 8)}`;
+    if (!(await repo.findOneBy({ companyId, slug }))) return slug;
+  }
+  return `ri-${Date.now().toString(36)}`;
+}
+
+const recurringLineDraftSchema = z.object({
+  productId: z.string().uuid().nullable().optional(),
+  description: z.string().min(1).max(500),
+  quantity: z.number().min(0).max(1_000_000),
+  unitPriceCents: z.number().int().min(-2_000_000_000).max(2_000_000_000),
+  taxRateId: z.string().uuid().nullable().optional(),
+  sortOrder: z.number().int().optional(),
+});
+
+const recurringInvoiceCreateSchema = z.object({
+  customerId: z.string().uuid(),
+  name: z.string().min(1).max(200),
+  cronExpr: z
+    .string()
+    .min(1)
+    .max(120)
+    .refine((v) => cron.validate(v), "Invalid cron expression"),
+  status: z.enum(["active", "paused"]).optional(),
+  daysUntilDue: z.number().int().min(0).max(365).optional(),
+  autoSend: z.boolean().optional(),
+  currency: currencySchema.optional(),
+  notes: z.string().max(4000).optional(),
+  footer: z.string().max(1000).optional(),
+  maxRuns: z.number().int().min(1).max(10_000).nullable().optional(),
+  endsOn: z.string().datetime().nullable().optional(),
+  lines: z.array(recurringLineDraftSchema).max(200).optional(),
+});
+
+financeRouter.get("/recurring-invoices", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const where: Record<string, unknown> = { companyId: cid };
+  const status = req.query.status;
+  if (typeof status === "string" && status) where.status = status;
+  const customerId = req.query.customerId;
+  if (typeof customerId === "string" && customerId) where.customerId = customerId;
+  const rows = await AppDataSource.getRepository(RecurringInvoice).find({
+    where,
+    order: { createdAt: "DESC" },
+  });
+  const hydrated = await hydrateRecurringInvoices(cid, rows);
+  res.json(
+    hydrated.map(({ lines: _lines, ...rest }) => ({
+      ...rest,
+      linesCount: _lines.length,
+    })),
+  );
+});
+
+financeRouter.post(
+  "/recurring-invoices",
+  validateBody(recurringInvoiceCreateSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const body = req.body as z.infer<typeof recurringInvoiceCreateSchema>;
+    const customer = await AppDataSource.getRepository(Customer).findOneBy({
+      id: body.customerId,
+      companyId: cid,
+    });
+    if (!customer) return res.status(400).json({ error: "Invalid customer" });
+
+    const repo = AppDataSource.getRepository(RecurringInvoice);
+    const slug = await uniqueRecurringInvoiceSlug(cid);
+    const ri = repo.create({
+      companyId: cid,
+      customerId: customer.id,
+      slug,
+      name: body.name,
+      cronExpr: body.cronExpr,
+      status: body.status ?? "active",
+      daysUntilDue: body.daysUntilDue ?? 14,
+      autoSend: body.autoSend ?? false,
+      currency: body.currency ?? customer.currency ?? "USD",
+      notes: body.notes ?? "",
+      footer: body.footer ?? "",
+      maxRuns: body.maxRuns ?? null,
+      endsOn: body.endsOn ? new Date(body.endsOn) : null,
+      runsCreated: 0,
+      lastInvoiceSlug: "",
+      createdById: req.userId ?? null,
+    });
+    registerRecurringInvoice(ri);
+    await repo.save(ri);
+    if (body.lines && body.lines.length > 0) {
+      await replaceRecurringInvoiceLines(ri, body.lines);
+    }
+    const [hydrated] = await hydrateRecurringInvoices(cid, [ri]);
+    res.json(hydrated);
+  },
+);
+
+financeRouter.get("/recurring-invoices/:slug", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const ri = await loadRecurringInvoiceBySlug(cid, req.params.slug);
+  if (!ri) return res.status(404).json({ error: "Recurring invoice not found" });
+  const [hydrated] = await hydrateRecurringInvoices(cid, [ri]);
+  res.json(hydrated);
+});
+
+const recurringInvoicePatchSchema = z.object({
+  customerId: z.string().uuid().optional(),
+  name: z.string().min(1).max(200).optional(),
+  cronExpr: z
+    .string()
+    .min(1)
+    .max(120)
+    .refine((v) => cron.validate(v), "Invalid cron expression")
+    .optional(),
+  status: z.enum(["active", "paused", "ended"]).optional(),
+  daysUntilDue: z.number().int().min(0).max(365).optional(),
+  autoSend: z.boolean().optional(),
+  currency: currencySchema.optional(),
+  notes: z.string().max(4000).optional(),
+  footer: z.string().max(1000).optional(),
+  maxRuns: z.number().int().min(1).max(10_000).nullable().optional(),
+  endsOn: z.string().datetime().nullable().optional(),
+  lines: z.array(recurringLineDraftSchema).max(200).optional(),
+});
+
+financeRouter.patch(
+  "/recurring-invoices/:slug",
+  validateBody(recurringInvoicePatchSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const ri = await loadRecurringInvoiceBySlug(cid, req.params.slug);
+    if (!ri) return res.status(404).json({ error: "Recurring invoice not found" });
+    const body = req.body as z.infer<typeof recurringInvoicePatchSchema>;
+
+    if (body.customerId !== undefined) {
+      const c = await AppDataSource.getRepository(Customer).findOneBy({
+        id: body.customerId,
+        companyId: cid,
+      });
+      if (!c) return res.status(400).json({ error: "Invalid customer" });
+      ri.customerId = c.id;
+    }
+    if (body.name !== undefined) ri.name = body.name;
+    if (body.cronExpr !== undefined) ri.cronExpr = body.cronExpr;
+    if (body.daysUntilDue !== undefined) ri.daysUntilDue = body.daysUntilDue;
+    if (body.autoSend !== undefined) ri.autoSend = body.autoSend;
+    if (body.currency !== undefined) ri.currency = body.currency;
+    if (body.notes !== undefined) ri.notes = body.notes;
+    if (body.footer !== undefined) ri.footer = body.footer;
+    if (body.maxRuns !== undefined) ri.maxRuns = body.maxRuns;
+    if (body.endsOn !== undefined) {
+      ri.endsOn = body.endsOn ? new Date(body.endsOn) : null;
+    }
+    if (body.status !== undefined) {
+      applyRecurringInvoiceStatus(ri, body.status);
+    } else {
+      // Re-register so a changed cron / cap / endsOn takes effect.
+      registerRecurringInvoice(ri);
+    }
+    await AppDataSource.getRepository(RecurringInvoice).save(ri);
+
+    if (body.lines !== undefined) {
+      await replaceRecurringInvoiceLines(ri, body.lines);
+    }
+    const [hydrated] = await hydrateRecurringInvoices(cid, [ri]);
+    res.json(hydrated);
+  },
+);
+
+financeRouter.delete("/recurring-invoices/:slug", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const ri = await loadRecurringInvoiceBySlug(cid, req.params.slug);
+  if (!ri) return res.status(404).json({ error: "Recurring invoice not found" });
+  await AppDataSource.getRepository(RecurringInvoiceLineItem).delete({
+    recurringInvoiceId: ri.id,
+  });
+  await AppDataSource.getRepository(RecurringInvoice).delete({ id: ri.id });
+  res.json({ ok: true });
+});
+
+// Run-now: generate a single invoice immediately. Does NOT consume a
+// scheduled slot — `nextRunAt` is untouched so the next scheduled fire
+// still happens on time. The generated invoice is counted toward
+// `runsCreated` though, so any `maxRuns` cap is respected.
+financeRouter.post("/recurring-invoices/:slug/run-now", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const ri = await loadRecurringInvoiceBySlug(cid, req.params.slug);
+  if (!ri) return res.status(404).json({ error: "Recurring invoice not found" });
+  if (ri.status === "ended") {
+    return res.status(409).json({ error: "This schedule has ended" });
+  }
+  try {
+    const result = await generateInvoiceFromRecurring(ri, req.userId ?? null);
+    ri.runsCreated += 1;
+    ri.lastRunAt = new Date();
+    ri.lastInvoiceSlug = result.invoice.slug;
+    // Re-evaluate the cap; if this manual run hit it, status flips
+    // automatically.
+    registerRecurringInvoice(ri);
+    await AppDataSource.getRepository(RecurringInvoice).save(ri);
+    const [hydrated] = await hydrateRecurringInvoices(cid, [ri]);
+    res.json({
+      recurringInvoice: hydrated,
+      invoice: result.invoice,
+      emailStatus: result.emailStatus,
+      emailError: result.emailError,
+    });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
 });

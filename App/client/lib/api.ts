@@ -1496,6 +1496,67 @@ export function displayInvoiceStatus(
   return inv.status;
 }
 
+// ───────────────────────── Recurring invoices ──────────────────────────
+
+export type RecurringInvoiceStatus = "active" | "paused" | "ended";
+
+export type RecurringInvoiceLineItem = {
+  id: string;
+  recurringInvoiceId: string;
+  productId: string | null;
+  description: string;
+  quantity: number;
+  unitPriceCents: number;
+  taxRateId: string | null;
+  sortOrder: number;
+};
+
+export type RecurringInvoiceCustomerStub = {
+  id: string;
+  name: string;
+  slug: string;
+  email: string;
+};
+
+export type RecurringInvoice = {
+  id: string;
+  companyId: string;
+  customerId: string;
+  slug: string;
+  name: string;
+  cronExpr: string;
+  status: RecurringInvoiceStatus;
+  daysUntilDue: number;
+  autoSend: boolean;
+  currency: string;
+  notes: string;
+  footer: string;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  lastInvoiceSlug: string;
+  runsCreated: number;
+  maxRuns: number | null;
+  endsOn: string | null;
+  createdById: string | null;
+  createdAt: string;
+  updatedAt: string;
+  customer: RecurringInvoiceCustomerStub | null;
+  lines: RecurringInvoiceLineItem[];
+};
+
+export type RecurringInvoiceListItem = Omit<RecurringInvoice, "lines"> & {
+  linesCount: number;
+};
+
+export type RecurringInvoiceLineDraft = {
+  productId?: string | null;
+  description: string;
+  quantity: number;
+  unitPriceCents: number;
+  taxRateId?: string | null;
+  sortOrder?: number;
+};
+
 // ──────────────────────────── Estimates ─────────────────────────────────
 
 export type EstimateStatus =

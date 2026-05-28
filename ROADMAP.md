@@ -531,6 +531,14 @@ Phased so each phase ships behind its own PR:
   DR Accounts Payable / CR Bank with FX gain/loss for foreign-
   currency bills (mirrors the customer flow). Vendors / Bills sub-
   nav under Finance.
+- [x] **Phase A follow-up — Recurring invoices.** `RecurringInvoice` +
+  `RecurringInvoiceLineItem` entities. Cron-driven heartbeat
+  (`services/recurringInvoices.ts`) materializes a fresh `Invoice`
+  on each tick, optionally auto-issuing + emailing it via the
+  existing send path. Status lifecycle active → paused → ended;
+  optional `maxRuns` and `endsOn` caps flip to ended automatically.
+  Sidebar entry under Finance, dedicated list / new / detail pages
+  with cron presets + human-readable schedule preview.
 
 MCP surface (added phase by phase): `list_invoices`, `get_invoice`,
 `create_invoice`, `send_invoice`, `record_payment`, `void_invoice`,

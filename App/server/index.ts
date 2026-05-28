@@ -10,6 +10,7 @@ import { initDb } from "./db/datasource.js";
 import { bootCron } from "./services/cron.js";
 import { bootBackups } from "./services/backups.js";
 import { bootPipelineCron } from "./services/pipelines/index.js";
+import { bootRecurringInvoices } from "./services/recurringInvoices.js";
 import { bootTelegramListeners } from "./services/telegramListener.js";
 import { attachRealtime } from "./services/realtime.js";
 import { errorHandler } from "./middleware/error.js";
@@ -61,6 +62,7 @@ async function main() {
   await bootCron();
   await bootBackups();
   await bootPipelineCron();
+  await bootRecurringInvoices();
   bootBrowserSessionSweeper();
   // Long-polling Telegram listener — one outbound HTTP loop per Telegram
   // Connection. Fires asynchronously so a slow Telegram API doesn't gate
