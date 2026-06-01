@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-CLI_VERSION="0.1.0"
+CLI_VERSION="0.1.1"
 
 PORT="${GENOSYN_PORT:-8471}"
 NAME="${GENOSYN_NAME:-genosyn}"
@@ -637,6 +637,72 @@ cmd_prune() {
   fi
 }
 
+cmd_users() {
+  parse_common_flags "$@"
+  set -- ${REMAINING[@]+"${REMAINING[@]}"}
+
+  local format="table"
+  while [ $# -gt 0 ]; do
+    case "${1:-}" in
+      ""      ) shift ;;
+      --json  ) format="json"; shift ;;
+      *) die "Unknown argument to users: $1" ;;
+    esac
+  done
+
+  require_docker
+  container_exists  || die "No container named '${NAME}' found. Run 'genosyn install' first."
+  container_running || die "Container '${NAME}' is not running. Start it with 'genosyn start'."
+
+  # Query the SQLite DB inside the container. better-sqlite3 ships with the
+  # app's node_modules, so we lean on it instead of adding a sqlite3 binary
+  # to the runtime image. Quoted heredoc → no bash expansion; format flows
+  # in via an env var so the JS body stays a pure literal.
+  docker exec -i \
+    -e "GENOSYN_USERS_FORMAT=${format}" \
+    -w /app \
+    "${NAME}" node <<'NODE'
+const Database = require("better-sqlite3");
+let db;
+try {
+  db = new Database("/app/data/app.sqlite", { readonly: true, fileMustExist: true });
+} catch (e) {
+  console.error("Could not open /app/data/app.sqlite: " + e.message);
+  console.error("(If this install uses Postgres, 'genosyn users' is not supported yet.)");
+  process.exit(1);
+}
+const rows = db.prepare(
+  "SELECT u.email, u.name, u.handle, u.createdAt, " +
+  "(SELECT COUNT(*) FROM memberships m WHERE m.userId = u.id) AS companies " +
+  "FROM users u ORDER BY datetime(u.createdAt) ASC"
+).all();
+if (process.env.GENOSYN_USERS_FORMAT === "json") {
+  process.stdout.write(JSON.stringify(rows, null, 2) + "\n");
+  process.exit(0);
+}
+if (rows.length === 0) {
+  console.log("No users yet.");
+  process.exit(0);
+}
+const trimDate = (s) => s == null ? "" : String(s).replace(/\.\d+$/, "").slice(0, 19);
+const cols = [
+  { key: "email",     label: "EMAIL" },
+  { key: "name",      label: "NAME" },
+  { key: "handle",    label: "HANDLE" },
+  { key: "companies", label: "COMPANIES" },
+  { key: "createdAt", label: "CREATED" },
+];
+const fmt = (k, v) => k === "createdAt" ? trimDate(v) : (v == null ? "" : String(v));
+const widths = cols.map(c =>
+  Math.max(c.label.length, ...rows.map(r => fmt(c.key, r[c.key]).length))
+);
+const line = (vals) => vals.map((v, i) => v.padEnd(widths[i])).join("  ");
+console.log(line(cols.map(c => c.label)));
+for (const r of rows) console.log(line(cols.map(c => fmt(c.key, r[c.key]))));
+console.log("\n" + rows.length + " user" + (rows.length === 1 ? "" : "s") + ".");
+NODE
+}
+
 cmd_version() {
   printf 'genosyn cli  %s\n' "${CLI_VERSION}"
   if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 && container_exists; then
@@ -668,6 +734,7 @@ ${C_BOLD}Commands:${C_RESET}
   restore <FILE> [-y]  Restore a backup tarball. Destructive; prompts unless -y.
   uninstall [--purge]  Remove the container. --purge also deletes the data volume.
   prune [--dry-run]    Remove orphaned Genosyn images left over from prior upgrades.
+  users [--json]       List all users in the database (email, name, handle, company count).
   version              Print CLI and container image versions.
   help                 Show this message.
 
@@ -711,6 +778,7 @@ main() {
     restore)           cmd_restore   "$@" ;;
     uninstall|remove)  cmd_uninstall "$@" ;;
     prune|clean)       cmd_prune     "$@" ;;
+    users)             cmd_users     "$@" ;;
     self-upgrade|self-update) cmd_self_upgrade "$@" ;;
     version|--version|-v) cmd_version ;;
     help|--help|-h)    cmd_help ;;

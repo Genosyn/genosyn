@@ -69,6 +69,12 @@ const COMMANDS: Cmd[] = [
     blurb:
       "Remove orphaned Genosyn images left over from prior upgrades. --dry-run lists what would be removed.",
   },
+  {
+    name: "users",
+    flags: "[--json]",
+    blurb:
+      "List all users in the database — email, name, handle, company count, signup date. Reads the SQLite DB inside the container. Pass --json for machine-readable output.",
+  },
   { name: "version", blurb: "Print CLI and container image versions." },
   { name: "help", blurb: "Show usage." },
 ];
