@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-CLI_VERSION="0.1.3"
+CLI_VERSION="0.1.4"
 
 PORT="${GENOSYN_PORT:-8471}"
 NAME="${GENOSYN_NAME:-genosyn}"
@@ -880,6 +880,90 @@ cmd_reset_password() {
 NODE
 }
 
+cmd_user_help() {
+  cat <<EOF
+${C_BOLD}genosyn user${C_RESET} — manage human users (Members).
+
+${C_BOLD}Usage:${C_RESET}
+  genosyn user <subcommand> [flags]
+
+${C_BOLD}Subcommands:${C_RESET}
+  list [--json]                       List all users (email, name, handle,
+                                      company count, signup date).
+  reset-password <email> [--password <pw>] [-y]
+                                      Reset a user's password. Generates a
+                                      strong one and prints it unless
+                                      --password is given. Prompts unless -y.
+  delete <email> [-y]                 Delete a user. Removes their account and
+                                      company memberships; authored content
+                                      (chat, todos, notes) is kept but
+                                      unlinked. Refuses if they own a company.
+                                      Prompts unless -y.
+EOF
+}
+
+# Delete a user via the app's admin entrypoint inside the container. The
+# cascade (which rows to drop vs. which author pointers to NULL) is schema-
+# coupled, so it lives in TypeScript at server/admin/deleteUser.ts — kept in
+# lockstep with the entities — rather than being re-implemented in shell. We
+# preflight (read-only) so the operator sees who/what before confirming.
+cmd_user_delete() {
+  local email=""
+  local assume_yes=0
+  parse_common_flags "$@"
+  set -- ${REMAINING[@]+"${REMAINING[@]}"}
+  while [ $# -gt 0 ]; do
+    case "${1:-}" in
+      ""        ) shift ;;
+      -y|--yes  ) assume_yes=1; shift ;;
+      -*        ) die "Unknown flag to 'user delete': $1" ;;
+      *)
+        if [ -z "${email}" ]; then email="$1"; shift
+        else die "Unexpected argument: $1"; fi
+        ;;
+    esac
+  done
+
+  [ -n "${email}" ] || die "Usage: genosyn user delete <email> [-y]"
+
+  require_docker
+  container_exists  || die "No container named '${NAME}' found. Run 'genosyn install' first."
+  container_running || die "Container '${NAME}' is not running. Start it with 'genosyn start'."
+
+  local entry="dist/server/admin/deleteUser.js"
+  docker exec "${NAME}" test -f "/app/${entry}" 2>/dev/null \
+    || die "This Genosyn image predates 'user delete'. Upgrade first: genosyn upgrade"
+
+  # Preflight prints "Deletable: …" and exits 0 when safe, or prints the reason
+  # (not found / owns a company) and exits non-zero. Surface its output as-is.
+  if ! docker exec -i -w /app "${NAME}" node "${entry}" "${email}" --preflight; then
+    exit 1
+  fi
+
+  if [ "${assume_yes}" != "1" ]; then
+    confirm "Delete '${email}'? Removes their account + memberships and cannot be undone." \
+      || die "Aborted."
+  fi
+
+  docker exec -i -w /app "${NAME}" node "${entry}" "${email}"
+}
+
+# `genosyn user <subcommand>` — namespace for human-user management.
+cmd_user() {
+  if [ $# -eq 0 ]; then
+    cmd_user_help
+    return 0
+  fi
+  local sub="$1"; shift
+  case "${sub}" in
+    list|ls)               cmd_users          "$@" ;;
+    reset-password|passwd) cmd_reset_password "$@" ;;
+    delete|rm)             cmd_user_delete    "$@" ;;
+    help|-h|--help)        cmd_user_help ;;
+    *) die "Unknown user subcommand: ${sub}. Run 'genosyn user help' for usage." ;;
+  esac
+}
+
 cmd_version() {
   printf 'genosyn cli  %s\n' "${CLI_VERSION}"
   if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 && container_exists; then
@@ -911,10 +995,8 @@ ${C_BOLD}Commands:${C_RESET}
   restore <FILE> [-y]  Restore a backup tarball. Destructive; prompts unless -y.
   uninstall [--purge]  Remove the container. --purge also deletes the data volume.
   prune [--dry-run]    Remove orphaned Genosyn images left over from prior upgrades.
-  users [--json]       List all users in the database (email, name, handle, company count).
-  reset-password <email> [--password <pw>] [-y]
-                       Reset a user's password. Generates a strong one and
-                       prints it unless --password is given. Prompts unless -y.
+  user <subcommand>    Manage human users. Run 'genosyn user help' for the
+                       list, reset-password, and delete subcommands.
   version              Print CLI and container image versions.
   help                 Show this message.
 
@@ -931,7 +1013,9 @@ ${C_BOLD}Examples:${C_RESET}
   genosyn logs -f --tail 100
   genosyn backup --out ~/backups/genosyn-\$(date +%F).tar.gz
   genosyn restore ~/backups/genosyn-2026-04-22.tar.gz
-  genosyn reset-password alice@example.com
+  genosyn user list
+  genosyn user reset-password alice@example.com
+  genosyn user delete alice@example.com
   genosyn uninstall --purge
 
 Docs: https://genosyn.com  •  Source: https://github.com/genosyn/genosyn
@@ -959,6 +1043,8 @@ main() {
     restore)           cmd_restore   "$@" ;;
     uninstall|remove)  cmd_uninstall "$@" ;;
     prune|clean)       cmd_prune     "$@" ;;
+    user)              cmd_user      "$@" ;;
+    # Back-compat aliases for the pre-`user`-namespace commands.
     users)             cmd_users     "$@" ;;
     reset-password)    cmd_reset_password "$@" ;;
     self-upgrade|self-update) cmd_self_upgrade "$@" ;;

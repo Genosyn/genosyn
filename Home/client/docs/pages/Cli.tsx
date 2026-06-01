@@ -70,16 +70,22 @@ const COMMANDS: Cmd[] = [
       "Remove orphaned Genosyn images left over from prior upgrades. --dry-run lists what would be removed.",
   },
   {
-    name: "users",
+    name: "user list",
     flags: "[--json]",
     blurb:
-      "List all users in the database — email, name, handle, company count, signup date. Reads the app database inside the container (SQLite or Postgres). Pass --json for machine-readable output.",
+      "List all users — email, name, handle, company count, signup date. Reads the app database inside the container (SQLite or Postgres). Pass --json for machine-readable output. (Alias: genosyn users.)",
   },
   {
-    name: "reset-password",
+    name: "user reset-password",
     flags: "<email> [--password <pw>] [-y]",
     blurb:
-      "Reset a user's password — the operator escape hatch when someone is locked out and email isn't configured. Generates a strong password and prints it, or set your own with --password (min 8 chars). Prompts before overwriting unless -y. Works on SQLite and Postgres.",
+      "Reset a user's password — the operator escape hatch when someone is locked out and email isn't configured. Generates a strong password and prints it, or set your own with --password (min 8 chars). Prompts before overwriting unless -y. (Alias: genosyn reset-password.)",
+  },
+  {
+    name: "user delete",
+    flags: "<email> [-y]",
+    blurb:
+      "Delete a user. Removes their account and company memberships; content they authored (chat, todos, notes) is preserved but unlinked. Refuses if the user is the owner of a company — transfer ownership or delete that company first. Prompts before deleting unless -y.",
   },
   { name: "version", blurb: "Print CLI and container image versions." },
   { name: "help", blurb: "Show usage." },
