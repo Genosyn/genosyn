@@ -73,7 +73,13 @@ const COMMANDS: Cmd[] = [
     name: "users",
     flags: "[--json]",
     blurb:
-      "List all users in the database — email, name, handle, company count, signup date. Reads the SQLite DB inside the container. Pass --json for machine-readable output.",
+      "List all users in the database — email, name, handle, company count, signup date. Reads the app database inside the container (SQLite or Postgres). Pass --json for machine-readable output.",
+  },
+  {
+    name: "reset-password",
+    flags: "<email> [--password <pw>] [-y]",
+    blurb:
+      "Reset a user's password — the operator escape hatch when someone is locked out and email isn't configured. Generates a strong password and prints it, or set your own with --password (min 8 chars). Prompts before overwriting unless -y. Works on SQLite and Postgres.",
   },
   { name: "version", blurb: "Print CLI and container image versions." },
   { name: "help", blurb: "Show usage." },

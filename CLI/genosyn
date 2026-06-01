@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-CLI_VERSION="0.1.1"
+CLI_VERSION="0.1.3"
 
 PORT="${GENOSYN_PORT:-8471}"
 NAME="${GENOSYN_NAME:-genosyn}"
@@ -654,52 +654,229 @@ cmd_users() {
   container_exists  || die "No container named '${NAME}' found. Run 'genosyn install' first."
   container_running || die "Container '${NAME}' is not running. Start it with 'genosyn start'."
 
-  # Query the SQLite DB inside the container. better-sqlite3 ships with the
-  # app's node_modules, so we lean on it instead of adding a sqlite3 binary
-  # to the runtime image. Quoted heredoc → no bash expansion; format flows
-  # in via an env var so the JS body stays a pure literal.
+  # Query the app DB inside the container. We import the app's compiled config
+  # (dist/config.js) so we honour whatever driver + connection it actually uses
+  # — SQLite via better-sqlite3, or Postgres via pg. Both ship in the app's
+  # node_modules, so no extra binaries are needed. Quoted heredoc → no bash
+  # expansion; the output format flows in via an env var so the JS stays a
+  # pure literal. Column identifiers are double-quoted because TypeORM stores
+  # them camelCase and Postgres folds unquoted names to lowercase.
   docker exec -i \
     -e "GENOSYN_USERS_FORMAT=${format}" \
     -w /app \
     "${NAME}" node <<'NODE'
-const Database = require("better-sqlite3");
-let db;
-try {
-  db = new Database("/app/data/app.sqlite", { readonly: true, fileMustExist: true });
-} catch (e) {
-  console.error("Could not open /app/data/app.sqlite: " + e.message);
-  console.error("(If this install uses Postgres, 'genosyn users' is not supported yet.)");
+(async () => {
+  const path = require("node:path");
+  const { pathToFileURL } = require("node:url");
+
+  let config;
+  try {
+    ({ config } = await import(pathToFileURL("/app/dist/config.js").href));
+  } catch (e) {
+    console.error("Could not load app config from /app/dist/config.js: " + e.message);
+    process.exit(1);
+  }
+
+  const QUERY =
+    'SELECT u.email AS email, u.name AS name, u.handle AS handle, ' +
+    'u."createdAt" AS "createdAt", ' +
+    '(SELECT COUNT(*) FROM memberships m WHERE m."userId" = u.id) AS companies ' +
+    'FROM users u ORDER BY u."createdAt" ASC';
+
+  let rows;
+  if (config.db && config.db.driver === "postgres") {
+    const { Client } = require("pg");
+    const client = new Client({ connectionString: config.db.postgresUrl });
+    try {
+      await client.connect();
+      rows = (await client.query(QUERY)).rows;
+    } catch (e) {
+      console.error("Postgres query failed: " + e.message);
+      process.exit(1);
+    } finally {
+      await client.end().catch(() => {});
+    }
+  } else {
+    const Database = require("better-sqlite3");
+    const dbPath = path.resolve(config.db && config.db.sqlitePath || "./data/app.sqlite");
+    let db;
+    try {
+      db = new Database(dbPath, { readonly: true, fileMustExist: true });
+    } catch (e) {
+      console.error("Could not open " + dbPath + ": " + e.message);
+      process.exit(1);
+    }
+    rows = db.prepare(QUERY).all();
+  }
+
+  // Postgres returns COUNT(*) as a string; normalise to a number everywhere.
+  for (const r of rows) r.companies = Number(r.companies);
+
+  if (process.env.GENOSYN_USERS_FORMAT === "json") {
+    process.stdout.write(JSON.stringify(rows, null, 2) + "\n");
+    return;
+  }
+  if (rows.length === 0) {
+    console.log("No users yet.");
+    return;
+  }
+
+  // SQLite hands back createdAt as ISO-ish text, Postgres as a JS Date.
+  // Normalise both to "YYYY-MM-DD HH:MM:SS".
+  const fmtDate = (v) => {
+    if (v == null) return "";
+    const s = v instanceof Date ? v.toISOString() : String(v);
+    return s.slice(0, 19).replace("T", " ");
+  };
+  const cols = [
+    { key: "email",     label: "EMAIL" },
+    { key: "name",      label: "NAME" },
+    { key: "handle",    label: "HANDLE" },
+    { key: "companies", label: "COMPANIES" },
+    { key: "createdAt", label: "CREATED" },
+  ];
+  const fmt = (k, v) => k === "createdAt" ? fmtDate(v) : (v == null ? "" : String(v));
+  const widths = cols.map(c =>
+    Math.max(c.label.length, ...rows.map(r => fmt(c.key, r[c.key]).length))
+  );
+  const line = (vals) => vals.map((v, i) => v.padEnd(widths[i])).join("  ");
+  console.log(line(cols.map(c => c.label)));
+  for (const r of rows) console.log(line(cols.map(c => fmt(c.key, r[c.key]))));
+  console.log("\n" + rows.length + " user" + (rows.length === 1 ? "" : "s") + ".");
+})().catch((e) => {
+  console.error(e && e.message ? e.message : String(e));
   process.exit(1);
+});
+NODE
 }
-const rows = db.prepare(
-  "SELECT u.email, u.name, u.handle, u.createdAt, " +
-  "(SELECT COUNT(*) FROM memberships m WHERE m.userId = u.id) AS companies " +
-  "FROM users u ORDER BY datetime(u.createdAt) ASC"
-).all();
-if (process.env.GENOSYN_USERS_FORMAT === "json") {
-  process.stdout.write(JSON.stringify(rows, null, 2) + "\n");
-  process.exit(0);
-}
-if (rows.length === 0) {
-  console.log("No users yet.");
-  process.exit(0);
-}
-const trimDate = (s) => s == null ? "" : String(s).replace(/\.\d+$/, "").slice(0, 19);
-const cols = [
-  { key: "email",     label: "EMAIL" },
-  { key: "name",      label: "NAME" },
-  { key: "handle",    label: "HANDLE" },
-  { key: "companies", label: "COMPANIES" },
-  { key: "createdAt", label: "CREATED" },
-];
-const fmt = (k, v) => k === "createdAt" ? trimDate(v) : (v == null ? "" : String(v));
-const widths = cols.map(c =>
-  Math.max(c.label.length, ...rows.map(r => fmt(c.key, r[c.key]).length))
-);
-const line = (vals) => vals.map((v, i) => v.padEnd(widths[i])).join("  ");
-console.log(line(cols.map(c => c.label)));
-for (const r of rows) console.log(line(cols.map(c => fmt(c.key, r[c.key]))));
-console.log("\n" + rows.length + " user" + (rows.length === 1 ? "" : "s") + ".");
+
+cmd_reset_password() {
+  local email=""
+  local password=""
+  local assume_yes=0
+  parse_common_flags "$@"
+  set -- ${REMAINING[@]+"${REMAINING[@]}"}
+  while [ $# -gt 0 ]; do
+    case "${1:-}" in
+      ""           ) shift ;;
+      --password   ) password="$2"; shift 2 ;;
+      --password=* ) password="${1#*=}"; shift ;;
+      -y|--yes     ) assume_yes=1; shift ;;
+      -*           ) die "Unknown flag to reset-password: $1" ;;
+      *)
+        if [ -z "${email}" ]; then email="$1"; shift
+        else die "Unexpected argument: $1"; fi
+        ;;
+    esac
+  done
+
+  [ -n "${email}" ] || die "Usage: genosyn reset-password <email> [--password <pw>] [-y]"
+
+  # Mirror the app's 8-char minimum so we fail fast before touching the DB.
+  if [ -n "${password}" ] && [ "${#password}" -lt 8 ]; then
+    die "Password must be at least 8 characters."
+  fi
+
+  require_docker
+  container_exists  || die "No container named '${NAME}' found. Run 'genosyn install' first."
+  container_running || die "Container '${NAME}' is not running. Start it with 'genosyn start'."
+
+  if [ "${assume_yes}" != "1" ]; then
+    confirm "Reset the password for '${email}'? This overwrites their current password." \
+      || die "Aborted."
+  fi
+
+  # Hash + update inside the container so we reuse the app's bcrypt and config.
+  # Email + (optional) password flow in via env. When no password is supplied
+  # the script generates one itself, so the generated secret never appears in
+  # argv, the host process table, or shell history. Same driver-agnostic
+  # config import as `users`; camelCase columns are double-quoted for Postgres.
+  docker exec -i \
+    -e "GENOSYN_RP_EMAIL=${email}" \
+    -e "GENOSYN_RP_PASSWORD=${password}" \
+    -w /app \
+    "${NAME}" node <<'NODE'
+(async () => {
+  const path = require("node:path");
+  const crypto = require("node:crypto");
+  const { pathToFileURL } = require("node:url");
+
+  let config;
+  try {
+    ({ config } = await import(pathToFileURL("/app/dist/config.js").href));
+  } catch (e) {
+    console.error("Could not load app config from /app/dist/config.js: " + e.message);
+    process.exit(1);
+  }
+
+  const email = String(process.env.GENOSYN_RP_EMAIL || "").trim().toLowerCase();
+  if (!email) {
+    console.error("No email provided.");
+    process.exit(1);
+  }
+
+  let password = process.env.GENOSYN_RP_PASSWORD || "";
+  const generated = password.length === 0;
+  if (generated) {
+    // 16 url-safe alphanumerics — strong, and easy to read out or paste.
+    password = crypto.randomBytes(24).toString("base64").replace(/[^A-Za-z0-9]/g, "").slice(0, 16);
+  } else if (password.length < 8) {
+    console.error("Password must be at least 8 characters.");
+    process.exit(1);
+  }
+
+  const bcrypt = require("bcrypt");
+  const hash = await bcrypt.hash(password, 10);
+
+  let user;
+  if (config.db && config.db.driver === "postgres") {
+    const { Client } = require("pg");
+    const client = new Client({ connectionString: config.db.postgresUrl });
+    try {
+      await client.connect();
+      user = (await client.query("SELECT id, name FROM users WHERE email = $1", [email])).rows[0];
+      if (!user) {
+        console.error("No user found with email: " + email);
+        process.exit(1);
+      }
+      await client.query(
+        'UPDATE users SET "passwordHash" = $1, "resetToken" = NULL, "resetExpiresAt" = NULL WHERE id = $2',
+        [hash, user.id]
+      );
+    } catch (e) {
+      console.error("Postgres update failed: " + e.message);
+      process.exit(1);
+    } finally {
+      await client.end().catch(() => {});
+    }
+  } else {
+    const Database = require("better-sqlite3");
+    const dbPath = path.resolve(config.db && config.db.sqlitePath || "./data/app.sqlite");
+    let db;
+    try {
+      db = new Database(dbPath, { fileMustExist: true });
+    } catch (e) {
+      console.error("Could not open " + dbPath + ": " + e.message);
+      process.exit(1);
+    }
+    user = db.prepare("SELECT id, name FROM users WHERE email = ?").get(email);
+    if (!user) {
+      console.error("No user found with email: " + email);
+      process.exit(1);
+    }
+    db.prepare(
+      'UPDATE users SET "passwordHash" = ?, "resetToken" = NULL, "resetExpiresAt" = NULL WHERE id = ?'
+    ).run(hash, user.id);
+  }
+
+  const who = user.name ? email + " (" + user.name + ")" : email;
+  console.log("Password reset for " + who + ".");
+  if (generated) console.log("New password: " + password);
+  console.log("Have them sign in and change it from Profile Settings.");
+})().catch((e) => {
+  console.error(e && e.message ? e.message : String(e));
+  process.exit(1);
+});
 NODE
 }
 
@@ -735,6 +912,9 @@ ${C_BOLD}Commands:${C_RESET}
   uninstall [--purge]  Remove the container. --purge also deletes the data volume.
   prune [--dry-run]    Remove orphaned Genosyn images left over from prior upgrades.
   users [--json]       List all users in the database (email, name, handle, company count).
+  reset-password <email> [--password <pw>] [-y]
+                       Reset a user's password. Generates a strong one and
+                       prints it unless --password is given. Prompts unless -y.
   version              Print CLI and container image versions.
   help                 Show this message.
 
@@ -751,6 +931,7 @@ ${C_BOLD}Examples:${C_RESET}
   genosyn logs -f --tail 100
   genosyn backup --out ~/backups/genosyn-\$(date +%F).tar.gz
   genosyn restore ~/backups/genosyn-2026-04-22.tar.gz
+  genosyn reset-password alice@example.com
   genosyn uninstall --purge
 
 Docs: https://genosyn.com  •  Source: https://github.com/genosyn/genosyn
@@ -779,6 +960,7 @@ main() {
     uninstall|remove)  cmd_uninstall "$@" ;;
     prune|clean)       cmd_prune     "$@" ;;
     users)             cmd_users     "$@" ;;
+    reset-password)    cmd_reset_password "$@" ;;
     self-upgrade|self-update) cmd_self_upgrade "$@" ;;
     version|--version|-v) cmd_version ;;
     help|--help|-h)    cmd_help ;;
