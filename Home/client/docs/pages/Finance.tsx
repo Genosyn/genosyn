@@ -40,9 +40,9 @@ export function Finance() {
         </LI>
         <LI>
           <Strong>Recurring invoices</Strong> — invoice templates that
-          fire on a cron schedule (monthly retainers, annual licences).
-          Each tick materializes a fresh invoice into the regular
-          invoice list.
+          fire on a repeating schedule (monthly retainers, annual
+          licences). Each run materializes a fresh invoice into the
+          regular invoice list.
         </LI>
         <LI>
           <Strong>Bills</Strong> — the AP mirror of invoices, for what
@@ -194,13 +194,13 @@ export function Finance() {
       <P>
         Open <Code>Finance → Recurring</Code> and click{" "}
         <Code>New schedule</Code> to set up a template. Pick a customer,
-        write a cron expression (or pick one of the presets — every
-        month on the 1st, every quarter, weekly on Friday, etc.), and
-        compose the line items just like a normal invoice. A
-        human-readable summary of the schedule appears below the cron
-        field so you can confirm{" "}
-        <Code>0 9 1 * *</Code> really means &quot;9am on the 1st of every
-        month&quot;.
+        choose how often it should bill — every <Strong>week</Strong>,{" "}
+        <Strong>month</Strong>, <Strong>quarter</Strong> or{" "}
+        <Strong>year</Strong>, on the day and at the time you set — and
+        compose the line items just like a normal invoice. A plain-English
+        summary (for example{" "}
+        <Code>The 1st of every month at 9:00 AM</Code>) appears beneath the
+        picker so you can confirm the cadence before saving.
       </P>
 
       <H3 id="recurring-modes">Draft vs auto-send</H3>

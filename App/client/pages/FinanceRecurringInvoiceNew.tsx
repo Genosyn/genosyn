@@ -1,6 +1,5 @@
 import React from "react";
 import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
-import cronstrue from "cronstrue";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import {
   api,
@@ -12,6 +11,19 @@ import {
   RecurringInvoiceLineDraft,
   TaxRate,
 } from "../lib/api";
+import {
+  cronToParts,
+  defaultScheduleParts,
+  describeParts,
+  Frequency,
+  MONTH_LABELS,
+  ordinal,
+  partsToCron,
+  ScheduleParts,
+  timeInputValue,
+  WEEKDAY_LABELS,
+  withTime,
+} from "../lib/schedule";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
@@ -58,24 +70,11 @@ function lineRowFromExisting(l: {
   };
 }
 
-// A short list of common cron expressions so users don't have to hand-write
-// `0 9 1 * *` to mean "9am on the 1st".
-const CRON_PRESETS: { label: string; expr: string }[] = [
-  { label: "Every month on the 1st (9am)", expr: "0 9 1 * *" },
-  { label: "Every month on the 15th (9am)", expr: "0 9 15 * *" },
-  { label: "Every Monday (9am)", expr: "0 9 * * 1" },
-  { label: "Every week on Friday (5pm)", expr: "0 17 * * 5" },
-  { label: "Every quarter (1st of Jan/Apr/Jul/Oct, 9am)", expr: "0 9 1 1,4,7,10 *" },
-  { label: "Every year (Jan 1, 9am)", expr: "0 9 1 1 *" },
-];
-
-function humanCron(expr: string): { ok: boolean; text: string } {
-  try {
-    return { ok: true, text: cronstrue.toString(expr) };
-  } catch (err) {
-    return { ok: false, text: (err as Error).message };
-  }
-}
+// Shared styling for the inline schedule controls so they read as one
+// natural sentence ("Every month on the 1st at 09:00") and match the
+// app's other form fields.
+const scheduleField =
+  "h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:focus:ring-indigo-900";
 
 /**
  * Recurring-invoice form — handles both create and edit. The lifecycle
@@ -96,7 +95,7 @@ export default function FinanceRecurringInvoiceNew() {
 
   const [customerId, setCustomerId] = React.useState("");
   const [name, setName] = React.useState("");
-  const [cronExpr, setCronExpr] = React.useState("0 9 1 * *");
+  const [schedule, setSchedule] = React.useState<ScheduleParts>(defaultScheduleParts);
   const [daysUntilDue, setDaysUntilDue] = React.useState(14);
   const [autoSend, setAutoSend] = React.useState(false);
   const [currency, setCurrency] = React.useState("USD");
@@ -124,7 +123,7 @@ export default function FinanceRecurringInvoiceNew() {
           );
           setCustomerId(existing.customerId);
           setName(existing.name);
-          setCronExpr(existing.cronExpr);
+          setSchedule(cronToParts(existing.cronExpr));
           setDaysUntilDue(existing.daysUntilDue);
           setAutoSend(existing.autoSend);
           setCurrency(existing.currency);
@@ -185,7 +184,7 @@ export default function FinanceRecurringInvoiceNew() {
     });
   }
 
-  const cronHelp = React.useMemo(() => humanCron(cronExpr), [cronExpr]);
+  const scheduleSummary = React.useMemo(() => describeParts(schedule), [schedule]);
 
   const preview = React.useMemo(() => {
     let subtotal = 0;
@@ -221,7 +220,6 @@ export default function FinanceRecurringInvoiceNew() {
   const canSave =
     !!customerId &&
     !!name.trim() &&
-    cronHelp.ok &&
     lines.some((l) => l.description.trim().length > 0);
 
   async function save(e: React.FormEvent) {
@@ -244,7 +242,7 @@ export default function FinanceRecurringInvoiceNew() {
       const body = {
         customerId,
         name: name.trim(),
-        cronExpr,
+        cronExpr: partsToCron(schedule),
         daysUntilDue,
         autoSend,
         currency,
@@ -412,40 +410,99 @@ export default function FinanceRecurringInvoiceNew() {
             ))}
           </Select>
           <div className="sm:col-span-2">
-            <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
-              Schedule (cron)
+            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+              Schedule
             </label>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <input
-                value={cronExpr}
-                onChange={(e) => setCronExpr(e.target.value)}
-                placeholder="0 9 1 * *"
-                className="h-9 flex-1 rounded-md border border-slate-200 bg-white px-2 font-mono text-sm dark:border-slate-700 dark:bg-slate-900"
-                required
-              />
-              <Select
-                value=""
-                onChange={(e) => {
-                  if (e.target.value) setCronExpr(e.target.value);
-                }}
+            <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+              <span>Every</span>
+              <select
+                value={schedule.frequency}
+                onChange={(e) =>
+                  setSchedule({ ...schedule, frequency: e.target.value as Frequency })
+                }
+                className={scheduleField}
+                aria-label="Frequency"
               >
-                <option value="">Presets…</option>
-                {CRON_PRESETS.map((p) => (
-                  <option key={p.expr} value={p.expr}>
-                    {p.label}
-                  </option>
-                ))}
-              </Select>
+                <option value="weekly">week</option>
+                <option value="monthly">month</option>
+                <option value="quarterly">quarter</option>
+                <option value="yearly">year</option>
+              </select>
+
+              {schedule.frequency === "weekly" && (
+                <>
+                  <span>on</span>
+                  <select
+                    value={schedule.weekday}
+                    onChange={(e) =>
+                      setSchedule({ ...schedule, weekday: Number(e.target.value) })
+                    }
+                    className={scheduleField}
+                    aria-label="Day of week"
+                  >
+                    {WEEKDAY_LABELS.map((w, i) => (
+                      <option key={w} value={i}>
+                        {w}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+
+              {schedule.frequency === "yearly" && (
+                <>
+                  <span>in</span>
+                  <select
+                    value={schedule.month}
+                    onChange={(e) =>
+                      setSchedule({ ...schedule, month: Number(e.target.value) })
+                    }
+                    className={scheduleField}
+                    aria-label="Month"
+                  >
+                    {MONTH_LABELS.map((mn, i) => (
+                      <option key={mn} value={i + 1}>
+                        {mn}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+
+              {schedule.frequency !== "weekly" && (
+                <>
+                  <span>on the</span>
+                  <select
+                    value={schedule.dayOfMonth}
+                    onChange={(e) =>
+                      setSchedule({ ...schedule, dayOfMonth: Number(e.target.value) })
+                    }
+                    className={scheduleField}
+                    aria-label="Day of month"
+                  >
+                    {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                      <option key={d} value={d}>
+                        {ordinal(d)}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+
+              <span>at</span>
+              <input
+                type="time"
+                value={timeInputValue(schedule)}
+                onChange={(e) => setSchedule(withTime(schedule, e.target.value))}
+                className={scheduleField}
+                aria-label="Time of day"
+              />
             </div>
-            <p
-              className={
-                "mt-1 text-xs " +
-                (cronHelp.ok
-                  ? "text-slate-500 dark:text-slate-400"
-                  : "text-red-600 dark:text-red-400")
-              }
-            >
-              {cronHelp.ok ? cronHelp.text : `Invalid cron: ${cronHelp.text}`}
+            <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+              {scheduleSummary}
+              {schedule.frequency !== "weekly" &&
+                schedule.dayOfMonth > 28 &&
+                " · the 29th–31st are skipped in shorter months"}
             </p>
           </div>
           <Input

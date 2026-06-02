@@ -1,6 +1,5 @@
 import React from "react";
 import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
-import cronstrue from "cronstrue";
 import {
   ArrowLeft,
   Ban,
@@ -18,6 +17,7 @@ import {
   RecurringInvoice,
   RecurringInvoiceStatus,
 } from "../lib/api";
+import { describeCron } from "../lib/schedule";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
@@ -30,14 +30,6 @@ const STATUS_BADGE: Record<RecurringInvoiceStatus, string> = {
   paused: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
   ended: "bg-slate-100 text-slate-600 dark:bg-slate-700/40 dark:text-slate-300",
 };
-
-function humanCron(expr: string): string {
-  try {
-    return cronstrue.toString(expr);
-  } catch {
-    return expr;
-  }
-}
 
 function formatStamp(iso: string | null): string {
   if (!iso) return "—";
@@ -212,7 +204,7 @@ export default function FinanceRecurringInvoiceDetail() {
             </div>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
               <Repeat size={12} className="mr-1 inline" />
-              {humanCron(ri.cronExpr)}
+              {describeCron(ri.cronExpr)}
               {" — billing "}
               <span className="font-medium text-slate-700 dark:text-slate-300">
                 {ri.customer?.name ?? "—"}
@@ -271,8 +263,7 @@ export default function FinanceRecurringInvoiceDetail() {
             Schedule
           </h3>
           <dl className="space-y-2 text-sm">
-            <Row label="Cron" value={ri.cronExpr} mono />
-            <Row label="Human" value={humanCron(ri.cronExpr)} />
+            <Row label="Repeats" value={describeCron(ri.cronExpr)} />
             <Row
               label="Next run"
               value={ri.status === "active" ? formatStamp(ri.nextRunAt) : "—"}
@@ -424,26 +415,13 @@ export default function FinanceRecurringInvoiceDetail() {
   );
 }
 
-function Row({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
+function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
       <dt className="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
         {label}
       </dt>
-      <dd
-        className={
-          "text-right text-sm text-slate-800 dark:text-slate-100 " +
-          (mono ? "font-mono" : "")
-        }
-      >
+      <dd className="text-right text-sm text-slate-800 dark:text-slate-100">
         {value}
       </dd>
     </div>

@@ -1,6 +1,5 @@
 import React from "react";
 import { Link, useNavigate, useOutletContext } from "react-router-dom";
-import cronstrue from "cronstrue";
 import { Plus, Repeat } from "lucide-react";
 import {
   api,
@@ -8,6 +7,7 @@ import {
   RecurringInvoiceListItem,
   RecurringInvoiceStatus,
 } from "../lib/api";
+import { describeCron } from "../lib/schedule";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
@@ -28,14 +28,6 @@ const STATUS_BADGE: Record<RecurringInvoiceStatus, string> = {
   paused: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
   ended: "bg-slate-100 text-slate-600 dark:bg-slate-700/40 dark:text-slate-300",
 };
-
-function humanCron(expr: string): string {
-  try {
-    return cronstrue.toString(expr);
-  } catch {
-    return expr;
-  }
-}
 
 function formatRelative(iso: string | null): string {
   if (!iso) return "—";
@@ -107,8 +99,9 @@ export default function FinanceRecurringInvoices() {
             Recurring invoices
           </h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Schedule an invoice template to fire on a cron — e.g. monthly
-            retainers or annual licences. Each tick creates a fresh invoice.
+            Schedule an invoice template to bill on a repeating cadence — e.g.
+            monthly retainers or annual licences. Each run creates a fresh
+            invoice.
           </p>
         </div>
         <Link to={`/c/${company.slug}/finance/recurring-invoices/new`}>
@@ -197,7 +190,7 @@ export default function FinanceRecurringInvoices() {
                     {r.customer?.name ?? "—"}
                   </td>
                   <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
-                    {humanCron(r.cronExpr)}
+                    {describeCron(r.cronExpr)}
                   </td>
                   <td className="px-4 py-3">
                     <span
