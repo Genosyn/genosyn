@@ -159,8 +159,8 @@ export function Finance() {
         additionally carry any number of <Strong>contacts</Strong>: the
         humans at that account, each with their own name, role,
         email, and phone. Mark one as the primary contact to surface
-        it first in the UI. Add, edit, or remove contacts inline from
-        the customer modal in <Code>Finance → Customers</Code>. Each
+        it first in the UI. Add, edit, or remove contacts inline on the
+        New / Edit customer page in <Code>Finance → Customers</Code>. Each
         customer also has a <Strong>slug</Strong> auto-derived from its
         name (<Code>Acme Corp</Code> → <Code>acme-corp</Code>); that slug
         is uppercased and prefixed onto every invoice and estimate number

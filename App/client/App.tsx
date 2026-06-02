@@ -70,6 +70,7 @@ import ResourceDetail from "./pages/ResourceDetail";
 import FinanceLayout from "./pages/FinanceLayout";
 import FinanceIndex from "./pages/FinanceIndex";
 import FinanceCustomers from "./pages/FinanceCustomers";
+import FinanceCustomerNew from "./pages/FinanceCustomerNew";
 import FinanceProducts from "./pages/FinanceProducts";
 import FinanceTaxRates from "./pages/FinanceTaxRates";
 import FinanceInvoices from "./pages/FinanceInvoices";
@@ -286,6 +287,11 @@ function CompanyRoutes({
         <Route path="finance" element={<FinanceLayout company={company} />}>
           <Route index element={<FinanceIndex />} />
           <Route path="customers" element={<FinanceCustomers />} />
+          <Route path="customers/new" element={<FinanceCustomerNew />} />
+          <Route
+            path="customers/:customerSlug/edit"
+            element={<FinanceCustomerNew />}
+          />
           <Route path="products" element={<FinanceProducts />} />
           <Route path="tax-rates" element={<FinanceTaxRates />} />
           <Route path="invoices" element={<FinanceInvoices />} />
