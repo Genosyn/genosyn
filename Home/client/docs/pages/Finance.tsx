@@ -85,8 +85,11 @@ export function Finance() {
         <LI>
           <Strong>Sent</Strong> — clicking <Code>Issue</Code> (or{" "}
           <Code>Issue &amp; send</Code> to email the customer) mints a
-          gapless number like <Code>EST-0001</Code> and locks the line
-          items. The URL slug becomes the lowercased number.
+          gapless number prefixed with the customer&apos;s slug — e.g.{" "}
+          <Code>ACME-CORP-EST-0001</Code> — and locks the line items, so
+          two customers&apos; first estimates never both read{" "}
+          <Code>EST-0001</Code>. The URL slug becomes the lowercased
+          number.
         </LI>
         <LI>
           <Strong>Accepted</Strong> / <Strong>Declined</Strong> — record
@@ -95,9 +98,8 @@ export function Finance() {
         </LI>
         <LI>
           <Strong>Invoiced</Strong> — once converted, the estimate keeps
-          a link to the resulting <Code>INV-####</Code>. The status
-          badge flips to <Code>invoiced</Code>; the estimate becomes
-          read-only.
+          a link to the resulting invoice. The status badge flips to{" "}
+          <Code>invoiced</Code>; the estimate becomes read-only.
         </LI>
         <LI>
           <Strong>Expired</Strong> — a synthetic status shown when{" "}
@@ -115,8 +117,8 @@ export function Finance() {
         From an accepted (or still-sent) estimate, click{" "}
         <Code>Convert to invoice</Code>. Genosyn copies every line
         verbatim, inherits the customer and currency, creates a draft
-        invoice, and immediately issues it — which mints the next{" "}
-        <Code>INV-####</Code> and posts the journal entry
+        invoice, and immediately issues it — which mints the next
+        invoice number and posts the journal entry
         (<Code>DR Accounts Receivable / CR Revenue + Tax Payable</Code>)
         into the ledger. The original estimate stays in the system with
         its <Code>invoiceId</Code> set, so you can always trace which
@@ -158,15 +160,22 @@ export function Finance() {
         humans at that account, each with their own name, role,
         email, and phone. Mark one as the primary contact to surface
         it first in the UI. Add, edit, or remove contacts inline from
-        the customer modal in <Code>Finance → Customers</Code>.
+        the customer modal in <Code>Finance → Customers</Code>. Each
+        customer also has a <Strong>slug</Strong> auto-derived from its
+        name (<Code>Acme Corp</Code> → <Code>acme-corp</Code>); that slug
+        is uppercased and prefixed onto every invoice and estimate number
+        issued to the customer, so the numbers stay unique and
+        self-identify across customers.
       </P>
 
       <H2 id="invoices">Invoices</H2>
       <P>
         The invoice flow mirrors estimates with two extras: a{" "}
-        <Code>dueDate</Code> and a payments ledger. Record cash, bank
-        transfers, Stripe charges, or other receipts directly on the
-        invoice; each payment posts a matching{" "}
+        <Code>dueDate</Code> and a payments ledger. Issuing mints the
+        same slug-prefixed gapless number estimates use — e.g.{" "}
+        <Code>ACME-CORP-INV-0001</Code>. Record cash, bank transfers,
+        Stripe charges, or other receipts directly on the invoice; each
+        payment posts a matching{" "}
         <Code>DR Bank / CR Accounts Receivable</Code> entry. Once the
         cumulative paid amount reaches the invoice total, the status
         flips from <Code>sent</Code> to <Code>paid</Code>.
@@ -199,7 +208,7 @@ export function Finance() {
         Each schedule has an <Strong>Auto-issue and email</Strong>{" "}
         toggle. Off (the default), every tick lands as a fresh draft —
         you review and click <Code>Send</Code> on each one. On, the
-        tick issues the invoice (minting an <Code>INV-####</Code> and
+        tick issues the invoice (minting its invoice number and
         posting the AR / Revenue ledger entry) and emails it to the
         customer through the company&apos;s configured EmailProvider —
         same path a human-sent invoice takes, so the email log captures

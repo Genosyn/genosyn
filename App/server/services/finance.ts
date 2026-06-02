@@ -234,10 +234,13 @@ export async function issueInvoice(
   }
   const seq = await mintNextInvoiceSeq(invoice.companyId, invoice.customerId);
   invoice.numberSeq = seq;
-  invoice.number = formatInvoiceNumber(seq);
-  // Slug includes the customer slug so two customers can both have
-  // INV-0001 without colliding on the unique (companyId, slug) index.
-  invoice.slug = `${customer.slug}-${invoice.number.toLowerCase()}`;
+  // Display number carries the customer slug as a prefix, e.g.
+  // ACME-CORP-INV-0001, so two customers' first invoices don't both
+  // read INV-0001 in the list. The URL slug is just the lowercased
+  // number — identical to the old `<customer-slug>-inv-NNNN` shape, so
+  // existing URLs stay valid and remain unique per (companyId, slug).
+  invoice.number = formatInvoiceNumber(seq, customer.slug);
+  invoice.slug = invoice.number.toLowerCase();
   invoice.status = "sent";
   invoice.sentAt = new Date();
   await AppDataSource.getRepository(Invoice).save(invoice);

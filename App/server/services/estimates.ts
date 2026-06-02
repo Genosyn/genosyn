@@ -171,10 +171,13 @@ export async function issueEstimate(
   }
   const seq = await mintNextEstimateSeq(estimate.companyId, estimate.customerId);
   estimate.numberSeq = seq;
-  estimate.number = formatEstimateNumber(seq);
-  // Slug includes the customer slug so two customers can both have
-  // EST-0001 without colliding on the unique (companyId, slug) index.
-  estimate.slug = `${customer.slug}-${estimate.number.toLowerCase()}`;
+  // Display number carries the customer slug as a prefix, e.g.
+  // ACME-CORP-EST-0001, so two customers' first estimates don't both
+  // read EST-0001 in the list. The URL slug is just the lowercased
+  // number — identical to the old `<customer-slug>-est-NNNN` shape, so
+  // existing URLs stay valid and remain unique per (companyId, slug).
+  estimate.number = formatEstimateNumber(seq, customer.slug);
+  estimate.slug = estimate.number.toLowerCase();
   estimate.status = "sent";
   estimate.sentAt = new Date();
   await AppDataSource.getRepository(Estimate).save(estimate);

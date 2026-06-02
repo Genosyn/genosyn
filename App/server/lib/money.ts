@@ -86,19 +86,24 @@ export function formatMoney(cents: number, currency: string): string {
 }
 
 /**
- * Display string for an invoice number — `INV-` prefix + zero-padded
- * sequence. Padding to 4 keeps small businesses tidy without forcing
- * 5-digit numbers on day one.
+ * Display string for an invoice number — optional per-customer prefix,
+ * `INV-` infix, zero-padded sequence. Callers pass the customer slug as
+ * the prefix and it is uppercased here, so two customers issuing their
+ * first invoice see `ACME-CORP-INV-0001` and `GLOBEX-INV-0001` rather
+ * than two identical `INV-0001`s. Padding to 4 keeps small businesses
+ * tidy without forcing 5-digit numbers on day one.
  */
-export function formatInvoiceNumber(seq: number): string {
-  return `INV-${String(seq).padStart(4, "0")}`;
+export function formatInvoiceNumber(seq: number, prefix?: string): string {
+  const p = prefix ? `${prefix.toUpperCase()}-` : "";
+  return `${p}INV-${String(seq).padStart(4, "0")}`;
 }
 
 /**
- * Display string for an estimate number — `EST-` prefix + zero-padded
- * sequence. Mirrors `formatInvoiceNumber` so the two documents look like
- * a family across the UI and the printable PDFs.
+ * Display string for an estimate number — `EST-` infix. Mirrors
+ * `formatInvoiceNumber` so the two documents look like a family across
+ * the UI and the printable PDFs.
  */
-export function formatEstimateNumber(seq: number): string {
-  return `EST-${String(seq).padStart(4, "0")}`;
+export function formatEstimateNumber(seq: number, prefix?: string): string {
+  const p = prefix ? `${prefix.toUpperCase()}-` : "";
+  return `${p}EST-${String(seq).padStart(4, "0")}`;
 }
