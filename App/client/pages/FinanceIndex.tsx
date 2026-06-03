@@ -91,7 +91,7 @@ export default function FinanceIndex() {
             Finance
           </h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Customers, invoices, and revenue at a glance.
+            Invoices, bills, and revenue at a glance.
           </p>
         </div>
         <div className="flex gap-2">

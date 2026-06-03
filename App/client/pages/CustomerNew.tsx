@@ -6,6 +6,7 @@ import {
   Customer,
   CustomerContact,
   CustomerContactDraft,
+  parseMoneyToCents,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
@@ -13,13 +14,15 @@ import { Spinner } from "../components/ui/Spinner";
 import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
 import { useToast } from "../components/ui/Toast";
-import { FinanceOutletCtx } from "./FinanceLayout";
+import { CustomersOutletCtx } from "./CustomersLayout";
+import { CustomerContractsPanel } from "./CustomerContractsPanel";
 
 /**
- * Customer create / edit page. Replaces the old inline modal so the form
- * has room to breathe and scrolls naturally with the page when contacts
- * pile up. Handles both create (no `:customerSlug` route param) and edit
- * (param present), mirroring the invoice / estimate / bill flows.
+ * Customer create / edit page. The form has room to breathe and scrolls
+ * naturally with the page when contacts pile up. Handles both create (no
+ * `:customerSlug` route param) and edit (param present), mirroring the
+ * invoice / estimate / bill flows. In edit mode it also surfaces the
+ * customer's signed contracts.
  */
 
 /**
@@ -62,22 +65,26 @@ function rowFromContact(c: CustomerContact): ContactRow {
   };
 }
 
-export default function FinanceCustomerNew() {
-  const { company } = useOutletContext<FinanceOutletCtx>();
+export default function CustomerNew() {
+  const { company } = useOutletContext<CustomersOutletCtx>();
   const navigate = useNavigate();
   const { toast } = useToast();
   const { customerSlug } = useParams();
   const isEdit = Boolean(customerSlug);
-  const customersUrl = `/c/${company.slug}/finance/customers`;
+  const customersUrl = `/c/${company.slug}/customers`;
 
   const [ready, setReady] = React.useState(!isEdit);
   const [loadError, setLoadError] = React.useState<string | null>(null);
 
+  const [customerId, setCustomerId] = React.useState<string | null>(null);
   const [name, setName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [phone, setPhone] = React.useState("");
   const [taxNumber, setTaxNumber] = React.useState("");
   const [currency, setCurrency] = React.useState("USD");
+  // Annual Contract Value kept as the raw text the user types; converted to
+  // cents on save and back to a plain amount when loading an existing row.
+  const [acv, setAcv] = React.useState("");
   const [billingAddress, setBillingAddress] = React.useState("");
   const [notes, setNotes] = React.useState("");
   const [contacts, setContacts] = React.useState<ContactRow[]>([]);
@@ -93,11 +100,17 @@ export default function FinanceCustomerNew() {
         const c = await api.get<Customer>(
           `/api/companies/${company.id}/customers/${customerSlug}`,
         );
+        setCustomerId(c.id);
         setName(c.name);
         setEmail(c.email);
         setPhone(c.phone);
         setTaxNumber(c.taxNumber);
         setCurrency(c.currency || "USD");
+        setAcv(
+          c.annualContractValueCents > 0
+            ? (c.annualContractValueCents / 100).toFixed(2)
+            : "",
+        );
         setBillingAddress(c.billingAddress);
         setNotes(c.notes);
         setContacts(c.contacts.map(rowFromContact));
@@ -145,6 +158,7 @@ export default function FinanceCustomerNew() {
         phone: phone.trim(),
         taxNumber: taxNumber.trim(),
         currency: currency.trim().toUpperCase(),
+        annualContractValueCents: parseMoneyToCents(acv),
         billingAddress,
         notes,
       };
@@ -223,7 +237,6 @@ export default function FinanceCustomerNew() {
       <div className="mx-auto max-w-3xl p-8">
         <Breadcrumbs
           items={[
-            { label: "Finance", to: `/c/${company.slug}/finance` },
             { label: "Customers", to: customersUrl },
             { label: "Edit" },
           ]}
@@ -245,7 +258,6 @@ export default function FinanceCustomerNew() {
       <div className="mb-6">
         <Breadcrumbs
           items={[
-            { label: "Finance", to: `/c/${company.slug}/finance` },
             { label: "Customers", to: customersUrl },
             { label: isEdit ? "Edit" : "New" },
           ]}
@@ -312,6 +324,13 @@ export default function FinanceCustomerNew() {
             onChange={(e) => setCurrency(e.target.value)}
             maxLength={3}
             placeholder="USD"
+          />
+          <Input
+            label={`Annual contract value (${currency || "USD"})`}
+            value={acv}
+            onChange={(e) => setAcv(e.target.value)}
+            inputMode="decimal"
+            placeholder="0.00"
           />
           <div className="sm:col-span-2">
             <Textarea
@@ -421,6 +440,16 @@ export default function FinanceCustomerNew() {
           )}
         </div>
       </div>
+
+      {isEdit && customerId && (
+        <div className="mt-6">
+          <CustomerContractsPanel
+            company={company}
+            customerId={customerId}
+            customerName={name}
+          />
+        </div>
+      )}
     </form>
   );
 }

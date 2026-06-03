@@ -301,7 +301,7 @@ export default function FinanceInvoiceNew() {
             Invoices need a customer to bill.
           </p>
           <div className="mt-4">
-            <Link to={`/c/${company.slug}/finance/customers`}>
+            <Link to={`/c/${company.slug}/customers`}>
               <Button>Add customer</Button>
             </Link>
           </div>

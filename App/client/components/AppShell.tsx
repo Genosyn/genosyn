@@ -4,6 +4,7 @@ import {
   BarChart3,
   ChevronDown,
   ChevronRight,
+  Contact2,
   GitBranch,
   Library,
   type LucideIcon,
@@ -84,6 +85,7 @@ type SectionKey =
   | "notes"
   | "resources"
   | "explore"
+  | "customers"
   | "finance"
   | "pipelines"
   | "approvals"
@@ -193,9 +195,18 @@ const SECTION_GROUPS: SectionGroup[] = [
     label: "Money",
     items: [
       {
+        key: "customers",
+        label: "Customers",
+        description: "Accounts and signed contracts.",
+        icon: Contact2,
+        path: "/customers",
+        iconBg:
+          "bg-pink-100 text-pink-600 dark:bg-pink-500/15 dark:text-pink-300",
+      },
+      {
         key: "finance",
         label: "Finance",
-        description: "Customers, invoices, and revenue.",
+        description: "Invoices, bills, and revenue.",
         icon: Wallet,
         path: "/finance",
         iconBg:
@@ -396,6 +407,7 @@ function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/notes(\/|$)/.test(pathname)) return "notes";
   if (/\/c\/[^/]+\/resources(\/|$)/.test(pathname)) return "resources";
   if (/\/c\/[^/]+\/explore(\/|$)/.test(pathname)) return "explore";
+  if (/\/c\/[^/]+\/customers(\/|$)/.test(pathname)) return "customers";
   if (/\/c\/[^/]+\/finance(\/|$)/.test(pathname)) return "finance";
   if (/\/c\/[^/]+\/pipelines(\/|$)/.test(pathname)) return "pipelines";
   if (/\/c\/[^/]+\/approvals(\/|$)/.test(pathname)) return "approvals";

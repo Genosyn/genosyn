@@ -43,6 +43,7 @@ export const DOCS_NAV: DocsSection[] = [
   {
     label: "Operations",
     pages: [
+      { path: "/docs/customers", title: "Customers", blurb: "Accounts, contacts, annual contract value, and signed contracts." },
       { path: "/docs/finance", title: "Finance", blurb: "Estimates, invoices, bills, ledger, and reports — native double-entry accounting." },
     ],
   },

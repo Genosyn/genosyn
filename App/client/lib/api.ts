@@ -92,10 +92,19 @@ export const api = {
   patch: <T>(url: string, body?: unknown) => request<T>("PATCH", url, body),
   del: <T>(url: string) => request<T>("DELETE", url),
   stream: streamPost,
-  /** Multipart upload of a single file under field name `file`. */
-  uploadFile: async <T>(url: string, file: File): Promise<T> => {
+  /** Multipart upload of a single file under field name `file`, with
+   *  optional extra text fields appended to the same form (e.g. a title or
+   *  customer id alongside a contract). */
+  uploadFile: async <T>(
+    url: string,
+    file: File,
+    fields?: Record<string, string>,
+  ): Promise<T> => {
     const form = new FormData();
     form.append("file", file);
+    if (fields) {
+      for (const [k, v] of Object.entries(fields)) form.append(k, v);
+    }
     const res = await fetch(url, {
       method: "POST",
       credentials: "same-origin",
@@ -1341,6 +1350,8 @@ export type Customer = {
   shippingAddress: string;
   taxNumber: string;
   currency: string;
+  /** Annual Contract Value in minor units of `currency`. 0 means unset. */
+  annualContractValueCents: number;
   notes: string;
   archivedAt: string | null;
   createdById: string | null;
@@ -1349,6 +1360,25 @@ export type Customer = {
   /** Additional people at this account. Populated by GET /customers and
    *  GET /customers/:slug; empty array when none have been added. */
   contacts: CustomerContact[];
+};
+
+/** A signed agreement uploaded against a customer (the Customers section).
+ *  `customer` is a lightweight stub the list endpoint attaches; null when the
+ *  contract isn't linked to an account. */
+export type CustomerContract = {
+  id: string;
+  companyId: string;
+  customerId: string | null;
+  title: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  signedAt: string | null;
+  notes: string;
+  uploadedByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  customer: { id: string; name: string; slug: string } | null;
 };
 
 export type Product = {

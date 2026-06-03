@@ -230,6 +230,10 @@ const customerWriteSchema = z.object({
   shippingAddress: z.string().max(2000).optional(),
   taxNumber: z.string().max(60).optional(),
   currency: currencySchema.optional(),
+  /** Annual Contract Value in minor units of `currency`. Capped at
+   *  2_000_000_000 ($20M) to stay within a 32-bit int on Postgres, matching
+   *  the line-item money columns. */
+  annualContractValueCents: z.number().int().min(0).max(2_000_000_000).optional(),
   notes: z.string().max(2000).optional(),
   /** Optional inline contacts so the create flow can land a customer
    *  plus several people in one round-trip. */
@@ -254,6 +258,7 @@ financeRouter.post(
       shippingAddress: body.shippingAddress ?? "",
       taxNumber: body.taxNumber ?? "",
       currency: body.currency ?? "USD",
+      annualContractValueCents: body.annualContractValueCents ?? 0,
       notes: body.notes ?? "",
       createdById: req.userId ?? null,
     });
@@ -315,6 +320,9 @@ financeRouter.patch(
     if (body.shippingAddress !== undefined) c.shippingAddress = body.shippingAddress;
     if (body.taxNumber !== undefined) c.taxNumber = body.taxNumber;
     if (body.currency !== undefined) c.currency = body.currency;
+    if (body.annualContractValueCents !== undefined) {
+      c.annualContractValueCents = body.annualContractValueCents;
+    }
     if (body.notes !== undefined) c.notes = body.notes;
     if (body.archived !== undefined) {
       c.archivedAt = body.archived ? new Date() : null;

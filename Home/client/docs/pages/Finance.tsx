@@ -49,10 +49,10 @@ export function Finance() {
           your company owes vendors.
         </LI>
         <LI>
-          <Strong>Customers</Strong> and <Strong>Vendors</Strong> —
-          counterparties for sales and purchases, each with billing
-          details, tax IDs, a default currency, and any number of
-          named <Strong>contacts</Strong> (people at that account).
+          <Strong>Vendors</Strong> — the counterparties you purchase from,
+          each with billing details, a tax ID, and a default currency.
+          (<Strong>Customers</Strong> now live in their own{" "}
+          <DocLink to="/docs/customers">Customers</DocLink> section.)
         </LI>
         <LI>
           <Strong>Catalog</Strong> — reusable <Code>Products</Code> and{" "}
@@ -151,21 +151,16 @@ export function Finance() {
         company has configured.
       </P>
 
-      <H2 id="customers">Customers and contacts</H2>
+      <H2 id="customers">Customers</H2>
       <P>
-        A <Strong>Customer</Strong> is the billable account — the
-        company name, primary billing email, tax ID, default currency,
-        and address that appear on every invoice. Each customer can
-        additionally carry any number of <Strong>contacts</Strong>: the
-        humans at that account, each with their own name, role,
-        email, and phone. Mark one as the primary contact to surface
-        it first in the UI. Add, edit, or remove contacts inline on the
-        New / Edit customer page in <Code>Finance → Customers</Code>. Each
-        customer also has a <Strong>slug</Strong> auto-derived from its
-        name (<Code>Acme Corp</Code> → <Code>acme-corp</Code>); that slug
-        is uppercased and prefixed onto every invoice and estimate number
-        issued to the customer, so the numbers stay unique and
-        self-identify across customers.
+        Customers — the billable accounts you invoice — now live in their
+        own top-level <DocLink to="/docs/customers">Customers</DocLink>{" "}
+        section, alongside the people at each account and the signed
+        contracts you hold with them. One detail stays relevant here: each
+        customer&apos;s <Strong>slug</Strong> (auto-derived from its name,
+        e.g. <Code>Acme Corp</Code> → <Code>acme-corp</Code>) is uppercased
+        and prefixed onto every invoice and estimate number issued to that
+        customer, so numbers stay unique and self-identify across accounts.
       </P>
 
       <H2 id="invoices">Invoices</H2>

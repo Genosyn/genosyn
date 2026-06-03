@@ -59,6 +59,14 @@ export class Customer {
   @Column({ type: "varchar", default: "USD" })
   currency!: string;
 
+  /** Annual Contract Value, in minor units (cents) of the customer's
+   *  `currency`. A sales/account metric — the expected yearly revenue from
+   *  this account — kept independent of issued invoices. Stored as an
+   *  integer like every other money column; capped at 2_000_000_000 by the
+   *  write schema to stay within a 32-bit `int` on Postgres. 0 means unset. */
+  @Column({ type: "int", default: 0 })
+  annualContractValueCents!: number;
+
   @Column({ type: "text", default: "" })
   notes!: string;
 

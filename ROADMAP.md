@@ -539,6 +539,15 @@ Phased so each phase ships behind its own PR:
   optional `maxRuns` and `endsOn` caps flip to ended automatically.
   Sidebar entry under Finance, dedicated list / new / detail pages
   with cron presets + human-readable schedule preview.
+- [x] **Customers spun out — accounts, ACV + contracts.** Customers
+  graduated from a Finance sub-page to their own top-level
+  **Customers** section (Customers + Contracts sub-nav; old
+  `/finance/customers` URLs redirect). Added an **Annual Contract
+  Value** money column on `Customer` (`annualContractValueCents`,
+  shown in the customer list) and a new `CustomerContract` entity for
+  uploaded signed agreements — a global Contracts page plus a
+  per-customer panel, with bytes on disk under `customer-contracts/`
+  like other attachments and metadata-only rows in the DB.
 
 MCP surface (added phase by phase): `list_invoices`, `get_invoice`,
 `create_invoice`, `send_invoice`, `record_payment`, `void_invoice`,

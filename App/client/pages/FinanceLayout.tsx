@@ -17,7 +17,6 @@ import {
   Package,
   Percent,
   Repeat,
-  Users,
   Wallet,
 } from "lucide-react";
 import { Company } from "../lib/api";
@@ -62,11 +61,6 @@ export default function FinanceLayout({ company }: { company: Company }) {
           to={`${base}/recurring-invoices`}
           icon={<Repeat size={14} />}
           label="Recurring"
-        />
-        <SidebarLink
-          to={`${base}/customers`}
-          icon={<Users size={14} />}
-          label="Customers"
         />
         <SidebarLink
           to={`${base}/bills`}

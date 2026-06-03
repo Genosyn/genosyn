@@ -67,10 +67,13 @@ import NotebookDetail from "./pages/NotebookDetail";
 import NoteDetail from "./pages/NoteDetail";
 import ResourcesIndex from "./pages/ResourcesIndex";
 import ResourceDetail from "./pages/ResourceDetail";
+import CustomersLayout from "./pages/CustomersLayout";
+import CustomersIndex from "./pages/CustomersIndex";
+import CustomerNew from "./pages/CustomerNew";
+import CustomerDetail from "./pages/CustomerDetail";
+import ContractsIndex from "./pages/ContractsIndex";
 import FinanceLayout from "./pages/FinanceLayout";
 import FinanceIndex from "./pages/FinanceIndex";
-import FinanceCustomers from "./pages/FinanceCustomers";
-import FinanceCustomerNew from "./pages/FinanceCustomerNew";
 import FinanceProducts from "./pages/FinanceProducts";
 import FinanceTaxRates from "./pages/FinanceTaxRates";
 import FinanceInvoices from "./pages/FinanceInvoices";
@@ -281,17 +284,22 @@ function CompanyRoutes({
           element={<ResourceDetail company={company} />}
         />
 
-        {/* Finance (M19 Phase A) — Customers, Products, Tax rates, Invoices.
-            Native invoicing with browser-print to PDF and email send via
-            the company's EmailProvider. */}
+        {/* Customers — standalone section (moved out of Finance). Customer
+            accounts, plus the signed contracts uploaded against them. */}
+        <Route path="customers" element={<CustomersLayout company={company} />}>
+          <Route index element={<CustomersIndex />} />
+          <Route path="new" element={<CustomerNew />} />
+          <Route path="contracts" element={<ContractsIndex />} />
+          <Route path=":customerSlug" element={<CustomerDetail />} />
+          <Route path=":customerSlug/edit" element={<CustomerNew />} />
+        </Route>
+
+        {/* Finance (M19 Phase A) — Products, Tax rates, Invoices, Bills,
+            ledger. Native invoicing with browser-print to PDF and email send
+            via the company's EmailProvider. Customers moved to their own
+            section above. */}
         <Route path="finance" element={<FinanceLayout company={company} />}>
           <Route index element={<FinanceIndex />} />
-          <Route path="customers" element={<FinanceCustomers />} />
-          <Route path="customers/new" element={<FinanceCustomerNew />} />
-          <Route
-            path="customers/:customerSlug/edit"
-            element={<FinanceCustomerNew />}
-          />
           <Route path="products" element={<FinanceProducts />} />
           <Route path="tax-rates" element={<FinanceTaxRates />} />
           <Route path="invoices" element={<FinanceInvoices />} />
@@ -389,6 +397,20 @@ function CompanyRoutes({
           <Route path="audit" element={<AuditLog />} />
         </Route>
 
+        {/* Legacy redirects: Customers used to live under Finance. */}
+        <Route
+          path="finance/customers"
+          element={<Navigate to={`/c/${company.slug}/customers`} replace />}
+        />
+        <Route
+          path="finance/customers/new"
+          element={<Navigate to={`/c/${company.slug}/customers/new`} replace />}
+        />
+        <Route
+          path="finance/customers/:customerSlug/edit"
+          element={<CustomerEditRedirect companySlug={company.slug} />}
+        />
+
         {/* Legacy redirects: Usage / Audit used to live at the top level. */}
         <Route
           path="usage"
@@ -403,5 +425,14 @@ function CompanyRoutes({
       </Routes>
       </ChatSessionsProvider>
     </AppShell>
+  );
+}
+
+/** Redirect the old `/finance/customers/:slug/edit` URL to its new home in
+ *  the standalone Customers section, preserving the slug. */
+function CustomerEditRedirect({ companySlug }: { companySlug: string }) {
+  const { customerSlug } = useParams();
+  return (
+    <Navigate to={`/c/${companySlug}/customers/${customerSlug}/edit`} replace />
   );
 }

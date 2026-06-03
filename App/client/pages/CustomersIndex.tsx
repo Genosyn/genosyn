@@ -1,5 +1,5 @@
 import React from "react";
-import { useNavigate, useOutletContext } from "react-router-dom";
+import { Link, useNavigate, useOutletContext } from "react-router-dom";
 import {
   Archive,
   ArchiveRestore,
@@ -10,23 +10,23 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
-import { api, Customer } from "../lib/api";
+import { api, Customer, formatMoney } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
-import { FinanceOutletCtx } from "./FinanceLayout";
+import { CustomersOutletCtx } from "./CustomersLayout";
 
 /**
- * Customers list for Phase A of the Finance milestone (M19). Creating and
- * editing happen on a dedicated `customers/new` / `customers/:slug/edit`
- * page (not a modal) — Phase A customers are billing-only, no per-customer
- * history view yet. Phase B adds the AR-aging detail page.
+ * Customers list — the landing page of the standalone Customers section.
+ * Creating and editing happen on a dedicated `customers/new` /
+ * `customers/:slug/edit` page (not a modal) so the form has room for
+ * contacts and contracts.
  */
-export default function FinanceCustomers() {
-  const { company } = useOutletContext<FinanceOutletCtx>();
+export default function CustomersIndex() {
+  const { company } = useOutletContext<CustomersOutletCtx>();
   const navigate = useNavigate();
   const { toast } = useToast();
   const dialog = useDialog();
@@ -70,7 +70,7 @@ export default function FinanceCustomers() {
   return (
     <div className="mx-auto max-w-5xl p-8">
       <div className="mb-6">
-        <Breadcrumbs items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Customers" }]} />
+        <Breadcrumbs items={[{ label: "Customers" }]} />
       </div>
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
@@ -86,7 +86,7 @@ export default function FinanceCustomers() {
             />
             Show archived
           </label>
-          <Button onClick={() => navigate(`/c/${company.slug}/finance/customers/new`)}>
+          <Button onClick={() => navigate(`/c/${company.slug}/customers/new`)}>
             <Plus size={14} /> New customer
           </Button>
         </div>
@@ -105,19 +105,23 @@ export default function FinanceCustomers() {
             Add the first customer you bill so you can issue an invoice.
           </p>
           <div className="mt-4">
-            <Button onClick={() => navigate(`/c/${company.slug}/finance/customers/new`)}>
+            <Button onClick={() => navigate(`/c/${company.slug}/customers/new`)}>
               <Plus size={14} /> New customer
             </Button>
           </div>
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
               <tr>
                 <th className="px-4 py-2 text-left font-medium">Name</th>
                 <th className="px-4 py-2 text-left font-medium">Email</th>
                 <th className="px-4 py-2 text-left font-medium">Contacts</th>
+                <th className="px-4 py-2 text-right font-medium">
+                  Annual contract value
+                </th>
                 <th className="px-4 py-2 text-left font-medium">Currency</th>
                 <th className="px-4 py-2 text-right font-medium">&nbsp;</th>
               </tr>
@@ -126,9 +130,12 @@ export default function FinanceCustomers() {
               {customers.map((c) => (
                 <tr key={c.id} className={c.archivedAt ? "opacity-60" : ""}>
                   <td className="px-4 py-3">
-                    <div className="font-medium text-slate-900 dark:text-slate-100">
+                    <Link
+                      to={`/c/${company.slug}/customers/${c.slug}`}
+                      className="font-medium text-slate-900 hover:text-indigo-600 hover:underline dark:text-slate-100 dark:hover:text-indigo-400"
+                    >
                       {c.name}
-                    </div>
+                    </Link>
                     {c.taxNumber && (
                       <div className="text-xs text-slate-500 dark:text-slate-400">
                         Tax #: {c.taxNumber}
@@ -153,6 +160,13 @@ export default function FinanceCustomers() {
                       <span className="text-slate-400">—</span>
                     )}
                   </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-slate-700 dark:text-slate-200">
+                    {c.annualContractValueCents > 0 ? (
+                      formatMoney(c.annualContractValueCents, c.currency)
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">
                     {c.currency}
                   </td>
@@ -160,7 +174,7 @@ export default function FinanceCustomers() {
                     <RowMenu
                       onEdit={() =>
                         navigate(
-                          `/c/${company.slug}/finance/customers/${c.slug}/edit`,
+                          `/c/${company.slug}/customers/${c.slug}/edit`,
                         )
                       }
                       onArchive={() => archive(c)}
@@ -172,6 +186,7 @@ export default function FinanceCustomers() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>
