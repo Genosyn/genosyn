@@ -15,6 +15,15 @@ import type { EmailProviderKind } from "../db/entities/EmailProvider.js";
  *      the connect form.
  */
 
+export type EmailAttachment = {
+  /** Display filename, e.g. "INV-0001.pdf". */
+  filename: string;
+  /** Raw file bytes. */
+  content: Buffer;
+  /** MIME type, e.g. "application/pdf". */
+  contentType: string;
+};
+
 export type EmailMessage = {
   to: string;
   subject: string;
@@ -22,6 +31,8 @@ export type EmailMessage = {
   html?: string;
   fromAddress: string;
   replyTo?: string;
+  /** Optional file attachments (e.g. an invoice / estimate PDF). */
+  attachments?: EmailAttachment[];
 };
 
 export type EmailSendResult = {
@@ -365,6 +376,11 @@ async function sendSmtp(
     text: msg.text,
     html: msg.html,
     replyTo: msg.replyTo || undefined,
+    attachments: msg.attachments?.map((a) => ({
+      filename: a.filename,
+      content: a.content,
+      contentType: a.contentType,
+    })),
   });
   return { messageId: info.messageId ?? "" };
 }
@@ -374,7 +390,7 @@ async function sendSendGrid(
   msg: EmailMessage,
 ): Promise<EmailSendResult> {
   const { name, email } = parseAddress(msg.fromAddress);
-  const body = {
+  const body: Record<string, unknown> = {
     personalizations: [{ to: [{ email: msg.to }] }],
     from: name ? { email, name } : { email },
     reply_to: msg.replyTo ? { email: parseAddress(msg.replyTo).email } : undefined,
@@ -384,6 +400,14 @@ async function sendSendGrid(
       ...(msg.html ? [{ type: "text/html", value: msg.html }] : []),
     ],
   };
+  if (msg.attachments && msg.attachments.length > 0) {
+    body["attachments"] = msg.attachments.map((a) => ({
+      content: a.content.toString("base64"),
+      filename: a.filename,
+      type: a.contentType,
+      disposition: "attachment",
+    }));
+  }
   const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
     method: "POST",
     headers: {
@@ -410,22 +434,48 @@ async function sendMailgun(
       ? "https://api.eu.mailgun.net/v3"
       : "https://api.mailgun.net/v3";
   const url = `${base}/${encodeURIComponent(cfg.domain)}/messages`;
-  const form = new URLSearchParams();
-  form.set("from", msg.fromAddress);
-  form.set("to", msg.to);
-  form.set("subject", msg.subject);
-  form.set("text", msg.text);
-  if (msg.html) form.set("html", msg.html);
-  if (msg.replyTo) form.set("h:Reply-To", msg.replyTo);
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization:
-        "Basic " + Buffer.from(`api:${cfg.apiKey}`).toString("base64"),
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: form.toString(),
-  });
+  const auth = "Basic " + Buffer.from(`api:${cfg.apiKey}`).toString("base64");
+  // Attachments require multipart/form-data; without them we keep the
+  // lighter urlencoded body. In the multipart branch we let fetch derive
+  // the Content-Type header (with its boundary) from the FormData instance.
+  let res: Awaited<ReturnType<typeof fetch>>;
+  if (msg.attachments && msg.attachments.length > 0) {
+    const form = new FormData();
+    form.append("from", msg.fromAddress);
+    form.append("to", msg.to);
+    form.append("subject", msg.subject);
+    form.append("text", msg.text);
+    if (msg.html) form.append("html", msg.html);
+    if (msg.replyTo) form.append("h:Reply-To", msg.replyTo);
+    for (const a of msg.attachments) {
+      form.append(
+        "attachment",
+        new Blob([new Uint8Array(a.content)], { type: a.contentType }),
+        a.filename,
+      );
+    }
+    res = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: auth },
+      body: form,
+    });
+  } else {
+    const form = new URLSearchParams();
+    form.set("from", msg.fromAddress);
+    form.set("to", msg.to);
+    form.set("subject", msg.subject);
+    form.set("text", msg.text);
+    if (msg.html) form.set("html", msg.html);
+    if (msg.replyTo) form.set("h:Reply-To", msg.replyTo);
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: auth,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: form.toString(),
+    });
+  }
   const text = await res.text();
   if (!res.ok) {
     let msgText = text || res.statusText;
@@ -459,6 +509,12 @@ async function sendResend(
   };
   if (msg.html) body["html"] = msg.html;
   if (msg.replyTo) body["reply_to"] = msg.replyTo;
+  if (msg.attachments && msg.attachments.length > 0) {
+    body["attachments"] = msg.attachments.map((a) => ({
+      filename: a.filename,
+      content: a.content.toString("base64"),
+    }));
+  }
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -504,6 +560,13 @@ async function sendPostmark(
   };
   if (msg.html) body["HtmlBody"] = msg.html;
   if (msg.replyTo) body["ReplyTo"] = msg.replyTo;
+  if (msg.attachments && msg.attachments.length > 0) {
+    body["Attachments"] = msg.attachments.map((a) => ({
+      Name: a.filename,
+      Content: a.content.toString("base64"),
+      ContentType: a.contentType,
+    }));
+  }
   const res = await fetch("https://api.postmarkapp.com/email", {
     method: "POST",
     headers: {

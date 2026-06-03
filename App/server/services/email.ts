@@ -12,11 +12,14 @@ import {
 } from "../db/entities/EmailProvider.js";
 import { decryptSecret } from "../lib/secret.js";
 import {
+  EmailAttachment,
   EmailMessage,
   EmailProviderConfig,
   sendViaProvider,
   validateProviderConfig,
 } from "./emailTransports.js";
+
+export type { EmailAttachment } from "./emailTransports.js";
 
 /**
  * Public email API used everywhere outside the email-providers settings
@@ -58,6 +61,8 @@ export type SendEmailOptions = {
   subject: string;
   text: string;
   html?: string;
+  /** Optional file attachments (e.g. an invoice / estimate PDF). */
+  attachments?: EmailAttachment[];
   /** Pick a company-default provider when set. Otherwise falls back to
    *  config.ts SMTP, then console. */
   companyId?: string | null;
@@ -92,6 +97,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult
       html: opts.html,
       fromAddress: provider.fromAddress,
       replyTo: provider.replyTo || undefined,
+      attachments: opts.attachments,
     };
     try {
       const result = await sendViaProvider(cfg, msg);
@@ -151,6 +157,11 @@ export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult
         subject: opts.subject,
         text: opts.text,
         html: opts.html,
+        attachments: opts.attachments?.map((a) => ({
+          filename: a.filename,
+          content: a.content,
+          contentType: a.contentType,
+        })),
       });
       const messageId = info.messageId ?? "";
       const log = await writeLog({
@@ -202,9 +213,13 @@ export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult
 
   // No transport configured — log to console so a developer can copy
   // reset / invite links by hand, and persist a "skipped" log row.
+  const attachmentNote =
+    opts.attachments && opts.attachments.length > 0
+      ? ` attachments=[${opts.attachments.map((a) => a.filename).join(", ")}]`
+      : "";
   // eslint-disable-next-line no-console
   console.log(
-    `[email:skipped] to=${opts.to} subject="${opts.subject}"\n---\n${opts.text}\n---`,
+    `[email:skipped] to=${opts.to} subject="${opts.subject}"${attachmentNote}\n---\n${opts.text}\n---`,
   );
   const log = await writeLog({
     companyId: opts.companyId ?? null,

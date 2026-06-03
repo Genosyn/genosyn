@@ -12,6 +12,7 @@ import {
   formatMoney,
 } from "../lib/money.js";
 import { sendEmail } from "./email.js";
+import { renderPdfAttachment } from "./htmlToPdf.js";
 import { renderInvoiceHtml } from "./invoiceHtml.js";
 import { Company } from "../db/entities/Company.js";
 import {
@@ -696,11 +697,22 @@ export async function sendInvoiceEmail(
     defaultFromBlock: settings.defaultFromBlock,
     defaultFooter: settings.defaultFooter,
   });
+  // Attach a PDF copy so the customer gets a portable, printable document
+  // rather than only the inline HTML body. If Chromium isn't available we
+  // log and send without the attachment — the HTML body still carries the
+  // full invoice, so a render hiccup never blocks the send.
+  const attachments = await renderPdfAttachment(
+    html,
+    `${invoice.number || "invoice"}.pdf`,
+    "invoice",
+  );
   const text =
     `Invoice ${invoice.number || "(draft)"} from your supplier — ` +
     `${formatMoney(invoice.balanceCents, invoice.currency)} due ` +
     `${invoice.dueDate.toISOString().slice(0, 10)}.\n\n` +
-    `Open the attached HTML invoice in your browser to print or save as PDF.`;
+    (attachments
+      ? `The invoice is attached as a PDF.`
+      : `Open the invoice HTML in your browser to print or save as PDF.`);
   const subject = `Invoice ${invoice.number || "(draft)"} — ${formatMoney(
     invoice.totalCents,
     invoice.currency,
@@ -710,6 +722,7 @@ export async function sendInvoiceEmail(
     subject,
     text,
     html,
+    attachments,
     companyId,
     purpose: "other",
     triggeredByUserId,

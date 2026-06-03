@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import type { EmailAttachment } from "./emailTransports.js";
 
 /**
  * One-shot HTML → PDF rendering via Playwright's Chromium. Used to give
@@ -99,5 +100,31 @@ export async function htmlToPdf(
     }
   } finally {
     await browser.close();
+  }
+}
+
+/**
+ * Render `html` to a PDF and wrap it as a single email attachment. Returns
+ * `undefined` (never throws) when PDF rendering is unavailable — e.g.
+ * Chromium is missing on the host — so callers can still send the email
+ * without it instead of failing the whole send. `context` only labels the
+ * warning log (e.g. "invoice", "estimate").
+ */
+export async function renderPdfAttachment(
+  html: string,
+  filename: string,
+  context: string,
+): Promise<EmailAttachment[] | undefined> {
+  try {
+    const pdf = await htmlToPdf(html);
+    return [{ filename, content: pdf, contentType: "application/pdf" }];
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[pdf] ${context} render failed; sending without attachment: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    return undefined;
   }
 }

@@ -13,6 +13,7 @@ import {
 } from "../lib/money.js";
 import { sendEmail } from "./email.js";
 import { renderEstimateHtmlForCompany } from "./estimateHtml.js";
+import { renderPdfAttachment } from "./htmlToPdf.js";
 import { issueInvoice, type LineDraft } from "./finance.js";
 
 /**
@@ -526,11 +527,21 @@ export async function sendEstimateEmail(
     customer,
     lines,
   );
+  // Attach a PDF copy so the customer gets a portable, printable document
+  // rather than only the inline HTML body. Falls back to no attachment if
+  // Chromium isn't available — the HTML body still carries the full estimate.
+  const attachments = await renderPdfAttachment(
+    html,
+    `${estimate.number || "estimate"}.pdf`,
+    "estimate",
+  );
   const text =
     `Estimate ${estimate.number || "(draft)"} — total ` +
     `${formatMoney(estimate.totalCents, estimate.currency)} valid until ` +
     `${estimate.validUntil.toISOString().slice(0, 10)}.\n\n` +
-    `Open the attached HTML estimate in your browser to print or save as PDF.`;
+    (attachments
+      ? `The estimate is attached as a PDF.`
+      : `Open the estimate HTML in your browser to print or save as PDF.`);
   const subject = `Estimate ${estimate.number || "(draft)"} — ${formatMoney(
     estimate.totalCents,
     estimate.currency,
@@ -540,6 +551,7 @@ export async function sendEstimateEmail(
     subject,
     text,
     html,
+    attachments,
     companyId,
     purpose: "other",
     triggeredByUserId,

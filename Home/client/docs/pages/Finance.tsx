@@ -146,7 +146,9 @@ export function Finance() {
         <em>File → Save as PDF</em> in your browser produces a clean
         A4 PDF with no app chrome. The same HTML is what the customer
         sees when you click <Code>Issue &amp; send</Code> or{" "}
-        <Code>Resend email</Code>, delivered through whichever{" "}
+        <Code>Resend email</Code>, and that email now carries a PDF
+        copy of the estimate as an attachment — delivered through
+        whichever{" "}
         <DocLink to="/docs/integrations">EmailProvider</DocLink> the
         company has configured.
       </P>
@@ -173,7 +175,9 @@ export function Finance() {
         payment posts a matching{" "}
         <Code>DR Bank / CR Accounts Receivable</Code> entry. Once the
         cumulative paid amount reaches the invoice total, the status
-        flips from <Code>sent</Code> to <Code>paid</Code>.
+        flips from <Code>sent</Code> to <Code>paid</Code>. Sending or
+        resending an invoice emails the customer the rendered document
+        with a PDF copy attached, exactly as estimates do.
       </P>
       <P>
         <Code>Duplicate</Code> works the same way as on estimates —
