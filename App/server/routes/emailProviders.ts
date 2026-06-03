@@ -4,7 +4,7 @@ import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
 import { decryptProviderConfig, sendTestEmail } from "../services/email.js";
-import { PROVIDER_CATALOG } from "../services/emailTransports.js";
+import { buildProviderCatalog } from "../services/emailTransports.js";
 import {
   createProvider,
   deleteProvider,
@@ -39,7 +39,7 @@ const KIND_VALUES = ["smtp", "sendgrid", "mailgun", "resend", "postmark"] as con
 const kindSchema = z.enum(KIND_VALUES);
 
 emailProvidersRouter.get("/catalog", (_req, res) => {
-  res.json(PROVIDER_CATALOG);
+  res.json(buildProviderCatalog());
 });
 
 emailProvidersRouter.get("/", async (req, res) => {

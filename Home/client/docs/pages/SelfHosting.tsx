@@ -126,8 +126,11 @@ export function SelfHosting() {
         If no per-company provider is configured, sends fall back to the
         global SMTP block in <Code>config.ts</Code>. If that&apos;s blank too,
         sends fall back to logging to the server console — useful for local
-        dev. Every send appends an <Code>EmailLog</Code> row you can read at{" "}
-        <Code>Settings → Email Logs</Code>.
+        dev. When that global SMTP block is filled in, adding a company SMTP
+        provider at <Code>Settings → Email</Code> pre-fills the host, port,
+        encryption, username, and from-address from it — you only enter the
+        password. Every send appends an <Code>EmailLog</Code> row you can read
+        at <Code>Settings → Email Logs</Code>.
       </P>
 
       <H2 id="secrets">Secrets</H2>

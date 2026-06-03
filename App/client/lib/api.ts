@@ -630,6 +630,12 @@ export type EmailProviderCatalogEntry = {
   description: string;
   icon: string;
   fields: EmailProviderField[];
+  /** Non-secret prefill for the connect form (new providers only) — e.g.
+   *  the SMTP entry seeded from the global config.ts SMTP block. */
+  prefill?: {
+    from?: string;
+    fields?: Record<string, string | number | boolean>;
+  };
 };
 
 export type EmailProviderTestStatus = "ok" | "failed";

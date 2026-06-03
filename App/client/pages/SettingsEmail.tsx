@@ -706,9 +706,19 @@ function initialState(
       enabled: existing.enabled,
     };
   }
+  // New provider — overlay any server-supplied non-secret prefill (e.g. the
+  // SMTP form seeded from the global config.ts SMTP block). Secrets are
+  // never prefilled, so the password stays blank for the user to enter.
+  if (entry.prefill?.fields) {
+    for (const [key, value] of Object.entries(entry.prefill.fields)) {
+      const f = entry.fields.find((x) => x.key === key);
+      if (!f) continue;
+      fields[key] = f.type === "checkbox" ? Boolean(value) : String(value);
+    }
+  }
   return {
     name: entry.name,
-    fromAddress: "",
+    fromAddress: entry.prefill?.from ?? "",
     replyTo: "",
     fields,
     isDefault: false,

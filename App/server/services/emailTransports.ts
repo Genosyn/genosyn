@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { config } from "../../config.js";
 import type { EmailProviderKind } from "../db/entities/EmailProvider.js";
 
 /**
@@ -97,6 +98,16 @@ export type EmailProviderCatalogEntry = {
   /** Lucide icon name. */
   icon: string;
   fields: EmailProviderField[];
+  /**
+   * Optional non-secret prefill for the connect form, applied only when
+   * adding a *new* provider. Used to seed the SMTP form from the global
+   * `config.ts` SMTP block so operators don't retype host / port / user.
+   * Secrets (the password) are never included here.
+   */
+  prefill?: {
+    from?: string;
+    fields?: Record<string, string | number | boolean>;
+  };
 };
 
 export const PROVIDER_CATALOG: EmailProviderCatalogEntry[] = [
@@ -239,6 +250,29 @@ export function getProviderCatalogEntry(
   kind: EmailProviderKind,
 ): EmailProviderCatalogEntry | null {
   return PROVIDER_CATALOG.find((p) => p.kind === kind) ?? null;
+}
+
+/**
+ * The connect-form catalog, with the SMTP entry pre-seeded from the global
+ * `config.ts` SMTP block when the operator has configured one (i.e. the
+ * host is set). Only non-secret fields are seeded — the password is never
+ * exposed, so the form leaves it blank for the user to enter. When no
+ * global SMTP host is configured the catalog is returned unchanged.
+ */
+export function buildProviderCatalog(): EmailProviderCatalogEntry[] {
+  const smtp = config.smtp;
+  if (!smtp.host) return PROVIDER_CATALOG;
+  const fields: Record<string, string | number | boolean> = {
+    host: smtp.host,
+    port: smtp.port,
+    secure: smtp.secure,
+  };
+  if (smtp.user) fields.user = smtp.user;
+  return PROVIDER_CATALOG.map((entry) =>
+    entry.kind === "smtp"
+      ? { ...entry, prefill: { from: smtp.from || undefined, fields } }
+      : entry,
+  );
 }
 
 // ───────────────────────── validation ──────────────────────────────────────
