@@ -40,6 +40,8 @@ import {
 import { SettingsIntegrations } from "./pages/SettingsIntegrations";
 import { SettingsTeams } from "./pages/SettingsTeams";
 import { SettingsApiKeys } from "./pages/SettingsApiKeys";
+import { SettingsEmail, SettingsEmailProviders } from "./pages/SettingsEmail";
+import { SettingsEmailLogs } from "./pages/SettingsEmailLogs";
 import { HandoffsPage } from "./pages/EmployeeHandoffs";
 import Inbox from "./pages/Inbox";
 import { EmployeeConnections } from "./pages/EmployeeConnections";
@@ -390,6 +392,11 @@ function CompanyRoutes({
           <Route path="members" element={<SettingsMembers />} />
           <Route path="teams" element={<SettingsTeams />} />
           <Route path="integrations" element={<SettingsIntegrations />} />
+          <Route path="email" element={<SettingsEmail />}>
+            <Route index element={<Navigate to="providers" replace />} />
+            <Route path="providers" element={<SettingsEmailProviders />} />
+            <Route path="logs" element={<SettingsEmailLogs />} />
+          </Route>
           <Route path="secrets" element={<SettingsSecrets />} />
           <Route path="api-keys" element={<SettingsApiKeys />} />
           <Route path="backup" element={<SettingsBackup />} />
