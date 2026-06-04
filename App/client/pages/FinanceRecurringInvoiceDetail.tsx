@@ -204,7 +204,7 @@ export default function FinanceRecurringInvoiceDetail() {
             </div>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
               <Repeat size={12} className="mr-1 inline" />
-              {describeCron(ri.cronExpr)}
+              {describeCron(ri.cronExpr, ri.intervalCount)}
               {" — billing "}
               <span className="font-medium text-slate-700 dark:text-slate-300">
                 {ri.customer?.name ?? "—"}
@@ -263,7 +263,7 @@ export default function FinanceRecurringInvoiceDetail() {
             Schedule
           </h3>
           <dl className="space-y-2 text-sm">
-            <Row label="Repeats" value={describeCron(ri.cronExpr)} />
+            <Row label="Repeats" value={describeCron(ri.cronExpr, ri.intervalCount)} />
             <Row
               label="Next run"
               value={ri.status === "active" ? formatStamp(ri.nextRunAt) : "—"}

@@ -193,12 +193,14 @@ export function Finance() {
       <P>
         Open <Code>Finance → Recurring</Code> and click{" "}
         <Code>New schedule</Code> to set up a template. Pick a customer,
-        choose how often it should bill — every <Strong>week</Strong>,{" "}
-        <Strong>month</Strong>, <Strong>quarter</Strong> or{" "}
-        <Strong>year</Strong>, on the day and at the time you set — and
-        compose the line items just like a normal invoice. A plain-English
-        summary (for example{" "}
-        <Code>The 1st of every month at 9:00 AM</Code>) appears beneath the
+        choose how often it should bill — every{" "}
+        <Strong>N</Strong> <Strong>days</Strong>, <Strong>weeks</Strong>,{" "}
+        <Strong>months</Strong>, <Strong>quarters</Strong> or{" "}
+        <Strong>years</Strong>, on the day and at the time you set — and
+        compose the line items just like a normal invoice. The count lets you
+        say <Code>every 2 weeks</Code> or <Code>every 3 months</Code>, not
+        just every one. A plain-English summary (for example{" "}
+        <Code>Every 2 weeks on Monday at 9:00 AM</Code>) appears beneath the
         picker so you can confirm the cadence before saving.
       </P>
 

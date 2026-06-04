@@ -190,7 +190,7 @@ export default function FinanceRecurringInvoices() {
                     {r.customer?.name ?? "—"}
                   </td>
                   <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
-                    {describeCron(r.cronExpr)}
+                    {describeCron(r.cronExpr, r.intervalCount)}
                   </td>
                   <td className="px-4 py-3">
                     <span

@@ -7,10 +7,19 @@
 // cron string on save / parse it back on edit. Nothing about the schedule
 // is stored differently — only how we ask for it.
 
-export type Frequency = "weekly" | "monthly" | "quarterly" | "yearly";
+export type Frequency =
+  | "daily"
+  | "weekly"
+  | "monthly"
+  | "quarterly"
+  | "yearly";
 
 export type ScheduleParts = {
   frequency: Frequency;
+  /** "Every N" multiplier on the frequency, ≥ 1. 1 = every day/week/month…;
+   *  2 = every other; 3 = every third; and so on. Cron can't carry this, so
+   *  it travels alongside the cron string and is enforced server-side. */
+  intervalCount: number;
   /** Day of month, 1–31. Used by monthly / quarterly / yearly. */
   dayOfMonth: number;
   /** 0 = Sunday … 6 = Saturday. Used by weekly. */
@@ -54,12 +63,18 @@ export const MONTH_LABELS = [
 export function defaultScheduleParts(): ScheduleParts {
   return {
     frequency: "monthly",
+    intervalCount: 1,
     dayOfMonth: 1,
     weekday: 1,
     month: 1,
     hour: 9,
     minute: 0,
   };
+}
+
+/** Clamp an "every N" count to the supported 1–99 range. */
+export function clampIntervalCount(n: number): number {
+  return clampInt(n, 1, 99, 1);
 }
 
 function clampInt(n: number, lo: number, hi: number, fallback: number): number {
@@ -94,12 +109,23 @@ export function withTime(p: ScheduleParts, value: string): ScheduleParts {
   };
 }
 
-/** Compile the friendly model down to a standard 5-field cron expression. */
+/**
+ * Compile the friendly model down to a standard 5-field cron expression.
+ *
+ * The cron string encodes the *base* (every-occurrence) pattern only — the
+ * time of day plus the day-of-week / day-of-month / month it lands on. The
+ * "every N" multiplier (`intervalCount`) is deliberately NOT baked in: cron
+ * step syntax can't faithfully express "every 2 weeks" or "every 5 months",
+ * so the count rides alongside as its own field and the server skips to the
+ * right occurrence. For `intervalCount === 1` this cron is the whole story.
+ */
 export function partsToCron(p: ScheduleParts): string {
   const m = clampInt(p.minute, 0, 59, 0);
   const h = clampInt(p.hour, 0, 23, 9);
   const dom = clampInt(p.dayOfMonth, 1, 31, 1);
   switch (p.frequency) {
+    case "daily":
+      return `${m} ${h} * * *`;
     case "weekly":
       return `${m} ${h} * * ${clampInt(p.weekday, 0, 6, 1)}`;
     case "quarterly":
@@ -117,6 +143,9 @@ export function partsToCron(p: ScheduleParts): string {
  * the edit form can pre-fill its controls. Recognizes the canonical shapes
  * `partsToCron` emits; anything else falls back to a sane monthly-on-the-1st
  * default while still preserving a plain-number time of day.
+ *
+ * The cron carries no "every N" count — callers that have one (the entity's
+ * `intervalCount`) should overlay it onto the returned parts.
  */
 export function cronToParts(expr: string): ScheduleParts {
   const out = defaultScheduleParts();
@@ -134,7 +163,9 @@ export function cronToParts(expr: string): ScheduleParts {
   const monNum = num(mon);
   const dowFirst = num(dow.split(",")[0]);
 
-  if (dom === "*" && dow !== "*" && Number.isFinite(dowFirst)) {
+  if (dom === "*" && mon === "*" && dow === "*") {
+    out.frequency = "daily";
+  } else if (dom === "*" && dow !== "*" && Number.isFinite(dowFirst)) {
     out.frequency = "weekly";
     out.weekday = clampInt(dowFirst, 0, 6, 1);
   } else if (mon === QUARTER_MONTHS && Number.isFinite(domNum)) {
@@ -157,23 +188,60 @@ function formatTime(hour: number, minute: number): string {
   return `${h12}:${String(minute).padStart(2, "0")} ${ampm}`;
 }
 
-/** Plain-English sentence for a friendly model, e.g. "The 1st of every month at 9:00 AM". */
+/**
+ * Plain-English sentence for a friendly model, e.g. "The 1st of every month
+ * at 9:00 AM".
+ *
+ * For a count of 1 the wording stays exactly as it always was. For "every N"
+ * schedules it switches to an explicit "Every N <units> on <when>" phrasing
+ * ("Every 2 weeks on Monday at 9:00 AM").
+ */
 export function describeParts(p: ScheduleParts): string {
   const at = ` at ${formatTime(clampInt(p.hour, 0, 23, 9), clampInt(p.minute, 0, 59, 0))}`;
+  const n = clampIntervalCount(p.intervalCount);
+  const dom = ordinal(clampInt(p.dayOfMonth, 1, 31, 1));
+  const weekday = WEEKDAY_LABELS[clampInt(p.weekday, 0, 6, 1)];
+  const monthName = MONTH_LABELS[clampInt(p.month, 1, 12, 1) - 1];
+
+  if (n > 1) {
+    const unit = { daily: "day", weekly: "week", monthly: "month", quarterly: "quarter", yearly: "year" }[
+      p.frequency
+    ];
+    const every = `Every ${n} ${unit}s`;
+    switch (p.frequency) {
+      case "daily":
+        return `${every}${at}`;
+      case "weekly":
+        return `${every} on ${weekday}${at}`;
+      case "yearly":
+        return `${every} on ${monthName} ${dom}${at}`;
+      case "monthly":
+      case "quarterly":
+      default:
+        return `${every} on the ${dom}${at}`;
+    }
+  }
+
   switch (p.frequency) {
+    case "daily":
+      return `Every day${at}`;
     case "weekly":
-      return `Every ${WEEKDAY_LABELS[clampInt(p.weekday, 0, 6, 1)]}${at}`;
+      return `Every ${weekday}${at}`;
     case "quarterly":
-      return `The ${ordinal(clampInt(p.dayOfMonth, 1, 31, 1))} of Jan, Apr, Jul & Oct${at}`;
+      return `The ${dom} of Jan, Apr, Jul & Oct${at}`;
     case "yearly":
-      return `Every ${MONTH_LABELS[clampInt(p.month, 1, 12, 1) - 1]} ${ordinal(clampInt(p.dayOfMonth, 1, 31, 1))}${at}`;
+      return `Every ${monthName} ${dom}${at}`;
     case "monthly":
     default:
-      return `The ${ordinal(clampInt(p.dayOfMonth, 1, 31, 1))} of every month${at}`;
+      return `The ${dom} of every month${at}`;
   }
 }
 
-/** Plain-English sentence straight from a cron expression (list + detail views). */
-export function describeCron(expr: string): string {
-  return describeParts(cronToParts(expr));
+/**
+ * Plain-English sentence straight from a cron expression (list + detail
+ * views). The cron carries no count, so pass the entity's `intervalCount`
+ * separately; it defaults to 1 for plain schedules.
+ */
+export function describeCron(expr: string, intervalCount = 1): string {
+  return describeParts({ ...cronToParts(expr), intervalCount });
 }

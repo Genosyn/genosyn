@@ -4,7 +4,11 @@ import { AppDataSource } from "../db/datasource.js";
 import { Customer } from "../db/entities/Customer.js";
 import { Invoice } from "../db/entities/Invoice.js";
 import { InvoiceLineItem } from "../db/entities/InvoiceLineItem.js";
-import { RecurringInvoice, RecurringInvoiceStatus } from "../db/entities/RecurringInvoice.js";
+import {
+  RecurringInvoice,
+  RecurringInvoiceFrequency,
+  RecurringInvoiceStatus,
+} from "../db/entities/RecurringInvoice.js";
 import { RecurringInvoiceLineItem } from "../db/entities/RecurringInvoiceLineItem.js";
 import { TaxRate } from "../db/entities/TaxRate.js";
 import { computeLineTotals } from "../lib/money.js";
@@ -51,6 +55,112 @@ export function nextRunForRecurring(
   }
 }
 
+// ─────────────────── Interval ("every N units") math ───────────────────
+//
+// Cron is a stateless matcher: it can say "the 1st of every month" but not
+// "every other month" or "every 2 weeks" — those need an epoch to count
+// from. So for schedules with `intervalCount >= 2` we step a calendar unit
+// at a time from `anchorAt` (the first base cron occurrence) and skip to the
+// Nth one. A count of 1 is left entirely to `cron-parser` above, preserving
+// the exact behavior every existing schedule already has.
+
+const INTERVAL_GUARD = 10_000;
+
+/**
+ * The j-th interval occurrence: `anchor` advanced by `j * intervalCount`
+ * units of `frequency`, preserving the anchor's local clock time. Returns
+ * null for month-family units when the anchor's day-of-month doesn't exist
+ * in the target month (e.g. the 31st of February) — callers skip those,
+ * matching cron's "only fire in months that have this day" semantics.
+ */
+function intervalOccurrence(
+  anchor: Date,
+  frequency: RecurringInvoiceFrequency,
+  intervalCount: number,
+  j: number,
+): Date | null {
+  const d = new Date(anchor);
+  if (frequency === "daily") {
+    d.setDate(d.getDate() + j * intervalCount);
+    return d;
+  }
+  if (frequency === "weekly") {
+    d.setDate(d.getDate() + j * intervalCount * 7);
+    return d;
+  }
+  const monthsPer =
+    frequency === "yearly" ? 12 : frequency === "quarterly" ? 3 : 1;
+  const day = anchor.getDate();
+  // Move to the 1st first so shifting the month never rolls into the next
+  // one, then re-apply the day once we know the target month's length.
+  d.setDate(1);
+  d.setMonth(anchor.getMonth() + j * intervalCount * monthsPer);
+  const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  if (day > daysInMonth) return null;
+  d.setDate(day);
+  return d;
+}
+
+/**
+ * First interval occurrence strictly after `from`. Estimates a starting
+ * index near `from` so we don't walk from the anchor across months/years of
+ * history, then steps forward (skipping non-existent days) until past it.
+ */
+function nextIntervalRun(
+  anchor: Date,
+  frequency: RecurringInvoiceFrequency,
+  intervalCount: number,
+  from: Date,
+): Date | null {
+  const fromMs = from.getTime();
+  let j = 0;
+  if (fromMs > anchor.getTime()) {
+    const elapsedMs = fromMs - anchor.getTime();
+    if (frequency === "daily") {
+      j = Math.floor(elapsedMs / (86_400_000 * intervalCount));
+    } else if (frequency === "weekly") {
+      j = Math.floor(elapsedMs / (86_400_000 * 7 * intervalCount));
+    } else {
+      const monthsPer =
+        frequency === "yearly" ? 12 : frequency === "quarterly" ? 3 : 1;
+      const elapsedMonths =
+        (from.getFullYear() - anchor.getFullYear()) * 12 +
+        (from.getMonth() - anchor.getMonth());
+      j = Math.floor(elapsedMonths / (intervalCount * monthsPer));
+    }
+    j = Math.max(0, j - 2); // back off to absorb estimate error
+  }
+  for (let guard = 0; guard < INTERVAL_GUARD; guard += 1) {
+    const occ = intervalOccurrence(anchor, frequency, intervalCount, j);
+    if (occ && occ.getTime() > fromMs) return occ;
+    j += 1;
+  }
+  return null;
+}
+
+/** The schedule fields the next-run computation reads. */
+type SchedulableFields = Pick<
+  RecurringInvoice,
+  "cronExpr" | "frequency" | "intervalCount" | "anchorAt"
+>;
+
+/**
+ * Next fire time for a schedule, honoring its "every N" count. Plain
+ * (count ≤ 1) schedules defer entirely to `cron-parser`; interval schedules
+ * step from `anchorAt`. Falls back to the cron path if the anchor is missing
+ * so a half-populated row still schedules something sane.
+ */
+export function computeNextRun(
+  ri: SchedulableFields,
+  from: Date = new Date(),
+): Date | null {
+  const n = ri.intervalCount ?? 1;
+  if (!Number.isFinite(n) || n <= 1 || !ri.anchorAt) {
+    return nextRunForRecurring(ri.cronExpr, from);
+  }
+  return nextIntervalRun(ri.anchorAt, ri.frequency, n, from);
+}
+
 /**
  * Mutate `nextRunAt` based on the row's current cron / status / cap
  * fields. Callers save afterward. Centralizes the "should this fire
@@ -66,7 +176,17 @@ export function registerRecurringInvoice(ri: RecurringInvoice): void {
     ri.nextRunAt = null;
     return;
   }
-  const next = nextRunForRecurring(ri.cronExpr);
+  // Phase an "every N" schedule by anchoring it on the first base cron
+  // occurrence (so it keeps cron's day-of-week / day-of-month / quarter
+  // alignment), seeded once. The route clears `anchorAt` when the schedule
+  // definition changes, prompting a re-seed; firing keeps it stable so the
+  // cadence doesn't drift. Plain schedules carry no anchor.
+  if ((ri.intervalCount ?? 1) >= 2) {
+    if (!ri.anchorAt) ri.anchorAt = nextRunForRecurring(ri.cronExpr);
+  } else {
+    ri.anchorAt = null;
+  }
+  const next = computeNextRun(ri);
   if (next && ri.endsOn && next.getTime() > ri.endsOn.getTime()) {
     ri.status = "ended";
     ri.nextRunAt = null;
@@ -356,7 +476,7 @@ async function tick(): Promise<void> {
       // Advance BEFORE firing so a slow generation doesn't re-trigger
       // on the next heartbeat. Compute from `now` (not r.nextRunAt) so
       // missed slots collapse into a single catch-up run.
-      const next = nextRunForRecurring(r.cronExpr, now);
+      const next = computeNextRun(r, now);
       r.nextRunAt = next;
       await repo.save(r);
       tickRecurringInvoice(r.id).catch((err) => {

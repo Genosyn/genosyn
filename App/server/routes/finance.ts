@@ -2602,6 +2602,10 @@ const recurringInvoiceCreateSchema = z.object({
     .min(1)
     .max(120)
     .refine((v) => cron.validate(v), "Invalid cron expression"),
+  frequency: z
+    .enum(["daily", "weekly", "monthly", "quarterly", "yearly"])
+    .optional(),
+  intervalCount: z.number().int().min(1).max(99).optional(),
   status: z.enum(["active", "paused"]).optional(),
   daysUntilDue: z.number().int().min(0).max(365).optional(),
   autoSend: z.boolean().optional(),
@@ -2653,6 +2657,8 @@ financeRouter.post(
       slug,
       name: body.name,
       cronExpr: body.cronExpr,
+      frequency: body.frequency ?? "monthly",
+      intervalCount: body.intervalCount ?? 1,
       status: body.status ?? "active",
       daysUntilDue: body.daysUntilDue ?? 14,
       autoSend: body.autoSend ?? false,
@@ -2692,6 +2698,10 @@ const recurringInvoicePatchSchema = z.object({
     .max(120)
     .refine((v) => cron.validate(v), "Invalid cron expression")
     .optional(),
+  frequency: z
+    .enum(["daily", "weekly", "monthly", "quarterly", "yearly"])
+    .optional(),
+  intervalCount: z.number().int().min(1).max(99).optional(),
   status: z.enum(["active", "paused", "ended"]).optional(),
   daysUntilDue: z.number().int().min(0).max(365).optional(),
   autoSend: z.boolean().optional(),
@@ -2722,6 +2732,17 @@ financeRouter.patch(
     }
     if (body.name !== undefined) ri.name = body.name;
     if (body.cronExpr !== undefined) ri.cronExpr = body.cronExpr;
+    if (body.frequency !== undefined) ri.frequency = body.frequency;
+    if (body.intervalCount !== undefined) ri.intervalCount = body.intervalCount;
+    // A changed cadence (pattern, unit, or count) re-phases the interval:
+    // drop the anchor so re-registration seeds a fresh one from now.
+    if (
+      body.cronExpr !== undefined ||
+      body.frequency !== undefined ||
+      body.intervalCount !== undefined
+    ) {
+      ri.anchorAt = null;
+    }
     if (body.daysUntilDue !== undefined) ri.daysUntilDue = body.daysUntilDue;
     if (body.autoSend !== undefined) ri.autoSend = body.autoSend;
     if (body.currency !== undefined) ri.currency = body.currency;

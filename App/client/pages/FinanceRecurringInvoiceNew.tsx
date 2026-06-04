@@ -123,7 +123,10 @@ export default function FinanceRecurringInvoiceNew() {
           );
           setCustomerId(existing.customerId);
           setName(existing.name);
-          setSchedule(cronToParts(existing.cronExpr));
+          setSchedule({
+            ...cronToParts(existing.cronExpr),
+            intervalCount: existing.intervalCount ?? 1,
+          });
           setDaysUntilDue(existing.daysUntilDue);
           setAutoSend(existing.autoSend);
           setCurrency(existing.currency);
@@ -243,6 +246,8 @@ export default function FinanceRecurringInvoiceNew() {
         customerId,
         name: name.trim(),
         cronExpr: partsToCron(schedule),
+        frequency: schedule.frequency,
+        intervalCount: schedule.intervalCount,
         daysUntilDue,
         autoSend,
         currency,
@@ -415,6 +420,23 @@ export default function FinanceRecurringInvoiceNew() {
             </label>
             <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
               <span>Every</span>
+              <input
+                type="number"
+                min={1}
+                max={99}
+                value={schedule.intervalCount}
+                onChange={(e) =>
+                  setSchedule({
+                    ...schedule,
+                    intervalCount: Math.max(
+                      1,
+                      Math.min(99, parseInt(e.target.value, 10) || 1),
+                    ),
+                  })
+                }
+                className={`${scheduleField} w-16 text-center tabular-nums`}
+                aria-label="Interval count"
+              />
               <select
                 value={schedule.frequency}
                 onChange={(e) =>
@@ -423,10 +445,17 @@ export default function FinanceRecurringInvoiceNew() {
                 className={scheduleField}
                 aria-label="Frequency"
               >
-                <option value="weekly">week</option>
-                <option value="monthly">month</option>
-                <option value="quarterly">quarter</option>
-                <option value="yearly">year</option>
+                {[
+                  { value: "daily", unit: "day" },
+                  { value: "weekly", unit: "week" },
+                  { value: "monthly", unit: "month" },
+                  { value: "quarterly", unit: "quarter" },
+                  { value: "yearly", unit: "year" },
+                ].map((u) => (
+                  <option key={u.value} value={u.value}>
+                    {schedule.intervalCount > 1 ? `${u.unit}s` : u.unit}
+                  </option>
+                ))}
               </select>
 
               {schedule.frequency === "weekly" && (
@@ -469,7 +498,8 @@ export default function FinanceRecurringInvoiceNew() {
                 </>
               )}
 
-              {schedule.frequency !== "weekly" && (
+              {schedule.frequency !== "weekly" &&
+                schedule.frequency !== "daily" && (
                 <>
                   <span>on the</span>
                   <select
@@ -501,6 +531,7 @@ export default function FinanceRecurringInvoiceNew() {
             <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
               {scheduleSummary}
               {schedule.frequency !== "weekly" &&
+                schedule.frequency !== "daily" &&
                 schedule.dayOfMonth > 28 &&
                 " · the 29th–31st are skipped in shorter months"}
             </p>

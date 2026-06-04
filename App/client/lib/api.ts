@@ -1536,6 +1536,13 @@ export function displayInvoiceStatus(
 
 export type RecurringInvoiceStatus = "active" | "paused" | "ended";
 
+export type RecurringInvoiceFrequency =
+  | "daily"
+  | "weekly"
+  | "monthly"
+  | "quarterly"
+  | "yearly";
+
 export type RecurringInvoiceLineItem = {
   id: string;
   recurringInvoiceId: string;
@@ -1561,6 +1568,8 @@ export type RecurringInvoice = {
   slug: string;
   name: string;
   cronExpr: string;
+  frequency: RecurringInvoiceFrequency;
+  intervalCount: number;
   status: RecurringInvoiceStatus;
   daysUntilDue: number;
   autoSend: boolean;

@@ -38,6 +38,16 @@ import {
  */
 export type RecurringInvoiceStatus = "active" | "paused" | "ended";
 
+/** The calendar unit a schedule repeats on. Paired with `intervalCount`
+ *  ("every N units"). Only consulted when `intervalCount >= 2`; a count of
+ *  1 is driven entirely by `cronExpr`. */
+export type RecurringInvoiceFrequency =
+  | "daily"
+  | "weekly"
+  | "monthly"
+  | "quarterly"
+  | "yearly";
+
 @Entity("recurring_invoices")
 @Index(["companyId", "slug"], { unique: true })
 @Index(["companyId", "status"])
@@ -66,6 +76,23 @@ export class RecurringInvoice {
    *  `0 9 * * 1` (every Monday 9am). */
   @Column({ type: "varchar" })
   cronExpr!: string;
+
+  /** Calendar unit the schedule repeats on. Mirrors the cron shape; the
+   *  authoritative driver for the cadence when `intervalCount >= 2`, where
+   *  cron alone can't express "every N weeks / months". */
+  @Column({ type: "varchar", default: "monthly" })
+  frequency!: RecurringInvoiceFrequency;
+
+  /** "Every N" multiplier on `frequency`. 1 = every cron occurrence (pure
+   *  cron). >= 2 means skip to every Nth unit, measured from `anchorAt`. */
+  @Column({ type: "int", default: 1 })
+  intervalCount!: number;
+
+  /** Reference instant the interval cadence counts from (the first base cron
+   *  occurrence). Null for plain (intervalCount = 1) schedules; seeded by
+   *  `registerRecurringInvoice` and re-seeded when the schedule is edited. */
+  @Column({ type: "datetime", nullable: true })
+  anchorAt!: Date | null;
 
   @Column({ type: "varchar", default: "active" })
   status!: RecurringInvoiceStatus;
