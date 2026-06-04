@@ -1387,6 +1387,48 @@ export type CustomerContract = {
   customer: { id: string; name: string; slug: string } | null;
 };
 
+// ───────────────────────── Customer statement ──────────────────────────
+
+export type StatementTxnKind = "invoice" | "payment";
+
+export type StatementTxn = {
+  date: string;
+  kind: StatementTxnKind;
+  reference: string;
+  description: string;
+  invoiceSlug: string | null;
+  chargeCents: number;
+  paymentCents: number;
+  balanceCents: number;
+};
+
+export type StatementAging = {
+  currentCents: number;
+  d1to30Cents: number;
+  d31to60Cents: number;
+  d61to90Cents: number;
+  d90PlusCents: number;
+  totalCents: number;
+};
+
+export type CustomerStatement = {
+  currency: string;
+  fromDate: string | null;
+  toDate: string;
+  openingBalanceCents: number;
+  closingBalanceCents: number;
+  totalChargesCents: number;
+  totalPaymentsCents: number;
+  transactions: StatementTxn[];
+  aging: StatementAging;
+  availableCurrencies: string[];
+};
+
+export type CustomerStatementResponse = {
+  customer: { id: string; name: string; slug: string };
+  statement: CustomerStatement;
+};
+
 export type Product = {
   id: string;
   companyId: string;

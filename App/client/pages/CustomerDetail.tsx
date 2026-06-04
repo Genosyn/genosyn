@@ -12,6 +12,7 @@ import {
   Phone,
   Plus,
   Receipt,
+  ScrollText,
 } from "lucide-react";
 import {
   api,
@@ -248,12 +249,20 @@ export default function CustomerDetail() {
             </div>
           </div>
         </div>
-        <Button
-          variant="secondary"
-          onClick={() => navigate(`${customersUrl}/${customer.slug}/edit`)}
-        >
-          <Pencil size={14} /> Edit
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => navigate(`${customersUrl}/${customer.slug}/statement`)}
+          >
+            <ScrollText size={14} /> Statement
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => navigate(`${customersUrl}/${customer.slug}/edit`)}
+          >
+            <Pencil size={14} /> Edit
+          </Button>
+        </div>
       </div>
 
       {/* Headline numbers */}

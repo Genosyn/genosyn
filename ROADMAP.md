@@ -548,6 +548,14 @@ Phased so each phase ships behind its own PR:
   uploaded signed agreements — a global Contracts page plus a
   per-customer panel, with bytes on disk under `customer-contracts/`
   like other attachments and metadata-only rows in the DB.
+- [x] **Customer statements.** Statement of account per customer, derived
+  on the fly from issued invoices + payments (no entity): chronological
+  charge/credit ledger with a running balance, opening/closing totals, and
+  an aging summary (current / 1-30 / 31-60 / 61-90 / 90+). Per-currency
+  with a switcher; period presets (all time default) plus a custom range.
+  In-app view at `/customers/:slug/statement`, served as printable HTML and
+  a downloadable PDF via the same `htmlToPdf` path invoices use
+  (`services/customerStatement.ts` + `customerStatementHtml.ts`).
 
 MCP surface (added phase by phase): `list_invoices`, `get_invoice`,
 `create_invoice`, `send_invoice`, `record_payment`, `void_invoice`,

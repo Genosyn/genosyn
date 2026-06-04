@@ -43,6 +43,11 @@ export function Customers() {
           <Strong>Contracts</Strong> — the signed agreements you hold with a
           customer, uploaded and stored alongside the account.
         </LI>
+        <LI>
+          <Strong>Statements</Strong> — a statement of account per customer:
+          every invoice and payment with a running balance, plus an aging
+          summary, viewable in-app and downloadable as a PDF.
+        </LI>
       </UL>
 
       <H2 id="accounts">Customer accounts</H2>
@@ -70,6 +75,43 @@ export function Customers() {
         estimates, contracts, and contacts. Each row deep-links into the
         underlying document in <DocLink to="/docs/finance">Finance</DocLink>.
       </P>
+
+      <H2 id="statements">Statements</H2>
+      <P>
+        Open a customer&apos;s overview and click <Code>Statement</Code> for a{" "}
+        <Strong>statement of account</Strong> — the running ledger you&apos;d
+        send a customer who asks &quot;what do I owe you?&quot;. It lists every
+        issued invoice as a charge and every recorded payment as a credit, in
+        date order, with a running balance carried from an{" "}
+        <Strong>opening balance</Strong> down to the <Strong>balance due</Strong>.
+        Draft and voided invoices are excluded — only real, issued activity
+        appears.
+      </P>
+      <UL>
+        <LI>
+          <Strong>Period</Strong> — show all time (the default) or narrow to
+          this month, this quarter, year to date, the last 12 months, or a
+          custom date range. Anything before the start of the period is rolled
+          into the opening balance.
+        </LI>
+        <LI>
+          <Strong>Aging</Strong> — the outstanding balance broken into current,
+          1–30, 31–60, 61–90, and 90+ days past due, so you can see how stale
+          the debt is at a glance.
+        </LI>
+        <LI>
+          <Strong>Currency</Strong> — statements are per-currency. If an account
+          has been billed in more than one, a switcher lets you pick which to
+          view; balances are never summed across currencies.
+        </LI>
+        <LI>
+          <Strong>Download PDF</Strong> or <Strong>Print view</Strong> — hand
+          the customer a portable document, or open the print-friendly HTML to
+          save from your browser. Invoice numbers on the in-app view link
+          straight to the underlying document in{" "}
+          <DocLink to="/docs/finance">Finance</DocLink>.
+        </LI>
+      </UL>
 
       <H2 id="acv">Annual Contract Value</H2>
       <P>

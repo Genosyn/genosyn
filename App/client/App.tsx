@@ -73,6 +73,7 @@ import CustomersLayout from "./pages/CustomersLayout";
 import CustomersIndex from "./pages/CustomersIndex";
 import CustomerNew from "./pages/CustomerNew";
 import CustomerDetail from "./pages/CustomerDetail";
+import CustomerStatement from "./pages/CustomerStatement";
 import ContractsIndex from "./pages/ContractsIndex";
 import FinanceLayout from "./pages/FinanceLayout";
 import FinanceIndex from "./pages/FinanceIndex";
@@ -293,6 +294,7 @@ function CompanyRoutes({
           <Route path="new" element={<CustomerNew />} />
           <Route path="contracts" element={<ContractsIndex />} />
           <Route path=":customerSlug" element={<CustomerDetail />} />
+          <Route path=":customerSlug/statement" element={<CustomerStatement />} />
           <Route path=":customerSlug/edit" element={<CustomerNew />} />
         </Route>
 

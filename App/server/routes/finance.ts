@@ -49,6 +49,8 @@ import {
 } from "../services/recurringInvoices.js";
 import { renderInvoiceHtmlForCompany } from "../services/invoiceHtml.js";
 import { renderEstimateHtmlForCompany } from "../services/estimateHtml.js";
+import { renderCustomerStatementHtmlForCompany } from "../services/customerStatementHtml.js";
+import { buildCustomerStatement } from "../services/customerStatement.js";
 import { htmlToPdf } from "../services/htmlToPdf.js";
 import {
   acceptEstimate,
@@ -298,6 +300,93 @@ financeRouter.get("/customers/:slug", async (req, res) => {
   if (!c) return res.status(404).json({ error: "Customer not found" });
   const [hydrated] = await hydrateCustomers(cid, [c]);
   res.json(hydrated);
+});
+
+// ─────────────────────── Customer statement ───────────────────────────
+//
+// A statement of account is derived on the fly from the customer's issued
+// invoices + payments (no entity) — see services/customerStatement.ts. The
+// JSON shape feeds the in-app view; /html and /pdf mirror the invoice
+// print/download path so a customer can be handed a portable document.
+
+const statementQuerySchema = z.object({
+  // `yyyy-mm-dd` (or any Date-parseable string). `from` omitted = all time.
+  from: z.string().min(1).optional(),
+  to: z.string().min(1).optional(),
+  currency: z.string().length(3).optional(),
+});
+
+function parseStatementQuery(
+  query: unknown,
+): { from: Date | null; to: Date | undefined; currency: string | undefined } {
+  const parsed = statementQuerySchema.parse(query);
+  const toDate = (s: string | undefined): Date | undefined => {
+    if (!s) return undefined;
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) throw new Error(`Invalid date: ${s}`);
+    return d;
+  };
+  return {
+    from: toDate(parsed.from) ?? null,
+    to: toDate(parsed.to),
+    currency: parsed.currency ? parsed.currency.toUpperCase() : undefined,
+  };
+}
+
+financeRouter.get("/customers/:slug/statement", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const c = await loadCustomerBySlug(cid, req.params.slug);
+  if (!c) return res.status(404).json({ error: "Customer not found" });
+  let opts;
+  try {
+    opts = parseStatementQuery(req.query);
+  } catch (err) {
+    return res.status(400).json({ error: (err as Error).message });
+  }
+  const statement = await buildCustomerStatement(cid, c, opts);
+  res.json({ customer: { id: c.id, name: c.name, slug: c.slug }, statement });
+});
+
+financeRouter.get("/customers/:slug/statement/html", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const c = await loadCustomerBySlug(cid, req.params.slug);
+  if (!c) return res.status(404).type("text/plain").send("Not found");
+  let opts;
+  try {
+    opts = parseStatementQuery(req.query);
+  } catch (err) {
+    return res.status(400).type("text/plain").send((err as Error).message);
+  }
+  const statement = await buildCustomerStatement(cid, c, opts);
+  const html = await renderCustomerStatementHtmlForCompany(cid, c, statement);
+  res.type("text/html").send(html);
+});
+
+financeRouter.get("/customers/:slug/statement/pdf", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const c = await loadCustomerBySlug(cid, req.params.slug);
+  if (!c) return res.status(404).type("text/plain").send("Not found");
+  let opts;
+  try {
+    opts = parseStatementQuery(req.query);
+  } catch (err) {
+    return res.status(400).type("text/plain").send((err as Error).message);
+  }
+  const statement = await buildCustomerStatement(cid, c, opts);
+  const html = await renderCustomerStatementHtmlForCompany(cid, c, statement);
+  try {
+    const pdf = await htmlToPdf(html);
+    const filename = `statement-${c.slug}-${statement.toDate}.pdf`;
+    res
+      .type("application/pdf")
+      .setHeader("Content-Disposition", `attachment; filename="${filename}"`)
+      .send(pdf);
+  } catch (err) {
+    res
+      .status(503)
+      .type("text/plain")
+      .send(`PDF rendering unavailable: ${(err as Error).message}`);
+  }
 });
 
 financeRouter.patch(
