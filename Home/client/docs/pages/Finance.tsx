@@ -218,15 +218,18 @@ export function Finance() {
 
       <H3 id="recurring-controls">Pausing, ending, running now</H3>
       <P>
-        From the detail page, <Code>Pause</Code> stops scheduled runs
-        without losing the template; <Code>Resume</Code> restarts the
-        next tick from now. <Code>End</Code> is terminal — the schedule
-        becomes read-only but every invoice it already created stays in
-        your books. <Code>Run now</Code> generates an invoice
+        From the detail page, <Code>Run now</Code> generates an invoice
         immediately without consuming the scheduled slot, useful for
-        catch-up runs or testing the template. Optional caps — max
-        runs and end date — flip the status to{" "}
-        <Code>ended</Code> automatically once hit.
+        catch-up runs or testing the template. The{" "}
+        <Code>More actions</Code> menu holds the lifecycle controls:{" "}
+        <Code>Pause</Code> stops scheduled runs without losing the
+        template and <Code>Resume</Code> restarts the next tick from now;{" "}
+        <Code>End</Code> is terminal — the schedule becomes read-only but
+        every invoice it already created stays in your books;{" "}
+        <Code>Duplicate</Code> clones the template into a new, paused
+        schedule so you can tweak and resume it without touching the
+        original. Optional caps — max runs and end date — flip the
+        status to <Code>ended</Code> automatically once hit.
       </P>
 
       <H2 id="ledger">Ledger and reports</H2>

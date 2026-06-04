@@ -40,6 +40,7 @@ import {
 } from "../services/finance.js";
 import {
   applyRecurringInvoiceStatus,
+  duplicateRecurringInvoice,
   generateInvoiceFromRecurring,
   hydrateRecurringInvoices,
   loadRecurringInvoiceBySlug,
@@ -2806,6 +2807,22 @@ financeRouter.post("/recurring-invoices/:slug/run-now", async (req, res) => {
       emailStatus: result.emailStatus,
       emailError: result.emailError,
     });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+// Duplicate: clone the schedule into a fresh, paused copy (run history
+// reset, template lines copied). Paused on purpose so an exact copy of an
+// active schedule doesn't immediately start billing the customer.
+financeRouter.post("/recurring-invoices/:slug/duplicate", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const ri = await loadRecurringInvoiceBySlug(cid, req.params.slug);
+  if (!ri) return res.status(404).json({ error: "Recurring invoice not found" });
+  try {
+    const copy = await duplicateRecurringInvoice(ri, req.userId ?? null);
+    const [hydrated] = await hydrateRecurringInvoices(cid, [copy]);
+    res.json(hydrated);
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }

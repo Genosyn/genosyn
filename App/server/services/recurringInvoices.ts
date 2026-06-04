@@ -299,6 +299,83 @@ export async function replaceRecurringInvoiceLines(
   return repo.save(built);
 }
 
+// ──────────────────────────── Duplication ──────────────────────────────
+
+async function uniqueRecurringInvoiceSlug(companyId: string): Promise<string> {
+  const repo = AppDataSource.getRepository(RecurringInvoice);
+  for (let i = 0; i < 16; i += 1) {
+    const slug = `ri-${Math.random().toString(36).slice(2, 8)}`;
+    if (!(await repo.findOneBy({ companyId, slug }))) return slug;
+  }
+  return `ri-${Date.now().toString(36)}`;
+}
+
+/**
+ * Clone a schedule into a fresh, **paused** copy. Starting paused is
+ * deliberate: an exact duplicate of an active schedule must not begin
+ * billing the customer the moment it is created — the operator reviews it
+ * and resumes when ready (mirrors "duplicate invoice as draft"). Run
+ * history (runsCreated / lastRunAt / lastInvoiceSlug) resets and the
+ * interval anchor is dropped so re-registration re-phases from now; the
+ * template line items are copied verbatim.
+ */
+export async function duplicateRecurringInvoice(
+  source: RecurringInvoice,
+  actorUserId: string | null,
+): Promise<RecurringInvoice> {
+  const repo = AppDataSource.getRepository(RecurringInvoice);
+  const slug = await uniqueRecurringInvoiceSlug(source.companyId);
+  const copy = repo.create({
+    companyId: source.companyId,
+    customerId: source.customerId,
+    slug,
+    name: `${source.name} (copy)`,
+    cronExpr: source.cronExpr,
+    frequency: source.frequency,
+    intervalCount: source.intervalCount,
+    anchorAt: null,
+    status: "paused",
+    daysUntilDue: source.daysUntilDue,
+    autoSend: source.autoSend,
+    currency: source.currency,
+    notes: source.notes,
+    footer: source.footer,
+    nextRunAt: null,
+    lastRunAt: null,
+    lastInvoiceSlug: "",
+    runsCreated: 0,
+    maxRuns: source.maxRuns,
+    endsOn: source.endsOn,
+    createdById: actorUserId,
+  });
+  registerRecurringInvoice(copy); // paused → nextRunAt stays null
+  await repo.save(copy);
+
+  const sourceLines = await AppDataSource.getRepository(
+    RecurringInvoiceLineItem,
+  ).find({
+    where: { recurringInvoiceId: source.id },
+    order: { sortOrder: "ASC" },
+  });
+  if (sourceLines.length > 0) {
+    const lineRepo = AppDataSource.getRepository(RecurringInvoiceLineItem);
+    await lineRepo.save(
+      sourceLines.map((l) =>
+        lineRepo.create({
+          recurringInvoiceId: copy.id,
+          productId: l.productId,
+          description: l.description,
+          quantity: l.quantity,
+          unitPriceCents: l.unitPriceCents,
+          taxRateId: l.taxRateId,
+          sortOrder: l.sortOrder,
+        }),
+      ),
+    );
+  }
+  return copy;
+}
+
 // ──────────────────────────── Generation ───────────────────────────────
 
 /**

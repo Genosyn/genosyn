@@ -3,6 +3,8 @@ import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom
 import {
   ArrowLeft,
   Ban,
+  Copy,
+  MoreHorizontal,
   Pause,
   Pencil,
   Play,
@@ -20,6 +22,7 @@ import {
 import { describeCron } from "../lib/schedule";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
+import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
@@ -109,6 +112,36 @@ export default function FinanceRecurringInvoiceDetail() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function duplicate() {
+    if (!ri) return;
+    setBusy(true);
+    try {
+      const copy = await api.post<RecurringInvoice>(
+        `/api/companies/${company.id}/recurring-invoices/${ri.slug}/duplicate`,
+      );
+      toast(`Duplicated as "${copy.name}" — paused so you can review it.`, "success");
+      navigate(
+        `/c/${company.slug}/finance/recurring-invoices/${copy.slug}`,
+      );
+    } catch (err) {
+      toast((err as Error).message, "error");
+      setBusy(false);
+    }
+  }
+
+  async function endSchedule() {
+    if (!ri) return;
+    const ok = await dialog.confirm({
+      title: `End "${ri.name}"?`,
+      message:
+        "This stops all future runs and can't be undone. Invoices it already created stay in your records, and you can still duplicate it later.",
+      variant: "danger",
+      confirmLabel: "End schedule",
+    });
+    if (!ok) return;
+    patchStatus("ended");
   }
 
   async function destroy() {
@@ -212,25 +245,7 @@ export default function FinanceRecurringInvoiceDetail() {
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {ri.status === "active" && (
-            <Button
-              variant="secondary"
-              onClick={() => patchStatus("paused")}
-              disabled={busy}
-            >
-              <Pause size={14} /> Pause
-            </Button>
-          )}
-          {ri.status === "paused" && (
-            <Button
-              variant="secondary"
-              onClick={() => patchStatus("active")}
-              disabled={busy}
-            >
-              <Play size={14} /> Resume
-            </Button>
-          )}
+        <div className="flex flex-wrap items-center gap-2">
           {ri.status !== "ended" && (
             <Button onClick={runNow} disabled={busy}>
               <PlayCircle size={14} /> Run now
@@ -241,19 +256,77 @@ export default function FinanceRecurringInvoiceDetail() {
               <Pencil size={14} /> Edit
             </Button>
           </Link>
-          {ri.status !== "ended" && (
-            <Button
-              variant="secondary"
-              onClick={() => patchStatus("ended")}
-              disabled={busy}
-              title="End this schedule. Invoices it already created stay in your records."
-            >
-              <Ban size={14} /> End
-            </Button>
-          )}
-          <Button variant="danger" onClick={destroy} disabled={busy}>
-            <Trash2 size={14} /> Delete
-          </Button>
+          <Menu
+            align="right"
+            width={208}
+            trigger={({ ref, onClick }) => (
+              <Button
+                ref={ref}
+                variant="secondary"
+                onClick={onClick}
+                disabled={busy}
+                aria-label="More actions"
+              >
+                <MoreHorizontal size={14} />
+              </Button>
+            )}
+          >
+            {(close) => (
+              <>
+                {ri.status === "active" && (
+                  <MenuItem
+                    icon={<Pause size={14} />}
+                    label="Pause schedule"
+                    onSelect={() => {
+                      close();
+                      patchStatus("paused");
+                    }}
+                  />
+                )}
+                {ri.status === "paused" && (
+                  <MenuItem
+                    icon={<Play size={14} />}
+                    label="Resume schedule"
+                    onSelect={() => {
+                      close();
+                      patchStatus("active");
+                    }}
+                  />
+                )}
+                <MenuItem
+                  icon={<Copy size={14} />}
+                  label="Duplicate"
+                  onSelect={() => {
+                    close();
+                    duplicate();
+                  }}
+                />
+                {ri.status !== "ended" && (
+                  <MenuItem
+                    icon={<Ban size={14} />}
+                    label="End schedule"
+                    onSelect={() => {
+                      close();
+                      endSchedule();
+                    }}
+                  />
+                )}
+                <MenuSeparator />
+                <MenuItem
+                  icon={<Trash2 size={14} className="text-red-500" />}
+                  label={
+                    <span className="text-red-600 dark:text-red-400">
+                      Delete
+                    </span>
+                  }
+                  onSelect={() => {
+                    close();
+                    destroy();
+                  }}
+                />
+              </>
+            )}
+          </Menu>
         </div>
       </div>
 
