@@ -17,10 +17,26 @@ export type TemplateRoutine = {
   cronExpr: string;
   readme: string;
 };
+
+/**
+ * Templates are grouped into these categories on the "Hire an employee"
+ * screen. Array order is the display order of the sections; every template's
+ * `category` must be one of these values (the type enforces it).
+ */
+export const TEMPLATE_CATEGORIES = [
+  "Operations & Admin",
+  "Sales & Marketing",
+  "Customer",
+  "Product & Engineering",
+  "Data & Research",
+] as const;
+export type TemplateCategory = (typeof TEMPLATE_CATEGORIES)[number];
+
 export type EmployeeTemplate = {
   id: string;
   name: string;
   role: string;
+  category: TemplateCategory;
   tagline: string;
   soul: string;
   skills: TemplateSkill[];
@@ -36,6 +52,7 @@ export const EMPLOYEE_TEMPLATES: EmployeeTemplate[] = [
     id: "executive-assistant",
     name: "Avery",
     role: "Executive Assistant",
+    category: "Operations & Admin",
     tagline:
       "Guards the calendar, triages the inbox, and preps every meeting before it starts.",
     soul: `# Avery's Soul
@@ -199,6 +216,7 @@ become a fire drill.
     id: "customer-success",
     name: "Casey",
     role: "Customer Success Manager",
+    category: "Customer",
     tagline:
       "Keeps an eye on customer signals, drafts outreach, and flags churn risk.",
     soul: `# Casey's Soul
@@ -298,6 +316,7 @@ next action.
     id: "content-writer",
     name: "Wren",
     role: "Content Writer",
+    category: "Sales & Marketing",
     tagline: "Turns loose notes into publishable drafts in the company voice.",
     soul: `# Wren's Soul
 
@@ -343,6 +362,7 @@ Produce a first-draft blog post from a brief.
     id: "sdr",
     name: "Sam",
     role: "Sales Development Rep",
+    category: "Sales & Marketing",
     tagline: "Researches prospects and drafts first-touch outreach.",
     soul: `# Sam's Soul
 
@@ -386,6 +406,7 @@ Produce a 5-line brief on a target company.
     id: "engineer",
     name: "Ivy",
     role: "Software Engineer",
+    category: "Product & Engineering",
     tagline: "Picks up well-scoped tickets, opens PRs, explains trade-offs.",
     soul: `# Ivy's Soul
 
@@ -429,6 +450,7 @@ Review an open PR with the same bar you'd bring to your own code.
     id: "research-analyst",
     name: "Sage",
     role: "Research Analyst",
+    category: "Data & Research",
     tagline: "Digs through sources, synthesizes, and cites every claim.",
     soul: `# Sage's Soul
 
@@ -495,6 +517,7 @@ Produce a 1-pager comparing us to N competitors on a specific dimension.
     id: "operations",
     name: "Remy",
     role: "Operations Coordinator",
+    category: "Operations & Admin",
     tagline: "Tracks the messy middle — follow-ups, statuses, and blockers.",
     soul: `# Remy's Soul
 
@@ -572,6 +595,7 @@ Keep it boring. The value is the rhythm, not the prose.
     id: "marketing",
     name: "Juno",
     role: "Marketing Manager",
+    category: "Sales & Marketing",
     tagline: "Plans campaigns, drafts copy, and keeps the brand voice tight.",
     soul: `# Juno's Soul
 
@@ -631,6 +655,7 @@ Draft hero + 3-section landing copy from a campaign brief.
     id: "product-manager",
     name: "Quinn",
     role: "Product Manager",
+    category: "Product & Engineering",
     tagline: "Writes sharp PRDs, runs discovery, and ruthlessly prioritizes.",
     soul: `# Quinn's Soul
 
@@ -691,6 +716,7 @@ Turn raw interview notes into patterns.
     id: "support",
     name: "Pax",
     role: "Customer Support Specialist",
+    category: "Customer",
     tagline: "Triages tickets, drafts replies, flags bugs for engineering.",
     soul: `# Pax's Soul
 
@@ -751,6 +777,7 @@ Draft a first reply to a support ticket.
     id: "data-analyst",
     name: "Nova",
     role: "Data Analyst",
+    category: "Data & Research",
     tagline: "Turns raw tables into dashboards a busy exec can read in 10 seconds.",
     soul: `# Nova's Soul
 

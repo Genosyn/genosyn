@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
-import { EMPLOYEE_TEMPLATES } from "../services/templates.js";
+import { EMPLOYEE_TEMPLATES, TEMPLATE_CATEGORIES } from "../services/templates.js";
 
 /**
  * Global catalogue of employee templates. Not company-scoped — the list is
@@ -11,14 +11,19 @@ export const templatesRouter = Router();
 templatesRouter.use(requireAuth);
 
 templatesRouter.get("/employee-templates", (_req, res) => {
+  // Return templates grouped by the canonical category order so the hire
+  // screen can render labeled sections without owning the ordering itself.
   res.json(
-    EMPLOYEE_TEMPLATES.map((t) => ({
-      id: t.id,
-      name: t.name,
-      role: t.role,
-      tagline: t.tagline,
-      skills: t.skills.map((s) => s.name),
-      routines: t.routines.map((r) => ({ name: r.name, cronExpr: r.cronExpr })),
-    })),
+    TEMPLATE_CATEGORIES.flatMap((category) =>
+      EMPLOYEE_TEMPLATES.filter((t) => t.category === category).map((t) => ({
+        id: t.id,
+        name: t.name,
+        role: t.role,
+        category: t.category,
+        tagline: t.tagline,
+        skills: t.skills.map((s) => s.name),
+        routines: t.routines.map((r) => ({ name: r.name, cronExpr: r.cronExpr })),
+      })),
+    ),
   );
 });

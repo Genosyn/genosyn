@@ -416,6 +416,7 @@ export type EmployeeTemplate = {
   id: string;
   name: string;
   role: string;
+  category: string;
   tagline: string;
   skills: string[];
   routines: { name: string; cronExpr: string }[];

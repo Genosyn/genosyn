@@ -46,6 +46,24 @@ const TEMPLATE_ICONS: Record<string, React.ReactNode> = {
   "data-analyst": <BarChart3 size={14} />,
 };
 
+/**
+ * Group templates into ordered [category, templates] pairs for the sectioned
+ * picker. The server already returns them grouped in the canonical section
+ * order, so a Map (insertion-ordered) preserves that order here.
+ */
+function groupTemplatesByCategory(
+  templates: EmployeeTemplate[],
+): [string, EmployeeTemplate[]][] {
+  const groups = new Map<string, EmployeeTemplate[]>();
+  for (const t of templates) {
+    const key = t.category || "Other";
+    const existing = groups.get(key);
+    if (existing) existing.push(t);
+    else groups.set(key, [t]);
+  }
+  return Array.from(groups.entries());
+}
+
 type Step = "basics" | "model" | "about" | "soul";
 
 type SoulAnswers = {
@@ -436,31 +454,47 @@ function BasicsStep({
           {templates === null ? (
             <Spinner />
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <TemplateCard
-                selected={selected === null}
-                onPick={() => !locked && onPick(null)}
-                title="Blank employee"
-                tagline="Start with an empty Soul and add skills yourself."
-                subtitle="No skills · No routines"
-                icon={<Sparkles size={14} />}
-                disabled={locked}
-              />
-              {templates.map((t) => (
-                <TemplateCard
-                  key={t.id}
-                  selected={selected === t.id}
-                  onPick={() => !locked && onPick(t)}
-                  title={`${t.name} · ${t.role}`}
-                  tagline={t.tagline}
-                  subtitle={`${t.skills.length} ${
-                    t.skills.length === 1 ? "skill" : "skills"
-                  } · ${t.routines.length} ${
-                    t.routines.length === 1 ? "routine" : "routines"
-                  }`}
-                  icon={TEMPLATE_ICONS[t.id]}
-                  disabled={locked}
-                />
+            <div className="flex flex-col gap-6">
+              <div>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Start fresh
+                </h3>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <TemplateCard
+                    selected={selected === null}
+                    onPick={() => !locked && onPick(null)}
+                    title="Blank employee"
+                    tagline="Start with an empty Soul and add skills yourself."
+                    subtitle="No skills · No routines"
+                    icon={<Sparkles size={14} />}
+                    disabled={locked}
+                  />
+                </div>
+              </div>
+              {groupTemplatesByCategory(templates).map(([category, group]) => (
+                <div key={category}>
+                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    {category}
+                  </h3>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {group.map((t) => (
+                      <TemplateCard
+                        key={t.id}
+                        selected={selected === t.id}
+                        onPick={() => !locked && onPick(t)}
+                        title={`${t.name} · ${t.role}`}
+                        tagline={t.tagline}
+                        subtitle={`${t.skills.length} ${
+                          t.skills.length === 1 ? "skill" : "skills"
+                        } · ${t.routines.length} ${
+                          t.routines.length === 1 ? "routine" : "routines"
+                        }`}
+                        icon={TEMPLATE_ICONS[t.id]}
+                        disabled={locked}
+                      />
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
           )}
@@ -815,7 +849,7 @@ function TemplateCard({
           <Check size={12} />
         </span>
       )}
-      <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+      <div className="flex items-center gap-2 pr-7 text-sm font-semibold text-slate-900 dark:text-slate-100">
         {icon}
         {title}
       </div>
