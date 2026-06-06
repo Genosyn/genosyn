@@ -5,6 +5,7 @@ import {
   ArrowRight,
   BarChart3,
   BrainCircuit,
+  CalendarCheck,
   Check,
   Code2,
   Compass,
@@ -32,6 +33,7 @@ import { MarkdownEditor } from "../components/MarkdownEditor";
 import { EmployeeModelSection } from "./employeeTabs";
 
 const TEMPLATE_ICONS: Record<string, React.ReactNode> = {
+  "executive-assistant": <CalendarCheck size={14} />,
   "customer-success": <HeartHandshake size={14} />,
   "content-writer": <PenTool size={14} />,
   sdr: <Phone size={14} />,
