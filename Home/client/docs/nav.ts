@@ -15,6 +15,7 @@ export const DOCS_NAV: DocsSection[] = [
     pages: [
       { path: "/docs", title: "Introduction", blurb: "What Genosyn is, who it is for, and how to think about it." },
       { path: "/docs/install", title: "Install", blurb: "One command to a running container on localhost:8471." },
+      { path: "/docs/mobile", title: "Install on your phone", blurb: "Add Genosyn to your home screen as a PWA — iOS, Android, desktop." },
     ],
   },
   {

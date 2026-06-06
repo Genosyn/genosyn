@@ -4,6 +4,7 @@ import { DocsShell } from "@/docs/DocsShell";
 import { findPageMeta } from "@/docs/nav";
 import { Introduction } from "@/docs/pages/Introduction";
 import { Install } from "@/docs/pages/Install";
+import { MobileApp } from "@/docs/pages/MobileApp";
 import { Employees } from "@/docs/pages/Employees";
 import { Soul } from "@/docs/pages/Soul";
 import { Skills } from "@/docs/pages/Skills";
@@ -23,6 +24,7 @@ import { NotFound } from "@/docs/pages/NotFound";
 const PAGES: Record<string, () => JSX.Element> = {
   "/docs": Introduction,
   "/docs/install": Install,
+  "/docs/mobile": MobileApp,
   "/docs/employees": Employees,
   "/docs/soul": Soul,
   "/docs/skills": Skills,
