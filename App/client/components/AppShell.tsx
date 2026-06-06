@@ -15,6 +15,7 @@ import {
   Moon,
   NotebookPen,
   NotebookText,
+  PanelLeft,
   Settings as SettingsIcon,
   ShieldCheck,
   Sun,
@@ -58,18 +59,43 @@ type AppShellProps = {
   children: React.ReactNode;
 };
 
+/**
+ * Lets the global top nav drive the per-section contextual sidebar on mobile.
+ * The sidebar collapses below `md`; the top nav shows a toggle (only when the
+ * current section actually has a sidebar) that opens it as an off-canvas
+ * drawer. `ContextualLayout` registers `hasSidebar` and owns the drawer; the
+ * shared `open` state lives here so it survives route changes.
+ */
+type ContextualSidebarState = {
+  open: boolean;
+  setOpen: (v: boolean) => void;
+  hasSidebar: boolean;
+  setHasSidebar: (v: boolean) => void;
+};
+const ContextualSidebarContext =
+  React.createContext<ContextualSidebarState | null>(null);
+
 export function AppShell({ me, companies, current, onCompaniesChanged, children }: AppShellProps) {
+  const [open, setOpen] = React.useState(false);
+  const [hasSidebar, setHasSidebar] = React.useState(false);
+  const sidebarState = React.useMemo<ContextualSidebarState>(
+    () => ({ open, setOpen, hasSidebar, setHasSidebar }),
+    [open, hasSidebar],
+  );
+
   return (
     <CompanySocketProvider companyId={current.id}>
-      <div className="flex h-full flex-col">
-        <TopNav
-          me={me}
-          companies={companies}
-          current={current}
-          onCompaniesChanged={onCompaniesChanged}
-        />
-        <div className="flex min-h-0 flex-1">{children}</div>
-      </div>
+      <ContextualSidebarContext.Provider value={sidebarState}>
+        <div className="flex h-full flex-col">
+          <TopNav
+            me={me}
+            companies={companies}
+            current={current}
+            onCompaniesChanged={onCompaniesChanged}
+          />
+          <div className="flex min-h-0 flex-1">{children}</div>
+        </div>
+      </ContextualSidebarContext.Provider>
     </CompanySocketProvider>
   );
 }
@@ -267,6 +293,7 @@ function TopNav({
   const location = useLocation();
   const { toast } = useToast();
   const dialog = useDialog();
+  const sidebarCtx = React.useContext(ContextualSidebarContext);
   const [companyOpen, setCompanyOpen] = React.useState(false);
   const [userOpen, setUserOpen] = React.useState(false);
 
@@ -280,6 +307,15 @@ function TopNav({
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 dark:border-slate-800 dark:bg-slate-950">
+      {sidebarCtx?.hasSidebar && (
+        <button
+          onClick={() => sidebarCtx.setOpen(true)}
+          className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 md:hidden dark:text-slate-300 dark:hover:bg-slate-800"
+          aria-label="Open sidebar"
+        >
+          <PanelLeft size={18} />
+        </button>
+      )}
       <Link to={`/c/${current.slug}`} className="flex items-center gap-2 text-slate-900 dark:text-slate-100">
         <Logo className="h-7 w-auto" />
       </Link>
@@ -584,12 +620,61 @@ export function ContextualLayout({
   sidebar?: React.ReactNode;
   children: React.ReactNode;
 }) {
+  const hasSidebar = sidebar !== undefined;
+  const location = useLocation();
+  const ctx = React.useContext(ContextualSidebarContext);
+  // useState setters are referentially stable, so depending on them below
+  // won't re-fire these effects when the drawer toggles.
+  const setOpen = ctx?.setOpen;
+  const setHasSidebar = ctx?.setHasSidebar;
+  const open = ctx?.open ?? false;
+
+  // Tell the top nav whether to show the mobile sidebar toggle, for as long as
+  // this layout (with a sidebar) is mounted.
+  React.useEffect(() => {
+    setHasSidebar?.(hasSidebar);
+    return () => setHasSidebar?.(false);
+  }, [setHasSidebar, hasSidebar]);
+
+  // Tapping a sidebar link navigates — close the drawer so it doesn't linger
+  // over the freshly loaded page.
+  React.useEffect(() => {
+    setOpen?.(false);
+  }, [setOpen, location.pathname]);
+
+  // Escape closes the drawer, matching the top-nav dropdown behavior.
+  React.useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen?.(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, setOpen]);
+
   return (
     <>
-      {sidebar !== undefined && (
-        <aside className="flex w-64 shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
-          {sidebar}
-        </aside>
+      {hasSidebar && (
+        <>
+          {/* Desktop: static sidebar. Hidden on mobile, where it would crush
+              the main pane — reachable there via the top-nav drawer below. */}
+          <aside className="hidden w-64 shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-white md:flex dark:border-slate-800 dark:bg-slate-950">
+            {sidebar}
+          </aside>
+          {/* Mobile: off-canvas drawer + scrim. */}
+          {open && (
+            <div className="fixed inset-0 z-40 md:hidden">
+              <div
+                className="absolute inset-0 bg-slate-900/40"
+                onClick={() => setOpen?.(false)}
+                aria-hidden="true"
+              />
+              <aside className="absolute inset-y-0 left-0 flex w-64 max-w-[85vw] flex-col overflow-y-auto border-r border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-950">
+                {sidebar}
+              </aside>
+            </div>
+          )}
+        </>
       )}
       <main className="min-w-0 flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-900">{children}</main>
     </>
