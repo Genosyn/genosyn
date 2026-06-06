@@ -154,12 +154,17 @@ export type Employee = {
    * call `browser_resume(approvalId)` after a human approves.
    */
   browserApprovalRequired?: boolean;
-  /** Lightweight model summary, present only on the list endpoint. */
+  /**
+   * Lightweight summary of the employee's *active* model, present only on the
+   * list endpoint. Null when no model is registered.
+   */
   model?: {
     provider: Provider;
     model: string;
     status: "connected" | "not_connected";
   } | null;
+  /** How many models the employee has registered. Present on the list endpoint. */
+  modelCount?: number;
 };
 
 export type Team = {
@@ -272,6 +277,8 @@ export type AIModel = {
   provider: Provider;
   model: string;
   authMode: AuthMode;
+  /** True if this is the brain the runner + chat seams spawn for the employee. */
+  isActive: boolean;
   connectedAt: string | null;
   status: "not_connected" | "connected";
   apiKeyMasked: string | null;

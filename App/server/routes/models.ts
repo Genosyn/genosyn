@@ -9,6 +9,7 @@ import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { ensureDir } from "../services/paths.js";
 import { PROVIDERS, isCliInstalled, isModelConnected } from "../services/providers.js";
+import { effectiveActiveId, setActiveModel } from "../services/models.js";
 import { removeDir } from "../services/files.js";
 import { encryptSecret, maskSecret } from "../lib/secret.js";
 import {
@@ -28,9 +29,14 @@ import {
 } from "../services/ptySessions.js";
 
 /**
- * Per-employee Model routes. Mounted twice in `index.ts`:
- *  - /api/companies/:cid/employees/:eid/model   (per-employee CRUD)
- *  - /api/companies/:cid/models                 (read-only overview; see GET /overview)
+ * Per-employee Model routes, mounted at
+ * `/api/companies/:cid/employees/:eid/models`.
+ *
+ * An employee can register several models and keep exactly one active. The
+ * collection endpoints (`GET /`, `POST /`) operate on the whole set; the item
+ * endpoints (`/:id/...`) target a single model. `POST /:id/activate` flips
+ * which one the runner + chat seams spawn. The active flag is maintained by
+ * `services/models.ts` so this layer never hand-rolls it.
  */
 export const modelsRouter = Router({ mergeParams: true });
 modelsRouter.use(requireAuth);
@@ -45,6 +51,8 @@ type PublicModel = {
   provider: "claude-code" | "codex" | "opencode" | "goose" | "openclaw";
   model: string;
   authMode: "subscription" | "apikey" | "customEndpoint";
+  /** True if this is the brain the runner + chat seams spawn for the employee. */
+  isActive: boolean;
   connectedAt: string | null;
   status: "not_connected" | "connected";
   apiKeyMasked: string | null;
@@ -72,18 +80,36 @@ type PublicModel = {
   cliInstalled: boolean;
 };
 
-async function loadContext(cid: string, eid: string) {
+type CoEmp = { co: Company; emp: AIEmployee };
+type LoadError = { error: string };
+
+async function loadContext(cid: string, eid: string): Promise<CoEmp | LoadError> {
   const co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
-  if (!co) return { error: "Company not found" as const };
+  if (!co) return { error: "Company not found" };
   const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
     id: eid,
     companyId: cid,
   });
-  if (!emp) return { error: "Employee not found" as const };
+  if (!emp) return { error: "Employee not found" };
   return { co, emp };
 }
 
-function toPublic(m: AIModel, co: Company, emp: AIEmployee): PublicModel {
+async function loadModelContext(
+  cid: string,
+  eid: string,
+  modelId: string,
+): Promise<(CoEmp & { m: AIModel }) | LoadError> {
+  const ctx = await loadContext(cid, eid);
+  if ("error" in ctx) return ctx;
+  const m = await AppDataSource.getRepository(AIModel).findOneBy({
+    id: modelId,
+    employeeId: ctx.emp.id,
+  });
+  if (!m) return { error: "Model not found" };
+  return { co: ctx.co, emp: ctx.emp, m };
+}
+
+function toPublic(m: AIModel, co: Company, emp: AIEmployee, isActive: boolean): PublicModel {
   const cfg = safeParseConfig(m.configJson);
   const apiKeyEncrypted = typeof cfg.apiKeyEncrypted === "string"
     ? (cfg.apiKeyEncrypted as string)
@@ -102,6 +128,7 @@ function toPublic(m: AIModel, co: Company, emp: AIEmployee): PublicModel {
     provider: m.provider,
     model: m.model,
     authMode: m.authMode,
+    isActive,
     connectedAt: m.connectedAt?.toISOString() ?? null,
     status: connected ? "connected" : "not_connected",
     apiKeyMasked: apiKeyEncrypted ? "sk-…••••" : null,
@@ -119,6 +146,19 @@ function toPublic(m: AIModel, co: Company, emp: AIEmployee): PublicModel {
   };
 }
 
+/**
+ * Shape a single model for the wire, computing its `isActive` against the
+ * employee's full set (so a freshly-saved row reflects the live flag without
+ * the caller threading the list through).
+ */
+async function publicModel(m: AIModel, co: Company, emp: AIEmployee): Promise<PublicModel> {
+  const all = await AppDataSource.getRepository(AIModel).find({
+    where: { employeeId: emp.id },
+  });
+  const activeId = effectiveActiveId(all);
+  return toPublic(m, co, emp, m.id === activeId);
+}
+
 function safeParseConfig(s: string): Record<string, unknown> {
   try {
     const v = JSON.parse(s);
@@ -128,73 +168,68 @@ function safeParseConfig(s: string): Record<string, unknown> {
   }
 }
 
-// ---------- Per-employee routes ----------
+function unsupportedAuthError(
+  provider: z.infer<typeof providerSchema>,
+  authMode: z.infer<typeof authModeSchema>,
+): string | null {
+  const spec = PROVIDERS[provider];
+  if (authMode === "apikey" && !spec.supportsApiKey) {
+    return `${provider} doesn't support API key auth — use subscription.`;
+  }
+  if (authMode === "subscription" && !spec.supportsSubscription) {
+    return `${provider} doesn't support subscription auth — use an API key.`;
+  }
+  if (authMode === "customEndpoint" && !spec.supportsCustomEndpoint) {
+    return `${provider} can't host a custom OpenAI-compatible endpoint — pick opencode or goose.`;
+  }
+  return null;
+}
 
-// GET /api/companies/:cid/employees/:eid/model
+// ---------- Collection routes ----------
+
+// GET /api/companies/:cid/employees/:eid/models — list every model, newest first.
 modelsRouter.get("/", async (req, res) => {
   const p = req.params as Record<string, string>;
   const ctx = await loadContext(p.cid, p.eid);
   if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-  const m = await AppDataSource.getRepository(AIModel).findOneBy({ employeeId: ctx.emp.id });
-  if (!m) return res.json(null);
-  res.json(toPublic(m, ctx.co, ctx.emp));
+  const all = await AppDataSource.getRepository(AIModel).find({
+    where: { employeeId: ctx.emp.id },
+    order: { createdAt: "DESC" },
+  });
+  const activeId = effectiveActiveId(all);
+  res.json(all.map((m) => toPublic(m, ctx.co, ctx.emp, m.id === activeId)));
 });
 
-// PUT /api/companies/:cid/employees/:eid/model
-// Upsert — creates the row if missing, updates provider/model/authMode.
-const upsertSchema = z.object({
+// POST /api/companies/:cid/employees/:eid/models — add a model.
+// The newest model becomes active by default; the operator can switch any time.
+const createSchema = z.object({
   provider: providerSchema,
   model: z.string().min(1).max(120),
   authMode: authModeSchema,
 });
 
-modelsRouter.put("/", validateBody(upsertSchema), async (req, res) => {
+modelsRouter.post("/", validateBody(createSchema), async (req, res) => {
   const p = req.params as Record<string, string>;
   const ctx = await loadContext(p.cid, p.eid);
   if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-  const body = req.body as z.infer<typeof upsertSchema>;
-  if (body.authMode === "apikey" && !PROVIDERS[body.provider].supportsApiKey) {
-    return res
-      .status(400)
-      .json({ error: `${body.provider} doesn't support API key auth — use subscription.` });
-  }
-  if (body.authMode === "subscription" && !PROVIDERS[body.provider].supportsSubscription) {
-    return res
-      .status(400)
-      .json({ error: `${body.provider} doesn't support subscription auth — use an API key.` });
-  }
-  if (body.authMode === "customEndpoint" && !PROVIDERS[body.provider].supportsCustomEndpoint) {
-    return res.status(400).json({
-      error: `${body.provider} can't host a custom OpenAI-compatible endpoint — pick opencode or goose.`,
-    });
-  }
+  const body = req.body as z.infer<typeof createSchema>;
+  const unsupported = unsupportedAuthError(body.provider, body.authMode);
+  if (unsupported) return res.status(400).json({ error: unsupported });
+
   const repo = AppDataSource.getRepository(AIModel);
-  let m = await repo.findOneBy({ employeeId: ctx.emp.id });
-  if (!m) {
-    m = repo.create({
-      employeeId: ctx.emp.id,
-      provider: body.provider,
-      model: body.model,
-      authMode: body.authMode,
-      configJson: "{}",
-      connectedAt: null,
-    });
-  } else {
-    const changedAuth = m.authMode !== body.authMode;
-    m.provider = body.provider;
-    m.model = body.model;
-    m.authMode = body.authMode;
-    // If auth mode switched, any prior credentials are invalid.
-    if (changedAuth) {
-      m.configJson = "{}";
-      m.connectedAt = null;
-    }
-  }
+  const m = repo.create({
+    employeeId: ctx.emp.id,
+    provider: body.provider,
+    model: body.model,
+    authMode: body.authMode,
+    configJson: "{}",
+    connectedAt: null,
+    isActive: false,
+  });
   await repo.save(m);
-  // Ensure the employee's provider config dir exists so the login CLI can
-  // write into it. Some providers (opencode, goose) follow XDG conventions
-  // and write auth into a nested subdirectory of the config dir — pre-create
-  // it for everyone so the CLI doesn't error on first login.
+  // Newest-added model is active by default (clears the flag on its siblings).
+  await setActiveModel(ctx.emp.id, m.id);
+  // Ensure the provider config dir exists so the login CLI can write into it.
   if (body.authMode === "subscription") {
     const spec = PROVIDERS[body.provider];
     ensureDir(spec.configDir(ctx.co.slug, ctx.emp.slug));
@@ -209,26 +244,82 @@ modelsRouter.put("/", validateBody(upsertSchema), async (req, res) => {
     targetLabel: ctx.emp.name,
     metadata: { provider: m.provider, model: m.model, authMode: m.authMode },
   });
-  res.json(toPublic(m, ctx.co, ctx.emp));
+  res.json(await publicModel(m, ctx.co, ctx.emp));
 });
 
-// POST /api/companies/:cid/employees/:eid/model/apikey — set or clear API key
+// ---------- Item routes ----------
+
+// PUT /api/companies/:cid/employees/:eid/models/:id — change provider/model/auth.
+const updateSchema = createSchema;
+
+modelsRouter.put("/:id", validateBody(updateSchema), async (req, res) => {
+  const p = req.params as Record<string, string>;
+  const ctx = await loadModelContext(p.cid, p.eid, p.id);
+  if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+  const body = req.body as z.infer<typeof updateSchema>;
+  const unsupported = unsupportedAuthError(body.provider, body.authMode);
+  if (unsupported) return res.status(400).json({ error: unsupported });
+
+  const repo = AppDataSource.getRepository(AIModel);
+  const m = ctx.m;
+  const changedAuth = m.authMode !== body.authMode;
+  m.provider = body.provider;
+  m.model = body.model;
+  m.authMode = body.authMode;
+  // If auth mode switched, any prior credentials are invalid.
+  if (changedAuth) {
+    m.configJson = "{}";
+    m.connectedAt = null;
+  }
+  await repo.save(m);
+  if (body.authMode === "subscription") {
+    const spec = PROVIDERS[body.provider];
+    ensureDir(spec.configDir(ctx.co.slug, ctx.emp.slug));
+    ensureDir(path.dirname(spec.credsPath(ctx.co.slug, ctx.emp.slug)));
+  }
+  await recordAudit({
+    companyId: ctx.co.id,
+    actorUserId: req.userId ?? null,
+    action: "model.configure",
+    targetType: "employee",
+    targetId: ctx.emp.id,
+    targetLabel: ctx.emp.name,
+    metadata: { provider: m.provider, model: m.model, authMode: m.authMode },
+  });
+  res.json(await publicModel(m, ctx.co, ctx.emp));
+});
+
+// POST /api/companies/:cid/employees/:eid/models/:id/activate — switch brain.
+modelsRouter.post("/:id/activate", async (req, res) => {
+  const p = req.params as Record<string, string>;
+  const ctx = await loadModelContext(p.cid, p.eid, p.id);
+  if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+  await setActiveModel(ctx.emp.id, ctx.m.id);
+  await recordAudit({
+    companyId: ctx.co.id,
+    actorUserId: req.userId ?? null,
+    action: "model.activate",
+    targetType: "employee",
+    targetId: ctx.emp.id,
+    targetLabel: ctx.emp.name,
+    metadata: { provider: ctx.m.provider, model: ctx.m.model },
+  });
+  res.json(await publicModel(ctx.m, ctx.co, ctx.emp));
+});
+
+// POST /api/companies/:cid/employees/:eid/models/:id/apikey — set API key
 const apiKeySchema = z.object({ apiKey: z.string().min(1).max(500) });
 
-modelsRouter.post("/apikey", validateBody(apiKeySchema), async (req, res) => {
+modelsRouter.post("/:id/apikey", validateBody(apiKeySchema), async (req, res) => {
   const p = req.params as Record<string, string>;
-  const ctx = await loadContext(p.cid, p.eid);
+  const ctx = await loadModelContext(p.cid, p.eid, p.id);
   if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-  const repo = AppDataSource.getRepository(AIModel);
-  const m = await repo.findOneBy({ employeeId: ctx.emp.id });
-  if (!m) return res.status(404).json({ error: "Configure provider/model first" });
+  const m = ctx.m;
   if (m.authMode !== "apikey") {
     return res.status(400).json({ error: "Model is not in apikey mode" });
   }
   if (!PROVIDERS[m.provider].supportsApiKey) {
-    return res
-      .status(400)
-      .json({ error: `${m.provider} doesn't support API key auth` });
+    return res.status(400).json({ error: `${m.provider} doesn't support API key auth` });
   }
   const { apiKey } = req.body as z.infer<typeof apiKeySchema>;
   const cfg = safeParseConfig(m.configJson);
@@ -236,7 +327,7 @@ modelsRouter.post("/apikey", validateBody(apiKeySchema), async (req, res) => {
   cfg.apiKeyPreview = maskSecret(apiKey);
   m.configJson = JSON.stringify(cfg);
   m.connectedAt = new Date();
-  await repo.save(m);
+  await AppDataSource.getRepository(AIModel).save(m);
   await recordAudit({
     companyId: ctx.co.id,
     actorUserId: req.userId ?? null,
@@ -246,18 +337,18 @@ modelsRouter.post("/apikey", validateBody(apiKeySchema), async (req, res) => {
     targetLabel: ctx.emp.name,
     metadata: { provider: m.provider },
   });
-  res.json(toPublic(m, ctx.co, ctx.emp));
+  res.json(await publicModel(m, ctx.co, ctx.emp));
 });
 
-// POST /api/companies/:cid/employees/:eid/model/custom-endpoint
+// POST /api/companies/:cid/employees/:eid/models/:id/custom-endpoint
 //
-// Save (or update) a custom OpenAI-compatible endpoint configuration.
-// The model row must already be in customEndpoint authMode (set via PUT /).
-// The base URL is required; the API key is optional (most local LLMs don't
-// enforce one). modelId is the raw model name the upstream server exposes
-// (e.g. "qwen2.5-coder:32b") — we synthesize the harness-side
-// `<provider>/<model>` string when we save to AIModel.model so the
-// existing buildInvocation path doesn't need to know about customEndpoint.
+// Save (or update) a custom OpenAI-compatible endpoint configuration. The
+// model row must already be in customEndpoint authMode (set via POST / or
+// PUT /:id). The base URL is required; the API key is optional (most local
+// LLMs don't enforce one). modelId is the raw model name the upstream server
+// exposes (e.g. "qwen2.5-coder:32b") — we synthesize the harness-side
+// `<provider>/<model>` string when we save to AIModel.model so the existing
+// buildInvocation path doesn't need to know about customEndpoint.
 const customEndpointSchema = z.object({
   baseURL: z
     .string()
@@ -277,15 +368,13 @@ const customEndpointSchema = z.object({
 });
 
 modelsRouter.post(
-  "/custom-endpoint",
+  "/:id/custom-endpoint",
   validateBody(customEndpointSchema),
   async (req, res) => {
     const p = req.params as Record<string, string>;
-    const ctx = await loadContext(p.cid, p.eid);
+    const ctx = await loadModelContext(p.cid, p.eid, p.id);
     if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-    const repo = AppDataSource.getRepository(AIModel);
-    const m = await repo.findOneBy({ employeeId: ctx.emp.id });
-    if (!m) return res.status(404).json({ error: "Configure provider/model first" });
+    const m = ctx.m;
     if (m.authMode !== "customEndpoint") {
       return res.status(400).json({ error: "Model is not in custom-endpoint mode" });
     }
@@ -317,7 +406,7 @@ modelsRouter.post(
     // Wipe any stale subscription/apikey state lying in the harness cache dir.
     // Spawn-time materializers re-create whatever the runner needs.
     clearHarnessCacheDir(m.provider, ctx.co.slug, ctx.emp.slug);
-    await repo.save(m);
+    await AppDataSource.getRepository(AIModel).save(m);
     await recordAudit({
       companyId: ctx.co.id,
       actorUserId: req.userId ?? null,
@@ -332,44 +421,53 @@ modelsRouter.post(
         hasApiKey: Boolean(apiKey),
       },
     });
-    res.json(toPublic(m, ctx.co, ctx.emp));
+    res.json(await publicModel(m, ctx.co, ctx.emp));
   },
 );
 
-// POST /api/companies/:cid/employees/:eid/model/refresh
+// POST /api/companies/:cid/employees/:eid/models/:id/refresh
 // For subscription mode: re-check whether the creds file has appeared.
-// Separate endpoint so the client can poll cheaply while the user runs
-// `claude login` in their terminal.
-modelsRouter.post("/refresh", async (req, res) => {
+// Separate endpoint so the client can poll cheaply while the user signs in.
+modelsRouter.post("/:id/refresh", async (req, res) => {
   const p = req.params as Record<string, string>;
-  const ctx = await loadContext(p.cid, p.eid);
+  const ctx = await loadModelContext(p.cid, p.eid, p.id);
   if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-  const repo = AppDataSource.getRepository(AIModel);
-  const m = await repo.findOneBy({ employeeId: ctx.emp.id });
-  if (!m) return res.json(null);
+  const m = ctx.m;
   const nowConnected = isModelConnected(m, ctx.co, ctx.emp);
   if (nowConnected && !m.connectedAt) {
     m.connectedAt = new Date();
-    await repo.save(m);
+    await AppDataSource.getRepository(AIModel).save(m);
   }
   if (!nowConnected && m.connectedAt && m.authMode === "subscription") {
     m.connectedAt = null;
-    await repo.save(m);
+    await AppDataSource.getRepository(AIModel).save(m);
   }
-  res.json(toPublic(m, ctx.co, ctx.emp));
+  res.json(await publicModel(m, ctx.co, ctx.emp));
 });
 
-// DELETE /api/companies/:cid/employees/:eid/model — disconnect
-modelsRouter.delete("/", async (req, res) => {
+// DELETE /api/companies/:cid/employees/:eid/models/:id — disconnect one model
+modelsRouter.delete("/:id", async (req, res) => {
   const p = req.params as Record<string, string>;
-  const ctx = await loadContext(p.cid, p.eid);
+  const ctx = await loadModelContext(p.cid, p.eid, p.id);
   if ("error" in ctx) return res.status(404).json({ error: ctx.error });
   const repo = AppDataSource.getRepository(AIModel);
-  const m = await repo.findOneBy({ employeeId: ctx.emp.id });
-  if (!m) return res.json({ ok: true });
+  const m = ctx.m;
+  const remaining = (await repo.find({ where: { employeeId: ctx.emp.id } })).filter(
+    (r) => r.id !== m.id,
+  );
   await repo.delete({ id: m.id });
-  // Wipe on-disk creds for subscription auth. Safe no-op if missing.
-  removeDir(PROVIDERS[m.provider].configDir(ctx.co.slug, ctx.emp.slug));
+  // If we removed the active brain, promote the most-recently-added survivor
+  // so the employee always has a defined active model.
+  if (remaining.length > 0 && !remaining.some((r) => r.isActive)) {
+    const promote = effectiveActiveId(remaining);
+    if (promote) await setActiveModel(ctx.emp.id, promote);
+  }
+  // Wipe on-disk creds for this provider only if no surviving model still
+  // uses it — sibling models that share the provider's subscription dir
+  // (e.g. two claude-code models) must keep their credentials.
+  if (!remaining.some((r) => r.provider === m.provider)) {
+    removeDir(PROVIDERS[m.provider].configDir(ctx.co.slug, ctx.emp.slug));
+  }
   await recordAudit({
     companyId: ctx.co.id,
     actorUserId: req.userId ?? null,
@@ -435,16 +533,14 @@ function buildLoginEnv(configDir: string, configDirEnv: string): NodeJS.ProcessE
   return env;
 }
 
-// POST /api/companies/:cid/employees/:eid/model/install
+// POST /api/companies/:cid/employees/:eid/models/:id/install
 // Spawn the provider's installer under a pty. Returns a sessionId the client
-// polls for output and exit. Caller must have already PUT a model row.
-modelsRouter.post("/install", async (req, res) => {
+// polls for output and exit.
+modelsRouter.post("/:id/install", async (req, res) => {
   const p = req.params as Record<string, string>;
-  const ctx = await loadContext(p.cid, p.eid);
+  const ctx = await loadModelContext(p.cid, p.eid, p.id);
   if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-  const repo = AppDataSource.getRepository(AIModel);
-  const m = await repo.findOneBy({ employeeId: ctx.emp.id });
-  if (!m) return res.status(404).json({ error: "Configure provider/model first" });
+  const m = ctx.m;
   if (isCliInstalled(m.provider)) {
     return res.status(409).json({ error: `${m.provider} CLI is already installed.` });
   }
@@ -481,18 +577,13 @@ modelsRouter.post("/install", async (req, res) => {
   res.json({ sessionId: session.id });
 });
 
-// POST /api/companies/:cid/employees/:eid/model/login
+// POST /api/companies/:cid/employees/:eid/models/:id/login
 // Spawn the provider's login command under a pty for in-browser sign-in.
-// The CLI must already be installed; surfacing a clear error here means the
-// frontend never has to guess at install state when it shows the "Sign in"
-// button.
-modelsRouter.post("/login", async (req, res) => {
+modelsRouter.post("/:id/login", async (req, res) => {
   const p = req.params as Record<string, string>;
-  const ctx = await loadContext(p.cid, p.eid);
+  const ctx = await loadModelContext(p.cid, p.eid, p.id);
   if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-  const repo = AppDataSource.getRepository(AIModel);
-  const m = await repo.findOneBy({ employeeId: ctx.emp.id });
-  if (!m) return res.status(404).json({ error: "Configure provider/model first" });
+  const m = ctx.m;
   if (m.authMode !== "subscription") {
     return res.status(400).json({ error: "Model is not in subscription mode" });
   }
@@ -543,9 +634,11 @@ modelsRouter.post("/login", async (req, res) => {
   res.json({ sessionId: session.id });
 });
 
-// GET /api/companies/:cid/employees/:eid/model/session/:sid?since=<int>
+// GET /api/companies/:cid/employees/:eid/models/:id/session/:sid?since=<int>
 // Returns new pty output since `since` plus the exit state. Cheap to poll.
-modelsRouter.get("/session/:sid", async (req, res) => {
+// `:id` is cosmetic here — the pty session is keyed by company + employee, so
+// the panel keeps working even if the model row is mid-reconfigure.
+modelsRouter.get("/:id/session/:sid", async (req, res) => {
   const p = req.params as Record<string, string>;
   const ctx = await loadContext(p.cid, p.eid);
   if ("error" in ctx) return res.status(404).json({ error: ctx.error });
@@ -559,10 +652,10 @@ modelsRouter.get("/session/:sid", async (req, res) => {
   res.json(viewSession(session, Number.isFinite(since) ? since : 0));
 });
 
-// POST /api/companies/:cid/employees/:eid/model/session/:sid/input
+// POST /api/companies/:cid/employees/:eid/models/:id/session/:sid/input
 // Forward `data` to the pty's stdin. Used to paste OAuth codes or hit ENTER.
 const inputSchema = z.object({ data: z.string().max(4096) });
-modelsRouter.post("/session/:sid/input", validateBody(inputSchema), async (req, res) => {
+modelsRouter.post("/:id/session/:sid/input", validateBody(inputSchema), async (req, res) => {
   const p = req.params as Record<string, string>;
   const ctx = await loadContext(p.cid, p.eid);
   if ("error" in ctx) return res.status(404).json({ error: ctx.error });
@@ -578,9 +671,9 @@ modelsRouter.post("/session/:sid/input", validateBody(inputSchema), async (req, 
   res.json({ ok: true });
 });
 
-// POST /api/companies/:cid/employees/:eid/model/session/:sid/cancel
+// POST /api/companies/:cid/employees/:eid/models/:id/session/:sid/cancel
 // Kill an in-flight pty (operator clicked Cancel, or the page is unloading).
-modelsRouter.post("/session/:sid/cancel", async (req, res) => {
+modelsRouter.post("/:id/session/:sid/cancel", async (req, res) => {
   const p = req.params as Record<string, string>;
   const ctx = await loadContext(p.cid, p.eid);
   if ("error" in ctx) return res.status(404).json({ error: ctx.error });

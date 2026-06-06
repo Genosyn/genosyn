@@ -10,6 +10,7 @@ import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { employeeDir, employeeOpenclawDir, ensureDir, openclawConfigPath } from "./paths.js";
 import { nextRunFor } from "./cron.js";
 import { PROVIDERS, isSubscriptionConnected, splitGooseModel } from "./providers.js";
+import { getActiveModel } from "./models.js";
 import { decryptSecret } from "../lib/secret.js";
 import { materializeMcpConfig } from "./mcp.js";
 import {
@@ -93,14 +94,14 @@ export async function startRoutineRun(
   const routineRepo = AppDataSource.getRepository(Routine);
   const empRepo = AppDataSource.getRepository(AIEmployee);
   const coRepo = AppDataSource.getRepository(Company);
-  const modelRepo = AppDataSource.getRepository(AIModel);
   const skillRepo = AppDataSource.getRepository(Skill);
 
   const emp = await empRepo.findOneBy({ id: routine.employeeId });
   if (!emp) throw new Error("Employee not found for routine");
   const co = await coRepo.findOneBy({ id: emp.companyId });
   if (!co) throw new Error("Company not found for employee");
-  const model = await modelRepo.findOneBy({ employeeId: emp.id });
+  // An employee can hold several models; the active one is the brain we spawn.
+  const model = await getActiveModel(emp.id);
   const skills = await skillRepo.find({ where: { employeeId: emp.id } });
 
   const now = new Date();

@@ -17,6 +17,7 @@ import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { employeeDir, ensureDir } from "../services/paths.js";
 import { isModelConnected } from "../services/providers.js";
+import { effectiveActiveId } from "../services/models.js";
 import { removeDir, soulTemplate, skillTemplate, routineTemplate } from "../services/files.js";
 import { registerRoutine } from "../services/cron.js";
 import { deleteEmployeeConversations } from "./employeeSurface.js";
@@ -69,13 +70,20 @@ employeesRouter.get("/", async (req, res) => {
   const emps = await AppDataSource.getRepository(AIEmployee).find({
     where: { companyId: cid },
   });
-  // Include a lightweight model summary per employee so the dashboard can
-  // show connection chips from a single roundtrip. Keep it minimal — the
-  // full model shape lives at /employees/:eid/model.
+  // Include a lightweight summary of the *active* model per employee so the
+  // dashboard can show connection chips from a single roundtrip. Keep it
+  // minimal — the full model list lives at /employees/:eid/models.
   const models = await AppDataSource.getRepository(AIModel).find();
-  const byEmp = new Map(models.map((m) => [m.employeeId, m]));
+  const byEmp = new Map<string, AIModel[]>();
+  for (const m of models) {
+    const list = byEmp.get(m.employeeId);
+    if (list) list.push(m);
+    else byEmp.set(m.employeeId, [m]);
+  }
   const rows = emps.map((e) => {
-    const m = byEmp.get(e.id);
+    const list = byEmp.get(e.id) ?? [];
+    const activeId = effectiveActiveId(list);
+    const m = list.find((x) => x.id === activeId) ?? null;
     return {
       ...e,
       model: m
@@ -85,6 +93,7 @@ employeesRouter.get("/", async (req, res) => {
             status: isModelConnected(m, co, e) ? "connected" : "not_connected",
           }
         : null,
+      modelCount: list.length,
     };
   });
   res.json(rows);

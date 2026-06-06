@@ -75,8 +75,8 @@ export function Employees() {
             term: "model",
             def: (
               <>
-                One-to-one <Code>AIModel</Code> — the brain. See{" "}
-                <DocLink to="/docs/models">AI Models</DocLink>.
+                One or more <Code>AIModel</Code> brains, one active at a time.
+                See <DocLink to="/docs/models">AI Models</DocLink>.
               </>
             ),
           },
@@ -171,11 +171,13 @@ export function Employees() {
         </LI>
       </UL>
 
-      <Callout kind="info" title="One model per employee, on purpose.">
-        Each employee owns their own provider credentials in their own folder.
-        There&apos;s no shared company-wide API key. Firing an employee revokes
-        their access in a single <Code>rm -rf</Code>; you don&apos;t have to
-        rotate anything for the rest of the team.
+      <Callout kind="info" title="Models are employee-owned, on purpose.">
+        Each employee owns their own provider credentials in their own folder —
+        even when they register several models, every one lives under that
+        employee&apos;s directory. There&apos;s no shared company-wide API key.
+        Firing an employee revokes all of their access in a single{" "}
+        <Code>rm -rf</Code>; you don&apos;t have to rotate anything for the rest
+        of the team.
       </Callout>
     </>
   );

@@ -6,6 +6,7 @@ import { AIModel } from "../db/entities/AIModel.js";
 import { Skill } from "../db/entities/Skill.js";
 import { employeeDir, employeeOpenclawDir, ensureDir, openclawConfigPath } from "./paths.js";
 import { PROVIDERS, isSubscriptionConnected, splitGooseModel } from "./providers.js";
+import { getActiveModel } from "./models.js";
 import { decryptSecret } from "../lib/secret.js";
 import { materializeMcpConfig } from "./mcp.js";
 import {
@@ -96,14 +97,14 @@ export async function streamChatWithEmployee(
 ): Promise<ChatResult> {
   const empRepo = AppDataSource.getRepository(AIEmployee);
   const coRepo = AppDataSource.getRepository(Company);
-  const modelRepo = AppDataSource.getRepository(AIModel);
   const skillRepo = AppDataSource.getRepository(Skill);
 
   const emp = await empRepo.findOneBy({ id: employeeId, companyId });
   if (!emp) return { status: "error", reply: "Employee not found.", attachmentIds: [] };
   const co = await coRepo.findOneBy({ id: companyId });
   if (!co) return { status: "error", reply: "Company not found.", attachmentIds: [] };
-  const model = await modelRepo.findOneBy({ employeeId: emp.id });
+  // An employee can hold several models; the active one is the brain we spawn.
+  const model = await getActiveModel(emp.id);
   const skills = await skillRepo.find({ where: { employeeId: emp.id } });
 
   if (!model) {

@@ -10,10 +10,17 @@ export type Provider = "claude-code" | "codex" | "opencode" | "goose" | "opencla
 export type AuthMode = "subscription" | "apikey" | "customEndpoint";
 
 /**
- * An AIModel is the brain of a single AI Employee. One-to-one with
- * AIEmployee: `employeeId` is unique. Credentials live on disk under the
- * employee's `.claude/` dir (subscription) or encrypted in `configJson`
- * (apikey / customEndpoint). See ROADMAP.md §5 for rationale.
+ * An AIModel is one of the brains an AI Employee can run on. An employee can
+ * register several (`employeeId` is indexed, not unique) and flip exactly one
+ * to active at a time via `isActive` — the runner + chat seams always spawn
+ * the active one. Credentials live on disk under the employee's per-provider
+ * dir (subscription) or encrypted in `configJson` (apikey / customEndpoint).
+ * See ROADMAP.md §5 for rationale.
+ *
+ * `isActive` invariant: at most one row per employee is `true`. The model
+ * service maintains it on every create / switch / delete; reads fall back to
+ * the most-recently-created row when no row is flagged (covers rows that
+ * predate this column, which migrate in as `false`).
  *
  * `customEndpoint` is the "point this employee at a local OpenAI-compatible
  * server" path. Valid on the two router providers — opencode and goose —
@@ -26,7 +33,7 @@ export type AuthMode = "subscription" | "apikey" | "customEndpoint";
  * a terminal.
  */
 @Entity("ai_models")
-@Index(["employeeId"], { unique: true })
+@Index(["employeeId"])
 export class AIModel {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -42,6 +49,14 @@ export class AIModel {
 
   @Column({ type: "varchar", default: "subscription" })
   authMode!: AuthMode;
+
+  /**
+   * The active brain for this employee. At most one row per employee is true.
+   * The newest-added model is made active by default; the operator can switch
+   * any time.
+   */
+  @Column({ type: "boolean", default: false })
+  isActive!: boolean;
 
   /** JSON blob. `apikey` mode stores { apiKeyEncrypted: "..." }. */
   @Column({ type: "text", default: "{}" })

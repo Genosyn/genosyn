@@ -19,10 +19,12 @@ export function Models() {
         title="AI Models"
         lead={
           <>
-            Every AI Employee has exactly one <Strong>AI Model</Strong> — their
-            brain. Pick a provider, sign in (or paste an API key), and the
-            runner spawns that provider&apos;s CLI inside the employee&apos;s
-            sandboxed directory.
+            Every AI Employee can register one or more <Strong>AI Models</Strong>{" "}
+            — their brains — and keep exactly one <Strong>active</Strong> at a
+            time. Pick a provider, sign in (or paste an API key), and the runner
+            spawns the active model&apos;s CLI inside the employee&apos;s
+            sandboxed directory. Switch the active model any time without losing
+            the others&apos; credentials.
           </>
         }
       />
@@ -143,12 +145,33 @@ export function Models() {
         always win.
       </Callout>
 
-      <H2 id="switching-disconnecting">Switching & disconnecting</H2>
+      <H2 id="multiple-models">Multiple models &amp; the active one</H2>
       <P>
-        To change an employee&apos;s model: disconnect the current one (this
-        deletes the AIModel row and wipes the on-disk credentials for that
-        provider), then attach the new provider. No data on Soul, Skills,
-        Routines, or past Runs is affected.
+        An employee can hold several models side by side — say a{" "}
+        <Code>claude-code</Code> subscription for everyday work and a{" "}
+        <Code>codex</Code> API key for a second opinion. Exactly one is{" "}
+        <Strong>active</Strong> at a time; the active model is the brain the
+        runner spawns for routines and the chat seam answers with. The most
+        recently added model becomes active automatically — hit{" "}
+        <Strong>Make active</Strong> on any other to switch, instantly and as
+        often as you like.
+      </P>
+      <P>
+        Open an employee, then <Strong>Settings → Model</Strong> to see the
+        roster: each card shows the provider, model string, connection status,
+        and an <Strong>Active</Strong> badge on the current brain. Use{" "}
+        <Strong>Add model</Strong> to register another.
+      </P>
+
+      <H2 id="switching-disconnecting">Removing a model</H2>
+      <P>
+        <Strong>Remove</Strong> on a model card deletes that AIModel row. Its
+        on-disk credentials for the provider are wiped <em>unless</em> another
+        of the employee&apos;s models still uses the same provider (two{" "}
+        <Code>claude-code</Code> models share one <Code>.claude/</Code> dir, so
+        the survivor keeps its sign-in). If you remove the active model, the
+        most recently added survivor is promoted to active. No data on Soul,
+        Skills, Routines, or past Runs is affected.
       </P>
 
       <H3 id="openclaw-defaults">OpenClaw extras</H3>

@@ -1665,88 +1665,122 @@ export function ModelSettingsPage() {
 }
 
 /**
- * Renders the full per-employee model connect flow (provider picker, auth
- * mode, subscription sign-in with polling, API key form, status card).
- * Exported so the onboarding wizard can drop it in as a step without
- * duplicating the state machine.
+ * Renders the full per-employee model surface. An employee can register
+ * several models and keep exactly one active; this lists them, lets the
+ * operator add more, switch the active one, sign each in, and reconfigure or
+ * remove them. Exported so the onboarding wizard can drop it in as a step
+ * without duplicating the state machine.
  */
 export function EmployeeModelSection({ company, emp }: { company: Company; emp: Employee }) {
-  const [model, setModel] = React.useState<AIModel | null | undefined>(undefined);
+  const [models, setModels] = React.useState<AIModel[] | undefined>(undefined);
+  const [adding, setAdding] = React.useState(false);
   const { toast } = useToast();
 
   const reload = React.useCallback(async () => {
-    const m = await api.get<AIModel | null>(
-      `/api/companies/${company.id}/employees/${emp.id}/model`,
+    const list = await api.get<AIModel[]>(
+      `/api/companies/${company.id}/employees/${emp.id}/models`,
     );
-    setModel(m);
+    setModels(list);
   }, [company.id, emp.id]);
 
   React.useEffect(() => {
-    reload().catch(() => setModel(null));
+    reload().catch(() => setModels([]));
   }, [reload]);
 
+  // While any subscription model is mid sign-in, poll its /refresh endpoint so
+  // the status flips to connected as soon as the creds file lands on disk. We
+  // refresh each pending model and merge the result back into the list.
   React.useEffect(() => {
-    if (!model || model.status === "connected" || model.authMode !== "subscription") return;
+    if (!models) return;
+    const pending = models.filter(
+      (m) => m.authMode === "subscription" && m.status !== "connected",
+    );
+    if (pending.length === 0) return;
     let alive = true;
     const id = window.setInterval(async () => {
-      if (!alive) return;
-      try {
-        const m = await api.post<AIModel>(
-          `/api/companies/${company.id}/employees/${emp.id}/model/refresh`,
-        );
+      for (const pm of pending) {
         if (!alive) return;
-        setModel(m);
-        if (m.status === "connected") toast(`${emp.name} signed in`, "success");
-      } catch {
-        // swallow
+        try {
+          const updated = await api.post<AIModel>(
+            `/api/companies/${company.id}/employees/${emp.id}/models/${pm.id}/refresh`,
+          );
+          if (!alive) return;
+          setModels((prev) =>
+            prev ? prev.map((x) => (x.id === updated.id ? updated : x)) : prev,
+          );
+          if (updated.status === "connected") {
+            toast(`${emp.name} signed in with ${updated.provider}`, "success");
+          }
+        } catch {
+          // network blip — try again next tick
+        }
       }
     }, 2500);
     return () => {
       alive = false;
       window.clearInterval(id);
     };
-  }, [model, company.id, emp.id, emp.name, toast]);
+  }, [models, company.id, emp.id, emp.name, toast]);
 
-  if (model === undefined) return <Spinner />;
-  if (!model) return <ModelSetup company={company} emp={emp} onSaved={reload} />;
-  // Connected models show the reconfigure card up front (so the operator can
-  // switch model strings, swap providers, etc.). Not-yet-connected models
-  // hide it behind a disclosure — the active sign-in is the one thing the
-  // user should be doing, and a duplicate provider/auth picker right under
-  // it is just noise.
-  const connected = model.status === "connected";
+  if (models === undefined) return <Spinner />;
+
+  // No models yet — straight to the first-model setup card.
+  if (models.length === 0) {
+    return <ModelSetup company={company} emp={emp} onSaved={reload} />;
+  }
+
   return (
     <div className="flex flex-col gap-4">
-      <ModelStatusCard company={company} emp={emp} model={model} onChanged={reload} />
-      {connected ? (
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            {emp.name}&apos;s models
+          </div>
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            {models.length === 1
+              ? "One brain registered. Add another to switch between them any time."
+              : `${models.length} brains registered — the active one answers chats and runs routines.`}
+          </div>
+        </div>
+        {!adding && (
+          <Button size="sm" variant="secondary" onClick={() => setAdding(true)}>
+            <Plus size={14} /> Add model
+          </Button>
+        )}
+      </div>
+
+      {adding && (
         <Card>
           <CardBody className="flex flex-col gap-3">
-            <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Reconfigure</div>
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                Add a model
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => setAdding(false)}>
+                Cancel
+              </Button>
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              The model you add becomes active right away. You can switch back any time.
+            </div>
             <ModelForm
-              initial={{ provider: model.provider, model: model.model, authMode: model.authMode }}
+              mode="create"
+              initial={{ provider: "claude-code", model: "claude-opus-4-6", authMode: "subscription" }}
               company={company}
               emp={emp}
-              onSaved={reload}
-              submitLabel="Save changes"
+              onSaved={() => {
+                setAdding(false);
+                reload();
+              }}
+              submitLabel="Add model"
             />
           </CardBody>
         </Card>
-      ) : (
-        <details className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-950">
-          <summary className="cursor-pointer text-slate-600 dark:text-slate-300">
-            Change provider, model, or auth method
-          </summary>
-          <div className="mt-3">
-            <ModelForm
-              initial={{ provider: model.provider, model: model.model, authMode: model.authMode }}
-              company={company}
-              emp={emp}
-              onSaved={reload}
-              submitLabel="Save changes"
-            />
-          </div>
-        </details>
       )}
+
+      {models.map((m) => (
+        <ModelCard key={m.id} company={company} emp={emp} model={m} onChanged={reload} />
+      ))}
     </div>
   );
 }
@@ -1772,6 +1806,7 @@ function ModelSetup({
           </div>
         </div>
         <ModelForm
+          mode="create"
           initial={{ provider: "claude-code", model: "claude-opus-4-6", authMode: "subscription" }}
           company={company}
           emp={emp}
@@ -1784,12 +1819,18 @@ function ModelSetup({
 }
 
 function ModelForm({
+  mode,
+  editModelId,
   initial,
   company,
   emp,
   onSaved,
   submitLabel,
 }: {
+  /** "create" POSTs a new model row; "edit" PUTs an existing one. */
+  mode: "create" | "edit";
+  /** Required when mode is "edit" — the row being reconfigured. */
+  editModelId?: string;
   initial: { provider: Provider; model: string; authMode: AuthMode };
   company: Company;
   emp: Employee;
@@ -1837,35 +1878,36 @@ function ModelForm({
       onSubmit={async (e) => {
         e.preventDefault();
         setSaving(true);
+        const base = `/api/companies/${company.id}/employees/${emp.id}/models`;
         try {
           if (authMode === "customEndpoint") {
-            // Two-call save: first the model row in customEndpoint mode (PUT
+            // Two-call save: first the model row in customEndpoint mode (the
             // schema requires a non-empty model — a slug/configure placeholder
             // satisfies it and gets rewritten in the POST below), then the
-            // encrypted endpoint config that flips status to connected.
+            // encrypted endpoint config that flips status to connected. On
+            // create we use the id the POST hands back; on edit we already
+            // have it.
             const slug = provider === "opencode" ? "local" : "openai";
-            await api.put(`/api/companies/${company.id}/employees/${emp.id}/model`, {
-              provider,
-              model: `${slug}/configure`,
-              authMode: "customEndpoint",
+            const payload = { provider, model: `${slug}/configure`, authMode: "customEndpoint" };
+            const saved =
+              mode === "create"
+                ? await api.post<AIModel>(base, payload)
+                : await api.put<AIModel>(`${base}/${editModelId}`, payload);
+            await api.post(`${base}/${saved.id}/custom-endpoint`, {
+              baseURL,
+              modelId,
+              ...(apiKey ? { apiKey } : {}),
             });
-            await api.post(
-              `/api/companies/${company.id}/employees/${emp.id}/model/custom-endpoint`,
-              {
-                baseURL,
-                modelId,
-                ...(apiKey ? { apiKey } : {}),
-              },
-            );
             setApiKey("");
             onSaved();
             return;
           }
-          await api.put(`/api/companies/${company.id}/employees/${emp.id}/model`, {
-            provider,
-            model: modelStr,
-            authMode,
-          });
+          const payload = { provider, model: modelStr, authMode };
+          if (mode === "create") {
+            await api.post<AIModel>(base, payload);
+          } else {
+            await api.put<AIModel>(`${base}/${editModelId}`, payload);
+          }
           onSaved();
         } catch (err) {
           toast((err as Error).message, "error");
@@ -2072,7 +2114,13 @@ function AuthModeChoice({
   );
 }
 
-function ModelStatusCard({
+/**
+ * One model in the employee's roster: status, an active toggle, the
+ * provider-specific connect panel (subscription sign-in / API key / custom
+ * endpoint), and a reconfigure disclosure. The active model is ringed and
+ * badged; any non-active model gets a one-click "Make active" button.
+ */
+function ModelCard({
   company,
   emp,
   model,
@@ -2086,24 +2134,39 @@ function ModelStatusCard({
   const { toast } = useToast();
   const dialog = useDialog();
   const connected = model.status === "connected";
+  const [activating, setActivating] = React.useState(false);
+  const base = `/api/companies/${company.id}/employees/${emp.id}/models`;
+
+  async function activate() {
+    setActivating(true);
+    try {
+      await api.post(`${base}/${model.id}/activate`);
+      toast(`${emp.name} now runs on ${model.provider} · ${model.model}`, "success");
+      onChanged();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setActivating(false);
+    }
+  }
 
   async function disconnect() {
     // The wording adapts to current state. When the model is connected, this
     // is a destructive action that wipes the creds. When it isn't, the row
-    // exists but holds no creds yet — the operator hasn't paid any cost
-    // beyond picking a provider, so we don't need a scary confirm dialog.
+    // holds no creds yet — the operator hasn't paid any cost beyond picking a
+    // provider, so we don't need a scary confirm dialog.
     if (connected) {
       const ok = await dialog.confirm({
-        title: `Disconnect ${model.provider}?`,
-        message: `${emp.name}'s on-disk credentials will be wiped. You can reconnect any time.`,
-        confirmLabel: "Disconnect",
+        title: `Remove ${model.provider}?`,
+        message: `${emp.name}'s on-disk credentials for ${model.provider} will be wiped (unless another model still uses it). You can reconnect any time.`,
+        confirmLabel: "Remove",
         variant: "danger",
       });
       if (!ok) return;
     }
     try {
-      await api.del(`/api/companies/${company.id}/employees/${emp.id}/model`);
-      toast(connected ? "Model disconnected" : "Sign-in cancelled", "success");
+      await api.del(`${base}/${model.id}`);
+      toast(connected ? "Model removed" : "Sign-in cancelled", "success");
       onChanged();
     } catch (err) {
       toast((err as Error).message, "error");
@@ -2136,15 +2199,20 @@ function ModelStatusCard({
   })();
 
   return (
-    <Card>
+    <Card
+      className={
+        model.isActive ? "ring-1 ring-indigo-300 dark:ring-indigo-500/40" : undefined
+      }
+    >
       <CardBody className="flex flex-col gap-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                 {model.provider} · {model.model}
               </span>
               <StatusBadge connected={connected} />
+              {model.isActive && <ActiveBadge />}
             </div>
             <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
               {subtitle}
@@ -2153,9 +2221,21 @@ function ModelStatusCard({
               )}
             </div>
           </div>
-          <Button size="sm" variant="ghost" onClick={disconnect}>
-            <Unplug size={14} /> {connected ? "Disconnect" : "Cancel"}
-          </Button>
+          <div className="flex shrink-0 items-center gap-1">
+            {!model.isActive && (
+              <Button size="sm" variant="ghost" onClick={activate} disabled={activating}>
+                {activating ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Check size={14} />
+                )}
+                Make active
+              </Button>
+            )}
+            <Button size="sm" variant="ghost" onClick={disconnect}>
+              <Unplug size={14} /> {connected ? "Remove" : "Cancel"}
+            </Button>
+          </div>
         </div>
 
         {!connected && model.authMode === "subscription" && (
@@ -2177,6 +2257,23 @@ function ModelStatusCard({
             onSaved={onChanged}
           />
         )}
+
+        <details className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700">
+          <summary className="cursor-pointer text-xs text-slate-600 dark:text-slate-300">
+            Change provider, model, or auth method
+          </summary>
+          <div className="mt-3">
+            <ModelForm
+              mode="edit"
+              editModelId={model.id}
+              initial={{ provider: model.provider, model: model.model, authMode: model.authMode }}
+              company={company}
+              emp={emp}
+              onSaved={onChanged}
+              submitLabel="Save changes"
+            />
+          </div>
+        </details>
       </CardBody>
     </Card>
   );
@@ -2193,6 +2290,14 @@ function StatusBadge({ connected }: { connected: boolean }) {
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950 dark:text-amber-300">
       <Loader2 size={10} className="animate-spin" /> Waiting
+    </span>
+  );
+}
+
+function ActiveBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-indigo-700 ring-1 ring-indigo-200 dark:bg-indigo-500/10 dark:text-indigo-300">
+      <BrainCircuit size={10} /> Active
     </span>
   );
 }
@@ -2255,7 +2360,7 @@ function SubscriptionLoginInner({
   const [error, setError] = React.useState<string | null>(null);
   const sinceRef = React.useRef(0);
   const sessionRef = React.useRef<PtySessionView | null>(null);
-  const baseUrl = `/api/companies/${company.id}/employees/${emp.id}/model`;
+  const baseUrl = `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}`;
   const { toast } = useToast();
 
   // Cancel any live session when we unmount or when the parent flips the
@@ -3177,7 +3282,7 @@ function ApiKeyPanel({
         setSaving(true);
         try {
           await api.post(
-            `/api/companies/${company.id}/employees/${emp.id}/model/apikey`,
+            `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}/apikey`,
             { apiKey: key },
           );
           setKey("");
@@ -3245,7 +3350,7 @@ function CustomEndpointPanel({
         setSaving(true);
         try {
           await api.post(
-            `/api/companies/${company.id}/employees/${emp.id}/model/custom-endpoint`,
+            `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}/custom-endpoint`,
             {
               baseURL,
               modelId,

@@ -100,7 +100,8 @@ export function Vocabulary() {
             term: "AI Model",
             def: (
               <>
-                The brain of one AI employee. One-to-one. See{" "}
+                A brain an AI employee can run on. An employee can hold several
+                and keep one active. See{" "}
                 <DocLink to="/docs/models">AI Models</DocLink>.
               </>
             ),

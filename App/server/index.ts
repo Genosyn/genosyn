@@ -144,8 +144,9 @@ async function main() {
   // Per-user programmatic API keys (M14). Bearer tokens minted here
   // authenticate as the calling user, scoped to this company only.
   app.use("/api/companies/:cid", apiKeysRouter);
-  // Per-employee model (one-to-one with AIEmployee). See ROADMAP §5.
-  app.use("/api/companies/:cid/employees/:eid/model", modelsRouter);
+  // Per-employee models — an employee can register several and keep one
+  // active. See ROADMAP §5.
+  app.use("/api/companies/:cid/employees/:eid/models", modelsRouter);
   app.use("/api/companies/:cid/employees/:eid/mcp", mcpRouter);
 
   // Live browser-view sessions — the iframe-able viewer + WS plumbing for

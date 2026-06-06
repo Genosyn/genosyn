@@ -22,9 +22,12 @@ don't re-litigate them.
    project/todo manager (now shipped — see `Project` + `Todo`).
 3. **Home site is fully standalone.** Own package.json, own UI, no shared
    components. Open source, no pricing page.
-4. **AI Models are employee-owned, one-to-one.** Each AI Employee has at most
-   one `AIModel` with its own credentials on disk under the employee's
-   directory. No shared company pool. Firing an employee revokes their
+4. **AI Models are employee-owned; an employee can hold several with one
+   active.** Each `AIModel` keeps its own credentials on disk under the
+   employee's directory (or encrypted in `configJson`). An employee can
+   register multiple models and flip exactly one to active (`AIModel.isActive`,
+   newest-added wins by default) — the runner + chat seams always spawn the
+   active one. No shared company pool. Firing an employee revokes every model's
    credentials in one step (`rm -rf`).
 5. **Database is the source of truth** for Soul, Skill, and Routine prose
    (`AIEmployee.soulBody`, `Skill.body`, `Routine.body`) and for captured Run
@@ -50,10 +53,10 @@ don't re-litigate them.
   `Skill.body`.
 - **Routine** — a scheduled recurring piece of work. Cron-triggered. Markdown
   brief on `Routine.body` alongside cron metadata.
-- **AI Model** — the brain of a single AI Employee. One-to-one with the
-  employee. Provider (`claude-code` / `codex` / `opencode` / `goose` /
-  `openclaw`), model string, credentials on disk under the employee's data
-  dir.
+- **AI Model** — a brain an AI Employee can run on. An employee can register
+  several and keep exactly one active (`AIModel.isActive`). Provider
+  (`claude-code` / `codex` / `opencode` / `goose` / `openclaw`), model string,
+  credentials on disk under the employee's data dir.
 - **Run** — a single execution of a routine. Captured stdout + stderr stored
   on `Run.logContent` (256 KB cap).
 - **Integration** — a connector type (Stripe, Gmail, Metabase, …). Static
@@ -197,7 +200,9 @@ export const config = {
 - [x] Live-tail run logs in a modal on manual Run
 
 ### M6 — AI Models (employee-owned) ✅
-- [x] `AIModel` one-to-one with `AIEmployee`
+- [x] `AIModel` employee-owned — many per employee, exactly one active
+      (`AIModel.isActive`, newest-added active by default, switchable any time);
+      runner + chat spawn the active one
 - [x] Provider-specific setup for claude-code / codex / opencode / goose
 - [x] Subscription sign-in flow (UI polls for credentials file)
 - [x] API-key flow with AES-256-GCM encryption
