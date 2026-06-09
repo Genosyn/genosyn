@@ -20,6 +20,8 @@ import {
   Users,
   Maximize2,
   Check,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import {
   api,
@@ -83,6 +85,22 @@ const FIELD_TYPE_META: Record<
   multiselect: { label: "Multi-select", icon: ListChecks, desc: "Multiple colored tags" },
   link: { label: "Link to table", icon: LinkIcon, desc: "Reference rows in another table" },
 };
+
+// Direction labels for the column-header sort menu, phrased to match the
+// field's type ("1 → 9" reads better than "A → Z" on a number column).
+function sortDirectionLabels(type: BaseFieldType): { asc: string; desc: string } {
+  switch (type) {
+    case "number":
+      return { asc: "Sort 1 → 9", desc: "Sort 9 → 1" };
+    case "date":
+    case "datetime":
+      return { asc: "Sort oldest first", desc: "Sort newest first" };
+    case "checkbox":
+      return { asc: "Unchecked first", desc: "Checked first" };
+    default:
+      return { asc: "Sort A → Z", desc: "Sort Z → A" };
+  }
+}
 
 export default function BaseDetail({ company }: { company: Company }) {
   const { baseSlug, tableSlug } = useParams();
@@ -482,6 +500,36 @@ function Grid({
     return fields.filter((f) => f.isPrimary || !hidden.has(f.id));
   }, [activeView, fields]);
 
+  // Which direction (if any) each field is sorted, so headers can show an
+  // arrow. Reads from the active view's sort list — including multi-column
+  // sorts built in the toolbar's Sort popover.
+  const sortDirByField = React.useMemo(() => {
+    const m = new Map<string, "asc" | "desc">();
+    for (const s of activeView?.sorts ?? []) {
+      if (!m.has(s.fieldId)) m.set(s.fieldId, s.direction);
+    }
+    return m;
+  }, [activeView?.sorts]);
+
+  // Quick single-column sort triggered from a column header. Clicking the
+  // already-active direction clears the sort (toggle off). This replaces any
+  // existing sort — the toolbar's Sort popover stays the place to layer
+  // multiple sort rules.
+  const sortByField = React.useCallback(
+    (fieldId: string, direction: "asc" | "desc" | null) => {
+      if (!direction) {
+        onUpdateActiveView({ sorts: [] });
+        return;
+      }
+      onUpdateActiveView({
+        sorts: [
+          { id: Math.random().toString(36).slice(2, 10), fieldId, direction },
+        ],
+      });
+    },
+    [onUpdateActiveView],
+  );
+
   // Drop selections that no longer exist (after a filter, delete, or sort).
   React.useEffect(() => {
     setSelectedIds((prev) => {
@@ -758,6 +806,9 @@ function Grid({
                       key={f.id}
                       field={f}
                       tables={tables}
+                      sortDirection={sortDirByField.get(f.id) ?? null}
+                      sortable={!!activeView}
+                      onSort={(dir) => sortByField(f.id, dir)}
                       onPatch={(p) => patchField(f, p)}
                       onDelete={() => deleteField(f)}
                     />
@@ -1183,11 +1234,17 @@ function Row({
 function FieldHeader({
   field,
   tables,
+  sortDirection,
+  sortable,
+  onSort,
   onPatch,
   onDelete,
 }: {
   field: BaseField;
   tables: BaseTable[];
+  sortDirection: "asc" | "desc" | null;
+  sortable: boolean;
+  onSort: (direction: "asc" | "desc" | null) => void;
   onPatch: (p: Partial<BaseField>) => void;
   onDelete: () => void;
 }) {
@@ -1220,6 +1277,12 @@ function FieldHeader({
             <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-700 dark:text-slate-200">
               {field.name}
             </span>
+            {sortDirection &&
+              (sortDirection === "asc" ? (
+                <ArrowUp size={11} className="shrink-0 text-indigo-500" />
+              ) : (
+                <ArrowDown size={11} className="shrink-0 text-indigo-500" />
+              ))}
             <ChevronDown size={11} className="text-slate-400 dark:text-slate-500" />
           </button>
         )}
@@ -1228,6 +1291,9 @@ function FieldHeader({
           <FieldMenu
             field={field}
             targetTable={targetTable}
+            sortDirection={sortDirection}
+            sortable={sortable}
+            onSort={onSort}
             onPatch={(p) => {
               onPatch(p);
             }}
@@ -1246,12 +1312,18 @@ function FieldHeader({
 function FieldMenu({
   field,
   targetTable,
+  sortDirection,
+  sortable,
+  onSort,
   onPatch,
   onDelete,
   onClose,
 }: {
   field: BaseField;
   targetTable: BaseTable | null;
+  sortDirection: "asc" | "desc" | null;
+  sortable: boolean;
+  onSort: (direction: "asc" | "desc" | null) => void;
   onPatch: (p: Partial<BaseField>) => void;
   onDelete: () => void;
   onClose: () => void;
@@ -1263,6 +1335,8 @@ function FieldMenu({
     const n = name.trim();
     if (n && n !== field.name) onPatch({ name: n });
   }
+
+  const sortLabels = sortDirectionLabels(field.type);
 
   return (
     <div className="flex flex-col">
@@ -1286,6 +1360,42 @@ function FieldMenu({
         </div>
       </div>
       <MenuSeparator />
+
+      {sortable && (
+        <>
+          <MenuItem
+            icon={
+              <ArrowUp
+                size={12}
+                className={sortDirection === "asc" ? "text-indigo-600 dark:text-indigo-400" : "text-slate-400"}
+              />
+            }
+            label={sortLabels.asc}
+            active={sortDirection === "asc"}
+            hint={sortDirection === "asc" ? <Check size={12} className="text-indigo-600 dark:text-indigo-400" /> : undefined}
+            onSelect={() => {
+              onSort(sortDirection === "asc" ? null : "asc");
+              onClose();
+            }}
+          />
+          <MenuItem
+            icon={
+              <ArrowDown
+                size={12}
+                className={sortDirection === "desc" ? "text-indigo-600 dark:text-indigo-400" : "text-slate-400"}
+              />
+            }
+            label={sortLabels.desc}
+            active={sortDirection === "desc"}
+            hint={sortDirection === "desc" ? <Check size={12} className="text-indigo-600 dark:text-indigo-400" /> : undefined}
+            onSelect={() => {
+              onSort(sortDirection === "desc" ? null : "desc");
+              onClose();
+            }}
+          />
+          <MenuSeparator />
+        </>
+      )}
 
       {(field.type === "select" || field.type === "multiselect") && (
         <div className="p-2">
