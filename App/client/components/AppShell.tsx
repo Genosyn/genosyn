@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Contact2,
   GitBranch,
+  Home,
   Library,
   type LucideIcon,
   ListChecks,
@@ -103,6 +104,7 @@ export function AppShell({ me, companies, current, onCompaniesChanged, children 
 // ───────────────────────── Section catalog ──────────────────────────────
 
 type SectionKey =
+  | "home"
   | "inbox"
   | "workspace"
   | "employees"
@@ -117,7 +119,7 @@ type SectionKey =
   | "approvals"
   | "settings";
 
-type SectionItem = {
+export type SectionItem = {
   key: SectionKey;
   label: string;
   description: string;
@@ -129,10 +131,19 @@ type SectionItem = {
 
 type SectionGroup = { label: string; items: SectionItem[] };
 
-const SECTION_GROUPS: SectionGroup[] = [
+export const SECTION_GROUPS: SectionGroup[] = [
   {
     label: "Essentials",
     items: [
+      {
+        key: "home",
+        label: "Home",
+        description: "Everything that needs your attention.",
+        icon: Home,
+        path: "",
+        iconBg:
+          "bg-slate-100 text-slate-600 dark:bg-slate-700/40 dark:text-slate-200",
+      },
       {
         key: "workspace",
         label: "Workspace",
@@ -147,7 +158,7 @@ const SECTION_GROUPS: SectionGroup[] = [
         label: "Employees",
         description: "AI teammates and their souls.",
         icon: Users,
-        path: "",
+        path: "/employees",
         iconBg:
           "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
       },
@@ -438,6 +449,7 @@ function TopNav({
 function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/inbox(\/|$)/.test(pathname)) return "inbox";
   if (/\/c\/[^/]+\/workspace(\/|$)/.test(pathname)) return "workspace";
+  if (/\/c\/[^/]+\/employees(\/|$)/.test(pathname)) return "employees";
   if (/\/c\/[^/]+\/tasks(\/|$)/.test(pathname)) return "tasks";
   if (/\/c\/[^/]+\/bases(\/|$)/.test(pathname)) return "bases";
   if (/\/c\/[^/]+\/notes(\/|$)/.test(pathname)) return "notes";
@@ -448,7 +460,7 @@ function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/pipelines(\/|$)/.test(pathname)) return "pipelines";
   if (/\/c\/[^/]+\/approvals(\/|$)/.test(pathname)) return "approvals";
   if (/\/c\/[^/]+\/settings(\/|$)/.test(pathname)) return "settings";
-  return "employees";
+  return "home";
 }
 
 /**

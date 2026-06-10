@@ -51,6 +51,8 @@ import { handoffsRouter } from "./routes/handoffs.js";
 import { inboxRouter } from "./routes/inbox.js";
 import { apiKeysRouter } from "./routes/apiKeys.js";
 import { openapiRouter } from "./routes/openapi.js";
+import { homeRouter } from "./routes/home.js";
+import { pushRouter } from "./routes/push.js";
 import { browserSessionsRouter } from "./routes/browserSessions.js";
 import { browserRpcRouter } from "./routes/browserRpc.js";
 import { bootBrowserSessionSweeper } from "./services/browserSessions.js";
@@ -112,6 +114,9 @@ async function main() {
   app.use("/api", openapiRouter);
 
   app.use("/api/auth", authRouter);
+  // Web Push subscriptions for the PWA — user-scoped, so mounted outside
+  // the per-company tree.
+  app.use("/api/push", pushRouter);
   app.use("/api/companies", companiesRouter);
   app.use("/api/invitations", invitationsRouter);
   app.use("/api/backups", backupsRouter);
@@ -131,6 +136,8 @@ async function main() {
   // Company-wide daily digest (Phase C). Rolls up today's journal entries
   // across all employees so humans get a single feed.
   app.use("/api/companies/:cid", inboxRouter);
+  // Home page aggregation — the post-sign-in landing surface.
+  app.use("/api/companies/:cid", homeRouter);
   // Projects + Todos (task manager). See ROADMAP.md V1 backlog.
   app.use("/api/companies/:cid", projectsRouter);
   // Per-user notification feed — bell + panel in the top bar.

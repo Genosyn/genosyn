@@ -7,7 +7,9 @@ import {
   CircleDashed,
   CircleSlash,
   CircleEllipsis,
+  CornerDownRight,
   LayoutList,
+  ListTree,
   Columns3,
   Plus,
   Trash2,
@@ -36,6 +38,7 @@ import {
   api,
   Company,
   Employee,
+  Me,
   Member,
   Project,
   Todo,
@@ -639,9 +642,76 @@ function countActive(f: Filters): number {
   return f.statuses.size + f.priorities.size + f.assignees.size;
 }
 
+// ───────────────────────── subtask helpers ────────────────────────────────────
+
+type ChildStats = { done: number; total: number };
+
+/** Per-parent progress over its subtasks. Done + cancelled count as closed. */
+function childStatsFor(todos: Todo[]): Map<string, ChildStats> {
+  const map = new Map<string, ChildStats>();
+  for (const t of todos) {
+    if (!t.parentTodoId) continue;
+    const s = map.get(t.parentTodoId) ?? { done: 0, total: 0 };
+    s.total += 1;
+    if (t.status === "done" || t.status === "cancelled") s.done += 1;
+    map.set(t.parentTodoId, s);
+  }
+  return map;
+}
+
+/** `↳ KEY-12` chip rendered on subtask rows; clicking peeks the parent. */
+function ParentChip({
+  parent,
+  project,
+  onOpen,
+}: {
+  parent: Todo;
+  project: Project;
+  onOpen: () => void;
+}) {
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen();
+      }}
+      className="flex shrink-0 items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500 hover:bg-slate-200 hover:text-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+      title={`Sub-task of ${project.key}-${parent.number}: ${parent.title}`}
+    >
+      <CornerDownRight size={10} />
+      {project.key}-{parent.number}
+    </button>
+  );
+}
+
+/** `⊟ 2/5` chip rendered on rows that have subtasks. */
+function SubtaskCountChip({ stats }: { stats: ChildStats }) {
+  const allDone = stats.done === stats.total;
+  return (
+    <span
+      className={clsx(
+        "flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium tabular-nums",
+        allDone
+          ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
+          : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+      )}
+      title={`${stats.done} of ${stats.total} subtasks done`}
+    >
+      <ListTree size={10} />
+      {stats.done}/{stats.total}
+    </span>
+  );
+}
+
 // ───────────────────────── main page ─────────────────────────────────────────
 
-export default function ProjectDetail({ company }: { company: Company }) {
+export default function ProjectDetail({
+  company,
+  me,
+}: {
+  company: Company;
+  me: Me;
+}) {
   const { pSlug } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -728,6 +798,8 @@ export default function ProjectDetail({ company }: { company: Company }) {
   const { project, todos } = data;
   const visibleTodos = applyFilters(todos, filters);
   const peekTodo = peekId ? todos.find((t) => t.id === peekId) ?? null : null;
+  const childStats = childStatsFor(todos);
+  const todoById = new Map(todos.map((t) => [t.id, t]));
 
   async function patchTodo(t: Todo, patch: Partial<Todo>) {
     try {
@@ -759,16 +831,31 @@ export default function ProjectDetail({ company }: { company: Company }) {
   }
 
   async function deleteTodo(t: Todo) {
+    const subCount = data
+      ? data.todos.filter((x) => x.parentTodoId === t.id).length
+      : 0;
     const ok = await dialog.confirm({
       title: `Delete "${t.title}"?`,
-      message: "This todo will be permanently removed.",
+      message:
+        subCount > 0
+          ? `This todo and its ${subCount} subtask${subCount === 1 ? "" : "s"} will be permanently removed.`
+          : "This todo will be permanently removed.",
       confirmLabel: "Delete todo",
       variant: "danger",
     });
     if (!ok) return;
     try {
       await api.del(`/api/companies/${company.id}/todos/${t.id}`);
-      setData((d) => (d ? { ...d, todos: d.todos.filter((x) => x.id !== t.id) } : d));
+      setData((d) =>
+        d
+          ? {
+              ...d,
+              todos: d.todos.filter(
+                (x) => x.id !== t.id && x.parentTodoId !== t.id,
+              ),
+            }
+          : d,
+      );
       if (peekId === t.id) setPeekId(null);
       reloadProjects();
     } catch (err) {
@@ -832,6 +919,7 @@ export default function ProjectDetail({ company }: { company: Company }) {
           projectSlug={project.slug}
           employees={employees}
           members={members}
+          meId={me.id}
           inputRef={addInputRef}
           onCreated={(t) => {
             setData((d) => (d ? { ...d, todos: [...d.todos, t] } : d));
@@ -849,6 +937,8 @@ export default function ProjectDetail({ company }: { company: Company }) {
               employees={employees}
               members={members}
               activePeekId={peekId}
+              childStats={childStats}
+              todoById={todoById}
               onOpen={setPeekId}
               onPatch={patchTodo}
               onDelete={deleteTodo}
@@ -860,6 +950,8 @@ export default function ProjectDetail({ company }: { company: Company }) {
               project={project}
               onOpen={setPeekId}
               activePeekId={peekId}
+              childStats={childStats}
+              todoById={todoById}
               onPatch={patchTodo}
             />
           )}
@@ -870,13 +962,20 @@ export default function ProjectDetail({ company }: { company: Company }) {
         <TodoPeek
           key={peekTodo.id}
           todo={peekTodo}
+          allTodos={todos}
           project={project}
           employees={employees}
           members={members}
           companyId={company.id}
           onClose={() => setPeekId(null)}
           onPatch={(patch) => patchTodo(peekTodo, patch)}
+          onPatchTodo={patchTodo}
           onDelete={() => deleteTodo(peekTodo)}
+          onOpenTodo={setPeekId}
+          onCreated={(t) => {
+            setData((d) => (d ? { ...d, todos: [...d.todos, t] } : d));
+            reloadProjects();
+          }}
         />
       )}
 
@@ -1190,6 +1289,7 @@ function NewTodoRow({
   projectSlug,
   employees,
   members,
+  meId,
   inputRef,
   onCreated,
 }: {
@@ -1197,11 +1297,18 @@ function NewTodoRow({
   projectSlug: string;
   employees: Employee[];
   members: Member[];
+  meId: string;
   inputRef: React.RefObject<HTMLInputElement>;
   onCreated: (t: Todo) => void;
 }) {
+  // New todos default to the creator — unowned work sits forever. The
+  // picker shows it, so one click reassigns or clears before adding.
+  const defaultAssignee = React.useMemo<AssigneeRef>(
+    () => ({ kind: "human", id: meId }),
+    [meId],
+  );
   const [title, setTitle] = React.useState("");
-  const [assignee, setAssignee] = React.useState<AssigneeRef>(null);
+  const [assignee, setAssignee] = React.useState<AssigneeRef>(defaultAssignee);
   const [reviewer, setReviewer] = React.useState<AssigneeRef>(null);
   const [priority, setPriority] = React.useState<TodoPriority>("none");
   const [status, setStatus] = React.useState<TodoStatus>("todo");
@@ -1230,7 +1337,7 @@ function NewTodoRow({
       onCreated(t);
       setTitle("");
       setPriority("none");
-      setAssignee(null);
+      setAssignee(defaultAssignee);
       setReviewer(null);
       setStatus("todo");
       setRecurrence("none");
@@ -1288,6 +1395,8 @@ function ListView({
   employees,
   members,
   activePeekId,
+  childStats,
+  todoById,
   onOpen,
   onPatch,
   onDelete,
@@ -1299,6 +1408,8 @@ function ListView({
   employees: Employee[];
   members: Member[];
   activePeekId: string | null;
+  childStats: Map<string, ChildStats>;
+  todoById: Map<string, Todo>;
   onOpen: (id: string) => void;
   onPatch: (t: Todo, patch: Partial<Todo>) => void;
   onDelete: (t: Todo) => void;
@@ -1350,7 +1461,10 @@ function ListView({
                   employees={employees}
                   members={members}
                   active={activePeekId === t.id}
+                  parent={t.parentTodoId ? todoById.get(t.parentTodoId) ?? null : null}
+                  stats={childStats.get(t.id) ?? null}
                   onOpen={() => onOpen(t.id)}
+                  onOpenTodo={onOpen}
                   onPatch={(patch) => onPatch(t, patch)}
                   onDelete={() => onDelete(t)}
                   onRename={(title) => onRename(t, title)}
@@ -1370,7 +1484,10 @@ function TodoRow({
   employees,
   members,
   active,
+  parent,
+  stats,
   onOpen,
+  onOpenTodo,
   onPatch,
   onDelete,
   onRename,
@@ -1380,7 +1497,10 @@ function TodoRow({
   employees: Employee[];
   members: Member[];
   active: boolean;
+  parent: Todo | null;
+  stats: ChildStats | null;
   onOpen: () => void;
+  onOpenTodo: (id: string) => void;
   onPatch: (patch: Partial<Todo>) => void;
   onDelete: () => void;
   onRename: (title: string) => void;
@@ -1455,6 +1575,14 @@ function TodoRow({
           </button>
         )}
       </div>
+      {parent && (
+        <ParentChip
+          parent={parent}
+          project={project}
+          onOpen={() => onOpenTodo(parent.id)}
+        />
+      )}
+      {stats && <SubtaskCountChip stats={stats} />}
       {todo.description.trim() && (
         <span
           className="shrink-0 text-slate-300 dark:text-slate-600"
@@ -1542,12 +1670,16 @@ function BoardView({
   project,
   onOpen,
   activePeekId,
+  childStats,
+  todoById,
   onPatch,
 }: {
   todos: Todo[];
   project: Project;
   onOpen: (id: string) => void;
   activePeekId: string | null;
+  childStats: Map<string, ChildStats>;
+  todoById: Map<string, Todo>;
   onPatch: (t: Todo, patch: Partial<Todo>) => void;
 }) {
   const byStatus = new Map<TodoStatus, Todo[]>();
@@ -1606,7 +1738,12 @@ function BoardView({
                     todo={t}
                     project={project}
                     active={activePeekId === t.id}
+                    parent={
+                      t.parentTodoId ? todoById.get(t.parentTodoId) ?? null : null
+                    }
+                    stats={childStats.get(t.id) ?? null}
                     onClick={() => onOpen(t.id)}
+                    onOpenTodo={onOpen}
                     onDragStart={() => setDragId(t.id)}
                     onDragEnd={() => setDragId(null)}
                   />
@@ -1624,14 +1761,20 @@ function BoardCard({
   todo,
   project,
   active,
+  parent,
+  stats,
   onClick,
+  onOpenTodo,
   onDragStart,
   onDragEnd,
 }: {
   todo: Todo;
   project: Project;
   active: boolean;
+  parent: Todo | null;
+  stats: ChildStats | null;
   onClick: () => void;
+  onOpenTodo: (id: string) => void;
   onDragStart: () => void;
   onDragEnd: () => void;
 }) {
@@ -1661,6 +1804,14 @@ function BoardCard({
             {project.key}-{todo.number}
           </span>
           <PriorityIcon priority={todo.priority} size={11} />
+          {parent && (
+            <ParentChip
+              parent={parent}
+              project={project}
+              onOpen={() => onOpenTodo(parent.id)}
+            />
+          )}
+          {stats && <SubtaskCountChip stats={stats} />}
           {isReview && (
             <span
               className="ml-auto flex items-center gap-1 rounded bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-500/15 dark:text-violet-200"
@@ -1726,22 +1877,30 @@ function BoardCard({
 
 function TodoPeek({
   todo,
+  allTodos,
   project,
   employees,
   members,
   companyId,
   onClose,
   onPatch,
+  onPatchTodo,
   onDelete,
+  onOpenTodo,
+  onCreated,
 }: {
   todo: Todo;
+  allTodos: Todo[];
   project: Project;
   employees: Employee[];
   members: Member[];
   companyId: string;
   onClose: () => void;
   onPatch: (patch: Partial<Todo>) => void;
+  onPatchTodo: (t: Todo, patch: Partial<Todo>) => void;
   onDelete: () => void;
+  onOpenTodo: (id: string) => void;
+  onCreated: (t: Todo) => void;
 }) {
   const [title, setTitle] = React.useState(todo.title);
   const [desc, setDesc] = React.useState(todo.description);
@@ -1769,6 +1928,10 @@ function TodoPeek({
     setDescEditing(false);
   }
   const due = todo.dueAt ? todo.dueAt.slice(0, 10) : "";
+  const parent = todo.parentTodoId
+    ? allTodos.find((t) => t.id === todo.parentTodoId) ?? null
+    : null;
+  const subtasks = allTodos.filter((t) => t.parentTodoId === todo.id);
 
   return (
     <aside className="flex w-[460px] shrink-0 flex-col border-l border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-700">
@@ -1794,6 +1957,20 @@ function TodoPeek({
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 py-5">
+        {parent && (
+          <button
+            onClick={() => onOpenTodo(parent.id)}
+            className="mb-2 flex items-center gap-1.5 rounded-md text-xs text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300"
+            title="Open parent todo"
+          >
+            <CornerDownRight size={12} />
+            Sub-task of{" "}
+            <span className="font-mono">
+              {project.key}-{parent.number}
+            </span>
+            <span className="max-w-[14rem] truncate">· {parent.title}</span>
+          </button>
+        )}
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
@@ -1939,6 +2116,19 @@ function TodoPeek({
           </div>
         )}
 
+        {/* Subtasks — only top-level todos can hold them (one level deep). */}
+        {!todo.parentTodoId && (
+          <SubtasksSection
+            parent={todo}
+            subtasks={subtasks}
+            project={project}
+            companyId={companyId}
+            onPatchTodo={onPatchTodo}
+            onOpenTodo={onOpenTodo}
+            onCreated={onCreated}
+          />
+        )}
+
         <CommentThread todo={todo} employees={employees} companyId={companyId} />
       </div>
 
@@ -1951,6 +2141,140 @@ function TodoPeek({
         </Button>
       </div>
     </aside>
+  );
+}
+
+// ───────────────────────── subtasks section ─────────────────────────────────
+
+/**
+ * Subtask checklist inside the peek panel. Each subtask is a real todo —
+ * own status, assignee, comments — so rows link into their own peek; this
+ * section is the parent-side overview plus a quick-add composer.
+ */
+function SubtasksSection({
+  parent,
+  subtasks,
+  project,
+  companyId,
+  onPatchTodo,
+  onOpenTodo,
+  onCreated,
+}: {
+  parent: Todo;
+  subtasks: Todo[];
+  project: Project;
+  companyId: string;
+  onPatchTodo: (t: Todo, patch: Partial<Todo>) => void;
+  onOpenTodo: (id: string) => void;
+  onCreated: (t: Todo) => void;
+}) {
+  const [title, setTitle] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const { toast } = useToast();
+
+  const done = subtasks.filter(
+    (t) => t.status === "done" || t.status === "cancelled",
+  ).length;
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    setBusy(true);
+    try {
+      // Assignee intentionally omitted — the server defaults it to the
+      // creator, which is the right owner for a step you just wrote down.
+      const t = await api.post<Todo>(
+        `/api/companies/${companyId}/projects/${project.slug}/todos`,
+        { title: trimmed, parentTodoId: parent.id },
+      );
+      onCreated(t);
+      setTitle("");
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-6">
+      <div className="mb-1.5 flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          <ListTree size={12} /> Subtasks
+        </span>
+        {subtasks.length > 0 && (
+          <span className="text-[11px] tabular-nums text-slate-400 dark:text-slate-500">
+            {done}/{subtasks.length} done
+          </span>
+        )}
+      </div>
+
+      {subtasks.length > 0 && (
+        <div className="mb-2 h-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+          <div
+            className="h-full rounded-full bg-emerald-500 transition-all"
+            style={{ width: `${Math.round((done / subtasks.length) * 100)}%` }}
+          />
+        </div>
+      )}
+
+      {subtasks.length > 0 && (
+        <ul className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+          {subtasks.map((s) => (
+            <li
+              key={s.id}
+              className="flex items-center gap-2 border-b border-slate-100 bg-white px-2.5 py-1.5 last:border-b-0 dark:border-slate-800 dark:bg-slate-900"
+            >
+              <StatusPicker
+                value={s.status}
+                onChange={(status) => onPatchTodo(s, { status })}
+                compact
+              />
+              <span className="shrink-0 font-mono text-[10px] text-slate-400 dark:text-slate-500">
+                {project.key}-{s.number}
+              </span>
+              <button
+                onClick={() => onOpenTodo(s.id)}
+                className={clsx(
+                  "min-w-0 flex-1 truncate text-left text-sm hover:text-indigo-600 dark:hover:text-indigo-300",
+                  s.status === "done" || s.status === "cancelled"
+                    ? "text-slate-400 line-through dark:text-slate-500"
+                    : "text-slate-900 dark:text-slate-100",
+                )}
+                title="Open subtask"
+              >
+                {s.title}
+              </button>
+              {s.assignee && (
+                <span title={`Assignee: ${s.assignee.name}`}>
+                  <Avatar
+                    name={s.assignee.name}
+                    size={18}
+                    kind={s.assignee.kind === "ai" ? "ai" : "human"}
+                  />
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <form onSubmit={add} className="mt-2 flex items-center gap-2">
+        <Plus size={14} className="shrink-0 text-slate-400 dark:text-slate-500" />
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Add a subtask…"
+          className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
+        />
+        {title.trim() && (
+          <Button type="submit" size="sm" disabled={busy}>
+            {busy ? "…" : "Add"}
+          </Button>
+        )}
+      </form>
+    </div>
   );
 }
 

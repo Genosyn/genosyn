@@ -44,6 +44,7 @@ import { SettingsEmail, SettingsEmailProviders } from "./pages/SettingsEmail";
 import { SettingsEmailLogs } from "./pages/SettingsEmailLogs";
 import { HandoffsPage } from "./pages/EmployeeHandoffs";
 import Inbox from "./pages/Inbox";
+import HomePage from "./pages/Home";
 import { EmployeeConnections } from "./pages/EmployeeConnections";
 import Invite from "./pages/Invite";
 import TasksLayout from "./pages/TasksLayout";
@@ -206,13 +207,17 @@ function CompanyRoutes({
     <AppShell me={me} companies={companies} current={company} onCompaniesChanged={onChanged}>
       <ChatSessionsProvider key={company.id}>
       <Routes>
+        {/* Home — the post-sign-in landing page: everything that needs the
+            member's attention plus quick navigation. */}
+        <Route index element={<HomePage company={company} me={me} />} />
+
         {/* Inbox — company-wide rollup of today's journal entries. */}
         <Route path="inbox" element={<Inbox company={company} />} />
 
         {/* Employees section — sidebar = roster */}
-        <Route element={<EmployeesLayout company={company} />}>
+        <Route path="employees" element={<EmployeesLayout company={company} />}>
           <Route index element={<EmployeesIndex company={company} />} />
-          <Route path="employees/new" element={<EmployeeNew company={company} />} />
+          <Route path="new" element={<EmployeeNew company={company} />} />
         </Route>
 
         {/* Selected-employee section — sidebar = employee sub-nav */}
@@ -243,7 +248,10 @@ function CompanyRoutes({
           <Route index element={<TasksIndex company={company} />} />
           <Route path="review" element={<TasksReview company={company} />} />
           <Route path="new" element={<ProjectNew company={company} />} />
-          <Route path="p/:pSlug" element={<ProjectDetail company={company} />} />
+          <Route
+            path="p/:pSlug"
+            element={<ProjectDetail company={company} me={me} />}
+          />
         </Route>
 
         {/* Bases (Airtable-style) — structured data for the company. */}

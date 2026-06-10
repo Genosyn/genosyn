@@ -13,6 +13,9 @@
  *                     so a cached asset is never stale for its URL)
  *   - /api/*        → never touched; always hits the network (auth-sensitive,
  *                     dynamic, and covers the WebSocket + SSE endpoints)
+ *   - push          → renders Web Push payloads sent by the server (see
+ *                     server/services/push.ts); clicking deep-links into
+ *                     the SPA.
  *
  * Bump CACHE when the caching logic changes to drop stale caches on activate.
  */
@@ -94,6 +97,62 @@ self.addEventListener("fetch", (event) => {
         })
         .catch(() => cached);
       return cached || network;
+    })(),
+  );
+});
+
+// ── Web Push ────────────────────────────────────────────────────────────────
+// The server sends a small JSON payload ({ title, body, link, tag }) for
+// every bell notification; see server/services/push.ts. Spec requires every
+// push event to surface a notification, so even a malformed payload renders
+// a generic one.
+
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { body: event.data ? event.data.text() : "" };
+  }
+  const title = data.title || "Genosyn";
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: data.body || "",
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      tag: data.tag || undefined,
+      data: { link: data.link || "/" },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const link =
+    (event.notification.data && event.notification.data.link) || "/";
+  const url = new URL(link, self.location.origin).href;
+  event.waitUntil(
+    (async () => {
+      // Re-use an existing app window when there is one; otherwise open a
+      // fresh tab/PWA window at the deep link.
+      const wins = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      for (const client of wins) {
+        if ("focus" in client) {
+          await client.focus();
+          if ("navigate" in client) {
+            try {
+              await client.navigate(url);
+            } catch {
+              /* cross-origin or detached client — fall through to open */
+            }
+          }
+          return;
+        }
+      }
+      await self.clients.openWindow(url);
     })(),
   );
 });

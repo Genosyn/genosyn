@@ -86,6 +86,8 @@ import { Dashboard } from "./entities/Dashboard.js";
 import { DashboardCard } from "./entities/DashboardCard.js";
 import { EmployeeChartGrant } from "./entities/EmployeeChartGrant.js";
 import { EmployeeDashboardGrant } from "./entities/EmployeeDashboardGrant.js";
+import { AppSetting } from "./entities/AppSetting.js";
+import { PushSubscription } from "./entities/PushSubscription.js";
 
 const entities = [
   User,
@@ -170,6 +172,8 @@ const entities = [
   DashboardCard,
   EmployeeChartGrant,
   EmployeeDashboardGrant,
+  AppSetting,
+  PushSubscription,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

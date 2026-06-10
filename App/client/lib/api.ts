@@ -782,6 +782,7 @@ export type Todo = {
   completedAt: string | null;
   recurrence: TodoRecurrence;
   recurrenceParentId: string | null;
+  parentTodoId: string | null;
   createdAt: string;
   updatedAt: string;
   assignee: TodoAssignee | null;
@@ -1326,6 +1327,50 @@ export type Notification = {
   entityId: string | null;
   readAt: string | null;
   createdAt: string;
+};
+
+// ─────────────────────────── Home page ──────────────────────────────────
+
+export type HomeTodo = {
+  id: string;
+  number: number;
+  title: string;
+  status: TodoStatus;
+  priority: TodoPriority;
+  dueAt: string | null;
+  parentTodoId: string | null;
+  project: { id: string; key: string; name: string; slug: string };
+};
+
+export type HomeApproval = {
+  id: string;
+  kind: string;
+  title: string | null;
+  summary: string | null;
+  requestedAt: string;
+  employee: { id: string; name: string; slug: string } | null;
+  routine: { id: string; name: string; slug: string } | null;
+};
+
+export type HomeChannel = {
+  id: string;
+  kind: string;
+  label: string;
+  unreadCount: number;
+};
+
+export type HomeData = {
+  notifications: Notification[];
+  unreadNotificationCount: number;
+  myTodos: HomeTodo[];
+  myTodoCount: number;
+  reviewTodos: HomeTodo[];
+  reviewTodoCount: number;
+  approvals: HomeApproval[];
+  pendingApprovalCount: number;
+  unreadChannels: HomeChannel[];
+  journalToday: { entries: number; employees: number };
+  counts: { employees: number; projects: number };
 };
 
 // ─────────────────────────── Finance (M19) ──────────────────────────────

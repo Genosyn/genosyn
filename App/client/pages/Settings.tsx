@@ -22,6 +22,12 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { TopBar } from "../components/AppShell";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
+import {
+  disablePush,
+  enablePush,
+  getPushState,
+  PushState,
+} from "../lib/push";
 import type { SettingsOutletCtx } from "./SettingsLayout";
 
 /**
@@ -126,6 +132,8 @@ export function SettingsAccount() {
           </CardBody>
         </Card>
 
+        <PushNotificationsCard />
+
         <Card>
           <CardHeader>
             <h2 className="text-sm font-semibold">Change password</h2>
@@ -206,6 +214,72 @@ export function SettingsAccount() {
         </Card>
       </div>
     </>
+  );
+}
+
+/**
+ * Web Push opt-in for this browser. The toggle reflects this device only —
+ * each browser/device subscribes separately (a phone PWA and a desktop
+ * Chrome are two subscriptions). See client/lib/push.ts for the flow.
+ */
+function PushNotificationsCard() {
+  const { toast } = useToast();
+  const [state, setState] = React.useState<PushState>("unsupported");
+  const [busy, setBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    getPushState().then(setState);
+  }, []);
+
+  async function toggle() {
+    setBusy(true);
+    try {
+      if (state === "subscribed") {
+        await disablePush();
+        toast("Push notifications disabled on this device.", "success");
+      } else {
+        await enablePush();
+        toast("Push notifications enabled on this device.", "success");
+      }
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusy(false);
+      setState(await getPushState());
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <h2 className="text-sm font-semibold">Push notifications</h2>
+        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+          Mentions, review requests, and approvals as native notifications on
+          this device — even when Genosyn is closed. Enable separately on each
+          device you use; on iPhone/iPad, install Genosyn to your home screen
+          first.
+        </p>
+      </CardHeader>
+      <CardBody>
+        <div className="flex items-center justify-between gap-4">
+          <div className="text-sm text-slate-700 dark:text-slate-200">
+            {state === "unsupported" &&
+              "This browser doesn't support push notifications."}
+            {state === "denied" &&
+              "Notifications are blocked for this site — allow them in your browser settings, then come back."}
+            {state === "subscribed" && "Enabled on this device."}
+            {state === "unsubscribed" && "Not enabled on this device yet."}
+          </div>
+          <Button
+            onClick={toggle}
+            disabled={busy || state === "unsupported" || state === "denied"}
+            variant={state === "subscribed" ? "secondary" : "primary"}
+          >
+            {busy ? "Working…" : state === "subscribed" ? "Disable" : "Enable"}
+          </Button>
+        </div>
+      </CardBody>
+    </Card>
   );
 }
 

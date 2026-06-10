@@ -219,7 +219,7 @@ const TOOLS = [
   {
     name: "create_todo",
     description:
-      "Add a Todo to a Project. Defaults the assignee to yourself so you can take ownership of follow-through; pass `assigneeEmployeeSlug` to delegate, or `null` to leave it unassigned. Pass `reviewerEmployeeSlug` to nominate a reviewer — when the assignee marks the todo `in_review`, that reviewer is expected to sign it off.",
+      "Add a Todo to a Project. Defaults the assignee to yourself so you can take ownership of follow-through; pass `assigneeEmployeeSlug` to delegate, or `null` to leave it unassigned. Pass `reviewerEmployeeSlug` to nominate a reviewer — when the assignee marks the todo `in_review`, that reviewer is expected to sign it off. To break a big todo into steps, pass `parentTodoId` to create a subtask (one level deep; subtasks keep their own status and assignee).",
     endpoint: "/tools/create_todo",
     inputSchema: {
       type: "object",
@@ -252,6 +252,11 @@ const TOOLS = [
           type: "string",
           enum: ["none", "daily", "weekdays", "weekly", "biweekly", "monthly", "yearly"],
         },
+        parentTodoId: {
+          type: ["string", "null"],
+          description:
+            "UUID of the parent todo to nest this one under as a subtask. The parent must be in the same project and must not be a subtask itself.",
+        },
       },
       required: ["projectSlug", "title"],
       additionalProperties: false,
@@ -283,6 +288,11 @@ const TOOLS = [
             "Slug of the AI employee who should review this todo, or null to clear. Set this when you move a todo to `in_review`.",
         },
         dueAt: { type: ["string", "null"] },
+        parentTodoId: {
+          type: ["string", "null"],
+          description:
+            "UUID of the parent todo to nest this one under as a subtask, or null to promote it back to a top-level todo.",
+        },
       },
       required: ["todoId"],
       additionalProperties: false,

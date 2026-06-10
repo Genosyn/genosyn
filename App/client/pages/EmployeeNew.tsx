@@ -258,7 +258,7 @@ export default function EmployeeNew({ company }: { company: Company }) {
   }
 
   function cancel() {
-    navigate(`/c/${companySlug}`);
+    navigate(`/c/${companySlug}/employees`);
   }
 
   return (
@@ -266,7 +266,7 @@ export default function EmployeeNew({ company }: { company: Company }) {
       <div className="mb-3">
         <Breadcrumbs
           items={[
-            { label: "Employees", to: `/c/${companySlug}` },
+            { label: "Employees", to: `/c/${companySlug}/employees` },
             { label: "Hire" },
           ]}
         />

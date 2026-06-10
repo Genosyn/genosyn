@@ -102,6 +102,16 @@ export class Todo {
   @Column({ type: "varchar", nullable: true })
   recurrenceParentId!: string | null;
 
+  /**
+   * Parent todo when this row is a subtask. One level deep only: a todo
+   * with a parent can't itself be a parent. Subtasks live in the same
+   * project, keep their own status/assignee, and are deleted with their
+   * parent.
+   */
+  @Index()
+  @Column({ type: "varchar", nullable: true })
+  parentTodoId!: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 

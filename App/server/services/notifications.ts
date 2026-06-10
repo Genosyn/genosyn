@@ -13,6 +13,7 @@ import { Company } from "../db/entities/Company.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Approval } from "../db/entities/Approval.js";
 import { broadcastToCompany } from "./realtime.js";
+import { sendPushToUser } from "./push.js";
 
 /**
  * Notification feed service. Generators (mention parser, todo-review hook,
@@ -106,7 +107,42 @@ export async function createNotifications(
       notification: dto,
     });
   }
+
+  // Fan out to the recipient's PWA devices. Fire-and-forget: push delivery
+  // must never delay or fail the write that produced the bell row.
+  for (const row of rows) {
+    void sendPushToUser(row.userId, {
+      title: row.title,
+      body: row.body,
+      link: row.link ?? "/",
+      tag: `genosyn-notification-${row.id}`,
+    }).catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error("[notifications] push fan-out failed:", err);
+    });
+  }
   return rows;
+}
+
+/**
+ * Unread rows only, newest first — powers the Home page "needs your
+ * attention" card without dragging in already-read history.
+ */
+export async function listUnreadForUser(params: {
+  companyId: string;
+  userId: string;
+  limit: number;
+}): Promise<NotificationDTO[]> {
+  const rows = await repo().find({
+    where: {
+      companyId: params.companyId,
+      userId: params.userId,
+      readAt: IsNull(),
+    },
+    order: { createdAt: "DESC" },
+    take: params.limit,
+  });
+  return hydrate(rows);
 }
 
 export async function listForUser(params: {

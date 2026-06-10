@@ -117,6 +117,13 @@ export function Introduction() {
         <DocLink to="/docs/routines">schedule a routine</DocLink>. That whole
         loop takes about ten minutes if Docker is already running.
       </P>
+      <P>
+        Once you&apos;re signed in, every session starts on{" "}
+        <Strong>Home</Strong> — unread mentions and DMs, todos assigned to
+        you, reviews and approvals waiting on your decision, today&apos;s AI
+        activity, and shortcuts to every section. When something needs you,
+        it&apos;s the first thing you see.
+      </P>
 
       <Callout kind="tip" title="Open source, no strings.">
         Genosyn ships under MIT. The source lives at{" "}

@@ -27,6 +27,7 @@ import { PDFDocument, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup } fr
 import { Approval } from "../db/entities/Approval.js";
 import { createBrowserActionApproval } from "../services/approvals.js";
 import { createNotification } from "../services/notifications.js";
+import { validateParentTodo } from "./projects.js";
 import {
   getGrantWithConnection,
   invokeConnectionTool,
@@ -243,6 +244,7 @@ function serializeTodo(t: Todo) {
     reviewerEmployeeId: t.reviewerEmployeeId,
     dueAt: t.dueAt,
     recurrence: t.recurrence,
+    parentTodoId: t.parentTodoId,
   };
 }
 
@@ -694,6 +696,7 @@ const createTodoSchema = z
     reviewerEmployeeSlug: z.string().min(1).max(120).nullable().optional(),
     dueAt: z.string().datetime().nullable().optional(),
     recurrence: z.enum(TODO_RECURRENCES).optional(),
+    parentTodoId: z.string().uuid().nullable().optional(),
   })
   .strict();
 
@@ -733,6 +736,11 @@ mcpInternalRouter.post(
       reviewerId = rv.id;
     }
 
+    if (body.parentTodoId) {
+      const parentErr = await validateParentTodo(project.id, body.parentTodoId);
+      if (parentErr) return res.status(400).json({ error: parentErr });
+    }
+
     project.todoCounter += 1;
     await projRepo.save(project);
 
@@ -759,6 +767,7 @@ mcpInternalRouter.post(
       completedAt: status === "done" ? new Date() : null,
       recurrence: body.recurrence ?? "none",
       recurrenceParentId: null,
+      parentTodoId: body.parentTodoId ?? null,
     });
     await todoRepo.save(t);
 
@@ -795,6 +804,7 @@ const updateTodoSchema = z
     assigneeEmployeeSlug: z.string().min(1).max(120).nullable().optional(),
     reviewerEmployeeSlug: z.string().min(1).max(120).nullable().optional(),
     dueAt: z.string().datetime().nullable().optional(),
+    parentTodoId: z.string().uuid().nullable().optional(),
   })
   .strict();
 
@@ -845,6 +855,23 @@ mcpInternalRouter.post(
     if (body.description !== undefined) t.description = body.description;
     if (body.priority !== undefined) t.priority = body.priority;
     if (body.dueAt !== undefined) t.dueAt = body.dueAt ? new Date(body.dueAt) : null;
+    if (body.parentTodoId !== undefined) {
+      if (body.parentTodoId) {
+        const parentErr = await validateParentTodo(
+          t.projectId,
+          body.parentTodoId,
+          t.id,
+        );
+        if (parentErr) return res.status(400).json({ error: parentErr });
+        const childCount = await todoRepo.countBy({ parentTodoId: t.id });
+        if (childCount > 0) {
+          return res
+            .status(400)
+            .json({ error: "A todo with subtasks cannot become a subtask" });
+        }
+      }
+      t.parentTodoId = body.parentTodoId;
+    }
     let justEnteredReview = false;
     if (body.status !== undefined) {
       const prev = t.status;

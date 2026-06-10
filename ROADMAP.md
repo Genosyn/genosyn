@@ -593,6 +593,13 @@ of the original V1 backlog has shipped — what remains is mostly
 ### Task manager
 - [x] **Projects + Todos** with statuses, assignees, due dates,
       `in_review` flow, comments
+- [x] **Subtasks** — `Todo.parentTodoId`, one level deep; checklist +
+      progress in the peek panel, parent/progress chips in list & board,
+      `create_todo` / `update_todo` MCP params for AI breakdown
+- [x] **Default assignee = creator** — a todo created without naming an
+      assignee belongs to whoever created it (explicit null still means
+      unassigned; MCP `create_todo` already defaulted to the calling
+      employee)
 
 ### Integrations
 - [x] **MCP server support** (external + built-in `genosyn` stdio binary
@@ -617,6 +624,14 @@ of the original V1 backlog has shipped — what remains is mostly
 - [x] **Backups** — `Backup` + `BackupSchedule`, restore endpoint,
       catch-up backup on boot
 - [x] **Notifications** — bell + panel, per-user feed
+- [x] **Web Push (PWA)** — `web-push` + auto-generated VAPID keypair in
+      `app_settings`, `PushSubscription` per device, fan-out on every
+      bell row, `push`/`notificationclick` handlers in `sw.js`, opt-in
+      from Home banner or Settings → Profile
+- [x] **Home page** — post-sign-in landing at the company root:
+      unread notifications, my todos, reviews waiting on me, pending
+      approvals, unread channels/DMs, today's journal digest, section
+      directory (Employees roster moved to `/employees`)
 - [ ] **SSO / Google login** — see M16
 - [ ] **2FA (TOTP)** — see M15
 - [x] **Dark mode** — fully covered (1,500+ `dark:` classes)

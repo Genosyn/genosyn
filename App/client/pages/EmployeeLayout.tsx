@@ -84,7 +84,7 @@ export default function EmployeeLayout({ company }: { company: Company }) {
 
   if (emp === null) {
     // Unknown employee — bounce back to the list.
-    navigate(`/c/${company.slug}`, { replace: true });
+    navigate(`/c/${company.slug}/employees`, { replace: true });
     return null;
   }
 
@@ -94,7 +94,7 @@ export default function EmployeeLayout({ company }: { company: Company }) {
     <div className="flex h-full flex-col">
       <div className="border-b border-slate-100 px-3 py-3 dark:border-slate-800">
         <button
-          onClick={() => navigate(`/c/${company.slug}`)}
+          onClick={() => navigate(`/c/${company.slug}/employees`)}
           className="flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
         >
           <ArrowLeft size={12} /> All employees
@@ -141,7 +141,7 @@ export default function EmployeeLayout({ company }: { company: Company }) {
             if (!ok) return;
             try {
               await api.del(`/api/companies/${company.id}/employees/${emp.id}`);
-              navigate(`/c/${company.slug}`);
+              navigate(`/c/${company.slug}/employees`);
             } catch (err) {
               toast((err as Error).message, "error");
             }
@@ -184,7 +184,7 @@ export default function EmployeeLayout({ company }: { company: Company }) {
           <div className="mb-4">
             <Breadcrumbs
               items={[
-                { label: "Employees", to: `/c/${company.slug}` },
+                { label: "Employees", to: `/c/${company.slug}/employees` },
                 { label: emp.name, to: tabCrumbs.length ? base : undefined },
                 ...tabCrumbs,
               ]}

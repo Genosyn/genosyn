@@ -368,6 +368,32 @@ async function validateReviewers(
   return validatePersonPair(cid, reviewerEmployeeId, reviewerUserId, "reviewer");
 }
 
+/**
+ * Subtask rules: the parent must exist in the same project, can't be the
+ * todo itself, and can't be a subtask already (one level deep keeps the
+ * board and the recurrence/review flows sane). Returns an error string or
+ * null when valid.
+ */
+export async function validateParentTodo(
+  projectId: string,
+  parentTodoId: string,
+  selfId?: string,
+): Promise<string | null> {
+  if (selfId && parentTodoId === selfId) {
+    return "A todo cannot be its own parent";
+  }
+  const parent = await AppDataSource.getRepository(Todo).findOneBy({
+    id: parentTodoId,
+  });
+  if (!parent || parent.projectId !== projectId) {
+    return "Parent todo not found in this project";
+  }
+  if (parent.parentTodoId) {
+    return "Subtasks cannot have their own subtasks";
+  }
+  return null;
+}
+
 projectsRouter.get("/projects/:pSlug/todos", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const p = await loadProjectBySlug(cid, req.params.pSlug);
@@ -390,6 +416,7 @@ const createTodoSchema = z.object({
   reviewerUserId: z.string().uuid().nullable().optional(),
   dueAt: z.string().datetime().nullable().optional(),
   recurrence: z.enum(RECURRENCES as [TodoRecurrence, ...TodoRecurrence[]]).optional(),
+  parentTodoId: z.string().uuid().nullable().optional(),
 });
 
 projectsRouter.post(
@@ -401,10 +428,23 @@ projectsRouter.post(
     if (!p) return res.status(404).json({ error: "Project not found" });
     const body = req.body as z.infer<typeof createTodoSchema>;
 
+    // Unassigned work tends to sit forever — when the caller doesn't
+    // mention an assignee at all, the creator owns it. An explicit `null`
+    // still means "leave it unassigned".
+    const assigneeEmployeeId = body.assigneeEmployeeId ?? null;
+    let assigneeUserId = body.assigneeUserId ?? null;
+    if (
+      body.assigneeEmployeeId === undefined &&
+      body.assigneeUserId === undefined &&
+      req.userId
+    ) {
+      assigneeUserId = req.userId;
+    }
+
     const assigneeErr = await validateAssignees(
       cid,
-      body.assigneeEmployeeId,
-      body.assigneeUserId,
+      assigneeEmployeeId,
+      assigneeUserId,
     );
     if (assigneeErr) return res.status(400).json({ error: assigneeErr });
     const reviewerErr = await validateReviewers(
@@ -413,6 +453,11 @@ projectsRouter.post(
       body.reviewerUserId,
     );
     if (reviewerErr) return res.status(400).json({ error: reviewerErr });
+
+    if (body.parentTodoId) {
+      const parentErr = await validateParentTodo(p.id, body.parentTodoId);
+      if (parentErr) return res.status(400).json({ error: parentErr });
+    }
 
     // Bump the per-project sequence atomically-ish. SQLite + better-sqlite3
     // is synchronous so the read-then-write here is safe within a request;
@@ -437,8 +482,8 @@ projectsRouter.post(
       description: body.description ?? "",
       status,
       priority: body.priority ?? "none",
-      assigneeEmployeeId: body.assigneeEmployeeId ?? null,
-      assigneeUserId: body.assigneeUserId ?? null,
+      assigneeEmployeeId,
+      assigneeUserId,
       reviewerEmployeeId: body.reviewerEmployeeId ?? null,
       reviewerUserId: body.reviewerUserId ?? null,
       createdById: req.userId ?? null,
@@ -447,6 +492,7 @@ projectsRouter.post(
       completedAt: status === "done" ? new Date() : null,
       recurrence: body.recurrence ?? "none",
       recurrenceParentId: null,
+      parentTodoId: body.parentTodoId ?? null,
     });
     await AppDataSource.getRepository(Todo).save(t);
     const [hydrated] = await hydrateTodos(cid, [t]);
@@ -477,6 +523,7 @@ const patchTodoSchema = z.object({
   dueAt: z.string().datetime().nullable().optional(),
   sortOrder: z.number().optional(),
   recurrence: z.enum(RECURRENCES as [TodoRecurrence, ...TodoRecurrence[]]).optional(),
+  parentTodoId: z.string().uuid().nullable().optional(),
 });
 
 projectsRouter.patch("/todos/:tid", validateBody(patchTodoSchema), async (req, res) => {
@@ -537,6 +584,21 @@ projectsRouter.patch("/todos/:tid", validateBody(patchTodoSchema), async (req, r
   if (body.dueAt !== undefined) t.dueAt = body.dueAt ? new Date(body.dueAt) : null;
   if (body.sortOrder !== undefined) t.sortOrder = body.sortOrder;
   if (body.recurrence !== undefined) t.recurrence = body.recurrence;
+  if (body.parentTodoId !== undefined) {
+    if (body.parentTodoId) {
+      const parentErr = await validateParentTodo(t.projectId, body.parentTodoId, t.id);
+      if (parentErr) return res.status(400).json({ error: parentErr });
+      const childCount = await AppDataSource.getRepository(Todo).countBy({
+        parentTodoId: t.id,
+      });
+      if (childCount > 0) {
+        return res
+          .status(400)
+          .json({ error: "A todo with subtasks cannot become a subtask" });
+      }
+    }
+    t.parentTodoId = body.parentTodoId;
+  }
   let justCompleted = false;
   let justEnteredReview = false;
   if (body.status !== undefined) {
@@ -614,6 +676,7 @@ async function spawnNextRecurrence(project: Project, completed: Todo): Promise<v
     completedAt: null,
     recurrence: completed.recurrence,
     recurrenceParentId: completed.recurrenceParentId ?? completed.id,
+    parentTodoId: completed.parentTodoId,
   });
   await todoRepo.save(next);
 }
@@ -622,8 +685,15 @@ projectsRouter.delete("/todos/:tid", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const found = await loadTodo(cid, req.params.tid);
   if (!found) return res.status(404).json({ error: "Not found" });
-  await AppDataSource.getRepository(TodoComment).delete({ todoId: found.todo.id });
-  await AppDataSource.getRepository(Todo).delete({ id: found.todo.id });
+  // Subtasks are parts of their parent — they go with it, comments and all.
+  const todoRepo = AppDataSource.getRepository(Todo);
+  const children = await todoRepo.find({
+    where: { parentTodoId: found.todo.id },
+    select: ["id"],
+  });
+  const ids = [found.todo.id, ...children.map((c) => c.id)];
+  await AppDataSource.getRepository(TodoComment).delete({ todoId: In(ids) });
+  await todoRepo.delete({ id: In(ids) });
   res.json({ ok: true });
 });
 

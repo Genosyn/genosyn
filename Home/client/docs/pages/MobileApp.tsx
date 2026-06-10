@@ -79,6 +79,41 @@ export function MobileApp() {
         alongside your other apps.
       </P>
 
+      <H2 id="push-notifications">Push notifications</H2>
+      <P>
+        Once installed, Genosyn can deliver <Strong>push notifications</Strong>{" "}
+        — mentions in workspace chat, review requests on todos, and pending
+        approvals arrive as native notifications even when the app is closed.
+        Tapping one deep-links straight to the message, todo, or approval.
+      </P>
+      <OL>
+        <LI>
+          Sign in and look for the <Strong>Get notified</Strong> banner on the
+          Home page, or go to <Strong>Settings → Profile → Push
+          notifications</Strong>.
+        </LI>
+        <LI>
+          Tap <Strong>Enable</Strong> and allow notifications when the browser
+          asks.
+        </LI>
+      </OL>
+      <UL>
+        <LI>
+          Enable it separately on each device — your phone and your laptop are
+          two subscriptions, managed independently.
+        </LI>
+        <LI>
+          On <Strong>iPhone &amp; iPad</Strong> you must add Genosyn to your
+          home screen first (iOS 16.4 or newer); Safari only exposes push to
+          installed apps.
+        </LI>
+        <LI>
+          No setup on the server: Genosyn generates its push credentials
+          (VAPID keys) automatically on first use. The same HTTPS requirement
+          as installation applies.
+        </LI>
+      </UL>
+
       <H2 id="what-you-get">What you get</H2>
       <UL>
         <LI>
