@@ -30,7 +30,7 @@ import { useToast } from "./ui/Toast";
 import { useDialog } from "./ui/Dialog";
 import { Avatar, meAvatarUrl } from "./ui/Avatar";
 import { CompanySocketProvider } from "./CompanySocket";
-import { Logo } from "./Logo";
+import { Logo, LogoMark } from "./Logo";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { useTheme, Theme } from "./Theme";
 
@@ -317,7 +317,7 @@ function TopNav({
   const section = SECTION_BY_KEY[sectionKey];
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 dark:border-slate-800 dark:bg-slate-950">
+    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 sm:gap-3 sm:px-4 dark:border-slate-800 dark:bg-slate-950">
       {sidebarCtx?.hasSidebar && (
         <button
           onClick={() => sidebarCtx.setOpen(true)}
@@ -327,22 +327,26 @@ function TopNav({
           <PanelLeft size={18} />
         </button>
       )}
-      <Link to={`/c/${current.slug}`} className="flex items-center gap-2 text-slate-900 dark:text-slate-100">
-        <Logo className="h-7 w-auto" />
+      <Link to={`/c/${current.slug}`} className="flex shrink-0 items-center gap-2 text-slate-900 dark:text-slate-100">
+        {/* Phones get the bare mark; the full wordmark would eat half the bar. */}
+        <LogoMark className="h-7 w-7 sm:hidden" />
+        <Logo className="hidden h-7 w-auto sm:block" />
       </Link>
 
       <span
         aria-hidden="true"
-        className="h-5 w-px bg-slate-200 dark:bg-slate-700"
+        className="h-5 w-px shrink-0 bg-slate-200 dark:bg-slate-700"
       />
 
-      <div className="relative">
+      {/* min-w-0 + truncate: the company name is the one flexible item in the
+          bar, so it absorbs the squeeze on narrow viewports. */}
+      <div className="relative min-w-0">
         <button
           onClick={() => setCompanyOpen((d) => !d)}
-          className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-slate-900 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800"
+          className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-slate-900 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800"
         >
-          {current.name}
-          <ChevronDown size={14} className="text-slate-400" />
+          <span className="truncate">{current.name}</span>
+          <ChevronDown size={14} className="shrink-0 text-slate-400" />
         </button>
         {companyOpen && (
           <>
@@ -386,7 +390,7 @@ function TopNav({
         )}
       </div>
 
-      <ChevronRight size={14} className="text-slate-300 dark:text-slate-600" />
+      <ChevronRight size={14} className="shrink-0 text-slate-300 dark:text-slate-600" />
 
       <SectionMenu current={section} companySlug={current.slug} />
 
@@ -403,7 +407,7 @@ function TopNav({
               src={meAvatarUrl(me.avatarKey)}
               size="sm"
             />
-            <span className="max-w-[12rem] truncate text-slate-700 dark:text-slate-200">{me.name || me.email}</span>
+            <span className="hidden max-w-[12rem] truncate text-slate-700 sm:inline dark:text-slate-200">{me.name || me.email}</span>
           </button>
           {userOpen && (
             <>
@@ -489,7 +493,7 @@ function SectionMenu({
   }, [open]);
 
   return (
-    <div className="relative">
+    <div className="relative shrink-0">
       <button
         onClick={() => setOpen((o) => !o)}
         className="flex items-center gap-2 rounded-md px-2 py-1 text-sm font-medium text-slate-900 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800"
@@ -501,13 +505,15 @@ function SectionMenu({
         >
           <Icon size={12} />
         </span>
-        {current.label}
-        <ChevronDown size={14} className="text-slate-400" />
+        <span className="hidden sm:inline">{current.label}</span>
+        <ChevronDown size={14} className="shrink-0 text-slate-400" />
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-20 mt-2 grid w-[56rem] grid-cols-4 gap-6 rounded-xl border border-slate-200 bg-white p-5 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+          {/* Below lg the 56rem mega-menu can't fit, so the panel pins to the
+              viewport edges instead of the pill and the grid collapses. */}
+          <div className="fixed left-3 right-3 top-16 z-20 grid max-h-[calc(100dvh-5rem)] grid-cols-1 gap-4 overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 shadow-lg sm:grid-cols-2 lg:absolute lg:left-0 lg:right-auto lg:top-full lg:mt-2 lg:max-h-none lg:w-[56rem] lg:grid-cols-4 lg:gap-6 lg:overflow-visible lg:p-5 dark:border-slate-700 dark:bg-slate-900">
             {SECTION_GROUPS.map((g) => (
               <div key={g.label} className="flex flex-col gap-1">
                 <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">

@@ -159,7 +159,9 @@ export function NotificationsPanel({
             className="fixed inset-0 z-10"
             onClick={() => setOpen(false)}
           />
-          <div className="absolute right-0 top-full z-20 mt-2 w-[22rem] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
+          {/* Anchored to the bell from sm up; pinned to the viewport edges on
+              phones, where a 22rem panel would run off-screen. */}
+          <div className="fixed left-3 right-3 top-16 z-20 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[22rem] dark:border-slate-700 dark:bg-slate-900">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
