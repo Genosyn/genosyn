@@ -786,6 +786,43 @@ const HEALTH_DOT: Record<HealthSeverity, string> = {
   error: "bg-rose-500",
 };
 
+// Dismissals are remembered per-company in localStorage (a personal "I've seen
+// this" on this device, like the push prompt above). We store the issue count
+// at dismiss time so a check resurfaces only when it gets *worse*.
+const HEALTH_DISMISS_PREFIX = "genosyn.systemHealth.dismissed.";
+
+function loadHealthDismissed(companyId: string): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(HEALTH_DISMISS_PREFIX + companyId);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof v === "number") out[k] = v;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function saveHealthDismissed(companyId: string, map: Record<string, number>) {
+  try {
+    if (Object.keys(map).length === 0) {
+      localStorage.removeItem(HEALTH_DISMISS_PREFIX + companyId);
+    } else {
+      localStorage.setItem(
+        HEALTH_DISMISS_PREFIX + companyId,
+        JSON.stringify(map),
+      );
+    }
+  } catch {
+    // localStorage may be unavailable (private mode) — dismissals just won't
+    // persist across reloads, which is an acceptable degradation.
+  }
+}
+
 function SystemHealthCard({
   company,
   data,
@@ -793,25 +830,85 @@ function SystemHealthCard({
   company: Company;
   data: HomeData;
 }) {
-  const { status, issueCount, checks } = data.systemHealth;
-  const failing = checks.filter((c) => c.severity !== "ok");
+  const failing = data.systemHealth.checks.filter((c) => c.severity !== "ok");
+  const failingKey = failing
+    .map((c) => c.id)
+    .sort()
+    .join(",");
+
+  const [dismissed, setDismissed] = React.useState<Record<string, number>>(() =>
+    loadHealthDismissed(company.id),
+  );
+
+  // Re-sync from storage when the company or the set of failing checks changes,
+  // dropping dismissals for checks that have since recovered — so a brand-new
+  // occurrence resurfaces instead of staying hidden under a stale count.
+  React.useEffect(() => {
+    const stored = loadHealthDismissed(company.id);
+    const live = new Set(failing.map((c) => c.id));
+    const pruned: Record<string, number> = {};
+    for (const [id, count] of Object.entries(stored)) {
+      if (live.has(id)) pruned[id] = count;
+    }
+    if (Object.keys(pruned).length !== Object.keys(stored).length) {
+      saveHealthDismissed(company.id, pruned);
+    }
+    setDismissed(pruned);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [company.id, failingKey]);
+
+  function dismiss(checkId: string, count: number) {
+    setDismissed((prev) => {
+      const next = { ...prev, [checkId]: count };
+      saveHealthDismissed(company.id, next);
+      return next;
+    });
+  }
+
+  function restoreAll() {
+    saveHealthDismissed(company.id, {});
+    setDismissed({});
+  }
+
+  // Show a check unless it's been dismissed at a count >= its current one
+  // (i.e. nothing new has happened since you dismissed it).
+  const visible = failing.filter(
+    (c) => !(c.id in dismissed) || c.count > dismissed[c.id],
+  );
+  const dismissedCount = failing.length - visible.length;
+
   return (
     <HomeCard
       title="System health"
       icon={<Activity size={15} />}
-      count={issueCount}
+      count={visible.length}
       linkTo={`/c/${company.slug}/settings/system-health`}
       linkLabel="Details"
     >
-      {status === "ok" || failing.length === 0 ? (
+      {failing.length === 0 ? (
         <CardEmpty label="All systems healthy — routines, models, and integrations are running clean." />
+      ) : visible.length === 0 ? (
+        <div className="flex h-full min-h-[8rem] flex-col items-center justify-center gap-1.5 px-6 py-6 text-center">
+          <CheckCircle2 size={18} className="text-slate-400 dark:text-slate-500" />
+          <span className="text-xs text-slate-500 dark:text-slate-400">
+            {dismissedCount} {dismissedCount === 1 ? "issue" : "issues"} dismissed
+            on this device.
+          </span>
+          <button
+            type="button"
+            onClick={restoreAll}
+            className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+          >
+            Show {dismissedCount === 1 ? "it" : "them"}
+          </button>
+        </div>
       ) : (
         <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-          {failing.map((c) => (
-            <li key={c.id}>
+          {visible.map((c) => (
+            <li key={c.id} className="flex items-center">
               <Link
                 to={`/c/${company.slug}/settings/system-health`}
-                className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pl-4 pr-2 hover:bg-slate-50 dark:hover:bg-slate-800/60"
               >
                 <span
                   className={clsx(
@@ -834,6 +931,15 @@ function SystemHealthCard({
                   {c.count}
                 </span>
               </Link>
+              <button
+                type="button"
+                onClick={() => dismiss(c.id, c.count)}
+                className="mr-2 shrink-0 rounded p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-600 dark:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                title="Dismiss"
+                aria-label={`Dismiss ${c.title}`}
+              >
+                <X size={13} />
+              </button>
             </li>
           ))}
         </ul>
