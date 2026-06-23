@@ -1,4 +1,10 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from "typeorm";
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  Index,
+} from "typeorm";
 
 export type RunStatus =
   | "running"
@@ -7,7 +13,11 @@ export type RunStatus =
   | "skipped"
   | "timeout";
 
+// Run history, the Home failed-routines roll-up, and System Health all filter
+// by routineId and a startedAt window; without this the queries full-scan the
+// highest-volume table in the app. Mirrors the pipeline_runs index.
 @Entity("runs")
+@Index(["routineId", "startedAt"])
 export class Run {
   @PrimaryGeneratedColumn("uuid")
   id!: string;

@@ -42,6 +42,7 @@ import { SettingsTeams } from "./pages/SettingsTeams";
 import { SettingsApiKeys } from "./pages/SettingsApiKeys";
 import { SettingsEmail, SettingsEmailProviders } from "./pages/SettingsEmail";
 import { SettingsEmailLogs } from "./pages/SettingsEmailLogs";
+import { SettingsSystemHealth } from "./pages/SettingsSystemHealth";
 import { HandoffsPage } from "./pages/EmployeeHandoffs";
 import Inbox from "./pages/Inbox";
 import HomePage from "./pages/Home";
@@ -412,6 +413,7 @@ function CompanyRoutes({
           <Route path="backup" element={<SettingsBackup />} />
           <Route path="usage" element={<Usage />} />
           <Route path="audit" element={<AuditLog />} />
+          <Route path="system-health" element={<SettingsSystemHealth />} />
         </Route>
 
         {/* Legacy redirects: Customers used to live under Finance. */}

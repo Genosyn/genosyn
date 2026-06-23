@@ -132,7 +132,50 @@ Post it to the #morning channel.`}</Pre>
           Manual Runs from the &quot;Run now&quot; button live in the same
           table as scheduled Runs.
         </LI>
+        <LI>
+          <Strong>Retry</Strong> a Run that <Code>failed</Code> or{" "}
+          <Code>timed out</Code> straight from its run history. It re-triggers
+          the routine immediately, outside the schedule, and opens the live log
+          for the new Run.
+        </LI>
       </UL>
+      <P>
+        Failures are easy to notice: the Home page shows a{" "}
+        <Strong>Failed routines</Strong> panel for anything that broke in the
+        last 24 hours, and every <Strong>Journal</Strong> entry for a Run links
+        straight to that routine&apos;s run history — where the Retry button is
+        one click away.
+      </P>
+
+      <H2 id="system-health">System Health</H2>
+      <P>
+        <Strong>Settings → System Health</Strong> (also a card on the Home page)
+        rolls up everything that might be quietly broken for the company, over a
+        24-hour window:
+      </P>
+      <UL>
+        <LI>
+          <Strong>Failed</Strong> and <Strong>stuck</Strong> runs — failures,
+          timeouts, and runs still <Code>running</Code> long after their timeout
+          (orphaned by a restart).
+        </LI>
+        <LI>
+          <Strong>Skipped runs</Strong> and{" "}
+          <Strong>employees missing an AI model</Strong> — routines that never
+          actually ran because no model was connected.
+        </LI>
+        <LI>
+          <Strong>Approvals waiting too long</Strong>,{" "}
+          <Strong>email delivery failures</Strong>, and{" "}
+          <Strong>integration connections</Strong> in an error/expired state.
+        </LI>
+      </UL>
+      <P>
+        Every row deep-links to where you fix it — the routine&apos;s run
+        history, the employee&apos;s model settings, the approvals inbox, or the
+        relevant settings page. It is read-only and computed live from existing
+        data, so there is nothing to configure.
+      </P>
 
       <H2 id="approvals">Approvals</H2>
       <P>

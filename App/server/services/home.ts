@@ -1,16 +1,18 @@
-import { Between, In } from "typeorm";
+import { Between, In, MoreThanOrEqual } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Approval } from "../db/entities/Approval.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { Project } from "../db/entities/Project.js";
 import { Routine } from "../db/entities/Routine.js";
+import { Run, RunStatus } from "../db/entities/Run.js";
 import { Todo, TodoPriority } from "../db/entities/Todo.js";
 import {
   countUnreadForUser,
   listUnreadForUser,
   NotificationDTO,
 } from "./notifications.js";
+import { getSystemHealthSummary, SystemHealthSummary } from "./systemHealth.js";
 import { listChannelsForUser } from "./workspaceChat.js";
 
 /**
@@ -50,6 +52,16 @@ export type HomeChannel = {
   unreadCount: number;
 };
 
+export type HomeFailedRun = {
+  runId: string;
+  routineId: string;
+  routineName: string;
+  status: RunStatus;
+  exitCode: number | null;
+  startedAt: string;
+  employee: { id: string; name: string; slug: string; avatarKey: string | null };
+};
+
 export type HomeData = {
   notifications: NotificationDTO[];
   unreadNotificationCount: number;
@@ -61,8 +73,17 @@ export type HomeData = {
   pendingApprovalCount: number;
   unreadChannels: HomeChannel[];
   journalToday: { entries: number; employees: number };
+  /** Routine runs that failed (or timed out) in the last 24h — surfaced so a
+   *  human notices a broken routine without digging through the Journal. */
+  failedRuns: HomeFailedRun[];
+  failedRunCount: number;
+  /** Compact roll-up powering the Home "System health" card. */
+  systemHealth: SystemHealthSummary;
   counts: { employees: number; projects: number };
 };
+
+/** How far back the Home page looks for failed routine runs. */
+const FAILED_RUN_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const PRIORITY_WEIGHT: Record<TodoPriority, number> = {
   urgent: 0,
@@ -179,25 +200,76 @@ export async function getHomeData(params: {
 
   const employees = await AppDataSource.getRepository(AIEmployee).find({
     where: { companyId },
-    select: ["id"],
+    select: ["id", "name", "slug", "avatarKey"],
   });
+  const empIds = employees.map((e) => e.id);
+  const empById = new Map(employees.map((e) => [e.id, e]));
   const dayStart = new Date();
   dayStart.setHours(0, 0, 0, 0);
   const dayEnd = new Date(dayStart);
   dayEnd.setDate(dayEnd.getDate() + 1);
-  const todayEntries = employees.length
+  const todayEntries = empIds.length
     ? await AppDataSource.getRepository(JournalEntry).find({
         where: {
-          employeeId: In(employees.map((e) => e.id)),
+          employeeId: In(empIds),
           createdAt: Between(dayStart, dayEnd),
         },
         select: ["id", "employeeId"],
       })
     : [];
 
-  const [notifications, unreadNotificationCount] = await Promise.all([
+  // Recent failed routine runs, newest first. We join through the routine to
+  // its owning employee so each card can deep-link into that employee's
+  // Routines tab (and select the failing run).
+  const compRoutines = empIds.length
+    ? await AppDataSource.getRepository(Routine).find({
+        where: { employeeId: In(empIds) },
+        select: ["id", "name", "employeeId"],
+      })
+    : [];
+  const compRoutineById = new Map(compRoutines.map((r) => [r.id, r]));
+  let failedRuns: HomeFailedRun[] = [];
+  let failedRunCount = 0;
+  if (compRoutineById.size > 0) {
+    const since = new Date(Date.now() - FAILED_RUN_WINDOW_MS);
+    const [rows, count] = await AppDataSource.getRepository(Run).findAndCount({
+      where: {
+        routineId: In([...compRoutineById.keys()]),
+        status: In(["failed", "timeout"]),
+        startedAt: MoreThanOrEqual(since),
+      },
+      order: { startedAt: "DESC" },
+      take: 6,
+    });
+    failedRunCount = count;
+    failedRuns = rows
+      .map((run): HomeFailedRun | null => {
+        const routine = compRoutineById.get(run.routineId);
+        if (!routine) return null;
+        const emp = empById.get(routine.employeeId);
+        if (!emp) return null;
+        return {
+          runId: run.id,
+          routineId: routine.id,
+          routineName: routine.name,
+          status: run.status,
+          exitCode: run.exitCode,
+          startedAt: run.startedAt.toISOString(),
+          employee: {
+            id: emp.id,
+            name: emp.name,
+            slug: emp.slug,
+            avatarKey: emp.avatarKey ?? null,
+          },
+        };
+      })
+      .filter((r): r is HomeFailedRun => r !== null);
+  }
+
+  const [notifications, unreadNotificationCount, systemHealth] = await Promise.all([
     listUnreadForUser({ companyId, userId, limit: 8 }),
     countUnreadForUser({ companyId, userId }),
+    getSystemHealthSummary(companyId),
   ]);
 
   return {
@@ -232,6 +304,9 @@ export async function getHomeData(params: {
       entries: todayEntries.length,
       employees: new Set(todayEntries.map((e) => e.employeeId)).size,
     },
+    failedRuns,
+    failedRunCount,
+    systemHealth,
     counts: { employees: employees.length, projects: projects.length },
   };
 }

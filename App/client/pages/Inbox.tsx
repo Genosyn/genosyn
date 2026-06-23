@@ -62,6 +62,20 @@ function entryIcon(kind: JournalKind) {
   );
 }
 
+/**
+ * Deep-link into the routine that produced a journal entry: the employee's
+ * Routines tab, with the routine's run history opened on the failing run.
+ */
+function routineLink(
+  companySlug: string,
+  empSlug: string,
+  entry: InboxEntry,
+): string {
+  const params = new URLSearchParams({ routine: entry.routineId! });
+  if (entry.runId) params.set("run", entry.runId);
+  return `/c/${companySlug}/employees/${empSlug}/routines?${params.toString()}`;
+}
+
 export default function Inbox({ company }: { company: Company }) {
   const [date, setDate] = React.useState(isoDate(new Date()));
   const [data, setData] = React.useState<InboxResponse | null>(null);
@@ -206,11 +220,8 @@ export default function Inbox({ company }: { company: Company }) {
                   </div>
                 </div>
                 <ul className="flex flex-col gap-2">
-                  {g.entries.map((e) => (
-                    <li
-                      key={e.id}
-                      className="rounded-md border border-slate-100 bg-slate-50 p-2 text-sm dark:border-slate-800 dark:bg-slate-800/30"
-                    >
+                  {g.entries.map((e) => {
+                    const body = (
                       <div className="flex items-start gap-2">
                         <div className="mt-1">{entryIcon(e.kind)}</div>
                         <div className="min-w-0 flex-1">
@@ -218,11 +229,17 @@ export default function Inbox({ company }: { company: Company }) {
                             <div className="truncate font-medium text-slate-900 dark:text-slate-100">
                               {e.title}
                             </div>
-                            <div className="shrink-0 text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                            <div className="flex shrink-0 items-center gap-1 text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500">
                               {new Date(e.createdAt).toLocaleTimeString([], {
                                 hour: "numeric",
                                 minute: "2-digit",
                               })}
+                              {e.routineId && (
+                                <ChevronRight
+                                  size={13}
+                                  className="text-slate-300 group-hover:text-slate-500 dark:text-slate-600 dark:group-hover:text-slate-400"
+                                />
+                              )}
                             </div>
                           </div>
                           {e.body && (
@@ -232,8 +249,24 @@ export default function Inbox({ company }: { company: Company }) {
                           )}
                         </div>
                       </div>
-                    </li>
-                  ))}
+                    );
+                    return (
+                      <li key={e.id}>
+                        {e.routineId ? (
+                          <Link
+                            to={routineLink(company.slug, g.employee.slug, e)}
+                            className="group block rounded-md border border-slate-100 bg-slate-50 p-2 text-sm transition-colors hover:border-slate-200 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-800/30 dark:hover:border-slate-700 dark:hover:bg-slate-800/60"
+                          >
+                            {body}
+                          </Link>
+                        ) : (
+                          <div className="rounded-md border border-slate-100 bg-slate-50 p-2 text-sm dark:border-slate-800 dark:bg-slate-800/30">
+                            {body}
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               </CardBody>
             </Card>

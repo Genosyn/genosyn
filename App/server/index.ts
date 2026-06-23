@@ -52,6 +52,7 @@ import { inboxRouter } from "./routes/inbox.js";
 import { apiKeysRouter } from "./routes/apiKeys.js";
 import { openapiRouter } from "./routes/openapi.js";
 import { homeRouter } from "./routes/home.js";
+import { systemHealthRouter } from "./routes/systemHealth.js";
 import { pushRouter } from "./routes/push.js";
 import { browserSessionsRouter } from "./routes/browserSessions.js";
 import { browserRpcRouter } from "./routes/browserRpc.js";
@@ -138,6 +139,9 @@ async function main() {
   app.use("/api/companies/:cid", inboxRouter);
   // Home page aggregation — the post-sign-in landing surface.
   app.use("/api/companies/:cid", homeRouter);
+  // System Health — company-scoped roll-up of failed/stuck/skipped runs,
+  // missing models, stale approvals, email + integration failures.
+  app.use("/api/companies/:cid", systemHealthRouter);
   // Projects + Todos (task manager). See ROADMAP.md V1 backlog.
   app.use("/api/companies/:cid", projectsRouter);
   // Per-user notification feed — bell + panel in the top bar.

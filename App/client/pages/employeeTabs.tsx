@@ -1,5 +1,11 @@
 import React from "react";
-import { NavLink, Outlet, useNavigate, useOutletContext } from "react-router-dom";
+import {
+  NavLink,
+  Outlet,
+  useNavigate,
+  useOutletContext,
+  useSearchParams,
+} from "react-router-dom";
 import {
   BrainCircuit,
   Brain,
@@ -18,6 +24,7 @@ import {
   Plug,
   PlugZap,
   Plus,
+  RotateCcw,
   Server,
   Sparkles,
   Terminal,
@@ -309,9 +316,12 @@ export function RoutinesPage() {
   const [adding, setAdding] = React.useState(false);
   const [editing, setEditing] = React.useState<Routine | null>(null);
   const [viewingRuns, setViewingRuns] = React.useState<Routine | null>(null);
+  const [focusRunId, setFocusRunId] = React.useState<string | null>(null);
   const [activeRun, setActiveRun] = React.useState<{ routine: Routine; run: Run } | null>(null);
   const { toast } = useToast();
   const dialog = useDialog();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const handledDeepLinkRef = React.useRef(false);
 
   async function reload() {
     const r = await api.get<Routine[]>(
@@ -320,10 +330,52 @@ export function RoutinesPage() {
     setRoutines(r);
   }
 
+  // Kick off a fresh run and open the live-log modal. Shared by the card's
+  // Run button and the Retry buttons in the run-history / in-progress modals.
+  async function triggerRun(r: Routine) {
+    try {
+      const run = await api.post<Run>(
+        `/api/companies/${company.id}/routines/${r.id}/run`,
+      );
+      setActiveRun({ routine: r, run });
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
+
+  function openRuns(r: Routine, runId: string | null = null) {
+    setFocusRunId(runId);
+    setViewingRuns(r);
+  }
+
   React.useEffect(() => {
     reload().catch(() => setRoutines([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [emp.id]);
+
+  // Deep-link from the Journal / Home: `?routine=<id>&run=<id>` opens that
+  // routine's run history on the referenced run. Handle once, then strip the
+  // params so navigating around (or refreshing) doesn't re-open the modal.
+  React.useEffect(() => {
+    if (handledDeepLinkRef.current || routines === null) return;
+    const routineId = searchParams.get("routine");
+    if (!routineId) return;
+    handledDeepLinkRef.current = true;
+    const runId = searchParams.get("run");
+    const target = routines.find((r) => r.id === routineId);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("routine");
+        next.delete("run");
+        return next;
+      },
+      { replace: true },
+    );
+    if (target) openRuns(target, runId);
+    else toast("That routine no longer exists.", "error");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routines]);
 
   return (
     <>
@@ -364,20 +416,11 @@ export function RoutinesPage() {
                   <Button
                     size="sm"
                     variant="secondary"
-                    onClick={async () => {
-                      try {
-                        const run = await api.post<Run>(
-                          `/api/companies/${company.id}/routines/${r.id}/run`,
-                        );
-                        setActiveRun({ routine: r, run });
-                      } catch (err) {
-                        toast((err as Error).message, "error");
-                      }
-                    }}
+                    onClick={() => triggerRun(r)}
                   >
                     <Play size={14} /> Run
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setViewingRuns(r)}>
+                  <Button size="sm" variant="ghost" onClick={() => openRuns(r)}>
                     <History size={14} /> Runs
                   </Button>
                   <Button
@@ -429,14 +472,22 @@ export function RoutinesPage() {
         <RunsModal
           company={company}
           routine={viewingRuns}
+          initialRunId={focusRunId}
           onClose={() => setViewingRuns(null)}
+          onRetry={() => {
+            const r = viewingRuns;
+            setViewingRuns(null);
+            triggerRun(r);
+          }}
         />
       )}
       {activeRun && (
         <RunInProgressModal
+          key={activeRun.run.id}
           company={company}
           routine={activeRun.routine}
           run={activeRun.run}
+          onRetry={() => triggerRun(activeRun.routine)}
           onClose={() => {
             setActiveRun(null);
             reload();
@@ -478,11 +529,13 @@ function RunInProgressModal({
   routine,
   run: initialRun,
   onClose,
+  onRetry,
 }: {
   company: Company;
   routine: Routine;
   run: Run;
   onClose: () => void;
+  onRetry?: () => void;
 }) {
   const [log, setLog] = React.useState<RunLog | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -605,7 +658,12 @@ function RunInProgressModal({
             )}
           </pre>
         </div>
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-2">
+          {onRetry && isTerminal && (status === "failed" || status === "timeout") && (
+            <Button variant="secondary" onClick={onRetry}>
+              <RotateCcw size={14} /> Retry
+            </Button>
+          )}
           <Button variant={isTerminal ? "primary" : "secondary"} onClick={onClose}>
             {isTerminal ? "Close" : "Close (run continues)"}
           </Button>
@@ -623,11 +681,15 @@ function RunInProgressModal({
 function RunsModal({
   company,
   routine,
+  initialRunId,
   onClose,
+  onRetry,
 }: {
   company: Company;
   routine: Routine;
+  initialRunId?: string | null;
   onClose: () => void;
+  onRetry?: () => void;
 }) {
   const [runs, setRuns] = React.useState<Run[] | null>(null);
   const [activeId, setActiveId] = React.useState<string | null>(null);
@@ -642,7 +704,15 @@ function RunsModal({
           `/api/companies/${company.id}/routines/${routine.id}/runs`,
         );
         setRuns(list);
-        if (list.length > 0) setActiveId(list[0].id);
+        if (list.length > 0) {
+          // Prefer the deep-linked run when it's in the recent window, else
+          // fall back to the newest run.
+          const focused =
+            initialRunId && list.some((r) => r.id === initialRunId)
+              ? initialRunId
+              : list[0].id;
+          setActiveId(focused);
+        }
       } catch (err) {
         toast((err as Error).message, "error");
         setRuns([]);
@@ -671,6 +741,8 @@ function RunsModal({
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId]);
+
+  const activeRun = runs?.find((r) => r.id === activeId) ?? null;
 
   return (
     <Modal open onClose={onClose} title={`Runs: ${routine.name}`} size="xl">
@@ -734,6 +806,18 @@ function RunsModal({
               </pre>
             )}
           </div>
+        </div>
+      )}
+      {onRetry && runs && runs.length > 0 && (
+        <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            {activeRun && (activeRun.status === "failed" || activeRun.status === "timeout")
+              ? "This run didn't finish cleanly. Retry to run the routine again now."
+              : "Run the routine again now, outside its schedule."}
+          </div>
+          <Button variant="secondary" onClick={onRetry}>
+            <RotateCcw size={14} /> Retry
+          </Button>
         </div>
       )}
     </Modal>

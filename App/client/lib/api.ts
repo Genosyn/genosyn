@@ -1359,6 +1359,46 @@ export type HomeChannel = {
   unreadCount: number;
 };
 
+export type HomeFailedRun = {
+  runId: string;
+  routineId: string;
+  routineName: string;
+  status: RunStatus;
+  exitCode: number | null;
+  startedAt: string;
+  employee: { id: string; name: string; slug: string; avatarKey: string | null };
+};
+
+// ───────────────────────── System Health ────────────────────────────────
+export type HealthSeverity = "ok" | "warn" | "error";
+export type HealthItem = {
+  label: string;
+  sublabel?: string;
+  badge?: string;
+  link?: string;
+};
+export type HealthCheck = {
+  id: string;
+  title: string;
+  description: string;
+  severity: HealthSeverity;
+  count: number;
+  summary: string;
+  items: HealthItem[];
+};
+export type SystemHealthReport = {
+  generatedAt: string;
+  windowHours: number;
+  status: HealthSeverity;
+  issueCount: number;
+  checks: HealthCheck[];
+};
+export type SystemHealthSummary = {
+  status: HealthSeverity;
+  issueCount: number;
+  checks: { id: string; title: string; severity: HealthSeverity; count: number }[];
+};
+
 export type HomeData = {
   notifications: Notification[];
   unreadNotificationCount: number;
@@ -1370,6 +1410,9 @@ export type HomeData = {
   pendingApprovalCount: number;
   unreadChannels: HomeChannel[];
   journalToday: { entries: number; employees: number };
+  failedRuns: HomeFailedRun[];
+  failedRunCount: number;
+  systemHealth: SystemHealthSummary;
   counts: { employees: number; projects: number };
 };
 

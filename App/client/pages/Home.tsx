@@ -1,6 +1,8 @@
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
+  Activity,
+  AlertTriangle,
   AtSign,
   BellRing,
   Calendar,
@@ -22,7 +24,9 @@ import {
   HomeApproval,
   HomeChannel,
   HomeData,
+  HomeFailedRun,
   HomeTodo,
+  HealthSeverity,
   Me,
   Notification as NotificationRow,
   NotificationKind,
@@ -101,9 +105,11 @@ export default function HomePage({
           </div>
         ) : (
           <>
+            <FailedRoutinesAlert company={company} data={data} />
             <StatStrip company={company} data={data} />
             <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
               <AttentionCard company={company} data={data} onChanged={reload} />
+              <SystemHealthCard company={company} data={data} />
               <MyTodosCard company={company} data={data} />
               <MessagesCard company={company} data={data} />
               <ReviewsCard company={company} data={data} />
@@ -271,6 +277,90 @@ function StatStrip({ company, data }: { company: Company; data: HomeData }) {
         </Link>
       ))}
     </div>
+  );
+}
+
+// ───────────────────────── failed routines alert ─────────────────────────────
+
+function failedRunLink(company: Company, r: HomeFailedRun): string {
+  const params = new URLSearchParams({ routine: r.routineId, run: r.runId });
+  return `/c/${company.slug}/employees/${r.employee.slug}/routines?${params.toString()}`;
+}
+
+function failedRunBadge(r: HomeFailedRun): string {
+  if (r.status === "timeout") return "timeout";
+  return r.exitCode !== null ? `exit ${r.exitCode}` : "failed";
+}
+
+/**
+ * High-visibility alert listing routine runs that failed in the last 24h.
+ * Only renders when something is broken — a clean day shows nothing here.
+ * Each row deep-links into the routine's run history (on the failing run).
+ */
+function FailedRoutinesAlert({
+  company,
+  data,
+}: {
+  company: Company;
+  data: HomeData;
+}) {
+  if (data.failedRuns.length === 0) return null;
+  return (
+    <section className="mt-6 overflow-hidden rounded-xl border border-rose-200 bg-rose-50/60 shadow-sm dark:border-rose-500/30 dark:bg-rose-500/10">
+      <div className="flex items-center gap-2 border-b border-rose-200/70 px-4 py-3 dark:border-rose-500/20">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-rose-100 text-rose-600 dark:bg-rose-500/20 dark:text-rose-300">
+          <AlertTriangle size={15} />
+        </span>
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+          Failed routines
+        </h2>
+        <span className="rounded-full bg-rose-100 px-1.5 text-[10px] font-semibold tabular-nums text-rose-700 dark:bg-rose-500/20 dark:text-rose-300">
+          {data.failedRunCount}
+        </span>
+        <Link
+          to={`/c/${company.slug}/inbox`}
+          className="ml-auto flex items-center gap-0.5 text-xs text-rose-700 hover:underline dark:text-rose-300"
+        >
+          Journal <ChevronRight size={12} />
+        </Link>
+      </div>
+      <ul className="divide-y divide-rose-100 dark:divide-rose-500/15">
+        {data.failedRuns.map((r) => (
+          <li key={r.runId}>
+            <Link
+              to={failedRunLink(company, r)}
+              className="flex items-center gap-3 px-4 py-2.5 hover:bg-rose-100/50 dark:hover:bg-rose-500/10"
+            >
+              <Avatar
+                name={r.employee.name}
+                kind="ai"
+                size="sm"
+                src={employeeAvatarUrl(
+                  company.id,
+                  r.employee.id,
+                  r.employee.avatarKey,
+                )}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                  {r.routineName}
+                </span>
+                <span className="block truncate text-[11px] text-slate-500 dark:text-slate-400">
+                  {r.employee.name} · {formatRelative(r.startedAt)}
+                </span>
+              </span>
+              <span className="shrink-0 rounded border border-rose-200 bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/15 dark:text-rose-300">
+                {failedRunBadge(r)}
+              </span>
+              <ChevronRight
+                size={14}
+                className="shrink-0 text-rose-300 dark:text-rose-500/60"
+              />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -683,6 +773,70 @@ function ActivityCard({ company, data }: { company: Company; data: HomeData }) {
             </div>
           </div>
         </div>
+      )}
+    </HomeCard>
+  );
+}
+
+// ───────────────────────── system health card ────────────────────────────────
+
+const HEALTH_DOT: Record<HealthSeverity, string> = {
+  ok: "bg-emerald-500",
+  warn: "bg-amber-500",
+  error: "bg-rose-500",
+};
+
+function SystemHealthCard({
+  company,
+  data,
+}: {
+  company: Company;
+  data: HomeData;
+}) {
+  const { status, issueCount, checks } = data.systemHealth;
+  const failing = checks.filter((c) => c.severity !== "ok");
+  return (
+    <HomeCard
+      title="System health"
+      icon={<Activity size={15} />}
+      count={issueCount}
+      linkTo={`/c/${company.slug}/settings/system-health`}
+      linkLabel="Details"
+    >
+      {status === "ok" || failing.length === 0 ? (
+        <CardEmpty label="All systems healthy — routines, models, and integrations are running clean." />
+      ) : (
+        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+          {failing.map((c) => (
+            <li key={c.id}>
+              <Link
+                to={`/c/${company.slug}/settings/system-health`}
+                className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+              >
+                <span
+                  className={clsx(
+                    "h-2 w-2 shrink-0 rounded-full",
+                    HEALTH_DOT[c.severity],
+                  )}
+                  title={c.severity}
+                />
+                <span className="min-w-0 flex-1 truncate text-sm text-slate-900 dark:text-slate-100">
+                  {c.title}
+                </span>
+                <span
+                  className={clsx(
+                    "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums",
+                    c.severity === "error"
+                      ? "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300"
+                      : "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
+                  )}
+                >
+                  {c.count}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
       )}
     </HomeCard>
   );
