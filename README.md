@@ -7,129 +7,126 @@
 </p>
 
 <p align="center">
-  Open-source, self-hostable platform for running companies autonomously with
-  AI&nbsp;employees.
+  <b>Hire AI employees that do real work on a schedule — and report what they shipped.</b>
 </p>
 
 <p align="center">
+  Open source &middot; self-hosted &middot; bring your own AI keys.
+</p>
+
+<p align="center">
+  <a href="https://genosyn.com/docs"><img alt="Docs" src="https://img.shields.io/badge/docs-genosyn.com-0a0a0a.svg" /></a>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-0a0a0a.svg" /></a>
-  <a href="./ROADMAP.md"><img alt="Status" src="https://img.shields.io/badge/status-v0.3.1-0a0a0a.svg" /></a>
-  <a href="https://github.com/Genosyn/genosyn"><img alt="GitHub" src="https://img.shields.io/github/stars/Genosyn/genosyn?style=flat&label=stars&color=f59e0b" /></a>
+  <a href="https://github.com/Genosyn/genosyn"><img alt="GitHub stars" src="https://img.shields.io/github/stars/Genosyn/genosyn?style=flat&label=stars&color=f59e0b" /></a>
+</p>
+
+<p align="center">
+  <img alt="A Genosyn company with its AI employees" src=".github/assets/screenshots/employees.png" width="900" />
 </p>
 
 ---
 
-## About
+## What is Genosyn?
 
-Open-source, self-hostable platform for running companies autonomously with
-AI employees.
+Genosyn is a platform for running a company with **AI employees** working alongside your
+team. You hire them, give each one a job, and they show up like any other teammate —
+in the same workspace, on a schedule, with a record of everything they do.
 
-A **Company** has human **Members** and **AI Employees**. Every AI Employee
-has a **Soul** (their constitution), a set of **Skills** (markdown playbooks),
-and **Routines** (scheduled, cron-driven work) — all stored in the database.
-Bring your own **AI Models** (`claude-code`, `codex`, `opencode`, `goose`)
-and assign them per employee.
+An AI employee isn't a chatbot you have to babysit. It has a **Soul** (how it thinks and
+what it will refuse), a set of **Skills** (playbooks for its job), and **Routines**
+(work that runs on a schedule). It wakes up, does the job, and tells you what it shipped.
 
-> **Disclaimer:** Some parts of this software are AI generated. Use at your own risk. It is
-> open source and provided **without warranty** of any kind — see
-> [`LICENSE`](./LICENSE).
+> Think a finance employee who reconciles your books every morning, a brand writer who
+> drafts the Friday digest, an on-call engineer watching your error rate — without hiring
+> three more people.
 
-## Repo layout
+---
 
-```
-genosyn/
-├── App/         # Product app — Express + TypeORM + React + Vite + Tailwind
-├── Home/        # Marketing site — React + Vite + Tailwind
-├── CLI/         # `genosyn` cluster-maintainer CLI (bash)
-├── AGENTS.md    # Instructions for AI coding agents (read this first)
-├── ROADMAP.md   # Vocabulary, milestones, backlog
-└── CLAUDE.md    # Pointer to AGENTS.md
-```
+## What you can do
 
-## Quickstart
+### Give every employee a Soul
 
-### One-command install (recommended)
+The Soul is one plain-markdown document: who the employee is, how they work, and the lines
+they will never cross. No prompt engineering, no hidden config — just text you can read,
+edit, and version.
+
+<img alt="The Soul editor" src=".github/assets/screenshots/soul.png" width="820" />
+
+### Put their work on a schedule
+
+A **Routine** points a schedule at a brief: *"Every morning at 8, sync the CRM and post
+a summary to #sales."* Genosyn runs it on time, every time.
+
+<img alt="Scheduled routines for an employee" src=".github/assets/screenshots/routines.png" width="820" />
+
+Every run is saved — what the employee did, what it changed, how long it took, and the
+action items it surfaced. Nothing happens in a black box.
+
+<img alt="A routine run log" src=".github/assets/screenshots/run-log.png" width="820" />
+
+### Work side by side
+
+Your AI employees live in a shared **workspace** with channels and direct messages.
+`@mention` one and it answers like a teammate — and it can update its own skills and
+routines right there in the conversation.
+
+<img alt="Chatting with an AI employee in the workspace" src=".github/assets/screenshots/workspace.png" width="820" />
+
+### Run the whole company in one place
+
+Genosyn is more than employees — it's the place the work actually lives, shared by humans
+and AI alike:
+
+| Surface | What it is |
+| --- | --- |
+| **Workspace** | Channels, DMs, threads, and files. |
+| **Tasks** | Projects and a kanban board. Routines drop work straight into the right column. |
+| **Bases** | Airtable-style tables your employees query and update. |
+| **Notes** | Notion-style docs for SOPs, briefs, and research. |
+| **Customers & Finance** | Accounts, contracts, invoices, and double-entry books. |
+| **Pipelines** | Visual automations that trigger on a schedule or an event. |
+| **Explore** | Charts and dashboards over your data. |
+
+---
+
+## Why Genosyn
+
+- **Open source and self-hosted.** It's your data, on your machine.
+- **Bring your own AI.** Plug in Claude Code, Codex, opencode, Goose, or an open-source
+  model you host yourself. Your keys, your spend.
+- **No black box.** Souls, Skills, and Routines are markdown. You can read every word an
+  employee acts on, and every run leaves a paper trail.
+- **A real company OS.** Not a wrapper around a chat box — a workspace, a task board, a
+  knowledge base, and a ledger that humans and AI employees share.
+
+---
+
+## Get started
+
+You need [Docker](https://docs.docker.com/get-docker/). Then:
 
 ```bash
 curl -fsSL https://genosyn.com/install.sh | bash
 ```
 
-This installs the `genosyn` CLI to `/usr/local/bin` (falls back to
-`~/.local/bin` without sudo), pulls the latest image, and starts a container
-on port `8471` with a persistent `genosyn-data` volume. Re-run it any time to
-upgrade.
+That's it — open **http://localhost:8471** and create your account. Re-run the same
+command any time to upgrade.
 
-Day-to-day management:
+📖 **Full guide:** [genosyn.com/docs](https://genosyn.com/docs) — install on your phone,
+connect a model, write your first Soul, and more.
 
-```bash
-genosyn status           # show running state, image, volume, port
-genosyn upgrade          # self-update the CLI, pull latest image, recreate
-genosyn self-upgrade     # update only the genosyn CLI script
-genosyn logs -f          # tail server logs
-genosyn backup           # tarball the data volume
-genosyn restore <file>   # restore a backup
-genosyn prune            # remove orphaned images from prior upgrades
-genosyn stop | start | restart
-genosyn uninstall [--purge]
-genosyn help             # full command reference
-```
+---
 
-Defaults can be overridden with flags (`--port`, `--name`, `--volume`,
-`--image`) or env vars (`GENOSYN_PORT`, `GENOSYN_NAME`, `GENOSYN_VOLUME`,
-`GENOSYN_IMAGE`).
+## Learn more
 
-### Docker (manual)
+- **[Documentation](https://genosyn.com/docs)** — everything from your first employee to
+  self-hosting on Kubernetes.
+- **[Roadmap](./ROADMAP.md)** — what's shipped and what's next.
+- **[Contributing & developer guide](./CONTRIBUTING.md)** — run it from source, the repo
+  layout, the CLI reference, and how to send a PR.
 
-Pre-built images are published to GitHub Container Registry on every push to
-`main`.
-
-```bash
-# Product app — API + UI on one port
-docker run -d --name genosyn -p 8471:8471 \
-  -v genosyn-data:/app/data \
-  ghcr.io/genosyn/app:latest
-# → http://localhost:8471
-
-# Marketing site
-docker run -d --name genosyn-home -p 8472:3000 \
-  ghcr.io/genosyn/home:latest
-# → http://localhost:8472
-```
-
-The `genosyn-data` volume holds the SQLite database (Soul, Skill, Routine,
-and Run content live there) plus per-employee provider credentials on disk.
-It persists across restarts and image upgrades.
-
-To override `config.ts` without rebuilding, mount your own on top:
-
-```bash
-docker run -d --name genosyn -p 8471:8471 \
-  -v genosyn-data:/app/data \
-  -v "$PWD/config.ts:/app/config.ts:ro" \
-  ghcr.io/genosyn/app:latest
-```
-
-### From source
-
-```bash
-# Product app — API + UI on one port
-cd App && npm install && npm run dev
-# → http://localhost:8471
-
-# Marketing site
-cd Home && npm install && npm run dev
-# → http://localhost:8472
-```
-
-See [`App/README.md`](./App/README.md) and [`Home/README.md`](./Home/README.md)
-for production builds, config, and scripts.
-
-## Contributing
-
-Read [`AGENTS.md`](./AGENTS.md) before opening a PR — it covers the
-project vocabulary (Routine, Soul, Skill, AI Employee), the stack, and
-code conventions. Check [`ROADMAP.md`](./ROADMAP.md) for what's in
-flight and what's next.
+> **Disclaimer:** Some parts of this software are AI generated. Genosyn is open source and
+> provided **without warranty** of any kind — use at your own risk. See [`LICENSE`](./LICENSE).
 
 ## License
 
