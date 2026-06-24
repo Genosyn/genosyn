@@ -86,7 +86,10 @@ export function Models() {
           <Strong>Subscription sign-in.</Strong> The runner launches the
           provider CLI&apos;s sign-in command, mirrors the OAuth URL into the
           browser, and waits for the credentials file to appear on disk. No
-          tokens transit the database.
+          tokens transit the database. When a subscription token expires (or you
+          want to swap accounts), hit <Strong>Reconnect</Strong> on the model
+          card to run the sign-in again in place — the model stays active and
+          nothing else is touched.
         </LI>
         <LI>
           <Strong>API key.</Strong> Paste a key, Genosyn AES-256-GCM encrypts

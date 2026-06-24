@@ -2219,6 +2219,10 @@ function ModelCard({
   const dialog = useDialog();
   const connected = model.status === "connected";
   const [activating, setActivating] = React.useState(false);
+  // A connected subscription model can be signed in again — tokens expire, or
+  // the operator wants to swap which account backs the employee. Revealing the
+  // sign-in panel in place is gentler than asking them to Remove + re-add.
+  const [reconnecting, setReconnecting] = React.useState(false);
   const base = `/api/companies/${company.id}/employees/${emp.id}/models`;
 
   async function activate() {
@@ -2316,6 +2320,15 @@ function ModelCard({
                 Make active
               </Button>
             )}
+            {connected && model.authMode === "subscription" && !reconnecting && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setReconnecting(true)}
+              >
+                <PlugZap size={14} /> Reconnect
+              </Button>
+            )}
             <Button size="sm" variant="ghost" onClick={disconnect}>
               <Unplug size={14} /> {connected ? "Remove" : "Cancel"}
             </Button>
@@ -2329,6 +2342,38 @@ function ModelCard({
             model={model}
             onConnected={onChanged}
           />
+        )}
+        {connected && model.authMode === "subscription" && reconnecting && (
+          <div className="flex flex-col gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                Reconnect {model.provider}
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setReconnecting(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              Sign in again to refresh {emp.name}&apos;s {model.provider}{" "}
+              credentials. This keeps the model active and won&apos;t touch
+              anything else.
+            </div>
+            <SubscriptionLoginPanel
+              company={company}
+              emp={emp}
+              model={model}
+              onConnected={onChanged}
+              onSignedIn={() => {
+                setReconnecting(false);
+                toast(`${emp.name} reconnected to ${model.provider}`, "success");
+                onChanged();
+              }}
+            />
+          </div>
         )}
         {!connected && model.authMode === "apikey" && (
           <ApiKeyPanel company={company} emp={emp} model={model} onSaved={onChanged} />
@@ -2406,11 +2451,19 @@ function SubscriptionLoginPanel({
   emp,
   model,
   onConnected,
+  onSignedIn,
 }: {
   company: Company;
   emp: Employee;
   model: AIModel;
   onConnected: () => void;
+  /**
+   * Fired when the login pty exits cleanly. The first-time flow leaves this
+   * undefined and lets the parent's /refresh poll observe the creds landing
+   * (and toast). A reconnect of an already-connected model has no such poll —
+   * the status never changes — so it passes this to collapse the panel itself.
+   */
+  onSignedIn?: () => void;
 }) {
   const employeeId = emp.id;
   return (
@@ -2420,6 +2473,7 @@ function SubscriptionLoginPanel({
       emp={emp}
       model={model}
       onConnected={onConnected}
+      onSignedIn={onSignedIn}
     />
   );
 }
@@ -2429,11 +2483,13 @@ function SubscriptionLoginInner({
   emp,
   model,
   onConnected,
+  onSignedIn,
 }: {
   company: Company;
   emp: Employee;
   model: AIModel;
   onConnected: () => void;
+  onSignedIn?: () => void;
 }) {
   // We track the active pty session here. The session abstraction is shared
   // by install + login — same shape, same polling — so one piece of state
@@ -2502,8 +2558,13 @@ function SubscriptionLoginInner({
           if (phase === "installing" && next.exitCode === 0) {
             onConnected();
           }
-          // For successful logins the parent's existing /refresh poll picks up
-          // the creds file and unmounts us. We just stop polling here.
+          // For first-time logins the parent's /refresh poll picks up the creds
+          // file and unmounts us, so we just stop polling. A reconnect has no
+          // such poll (status was already "connected"), so it hands us an
+          // onSignedIn to collapse the panel on a clean exit.
+          if (phase === "signingIn" && next.exitCode === 0) {
+            onSignedIn?.();
+          }
         }
       } catch {
         // network blip — try again next tick
@@ -2513,7 +2574,7 @@ function SubscriptionLoginInner({
       alive = false;
       window.clearInterval(id);
     };
-  }, [session, baseUrl, phase, onConnected]);
+  }, [session, baseUrl, phase, onConnected, onSignedIn]);
 
   React.useEffect(() => {
     sessionRef.current = session;
