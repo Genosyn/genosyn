@@ -65,6 +65,10 @@ don't re-litigate them.
   (`IntegrationConnection`), per-company.
 - **Grant** — an AI employee's access to a Connection
   (`EmployeeConnectionGrant`).
+- **Code Repository** — any git repo the company adds so granted AI
+  employees can read, commit, and push real code (`CodeRepository` +
+  `EmployeeCodeRepositoryGrant`). Provider-agnostic (HTTPS / SSH), distinct
+  from the GitHub-Connection-bound repos in M12.
 - **Pipeline** — DAG of typed nodes for deterministic glue (separate
   primitive from Routines). Triggered manually, by webhook, or on cron.
 - **Note / Notebook** — Notion-style company-wide markdown knowledge base.
@@ -120,6 +124,7 @@ genosyn/
 - **Pipelines (M10):** `Pipeline`, `PipelineRun`
 - **Integrations:** `IntegrationConnection`, `EmployeeConnectionGrant`,
   `McpServer` (external MCP server registry)
+- **Code (M21):** `CodeRepository`, `EmployeeCodeRepositoryGrant`
 - **Approvals + audit:** `Approval` (kind: routine | lightning_payment | …),
   `AuditEvent`, `Notification`
 - **Email:** `EmailProvider`, `EmailLog`
@@ -286,6 +291,41 @@ export const config = {
 - [ ] Default Engineering skill body template (still attached manually)
 - [ ] Worktree-per-routine isolation (deferred — single-mutex is fine for now)
 - [ ] Signed commits via the GitHub App identity (deferred)
+
+### M21 — Code Repositories ✅
+
+Provider-agnostic cousin of M12. Where M12's repos ride on a GitHub
+**Connection** + allowlist, a **Code Repository** is a first-class
+company row pointed at *any* git URL (GitHub, GitLab, Bitbucket,
+self-hosted) over HTTPS or SSH, with access handed out per-employee.
+"Add any repo; let the employees you choose commit and push."
+
+- [x] `CodeRepository` entity — companyId, name, slug, gitUrl,
+      defaultBranch, authMode (`none` | `https` | `ssh`), httpsUsername,
+      encrypted token + encrypted SSH key (AES-256-GCM via `lib/secret`),
+      committer identity, last-sync health. Credentials never returned to
+      the client in plaintext.
+- [x] `EmployeeCodeRepositoryGrant` — employee → repo with `read` < `write`
+      (write = commit + push). Default `write`; sharing is fully opt-in
+      (no auto-grant-to-all).
+- [x] `services/codeRepos.ts` — `materializeCodeReposForEmployee` clones
+      each granted repo into `<employeeDir>/code-repos/<slug>/` before every
+      chat / routine spawn; per-(employee × repo) mutex; fetch-only on
+      existing checkouts. HTTPS token rides a per-repo env var +
+      credential-helper (never on disk); SSH key written 0600 + pinned via
+      `core.sshCommand`. Read-only grants get the push URL disabled.
+      `testCodeRepoConnection` probes creds via `git ls-remote --symref`.
+- [x] HTTP routes under `/api/companies/:cid/code-repositories`: CRUD,
+      `/test`, grant CRUD + candidates. zod-validated.
+- [x] Prompt context — granted repos + their checkout paths + push rights
+      injected into the chat / routine prompt; `list_code_repositories` MCP
+      tool on the built-in `genosyn` server.
+- [x] React UI under `/c/<co>/code`: index (list + add modal), detail
+      (test connection, settings, employee-access management, delete).
+      New "Code" section under an Engineering group in the app shell.
+- [ ] Worktree-per-routine isolation (shared with M12; deferred)
+- [ ] Browse the checkout in a web file tree (deferred — agents use it on
+      disk today)
 
 ### M13 — Lightning ✅
 - [x] `lightning` provider (NWC / NIP-47) — wallet-agnostic via Alby Hub /

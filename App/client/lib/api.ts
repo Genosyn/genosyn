@@ -1294,6 +1294,73 @@ export type ResourceGrantCandidate = ResourceGrantEmployee & {
   alreadyGranted: boolean;
 };
 
+// ───────────────────────── Code Repositories ────────────────────────────
+
+export type CodeRepoAuthMode = "none" | "https" | "ssh";
+export type CodeRepoSyncStatus = "unknown" | "ok" | "error";
+export type CodeRepoAccessLevel = "read" | "write";
+
+export type CodeRepoAuthor = {
+  kind: "human";
+  id: string;
+  name: string;
+  email: string | null;
+};
+
+export type CodeRepository = {
+  id: string;
+  companyId: string;
+  name: string;
+  slug: string;
+  description: string;
+  gitUrl: string;
+  defaultBranch: string;
+  authMode: CodeRepoAuthMode;
+  httpsUsername: string | null;
+  committerName: string | null;
+  committerEmail: string | null;
+  /** Whether a credential is stored — never the secret itself. */
+  hasToken: boolean;
+  hasSshKey: boolean;
+  grantCount: number;
+  lastSyncedAt: string | null;
+  lastSyncStatus: CodeRepoSyncStatus;
+  lastSyncError: string;
+  createdById: string | null;
+  createdBy: CodeRepoAuthor | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CodeRepoGrantEmployee = {
+  id: string;
+  name: string;
+  slug: string;
+  role: string;
+  avatarKey: string | null;
+};
+
+export type CodeRepoGrant = {
+  id: string;
+  employeeId: string;
+  codeRepositoryId: string;
+  accessLevel: CodeRepoAccessLevel;
+  createdAt: string;
+  employee: CodeRepoGrantEmployee | null;
+};
+
+export type CodeRepoGrantsResponse = { direct: CodeRepoGrant[] };
+
+export type CodeRepoGrantCandidate = CodeRepoGrantEmployee & {
+  alreadyGranted: boolean;
+};
+
+export type CodeRepoTestResult = {
+  ok: boolean;
+  message: string;
+  defaultBranch?: string;
+};
+
 // ───────────────────────── Notifications ────────────────────────────────
 
 export type NotificationKind =

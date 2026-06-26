@@ -1099,6 +1099,13 @@ const TOOLS = [
     },
   },
   {
+    name: "list_code_repositories",
+    description:
+      "List the Code Repositories you have been granted access to in this company. Each git repo is already checked out in your working directory at `code-repos/<slug>/`, with credentials and your committer identity configured for you — so you can `cd` into the path and use ordinary `git` to read, branch, commit, and (when your access level is `write`) push. Each row carries the repo name, slug, localPath, defaultBranch, your accessLevel (`read` / `write`), the clone URL, and the last sync status. There is no MCP tool for committing or pushing — do that with `git` inside the checkout.",
+    endpoint: "/tools/list_code_repositories",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
     name: "create_resource",
     description:
       "Add a new Resource that the team can study. Use this to capture an external URL the team should index, or to paste in a long-form note that's better filed as a Resource than a Note (e.g. a transcript, a primer, a research summary). Pass `sourceKind: 'url'` with `url` to fetch + extract a page; pass `sourceKind: 'text'` with `title` and `body` (markdown) to file a paste. The author gets `delete` access automatically (full control); teammates start at `read`. URL fetches that fail still create the row with `status: 'failed'` so a human can fix it. PDF/EPUB uploads are humans-only — use the React UI for those.",

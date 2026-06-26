@@ -24,6 +24,10 @@ import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
 import { materializeReposForEmployee } from "./repoSync.js";
+import {
+  composeCodeReposContext,
+  materializeCodeReposForEmployee,
+} from "./codeRepos.js";
 
 /**
  * Run seam.
@@ -143,7 +147,15 @@ export async function startRoutineRun(
       }
 
       const memoryContext = await composeMemoryContext(emp.id);
-      const prompt = composePrompt({ co, emp, routine, skills, memoryContext });
+      const codeReposContext = await composeCodeReposContext(emp.id);
+      const prompt = composePrompt({
+        co,
+        emp,
+        routine,
+        skills,
+        memoryContext,
+        codeReposContext,
+      });
 
       const env = buildProviderEnv(co.slug, emp.slug, model);
       if (!("error" in env)) {
@@ -212,6 +224,25 @@ export async function startRoutineRun(
       }
       for (const e of repoSync.errors) {
         log.line(`[repos] ${e.scope}: ${e.message}`);
+      }
+
+      // Materialize each granted Code Repository (provider-agnostic git repos
+      // the company added directly) into `<cwd>/code-repos/<slug>/`. Same
+      // non-fatal error handling as the GitHub-Connection repos above.
+      const codeRepoSync = await materializeCodeReposForEmployee({
+        employeeId: emp.id,
+        cwd,
+      });
+      for (const [k, v] of Object.entries(codeRepoSync.extraEnv)) {
+        if (env.env && !(k in env.env)) env.env[k] = v;
+      }
+      for (const r of codeRepoSync.repos) {
+        log.line(
+          `[code-repos] synced ${r.slug}@${r.defaultBranch} (${r.accessLevel})`,
+        );
+      }
+      for (const e of codeRepoSync.errors) {
+        log.line(`[code-repos] ${e.scope}: ${e.message}`);
       }
 
       // Dispatch by provider. The headless invocations below are the documented
@@ -333,8 +364,9 @@ function composePrompt(args: {
   routine: Routine;
   skills: Skill[];
   memoryContext: string;
+  codeReposContext: string;
 }): string {
-  const { co, emp, routine, skills, memoryContext } = args;
+  const { co, emp, routine, skills, memoryContext, codeReposContext } = args;
   const parts: string[] = [];
   parts.push(
     `You are ${emp.name}, ${emp.role} at ${co.name}. The following documents are yours — your Soul, your Memory, your Skills, and today's Routine.`,
@@ -350,6 +382,7 @@ function composePrompt(args: {
   parts.push("\n## Soul\n");
   parts.push(emp.soulBody);
   if (memoryContext) parts.push(memoryContext);
+  if (codeReposContext) parts.push(codeReposContext);
   for (const s of skills) {
     parts.push(`\n## Skill: ${s.name}\n`);
     parts.push(s.body);

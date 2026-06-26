@@ -36,6 +36,12 @@ export const DOCS_NAV: DocsSection[] = [
     ],
   },
   {
+    label: "Engineering",
+    pages: [
+      { path: "/docs/code", title: "Code Repositories", blurb: "Add any git repo; let granted AI employees commit and push." },
+    ],
+  },
+  {
     label: "Analytics",
     pages: [
       { path: "/docs/explore", title: "Explore", blurb: "Self-serve BI — Charts and Dashboards over your database integrations." },

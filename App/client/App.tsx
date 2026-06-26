@@ -71,6 +71,8 @@ import NotebookDetail from "./pages/NotebookDetail";
 import NoteDetail from "./pages/NoteDetail";
 import ResourcesIndex from "./pages/ResourcesIndex";
 import ResourceDetail from "./pages/ResourceDetail";
+import CodeReposIndex from "./pages/CodeReposIndex";
+import CodeRepoDetail from "./pages/CodeRepoDetail";
 import CustomersLayout from "./pages/CustomersLayout";
 import CustomersIndex from "./pages/CustomersIndex";
 import CustomerNew from "./pages/CustomerNew";
@@ -294,6 +296,14 @@ function CompanyRoutes({
         <Route
           path="resources/:slug"
           element={<ResourceDetail company={company} />}
+        />
+
+        {/* Code — provider-agnostic git repositories the company adds so
+            granted AI employees can read, commit, and push real code. */}
+        <Route path="code" element={<CodeReposIndex company={company} />} />
+        <Route
+          path="code/:slug"
+          element={<CodeRepoDetail company={company} />}
         />
 
         {/* Customers — standalone section (moved out of Finance). Customer

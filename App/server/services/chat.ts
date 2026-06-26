@@ -24,6 +24,10 @@ import {
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
 import { materializeReposForEmployee } from "./repoSync.js";
+import {
+  composeCodeReposContext,
+  materializeCodeReposForEmployee,
+} from "./codeRepos.js";
 
 /**
  * Chat seam.
@@ -116,7 +120,16 @@ export async function streamChatWithEmployee(
   }
 
   const memoryContext = await composeMemoryContext(emp.id);
-  const prompt = composeChatPrompt({ co, emp, skills, history, message, memoryContext });
+  const codeReposContext = await composeCodeReposContext(emp.id);
+  const prompt = composeChatPrompt({
+    co,
+    emp,
+    skills,
+    history,
+    message,
+    memoryContext,
+    codeReposContext,
+  });
   const envResult = buildProviderEnv(co.slug, emp.slug, model);
   if (envResult.error !== undefined) {
     return { status: "error", reply: envResult.error, attachmentIds: [] };
@@ -169,6 +182,17 @@ export async function streamChatWithEmployee(
     if (!(k in childEnv)) childEnv[k] = v;
   }
 
+  // Materialize granted Code Repositories (provider-agnostic git repos the
+  // company added directly) into `<cwd>/code-repos/<slug>/`. Non-fatal —
+  // chat still proceeds if a repo fails to sync.
+  const codeRepoSync = await materializeCodeReposForEmployee({
+    employeeId: emp.id,
+    cwd,
+  });
+  for (const [k, v] of Object.entries(codeRepoSync.extraEnv)) {
+    if (!(k in childEnv)) childEnv[k] = v;
+  }
+
   const invocation = buildInvocation(model.provider, model.model, prompt, mcpExtras.extraArgs);
   try {
     const stdout = await spawnAndStream(invocation.cmd, invocation.args, {
@@ -202,8 +226,10 @@ function composeChatPrompt(args: {
   history: ChatTurn[];
   message: string;
   memoryContext: string;
+  codeReposContext: string;
 }): string {
-  const { co, emp, skills, history, message, memoryContext } = args;
+  const { co, emp, skills, history, message, memoryContext, codeReposContext } =
+    args;
   const parts: string[] = [];
   parts.push(
     `You are ${emp.name}, ${emp.role} at ${co.name}. A teammate is chatting with you directly. Reply in your own voice, guided by your Soul, Memory, and Skills below. Keep replies focused and grounded — ask clarifying questions when needed.`,
@@ -212,6 +238,7 @@ function composeChatPrompt(args: {
   parts.push("\n## Soul\n");
   parts.push(emp.soulBody);
   if (memoryContext) parts.push(memoryContext);
+  if (codeReposContext) parts.push(codeReposContext);
   for (const s of skills) {
     parts.push(`\n## Skill: ${s.name}\n`);
     parts.push(s.body);

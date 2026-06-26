@@ -42,6 +42,7 @@ import { emailLogsRouter } from "./routes/emailLogs.js";
 import { notebooksRouter } from "./routes/notebooks.js";
 import { notesRouter } from "./routes/notes.js";
 import { resourcesRouter } from "./routes/resources.js";
+import { codeRepositoriesRouter } from "./routes/codeRepositories.js";
 import { financeRouter } from "./routes/finance.js";
 import { contractsRouter } from "./routes/contracts.js";
 import { exploreRouter } from "./routes/explore.js";
@@ -188,6 +189,11 @@ async function main() {
   // Resources (M18) — knowledge ingestion. Humans paste URLs / pastes /
   // upload PDFs / EPUBs; AI employees query the result via MCP tools.
   app.use("/api/companies/:cid", resourcesRouter);
+
+  // Code Repositories — provider-agnostic git repos the company adds so
+  // granted AI employees can read, commit, and push real code. Checkouts are
+  // materialized into the employee cwd before each spawn (services/codeRepos).
+  app.use("/api/companies/:cid", codeRepositoriesRouter);
 
   // Finance (M19 Phase A) — Customers, Products, Tax rates, Invoices.
   // Native invoicing with HTML render + email send via the company's

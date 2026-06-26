@@ -83,6 +83,8 @@ import { Note } from "../db/entities/Note.js";
 import { Notebook } from "../db/entities/Notebook.js";
 import { EmployeeNoteGrant } from "../db/entities/EmployeeNoteGrant.js";
 import { Resource } from "../db/entities/Resource.js";
+import { CodeRepository } from "../db/entities/CodeRepository.js";
+import { EmployeeCodeRepositoryGrant } from "../db/entities/EmployeeCodeRepositoryGrant.js";
 import {
   hasNoteAccess,
   listAccessibleNoteIds,
@@ -3675,6 +3677,40 @@ mcpInternalRouter.post(
       const message = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: `Failed to export: ${message}` });
     }
+  },
+);
+
+const listCodeRepositoriesSchema = z.object({}).strict();
+
+mcpInternalRouter.post(
+  "/tools/list_code_repositories",
+  validateBody(listCodeRepositoriesSchema),
+  async (req: McpRequest, res) => {
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const grants = await AppDataSource.getRepository(
+      EmployeeCodeRepositoryGrant,
+    ).find({ where: { employeeId: self.id } });
+    if (grants.length === 0) return res.json({ repositories: [] });
+    const accessById = new Map(
+      grants.map((g) => [g.codeRepositoryId, g.accessLevel]),
+    );
+    const rows = await AppDataSource.getRepository(CodeRepository).find({
+      where: { companyId: co.id, id: In([...accessById.keys()]) },
+      order: { updatedAt: "DESC" },
+    });
+    res.json({
+      repositories: rows.map((r) => ({
+        name: r.name,
+        slug: r.slug,
+        description: r.description,
+        localPath: `code-repos/${r.slug}`,
+        defaultBranch: r.defaultBranch,
+        gitUrl: r.gitUrl,
+        accessLevel: accessById.get(r.id) ?? "read",
+        lastSyncStatus: r.lastSyncStatus,
+      })),
+    });
   },
 );
 
