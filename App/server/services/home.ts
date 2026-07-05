@@ -1,4 +1,4 @@
-import { Between, In, MoreThanOrEqual } from "typeorm";
+import { Between, In, IsNull, MoreThanOrEqual } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Approval } from "../db/entities/Approval.js";
@@ -237,6 +237,8 @@ export async function getHomeData(params: {
         routineId: In([...compRoutineById.keys()]),
         status: In(["failed", "timeout"]),
         startedAt: MoreThanOrEqual(since),
+        // Runs a member has already acknowledged drop off the panel.
+        dismissedAt: IsNull(),
       },
       order: { startedAt: "DESC" },
       take: 6,

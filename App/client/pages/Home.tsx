@@ -105,7 +105,7 @@ export default function HomePage({
           </div>
         ) : (
           <>
-            <FailedRoutinesAlert company={company} data={data} />
+            <FailedRoutinesAlert company={company} data={data} onDismissed={reload} />
             <StatStrip company={company} data={data} />
             <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
               <AttentionCard company={company} data={data} onChanged={reload} />
@@ -300,10 +300,28 @@ function failedRunBadge(r: HomeFailedRun): string {
 function FailedRoutinesAlert({
   company,
   data,
+  onDismissed,
 }: {
   company: Company;
   data: HomeData;
+  /** Refetch Home data after a run is dismissed so the panel updates. */
+  onDismissed: () => Promise<void> | void;
 }) {
+  const { toast } = useToast();
+  const [dismissing, setDismissing] = React.useState<string | null>(null);
+
+  async function dismiss(runId: string) {
+    setDismissing(runId);
+    try {
+      await api.post(`/api/companies/${company.id}/runs/${runId}/dismiss`);
+      await onDismissed();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setDismissing(null);
+    }
+  }
+
   if (data.failedRuns.length === 0) return null;
   return (
     <section className="mt-6 overflow-hidden rounded-xl border border-rose-200 bg-rose-50/60 shadow-sm dark:border-rose-500/30 dark:bg-rose-500/10">
@@ -326,10 +344,10 @@ function FailedRoutinesAlert({
       </div>
       <ul className="divide-y divide-rose-100 dark:divide-rose-500/15">
         {data.failedRuns.map((r) => (
-          <li key={r.runId}>
+          <li key={r.runId} className="flex items-stretch">
             <Link
               to={failedRunLink(company, r)}
-              className="flex items-center gap-3 px-4 py-2.5 hover:bg-rose-100/50 dark:hover:bg-rose-500/10"
+              className="flex min-w-0 flex-1 items-center gap-3 px-4 py-2.5 hover:bg-rose-100/50 dark:hover:bg-rose-500/10"
             >
               <Avatar
                 name={r.employee.name}
@@ -352,11 +370,21 @@ function FailedRoutinesAlert({
               <span className="shrink-0 rounded border border-rose-200 bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/15 dark:text-rose-300">
                 {failedRunBadge(r)}
               </span>
-              <ChevronRight
-                size={14}
-                className="shrink-0 text-rose-300 dark:text-rose-500/60"
-              />
             </Link>
+            <button
+              type="button"
+              onClick={() => dismiss(r.runId)}
+              disabled={dismissing === r.runId}
+              title="Dismiss"
+              aria-label={`Dismiss ${r.routineName} failure`}
+              className="flex shrink-0 items-center px-3 text-rose-400 transition hover:bg-rose-100/50 hover:text-rose-700 disabled:opacity-50 dark:text-rose-500/70 dark:hover:bg-rose-500/10 dark:hover:text-rose-200"
+            >
+              {dismissing === r.runId ? (
+                <Spinner size={14} />
+              ) : (
+                <X size={15} />
+              )}
+            </button>
           </li>
         ))}
       </ul>

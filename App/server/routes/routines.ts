@@ -319,3 +319,38 @@ routinesRouter.get("/runs/:runId/log", async (req, res) => {
     finishedAt: run.finishedAt,
   });
 });
+
+/**
+ * Acknowledge a failed/timed-out run so it drops off the Home "Failed
+ * routines" panel and the System Health "Failed routine runs" check. The run
+ * row is left intact — this only stamps `dismissedAt` so the alert stops
+ * nagging every member. Idempotent: re-dismissing a dismissed run is a no-op.
+ */
+routinesRouter.post("/runs/:runId/dismiss", async (req, res) => {
+  const runRepo = AppDataSource.getRepository(Run);
+  const run = await runRepo.findOneBy({ id: req.params.runId });
+  if (!run) return res.status(404).json({ error: "Not found" });
+  // Company-scope the run through its owning routine.
+  const found = await loadRoutine(
+    (req.params as Record<string, string>).cid,
+    run.routineId,
+  );
+  if (!found) return res.status(404).json({ error: "Not found" });
+  if (run.status !== "failed" && run.status !== "timeout") {
+    return res.status(409).json({ error: "Only failed or timed-out runs can be dismissed" });
+  }
+  if (!run.dismissedAt) {
+    run.dismissedAt = new Date();
+    await runRepo.save(run);
+    await recordAudit({
+      companyId: found.co.id,
+      actorUserId: req.userId ?? null,
+      action: "routine.run.dismiss",
+      targetType: "run",
+      targetId: run.id,
+      targetLabel: found.routine.name,
+      metadata: { routineId: found.routine.id, status: run.status },
+    });
+  }
+  res.json(run);
+});

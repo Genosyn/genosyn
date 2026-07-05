@@ -1,6 +1,7 @@
 import {
   FindManyOptions,
   In,
+  IsNull,
   LessThan,
   MoreThanOrEqual,
   ObjectLiteral,
@@ -206,6 +207,9 @@ async function computeChecks(
               routineId: In(routineIds),
               status: In(["failed", "timeout"]),
               startedAt: MoreThanOrEqual(recentSince),
+              // Stay in step with the Home "Failed routines" panel: a run a
+              // member dismissed there shouldn't keep this check red.
+              dismissedAt: IsNull(),
             },
             order: { startedAt: "DESC" },
           },

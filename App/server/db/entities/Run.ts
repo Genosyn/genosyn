@@ -53,6 +53,18 @@ export class Run {
   @Column({ type: "integer", nullable: true })
   exitCode!: number | null;
 
+  /**
+   * When a member acknowledged this failed/timed-out run from the Home
+   * "Failed routines" panel. Non-null rows are hidden from that panel and
+   * from the System Health "Failed routine runs" check, so an
+   * already-noticed failure stops nagging the whole company. The run itself
+   * is left intact — this only suppresses the alert. Null for runs nobody
+   * has dismissed (the default). The acting member + time are also written
+   * to the audit log.
+   */
+  @Column({ type: "datetime", nullable: true })
+  dismissedAt!: Date | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

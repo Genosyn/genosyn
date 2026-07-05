@@ -156,7 +156,11 @@ Post it to the #morning channel.`}</Pre>
         <Strong>Failed routines</Strong> panel for anything that broke in the
         last 24 hours, and every <Strong>Journal</Strong> entry for a Run links
         straight to that routine&apos;s run history — where the Retry button is
-        one click away.
+        one click away. Once you&apos;ve looked at a failure, hit the{" "}
+        <Strong>✕</Strong> on its row to <Strong>dismiss</Strong> it — the run
+        stays in the routine&apos;s history, but it drops off the panel (and out
+        of the System Health failed-runs count) so it stops nagging the whole
+        team.
       </P>
 
       <H2 id="system-health">System Health</H2>
