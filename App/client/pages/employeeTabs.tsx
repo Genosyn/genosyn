@@ -912,7 +912,7 @@ function RoutineEditor({
   const [name, setName] = React.useState(routine.name);
   const [cronExpr, setCronExpr] = React.useState(routine.cronExpr);
   const [enabled, setEnabled] = React.useState(routine.enabled);
-  const [timeoutSec, setTimeoutSec] = React.useState(routine.timeoutSec ?? 600);
+  const [timeoutSec, setTimeoutSec] = React.useState(routine.timeoutSec ?? 3600);
   const [requiresApproval, setRequiresApproval] = React.useState(
     routine.requiresApproval ?? false,
   );
@@ -966,7 +966,7 @@ function RoutineEditor({
             min={10}
             max={21600}
             value={String(timeoutSec)}
-            onChange={(e) => setTimeoutSec(Math.max(10, Number(e.target.value) || 600))}
+            onChange={(e) => setTimeoutSec(Math.max(10, Number(e.target.value) || 3600))}
           />
           <div className="-mt-2 text-xs text-slate-500 dark:text-slate-400">
             Hard kill after this long. The Run is marked <code>timeout</code>.

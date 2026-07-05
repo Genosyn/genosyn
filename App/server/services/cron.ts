@@ -1,7 +1,8 @@
 import parser from "cron-parser";
-import { IsNull, LessThanOrEqual } from "typeorm";
+import { IsNull, LessThanOrEqual, MoreThan } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Routine } from "../db/entities/Routine.js";
+import { Run } from "../db/entities/Run.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Approval } from "../db/entities/Approval.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
@@ -24,6 +25,15 @@ import { notifyApprovalPending } from "./notifications.js";
 const HEARTBEAT_INTERVAL_MS = 30 * 1000;
 let heartbeat: NodeJS.Timeout | null = null;
 let ticking = false;
+
+/**
+ * Grace added on top of a routine's own `timeoutSec` when deciding whether a
+ * still-`running` Run counts as "in flight". A run can't legitimately outlive
+ * its timeout — the runner SIGKILLs it — so anything older than
+ * `timeoutSec + this` is treated as orphaned (e.g. the server crashed mid-run,
+ * leaving the row stuck at `running`) and must NOT keep blocking the schedule.
+ */
+const OVERLAP_GRACE_MS = 60 * 1000;
 
 /**
  * Compute the next scheduled fire time for a cron expression, or null if the
@@ -85,6 +95,28 @@ async function tickRoutine(routineId: string): Promise<void> {
         runId: null,
         authorUserId: null,
       }),
+    );
+    return;
+  }
+  // Overlap guard: don't stack a second scheduled run on top of one that's
+  // still executing — each spawn holds an AI license / API quota. Bounded by
+  // the routine's own timeout (plus grace) so a run orphaned by a crash can't
+  // block the schedule forever. Manual "Run now" / webhooks bypass this on
+  // purpose: a human (or external caller) explicitly asked for that run.
+  const inFlightSince = new Date(
+    Date.now() - (Math.max(1, fresh.timeoutSec) * 1000 + OVERLAP_GRACE_MS),
+  );
+  const inFlight = await AppDataSource.getRepository(Run).findOne({
+    where: {
+      routineId: fresh.id,
+      status: "running",
+      startedAt: MoreThan(inFlightSince),
+    },
+  });
+  if (inFlight) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[cron] routine "${fresh.name}" (${fresh.id}) skipped — run ${inFlight.id} still in flight`,
     );
     return;
   }

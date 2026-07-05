@@ -44,11 +44,12 @@ export class Routine {
 
   /**
    * Per-routine hard timeout in seconds. The runner SIGKILLs the CLI after
-   * this long and marks the Run `timeout`. Default 10 min (`600`) covers
-   * most substantive routines without letting a wedged process hold a
-   * license / API quota indefinitely.
+   * this long and marks the Run `timeout`. Default 60 min (`3600`) gives
+   * long-running agent work room to finish without letting a wedged process
+   * hold a license / API quota indefinitely. Editable per routine from the
+   * Routine editor (10 s – 6 h).
    */
-  @Column({ type: "integer", default: 600 })
+  @Column({ type: "integer", default: 3600 })
   timeoutSec!: number;
 
   /**

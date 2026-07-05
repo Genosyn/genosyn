@@ -72,6 +72,18 @@ export function Routines() {
               </>
             ),
           },
+          {
+            term: "timeoutSec",
+            def: (
+              <>
+                Hard timeout in seconds. The runner SIGKILLs the CLI after this
+                long and marks the Run <Code>timeout</Code>. Defaults to{" "}
+                <Strong>60 minutes</Strong> and is editable per routine (10s –
+                6h) from the routine editor — raise it for long jobs, lower it
+                to fail fast.
+              </>
+            ),
+          },
         ]}
       />
 

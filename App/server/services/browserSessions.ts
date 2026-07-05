@@ -27,7 +27,15 @@ import { getRuntime, holdRuntime, releaseRuntime, markActivity } from "./browser
  * Frames are not persisted. Recording is out of scope.
  */
 
-const MCP_TOKEN_TTL_MS = 60 * 60 * 1000; // 1h
+// Must outlive the longest a spawn can run, or a browser-enabled routine
+// starts getting 401 "Token expired" on every browser tool call partway
+// through (browserRpc.ts) while the CLI keeps going. The token is stamped
+// once at session creation and never refreshed, and routine `timeoutSec`
+// caps at 6h (routes/routines.ts), so 7h covers the longest run with margin —
+// matching the genosyn MCP token TTL (mcpTokens.ts). Only *pending* sessions
+// are swept on this TTL; live Chromium is torn down by the idle watchdog, so
+// a longer TTL doesn't keep real browsers alive any longer.
+const MCP_TOKEN_TTL_MS = 7 * 60 * 60 * 1000; // 7h
 const EXPIRE_GRACE_MS = 30_000;
 
 /**

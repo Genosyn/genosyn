@@ -21,7 +21,13 @@ export type McpTokenInfo = {
   expiresAt: number;
 };
 
-const TTL_MS = 60 * 60 * 1000; // 1h covers the longest routine timeoutSec cap
+// Must outlive the longest a spawn can run so a routine's genosyn MCP
+// callbacks keep resolving for its whole life. Routine `timeoutSec` caps at
+// 6h (see routes/routines.ts), so 7h leaves an hour of margin over a routine
+// that runs right up to the cap. The runner/chat seams revoke their token the
+// moment a spawn finishes, so on the happy path this TTL only backstops
+// spawns that die without cleaning up.
+const TTL_MS = 7 * 60 * 60 * 1000;
 
 const tokens = new Map<string, McpTokenInfo>();
 
