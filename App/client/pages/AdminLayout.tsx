@@ -4,6 +4,7 @@ import {
   Activity,
   Archive,
   Building2,
+  Database,
   LayoutDashboard,
   Mail,
   ServerCog,
@@ -32,6 +33,7 @@ export type AdminOutletCtx = {
 const ADMIN_TAB_LABEL: Record<string, string> = {
   overview: "Overview",
   "instance-health": "Instance Health",
+  db: "Database",
   email: "Email transport",
   backup: "Backups",
   users: "Users",
@@ -72,6 +74,11 @@ export default function AdminLayout({
           label="Instance Health"
         />
         <SidebarLink
+          to={`${base}/db`}
+          icon={<Database size={14} />}
+          label="Database"
+        />
+        <SidebarLink
           to={`${base}/email`}
           icon={<Mail size={14} />}
           label="Email transport"
@@ -105,9 +112,13 @@ export default function AdminLayout({
     tabCrumbs.push({ label, to: isLast ? undefined : acc });
   });
 
+  // The query console wants the full pane for its schema browser + result grid;
+  // the other admin pages read best in a narrow reading column.
+  const isConsole = segments[0] === "db";
+
   return (
     <ContextualLayout sidebar={sidebar}>
-      <div className="mx-auto max-w-4xl p-8">
+      <div className={isConsole ? "max-w-none p-4 sm:p-6" : "mx-auto max-w-4xl p-8"}>
         <div className="mb-4">
           <Breadcrumbs
             items={[

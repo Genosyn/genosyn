@@ -1560,6 +1560,35 @@ export type AdminCompanyRow = {
   employeeCount: number;
 };
 
+// ───────────────────── Admin DB console (Admin → Database) ───────────────────
+// A raw query console over Genosyn's own application database, served by
+// /api/admin/db/*. Master-admin gated, read-only by default. See
+// server/services/adminDbConsole.ts.
+export type AdminDbColumn = {
+  name: string;
+  type: string;
+  nullable: boolean;
+  pk: boolean;
+};
+export type AdminDbTable = {
+  name: string;
+  columns: AdminDbColumn[];
+  rowCount: number | null;
+};
+export type AdminDbSchema = {
+  driver: "sqlite" | "postgres";
+  tables: AdminDbTable[];
+};
+export type AdminQueryResult = {
+  kind: "read" | "write";
+  columns: string[];
+  rows: Record<string, unknown>[];
+  rowCount: number;
+  affectedRows: number | null;
+  truncated: boolean;
+  elapsedMs: number;
+};
+
 export type HomeData = {
   notifications: Notification[];
   unreadNotificationCount: number;

@@ -215,6 +215,10 @@ export function SelfHosting() {
           company&apos;s routines, models, and integrations.
         </LI>
         <LI>
+          <Strong>Database</Strong> — a raw SQL console over Genosyn&apos;s own
+          application database. See <Code>Database console</Code> below.
+        </LI>
+        <LI>
           <Strong>Email transport</Strong> — configure the install-wide global
           SMTP server for system emails (password resets, invites), with a test
           send. See <Code>Email</Code> above.
@@ -240,6 +244,42 @@ export function SelfHosting() {
         </LI>
         <LI>
           <Strong>Backups</Strong> — see below.
+        </LI>
+      </UL>
+
+      <H3 id="db-console">Database console</H3>
+      <P>
+        <Code>Admin → Database</Code> is a raw SQL console wired directly to
+        Genosyn&apos;s own application database — the same SQLite or Postgres
+        the app itself runs on. It is meant for operators who need to inspect
+        or repair an install directly: check a row the UI doesn&apos;t surface,
+        audit what an AI employee wrote, or fix up data after a botched import.
+        Distinct from <DocLink to="/docs/explore">Explore</DocLink>, which runs
+        SQL against a company&apos;s <em>external</em> database integrations.
+      </P>
+      <UL>
+        <LI>
+          <Strong>Schema browser</Strong> — every table with its live row count
+          down the left. Click a table to load a <Code>SELECT *</Code>; expand
+          one to see its columns (primary keys flagged) and click a column to
+          drop its name into the editor.
+        </LI>
+        <LI>
+          <Strong>Read-only by default</Strong> — the console runs one
+          statement at a time and refuses anything that isn&apos;t plainly a
+          read. To run an <Code>INSERT</Code> / <Code>UPDATE</Code> /{" "}
+          <Code>DELETE</Code> or DDL you must first flip{" "}
+          <Strong>Allow writes</Strong>, which surfaces a standing warning —
+          these statements change the live database permanently, so take a{" "}
+          <DocLink to="/docs/self-hosting#backups">backup</DocLink> first if
+          you are unsure.
+        </LI>
+        <LI>
+          <Strong>Results</Strong> — a scrollable grid with the row count and
+          elapsed time; long result sets are capped (100–5,000 rows, your
+          choice) and flagged when truncated. Recent queries are kept under the{" "}
+          <Code>History</Code> tab. Press <Code>⌘↵</Code> / <Code>Ctrl↵</Code>{" "}
+          to run.
         </LI>
       </UL>
 

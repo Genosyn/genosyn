@@ -254,6 +254,12 @@ export function AdminOverview() {
             description="Database, migrations, disk, and runtime checks."
           />
           <NavCard
+            to={`${base}/db`}
+            icon={Database}
+            title="Database"
+            description="Run SQL directly against the Genosyn database."
+          />
+          <NavCard
             to={`${base}/email`}
             icon={Mail}
             title="Email transport"

@@ -40,6 +40,7 @@ import { AccountProfile } from "./pages/AccountProfile";
 import AdminLayout from "./pages/AdminLayout";
 import { AdminOverview } from "./pages/AdminOverview";
 import { AdminInstanceHealth } from "./pages/AdminInstanceHealth";
+import { AdminDbConsole } from "./pages/AdminDbConsole";
 import { AdminEmail } from "./pages/AdminEmail";
 import { AdminBackup } from "./pages/AdminBackup";
 import { AdminUsers } from "./pages/AdminUsers";
@@ -460,6 +461,7 @@ function CompanyRoutes({
           <Route index element={<Navigate to="overview" replace />} />
           <Route path="overview" element={<AdminOverview />} />
           <Route path="instance-health" element={<AdminInstanceHealth />} />
+          <Route path="db" element={<AdminDbConsole />} />
           <Route path="email" element={<AdminEmail />} />
           <Route path="backup" element={<AdminBackup />} />
           <Route path="users" element={<AdminUsers />} />

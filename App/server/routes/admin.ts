@@ -7,6 +7,11 @@ import { AppDataSource } from "../db/datasource.js";
 import { Company } from "../db/entities/Company.js";
 import { User } from "../db/entities/User.js";
 import { getInstanceHealthReport } from "../services/instanceHealth.js";
+import {
+  AdminQueryError,
+  getDbSchema,
+  runAdminQuery,
+} from "../services/adminDbConsole.js";
 import { listAdminCompanies, listAdminUsers } from "../services/adminDirectory.js";
 import { deleteUserCascade, UserOwnsCompaniesError } from "../services/userDelete.js";
 import { deleteCompanyCascade } from "../services/companyDelete.js";
@@ -40,6 +45,48 @@ adminRouter.get("/instance-health", async (_req, res, next) => {
     res.json(await getInstanceHealthReport());
   } catch (err) {
     next(err);
+  }
+});
+
+// ─────────────────────────── database console ──────────────────────────────
+//
+// A raw query console over Genosyn's own application database, for operators
+// who need to inspect or repair the install directly. Master-admin gated (the
+// whole router is), read-only by default — a write statement is refused unless
+// the caller opts in with `allowWrite`.
+
+adminRouter.get("/db/schema", async (_req, res, next) => {
+  try {
+    res.json(await getDbSchema());
+  } catch (err) {
+    next(err);
+  }
+});
+
+const dbQuerySchema = z.object({
+  sql: z.string().min(1).max(100_000),
+  allowWrite: z.boolean().optional(),
+  maxRows: z.number().int().min(1).max(5000).optional(),
+});
+
+adminRouter.post("/db/query", validateBody(dbQuerySchema), async (req, res) => {
+  const body = req.body as z.infer<typeof dbQuerySchema>;
+  try {
+    const result = await runAdminQuery(body.sql, {
+      allowWrite: body.allowWrite ?? false,
+      maxRows: body.maxRows,
+    });
+    res.json(result);
+  } catch (err) {
+    // Both a blocked write and a driver-side SQL error are the operator's to
+    // fix — surface the message as a 400 so the console renders it inline
+    // rather than as a generic 500.
+    if (err instanceof AdminQueryError) {
+      return res.status(400).json({ error: err.message, code: err.code });
+    }
+    return res
+      .status(400)
+      .json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
