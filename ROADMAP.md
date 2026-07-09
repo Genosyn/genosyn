@@ -648,7 +648,8 @@ of the original V1 backlog has shipped — what remains is mostly
 - [x] **Stripe, Gmail, Metabase, GitHub, Linear, Notion, Postgres,
       MySQL, Clickhouse, Redis, Airtable, NocoDB, Telegram, X.com,
       Nostr, Lightning (NWC + LND), Google (Calendar + Drive + Gmail
-      scopes)**
+      scopes), Google Analytics (GA4, read-only), Google Search
+      Console (read-only), Reddit, LinkedIn**
 - [x] **Secrets vault** (`Secret` entity, env-merged into spawns)
 - [x] **Incoming webhooks** for both routines and pipelines
 

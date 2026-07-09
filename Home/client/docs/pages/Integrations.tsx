@@ -16,6 +16,8 @@ const CATALOG: Array<{ name: string; kind: string }> = [
   { name: "GitHub", kind: "engineering" },
   { name: "Stripe", kind: "finance" },
   { name: "Gmail / Google", kind: "comms + drive" },
+  { name: "Google Analytics", kind: "analytics" },
+  { name: "Google Search Console", kind: "SEO / search" },
   { name: "Notion", kind: "knowledge" },
   { name: "Airtable", kind: "data" },
   { name: "Linear", kind: "tickets" },
@@ -161,6 +163,30 @@ export function Integrations() {
         Over-cap payments queue a <Code>lightning_payment</Code>{" "}
         <DocLink to="/docs/routines">Approval</DocLink> that replays the call
         once a human ✓&apos;s it.
+      </P>
+
+      <H3 id="google-analytics-search-console">
+        Google Analytics &amp; Search Console
+      </H3>
+      <P>
+        Two <em>read-only</em> Google integrations for the team&apos;s growth
+        work, listed under <Strong>Analytics</Strong> in the catalog and
+        separate from the Gmail / Drive <Strong>Google Workspace</Strong>{" "}
+        connector. <Strong>Google Analytics</Strong> exposes GA4 accounts and
+        properties plus report tools (sessions, users, conversions, channels,
+        realtime, and the dimension/metric catalog). <Strong>Google Search
+        Console</Strong> exposes verified sites, Search Analytics (clicks,
+        impressions, CTR, position), sitemaps, and URL inspection.
+      </P>
+      <P>
+        Connect either with your own <Strong>OAuth client</Strong> (add the
+        callback URI the modal shows to your Google Cloud OAuth client) or a{" "}
+        <Strong>service-account JSON key</Strong> — for a service account,
+        add its email as a viewer/user on the GA4 property or Search Console
+        site; no domain-wide delegation is needed. Both request only the
+        read-only scope (<Code>analytics.readonly</Code> /{" "}
+        <Code>webmasters.readonly</Code>), so employees can report on traffic
+        and search performance but never change settings.
       </P>
     </>
   );

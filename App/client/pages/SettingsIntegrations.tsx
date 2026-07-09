@@ -76,6 +76,7 @@ const ICONS: Record<string, LucideIcon> = {
   Mail,
   MessageCircle,
   Plug,
+  Search,
   Send,
   Server,
   Table2,

@@ -4,6 +4,8 @@ import type {
 } from "./types.js";
 import { stripeProvider } from "./providers/stripe.js";
 import { googleProvider } from "./providers/google.js";
+import { googleAnalyticsProvider } from "./providers/google-analytics.js";
+import { googleSearchConsoleProvider } from "./providers/google-search-console.js";
 import { metabaseProvider } from "./providers/metabase.js";
 import { nocodbProvider } from "./providers/nocodb.js";
 import { githubProvider } from "./providers/github.js";
@@ -31,6 +33,8 @@ import { linkedinProvider } from "./providers/linkedin.js";
 const PROVIDERS: Record<string, IntegrationProvider> = {
   [stripeProvider.catalog.provider]: stripeProvider,
   [googleProvider.catalog.provider]: googleProvider,
+  [googleAnalyticsProvider.catalog.provider]: googleAnalyticsProvider,
+  [googleSearchConsoleProvider.catalog.provider]: googleSearchConsoleProvider,
   [metabaseProvider.catalog.provider]: metabaseProvider,
   [nocodbProvider.catalog.provider]: nocodbProvider,
   [githubProvider.catalog.provider]: githubProvider,

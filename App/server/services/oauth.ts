@@ -4,9 +4,9 @@ import {
   buildGoogleAuthorizeUrl,
   exchangeGoogleCode,
   googleRedirectUri,
-  resolveGoogleScopes,
+  resolveScopeGroups,
   type GoogleOauthConfig,
-} from "../integrations/providers/google.js";
+} from "../integrations/providers/google/auth.js";
 import {
   buildXAuthorizeUrl,
   exchangeXCode,
@@ -135,8 +135,13 @@ export function startOauth(args: {
   let authorizeUrl: string;
   switch (oauth.app) {
     case "google": {
-      const scopes = resolveGoogleScopes({
-        scopeGroups: args.scopeGroups,
+      // Resolve against the *provider's own* scope-group catalog (Workspace,
+      // Analytics, Search Console each declare their own), not a hardcoded
+      // Workspace list — so every Google-app integration requests the right
+      // scopes.
+      const scopes = resolveScopeGroups({
+        keys: args.scopeGroups,
+        groups: oauth.scopeGroups ?? [],
         baseline: oauth.scopes,
       });
       authorizeUrl = buildGoogleAuthorizeUrl({
