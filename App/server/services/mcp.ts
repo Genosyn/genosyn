@@ -7,6 +7,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Routine } from "../db/entities/Routine.js";
 import type { Provider } from "../db/entities/AIModel.js";
 import { config } from "../../config.js";
+import { appVersion } from "../lib/version.js";
 import { employeeCodexDir, openclawConfigPath } from "./paths.js";
 import { createBrowserSession } from "./browserSessions.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
@@ -255,6 +256,19 @@ function internalHttpBase(): string {
   return `http://127.0.0.1:${config.port}`;
 }
 
+/**
+ * Env block for the built-in `genosyn` MCP server, shared by every provider
+ * writer. Carries the loopback API base, the short-lived Bearer token, and
+ * the running Genosyn version (surfaced as the MCP server's `serverInfo`).
+ */
+function genosynServerEnv(token: string): Record<string, string> {
+  return {
+    GENOSYN_MCP_API: internalApiBase(),
+    GENOSYN_MCP_TOKEN: token,
+    GENOSYN_MCP_VERSION: appVersion(),
+  };
+}
+
 /** Normalized view of a user-configured MCP server ready for serialization. */
 type NormalizedServer =
   | {
@@ -435,10 +449,7 @@ function writeClaudeConfig(
     file.mcpServers.genosyn = {
       command: process.execPath,
       args: [GENOSYN_MCP_BIN],
-      env: {
-        GENOSYN_MCP_API: internalApiBase(),
-        GENOSYN_MCP_TOKEN: token,
-      },
+      env: genosynServerEnv(token),
     };
   }
 
@@ -557,10 +568,7 @@ function writeCodexConfig(
       serializeCodexServer("genosyn", {
         command: process.execPath,
         args: [GENOSYN_MCP_BIN],
-        env: {
-          GENOSYN_MCP_API: internalApiBase(),
-          GENOSYN_MCP_TOKEN: token,
-        },
+        env: genosynServerEnv(token),
       }),
     );
   }
@@ -687,10 +695,7 @@ function writeOpencodeConfig(
     file.mcp!.genosyn = {
       type: "local",
       command: [process.execPath, GENOSYN_MCP_BIN],
-      environment: {
-        GENOSYN_MCP_API: internalApiBase(),
-        GENOSYN_MCP_TOKEN: token,
-      },
+      environment: genosynServerEnv(token),
       enabled: true,
     };
   }
@@ -784,8 +789,7 @@ function buildGooseExtras(
       "--with-extension",
       gooseStdioCommand(process.execPath, [GENOSYN_MCP_BIN]),
     );
-    extraEnv.GENOSYN_MCP_API = internalApiBase();
-    extraEnv.GENOSYN_MCP_TOKEN = token;
+    Object.assign(extraEnv, genosynServerEnv(token));
   }
 
   if (browser.enabled) {
@@ -874,10 +878,7 @@ function writeOpenclawConfig(
     servers.genosyn = {
       command: process.execPath,
       args: [GENOSYN_MCP_BIN],
-      env: {
-        GENOSYN_MCP_API: internalApiBase(),
-        GENOSYN_MCP_TOKEN: token,
-      },
+      env: genosynServerEnv(token),
     };
   }
 

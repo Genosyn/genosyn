@@ -4205,6 +4205,9 @@ export function McpPage() {
         title="MCP servers"
         right={<Button onClick={() => setAdding(true)}>Add server</Button>}
       />
+      <div className="mb-3">
+        <ExternalMcpPanel company={company} emp={emp} />
+      </div>
       {servers === null ? (
         <Spinner />
       ) : servers.length === 0 ? (
@@ -4258,6 +4261,63 @@ export function McpPage() {
         />
       )}
     </>
+  );
+}
+
+/**
+ * Read-only panel on the MCP tab showing the employee's external MCP endpoint.
+ * An outside harness (Claude Desktop, Cursor, a custom agent) points its
+ * Streamable-HTTP MCP client at this URL and authenticates with a Genosyn API
+ * key to drive this employee's built-in `genosyn` tools from outside the app.
+ */
+function ExternalMcpPanel({ company, emp }: { company: Company; emp: Employee }) {
+  const [copied, setCopied] = React.useState(false);
+  const url = `${window.location.origin}/api/companies/${company.id}/employees/${emp.id}/mcp/connect`;
+  return (
+    <Card>
+      <CardBody className="flex flex-col gap-3">
+        <div className="flex items-start gap-2">
+          <ExternalLink
+            size={14}
+            className="mt-0.5 shrink-0 text-slate-500 dark:text-slate-400"
+          />
+          <div className="min-w-0">
+            <div className="text-sm font-medium">Connect an external harness</div>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Point any MCP client — Claude Desktop, Cursor, or your own agent —
+              at the URL below to use {emp.name}
+              {"’"}s built-in Genosyn tools over Streamable HTTP.
+              Authenticate with an{" "}
+              <NavLink
+                to={`/c/${company.slug}/settings/api-keys`}
+                className="underline hover:text-slate-700 dark:hover:text-slate-200"
+              >
+                API key
+              </NavLink>{" "}
+              as a Bearer token.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <code className="flex-1 overflow-x-auto whitespace-nowrap rounded border border-slate-200 bg-slate-50 px-2 py-1.5 font-mono text-[11px] text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">
+            {url}
+          </code>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={async () => {
+              const ok = await copyToClipboard(url);
+              if (!ok) return;
+              setCopied(true);
+              window.setTimeout(() => setCopied(false), 1500);
+            }}
+          >
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+            {copied ? "Copied" : "Copy"}
+          </Button>
+        </div>
+      </CardBody>
+    </Card>
   );
 }
 

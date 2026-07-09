@@ -26,6 +26,7 @@ import { projectsRouter } from "./routes/projects.js";
 import { approvalsRouter } from "./routes/approvals.js";
 import { webhooksRouter } from "./routes/webhooks.js";
 import { mcpRouter } from "./routes/mcp.js";
+import { mcpConnectRouter } from "./routes/mcpConnect.js";
 import { mcpInternalRouter } from "./routes/mcpInternal.js";
 import { secretsRouter } from "./routes/secrets.js";
 import { auditRouter } from "./routes/audit.js";
@@ -159,6 +160,11 @@ async function main() {
   // Per-employee models — an employee can register several and keep one
   // active. See ROADMAP §5.
   app.use("/api/companies/:cid/employees/:eid/models", modelsRouter);
+  // External MCP transport — lets an outside harness connect to this
+  // employee's built-in `genosyn` tools over Streamable HTTP, authenticated
+  // by an API key. Mounted BEFORE the per-employee MCP CRUD router so the
+  // more specific `/mcp/connect` path wins.
+  app.use("/api/companies/:cid/employees/:eid/mcp/connect", mcpConnectRouter);
   app.use("/api/companies/:cid/employees/:eid/mcp", mcpRouter);
 
   // Live browser-view sessions — the iframe-able viewer + WS plumbing for

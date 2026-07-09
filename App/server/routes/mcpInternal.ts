@@ -130,6 +130,7 @@ import {
   upsertChartGrant,
   upsertDashboardGrant,
 } from "../services/explore.js";
+import { STATIC_TOOLS } from "../mcp/toolManifest.js";
 
 /**
  * Internal HTTP surface called by the built-in Genosyn MCP server binary.
@@ -175,6 +176,19 @@ async function requireMcpToken(req: McpRequest, res: Response, next: NextFunctio
 }
 
 mcpInternalRouter.use(requireMcpToken);
+
+// ----- Tool manifest -----
+
+/**
+ * The static tool catalogue. Served to the stdio binary
+ * (`mcp-genosyn/index.mjs`) on startup so it doesn't have to hardcode the tool
+ * list — this route + `mcp/toolManifest.ts` are the single source of truth.
+ * The list is identical for every employee; integration-backed tools are
+ * discovered separately via `/integrations/_list`.
+ */
+mcpInternalRouter.post("/manifest", (_req: McpRequest, res: Response) => {
+  res.json({ tools: STATIC_TOOLS });
+});
 
 async function journal(
   employeeId: string,
