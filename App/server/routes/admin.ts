@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { Router } from "express";
 import { z } from "zod";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireMasterAdmin } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { AppDataSource } from "../db/datasource.js";
 import { Company } from "../db/entities/Company.js";
@@ -24,16 +24,16 @@ import {
  * the whole deployment (health, the global email transport, and the directory
  * of every user + company on it) rather than a single company's data.
  *
- * Auth is `requireAuth` only, matching the install-wide backups router: the
- * Admin section is the operator surface, and on a self-hosted box access is
- * governed by who can sign in at all. There is no separate instance-admin role
- * in the data model, so introducing one here would be a product change beyond
- * this endpoint. The destructive routes below (delete user / delete company)
- * are therefore no more privileged than the existing backup-restore route,
- * which already replaces the entire data directory.
+ * Auth is `requireAuth` + `requireMasterAdmin`: the Admin section is the
+ * operator surface, gated to users carrying the instance-level `isMasterAdmin`
+ * flag. The first account created on an install is bootstrapped as a master
+ * admin; existing master admins promote others from `PATCH /users/:id/master-admin`
+ * below. The destructive routes here (delete user / delete company) and the
+ * companion backup-restore route are all held to the same master-admin bar.
  */
 export const adminRouter = Router();
 adminRouter.use(requireAuth);
+adminRouter.use(requireMasterAdmin);
 
 adminRouter.get("/instance-health", async (_req, res, next) => {
   try {
@@ -206,6 +206,49 @@ adminRouter.delete("/users/:id", async (req, res, next) => {
     next(err);
   }
 });
+
+const masterAdminSchema = z.object({ isMasterAdmin: z.boolean() });
+
+/**
+ * Grant or revoke another user's master-admin status. Only master admins reach
+ * this router at all, so the check that matters here is the self-guard: you
+ * can't strip your own badge. Because no one can demote themselves, the install
+ * can never be left with zero master admins — the acting operator always
+ * survives their own PATCH.
+ */
+adminRouter.patch(
+  "/users/:id/master-admin",
+  validateBody(masterAdminSchema),
+  async (req, res, next) => {
+    try {
+      const parsed = idParam.safeParse(req.params);
+      if (!parsed.success) return res.status(400).json({ error: "Invalid user id" });
+      const { id } = parsed.data;
+      const { isMasterAdmin } = req.body as z.infer<typeof masterAdminSchema>;
+
+      // Case-insensitive compare, same rationale as the delete guard: an
+      // uppercased uuid must not slip past and let you demote yourself.
+      if (
+        !isMasterAdmin &&
+        req.userId &&
+        id.toLowerCase() === req.userId.toLowerCase()
+      ) {
+        return res
+          .status(400)
+          .json({ error: "You can't remove your own master admin access." });
+      }
+
+      const repo = AppDataSource.getRepository(User);
+      const user = await repo.findOneBy({ id });
+      if (!user) return res.status(404).json({ error: "Not found" });
+      user.isMasterAdmin = isMasterAdmin;
+      await repo.save(user);
+      res.json({ id: user.id, isMasterAdmin: user.isMasterAdmin });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // ─────────────────────────────── Companies ─────────────────────────────────
 

@@ -130,3 +130,22 @@ export function roleAtLeast(role: Role, candidate: Role): boolean {
   const order: Role[] = ["member", "admin", "owner"];
   return order.indexOf(candidate) >= order.indexOf(role);
 }
+
+/**
+ * Gate a route to instance-level operators. `isMasterAdmin` is a global flag
+ * on the User row — not a per-company `Membership.role` — so this layers on top
+ * of `requireAuth`: a valid session or API-key user whose account carries the
+ * flag. Used by the install-wide Admin + Backups routers; every other surface
+ * stays company-scoped via `requireCompanyMember`.
+ */
+export async function requireMasterAdmin(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void | Response> {
+  if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+  if (!req.user.isMasterAdmin) {
+    return res.status(403).json({ error: "Master admin access required" });
+  }
+  next();
+}

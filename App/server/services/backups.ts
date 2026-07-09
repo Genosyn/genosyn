@@ -12,6 +12,11 @@ import { BackupSchedule, BackupFrequency } from "../db/entities/BackupSchedule.j
 import { config } from "../../config.js";
 import { dataRoot } from "./paths.js";
 import { bootCron } from "./cron.js";
+import {
+  deliverArchive,
+  deliverBackupToDestinations,
+  DeliveryResult,
+} from "./backupDestinations.js";
 
 /**
  * Install-wide backup service. Each backup zips `<dataDir>` (excluding the
@@ -264,6 +269,17 @@ async function runBackupInner(kind: "manual" | "scheduled"): Promise<Backup> {
       sched.lastRunAt = row.completedAt;
       await AppDataSource.getRepository(BackupSchedule).save(sched);
     }
+
+    // Mirror the finished archive to any enabled off-box destinations (NAS /
+    // remote volume). Best-effort — the local backup already succeeded, so a
+    // delivery failure is recorded on the destination row rather than failing
+    // the run.
+    try {
+      await deliverBackupToDestinations(filename, outPath);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[backups] off-box delivery failed:", err);
+    }
   } catch (err) {
     row.status = "failed";
     row.errorMessage = (err as Error).message ?? String(err);
@@ -385,6 +401,22 @@ function walkAndAppend(
 export async function listBackups(): Promise<Backup[]> {
   const repo = AppDataSource.getRepository(Backup);
   return repo.find({ order: { createdAt: "DESC" }, take: 200 });
+}
+
+/**
+ * Push an already-completed archive to every enabled backup destination on
+ * demand (the "Send to destinations" action in History). Per-destination
+ * failures come back inside the result list; throws only when the backup row
+ * or its archive can't be found.
+ */
+export async function deliverBackup(id: string): Promise<DeliveryResult[]> {
+  const repo = AppDataSource.getRepository(Backup);
+  const row = await repo.findOneBy({ id });
+  if (!row) throw new Error("Backup not found");
+  if (row.status !== "completed") {
+    throw new Error("Can only deliver a completed backup");
+  }
+  return deliverArchive(row.filename, backupFilePath(row.filename));
 }
 
 export async function deleteBackup(id: string): Promise<boolean> {

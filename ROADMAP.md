@@ -130,7 +130,7 @@ genosyn/
 - **Approvals + audit:** `Approval` (kind: routine | lightning_payment | …),
   `AuditEvent`, `Notification`
 - **Email:** `EmailProvider`, `EmailLog`
-- **Backups:** `Backup`, `BackupSchedule`
+- **Backups:** `Backup`, `BackupSchedule`, `BackupDestination`
 - **Secrets:** `Secret`
 
 ### Stack
@@ -685,7 +685,8 @@ of the original V1 backlog has shipped — what remains is mostly
 - [x] **Audit log** (`AuditEvent` with `actorKind: human | ai | webhook`)
 - [x] **Usage & cost** — per-employee / per-routine token spend rollups
 - [x] **Backups** — `Backup` + `BackupSchedule`, restore endpoint,
-      catch-up backup on boot
+      catch-up backup on boot, plus off-box `BackupDestination` mirrors
+      (mounted NAS path or SFTP) that auto-deliver every completed archive
 - [x] **Notifications** — bell + panel, per-user feed
 - [x] **Web Push (PWA)** — `web-push` + auto-generated VAPID keypair in
       `app_settings`, `PushSubscription` per device, fan-out on every

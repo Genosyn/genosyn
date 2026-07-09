@@ -7,6 +7,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { config } from "../config.js";
 import { initDb } from "./db/datasource.js";
+import { ensureBootstrapMasterAdmin } from "./services/masterAdmin.js";
 import { bootCron } from "./services/cron.js";
 import { bootBackups } from "./services/backups.js";
 import { bootPipelineCron } from "./services/pipelines/index.js";
@@ -34,6 +35,7 @@ import { usageRouter } from "./routes/usage.js";
 import { templatesRouter } from "./routes/templates.js";
 import { basesRouter } from "./routes/bases.js";
 import { backupsRouter } from "./routes/backups.js";
+import { backupDestinationsRouter } from "./routes/backupDestinations.js";
 import { adminRouter } from "./routes/admin.js";
 import { integrationsRouter } from "./routes/integrations.js";
 import { integrationsOauthRouter } from "./routes/integrationsOauth.js";
@@ -66,6 +68,10 @@ const __dirname = path.dirname(__filename);
 
 async function main() {
   await initDb();
+  // Never leave the install without an operator: if the master-admin column
+  // was just added on an existing DB, promote the earliest user so the Admin
+  // dashboard stays reachable. No-op once any master admin exists.
+  await ensureBootstrapMasterAdmin();
   await bootCron();
   await bootBackups();
   await bootPipelineCron();
@@ -124,6 +130,7 @@ async function main() {
   app.use("/api/companies", companiesRouter);
   app.use("/api/invitations", invitationsRouter);
   app.use("/api/backups", backupsRouter);
+  app.use("/api/backup-destinations", backupDestinationsRouter);
   // Instance-wide admin — install health (DB, migrations, disk, runtime).
   // Not company-scoped; see routes/admin.ts for the auth rationale.
   app.use("/api/admin", adminRouter);

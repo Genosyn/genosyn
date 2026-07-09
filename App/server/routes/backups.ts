@@ -1,11 +1,12 @@
 import { Router } from "express";
 import fs from "node:fs";
 import { z } from "zod";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireMasterAdmin } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import {
   backupFilePath,
   deleteBackup,
+  deliverBackup,
   getBackupSchedule,
   ingestUploadedArchive,
   listBackups,
@@ -18,12 +19,13 @@ import {
 
 /**
  * Install-wide backup endpoints. Not company-scoped — a backup covers every
- * company's data. Any authenticated user can trigger and download backups;
- * gating by membership doesn't help because the archive includes everyone's
- * rows anyway. Self-hosted operators control access via who can sign in.
+ * company's data, and restore replaces the entire data directory. Gated to
+ * master admins (the instance operator surface), same bar as the Admin router;
+ * company membership is irrelevant since the archive spans everyone's rows.
  */
 export const backupsRouter = Router();
 backupsRouter.use(requireAuth);
+backupsRouter.use(requireMasterAdmin);
 
 backupsRouter.get("/", async (_req, res) => {
   const rows = await listBackups();
@@ -57,6 +59,21 @@ backupsRouter.post("/upload", async (req, res, next) => {
   try {
     const row = await ingestUploadedArchive(req);
     res.json(serializeBackup(row));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Push an existing archive to every enabled off-box destination (NAS / remote
+ * volume) on demand. Returns a per-destination result list so the UI can show
+ * which mirrors succeeded and which errored.
+ */
+backupsRouter.post("/:id/deliver", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const results = await deliverBackup(id);
+    res.json({ ok: true, results });
   } catch (err) {
     next(err);
   }

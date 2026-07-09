@@ -1,6 +1,14 @@
 import React from "react";
 import { useOutletContext } from "react-router-dom";
-import { AtSign, Building2, RefreshCw, Search, Trash2 } from "lucide-react";
+import {
+  AtSign,
+  Building2,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  ShieldOff,
+  Trash2,
+} from "lucide-react";
 import { AdminUserRow, api } from "../lib/api";
 import { Avatar, adminUserAvatarUrl } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
@@ -27,6 +35,7 @@ export function AdminUsers() {
   const [error, setError] = React.useState<string | null>(null);
   const [query, setQuery] = React.useState("");
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
+  const [promotingId, setPromotingId] = React.useState<string | null>(null);
   const { toast } = useToast();
   const dialog = useDialog();
 
@@ -67,6 +76,36 @@ export function AdminUsers() {
       toast((err as Error).message, "error");
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const setMasterAdmin = async (u: AdminUserRow, next: boolean) => {
+    if (!next) {
+      const ok = await dialog.confirm({
+        title: `Revoke master admin from ${u.name || u.email}?`,
+        message:
+          "They'll immediately lose access to the Admin dashboard — instance health, backups, and this directory.",
+        confirmLabel: "Revoke access",
+        variant: "danger",
+      });
+      if (!ok) return;
+    }
+    setPromotingId(u.id);
+    try {
+      await api.patch(`/api/admin/users/${u.id}/master-admin`, {
+        isMasterAdmin: next,
+      });
+      toast(
+        next
+          ? `${u.name || u.email} is now a master admin`
+          : `Revoked master admin from ${u.name || u.email}`,
+        "success",
+      );
+      await reload();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setPromotingId(null);
     }
   };
 
@@ -147,8 +186,10 @@ export function AdminUsers() {
                     user={u}
                     isSelf={u.id === me.id}
                     deleting={deletingId === u.id}
-                    busy={deletingId !== null}
+                    promoting={promotingId === u.id}
+                    busy={deletingId !== null || promotingId !== null}
                     onDelete={() => deleteUser(u)}
+                    onToggleMasterAdmin={(next) => setMasterAdmin(u, next)}
                   />
                 ))}
               </ul>
@@ -164,14 +205,18 @@ function UserRow({
   user,
   isSelf,
   deleting,
+  promoting,
   busy,
   onDelete,
+  onToggleMasterAdmin,
 }: {
   user: AdminUserRow;
   isSelf: boolean;
   deleting: boolean;
+  promoting: boolean;
   busy: boolean;
   onDelete: () => void;
+  onToggleMasterAdmin: (next: boolean) => void;
 }) {
   const owns = user.ownedCompanies.length > 0;
   const blockedReason = isSelf
@@ -199,6 +244,11 @@ function UserRow({
               You
             </span>
           )}
+          {user.isMasterAdmin && (
+            <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+              <ShieldCheck size={11} className="shrink-0" /> Master admin
+            </span>
+          )}
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400">
           <span className="truncate">{user.email}</span>
@@ -222,6 +272,29 @@ function UserRow({
       <div className="hidden shrink-0 text-xs tabular-nums text-slate-400 sm:block dark:text-slate-500">
         Joined {formatDate(user.createdAt)}
       </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="shrink-0"
+        disabled={busy || (user.isMasterAdmin && isSelf)}
+        title={
+          user.isMasterAdmin
+            ? isSelf
+              ? "You can't remove your own master admin access."
+              : "Revoke master admin"
+            : "Grant master admin"
+        }
+        onClick={() => onToggleMasterAdmin(!user.isMasterAdmin)}
+      >
+        {user.isMasterAdmin ? <ShieldOff size={14} /> : <ShieldCheck size={14} />}
+        <span className="hidden sm:inline">
+          {promoting
+            ? "Saving…"
+            : user.isMasterAdmin
+            ? "Revoke admin"
+            : "Make admin"}
+        </span>
+      </Button>
       <Button
         variant="ghost"
         size="sm"

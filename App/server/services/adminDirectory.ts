@@ -30,6 +30,8 @@ export type AdminUserRow = {
   handle: string | null;
   avatarKey: string | null;
   createdAt: string;
+  /** Instance-level operator flag — gates the Admin dashboard. */
+  isMasterAdmin: boolean;
   /** How many companies this user is a member of (any role). */
   membershipCount: number;
   /** Companies where this user is the owner — blocks deletion until reassigned. */
@@ -94,6 +96,7 @@ export async function listAdminUsers(): Promise<AdminUserRow[]> {
     handle: u.handle,
     avatarKey: u.avatarKey,
     createdAt: u.createdAt.toISOString(),
+    isMasterAdmin: u.isMasterAdmin,
     membershipCount: membershipCount.get(u.id) ?? 0,
     ownedCompanies: ownedByUser.get(u.id) ?? [],
   }));

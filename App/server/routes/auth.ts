@@ -33,10 +33,15 @@ authRouter.post("/signup", validateBody(signupSchema), async (req, res) => {
   const repo = AppDataSource.getRepository(User);
   const existing = await repo.findOneBy({ email: email.toLowerCase() });
   if (existing) return res.status(409).json({ error: "Email already registered" });
+  // The very first account on a fresh install becomes the instance master
+  // admin — the operator who stood the box up. Everyone after signs up as a
+  // normal user until an existing master admin promotes them from Admin → Users.
+  const isFirstUser = (await repo.count()) === 0;
   const user = repo.create({
     email: email.toLowerCase(),
     name,
     passwordHash: await bcrypt.hash(password, 10),
+    isMasterAdmin: isFirstUser,
     resetToken: null,
     resetExpiresAt: null,
   });
@@ -122,6 +127,7 @@ authRouter.get("/me", requireAuth, async (req, res) => {
     name: u.name,
     handle: u.handle ?? null,
     avatarKey: u.avatarKey ?? null,
+    isMasterAdmin: u.isMasterAdmin,
   });
 });
 

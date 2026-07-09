@@ -186,11 +186,19 @@ export function SelfHosting() {
 
       <H2 id="admin">Admin &amp; instance health</H2>
       <P>
-        Install-wide operations live under the <Code>Admin</Code> section
-        (top-nav section menu, or your avatar menu → <Code>Admin</Code>) —
-        separate from a single company&apos;s <Code>Settings</Code>. It covers
-        every company on the deployment, so any signed-in member can reach it;
-        on a self-hosted box you control access by controlling who can sign in.
+        Install-wide operations live under the <Code>Admin</Code> section (your
+        avatar menu → <Code>Admin</Code>) — separate from a single
+        company&apos;s <Code>Settings</Code>. Because it spans every company on
+        the deployment, it&apos;s gated to <Strong>master admins</Strong>:
+        instance-level operators, a global flag on the user account that&apos;s
+        distinct from the per-company <Code>owner</Code> / <Code>admin</Code> /{" "}
+        <Code>member</Code> roles. The first account to sign up on a fresh
+        install is bootstrapped as the master admin; from <Code>Admin → Users</Code>{" "}
+        an existing master admin can grant or revoke the flag on anyone else
+        (you just can&apos;t revoke your own, so the install always keeps at
+        least one operator). Since it&apos;s operator-only, <Code>Admin</Code>{" "}
+        isn&apos;t advertised in the products section menu — reach it from your
+        avatar menu.
       </P>
       <UL>
         <LI>
@@ -214,11 +222,13 @@ export function SelfHosting() {
         <LI>
           <Strong>Users</Strong> — every human member across every company, with
           their handle, how many companies they belong to, and which companies
-          they own. Delete an account from here to remove the person and
-          everything scoped to them (memberships, API keys, notifications);
-          content they authored is kept but unlinked. A user who still owns a
-          company can&apos;t be deleted until you reassign or delete those
-          companies first, and you can&apos;t delete your own account here.
+          they own. Grant or revoke <Strong>master admin</Strong> on any user
+          here to control who else can reach this dashboard. Delete an account
+          from here to remove the person and everything scoped to them
+          (memberships, API keys, notifications); content they authored is kept
+          but unlinked. A user who still owns a company can&apos;t be deleted
+          until you reassign or delete those companies first, and you can&apos;t
+          delete your own account here.
         </LI>
         <LI>
           <Strong>Companies</Strong> — every company (tenant) on the instance,
@@ -247,6 +257,40 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
         past archive, and set a recurring schedule (daily / weekly / monthly at
         a chosen hour) backed by the <Code>BackupSchedule</Code> row. See{" "}
         <DocLink to="/docs/cli">CLI reference</DocLink> for the flag list.
+      </P>
+
+      <H3 id="off-box-destinations">Off-box destinations (NAS / remote volumes)</H3>
+      <P>
+        Backups live in <Code>data/Backup/</Code> by default — on the same disk
+        as everything else. Add one or more <Strong>off-box destinations</Strong>{" "}
+        under <Code>Admin → Backups → Off-box destinations</Code> and every
+        completed backup is mirrored there automatically. Two kinds:
+      </P>
+      <UL>
+        <LI>
+          <Strong>Mounted path</Strong> — a filesystem path Genosyn can already
+          write to. Mount your NAS share (SMB / NFS / iSCSI) on the host or
+          bind-mount it into the container, then point the destination at that
+          path (for example <Code>/mnt/nas/genosyn</Code>). The kernel handles
+          the protocol; Genosyn just copies the archive. This is the most
+          robust option for a containerised self-host.
+        </LI>
+        <LI>
+          <Strong>SFTP / SSH</Strong> — push to a remote host with no mount
+          required. Enter the host, port, username, and a password or private
+          key. Good for appliance NASes (Synology, QNAP, TrueNAS) that expose
+          SSH but are awkward to bind-mount. Credentials are encrypted at rest
+          with the same AES-256-GCM helper used for model API keys and are
+          never returned to the browser.
+        </LI>
+      </UL>
+      <P>
+        Use <Code>Test</Code> on a destination to confirm it is reachable and
+        writable, toggle <Code>Enabled</Code> to pause mirroring without
+        deleting it, and use <Code>Send</Code> next to any archive in History to
+        push an existing backup on demand. Delivery is best-effort: a mirror
+        that fails is flagged on the destination with the error, but never fails
+        the backup itself, which is already safe in <Code>data/Backup/</Code>.
       </P>
 
       <H2 id="upgrading">Upgrading</H2>

@@ -444,11 +444,18 @@ function CompanyRoutes({
           <Route path="profile" element={<AccountProfile />} />
         </Route>
 
-        {/* Admin — install-wide operations that span every company: the
-            instance health dashboard and backups. */}
+        {/* Admin — install-wide operations that span every company: instance
+            health, backups, and the users/companies directory. Restricted to
+            instance master admins; anyone else is bounced to the company home. */}
         <Route
           path="admin"
-          element={<AdminLayout company={company} me={me} onCompaniesChanged={onChanged} />}
+          element={
+            me.isMasterAdmin ? (
+              <AdminLayout company={company} me={me} onCompaniesChanged={onChanged} />
+            ) : (
+              <Navigate to={`/c/${company.slug}`} replace />
+            )
+          }
         >
           <Route index element={<Navigate to="overview" replace />} />
           <Route path="overview" element={<AdminOverview />} />

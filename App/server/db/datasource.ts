@@ -32,6 +32,7 @@ import { BaseRecordAttachment } from "./entities/BaseRecordAttachment.js";
 import { BaseView } from "./entities/BaseView.js";
 import { Backup } from "./entities/Backup.js";
 import { BackupSchedule } from "./entities/BackupSchedule.js";
+import { BackupDestination } from "./entities/BackupDestination.js";
 import { IntegrationConnection } from "./entities/IntegrationConnection.js";
 import { EmployeeConnectionGrant } from "./entities/EmployeeConnectionGrant.js";
 import { EmployeeBaseGrant } from "./entities/EmployeeBaseGrant.js";
@@ -120,6 +121,7 @@ const entities = [
   BaseView,
   Backup,
   BackupSchedule,
+  BackupDestination,
   IntegrationConnection,
   EmployeeConnectionGrant,
   EmployeeBaseGrant,

@@ -126,6 +126,8 @@ export type Me = {
   name: string;
   handle: string | null;
   avatarKey: string | null;
+  /** Instance-level operator flag — gates the install-wide Admin dashboard. */
+  isMasterAdmin: boolean;
 };
 export type Company = { id: string; name: string; slug: string; role?: string };
 export type Employee = {
@@ -712,6 +714,42 @@ export type BackupSchedule = {
   cronExpr: string;
   lastRunAt: string | null;
   updatedAt: string;
+};
+
+export type BackupDestinationKind = "local" | "sftp";
+export type BackupDestinationStatus = "unknown" | "ok" | "error";
+export type SftpAuthMode = "password" | "key";
+/** Off-box mirror target for backups (a mounted NAS path or an SFTP host).
+ *  Secrets are never returned — only whether one is set (`hasPassword` /
+ *  `hasPrivateKey`). */
+export type BackupDestination = {
+  id: string;
+  name: string;
+  kind: BackupDestinationKind;
+  enabled: boolean;
+  hint: string;
+  path: string | null;
+  host: string | null;
+  port: number | null;
+  username: string | null;
+  remoteDir: string | null;
+  authMode: SftpAuthMode | null;
+  hasPassword: boolean;
+  hasPrivateKey: boolean;
+  configError: boolean;
+  lastStatus: BackupDestinationStatus;
+  lastError: string;
+  lastSyncedAt: string | null;
+  lastCheckedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+/** Result of pushing one archive to one destination. */
+export type BackupDeliveryResult = {
+  destinationId: string;
+  destinationName: string;
+  ok: boolean;
+  error?: string;
 };
 
 export type TodoStatus =
@@ -1508,6 +1546,7 @@ export type AdminUserRow = {
   handle: string | null;
   avatarKey: string | null;
   createdAt: string;
+  isMasterAdmin: boolean;
   membershipCount: number;
   ownedCompanies: OwnedCompanyRef[];
 };

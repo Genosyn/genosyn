@@ -305,21 +305,27 @@ export const SECTION_GROUPS: SectionGroup[] = [
         iconBg:
           "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
       },
-      {
-        key: "admin",
-        label: "Admin",
-        description: "Users, companies, health, and backups.",
-        icon: ServerCog,
-        path: "/admin",
-        iconBg:
-          "bg-slate-800 text-slate-100 dark:bg-slate-200/20 dark:text-slate-100",
-      },
     ],
   },
 ];
 
+/**
+ * The Admin section is deliberately NOT part of `SECTION_GROUPS`, so it never
+ * shows up in the products mega-menu. It's an instance-operator surface reached
+ * only by master admins, via the user menu. It still lives in the catalog here
+ * so the section pill and `activeSection()` can resolve an `/admin` route.
+ */
+const ADMIN_SECTION: SectionItem = {
+  key: "admin",
+  label: "Admin",
+  description: "Users, companies, health, and backups.",
+  icon: ServerCog,
+  path: "/admin",
+  iconBg: "bg-slate-800 text-slate-100 dark:bg-slate-200/20 dark:text-slate-100",
+};
+
 const SECTION_BY_KEY: Record<SectionKey, SectionItem> = Object.fromEntries(
-  SECTION_GROUPS.flatMap((g) => g.items).map((i) => [i.key, i]),
+  [...SECTION_GROUPS.flatMap((g) => g.items), ADMIN_SECTION].map((i) => [i.key, i]),
 ) as Record<SectionKey, SectionItem>;
 
 function TopNav({
@@ -457,13 +463,15 @@ function TopNav({
                 >
                   <UserCog size={14} /> Profile settings
                 </Link>
-                <Link
-                  to={`/c/${current.slug}/admin`}
-                  onClick={() => setUserOpen(false)}
-                  className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                >
-                  <ServerCog size={14} /> Admin
-                </Link>
+                {me.isMasterAdmin && (
+                  <Link
+                    to={`/c/${current.slug}/admin`}
+                    onClick={() => setUserOpen(false)}
+                    className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    <ServerCog size={14} /> Admin
+                  </Link>
+                )}
                 <button
                   onClick={logout}
                   className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
