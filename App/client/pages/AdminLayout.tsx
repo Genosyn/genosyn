@@ -1,6 +1,14 @@
 import React from "react";
 import { Outlet, useLocation } from "react-router-dom";
-import { Activity, Archive, LayoutDashboard, ServerCog } from "lucide-react";
+import {
+  Activity,
+  Archive,
+  Building2,
+  LayoutDashboard,
+  Mail,
+  ServerCog,
+  Users,
+} from "lucide-react";
 import { Company, Me } from "../lib/api";
 import { Breadcrumbs, ContextualLayout, SidebarLink } from "../components/AppShell";
 
@@ -16,20 +24,28 @@ import { Breadcrumbs, ContextualLayout, SidebarLink } from "../components/AppShe
 export type AdminOutletCtx = {
   company: Company;
   me: Me;
+  /** Refetch the signed-in user's company list — call after mutating companies
+   *  (e.g. deleting one) so the top switcher and route resolver stay in sync. */
+  onCompaniesChanged: () => void;
 };
 
 const ADMIN_TAB_LABEL: Record<string, string> = {
   overview: "Overview",
   "instance-health": "Instance Health",
+  email: "Email transport",
   backup: "Backups",
+  users: "Users",
+  companies: "Companies",
 };
 
 export default function AdminLayout({
   company,
   me,
+  onCompaniesChanged,
 }: {
   company: Company;
   me: Me;
+  onCompaniesChanged: () => void;
 }) {
   const location = useLocation();
   const base = `/c/${company.slug}/admin`;
@@ -55,7 +71,22 @@ export default function AdminLayout({
           icon={<Activity size={14} />}
           label="Instance Health"
         />
+        <SidebarLink
+          to={`${base}/email`}
+          icon={<Mail size={14} />}
+          label="Email transport"
+        />
         <SidebarLink to={`${base}/backup`} icon={<Archive size={14} />} label="Backups" />
+
+        <div className="px-2 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+          Directory
+        </div>
+        <SidebarLink to={`${base}/users`} icon={<Users size={14} />} label="Users" />
+        <SidebarLink
+          to={`${base}/companies`}
+          icon={<Building2 size={14} />}
+          label="Companies"
+        />
       </nav>
     </div>
   );
@@ -85,7 +116,7 @@ export default function AdminLayout({
             ]}
           />
         </div>
-        <Outlet context={{ company, me } satisfies AdminOutletCtx} />
+        <Outlet context={{ company, me, onCompaniesChanged } satisfies AdminOutletCtx} />
       </div>
     </ContextualLayout>
   );

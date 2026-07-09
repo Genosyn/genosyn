@@ -122,14 +122,28 @@ export function SelfHosting() {
         </LI>
       </UL>
       <P>
-        If no per-company provider is configured, sends fall back to the
-        global SMTP block in <Code>config.ts</Code>. If that&apos;s blank too,
-        sends fall back to logging to the server console — useful for local
-        dev. When that global SMTP block is filled in, adding a company SMTP
-        provider at <Code>Settings → Email</Code> pre-fills the host, port,
-        encryption, username, and from-address from it — you only enter the
-        password. Every send appends an <Code>EmailLog</Code> row you can read
-        at <Code>Settings → Email Logs</Code>.
+        System-level sends (password resets, invites, welcomes) and any company
+        without its own provider fall back to a single{" "}
+        <Strong>global SMTP transport</Strong>. Configure it in the app at{" "}
+        <Code>Admin → Email transport</Code>: fill in the host, port, encryption,
+        username, password, and from-address, then use{" "}
+        <Code>Send test</Code> to confirm deliverability. The settings are stored
+        in the database and take effect immediately — no restart. Until it&apos;s
+        configured, the <Code>Admin → Overview</Code> and{" "}
+        <Code>Instance Health</Code> dashboards flag Email transport with a
+        warning, because those system emails only log to the server console and
+        never reach a mailbox.
+      </P>
+      <P>
+        A file-based default also exists: the <Code>smtp</Code> block in{" "}
+        <Code>config.ts</Code>. The dashboard override takes precedence over it;
+        clearing the override (the <Code>Reset</Code> button) reverts to whatever{" "}
+        <Code>config.ts</Code> provides, and if that&apos;s blank too, to the
+        console. When a global transport is configured either way, adding a
+        company SMTP provider at <Code>Settings → Email</Code> pre-fills the host,
+        port, encryption, username, and from-address from it — you only enter the
+        password. Every send appends an <Code>EmailLog</Code> row you can read at{" "}
+        <Code>Settings → Email Logs</Code>.
       </P>
 
       <H2 id="secrets">Secrets</H2>
@@ -191,6 +205,28 @@ export function SelfHosting() {
           the email + Web Push transports. This is distinct from a company&apos;s{" "}
           <Code>Settings → System Health</Code>, which watches that
           company&apos;s routines, models, and integrations.
+        </LI>
+        <LI>
+          <Strong>Email transport</Strong> — configure the install-wide global
+          SMTP server for system emails (password resets, invites), with a test
+          send. See <Code>Email</Code> above.
+        </LI>
+        <LI>
+          <Strong>Users</Strong> — every human member across every company, with
+          their handle, how many companies they belong to, and which companies
+          they own. Delete an account from here to remove the person and
+          everything scoped to them (memberships, API keys, notifications);
+          content they authored is kept but unlinked. A user who still owns a
+          company can&apos;t be deleted until you reassign or delete those
+          companies first, and you can&apos;t delete your own account here.
+        </LI>
+        <LI>
+          <Strong>Companies</Strong> — every company (tenant) on the instance,
+          with its owner and member + AI-employee counts. Deleting one runs the
+          same cascade as a company&apos;s own <Code>Delete company</Code>{" "}
+          action — every employee, routine, message, note, and finance record it
+          owns, plus its files on disk — so an operator can prune any tenant
+          without switching into it first.
         </LI>
         <LI>
           <Strong>Backups</Strong> — see below.

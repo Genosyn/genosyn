@@ -1,10 +1,12 @@
 import { AppDataSource } from "../db/datasource.js";
 
+import { AccountingPeriod } from "../db/entities/AccountingPeriod.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { ApiKey } from "../db/entities/ApiKey.js";
 import { Approval } from "../db/entities/Approval.js";
 import { Attachment } from "../db/entities/Attachment.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
+import { BankTransaction } from "../db/entities/BankTransaction.js";
 import { Base } from "../db/entities/Base.js";
 import { BaseRecordAttachment } from "../db/entities/BaseRecordAttachment.js";
 import { BaseRecordComment } from "../db/entities/BaseRecordComment.js";
@@ -14,8 +16,10 @@ import { Channel } from "../db/entities/Channel.js";
 import { ChannelMember } from "../db/entities/ChannelMember.js";
 import { ChannelMessage } from "../db/entities/ChannelMessage.js";
 import { Chart } from "../db/entities/Chart.js";
+import { CodeRepository } from "../db/entities/CodeRepository.js";
 import { Company } from "../db/entities/Company.js";
 import { Customer } from "../db/entities/Customer.js";
+import { CustomerContract } from "../db/entities/CustomerContract.js";
 import { Dashboard } from "../db/entities/Dashboard.js";
 import { EmailLog } from "../db/entities/EmailLog.js";
 import { EmployeeMemory } from "../db/entities/EmployeeMemory.js";
@@ -121,13 +125,20 @@ export async function deleteUserCascade(args: {
     // ── 2. Authored content — preserve the row, unlink the author ──────
     await m.update(AIEmployee, { reportsToUserId: userId }, { reportsToUserId: null });
     await m.update(Approval, { decidedByUserId: userId }, { decidedByUserId: null });
+    await m.update(AccountingPeriod, { closedById: userId }, { closedById: null });
     await m.update(Attachment, { uploadedByUserId: userId }, { uploadedByUserId: null });
     await m.update(AuditEvent, { actorUserId: userId }, { actorUserId: null });
+    await m.update(BankTransaction, { reconciledById: userId }, { reconciledById: null });
     await m.update(BaseRecordAttachment, { uploadedByUserId: userId }, { uploadedByUserId: null });
+    await m.update(CustomerContract, { uploadedByUserId: userId }, { uploadedByUserId: null });
     await m.update(BaseRecordComment, { authorUserId: userId }, { authorUserId: null });
     await m.update(Channel, { createdByUserId: userId }, { createdByUserId: null });
     await m.update(ChannelMessage, { authorUserId: userId }, { authorUserId: null });
     await m.update(EmailLog, { triggeredByUserId: userId }, { triggeredByUserId: null });
+    // Notifications *to* this user are deleted above (account-scoped); here we
+    // only unlink rows where the user was the actor of a notification sent to
+    // someone else, so the recipient's history survives as "unknown user".
+    await m.update(Notification, { actorId: userId }, { actorId: null });
     await m.update(EmployeeMemory, { authorUserId: userId }, { authorUserId: null });
     await m.update(JournalEntry, { authorUserId: userId }, { authorUserId: null });
     await m.update(TodoComment, { authorUserId: userId }, { authorUserId: null });
@@ -141,6 +152,7 @@ export async function deleteUserCascade(args: {
     await m.update(Bill, { createdById: userId }, { createdById: null });
     await m.update(BillPayment, { createdById: userId }, { createdById: null });
     await m.update(Chart, { createdById: userId }, { createdById: null });
+    await m.update(CodeRepository, { createdById: userId }, { createdById: null });
     await m.update(Customer, { createdById: userId }, { createdById: null });
     await m.update(Dashboard, { createdById: userId }, { createdById: null });
     await m.update(Estimate, { createdById: userId }, { createdById: null });
@@ -148,6 +160,7 @@ export async function deleteUserCascade(args: {
     await m.update(InvoicePayment, { createdById: userId }, { createdById: null });
     await m.update(LedgerEntry, { createdById: userId }, { createdById: null });
     await m.update(Note, { createdById: userId }, { createdById: null });
+    await m.update(Note, { lastEditedById: userId }, { lastEditedById: null });
     await m.update(Notebook, { createdById: userId }, { createdById: null });
     await m.update(Pipeline, { createdById: userId }, { createdById: null });
     await m.update(Product, { createdById: userId }, { createdById: null });

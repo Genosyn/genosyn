@@ -40,7 +40,10 @@ import { AccountProfile } from "./pages/AccountProfile";
 import AdminLayout from "./pages/AdminLayout";
 import { AdminOverview } from "./pages/AdminOverview";
 import { AdminInstanceHealth } from "./pages/AdminInstanceHealth";
+import { AdminEmail } from "./pages/AdminEmail";
 import { AdminBackup } from "./pages/AdminBackup";
+import { AdminUsers } from "./pages/AdminUsers";
+import { AdminCompanies } from "./pages/AdminCompanies";
 import { SettingsIntegrations } from "./pages/SettingsIntegrations";
 import { SettingsTeams } from "./pages/SettingsTeams";
 import { SettingsApiKeys } from "./pages/SettingsApiKeys";
@@ -443,11 +446,17 @@ function CompanyRoutes({
 
         {/* Admin — install-wide operations that span every company: the
             instance health dashboard and backups. */}
-        <Route path="admin" element={<AdminLayout company={company} me={me} />}>
+        <Route
+          path="admin"
+          element={<AdminLayout company={company} me={me} onCompaniesChanged={onChanged} />}
+        >
           <Route index element={<Navigate to="overview" replace />} />
           <Route path="overview" element={<AdminOverview />} />
           <Route path="instance-health" element={<AdminInstanceHealth />} />
+          <Route path="email" element={<AdminEmail />} />
           <Route path="backup" element={<AdminBackup />} />
+          <Route path="users" element={<AdminUsers />} />
+          <Route path="companies" element={<AdminCompanies />} />
         </Route>
 
         {/* Legacy redirects: Profile moved to Account; Backup moved to Admin. */}

@@ -9,6 +9,7 @@ import { User } from "../db/entities/User.js";
 import { config } from "../../config.js";
 import { dataRoot } from "./paths.js";
 import { getBackupSchedule } from "./backups.js";
+import { getEffectiveGlobalSmtp } from "./globalEmailTransport.js";
 
 /**
  * Instance Health — an install-wide "is the deployment itself healthy?" probe,
@@ -305,28 +306,41 @@ async function checkBackups(now: number): Promise<InstanceCheck> {
 }
 
 /**
- * Informational: which transport system-level emails (password resets, etc.)
- * fall back to. Companies can still configure their own EmailProvider rows;
- * this only covers the global SMTP block in config.ts.
+ * The global SMTP transport system-level emails (password resets, invites, …)
+ * fall back to when a company has no EmailProvider row of its own. Resolved
+ * from the Admin → Email transport override first, then the `config.ts` block.
+ *
+ * When nothing is configured, sends silently log to the console and never
+ * reach a mailbox — a real deployment can't complete a password reset in that
+ * state, so we surface it as a warning rather than pretending it's healthy.
  */
-function checkEmailTransport(): InstanceCheck {
-  const configured = Boolean(config.smtp.host);
+async function checkEmailTransport(): Promise<InstanceCheck> {
+  const eff = await getEffectiveGlobalSmtp();
+  const sourceLabel =
+    eff.source === "database"
+      ? "Admin dashboard"
+      : eff.source === "config"
+        ? "config.ts"
+        : "None";
   return {
     id: "email_transport",
     title: "Email transport",
     description:
-      "The global SMTP fallback used for system-level sends when a company has no email provider of its own.",
-    severity: "ok",
-    summary: configured
-      ? "Global SMTP is configured."
-      : "No global SMTP configured — system emails log to the console instead.",
+      "The global SMTP transport used for system-level sends (password resets, invites) when a company has no email provider of its own.",
+    severity: eff.configured ? "ok" : "warn",
+    summary: eff.configured
+      ? `Global SMTP is configured via ${
+          eff.source === "database" ? "the admin dashboard" : "config.ts"
+        }.`
+      : "No global SMTP configured — system emails (password resets, invites) log to the console and are not delivered. Configure it under Admin → Email transport.",
     facts: [
       {
         label: "Global SMTP",
-        value: configured ? config.smtp.host : "Not configured",
-        mono: configured,
+        value: eff.configured ? eff.settings.host : "Not configured",
+        mono: eff.configured,
       },
-      { label: "From", value: config.smtp.from, mono: true },
+      { label: "Source", value: sourceLabel },
+      { label: "From", value: eff.settings.from, mono: true },
     ],
   };
 }
@@ -381,20 +395,22 @@ export async function getInstanceHealthReport(): Promise<InstanceHealthReport> {
   // Database first and on its own — every other check assumes a live
   // connection, so if it's down we still want the rest to run and report
   // their own state rather than throw.
-  const [database, migrations, backups, webPush, instance] = await Promise.all([
-    checkDatabase(),
-    checkMigrations(),
-    checkBackups(now),
-    checkWebPush(),
-    gatherInstanceInfo(),
-  ]);
+  const [database, migrations, backups, emailTransport, webPush, instance] =
+    await Promise.all([
+      checkDatabase(),
+      checkMigrations(),
+      checkBackups(now),
+      checkEmailTransport(),
+      checkWebPush(),
+      gatherInstanceInfo(),
+    ]);
 
   const checks: InstanceCheck[] = [
     database,
     migrations,
     checkDataDirectory(),
     backups,
-    checkEmailTransport(),
+    emailTransport,
     webPush,
   ];
 

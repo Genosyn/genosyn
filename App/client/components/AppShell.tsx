@@ -308,7 +308,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
       {
         key: "admin",
         label: "Admin",
-        description: "Instance health and backups.",
+        description: "Users, companies, health, and backups.",
         icon: ServerCog,
         path: "/admin",
         iconBg:
