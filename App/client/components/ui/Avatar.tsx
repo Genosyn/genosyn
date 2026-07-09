@@ -113,3 +113,16 @@ export function memberAvatarUrl(
   if (!avatarKey) return null;
   return `/api/companies/${companyId}/members/${userId}/avatar?v=${encodeURIComponent(avatarKey)}`;
 }
+
+/**
+ * Instance-wide avatar URL for the Admin → Users directory, where a user may
+ * not share a company with the caller. Served by the admin router rather than
+ * a company-scoped route.
+ */
+export function adminUserAvatarUrl(
+  userId: string,
+  avatarKey?: string | null,
+): string | null {
+  if (!avatarKey) return null;
+  return `/api/admin/users/${userId}/avatar?v=${encodeURIComponent(avatarKey)}`;
+}

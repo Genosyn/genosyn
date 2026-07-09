@@ -1497,6 +1497,30 @@ export type InstanceHealthReport = {
   instance: InstanceInfo;
 };
 
+// ───────────────────── Admin directory (Users + Companies) ───────────────────
+// Instance-wide management surfaces served by /api/admin/users and
+// /api/admin/companies. Not company-scoped — see routes/admin.ts.
+export type OwnedCompanyRef = { id: string; name: string; slug: string };
+export type AdminUserRow = {
+  id: string;
+  email: string;
+  name: string;
+  handle: string | null;
+  avatarKey: string | null;
+  createdAt: string;
+  membershipCount: number;
+  ownedCompanies: OwnedCompanyRef[];
+};
+export type AdminCompanyRow = {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt: string;
+  owner: { id: string; name: string; email: string } | null;
+  memberCount: number;
+  employeeCount: number;
+};
+
 export type HomeData = {
   notifications: Notification[];
   unreadNotificationCount: number;

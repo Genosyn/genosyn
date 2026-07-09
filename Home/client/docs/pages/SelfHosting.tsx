@@ -194,6 +194,23 @@ export function SelfHosting() {
           company&apos;s routines, models, and integrations.
         </LI>
         <LI>
+          <Strong>Users</Strong> — every human member across every company, with
+          their handle, how many companies they belong to, and which companies
+          they own. Delete an account from here to remove the person and
+          everything scoped to them (memberships, API keys, notifications);
+          content they authored is kept but unlinked. A user who still owns a
+          company can&apos;t be deleted until you reassign or delete those
+          companies first, and you can&apos;t delete your own account here.
+        </LI>
+        <LI>
+          <Strong>Companies</Strong> — every company (tenant) on the instance,
+          with its owner and member + AI-employee counts. Deleting one runs the
+          same cascade as a company&apos;s own <Code>Delete company</Code>{" "}
+          action — every employee, routine, message, note, and finance record it
+          owns, plus its files on disk — so an operator can prune any tenant
+          without switching into it first.
+        </LI>
+        <LI>
           <Strong>Backups</Strong> — see below.
         </LI>
       </UL>
