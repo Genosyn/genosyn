@@ -2,12 +2,14 @@ import {
   Callout,
   Code,
   DocLink,
+  ExtLink,
   H2,
   H3,
   KeyList,
   LI,
   P,
   PageHeader,
+  Pre,
   Strong,
   UL,
 } from "@/docs/Prose";
@@ -99,6 +101,102 @@ export function Integrations() {
         provider CLI sees a flat catalog of tools and never has to know
         anything about Connections.
       </P>
+
+      <H2 id="external-mcp">Connecting an external MCP client</H2>
+      <P>
+        The built-in <Code>genosyn</Code> tools an employee gets inside a run —
+        the stdio server the <DocLink to="/docs/models">provider CLI</DocLink>{" "}
+        loads on every spawn — are also reachable over the network. Point any
+        MCP client at an employee&apos;s endpoint and it drives that employee
+        from anywhere: Claude Desktop, Cursor, VS Code, or your own agent, all
+        seeing the same tools, Grants, and audit trail as the in-app assistant.
+      </P>
+
+      <H3 id="external-mcp-url">Get the endpoint URL</H3>
+      <P>
+        Open the employee&apos;s <Code>MCP servers</Code> tab. The{" "}
+        <Strong>Connect an external harness</Strong> panel at the top shows a
+        copyable URL:
+      </P>
+      <Pre lang="text">{`https://<your-genosyn-host>/api/companies/<company-id>/employees/<employee-id>/mcp/connect`}</Pre>
+      <P>
+        The ids are the company and employee UUIDs, wired in for you — just copy
+        it. Whichever employee the URL names is the one the client acts{" "}
+        <em>as</em>: every call runs with that employee&apos;s Grants and lands
+        in its journal.
+      </P>
+
+      <H3 id="external-mcp-auth">Authenticate</H3>
+      <P>
+        Requests carry a Genosyn API key as a bearer token — the same durable
+        credential the REST API uses. Mint one at{" "}
+        <Code>Settings → API keys</Code> with <Strong>Generate key</Strong>; the
+        plaintext is shown exactly once, so copy it then. Send it on every
+        request:
+      </P>
+      <Pre lang="http">{`Authorization: Bearer gen_xxxxxxxx…`}</Pre>
+      <P>
+        A key is scoped to a single company and authenticates as the member who
+        minted it. Browse the full REST surface at{" "}
+        <ExtLink href="/api/docs">API reference</ExtLink>.
+      </P>
+
+      <H3 id="external-mcp-config">Transport &amp; client config</H3>
+      <P>
+        The endpoint speaks the MCP <Strong>Streamable HTTP</Strong> transport
+        and is stateless — the client POSTs JSON-RPC and reads a JSON reply,
+        with no session to keep alive. Any client that takes a remote server as{" "}
+        <Code>{"{ url, headers }"}</Code> connects natively:
+      </P>
+      <Pre lang="json">{`{
+  "mcpServers": {
+    "genosyn": {
+      "url": "https://<your-host>/api/companies/<company-id>/employees/<employee-id>/mcp/connect",
+      "headers": { "Authorization": "Bearer gen_xxxxxxxx…" }
+    }
+  }
+}`}</Pre>
+      <P>
+        <Strong>Claude Code</Strong> registers it in one command:
+      </P>
+      <Pre lang="bash">{`claude mcp add --transport http genosyn \\
+  "https://<your-host>/api/companies/<company-id>/employees/<employee-id>/mcp/connect" \\
+  --header "Authorization: Bearer gen_xxxxxxxx…"`}</Pre>
+      <P>
+        <Strong>Claude Desktop</Strong> has no field for a custom auth header
+        yet, so bridge the endpoint through <Code>mcp-remote</Code> in{" "}
+        <Code>claude_desktop_config.json</Code>. Keep the token in an env var,
+        where its space survives — passed as a raw <Code>--header</Code> arg it
+        can get mangled:
+      </P>
+      <Pre lang="json">{`{
+  "mcpServers": {
+    "genosyn": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "https://<your-host>/api/companies/<company-id>/employees/<employee-id>/mcp/connect",
+        "--header",
+        "Authorization:\${AUTH_HEADER}"
+      ],
+      "env": { "AUTH_HEADER": "Bearer gen_xxxxxxxx…" }
+    }
+  }
+}`}</Pre>
+      <P>
+        Cursor and VS Code use the same <Code>url</Code> + <Code>headers</Code>{" "}
+        shape (VS Code names the block <Code>servers</Code> and prompts for the
+        token as an <Code>input</Code>); any stdio-only client can reach the
+        endpoint through the same <Code>mcp-remote</Code> bridge.
+      </P>
+
+      <Callout kind="warn" title="An API key is a company-wide credential.">
+        Any valid key for a company can drive <em>any</em> employee in it —
+        there is no per-employee scope beyond company membership — and every
+        write runs as that employee, landing in its audit log and journal. Serve
+        Genosyn over HTTPS, keep keys out of committed config, and revoke a
+        leaked one at <Code>Settings → API keys</Code>.
+      </Callout>
 
       <H2 id="catalog">What ships today</H2>
       <P>
