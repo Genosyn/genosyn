@@ -3,10 +3,10 @@
 # Client is built with Vite and served as static assets by the Express server.
 #
 # Runtime image bundles every supported AI-employee CLI (claude-code, codex,
-# opencode, goose) so a fresh self-host can run + sign in without any host
-# package management. node-pty needs a native build; we compile it in the
-# deps stage with the C toolchain, then copy node_modules into runtime so
-# the runtime image stays slim and doesn't need its own toolchain layer.
+# opencode, goose, openclaw) so a fresh self-host can run + sign in without
+# any host package management. node-pty needs a native build; we compile it
+# in the deps stage with the C toolchain, then copy node_modules into runtime
+# so the runtime image stays slim and doesn't need its own toolchain layer.
 
 # ---------- deps ----------
 FROM node:22-alpine AS deps
@@ -60,10 +60,21 @@ ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 # Pre-install the npm-distributed CLIs globally. Pinning is intentionally
 # loose — these are end-user tools that ship breaking changes inside minor
 # bumps; the operator can override by `npm i -g <pkg>@<ver>` post-deploy.
-RUN npm install -g \
+# openclaw compiles a native addon (tree-sitter-bash) through node-gyp, so we
+# pull in a throwaway python3 + C toolchain just for its install and drop it
+# again in the same layer. The compiled addon links only against libstdc++,
+# which the runtime already carries for node-pty, so openclaw keeps working
+# after the toolchain is removed. (Without this the image build — and the
+# in-app `npm i -g openclaw` installer — both fail with a node-gyp Python
+# error, leaving openclaw employees dead on arrival with `spawn openclaw
+# ENOENT`.)
+RUN apk add --no-cache --virtual .openclaw-build python3 make g++ linux-headers \
+    && npm install -g \
       @anthropic-ai/claude-code \
       @openai/codex \
       opencode-ai \
+      openclaw \
+    && apk del .openclaw-build \
     && npm cache clean --force
 
 # Goose ships a static binary via an installer script. CONFIGURE=false skips
