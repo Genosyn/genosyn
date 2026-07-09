@@ -171,17 +171,47 @@ export function SelfHosting() {
         ]}
       />
 
+      <H2 id="admin">Admin &amp; instance health</H2>
+      <P>
+        Install-wide operations live under the <Code>Admin</Code> section
+        (top-nav section menu, or your avatar menu → <Code>Admin</Code>) —
+        separate from a single company&apos;s <Code>Settings</Code>. It covers
+        every company on the deployment, so any signed-in member can reach it;
+        on a self-hosted box you control access by controlling who can sign in.
+      </P>
+      <UL>
+        <LI>
+          <Strong>Overview</Strong> — an at-a-glance dashboard: instance health
+          status, the running version and build, database driver, uptime and
+          memory, and an inventory of companies, members, and AI employees.
+        </LI>
+        <LI>
+          <Strong>Instance Health</Strong> — live probes of the deployment
+          substrate: database connectivity and round-trip latency, pending
+          schema migrations, a writable data directory, the backup story, and
+          the email + Web Push transports. This is distinct from a company&apos;s{" "}
+          <Code>Settings → System Health</Code>, which watches that
+          company&apos;s routines, models, and integrations.
+        </LI>
+        <LI>
+          <Strong>Backups</Strong> — see below.
+        </LI>
+      </UL>
+
       <H2 id="backups">Backups</H2>
       <P>
-        Use the CLI to tarball the data volume:
+        A backup zips the <em>entire</em> data directory — every company&apos;s
+        rows, uploads, and credentials — so it is install-wide, not per company.
+        Run one from the CLI:
       </P>
       <Pre lang="bash">{`genosyn backup --out ~/backups/genosyn-$(date +%F).tar.gz
 genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
       <P>
-        For an automated schedule, the in-app{" "}
-        <Code>BackupSchedule</Code> entity lets you configure recurring backups
-        per company. See <DocLink to="/docs/cli">CLI reference</DocLink> for
-        the flag list.
+        Or drive it in-app at <Code>Admin → Backups</Code>: back up now, upload
+        an existing <Code>.zip</Code> to restore from, download or restore any
+        past archive, and set a recurring schedule (daily / weekly / monthly at
+        a chosen hour) backed by the <Code>BackupSchedule</Code> row. See{" "}
+        <DocLink to="/docs/cli">CLI reference</DocLink> for the flag list.
       </P>
 
       <H2 id="upgrading">Upgrading</H2>

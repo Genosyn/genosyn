@@ -2,7 +2,6 @@ import React from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import {
   Activity,
-  Archive,
   BarChart3,
   Building2,
   KeyRound,
@@ -12,7 +11,6 @@ import {
   ScrollText,
   Settings as SettingsIcon,
   TerminalSquare,
-  User,
   Users,
 } from "lucide-react";
 import { Company, Me } from "../lib/api";
@@ -32,7 +30,6 @@ export type SettingsOutletCtx = {
 };
 
 const SETTINGS_TAB_LABEL: Record<string, string> = {
-  profile: "Profile",
   company: "Company",
   members: "Members",
   teams: "Teams",
@@ -42,7 +39,6 @@ const SETTINGS_TAB_LABEL: Record<string, string> = {
   logs: "Logs",
   secrets: "Secrets",
   "api-keys": "API keys",
-  backup: "Backup",
   usage: "Usage",
   audit: "Audit log",
   "system-health": "System Health",
@@ -69,10 +65,6 @@ export default function SettingsLayout({
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
         <div className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-          Your account
-        </div>
-        <SidebarLink to={`${base}/profile`} icon={<User size={14} />} label="Profile" />
-        <div className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
           Company
         </div>
         <SidebarLink to={`${base}/company`} icon={<Building2 size={14} />} label="Company" />
@@ -82,7 +74,6 @@ export default function SettingsLayout({
         <SidebarLink to={`${base}/email`} icon={<Mail size={14} />} label="Email" />
         <SidebarLink to={`${base}/secrets`} icon={<KeyRound size={14} />} label="Secrets" />
         <SidebarLink to={`${base}/api-keys`} icon={<TerminalSquare size={14} />} label="API keys" />
-        <SidebarLink to={`${base}/backup`} icon={<Archive size={14} />} label="Backup" />
         <SidebarLink to={`${base}/usage`} icon={<BarChart3 size={14} />} label="Usage" />
         <SidebarLink to={`${base}/audit`} icon={<ScrollText size={14} />} label="Audit log" />
         <SidebarLink

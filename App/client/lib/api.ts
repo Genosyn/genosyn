@@ -1466,6 +1466,37 @@ export type SystemHealthSummary = {
   checks: { id: string; title: string; severity: HealthSeverity; count: number }[];
 };
 
+// ───────────────────────── Instance Health (Admin) ──────────────────────
+// Install-wide health (database, migrations, disk, runtime), distinct from the
+// company-scoped System Health above. Served by /api/admin/instance-health.
+export type InstanceSeverity = "ok" | "warn" | "error";
+export type InstanceFact = { label: string; value: string; mono?: boolean };
+export type InstanceCheck = {
+  id: string;
+  title: string;
+  description: string;
+  severity: InstanceSeverity;
+  summary: string;
+  facts: InstanceFact[];
+};
+export type InstanceInfo = {
+  nodeVersion: string;
+  platform: string;
+  uptimeSeconds: number;
+  dbDriver: "sqlite" | "postgres";
+  dataDir: string;
+  publicUrl: string;
+  memory: { rssBytes: number; heapUsedBytes: number; heapTotalBytes: number };
+  counts: { companies: number; users: number; employees: number };
+};
+export type InstanceHealthReport = {
+  generatedAt: string;
+  status: InstanceSeverity;
+  issueCount: number;
+  checks: InstanceCheck[];
+  instance: InstanceInfo;
+};
+
 export type HomeData = {
   notifications: Notification[];
   unreadNotificationCount: number;
