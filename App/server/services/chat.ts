@@ -123,6 +123,10 @@ export async function streamChatWithEmployee(
   const mcpToken = issueMcpToken(emp.id, co.id);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), CHAT_HARD_TIMEOUT_MS);
+  // Buffer everything the model streams. The persisted reply must match what the
+  // human saw over SSE — not just the loop's final-turn text, which drops any
+  // narration the model streamed before calling a tool.
+  let buffered = "";
   try {
     const result = await runEmployeeAgent({
       model,
@@ -138,6 +142,7 @@ export async function streamChatWithEmployee(
       signal: controller.signal,
       callbacks: {
         onText: (delta) => {
+          buffered += delta;
           try {
             onChunk(delta);
           } catch {
@@ -150,7 +155,8 @@ export async function streamChatWithEmployee(
     if (result.status === "error") {
       return { status: "error", reply: result.error, attachmentIds };
     }
-    return { status: "ok", reply: result.finalText.trim() || "(no reply)", attachmentIds };
+    const reply = buffered.trim() || result.finalText.trim() || "(no reply)";
+    return { status: "ok", reply, attachmentIds };
   } finally {
     clearTimeout(timer);
     revokeMcpToken(mcpToken);

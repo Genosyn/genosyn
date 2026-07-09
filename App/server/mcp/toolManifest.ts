@@ -8,11 +8,10 @@
  * is not stored here.
  *
  * Two consumers read this manifest:
- *   - the stdio binary (`mcp-genosyn/index.mjs`), which fetches it from
- *     `POST /api/internal/mcp/manifest` and re-serves it over MCP to the
- *     provider CLI it runs under; and
+ *   - the in-process agent (`services/agent/tools/genosyn.ts`), which maps each
+ *     entry to a model tool and dispatches calls to `POST /tools/<name>`; and
  *   - the external Streamable-HTTP endpoint (`routes/mcpConnect.ts`), which
- *     imports it directly to answer `tools/list` for outside harnesses.
+ *     imports it directly to answer `tools/list` for outside MCP clients.
  *
  * Integration-backed tools (Stripe, Gmail, ...) are NOT here — they are
  * discovered per-employee at runtime via `POST /integrations/_list`.

@@ -4,21 +4,19 @@ import { STATIC_TOOLS } from "./toolManifest.js";
 import { issueMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
 
 /**
- * Transport-agnostic MCP (Model Context Protocol) message handling for the
- * built-in `genosyn` server.
+ * JSON-RPC (Model Context Protocol) message handling for the built-in `genosyn`
+ * server, used by the *external* Streamable-HTTP endpoint (`routes/mcpConnect.ts`)
+ * so outside MCP clients (Claude Desktop, Cursor, another agent, ...) can act as
+ * one of this company's employees. (The in-process agent doesn't go through this
+ * — it calls the tools directly; see `services/agent/tools/genosyn.ts`.)
  *
- * This is the same protocol the stdio binary (`mcp-genosyn/index.mjs`) speaks
- * to its provider CLI — reimplemented here so the *external* Streamable-HTTP
- * endpoint (`routes/mcpConnect.ts`) presents an identical tool surface to
- * outside harnesses (Claude Desktop, Cursor, another agent, ...).
- *
- * Both transports share ONE tool catalogue (`toolManifest.ts`) and ONE set of
- * handlers (`routes/mcpInternal.ts`). Here we terminate the JSON-RPC protocol
- * and dispatch each `tools/call` back through the internal HTTP surface over
- * loopback, authenticated by a freshly-minted short-lived MCP token bound to
- * the acting employee — exactly how the stdio binary reaches the server. That
- * keeps every tool's zod validation, audit trail, and journal write in one
- * place instead of forking a second implementation.
+ * This shares ONE tool catalogue (`toolManifest.ts`) and ONE set of handlers
+ * (`routes/mcpInternal.ts`) with the rest of the app. Here we terminate the
+ * JSON-RPC protocol and dispatch each `tools/call` back through the internal
+ * HTTP surface over loopback, authenticated by a freshly-minted short-lived MCP
+ * token bound to the acting employee. That keeps every tool's zod validation,
+ * audit trail, and journal write in one place instead of forking a second
+ * implementation.
  */
 
 /** The newest protocol revision we implement. We echo the client's requested

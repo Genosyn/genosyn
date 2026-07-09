@@ -2,7 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { appVersion } from "../../../lib/version.js";
-import type { AgentTool, ToolResult } from "../types.js";
+import type { AgentTool, ToolResult, ToolResultImage } from "../types.js";
 
 /**
  * MCP client bridge.
@@ -53,6 +53,7 @@ export async function connectMcpServer(
   label: string,
   spec: McpServerSpec,
   namePrefix: string,
+  signal?: AbortSignal,
 ): Promise<BridgedServer> {
   const client = new Client({ name: "genosyn", version: appVersion() });
 
@@ -97,15 +98,14 @@ export async function connectMcpServer(
   }
 
   const tools: AgentTool[] = (listed.tools ?? []).map((t) => {
-    const exposedName = namePrefix ? `${namePrefix}__${t.name}` : t.name;
     return {
-      name: sanitizeToolName(exposedName),
+      name: exposedToolName(namePrefix, t.name),
       description: t.description ?? `${label} tool`,
       inputSchema: (t.inputSchema as Record<string, unknown>) ?? {
         type: "object",
         properties: {},
       },
-      run: (input) => callBridged(client, t.name, input),
+      run: (input) => callBridged(client, t.name, input, signal),
     };
   });
 
@@ -125,10 +125,20 @@ async function callBridged(
   client: Client,
   toolName: string,
   input: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<ToolResult> {
   try {
-    const res = await client.callTool({ name: toolName, arguments: input });
-    return { content: flattenContent(res.content), isError: res.isError === true };
+    const res = await client.callTool(
+      { name: toolName, arguments: input },
+      undefined,
+      signal ? { signal } : undefined,
+    );
+    const { text, images } = splitContent(res.content);
+    return {
+      content: text,
+      isError: res.isError === true,
+      ...(images.length > 0 ? { images } : {}),
+    };
   } catch (err) {
     return {
       content: `Tool ${toolName} failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -137,27 +147,49 @@ async function callBridged(
   }
 }
 
-/** Flatten an MCP tool result's content array down to text for the model. */
-function flattenContent(content: unknown): string {
-  if (!Array.isArray(content)) return "";
+/**
+ * Split an MCP tool result's content array into text (for the model to read)
+ * and images (e.g. a browser screenshot) so the caller can attach the pixels to
+ * the tool result rather than dropping them.
+ */
+function splitContent(content: unknown): { text: string; images: ToolResultImage[] } {
   const parts: string[] = [];
-  for (const block of content) {
-    if (!block || typeof block !== "object") continue;
-    const b = block as { type?: string; text?: string };
-    if (b.type === "text" && typeof b.text === "string") {
-      parts.push(b.text);
-    } else if (b.type === "image") {
-      parts.push("[image omitted]");
-    } else {
-      parts.push(JSON.stringify(block));
+  const images: ToolResultImage[] = [];
+  if (Array.isArray(content)) {
+    for (const block of content) {
+      if (!block || typeof block !== "object") continue;
+      const b = block as { type?: string; text?: string; data?: string; mimeType?: string };
+      if (b.type === "text" && typeof b.text === "string") {
+        parts.push(b.text);
+      } else if (b.type === "image" && typeof b.data === "string") {
+        images.push({
+          mimeType: typeof b.mimeType === "string" ? b.mimeType : "image/png",
+          data: b.data,
+        });
+      } else {
+        parts.push(JSON.stringify(block));
+      }
     }
   }
-  return parts.join("\n") || "(no output)";
+  return { text: parts.join("\n"), images };
 }
 
-/** Tool names must match `^[a-zA-Z0-9_-]{1,64}$` for both provider APIs. */
-function sanitizeToolName(name: string): string {
-  return name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
+/**
+ * Namespace a bridged tool name within the 1–64 char `[A-Za-z0-9_-]` budget both
+ * provider APIs enforce. The prefix is capped so the tool's own name always
+ * survives — a long server name must not truncate every tool down to one
+ * identical string. A final dedup pass in gatherEmployeeTools resolves any
+ * residual clashes.
+ */
+function exposedToolName(prefix: string, toolName: string): string {
+  const tool = sanitizeChars(toolName);
+  if (!prefix) return tool.slice(0, 64) || "tool";
+  const p = sanitizeChars(prefix).slice(0, 24);
+  return `${p}__${tool}`.slice(0, 64);
+}
+
+function sanitizeChars(name: string): string {
+  return name.replace(/[^a-zA-Z0-9_-]/g, "_");
 }
 
 function mergeEnv(extra: Record<string, string>): Record<string, string> {

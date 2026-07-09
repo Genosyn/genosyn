@@ -25,11 +25,15 @@ export type ToolUseBlock = {
   name: string;
   input: Record<string, unknown>;
 };
+/** A base64 image a tool returned (e.g. a browser screenshot). */
+export type ToolResultImage = { mimeType: string; data: string };
 export type ToolResultBlock = {
   type: "tool_result";
   toolUseId: string;
   content: string;
   isError?: boolean;
+  /** Images to attach to the tool result (Anthropic carries these natively). */
+  images?: ToolResultImage[];
 };
 
 export type AssistantBlock = TextBlock | ToolUseBlock;
@@ -50,7 +54,12 @@ export type ToolDef = {
   inputSchema: ToolInputSchema;
 };
 
-export type ToolResult = { content: string; isError?: boolean };
+export type ToolResult = {
+  content: string;
+  isError?: boolean;
+  /** Base64 images the tool produced (e.g. browser screenshots). */
+  images?: ToolResultImage[];
+};
 
 /** A tool the model can call. `run` executes it and returns text for the model. */
 export type AgentTool = ToolDef & {

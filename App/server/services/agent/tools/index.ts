@@ -42,7 +42,7 @@ export async function gatherEmployeeTools(params: {
 
   // 1 + 2: in-process tools (no teardown needed).
   const [genosyn, browser, userServers] = await Promise.all([
-    loadGenosynTools(params.genosynToken),
+    loadGenosynTools(params.genosynToken, params.signal),
     loadBrowserConfig(params.employeeId, {
       routineId: params.routineId,
       conversationId: params.conversationId,
@@ -60,6 +60,7 @@ export async function gatherEmployeeTools(params: {
       "browser",
       browserServerSpec(browser, params.genosynToken),
       "", // keep native browser_* names (referenced in prompts)
+      params.signal,
     );
     bridged.push(b);
     tools.push(...b.tools);
@@ -67,12 +68,17 @@ export async function gatherEmployeeTools(params: {
 
   // 4: company-configured MCP servers, each namespaced by server name.
   const connections = await Promise.all(
-    userServers.map((s) => connectMcpServer(s.name, s.spec, s.name)),
+    userServers.map((s) => connectMcpServer(s.name, s.spec, s.name, params.signal)),
   );
   for (const c of connections) {
     bridged.push(c);
     tools.push(...c.tools);
   }
+
+  // Provider APIs reject duplicate or over-length tool names with a 400 that
+  // fails the whole turn — dedup across every source (coding/genosyn/browser/
+  // user, plus integration labels) so that can never happen.
+  dedupeToolNames(tools);
 
   return {
     tools,
@@ -81,4 +87,29 @@ export async function gatherEmployeeTools(params: {
       await Promise.all(bridged.map((b) => b.close()));
     },
   };
+}
+
+/**
+ * Make every tool's model-facing name unique and ≤64 chars. Renaming only the
+ * exposed `name` is safe: each tool dispatches inside its own `run` closure,
+ * which captured the real target when it was built.
+ */
+function dedupeToolNames(tools: AgentTool[]): void {
+  const seen = new Set<string>();
+  for (const t of tools) {
+    let name = t.name.slice(0, 64) || "tool";
+    if (seen.has(name)) {
+      let n = 2;
+      let candidate = withSuffix(name, n);
+      while (seen.has(candidate)) candidate = withSuffix(name, ++n);
+      name = candidate;
+    }
+    t.name = name;
+    seen.add(name);
+  }
+}
+
+function withSuffix(name: string, n: number): string {
+  const suffix = `_${n}`;
+  return name.slice(0, 64 - suffix.length) + suffix;
 }

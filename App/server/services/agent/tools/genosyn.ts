@@ -32,12 +32,15 @@ type IntegrationTool = {
  * ({@link issueMcpToken}) that scopes every call to the acting employee — the
  * same credential the stdio binary used to carry in its env.
  */
-export async function loadGenosynTools(token: string): Promise<AgentTool[]> {
+export async function loadGenosynTools(
+  token: string,
+  signal?: AbortSignal,
+): Promise<AgentTool[]> {
   const staticTools: AgentTool[] = STATIC_TOOLS.map((t) => ({
     name: t.name,
     description: t.description,
     inputSchema: t.inputSchema,
-    run: (input) => callInternal(token, `/tools/${t.name}`, input),
+    run: (input) => callInternal(token, `/tools/${t.name}`, input, signal),
   }));
 
   const integrationTools = await loadIntegrationTools(token);
@@ -46,11 +49,16 @@ export async function loadGenosynTools(token: string): Promise<AgentTool[]> {
     description: t.description,
     inputSchema: t.inputSchema,
     run: (input) =>
-      callInternal(token, "/integrations/invoke", {
-        connectionId: t.connectionId,
-        toolName: t.providerToolName,
-        args: input,
-      }),
+      callInternal(
+        token,
+        "/integrations/invoke",
+        {
+          connectionId: t.connectionId,
+          toolName: t.providerToolName,
+          args: input,
+        },
+        signal,
+      ),
   }));
 
   return [...staticTools, ...integration];
@@ -93,6 +101,7 @@ async function callInternal(
   token: string,
   endpoint: string,
   args: unknown,
+  signal?: AbortSignal,
 ): Promise<ToolResult> {
   let response: Response;
   try {
@@ -100,6 +109,7 @@ async function callInternal(
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(args ?? {}),
+      ...(signal ? { signal } : {}),
     });
   } catch (e) {
     return {

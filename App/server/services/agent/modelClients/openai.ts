@@ -154,11 +154,14 @@ function toOpenAIMessages(
         if (b.type === "text") {
           textParts.push(b.text);
         } else {
-          out.push({
-            role: "tool",
-            tool_call_id: b.toolUseId,
-            content: b.content,
-          });
+          // Chat Completions tool-role messages are text-only, so images (e.g.
+          // browser screenshots) can't ride along here — note their presence.
+          const content =
+            b.content ||
+            ((b.images?.length ?? 0) > 0
+              ? "[image result omitted — this model can't view images]"
+              : "");
+          out.push({ role: "tool", tool_call_id: b.toolUseId, content });
         }
       }
       if (textParts.length > 0) {

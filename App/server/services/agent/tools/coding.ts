@@ -100,10 +100,33 @@ function runBash(
   timeoutMs: number,
 ): Promise<ToolResult> {
   return new Promise((resolve) => {
+    // Already cancelled before we start — bail without spawning. addEventListener
+    // never fires for an already-aborted signal, so this guard is load-bearing.
+    if (ctx.signal?.aborted) {
+      resolve(fail("Command aborted before it started."));
+      return;
+    }
     const child = spawn("bash", ["-lc", command], {
       cwd: ctx.cwd,
       env: { ...process.env, ...ctx.env },
+      // Own process group so a SIGKILL can reach bash's forked/backgrounded
+      // children (pipelines, `cmd &`, dev servers) instead of orphaning them.
+      detached: true,
     });
+    // Kill the whole process group (negative pid). Falls back to the single
+    // pid, and swallows ESRCH when the group has already exited.
+    const killTree = () => {
+      if (child.pid === undefined) return;
+      try {
+        process.kill(-child.pid, "SIGKILL");
+      } catch {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // already gone
+        }
+      }
+    };
     let out = "";
     let truncated = false;
     const append = (b: Buffer) => {
@@ -120,10 +143,10 @@ function runBash(
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGKILL");
+      killTree();
     }, timeoutMs);
 
-    const onAbort = () => child.kill("SIGKILL");
+    const onAbort = () => killTree();
     ctx.signal?.addEventListener("abort", onAbort, { once: true });
 
     child.on("error", (err) => {
@@ -261,7 +284,11 @@ function editFileTool(ctx: CodingToolContext): AgentTool {
       if (count > 1 && !replaceAll) {
         return fail(`old_string appears ${count} times in ${rel}. Make it unique or set replace_all.`);
       }
-      const updated = replaceAll ? text.split(oldStr).join(newStr) : text.replace(oldStr, newStr);
+      // split/join for both paths — in the single case count === 1 so it
+      // replaces exactly one occurrence, and unlike String.replace it never
+      // interprets `$` sequences in new_string as replacement patterns
+      // (`$$`, `$&`, `` $` ``, `$'`), which would silently corrupt the file.
+      const updated = text.split(oldStr).join(newStr);
       try {
         await fsp.writeFile(r.path, updated, "utf8");
       } catch (err) {
@@ -328,7 +355,10 @@ function globTool(ctx: CodingToolContext): AgentTool {
       if ("error" in r) return fail(r.error);
       const re = globToRegExp(pattern);
       const matches: string[] = [];
-      await walk(r.path, ctx.cwd, (relPath) => {
+      // Anchor the pattern against paths relative to the SEARCH dir (r.path),
+      // not the cwd — otherwise `glob({pattern:"*.py", path:"tests"})` tests
+      // "tests/x.py" against `^[^/]*\.py$` and matches nothing.
+      await walk(r.path, r.path, (relPath) => {
         if (re.test(relPath)) matches.push(relPath);
         return matches.length < MAX_GLOB_RESULTS;
       });

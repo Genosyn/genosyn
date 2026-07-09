@@ -18,9 +18,16 @@ import type {
  * mechanical.
  */
 
-/** Anthropic requires an explicit output cap. 8k covers long tool-driven turns
- * without risking a model-specific ceiling. */
-const MAX_TOKENS = 8192;
+/**
+ * Anthropic requires an explicit output cap, and rejects (400s) any value above
+ * the model's ceiling. Claude 3 (opus/sonnet/haiku, non-3.5/3.7) cap output at
+ * 4096; 3.5, 3.7, and 4.x accept 8192. `model` is a free-text field, so clamp by
+ * id prefix rather than sending a fixed 8192 that breaks older models.
+ */
+function maxTokensFor(model: string): number {
+  if (/^claude-3-(opus|sonnet|haiku)-/.test(model)) return 4096;
+  return 8192;
+}
 
 export function createAnthropicClient(opts: {
   apiKey: string;
@@ -38,7 +45,7 @@ export function createAnthropicClient(opts: {
       const stream = client.messages.stream(
         {
           model: opts.model,
-          max_tokens: MAX_TOKENS,
+          max_tokens: maxTokensFor(opts.model),
           system,
           messages: messages.map(toAnthropicMessage),
           ...(tools.length > 0 ? { tools: tools.map(toAnthropicTool) } : {}),
@@ -106,6 +113,25 @@ function toAnthropicMessage(m: AgentMessage): Anthropic.MessageParam {
     role: "user",
     content: m.content.map((b) => {
       if (b.type === "text") return { type: "text", text: b.text };
+      // Attach any images (e.g. a browser screenshot) as native image blocks so
+      // a vision-capable model actually sees them, rather than dropping them.
+      const images = b.images ?? [];
+      if (images.length > 0) {
+        const blocks: Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam> = [];
+        if (b.content) blocks.push({ type: "text", text: b.content });
+        for (const img of images) {
+          blocks.push({
+            type: "image",
+            source: { type: "base64", media_type: img.mimeType as "image/png", data: img.data },
+          });
+        }
+        return {
+          type: "tool_result",
+          tool_use_id: b.toolUseId,
+          content: blocks,
+          ...(b.isError ? { is_error: true } : {}),
+        };
+      }
       return {
         type: "tool_result",
         tool_use_id: b.toolUseId,

@@ -190,6 +190,10 @@ export async function startRoutineRun(
         controller.abort();
       }, timeoutMs);
 
+      // The final answer is already written to the transcript as it streams
+      // (onText below); track that so we don't append it a second time — except
+      // in the max-steps fallback, whose placeholder text never streamed.
+      let streamedAny = false;
       let result;
       try {
         result = await runEmployeeAgent({
@@ -206,7 +210,10 @@ export async function startRoutineRun(
           runId: saved.id,
           signal: controller.signal,
           callbacks: {
-            onText: (delta) => log.write(delta),
+            onText: (delta) => {
+              streamedAny = true;
+              log.write(delta);
+            },
             onToolUse: (name, input) => log.line(`\n[tool] ${name} ${previewArgs(input)}`),
             onToolResult: (name, r) =>
               log.line(`[tool:${name}] ${r.isError ? "error" : "ok"}`),
@@ -228,7 +235,7 @@ export async function startRoutineRun(
         saved.status = "failed";
         saved.exitCode = null;
       } else {
-        if (result.finalText.trim()) log.line("\n" + result.finalText.trim());
+        if (!streamedAny && result.finalText.trim()) log.line("\n" + result.finalText.trim());
         saved.status = "completed";
         saved.exitCode = 0;
       }

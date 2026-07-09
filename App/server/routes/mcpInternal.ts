@@ -180,11 +180,11 @@ mcpInternalRouter.use(requireMcpToken);
 // ----- Tool manifest -----
 
 /**
- * The static tool catalogue. Served to the stdio binary
- * (`mcp-genosyn/index.mjs`) on startup so it doesn't have to hardcode the tool
- * list — this route + `mcp/toolManifest.ts` are the single source of truth.
- * The list is identical for every employee; integration-backed tools are
- * discovered separately via `/integrations/_list`.
+ * The static tool catalogue. This route + `mcp/toolManifest.ts` are the single
+ * source of truth; the in-process agent imports STATIC_TOOLS directly, so this
+ * endpoint is retained mainly for external/manifest consumers. The list is
+ * identical for every employee; integration-backed tools are discovered
+ * separately via `/integrations/_list`.
  */
 mcpInternalRouter.post("/manifest", (_req: McpRequest, res: Response) => {
   res.json({ tools: STATIC_TOOLS });

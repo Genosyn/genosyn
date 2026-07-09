@@ -3,6 +3,7 @@ import type {
   AgentTool,
   ModelClient,
   StreamCallbacks,
+  ToolResult,
   ToolResultBlock,
 } from "./types.js";
 
@@ -85,9 +86,21 @@ export async function runAgentLoop(params: {
 
     const results: ToolResultBlock[] = [];
     for (const tu of toolUses) {
+      // Honor cancellation promptly — don't start further tool work once the
+      // turn has been aborted (a timeout, or a user cancel). Tools that don't
+      // observe the signal themselves are short-circuited here.
+      if (signal?.aborted) {
+        results.push({
+          type: "tool_result",
+          toolUseId: tu.id,
+          content: "Aborted before running.",
+          isError: true,
+        });
+        continue;
+      }
       callbacks?.onToolUse?.(tu.name, tu.input);
       const tool = byName.get(tu.name);
-      let result;
+      let result: ToolResult;
       if (!tool) {
         result = { content: `Unknown tool: ${tu.name}`, isError: true };
       } else {
@@ -101,12 +114,15 @@ export async function runAgentLoop(params: {
         }
       }
       const clipped = clip(result.content, TOOL_RESULT_CAP);
-      callbacks?.onToolResult?.(tu.name, { content: clipped, isError: result.isError });
+      const images = result.images;
+      callbacks?.onToolResult?.(tu.name, { content: clipped, isError: result.isError, images });
       results.push({
         type: "tool_result",
         toolUseId: tu.id,
-        content: clipped || "(no output)",
+        // An image-only result (a screenshot) legitimately has empty text.
+        content: clipped || (images && images.length > 0 ? "" : "(no output)"),
         isError: result.isError,
+        ...(images && images.length > 0 ? { images } : {}),
       });
     }
 
