@@ -16,9 +16,11 @@ autonomously with AI employees**.
   **Skills** (playbooks), and **Routines** (scheduled cron-driven work). All
   three are plain markdown stored on the employee / skill / routine DB rows —
   there are no `SOUL.md` / `README.md` files on disk any more.
-- Each company can register multiple **AI Models** (`claude-code`, `codex`,
-  `opencode`, `goose`, `openclaw` with custom model) and assign them to
-  employees.
+- Each company can register multiple **AI Models** — a direct connection to a
+  model API: **Anthropic** (Claude), **OpenAI** (GPT), or a **custom**
+  OpenAI-compatible endpoint (Ollama, vLLM, llama.cpp, a gateway) — and assign
+  them to employees. Genosyn talks to the model API in-process and runs the
+  tool-use loop itself; there are no provider CLIs.
 
 Read `ROADMAP.md` for the full vocabulary, milestones, and backlog. **Do not
 duplicate content from ROADMAP.md here** — link to it.
@@ -133,43 +135,37 @@ Everything user-generated lives under `config.dataDir` (default `./data`):
 data/
 ├── app.sqlite
 └── companies/<company-slug>/employees/<emp-slug>/
-    ├── .claude/ .codex/ .opencode/ .goose/ .openclaw/   # per-employee provider creds
-    ├── .mcp.json                                          # materialized before every spawn
-    └── …                                                  # whatever the CLI writes into cwd
+    ├── repos/  code-repos/    # git working trees the coding tools operate on
+    ├── .browser-state.json    # Playwright storage state (cookies/localStorage)
+    └── …                      # artifacts the agent's tools write into cwd
 ```
 
 - **The database is the source of truth** for Soul, Skill, and Routine prose
-  (`AIEmployee.soulBody`, `Skill.body`, `Routine.body`) and for captured
-  Run logs (`Run.logContent`). Do not reintroduce `SOUL.md` /
-  `skills/<slug>/README.md` / `routines/<slug>/README.md` on disk.
-- What stays on disk is the runtime surface the provider CLI needs: the
-  per-employee credentials directories (`.claude`, `.codex`, `.opencode`,
-  `.goose`, `.openclaw`), the provider-specific MCP config we materialize
-  before each spawn, and any artifacts the CLI writes into its cwd. Each
-  provider has its own config shape and file location; every provider
-  always includes a built-in `genosyn` server so the employee can call
-  back into Genosyn to create Routines, Todos, journal notes, etc., and
-  optionally a built-in `browser` server (when `AIEmployee.browserEnabled`
-  is true) that drives a headless Chromium for web tasks:
-    * **claude-code** → `.mcp.json` at the employee's cwd
-    * **codex** → `$CODEX_HOME/config.toml` with `[mcp_servers.<name>]`
-      blocks (HTTP-transport external servers are skipped with a note,
-      since codex only supports stdio)
-    * **opencode** → `opencode.json` at the cwd with `mcp.<name>` entries
-    * **goose** → no file is written; servers are passed as runtime CLI
-      flags (`--with-extension`, `--with-streamable-http-extension`) so we
-      don't fight with whatever `goose configure` wrote into the same
-      `config.yaml`
-    * **openclaw** → `mcp.servers.<name>` block inside `openclaw.json`
-      pointed at by `OPENCLAW_CONFIG_PATH`. The file holds non-MCP config
-      (model defaults, gateway, channels) too, so we read-merge-write —
-      preserving everything outside `mcp.servers` and overlaying our
-      managed entries on top. Operator can run `OPENCLAW_CONFIG_PATH=…
-      OPENCLAW_STATE_DIR=… openclaw onboard` once per employee dir to
-      seed model defaults, or rely on OpenClaw's built-in defaults.
+  (`AIEmployee.soulBody`, `Skill.body`, `Routine.body`), for captured Run
+  transcripts (`Run.logContent`), and for **model credentials** — API keys and
+  custom-endpoint URLs live encrypted in `AIModel.configJson`. Do not
+  reintroduce `SOUL.md` / `skills/<slug>/README.md` / `routines/<slug>/README.md`
+  on disk, and never write model credentials to disk.
+- There are **no per-provider credential dirs** (`.claude`, `.codex`, … are
+  gone) and **no materialized MCP config files**. Genosyn talks to the model
+  API in-process and hands the model its tools directly:
+    * built-in **coding tools** (`bash`, `read_file`, `write_file`,
+      `edit_file`, `list_dir`, `glob`, `grep`), rooted at the employee cwd;
+    * the built-in **genosyn** tools, dispatched in-process to the loopback
+      internal API (`server/mcp/toolManifest.ts` + `routes/mcpInternal.ts`)
+      with a short-lived MCP token;
+    * the built-in **browser** tools — a stdio MCP child at
+      `server/mcp-browser/` that the agent connects to as an MCP client — when
+      `AIEmployee.browserEnabled` is true;
+    * any company-configured **MCP servers** (stdio/HTTP), which the agent
+      connects to as an MCP client.
+  The agent runtime lives in `server/services/agent/`. What stays on disk under
+  the employee dir is only the working tree the coding tools operate on:
+  materialized git repos, the browser storage-state snapshot, and whatever the
+  tools write into cwd.
 - The `data/` directory is gitignored. Never commit anything inside it.
 - Slugs are derived once at create-time via `slugify`; renames update the
-  display name but not the slug (so URLs and credential paths stay stable).
+  display name but not the slug (so URLs stay stable).
 
 ---
 
@@ -323,12 +319,17 @@ Don't tag manually, don't edit version numbers in `package.json` files.
 - Writing business logic inside route handlers.
 - Reintroducing on-disk `SOUL.md` / skill / routine markdown files. Soul,
   skill, and routine bodies live on their DB rows; run logs live on the
-  Run row. The filesystem under `data/` is only for provider credentials,
-  `.mcp.json`, and CLI artifacts.
-- Naming a user-configurable MCP server `genosyn` or `browser`. Both names
-  are reserved for built-in stdio binaries at `server/mcp-genosyn/` and
-  `server/mcp-browser/`. User-configured servers with those names are
-  dropped when `.mcp.json` is materialized.
+  Run row. The filesystem under `data/` is only for the employee working tree
+  (git repos, browser state, tool artifacts) — never model credentials, which
+  live encrypted on the `AIModel` row.
+- Reintroducing provider CLIs, per-provider credential dirs, subscription/OAuth
+  sign-in, or materialized MCP config files. Models are called directly via
+  their API from the in-process agent (`server/services/agent/`).
+- Naming a user-configurable MCP server `genosyn` or `browser`. Both names are
+  reserved for built-in tools — `genosyn` runs in-process (dispatched to
+  `routes/mcpInternal.ts`); `browser` is a stdio binary at `server/mcp-browser/`.
+  User-configured servers with those names are dropped when the agent assembles
+  its tool list.
 - Skipping the zod schema on a new endpoint.
 - Hand-writing a migration file. Always run
   `npm run migration:generate -- server/db/migrations/<Name>` and commit

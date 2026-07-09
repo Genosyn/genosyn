@@ -1,0 +1,117 @@
+import Anthropic from "@anthropic-ai/sdk";
+import type {
+  AgentMessage,
+  AssistantBlock,
+  AssistantTurn,
+  ModelClient,
+  ToolDef,
+} from "../types.js";
+
+/**
+ * Anthropic Messages API client — the direct replacement for the `claude-code`
+ * harness. We stream one assistant turn, forward text deltas, and hand back the
+ * final content blocks (text + tool_use) so the loop can dispatch tools and
+ * continue.
+ *
+ * The Messages API maps almost 1:1 onto our internal message model: content
+ * blocks, `tool_use`, and `tool_result` all line up, so the conversion here is
+ * mechanical.
+ */
+
+/** Anthropic requires an explicit output cap. 8k covers long tool-driven turns
+ * without risking a model-specific ceiling. */
+const MAX_TOKENS = 8192;
+
+export function createAnthropicClient(opts: {
+  apiKey: string;
+  model: string;
+  baseURL?: string;
+}): ModelClient {
+  const client = new Anthropic({
+    apiKey: opts.apiKey,
+    ...(opts.baseURL ? { baseURL: opts.baseURL } : {}),
+  });
+
+  return {
+    model: opts.model,
+    async streamTurn({ system, messages, tools, signal, onText }): Promise<AssistantTurn> {
+      const stream = client.messages.stream(
+        {
+          model: opts.model,
+          max_tokens: MAX_TOKENS,
+          system,
+          messages: messages.map(toAnthropicMessage),
+          ...(tools.length > 0 ? { tools: tools.map(toAnthropicTool) } : {}),
+        },
+        signal ? { signal } : undefined,
+      );
+
+      if (onText) {
+        stream.on("text", (delta: string) => {
+          try {
+            onText(delta);
+          } catch {
+            // A consumer callback must never take down the stream.
+          }
+        });
+      }
+
+      const final = await stream.finalMessage();
+      const blocks: AssistantBlock[] = [];
+      for (const block of final.content) {
+        if (block.type === "text") {
+          blocks.push({ type: "text", text: block.text });
+        } else if (block.type === "tool_use") {
+          blocks.push({
+            type: "tool_use",
+            id: block.id,
+            name: block.name,
+            input: (block.input as Record<string, unknown>) ?? {},
+          });
+        }
+        // thinking / redacted_thinking / server-tool blocks are not part of our
+        // loop — we don't advertise those capabilities.
+      }
+      return { blocks, stopReason: final.stop_reason ?? "end_turn" };
+    },
+  };
+}
+
+function toAnthropicTool(t: ToolDef): Anthropic.Tool {
+  return {
+    name: t.name,
+    description: t.description,
+    // Anthropic's input_schema is a JSON-Schema object; our tools already carry
+    // one. Cast through the SDK's loose shape.
+    input_schema: t.inputSchema as Anthropic.Tool.InputSchema,
+  };
+}
+
+function toAnthropicMessage(m: AgentMessage): Anthropic.MessageParam {
+  if (m.role === "assistant") {
+    return {
+      role: "assistant",
+      content: m.content.map((b) => {
+        if (b.type === "text") return { type: "text", text: b.text };
+        return {
+          type: "tool_use",
+          id: b.id,
+          name: b.name,
+          input: b.input,
+        };
+      }),
+    };
+  }
+  return {
+    role: "user",
+    content: m.content.map((b) => {
+      if (b.type === "text") return { type: "text", text: b.text };
+      return {
+        type: "tool_result",
+        tool_use_id: b.toolUseId,
+        content: b.content,
+        ...(b.isError ? { is_error: true } : {}),
+      };
+    }),
+  };
+}

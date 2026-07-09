@@ -92,8 +92,8 @@ and AI alike:
 ## Why Genosyn
 
 - **Open source and self-hosted.** It's your data, on your machine.
-- **Bring your own AI.** Plug in Claude Code, Codex, opencode, Goose, or an open-source
-  model you host yourself. Your keys, your spend.
+- **Bring your own AI.** Plug in Anthropic (Claude), OpenAI, or any OpenAI-compatible /
+  self-hosted endpoint. Your keys, your spend.
 - **No black box.** Souls, Skills, and Routines are markdown. You can read every word an
   employee acts on, and every run leaves a paper trail.
 - **A real company OS.** Not a wrapper around a chat box — a workspace, a task board, a

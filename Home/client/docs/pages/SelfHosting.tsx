@@ -88,15 +88,14 @@ export function SelfHosting() {
 
       <H2 id="data-dir">The data directory</H2>
       <P>
-        Everything user-generated — the SQLite file, employee credentials,
-        materialized git checkouts, MCP configs, uploaded attachments — lives
-        under <Code>dataDir</Code>:
+        Everything user-generated — the SQLite file, materialized git
+        checkouts, MCP configs, uploaded attachments — lives under{" "}
+        <Code>dataDir</Code>:
       </P>
       <pre className="mt-4 overflow-x-auto rounded-xl border border-zinc-200 bg-zinc-50 px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-zinc-700">
         {`data/
 ├── app.sqlite
 └── companies/<co-slug>/employees/<emp-slug>/
-    ├── .claude/   .codex/   .opencode/   .goose/   .openclaw/
     ├── .mcp.json
     ├── repos/<owner>/<name>/
     └── ...`}

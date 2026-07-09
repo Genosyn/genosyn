@@ -52,16 +52,19 @@ console with the prefix `[email:skipped]`. Use this for local development.
 User-generated content (Soul, Skills, Routines, Run logs) lives in the DB.
 With the default driver that's `./data/app.sqlite`; flip
 `config.db.driver` to `postgres` and everything (entities + migrations) moves
-with you. The filesystem side of `config.dataDir` only holds per-employee
-provider credentials (`.claude`, `.codex`, `.opencode`, `.goose`), the
-`.mcp.json` we materialize before each spawn, and any artifacts the CLI
-writes into its working directory. Everything under `data/` is gitignored.
+with you. Model credentials are entered in the app and stored encrypted
+(AES-256-GCM) in the DB — never on disk — so the filesystem side of
+`config.dataDir` only holds any artifacts an employee writes into its working
+directory. Everything under `data/` is gitignored.
 
 ## Runner
 
-The cron-driven runner in `server/services/runner.ts` spawns the employee's
-provider CLI (`claude-code` / `codex` / `opencode` / `goose`) with a prompt
-composed from the employee's Soul + Skills + Routine. Stdout + stderr are
-captured into `Run.logContent` (capped at 256KB). When no model is connected
-or the CLI isn't installed, the run is marked `skipped` with an explanatory
-log.
+The cron-driven runner in `server/services/runner.ts` drives an in-process
+agent loop that talks directly to the employee's model API (Anthropic, OpenAI,
+or any OpenAI-compatible custom endpoint) with a prompt composed from the
+employee's Soul + Skills + Routine. The loop hands the model tools directly:
+built-in coding tools (bash, read_file, write_file, edit_file, glob, grep),
+the genosyn MCP tools (routines/todos/journal/memory/bases/attachments),
+browser tools when enabled, and any company-configured MCP servers. The agent
+transcript is written to `Run.logContent` (capped at 256KB). When no model or
+API key is configured, the run is marked `skipped` with an explanatory log.

@@ -1,25 +1,13 @@
-import { spawn } from "node:child_process";
 import { AppDataSource } from "../db/datasource.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Skill } from "../db/entities/Skill.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
-import { employeeDir, employeeOpenclawDir, ensureDir, openclawConfigPath } from "./paths.js";
+import { employeeDir, ensureDir } from "./paths.js";
 import { nextRunFor } from "./cron.js";
-import { PROVIDERS, isSubscriptionConnected, splitGooseModel } from "./providers.js";
 import { getActiveModel } from "./models.js";
-import { decryptSecret } from "../lib/secret.js";
-import { materializeMcpConfig } from "./mcp.js";
-import {
-  buildGooseCustomEndpointEnv,
-  buildOpencodeProviderBlock,
-  materializeGooseCustomEndpoint,
-  materializeOpencodeCustomEndpoint,
-  readCustomEndpoint,
-} from "./customEndpoint.js";
 import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
@@ -28,30 +16,34 @@ import {
   composeCodeReposContext,
   materializeCodeReposForEmployee,
 } from "./codeRepos.js";
+import { runEmployeeAgent } from "./agent/runEmployee.js";
 
 /**
  * Run seam.
  *
  * For each Routine run we:
- *  1. Load the employee, company, model, and skill list.
- *  2. Compose a single prompt from the Soul body + skill bodies + routine
- *     body, all pulled from the DB.
- *  3. Resolve credentials per employee — subscription (CLAUDE_CONFIG_DIR
- *     pointing at their .claude/) or API key (ANTHROPIC_API_KEY).
- *  4. Spawn the provider CLI in the employee's directory, buffer stdout +
- *     stderr into the Run's `logContent`, and persist the Run record.
+ *  1. Load the employee, company, active model, and skill list.
+ *  2. Compose a system prompt (Soul + Memory + Skills + tools briefing) and the
+ *     routine instruction, all pulled from the DB.
+ *  3. Run the in-process agent against the model's API (Anthropic / OpenAI /
+ *     custom OpenAI-compatible endpoint), handing it the built-in coding tools,
+ *     the genosyn MCP tools, browser tools (when enabled), and any
+ *     company-configured MCP servers — buffering the transcript into the Run's
+ *     `logContent`.
  *
- * Degradation: if no Model is connected, or the provider CLI isn't installed,
- * we write a clear stub log and mark the Run as skipped — the product must
- * keep working on a fresh self-host before anyone has run `claude login`.
+ * Degradation: if no Model is connected we write a clear stub log and mark the
+ * Run as skipped — the product must keep working on a fresh self-host before
+ * anyone has connected a model.
  */
 
 /**
- * Hard cap on how many bytes of stdout+stderr we keep on a single run row.
- * Matches the old 256KB file-tail display window so nothing visibly changes;
- * output past the cap is dropped and a truncation marker is appended.
+ * Hard cap on how many bytes of transcript we keep on a single run row.
+ * Output past the cap is dropped and a truncation marker is appended.
  */
 export const RUN_LOG_MAX_BYTES = 256 * 1024;
+
+/** Max model turns before the loop stops itself (runaway-loop backstop). */
+const RUN_MAX_STEPS = 100;
 
 /**
  * In-process registry of LogBuffers for runs that are still executing. The
@@ -86,10 +78,10 @@ export async function runRoutine(routine: Routine): Promise<Run> {
 
 /**
  * Begin a run and return the saved Run row immediately (status `running`),
- * along with a `completion` promise that resolves once the child process
- * exits and the row has been finalized. The LogBuffer is registered in
- * {@link liveBuffers} for the lifetime of the run so polling clients can
- * tail output before it lands in the DB.
+ * along with a `completion` promise that resolves once the agent finishes and
+ * the row has been finalized. The LogBuffer is registered in {@link liveBuffers}
+ * for the lifetime of the run so polling clients can tail output before it lands
+ * in the DB.
  */
 export async function startRoutineRun(
   routine: Routine,
@@ -104,7 +96,7 @@ export async function startRoutineRun(
   if (!emp) throw new Error("Employee not found for routine");
   const co = await coRepo.findOneBy({ id: emp.companyId });
   if (!co) throw new Error("Company not found for employee");
-  // An employee can hold several models; the active one is the brain we spawn.
+  // An employee can hold several models; the active one is the brain we run.
   const model = await getActiveModel(emp.id);
   const skills = await skillRepo.find({ where: { employeeId: emp.id } });
 
@@ -132,6 +124,7 @@ export async function startRoutineRun(
   );
 
   const completion = (async (): Promise<Run> => {
+    const mcpToken = issueMcpToken(emp.id, co.id);
     try {
       // No model connected → skip cleanly.
       if (!model) {
@@ -148,160 +141,130 @@ export async function startRoutineRun(
 
       const memoryContext = await composeMemoryContext(emp.id);
       const codeReposContext = await composeCodeReposContext(emp.id);
-      const prompt = composePrompt({
+      const system = composeSystemPrompt({
         co,
         emp,
-        routine,
         skills,
         memoryContext,
         codeReposContext,
       });
-
-      const env = buildProviderEnv(co.slug, emp.slug, model);
-      if (!("error" in env)) {
-        // Merge company vault secrets into the child env. Validation + the
-        // internal RESERVED_NAMES filter in loadCompanySecretsEnv mean this
-        // can't clobber provider auth keys we just set above.
-        try {
-          const secrets = await loadCompanySecretsEnv(co.id);
-          for (const [k, v] of Object.entries(secrets)) {
-            if (k in (env.env ?? {})) continue;
-            env.env![k] = v;
-          }
-        } catch (err) {
-          log.line(`[warn] failed to load company secrets: ${(err as Error).message}`);
-        }
-      }
-      if ("error" in env) {
-        log.line(`[error] ${env.error}`);
-        saved.finishedAt = new Date();
-        saved.status = "failed";
-        saved.logContent = log.value();
-        await runRepo.save(saved);
-        await touchRoutine(routine, saved.finishedAt, routineRepo);
-        return saved;
-      }
+      const userMessage = composeRoutineMessage(routine);
 
       const cwd = employeeDir(co.slug, emp.slug);
       ensureDir(cwd);
 
-      // Mint a fresh MCP token so the built-in Genosyn stdio server can act on
-      // this employee's behalf for the duration of the run. Revoked in `finally`
-      // so a killed run doesn't leave a usable token behind.
-      const mcpToken = issueMcpToken(emp.id, co.id);
-      const opencodeCustomProvider =
-        model.provider === "opencode" && model.authMode === "customEndpoint"
-          ? (() => {
-              const cep = readCustomEndpoint(model);
-              return cep ? buildOpencodeProviderBlock(cep) : undefined;
-            })()
-          : undefined;
-      const mcpExtras = await materializeMcpConfig(emp.id, cwd, {
-        genosynToken: mcpToken,
-        provider: model.provider,
-        companySlug: co.slug,
-        employeeSlug: emp.slug,
-        routineId: routine.id,
-        runId: saved.id,
-        opencodeCustomProvider,
-      });
-      // goose returns extra CLI flags + env (it has no config file we can write
-      // without clobbering `goose configure`'s state). Other providers return
-      // empty values; the merge is a no-op for them.
-      for (const [k, v] of Object.entries(mcpExtras.extraEnv)) {
-        if (env.env && !(k in env.env)) env.env[k] = v;
+      // Env for the bash tool: company vault secrets plus whatever the repo
+      // materializers export. Secrets are validated + reserved-name filtered
+      // by loadCompanySecretsEnv, so this can't clobber anything load-bearing.
+      const toolEnv: Record<string, string> = {};
+      try {
+        Object.assign(toolEnv, await loadCompanySecretsEnv(co.id));
+      } catch (err) {
+        log.line(`[warn] failed to load company secrets: ${(err as Error).message}`);
       }
 
-      // Materialize each granted GitHub Connection's allowlisted repos into
-      // `<cwd>/repos/<owner>/<name>/`. Errors are non-fatal — we surface them
-      // in the run log and let the agent decide whether to proceed.
+      // Materialize granted GitHub Connection repos + provider-agnostic Code
+      // Repositories into the employee's cwd. Errors are non-fatal.
       const repoSync = await materializeReposForEmployee({ employeeId: emp.id, cwd });
-      for (const [k, v] of Object.entries(repoSync.extraEnv)) {
-        if (env.env && !(k in env.env)) env.env[k] = v;
-      }
+      Object.assign(toolEnv, repoSync.extraEnv);
       for (const r of repoSync.repos) {
         log.line(`[repos] synced ${r.owner}/${r.name}@${r.defaultBranch}`);
       }
-      for (const e of repoSync.errors) {
-        log.line(`[repos] ${e.scope}: ${e.message}`);
-      }
+      for (const e of repoSync.errors) log.line(`[repos] ${e.scope}: ${e.message}`);
 
-      // Materialize each granted Code Repository (provider-agnostic git repos
-      // the company added directly) into `<cwd>/code-repos/<slug>/`. Same
-      // non-fatal error handling as the GitHub-Connection repos above.
-      const codeRepoSync = await materializeCodeReposForEmployee({
-        employeeId: emp.id,
-        cwd,
-      });
-      for (const [k, v] of Object.entries(codeRepoSync.extraEnv)) {
-        if (env.env && !(k in env.env)) env.env[k] = v;
-      }
+      const codeRepoSync = await materializeCodeReposForEmployee({ employeeId: emp.id, cwd });
+      Object.assign(toolEnv, codeRepoSync.extraEnv);
       for (const r of codeRepoSync.repos) {
-        log.line(
-          `[code-repos] synced ${r.slug}@${r.defaultBranch} (${r.accessLevel})`,
-        );
+        log.line(`[code-repos] synced ${r.slug}@${r.defaultBranch} (${r.accessLevel})`);
       }
-      for (const e of codeRepoSync.errors) {
-        log.line(`[code-repos] ${e.scope}: ${e.message}`);
+      for (const e of codeRepoSync.errors) log.line(`[code-repos] ${e.scope}: ${e.message}`);
+
+      log.line("");
+
+      // Overall time budget: abort the loop after the routine's timeout.
+      const controller = new AbortController();
+      let timedOut = false;
+      const timeoutMs = Math.max(1, routine.timeoutSec) * 1000;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs);
+
+      let result;
+      try {
+        result = await runEmployeeAgent({
+          model,
+          employeeId: emp.id,
+          system,
+          messages: [{ role: "user", content: [{ type: "text", text: userMessage }] }],
+          cwd,
+          toolEnv,
+          genosynToken: mcpToken,
+          bashTimeoutMs: Math.min(timeoutMs, 5 * 60 * 1000),
+          maxSteps: RUN_MAX_STEPS,
+          routineId: routine.id,
+          runId: saved.id,
+          signal: controller.signal,
+          callbacks: {
+            onText: (delta) => log.write(delta),
+            onToolUse: (name, input) => log.line(`\n[tool] ${name} ${previewArgs(input)}`),
+            onToolResult: (name, r) =>
+              log.line(`[tool:${name}] ${r.isError ? "error" : "ok"}`),
+          },
+        });
+      } finally {
+        clearTimeout(timer);
       }
 
-      // Dispatch by provider. The headless invocations below are the documented
-      // non-interactive entry points for each CLI. If the CLI binary isn't
-      // installed we catch ENOENT and degrade to a "skipped" log so the UI keeps
-      // working before any provider has been installed on the host.
-      const invocation = buildInvocation(model.provider, model.model, prompt, mcpExtras.extraArgs);
-      const timeoutMs = Math.max(1, routine.timeoutSec) * 1000;
-      try {
-        const result = await spawnAndBuffer(
-          invocation.cmd,
-          invocation.args,
-          { cwd, env: env.env, timeoutMs },
-          log,
+      saved.finishedAt = new Date();
+      if (timedOut) {
+        log.line(
+          `\n[timeout] Stopped after ${routine.timeoutSec}s. Increase the routine's timeoutSec if this is expected.`,
         );
-        saved.finishedAt = new Date();
-        saved.exitCode = result.code;
-        saved.status = result.code === 0 ? "completed" : "failed";
-        if (result.code !== 0) {
-          log.line(`[error] ${invocation.cmd} exited with code ${result.code}`);
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (err instanceof SpawnTimeoutError) {
-          log.line(
-            `[timeout] Killed after ${routine.timeoutSec}s. Increase the routine's timeoutSec if this is expected.`,
-          );
-          saved.finishedAt = new Date();
-          saved.status = "timeout";
-          saved.exitCode = null;
-        } else if (msg.includes("ENOENT")) {
-          log.line(
-            `[stub] \`${invocation.cmd}\` CLI not found on PATH. Install it to run this routine for real.`,
-          );
-          saved.finishedAt = new Date();
-          saved.status = "skipped";
-          saved.exitCode = null;
-        } else {
-          log.line(`[error] ${msg}`);
-          saved.finishedAt = new Date();
-          saved.status = "failed";
-          saved.exitCode = null;
-        }
-      } finally {
-        revokeMcpToken(mcpToken);
+        saved.status = "timeout";
+        saved.exitCode = null;
+      } else if (result.status === "error") {
+        log.line(`\n[error] ${result.error}`);
+        saved.status = "failed";
+        saved.exitCode = null;
+      } else {
+        if (result.finalText.trim()) log.line("\n" + result.finalText.trim());
+        saved.status = "completed";
+        saved.exitCode = 0;
       }
       saved.logContent = log.value();
       await runRepo.save(saved);
       await touchRoutine(routine, saved.finishedAt, routineRepo);
       await writeJournalForRun(emp.id, routine, saved);
       return saved;
+    } catch (err) {
+      log.line(`\n[error] ${err instanceof Error ? err.message : String(err)}`);
+      saved.finishedAt = new Date();
+      saved.status = "failed";
+      saved.exitCode = null;
+      saved.logContent = log.value();
+      await runRepo.save(saved);
+      await touchRoutine(routine, saved.finishedAt, routineRepo);
+      return saved;
     } finally {
-      // Once the row has the final logContent, the live buffer is no longer
-      // the source of truth — drop it so subsequent /log reads hit the DB.
+      revokeMcpToken(mcpToken);
+      // Once the row has the final logContent, the live buffer is no longer the
+      // source of truth — drop it so subsequent /log reads hit the DB.
       liveBuffers.delete(saved.id);
     }
   })();
 
   return { run: saved, completion };
+}
+
+/** Short, safe preview of a tool call's arguments for the run transcript. */
+function previewArgs(input: Record<string, unknown>): string {
+  try {
+    const s = JSON.stringify(input);
+    return s.length > 300 ? s.slice(0, 300) + "…" : s;
+  } catch {
+    return "";
+  }
 }
 
 /**
@@ -346,39 +309,33 @@ async function touchRoutine(
   repo: ReturnType<typeof AppDataSource.getRepository<Routine>>,
 ) {
   routine.lastRunAt = at;
-  // Recompute nextRunAt from the moment the run finished. Collapses any
-  // missed slots that elapsed during a long-running invocation into a single
-  // future tick, so the heartbeat doesn't immediately refire the stale slot.
-  // Manual "Run now" and webhook fires land here too — the worst case is that
-  // the next scheduled tick moves forward by one slot, which is the
-  // fire-at-most-once behavior we want project-wide.
+  // Recompute nextRunAt from the moment the run finished. Collapses any missed
+  // slots that elapsed during a long-running invocation into a single future
+  // tick, so the heartbeat doesn't immediately refire the stale slot.
   if (routine.enabled) {
     routine.nextRunAt = nextRunFor(routine.cronExpr, at ?? new Date());
   }
   await repo.save(routine);
 }
 
-function composePrompt(args: {
+/**
+ * Compose the system prompt: who the employee is, the tools they have, and
+ * their Soul + Memory + Skills + repo context — everything except the specific
+ * task, which goes in the user message.
+ */
+function composeSystemPrompt(args: {
   co: Company;
   emp: AIEmployee;
-  routine: Routine;
   skills: Skill[];
   memoryContext: string;
   codeReposContext: string;
 }): string {
-  const { co, emp, routine, skills, memoryContext, codeReposContext } = args;
+  const { co, emp, skills, memoryContext, codeReposContext } = args;
   const parts: string[] = [];
   parts.push(
-    `You are ${emp.name}, ${emp.role} at ${co.name}. The following documents are yours — your Soul, your Memory, your Skills, and today's Routine.`,
+    `You are ${emp.name}, ${emp.role} at ${co.name}. The following documents are yours — your Soul, your Memory, and your Skills.`,
   );
-  parts.push(
-    [
-      "",
-      "## Tools",
-      "You have a `genosyn` MCP server attached. Use `add_journal_entry` to log what you accomplished, `add_memory` to capture durable facts worth recalling next time, `create_todo` or `create_routine` to follow up on work, and the `list_*` helpers to orient.",
-      "Reach for tools instead of describing what you would do — a tool call leaves a visible audit row and an action pill the operator can inspect. Prose-only claims are invisible.",
-    ].join("\n"),
-  );
+  parts.push(toolsBriefing());
   parts.push("\n## Soul\n");
   parts.push(emp.soulBody);
   if (memoryContext) parts.push(memoryContext);
@@ -387,238 +344,40 @@ function composePrompt(args: {
     parts.push(`\n## Skill: ${s.name}\n`);
     parts.push(s.body);
   }
-  parts.push(`\n## Routine: ${routine.name}\n`);
-  parts.push(routine.body);
-  parts.push("\n---\nRun this routine now. Produce the expected output.");
   return parts.join("\n");
 }
 
-function buildProviderEnv(
-  coSlug: string,
-  empSlug: string,
-  model: AIModel,
-): { env: NodeJS.ProcessEnv; error?: undefined } | { env?: undefined; error: string } {
-  const spec = PROVIDERS[model.provider];
-  const base = { ...process.env };
-  // Strip any ambient credentials so employees can't accidentally inherit the
-  // host's logged-in session or shared key. The XDG_* and GOOSE_* entries
-  // protect opencode + goose from picking up the operator's own config dirs.
-  for (const key of [
-    "ANTHROPIC_API_KEY",
-    "OPENAI_API_KEY",
-    "CLAUDE_CONFIG_DIR",
-    "CODEX_HOME",
-    "XDG_CONFIG_HOME",
-    "XDG_DATA_HOME",
-    "GOOSE_PROVIDER",
-    "GOOSE_MODEL",
-    "GOOSE_DISABLE_KEYRING",
-    "GOOSE_MODE",
-    "OPENCLAW_CONFIG_PATH",
-    "OPENCLAW_STATE_DIR",
-  ]) {
-    delete base[key];
-  }
-
-  if (model.authMode === "subscription") {
-    const dir = spec.configDir(coSlug, empSlug);
-    if (!spec.supportsSubscription || !spec.loginCommand) {
-      return { error: `${model.provider} doesn't support subscription auth — use an API key.` };
-    }
-    if (!isSubscriptionConnected(model.provider, coSlug, empSlug)) {
-      return {
-        error: `Subscription credentials not found. Run \`${spec.configDirEnv}=${dir} ${spec.loginCommand}\` and retry.`,
-      };
-    }
-    const env: NodeJS.ProcessEnv = { ...base, [spec.configDirEnv]: dir };
-    if (model.provider === "goose") {
-      // Pin keys to config.yaml (not the host keychain) so per-employee
-      // isolation actually holds. Pass through provider/model selection so
-      // the AIModel record stays authoritative even if the user's
-      // `goose configure` choice drifts. `GOOSE_MODE=auto` puts goose into
-      // autonomous mode so it doesn't block on tool-call confirmations
-      // during routine runs.
-      env.GOOSE_DISABLE_KEYRING = "1";
-      env.GOOSE_MODE = "auto";
-      const { provider: gp, model: gm } = splitGooseModel(model.model);
-      if (gp) env.GOOSE_PROVIDER = gp;
-      if (gm) env.GOOSE_MODEL = gm;
-    }
-    return { env };
-  }
-
-  if (model.authMode === "customEndpoint") {
-    if (!spec.supportsCustomEndpoint) {
-      return {
-        error: `${model.provider} doesn't support custom OpenAI-compatible endpoints — pick opencode or goose.`,
-      };
-    }
-    const cfg = readCustomEndpoint(model);
-    if (!cfg) {
-      return {
-        error: "Custom endpoint isn't fully configured. Open the model settings and re-enter the base URL.",
-      };
-    }
-    if (model.provider === "opencode") {
-      // XDG_DATA_HOME points at the employee's `.opencode` dir so auth.json
-      // lands at `.opencode/opencode/auth.json` where opencode expects it.
-      // The matching `provider` block goes into `opencode.json` at the cwd —
-      // see materializeOpencodeCustomEndpoint + the call below to
-      // materializeMcpConfig with `opencodeCustomProvider`.
-      materializeOpencodeCustomEndpoint(coSlug, empSlug, cfg);
-      const env: NodeJS.ProcessEnv = {
-        ...base,
-        [spec.configDirEnv]: spec.configDir(coSlug, empSlug),
-      };
-      return { env };
-    }
-    if (model.provider === "goose") {
-      // Goose refuses to start if GOOSE_PROVIDER references a provider not
-      // listed in config.yaml — so we materialize the minimal YAML before
-      // injecting env vars. Both have to be in place every spawn (the user
-      // can rewrite the model on the row without changing auth mode).
-      materializeGooseCustomEndpoint(coSlug, empSlug, cfg);
-      const env: NodeJS.ProcessEnv = {
-        ...base,
-        [spec.configDirEnv]: spec.configDir(coSlug, empSlug),
-        GOOSE_DISABLE_KEYRING: "1",
-        ...buildGooseCustomEndpointEnv(cfg),
-      };
-      return { env };
-    }
-    return { error: `${model.provider} can't host a customEndpoint configuration.` };
-  }
-
-  // apikey mode
-  if (!spec.apiKeyEnv) {
-    return { error: `${model.provider} doesn't support API key auth — use subscription.` };
-  }
-  let cfg: Record<string, unknown> = {};
-  try {
-    cfg = JSON.parse(model.configJson || "{}");
-  } catch {
-    cfg = {};
-  }
-  const enc = typeof cfg.apiKeyEncrypted === "string" ? (cfg.apiKeyEncrypted as string) : null;
-  if (!enc) return { error: "No API key is set for this employee." };
-  let key: string;
-  try {
-    key = decryptSecret(enc);
-  } catch {
-    return { error: "Stored API key could not be decrypted (sessionSecret may have rotated)." };
-  }
-  const env: NodeJS.ProcessEnv = { ...base, [spec.apiKeyEnv]: key };
-  if (model.provider === "goose") {
-    // Same autonomous-mode flip as the subscription branch — goose's
-    // default `approve` mode would block routine runs on the first tool.
-    env.GOOSE_MODE = "auto";
-  }
-  if (model.provider === "openclaw") {
-    // OpenClaw needs its config file path (OPENCLAW_CONFIG_PATH) and its
-    // runtime state dir (OPENCLAW_STATE_DIR) pinned per-employee. Without
-    // both, per-agent auth profiles would land in the operator's
-    // ~/.openclaw/ and leak across employees.
-    env.OPENCLAW_CONFIG_PATH = openclawConfigPath(coSlug, empSlug);
-    env.OPENCLAW_STATE_DIR = employeeOpenclawDir(coSlug, empSlug);
-  }
-  return { env };
+function composeRoutineMessage(routine: Routine): string {
+  return [
+    `## Routine: ${routine.name}`,
+    "",
+    routine.body,
+    "",
+    "---",
+    "Run this routine now. Produce the expected output.",
+  ].join("\n");
 }
 
 /**
- * Headless invocations per provider.
- *  - claude-code: `claude -p <prompt> --model <model>` (official headless mode)
- *  - codex:       `codex exec --model <model> <prompt>` (non-interactive mode)
- *  - opencode:    `opencode run --model <model> <prompt>` (router mode)
- *  - goose:       `goose run --text <prompt> --no-session --quiet`
- *                 (router mode; provider + model are pinned via env vars
- *                 so the AIModel record stays authoritative)
- *  - openclaw:    `openclaw agent --message <prompt>` (one-shot turn).
- *                 Model + underlying provider live in openclaw.json (pointed
- *                 at via OPENCLAW_CONFIG_PATH); we materialize that file's
- *                 `mcp.servers` block before each spawn so the genosyn MCP
- *                 server is always attached, but leave model defaults to
- *                 OpenClaw (operator can run `openclaw onboard` to seed
- *                 them, or rely on built-in defaults).
- *
- * `extraArgs` carries provider-specific MCP wiring that has to land on the
- * argv rather than a config file. Empty for everyone except goose today.
+ * Short briefing so the model knows the tools it holds are real and should be
+ * used rather than narrated. Covers the coding toolset and the built-in genosyn
+ * tools; the model discovers the full schema for each from the tool list.
  */
-function buildInvocation(
-  provider: AIModel["provider"],
-  modelStr: string,
-  prompt: string,
-  extraArgs: string[],
-): { cmd: string; args: string[] } {
-  switch (provider) {
-    case "claude-code":
-      // See the mirror in `chat.ts` — `--dangerously-skip-permissions`
-      // disables the per-tool approval gate entirely. Routine runs are
-      // autonomous (no human to click "Allow"), and the employee is
-      // already sandboxed in its own cwd, so the gate is a footgun.
-      return {
-        cmd: "claude",
-        args: [
-          "-p",
-          prompt,
-          "--model",
-          modelStr,
-          "--dangerously-skip-permissions",
-          ...extraArgs,
-        ],
-      };
-    case "codex":
-      // Mirror of chat.ts — run codex non-interactively with tool calls
-      // pre-approved and sandboxed to the employee's cwd.
-      return {
-        cmd: "codex",
-        args: [
-          "exec",
-          "--model",
-          modelStr,
-          "--ask-for-approval",
-          "never",
-          "--sandbox",
-          "workspace-write",
-          ...extraArgs,
-          prompt,
-        ],
-      };
-    case "opencode":
-      return {
-        cmd: "opencode",
-        args: ["run", "--model", modelStr, ...extraArgs, prompt],
-      };
-    case "goose":
-      // `--no-session` skips writing a session file (we don't replay these),
-      // `--quiet` drops the recipe banner so stdout stays focused on the
-      // model's reply. Provider + model selection rides on env vars set in
-      // `buildProviderEnv` so a single AIModel.model edit reroutes both
-      // chat and routine spawns without surgery here.
-      return {
-        cmd: "goose",
-        args: ["run", "--text", prompt, "--no-session", "--quiet", ...extraArgs],
-      };
-    case "openclaw":
-      return {
-        cmd: "openclaw",
-        args: ["agent", "--message", prompt, ...extraArgs],
-      };
-  }
-}
-
-
-class SpawnTimeoutError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "SpawnTimeoutError";
-  }
+function toolsBriefing(): string {
+  return [
+    "",
+    "## Tools",
+    "You have tools available — use them instead of describing what you would do. A tool call leaves a visible audit row; prose-only claims are invisible.",
+    "- Coding: `bash` (run shell commands in your working directory), `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep`. Your working directory holds any git repositories you were granted, under `repos/` and `code-repos/`.",
+    "- Genosyn: `add_journal_entry` to log what you accomplished, `add_memory` to capture durable facts, `create_routine`/`create_todo` to follow up on work, `list_*` helpers to orient, plus Bases, chat attachments, and any company integration tools you were granted.",
+    "- Browser (when enabled) and any company-configured MCP servers appear as additional tools.",
+  ].join("\n");
 }
 
 /**
- * Bounded log buffer. Keeps the first `cap` bytes; everything after is
- * dropped with a one-shot `[truncated]` marker, so a runaway CLI can't blow
- * up the run row. Stored content fits the same display cap the route used
- * to apply at read time.
+ * Bounded transcript buffer. Keeps the first `cap` bytes; everything after is
+ * dropped with a one-shot `[truncated]` marker so a runaway agent can't blow up
+ * the run row.
  */
 class LogBuffer {
   private parts: string[] = [];
@@ -638,8 +397,6 @@ class LogBuffer {
     }
     const remaining = this.cap - this.size;
     if (remaining > 0) {
-      // Trim to roughly `remaining` bytes. Favor correctness over byte-exactness:
-      // slice by chars, then push, then mark as truncated.
       this.parts.push(s.slice(0, remaining));
       this.size += Buffer.byteLength(s.slice(0, remaining), "utf8");
     }
@@ -658,44 +415,4 @@ class LogBuffer {
   get isTruncated(): boolean {
     return this.truncated;
   }
-}
-
-/**
- * Spawn a child, copy stdout/stderr into the provided LogBuffer, and resolve
- * with the exit code on normal close. If the child doesn't exit within
- * `timeoutMs` we SIGKILL it and reject with {@link SpawnTimeoutError} — the
- * caller is expected to mark the Run `timeout` with `exitCode = null`.
- */
-function spawnAndBuffer(
-  cmd: string,
-  args: string[],
-  opts: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number },
-  log: LogBuffer,
-): Promise<{ code: number }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env });
-    child.stdout.on("data", (b: Buffer) => log.write(b.toString("utf8")));
-    child.stderr.on("data", (b: Buffer) => log.write(b.toString("utf8")));
-
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGKILL");
-    }, opts.timeoutMs);
-
-    child.on("error", (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      const tag = timedOut ? "timeout" : `exit ${code}`;
-      log.line(`\n[${new Date().toISOString()}] ${tag}`);
-      if (timedOut) {
-        reject(new SpawnTimeoutError(`${cmd} timed out after ${opts.timeoutMs}ms`));
-      } else {
-        resolve({ code: code ?? -1 });
-      }
-    });
-  });
 }

@@ -133,13 +133,13 @@ import {
 import { STATIC_TOOLS } from "../mcp/toolManifest.js";
 
 /**
- * Internal HTTP surface called by the built-in Genosyn MCP server binary.
+ * Internal HTTP surface for the built-in `genosyn` tools.
  *
- * The binary runs as a child of the provider CLI (claude / codex / opencode)
- * that we spawn per chat turn or routine run. It speaks MCP to the CLI and
- * plain JSON to us. We trust the binary because we launched it ourselves —
- * authentication is a short-lived Bearer token that resolves to the acting
- * {employee, company} pair via {@link resolveMcpToken}.
+ * The in-process agent (`services/agent/`) calls these endpoints over loopback
+ * with a short-lived Bearer token when the model invokes a genosyn tool, and
+ * the `browser` MCP child calls them to queue approvals. Authentication is the
+ * token, which resolves to the acting {employee, company} pair via
+ * {@link resolveMcpToken}.
  *
  * Every write records an AuditEvent with `actorKind: "ai"` and a matching
  * JournalEntry on the employee's diary so humans can see what the AI did

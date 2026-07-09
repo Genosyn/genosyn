@@ -1,21 +1,9 @@
-import { spawn } from "node:child_process";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
-import { AIModel } from "../db/entities/AIModel.js";
 import { Skill } from "../db/entities/Skill.js";
-import { employeeDir, employeeOpenclawDir, ensureDir, openclawConfigPath } from "./paths.js";
-import { PROVIDERS, isSubscriptionConnected, splitGooseModel } from "./providers.js";
+import { employeeDir, ensureDir } from "./paths.js";
 import { getActiveModel } from "./models.js";
-import { decryptSecret } from "../lib/secret.js";
-import { materializeMcpConfig } from "./mcp.js";
-import {
-  buildGooseCustomEndpointEnv,
-  buildOpencodeProviderBlock,
-  materializeGooseCustomEndpoint,
-  materializeOpencodeCustomEndpoint,
-  readCustomEndpoint,
-} from "./customEndpoint.js";
 import {
   drainAttachmentsForToken,
   issueMcpToken,
@@ -28,42 +16,46 @@ import {
   composeCodeReposContext,
   materializeCodeReposForEmployee,
 } from "./codeRepos.js";
+import { runEmployeeAgent } from "./agent/runEmployee.js";
+import type { AgentMessage } from "./agent/types.js";
 
 /**
  * Chat seam.
  *
  * The product surface is: a human sits at a keyboard and types at an AI
- * employee. We translate that into a single headless CLI invocation with a
- * prompt that carries the employee's Soul + skill bodies + recent conversation
- * turns + the latest user message — all pulled from the DB.
+ * employee. We run the in-process agent against the employee's model API,
+ * seeding it with the employee's Soul + skills + recent conversation turns + the
+ * latest message — all pulled from the DB — and hand it the same tools a routine
+ * run gets (coding, genosyn, browser, company MCP servers).
  *
- * Streaming: `streamChatWithEmployee` forwards the CLI's stdout byte-for-byte
- * through an `onChunk` callback so the HTTP layer can push deltas over SSE
- * and the UI can paint tokens as they arrive instead of staring at a spinner
- * for 5-10s. `chatWithEmployee` wraps the streaming seam for callers that
- * only want the full final reply (kept for tests / any non-HTTP caller).
+ * Streaming: `streamChatWithEmployee` forwards reply-text deltas through
+ * `onChunk` as the model produces them, so the HTTP layer can push SSE deltas
+ * and the UI paints tokens as they arrive. `chatWithEmployee` wraps it for
+ * callers that only want the final reply.
  *
- * Same degradation rules as `runner.ts`:
+ * Degradation:
  *  - no model connected → `skipped` with an explanatory reply
- *  - CLI binary not installed → `skipped`
- *  - non-zero exit / spawn error → `error` with stderr tail
+ *  - credential / API error → `error` with the message
  */
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
 /**
  * `attachmentIds` carries any files the AI uploaded mid-turn via the
- * `send_chat_attachment` MCP tool. Empty for ordinary text replies. The
- * caller is responsible for binding these to the persisted assistant
- * message — the chat seam itself doesn't know which channel/conversation
- * row the reply lives on.
+ * `send_chat_attachment` genosyn tool. Empty for ordinary text replies. The
+ * caller binds these to the persisted assistant message.
  */
 export type ChatResult =
   | { status: "ok"; reply: string; attachmentIds: string[] }
   | { status: "skipped"; reply: string; attachmentIds: string[] }
   | { status: "error"; reply: string; attachmentIds: string[] };
 
-/** Non-streaming wrapper. Equivalent to the old `chatWithEmployee`. */
+/** Hard ceiling on a whole chat turn. */
+const CHAT_HARD_TIMEOUT_MS = 60 * 60_000;
+/** Max model turns before the loop stops itself. */
+const CHAT_MAX_STEPS = 60;
+
+/** Non-streaming wrapper. */
 export async function chatWithEmployee(
   companyId: string,
   employeeId: string,
@@ -71,25 +63,13 @@ export async function chatWithEmployee(
   history: ChatTurn[],
   options: { conversationId?: string } = {},
 ): Promise<ChatResult> {
-  return streamChatWithEmployee(
-    companyId,
-    employeeId,
-    message,
-    history,
-    () => {},
-    options,
-  );
+  return streamChatWithEmployee(companyId, employeeId, message, history, () => {}, options);
 }
 
 /**
- * Streaming chat. Same contract as `chatWithEmployee` except stdout is also
- * surfaced chunk-by-chunk via `onChunk` as it arrives from the CLI. The
- * returned ChatResult's `reply` still contains the full accumulated text so
- * callers don't have to buffer on their own.
- *
- * `options.conversationId` lets the caller tag the optional live-view
- * `BrowserSession` to the active chat thread — the panel UI keys off it
- * to surface the iframe in the right conversation.
+ * Streaming chat. Same contract as `chatWithEmployee` except reply text is also
+ * surfaced chunk-by-chunk via `onChunk`. The returned ChatResult's `reply`
+ * contains the full final text so callers don't have to buffer on their own.
  */
 export async function streamChatWithEmployee(
   companyId: string,
@@ -107,7 +87,6 @@ export async function streamChatWithEmployee(
   if (!emp) return { status: "error", reply: "Employee not found.", attachmentIds: [] };
   const co = await coRepo.findOneBy({ id: companyId });
   if (!co) return { status: "error", reply: "Company not found.", attachmentIds: [] };
-  // An employee can hold several models; the active one is the brain we spawn.
   const model = await getActiveModel(emp.id);
   const skills = await skillRepo.find({ where: { employeeId: emp.id } });
 
@@ -121,115 +100,85 @@ export async function streamChatWithEmployee(
 
   const memoryContext = await composeMemoryContext(emp.id);
   const codeReposContext = await composeCodeReposContext(emp.id);
-  const prompt = composeChatPrompt({
-    co,
-    emp,
-    skills,
-    history,
-    message,
-    memoryContext,
-    codeReposContext,
-  });
-  const envResult = buildProviderEnv(co.slug, emp.slug, model);
-  if (envResult.error !== undefined) {
-    return { status: "error", reply: envResult.error, attachmentIds: [] };
-  }
-  const childEnv = envResult.env;
-  try {
-    const secrets = await loadCompanySecretsEnv(co.id);
-    for (const [k, v] of Object.entries(secrets)) {
-      if (k in childEnv) continue;
-      childEnv[k] = v;
-    }
-  } catch {
-    // Best-effort: chat still proceeds without secrets if the vault hiccups.
-  }
+  const system = composeSystemPrompt({ co, emp, skills, memoryContext, codeReposContext });
+  const messages = buildMessages(history, message);
 
   const cwd = employeeDir(co.slug, emp.slug);
   ensureDir(cwd);
 
-  // Mint a fresh MCP token so the built-in Genosyn stdio server can act on
-  // this employee's behalf for the duration of the CLI spawn. Revoked in
-  // `finally` so it doesn't linger in memory past the reply.
-  const mcpToken = issueMcpToken(emp.id, co.id);
-  const opencodeCustomProvider =
-    model.provider === "opencode" && model.authMode === "customEndpoint"
-      ? (() => {
-          const cep = readCustomEndpoint(model);
-          return cep ? buildOpencodeProviderBlock(cep) : undefined;
-        })()
-      : undefined;
-  const mcpExtras = await materializeMcpConfig(emp.id, cwd, {
-    genosynToken: mcpToken,
-    provider: model.provider,
-    companySlug: co.slug,
-    employeeSlug: emp.slug,
-    conversationId: options.conversationId,
-    opencodeCustomProvider,
-  });
-  // goose returns extra CLI flags + env (it has no config file we can write
-  // without clobbering `goose configure`'s state). Other providers return
-  // empty values; the merge is a no-op for them.
-  for (const [k, v] of Object.entries(mcpExtras.extraEnv)) {
-    if (!(k in childEnv)) childEnv[k] = v;
-  }
-
-  // Materialize each granted GitHub Connection's allowlisted repos so the
-  // agent finds a working tree at `<cwd>/repos/<owner>/<name>/`. Errors are
-  // non-fatal — chat still proceeds, just without the failing repo on disk.
-  const repoSync = await materializeReposForEmployee({ employeeId: emp.id, cwd });
-  for (const [k, v] of Object.entries(repoSync.extraEnv)) {
-    if (!(k in childEnv)) childEnv[k] = v;
-  }
-
-  // Materialize granted Code Repositories (provider-agnostic git repos the
-  // company added directly) into `<cwd>/code-repos/<slug>/`. Non-fatal —
-  // chat still proceeds if a repo fails to sync.
-  const codeRepoSync = await materializeCodeReposForEmployee({
-    employeeId: emp.id,
-    cwd,
-  });
-  for (const [k, v] of Object.entries(codeRepoSync.extraEnv)) {
-    if (!(k in childEnv)) childEnv[k] = v;
-  }
-
-  const invocation = buildInvocation(model.provider, model.model, prompt, mcpExtras.extraArgs);
+  const toolEnv: Record<string, string> = {};
   try {
-    const stdout = await spawnAndStream(invocation.cmd, invocation.args, {
+    Object.assign(toolEnv, await loadCompanySecretsEnv(co.id));
+  } catch {
+    // Best-effort: chat still proceeds without secrets if the vault hiccups.
+  }
+
+  // Materialize granted repos into the employee's cwd so the coding tools find
+  // a working tree. Non-fatal — chat still proceeds if a repo fails to sync.
+  const repoSync = await materializeReposForEmployee({ employeeId: emp.id, cwd });
+  Object.assign(toolEnv, repoSync.extraEnv);
+  const codeRepoSync = await materializeCodeReposForEmployee({ employeeId: emp.id, cwd });
+  Object.assign(toolEnv, codeRepoSync.extraEnv);
+
+  const mcpToken = issueMcpToken(emp.id, co.id);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CHAT_HARD_TIMEOUT_MS);
+  try {
+    const result = await runEmployeeAgent({
+      model,
+      employeeId: emp.id,
+      system,
+      messages,
       cwd,
-      env: childEnv,
-      onChunk,
-      parser: invocation.parser,
+      toolEnv,
+      genosynToken: mcpToken,
+      bashTimeoutMs: 5 * 60 * 1000,
+      maxSteps: CHAT_MAX_STEPS,
+      conversationId: options.conversationId,
+      signal: controller.signal,
+      callbacks: {
+        onText: (delta) => {
+          try {
+            onChunk(delta);
+          } catch {
+            // never let a consumer callback break the turn
+          }
+        },
+      },
     });
     const attachmentIds = drainAttachmentsForToken(mcpToken);
-    return { status: "ok", reply: stdout.trim() || "(no reply)", attachmentIds };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const attachmentIds = drainAttachmentsForToken(mcpToken);
-    if (msg.includes("ENOENT")) {
-      return {
-        status: "skipped",
-        reply: `\`${invocation.cmd}\` CLI is not installed on this server. Install it to chat with ${emp.name}.`,
-        attachmentIds,
-      };
+    if (result.status === "error") {
+      return { status: "error", reply: result.error, attachmentIds };
     }
-    return { status: "error", reply: msg, attachmentIds };
+    return { status: "ok", reply: result.finalText.trim() || "(no reply)", attachmentIds };
   } finally {
+    clearTimeout(timer);
     revokeMcpToken(mcpToken);
   }
 }
 
-function composeChatPrompt(args: {
+/** Map the stored conversation turns + new message to the agent's message list. */
+function buildMessages(history: ChatTurn[], message: string): AgentMessage[] {
+  const messages: AgentMessage[] = [];
+  for (const turn of history) {
+    if (turn.role === "assistant") {
+      messages.push({ role: "assistant", content: [{ type: "text", text: turn.content }] });
+    } else {
+      messages.push({ role: "user", content: [{ type: "text", text: turn.content }] });
+    }
+  }
+  messages.push({ role: "user", content: [{ type: "text", text: message }] });
+  return messages;
+}
+
+function composeSystemPrompt(args: {
   co: Company;
   emp: AIEmployee;
   skills: Skill[];
-  history: ChatTurn[];
-  message: string;
   memoryContext: string;
   codeReposContext: string;
 }): string {
-  const { co, emp, skills, history, message, memoryContext, codeReposContext } =
-    args;
+  const { co, emp, skills, memoryContext, codeReposContext } = args;
   const parts: string[] = [];
   parts.push(
     `You are ${emp.name}, ${emp.role} at ${co.name}. A teammate is chatting with you directly. Reply in your own voice, guided by your Soul, Memory, and Skills below. Keep replies focused and grounded — ask clarifying questions when needed.`,
@@ -243,442 +192,26 @@ function composeChatPrompt(args: {
     parts.push(`\n## Skill: ${s.name}\n`);
     parts.push(s.body);
   }
-  if (history.length > 0) {
-    parts.push("\n## Conversation so far\n");
-    for (const turn of history) {
-      const who = turn.role === "user" ? "Teammate" : emp.name;
-      parts.push(`**${who}:** ${turn.content}`);
-    }
-  }
-  parts.push(`\n## New message\n**Teammate:** ${message}\n\n**${emp.name}:**`);
   return parts.join("\n");
 }
 
 /**
- * Short briefing so the model knows the built-in Genosyn MCP tools are real
- * and should be used. Without this reminder, models tend to acknowledge
- * requests in prose ("Done — I'll run a revenue check every Monday") without
- * actually calling `create_routine`. We enumerate the write verbs so the
- * model has no ambiguity about which actions are available.
+ * Short briefing so the model knows the built-in tools are real and should be
+ * used. Without this, models tend to acknowledge requests in prose ("Done — I'll
+ * run a revenue check every Monday") without actually calling `create_routine`.
  */
 function toolsBriefing(): string {
   return [
     "",
     "## Tools",
-    "You have a `genosyn` MCP server attached with tools that modify this company:",
-    "- `create_routine` to schedule recurring AI work (use this whenever someone asks for a recurring report, check-in, or scheduled task — Genosyn calls these **Routines**, never \"tasks\")",
-    "- `create_project` and `create_todo` for the task manager (one-off work items)",
-    "- `update_todo` to change status, assignee, or details",
-    "- `add_journal_entry` to log decisions or observations on your own diary (the last ~7 days of your journal are auto-injected into every prompt you receive)",
-    "- `add_memory`, `update_memory`, `delete_memory` to curate durable facts that are auto-injected into every prompt — preferences, conventions, stable teammate context",
-    "- Bases (Airtable-style data, only the ones a teammate granted you): `list_bases`, `get_base`, `list_base_rows`, `create_base_row`, `update_base_row`, `delete_base_row`",
-    "- Chat attachments: `send_chat_attachment` to send a generated file (PDF, CSV, markdown, …) back to the human as a download chip on your reply. Use it instead of pasting long deliverables into the reply text.",
-    "- PDF forms: `read_pdf_fields` lists the form fields in a PDF the human attached; `fill_pdf_form` fills those fields and sends the result back as a chat attachment. Use when a teammate uploads a PDF form and asks you to fill it.",
+    "You have tools available — reach for them instead of describing what you would do. Describing an action you don't actually take is a lie the human will catch: they'll open the Routines / Todos tab and see nothing there.",
+    "- Genosyn: `create_routine` to schedule recurring AI work (Genosyn calls these **Routines**, never \"tasks\"); `create_project` and `create_todo` for one-off work items; `update_todo`; `add_journal_entry` to log decisions on your own diary (the last ~7 days are auto-injected into every prompt); `add_memory`/`update_memory`/`delete_memory` to curate durable facts that are auto-injected; Bases (`list_bases`, `get_base`, `list_base_rows`, `create_base_row`, `update_base_row`, `delete_base_row`); chat attachments (`send_chat_attachment` to send a generated file back as a download chip); PDF forms (`read_pdf_fields`, `fill_pdf_form`); workspace channels (`list_workspace_channels`, `create_workspace_channel`, `rename_workspace_channel`, `archive_workspace_channel`); and read-only helpers (`get_self`, `list_employees`, `list_routines`, `list_projects`, `list_todos`, `list_skills`, `list_journal`, `list_memory`).",
+    "- Coding: `bash`, `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep`, rooted at your working directory (which holds any granted git repos under `repos/` and `code-repos/`).",
+    "- Any company integration tools, browser tools (when enabled), and company-configured MCP servers appear as additional tools.",
     "",
-    "When the teammate uploads a file, you'll see a header like `[Attachment id=<uuid> filename=\"foo.pdf\" size=… mime=\"…\"]` at the top of their message. **That `id=` is the `attachmentId` you pass to `read_pdf_fields` / `fill_pdf_form` / any tool that takes an `attachmentId`** — copy it verbatim. You don't need to ask the teammate to re-attach. Earlier turns' attachments show up in the history with the same `id=…` shape so you can act on them too.",
-    "- Workspace chat admin: `list_workspace_channels`, `create_workspace_channel`, `rename_workspace_channel`, `archive_workspace_channel`. Use these when a teammate asks to spin up or tidy a channel.",
-    "- Read-only helpers: `get_self`, `list_employees`, `list_routines`, `list_projects`, `list_todos`, `list_skills`, `list_journal`, `list_memory`",
+    "When the teammate uploads a file, you'll see a header like `[Attachment id=<uuid> filename=\"foo.pdf\" size=… mime=\"…\"]` at the top of their message. That `id=` is the `attachmentId` you pass to `read_pdf_fields` / `fill_pdf_form` / any tool that takes an `attachmentId` — copy it verbatim.",
     "",
-    "### Mandatory pre-write checklist",
-    "Before you call any write tool (`create_routine`, `create_project`, `create_todo`, `update_todo`), write down — privately in your head — the answers to these questions:",
-    "",
-    "1. **Scope.** What, in the teammate's exact words, is the objective? If the `brief`/`description`/`title` you'd submit is written entirely in *your* words with no quotes from them, you're filling in assumptions. Stop and ask.",
-    "2. **Inputs.** What data source, metrics, or context does this depend on? (\"Revenue\" is not a metric — ARR, MRR, new bookings, churn, NRR are.)",
-    "3. **Output.** Where does the result go? A journal entry? A message back to the requester? A Slack channel? A markdown report? If unspecified, ask.",
-    "4. **Audience.** Who reads the output? A decision-maker may want exec-summary tone; an analyst may want raw numbers.",
-    "5. **Escalation.** What thresholds would make this worth flagging (a number moving by X%, a metric crossing Y)? If the teammate didn't say, ask.",
-    "",
-    "If **any** of those five is genuinely unknown after a careful re-read of the conversation, **you must ask before calling the tool**. Even a seemingly-clear request like \"monitor revenue every Monday at 9 AM\" leaves 4 of 5 unanswered — that's an ask, not a do.",
-    "",
-    "Good clarifying questions are short and concrete, offered as a short bulleted list the teammate can answer in one pass. Two examples:",
-    "> Happy to set that up. Before I schedule it, quick checks:",
-    "> - Which metric(s) matter most — ARR, MRR, new bookings, churn, or all of them?",
-    "> - Where should the output land — a journal entry I post each Monday, or a message back to you here?",
-    "",
-    "### After clarification is complete",
-    "- **Call the tool, don't describe it.** Describing what you *would* do without calling the tool is a lie — the human will check the Routines / Todos tab and see nothing there.",
-    "- **Confirm briefly.** A short sentence is enough. The UI renders an action pill under your reply, so restating every field is noise.",
-    "- **One tool call per concrete ask.** Don't stack speculative follow-ups unless the teammate asked for them.",
-    "- **Quote the teammate's specifics** inside the `brief` / `description` field. That's the easiest way to prove the routine reflects their ask, not your guess.",
+    "### Before calling any write tool (`create_routine`, `create_project`, `create_todo`, `update_todo`)",
+    "Privately answer: (1) **Scope** — the objective in the teammate's exact words; (2) **Inputs** — which data source/metric (\"revenue\" is not a metric — ARR, MRR, bookings, churn, NRR are); (3) **Output** — where the result goes; (4) **Audience** — who reads it; (5) **Escalation** — what threshold makes it worth flagging. If any is genuinely unknown after re-reading the conversation, **ask before calling the tool** — a short bulleted list of concrete questions the teammate can answer in one pass. After clarifying: call the tool (don't describe it), confirm briefly (the UI renders an action pill), and quote the teammate's specifics inside the `brief`/`description` field.",
   ].join("\n");
-}
-
-function buildProviderEnv(
-  coSlug: string,
-  empSlug: string,
-  model: AIModel,
-): { env: NodeJS.ProcessEnv; error?: undefined } | { env?: undefined; error: string } {
-  const spec = PROVIDERS[model.provider];
-  const base = { ...process.env };
-  // Strip any ambient credentials so employees can't accidentally inherit the
-  // host's logged-in session or shared key. The XDG_* and GOOSE_* entries
-  // protect opencode + goose from picking up the operator's own config dirs.
-  for (const key of [
-    "ANTHROPIC_API_KEY",
-    "OPENAI_API_KEY",
-    "CLAUDE_CONFIG_DIR",
-    "CODEX_HOME",
-    "XDG_CONFIG_HOME",
-    "XDG_DATA_HOME",
-    "GOOSE_PROVIDER",
-    "GOOSE_MODEL",
-    "GOOSE_DISABLE_KEYRING",
-    "GOOSE_MODE",
-    "OPENCLAW_CONFIG_PATH",
-    "OPENCLAW_STATE_DIR",
-  ]) {
-    delete base[key];
-  }
-
-  if (model.authMode === "customEndpoint") {
-    if (!spec.supportsCustomEndpoint) {
-      return {
-        error: `${model.provider} doesn't support custom OpenAI-compatible endpoints — pick opencode or goose.`,
-      };
-    }
-    const cfg = readCustomEndpoint(model);
-    if (!cfg) {
-      return {
-        error: "Custom endpoint isn't fully configured. Open the model settings and re-enter the base URL.",
-      };
-    }
-    if (model.provider === "opencode") {
-      materializeOpencodeCustomEndpoint(coSlug, empSlug, cfg);
-      const env: NodeJS.ProcessEnv = {
-        ...base,
-        [spec.configDirEnv]: spec.configDir(coSlug, empSlug),
-      };
-      return { env };
-    }
-    if (model.provider === "goose") {
-      materializeGooseCustomEndpoint(coSlug, empSlug, cfg);
-      const env: NodeJS.ProcessEnv = {
-        ...base,
-        [spec.configDirEnv]: spec.configDir(coSlug, empSlug),
-        GOOSE_DISABLE_KEYRING: "1",
-        ...buildGooseCustomEndpointEnv(cfg),
-      };
-      return { env };
-    }
-    return { error: `${model.provider} can't host a customEndpoint configuration.` };
-  }
-
-  if (model.authMode === "subscription") {
-    const dir = spec.configDir(coSlug, empSlug);
-    if (!spec.supportsSubscription) {
-      return { error: `${model.provider} doesn't support subscription auth — use an API key.` };
-    }
-    if (!isSubscriptionConnected(model.provider, coSlug, empSlug)) {
-      return {
-        error: `Subscription credentials not found. Sign ${model.provider} in from the Settings tab first.`,
-      };
-    }
-    const env: NodeJS.ProcessEnv = { ...base, [spec.configDirEnv]: dir };
-    if (model.provider === "goose") {
-      // Pin keys to config.yaml (not the host keychain) so per-employee
-      // isolation actually holds. Pass through provider/model selection so
-      // the AIModel record stays authoritative even if the user's
-      // `goose configure` choice drifts. `GOOSE_MODE=auto` puts goose into
-      // autonomous mode so it doesn't prompt for tool-call confirmations
-      // (the default `approve` mode is fine for human-in-the-loop sessions
-      // but blocks AI employees on the first tool use).
-      env.GOOSE_DISABLE_KEYRING = "1";
-      env.GOOSE_MODE = "auto";
-      const { provider: gp, model: gm } = splitGooseModel(model.model);
-      if (gp) env.GOOSE_PROVIDER = gp;
-      if (gm) env.GOOSE_MODEL = gm;
-    }
-    return { env };
-  }
-
-  if (!spec.apiKeyEnv) {
-    return { error: `${model.provider} doesn't support API key auth — use subscription.` };
-  }
-  let cfg: Record<string, unknown> = {};
-  try {
-    cfg = JSON.parse(model.configJson || "{}");
-  } catch {
-    cfg = {};
-  }
-  const enc = typeof cfg.apiKeyEncrypted === "string" ? (cfg.apiKeyEncrypted as string) : null;
-  if (!enc) return { error: "No API key is set for this employee." };
-  let key: string;
-  try {
-    key = decryptSecret(enc);
-  } catch {
-    return { error: "Stored API key could not be decrypted (sessionSecret may have rotated)." };
-  }
-  const env: NodeJS.ProcessEnv = { ...base, [spec.apiKeyEnv]: key };
-  if (model.provider === "goose") {
-    // Same autonomous-mode flip as the subscription branch — goose's
-    // default `approve` mode would block on the first tool call.
-    env.GOOSE_MODE = "auto";
-  }
-  if (model.provider === "openclaw") {
-    // Mirror of runner.ts: pin OpenClaw to per-employee config + state so
-    // auth profiles don't leak into the operator's ~/.openclaw/.
-    env.OPENCLAW_CONFIG_PATH = openclawConfigPath(coSlug, empSlug);
-    env.OPENCLAW_STATE_DIR = employeeOpenclawDir(coSlug, empSlug);
-  }
-  return { env };
-}
-
-type StreamParser = "text" | "claude-jsonl";
-
-function buildInvocation(
-  provider: AIModel["provider"],
-  modelStr: string,
-  prompt: string,
-  extraArgs: string[],
-): { cmd: string; args: string[]; parser: StreamParser } {
-  switch (provider) {
-    case "claude-code":
-      // `--dangerously-skip-permissions` disables Claude Code's per-tool
-      // approval prompts entirely. Genosyn is the trust boundary — the AI
-      // employee is sandboxed in its own working dir, talks to MCP servers
-      // we wired ourselves, and runs autonomously in routines where nobody
-      // is around to click "Allow". Without this flag, the AI would block
-      // on the first tool call (browser_open, Bash, …) and the routine
-      // would silently hang.
-      //
-      // `--output-format stream-json --verbose --include-partial-messages`
-      // flips claude into line-delimited JSON events. The default text
-      // format stays silent on stdout while claude is in a tool-use loop —
-      // all MCP traffic runs over a separate stdio pipe to the mcp-genosyn
-      // child — which made multi-tool turns (e.g. creating a base plus
-      // dozens of rows) trip the 3-minute no-output watchdog even while
-      // real work was happening. With stream-json we see an event per
-      // message, tool_use, tool_result, and per-token text delta, so the
-      // idle timer only fires when claude is genuinely wedged.
-      return {
-        cmd: "claude",
-        args: [
-          "-p",
-          prompt,
-          "--model",
-          modelStr,
-          "--dangerously-skip-permissions",
-          "--output-format",
-          "stream-json",
-          "--verbose",
-          "--include-partial-messages",
-          ...extraArgs,
-        ],
-        parser: "claude-jsonl",
-      };
-    case "codex":
-      // `--ask-for-approval never` keeps codex from blocking on a tty prompt
-      // when the model wants to call an MCP tool; `--sandbox workspace-write`
-      // lets those tools act on files under the employee's cwd without
-      // opening up the broader host. Together they are the non-interactive
-      // equivalent of `codex exec --full-auto`.
-      return {
-        cmd: "codex",
-        args: [
-          "exec",
-          "--model",
-          modelStr,
-          "--ask-for-approval",
-          "never",
-          "--sandbox",
-          "workspace-write",
-          ...extraArgs,
-          prompt,
-        ],
-        parser: "text",
-      };
-    case "opencode":
-      return {
-        cmd: "opencode",
-        args: ["run", "--model", modelStr, ...extraArgs, prompt],
-        parser: "text",
-      };
-    case "goose":
-      // `--no-session` skips writing a session file (we don't replay these),
-      // `--quiet` drops the recipe banner so stdout stays focused on the
-      // model's reply. Provider + model selection rides on env vars set in
-      // `buildProviderEnv` so a single AIModel.model edit reroutes both
-      // chat and routine spawns without surgery here.
-      return {
-        cmd: "goose",
-        args: ["run", "--text", prompt, "--no-session", "--quiet", ...extraArgs],
-        parser: "text",
-      };
-    case "openclaw":
-      // OpenClaw's headless one-shot turn. The genosyn MCP server lands in
-      // the `mcp.servers` block of openclaw.json (materialized by mcp.ts
-      // before this spawn); model defaults are OpenClaw's responsibility.
-      return {
-        cmd: "openclaw",
-        args: ["agent", "--message", prompt, ...extraArgs],
-        parser: "text",
-      };
-  }
-}
-
-/**
- * Spawn the CLI, forward reply text via `onChunk` as it arrives, and resolve
- * with the full accumulated text on clean exit. stderr is surfaced via the
- * rejection so the UI can show it without a second response field.
- *
- * Two-stage liveness: a hard ceiling on the whole turn and a sliding idle
- * window that resets on every stdout chunk. The idle window catches a CLI
- * that has wedged mid-generation; the hard ceiling catches one that keeps
- * dribbling bytes forever. A tight single timeout (the old 60s cap) would
- * cut off legit multi-tool turns — e.g. the AI listing Metabase dashboards
- * and then fetching one — which is what was timing out in practice.
- *
- * Two parser modes:
- *  - "text"         raw stdout bytes are the reply; what claude used to emit
- *                   under `--output-format text`, and what codex/opencode
- *                   emit natively.
- *  - "claude-jsonl" stdout is newline-delimited JSON events from
- *                   `claude -p --output-format stream-json --verbose
- *                   --include-partial-messages`. We extract text deltas from
- *                   `stream_event` entries to drive the UI stream, and take
- *                   the final `result` event's `result` field as the
- *                   authoritative reply body. Tool-use and tool-result
- *                   events don't carry reply text but still reset the idle
- *                   timer, which is the whole point of switching — the
- *                   default text format stays silent on stdout while claude
- *                   is in a tool-call loop.
- */
-const CHAT_HARD_TIMEOUT_MS = 60 * 60_000;
-const CHAT_IDLE_TIMEOUT_MS = 30 * 60_000;
-
-function spawnAndStream(
-  cmd: string,
-  args: string[],
-  opts: {
-    cwd: string;
-    env: NodeJS.ProcessEnv;
-    onChunk: (chunk: string) => void;
-    parser: StreamParser;
-  },
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env });
-    let reply = "";
-    let finalResult: string | null = null;
-    let jsonlTail = "";
-    let err = "";
-    let settled = false;
-    const cap = 1024 * 1024;
-
-    const settle = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(hardTimer);
-      clearTimeout(idleTimer);
-      fn();
-    };
-
-    const hardTimer = setTimeout(() => {
-      child.kill("SIGKILL");
-      settle(() =>
-        reject(
-          new Error(
-            `Chat exceeded ${Math.round(CHAT_HARD_TIMEOUT_MS / 60_000)}-minute limit.`,
-          ),
-        ),
-      );
-    }, CHAT_HARD_TIMEOUT_MS);
-
-    let idleTimer: NodeJS.Timeout = setTimeout(() => {}, 0);
-    clearTimeout(idleTimer);
-    const resetIdle = () => {
-      clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => {
-        child.kill("SIGKILL");
-        settle(() =>
-          reject(
-            new Error(
-              `Chat stalled — no output for ${Math.round(CHAT_IDLE_TIMEOUT_MS / 60_000)} minutes.`,
-            ),
-          ),
-        );
-      }, CHAT_IDLE_TIMEOUT_MS);
-    };
-    resetIdle();
-
-    const forwardText = (text: string) => {
-      if (!text) return;
-      if (reply.length < cap) {
-        reply += text;
-        try {
-          opts.onChunk(text);
-        } catch {
-          // Never let a consumer callback take down the CLI stream.
-        }
-      }
-    };
-
-    const handleClaudeEvent = (evt: unknown) => {
-      if (!evt || typeof evt !== "object") return;
-      const e = evt as Record<string, unknown>;
-      if (e.type === "stream_event") {
-        // Per-token deltas (from --include-partial-messages). text_delta is
-        // the only variant that carries human-visible reply prose; thinking
-        // and input_json deltas aren't for the UI bubble.
-        const inner = e.event as Record<string, unknown> | undefined;
-        if (inner?.type === "content_block_delta") {
-          const delta = inner.delta as Record<string, unknown> | undefined;
-          if (delta?.type === "text_delta" && typeof delta.text === "string") {
-            forwardText(delta.text);
-          }
-        }
-        return;
-      }
-      if (e.type === "result" && typeof e.result === "string") {
-        // Authoritative final reply. Replaces whatever we streamed so the
-        // saved assistant row matches what claude actually concluded with.
-        finalResult = e.result;
-      }
-      // Everything else (system init, assistant/user envelopes, tool_use,
-      // tool_result) is metadata for us. Reaching this function at all has
-      // already reset the idle timer via the stdout handler.
-    };
-
-    const consumeJsonl = (chunk: string) => {
-      jsonlTail += chunk;
-      let nl = jsonlTail.indexOf("\n");
-      while (nl !== -1) {
-        const line = jsonlTail.slice(0, nl).trim();
-        jsonlTail = jsonlTail.slice(nl + 1);
-        if (line) {
-          try {
-            handleClaudeEvent(JSON.parse(line));
-          } catch {
-            // Malformed line — skip rather than aborting the whole turn.
-            // claude shouldn't emit these, but a partial flush at EOF is
-            // possible and not worth killing the stream over.
-          }
-        }
-        nl = jsonlTail.indexOf("\n");
-      }
-    };
-
-    child.stdout.on("data", (b: Buffer) => {
-      resetIdle();
-      const text = b.toString("utf8");
-      if (opts.parser === "claude-jsonl") {
-        consumeJsonl(text);
-      } else {
-        forwardText(text);
-      }
-    });
-    child.stderr.on("data", (b: Buffer) => {
-      resetIdle();
-      if (err.length < cap) err += b.toString("utf8");
-    });
-    child.on("error", (e) => {
-      settle(() => reject(e));
-    });
-    child.on("close", (code) => {
-      settle(() => {
-        if (code === 0) resolve(finalResult ?? reply);
-        else reject(new Error(err.trim() || `${cmd} exited with code ${code}`));
-      });
-    });
-  });
 }

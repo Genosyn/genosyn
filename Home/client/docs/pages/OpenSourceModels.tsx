@@ -62,15 +62,15 @@ export function OpenSourceModels() {
 
       <H2 id="the-shape">The shape of the integration</H2>
       <P>
-        Genosyn doesn&apos;t talk to your LLM directly. The runtime path is
-        always:
+        Genosyn&apos;s in-process agent loop talks to your model over an
+        OpenAI-compatible HTTP API — no CLI to install, nothing to spawn. The
+        runtime path is always:
       </P>
       <pre className="mt-4 overflow-x-auto rounded-xl border border-zinc-200 bg-zinc-50 px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-zinc-700">
-        {`Genosyn runner
-   └─ spawns provider CLI (opencode or goose — your choice)
-        └─ HTTP to an OpenAI-compatible /v1/chat/completions endpoint
-             └─ your local server (Ollama / vLLM / llama.cpp / LM Studio)
-                  └─ the model weights on your GPU or Mac`}
+        {`Genosyn agent loop (in-process, runner + chat)
+   └─ HTTP to an OpenAI-compatible /v1/chat/completions endpoint
+        └─ your local server (Ollama / vLLM / llama.cpp / LM Studio)
+             └─ the model weights on your GPU or Mac`}
       </pre>
       <P>
         So you need two pieces wired up:
@@ -82,9 +82,9 @@ export function OpenSourceModels() {
         </LI>
         <LI>
           <Strong>An AI Model on the employee</Strong>, configured from
-          Settings → AI Model with auth mode set to{" "}
-          <Code>Custom OpenAI-compatible endpoint</Code>. Pick a harness
-          (opencode or goose), paste the base URL + model id. Done.
+          Settings → AI Model with the provider kind set to{" "}
+          <Code>Custom</Code>. Paste the base URL + model id (+ an optional
+          key). Done.
         </LI>
       </OL>
 
@@ -128,7 +128,7 @@ vllm serve Qwen/Qwen2.5-Coder-32B-Instruct \\
       <P>
         Endpoint: <Code>http://&lt;host&gt;:8000/v1</Code>. The two
         tool-call flags are required for MCP tool use to work — without
-        them, vLLM will return tool calls as raw text and the harness will
+        them, vLLM will return tool calls as raw text and the agent will
         treat them as a normal message.
       </P>
 
@@ -166,10 +166,8 @@ llama-server \\
       </P>
       <OL>
         <LI>
-          Click the <Code>Custom OpenAI-compatible endpoint</Code> auth-mode
-          tile. The harness flips to <Code>opencode</Code> automatically
-          (you can switch to <Code>goose</Code> from the Harness
-          dropdown — see below for which to pick).
+          Pick the <Code>Custom</Code> provider kind — any
+          OpenAI-compatible endpoint.
         </LI>
         <LI>
           <Strong>Base URL</Strong>: <Code>http://host.docker.internal:11434/v1</Code>{" "}
@@ -190,43 +188,13 @@ llama-server \\
         </LI>
       </OL>
 
-      <Callout kind="tip" title="What the runner does for you.">
-        Before each spawn Genosyn materializes the harness&apos;s native
-        config — <Code>opencode.json</Code> + <Code>auth.json</Code> for
-        opencode; <Code>config.yaml</Code> + env vars for goose — pointed
-        at your endpoint, with credentials decrypted only into the child
-        process. The user never has to run a CLI.
+      <Callout kind="tip" title="Credentials never touch disk.">
+        The base URL, model id, and any API key you enter are stored
+        encrypted (AES-256-GCM) in the Genosyn database — never written to
+        a config file or a credential dir. They&apos;re decrypted only
+        in-memory when the agent calls your endpoint. Remove the model or
+        fire the employee and the encrypted row is deleted.
       </Callout>
-
-      <H2 id="picking-harness">Which harness should I pick?</H2>
-      <KeyList
-        rows={[
-          {
-            term: "opencode",
-            def: (
-              <>
-                Default pick. Newer, faster startup, cleaner streaming
-                output. Tool-call reliability is excellent on
-                Qwen2.5-Coder, Llama 3.3, DeepSeek-V3. Less battle-tested
-                with smaller open weights.
-              </>
-            ),
-          },
-          {
-            term: "goose",
-            def: (
-              <>
-                Pick when opencode trips up. Block built it with local LLM
-                use in mind, so it tends to be more forgiving on smaller
-                or older open weights (Llama 2 fine-tunes, Mistral 7B). A
-                bit chattier on stdout. Switch by setting the harness
-                dropdown to <Code>goose</Code> and saving — credentials
-                stay encrypted in Genosyn so you can swap freely.
-              </>
-            ),
-          },
-        ]}
-      />
 
       <H2 id="docker-networking">Docker networking</H2>
       <P>
@@ -305,13 +273,11 @@ llama-server \\
           always the chat template / tool-call parser. Check that your
           server has tool-call support enabled (<Code>--jinja</Code> for
           llama.cpp, <Code>--enable-auto-tool-choice</Code> for vLLM, and a
-          chat template that emits a function-call block). If opencode
-          fails here, swap the harness to goose — it can be more
-          forgiving.
+          chat template that emits a function-call block).
         </LI>
         <LI>
           <Strong>Runs hang on the first message.</Strong> Network — the
-          harness inside the container can&apos;t reach your host. See the
+          agent inside the container can&apos;t reach your host. See the
           Docker networking section above.
         </LI>
         <LI>
@@ -329,37 +295,13 @@ llama-server \\
         </LI>
       </UL>
 
-      <H2 id="advanced-cli">Advanced: hand-configuring the harness</H2>
-      <P>
-        The UI flow above covers the happy path. If you need to do
-        something opencode or goose supports but Genosyn doesn&apos;t
-        surface — e.g. a custom Bearer-auth scheme, a routing rule across
-        multiple providers, a non-OpenAI-shaped endpoint — the harness
-        config files are right there:
-      </P>
-      <UL>
-        <LI>
-          <Code>data/companies/&lt;co&gt;/employees/&lt;emp&gt;/opencode.json</Code> + <Code>.opencode/opencode/auth.json</Code>
-        </LI>
-        <LI>
-          <Code>data/companies/&lt;co&gt;/employees/&lt;emp&gt;/.goose/goose/config.yaml</Code>
-        </LI>
-      </UL>
-      <P>
-        Edit them by hand if you must. Just know that the runner rewrites
-        the customEndpoint-managed sections on every spawn — anything you
-        add outside those sections survives, anything inside gets
-        overwritten. Best practice: don&apos;t fight the materializer;
-        open an issue if a setting belongs in the UI.
-      </P>
-
       <Callout kind="tip" title="Mix and match.">
         You don&apos;t have to choose one path for the whole company. One
-        employee can run on Claude through <Code>claude-code</Code>;
-        another runs on a local Qwen through <Code>opencode</Code> with a
-        custom endpoint. They share Channels, Notes, and Integrations —
-        only the brain differs. See <DocLink to="/docs/models">AI Models</DocLink>{" "}
-        for the bigger picture.
+        employee can run on Claude via an Anthropic API key; another runs
+        on a local Qwen via a <Code>Custom</Code> endpoint. They share
+        Channels, Notes, and Integrations — only the brain differs. See{" "}
+        <DocLink to="/docs/models">AI Models</DocLink> for the bigger
+        picture.
       </Callout>
     </>
   );

@@ -124,8 +124,8 @@ function defaultAnswers(role: string): SoulAnswers {
 /**
  * Hiring flow. Four steps:
  *  1. Basics — pick a template (or blank) and set name + role.
- *  2. Connect a brain — configure + sign into the AI model that powers
- *     this employee. Can be skipped and done later from settings.
+ *  2. Connect a brain — pick the AI model that powers this employee and add an
+ *     API key (or a custom endpoint). Can be skipped and done later from settings.
  *  3. About — a handful of questions that shape the Soul (tone, autonomy,
  *     hard "no"s, reference material). All optional.
  *  4. Review the Soul — preview + edit the generated Soul markdown before
@@ -595,8 +595,8 @@ function ModelStep({
           <div>
             <h2 className="text-sm font-semibold">Connect a brain for {emp.name}</h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Pick the model that powers {emp.name} and sign in. You can change the model or
-              provider any time from settings.
+              Pick the model that powers {emp.name} and add an API key (or point at a custom
+              endpoint). You can change the model or provider any time from settings.
             </p>
           </div>
         </CardHeader>

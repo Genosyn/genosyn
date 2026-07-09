@@ -95,21 +95,21 @@ export function Integrations() {
 
       <H2 id="how-tools-show-up">How tools show up</H2>
       <P>
-        Every time the runner spawns an employee&apos;s provider CLI, it
-        regenerates the MCP server list. The built-in <Code>genosyn</Code>{" "}
-        server lists every integration tool the employee has a Grant for; the
-        provider CLI sees a flat catalog of tools and never has to know
-        anything about Connections.
+        Every run, the in-process agent regenerates the MCP server list. The
+        built-in <Code>genosyn</Code> server lists every integration tool the
+        employee has a Grant for; the agent sees a flat catalog of tools and
+        never has to know anything about Connections.
       </P>
 
       <H2 id="external-mcp">Connecting an external MCP client</H2>
       <P>
         The built-in <Code>genosyn</Code> tools an employee gets inside a run —
-        the stdio server the <DocLink to="/docs/models">provider CLI</DocLink>{" "}
-        loads on every spawn — are also reachable over the network. Point any
-        MCP client at an employee&apos;s endpoint and it drives that employee
-        from anywhere: Claude Desktop, Cursor, VS Code, or your own agent, all
-        seeing the same tools, Grants, and audit trail as the in-app assistant.
+        the same tool catalog the in-process{" "}
+        <DocLink to="/docs/models">agent</DocLink> loads per run — are also
+        reachable over the network. Point any MCP client at an employee&apos;s
+        endpoint and it drives that employee from anywhere: Claude Desktop,
+        Cursor, VS Code, or your own agent, all seeing the same tools, Grants,
+        and audit trail as the in-app assistant.
       </P>
 
       <H3 id="external-mcp-url">Get the endpoint URL</H3>
@@ -230,7 +230,7 @@ export function Integrations() {
       <UL>
         <LI>
           <Strong>Add a grant</Strong> on the employee&apos;s Connections
-          page. The MCP tool list updates on next spawn.
+          page. The MCP tool list updates on the next run.
         </LI>
         <LI>
           <Strong>Revoke a grant</Strong> the same place. The next routine
@@ -248,7 +248,7 @@ export function Integrations() {
         allowed to touch, and the runner materializes a git checkout of each
         allowed repo into{" "}
         <Code>data/companies/&lt;co&gt;/employees/&lt;emp&gt;/repos/...</Code>{" "}
-        before each spawn. The git token never lands on disk — it&apos;s read
+        before each run. The git token never lands on disk — it&apos;s read
         from the env var the runner injects, via a per-connection credential
         helper inside <Code>.git/genosyn-cred.sh</Code>.
       </P>

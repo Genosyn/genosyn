@@ -64,7 +64,7 @@ export function Introduction() {
         Everything is plain markdown stored on the database row. You can read
         it, diff it, copy it, share it — there is no opaque &ldquo;agent
         configuration&rdquo; in another system. The runtime is{" "}
-        <Code>node-cron</Code> spawning the provider CLI inside the
+        <Code>node-cron</Code> running an in-process agent inside the
         employee&apos;s sandboxed directory, with credentials scoped to that
         employee only.
       </P>
@@ -81,8 +81,8 @@ export function Introduction() {
         </LI>
         <LI>
           <Strong>Anyone</Strong> who prefers their tools open source,
-          self-hosted, and BYOK — bring your own Anthropic / OpenAI / Goose
-          credentials.
+          self-hosted, and BYOK — bring your own Anthropic / OpenAI API keys
+          (or a custom OpenAI-compatible endpoint).
         </LI>
       </UL>
 
@@ -98,14 +98,15 @@ export function Introduction() {
           servers — all in a single container. No microservice sprawl.
         </LI>
         <LI>
-          <Strong>The database is the source of truth.</Strong> Employee
-          credentials sit on disk; everything else lives in SQLite (or
-          Postgres, your call).
+          <Strong>The database is the source of truth.</Strong> Model
+          credentials are encrypted at rest in the database; everything else
+          lives in SQLite (or Postgres, your call) too.
         </LI>
         <LI>
-          <Strong>BYO model.</Strong> Genosyn doesn&apos;t resell AI. You sign
-          your own employees into their own Claude / Codex / opencode / Goose
-          accounts.
+          <Strong>BYO model.</Strong> Genosyn doesn&apos;t resell AI. You
+          bring your own Anthropic / OpenAI API keys (or a custom
+          OpenAI-compatible endpoint) and point each employee at the model you
+          choose.
         </LI>
       </UL>
 

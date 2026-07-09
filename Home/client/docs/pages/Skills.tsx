@@ -30,7 +30,7 @@ export function Skills() {
 
       <H2 id="how-they-work">How they work</H2>
       <P>
-        When the runner spawns the employee, it surfaces the Soul plus every
+        When the runner runs the agent, it surfaces the Soul plus every
         Skill body into the model&apos;s context. The model picks the right
         playbook for the task at hand the same way a human would skim a
         runbook: by the title and the first paragraph.

@@ -350,12 +350,12 @@ async function computeChecks(
   checks.push({
     id: "skipped_runs",
     title: "Skipped runs",
-    description: `Runs skipped in the last ${RECENT_WINDOW_HOURS} hours before doing any work — usually no AI model connected, or the provider CLI isn't installed.`,
+    description: `Runs skipped in the last ${RECENT_WINDOW_HOURS} hours before doing any work — usually no AI model connected for the employee.`,
     severity: skippedCount > 0 ? "warn" : "ok",
     count: skippedCount,
     summary:
       skippedCount > 0
-        ? `${plural(skippedCount, "run", "runs")} skipped in the last ${RECENT_WINDOW_HOURS} hours — connect an AI model (or install the provider CLI) so they actually run.`
+        ? `${plural(skippedCount, "run", "runs")} skipped in the last ${RECENT_WINDOW_HOURS} hours — connect an AI model (an API key or custom endpoint) so they actually run.`
         : `No routine runs were skipped in the last ${RECENT_WINDOW_HOURS} hours.`,
     items: skippedRows.map((r) => ({
       label: routineById.get(r.routineId)?.name ?? "Unknown routine",

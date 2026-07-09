@@ -3,18 +3,18 @@
 /*
  * Built-in Genosyn browser MCP server — thin RPC translator.
  *
- * Spawned by the provider CLI (claude / codex / opencode / goose / openclaw)
- * as a stdio MCP server when the AI employee has `browserEnabled = true`.
- * Each tool the model calls (`browser_open`, `browser_click`, …) round-trips
- * over HTTP to the App, which owns the headless Chromium. Chromium therefore
- * persists across MCP child spawns and chat turns — the agent's "I'll wait
- * while you drop your credentials in" actually works because the same
- * browser session is still up when the next turn fires.
+ * Spawned by the in-process agent (`services/agent/`) as a stdio MCP child that
+ * the agent connects to as an MCP client, when the AI employee has
+ * `browserEnabled = true`. Each tool the model calls (`browser_open`,
+ * `browser_click`, …) round-trips over HTTP to the App, which owns the headless
+ * Chromium. Chromium therefore persists across MCP child spawns and chat turns —
+ * the agent's "I'll wait while you drop your credentials in" actually works
+ * because the same browser session is still up when the next turn fires.
  *
  * State on this side is tiny: just the in-memory map of approval IDs the
  * model is waiting on (`browser_submit` + `browser_resume`).
  *
- * Env vars (set by `services/mcp.ts` at materialize time):
+ * Env vars (set by `services/agent/tools/mcpSources.ts` when the child spawns):
  *
  *   GENOSYN_MCP_API
  *   GENOSYN_MCP_TOKEN

@@ -38,7 +38,7 @@ export function Employees() {
         rows={[
           {
             term: "name + slug",
-            def: "Display name (you can rename) and slug (frozen at create-time so URLs and credential paths stay stable).",
+            def: "Display name (you can rename) and slug (frozen at create-time so URLs and directory paths stay stable).",
           },
           {
             term: "role",
@@ -107,17 +107,17 @@ export function Employees() {
           editor with a seeded constitution. Rewrite it to fit your team.
         </LI>
         <LI>
-          <Strong>Attach a model.</Strong> Pick a provider, sign in (or paste
-          an API key), and the runner takes over from there.
+          <Strong>Attach a model.</Strong> Pick a provider, add an API key or
+          custom endpoint, and the runner takes over from there.
         </LI>
         <LI>
           <Strong>Add skills + routines.</Strong> Skills describe what they
           know; Routines describe when they work.
         </LI>
         <LI>
-          <Strong>Fire.</Strong> Deleting an employee removes their DB rows and
-          wipes their on-disk credentials with <Code>rm -rf</Code> on the
-          employee directory. There&apos;s no shared key to revoke.
+          <Strong>Fire.</Strong> Deleting an employee removes their DB rows,
+          including the encrypted credential row for every model they held.
+          There&apos;s no shared key to revoke.
         </LI>
       </OL>
 
@@ -127,15 +127,15 @@ export function Employees() {
       </P>
       <pre className="mt-4 overflow-x-auto rounded-xl border border-zinc-200 bg-zinc-50 px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-zinc-700">
         {`data/companies/<co-slug>/employees/<emp-slug>/
-├── .claude/   or .codex/ / .opencode/ / .goose/ / .openclaw/
-├── .mcp.json   # materialized before every spawn
-└── ...         # whatever the CLI writes into cwd`}
+└── ...   # files the employee's coding tools read and write`}
       </pre>
       <P>
-        The runner spawns the provider CLI with this directory as <Code>cwd</Code>,
-        injects the employee&apos;s environment, and captures stdout + stderr
-        into a Run log. Two employees can run different providers in parallel
-        without touching each other&apos;s credentials.
+        The runner starts an in-process agent loop with this directory as{" "}
+        <Code>cwd</Code> for the built-in coding tools (<Code>bash</Code>,{" "}
+        <Code>read_file</Code>, <Code>write_file</Code>, <Code>edit_file</Code>,{" "}
+        <Code>glob</Code>, <Code>grep</Code>), and captures the agent transcript
+        into a Run log. Two employees can run different models in parallel; their
+        provider credentials are stored encrypted in the database, never on disk.
       </P>
 
       <H3 id="org-chart">Org chart</H3>
@@ -172,12 +172,12 @@ export function Employees() {
       </UL>
 
       <Callout kind="info" title="Models are employee-owned, on purpose.">
-        Each employee owns their own provider credentials in their own folder —
-        even when they register several models, every one lives under that
-        employee&apos;s directory. There&apos;s no shared company-wide API key.
-        Firing an employee revokes all of their access in a single{" "}
-        <Code>rm -rf</Code>; you don&apos;t have to rotate anything for the rest
-        of the team.
+        Each employee owns their own provider credentials, stored encrypted
+        (AES-256-GCM) in the database — even when they register several models,
+        every key belongs to that one employee. There&apos;s no shared
+        company-wide API key. Firing an employee deletes all of their encrypted
+        credential rows; you don&apos;t have to rotate anything for the rest of
+        the team.
       </Callout>
     </>
   );

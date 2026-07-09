@@ -91,7 +91,7 @@ export function Vocabulary() {
             term: "Run",
             def: (
               <>
-                One execution of a Routine. Stdout + stderr captured on{" "}
+                One execution of a Routine. The agent transcript is captured on{" "}
                 <Code>Run.logContent</Code> (256 KB cap).
               </>
             ),
@@ -100,8 +100,9 @@ export function Vocabulary() {
             term: "AI Model",
             def: (
               <>
-                A brain an AI employee can run on. An employee can hold several
-                and keep one active. See{" "}
+                A brain an AI employee runs on — a direct connection to a model
+                API (Anthropic, OpenAI, or a custom OpenAI-compatible endpoint).
+                An employee can hold several and keep one active. See{" "}
                 <DocLink to="/docs/models">AI Models</DocLink>.
               </>
             ),

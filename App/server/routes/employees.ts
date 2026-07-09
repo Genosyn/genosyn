@@ -90,7 +90,7 @@ employeesRouter.get("/", async (req, res) => {
         ? {
             provider: m.provider,
             model: m.model,
-            status: isModelConnected(m, co, e) ? "connected" : "not_connected",
+            status: isModelConnected(m) ? "connected" : "not_connected",
           }
         : null,
       modelCount: list.length,

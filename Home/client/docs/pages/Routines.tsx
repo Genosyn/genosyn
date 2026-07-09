@@ -76,8 +76,9 @@ export function Routines() {
             term: "timeoutSec",
             def: (
               <>
-                Hard timeout in seconds. The runner SIGKILLs the CLI after this
-                long and marks the Run <Code>timeout</Code>. Defaults to{" "}
+                Hard timeout in seconds. The runner aborts the in-process agent
+                after this long and marks the Run <Code>timeout</Code>. Defaults
+                to{" "}
                 <Strong>60 minutes</Strong> and is editable per routine (10s –
                 6h) from the routine editor — raise it for long jobs, lower it
                 to fail fast.
@@ -126,10 +127,10 @@ Post it to the #morning channel.`}</Pre>
       <H2 id="runs">Runs</H2>
       <P>
         Every cron tick — and every manual trigger — creates a <Code>Run</Code>{" "}
-        row. The runner spawns the provider CLI in the employee&apos;s
-        directory, streams stdout + stderr, and stores the captured log on{" "}
-        <Code>Run.logContent</Code> (capped at 256 KB; longer logs are
-        head-truncated with a notice).
+        row. The runner runs the in-process agent in the employee&apos;s
+        directory and stores the agent transcript — the model&apos;s messages and
+        tool trace, not captured CLI stdout — on <Code>Run.logContent</Code>{" "}
+        (capped at 256 KB; longer logs are head-truncated with a notice).
       </P>
       <UL>
         <LI>
@@ -137,8 +138,9 @@ Post it to the #morning channel.`}</Pre>
           or <Code>failed</Code>.
         </LI>
         <LI>
-          The Run detail view streams logs over WebSocket while it&apos;s
-          running, then renders the captured log when it&apos;s done.
+          The Run detail view streams the transcript over WebSocket while
+          it&apos;s running, then renders the full transcript when it&apos;s
+          done.
         </LI>
         <LI>
           Manual Runs from the &quot;Run now&quot; button live in the same

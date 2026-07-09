@@ -53,12 +53,14 @@ don't re-litigate them.
   `Skill.body`.
 - **Routine** — a scheduled recurring piece of work. Cron-triggered. Markdown
   brief on `Routine.body` alongside cron metadata.
-- **AI Model** — a brain an AI Employee can run on. An employee can register
-  several and keep exactly one active (`AIModel.isActive`). Provider
-  (`claude-code` / `codex` / `opencode` / `goose` / `openclaw`), model string,
-  credentials on disk under the employee's data dir.
-- **Run** — a single execution of a routine. Captured stdout + stderr stored
-  on `Run.logContent` (256 KB cap).
+- **AI Model** — a brain an AI Employee can run on: a direct connection to a
+  model API. An employee can register several and keep exactly one active
+  (`AIModel.isActive`). Provider is `anthropic` (Claude), `openai` (GPT), or
+  `custom` (any OpenAI-compatible endpoint); the API key / base URL lives
+  encrypted on `AIModel.configJson`. Genosyn calls the API in-process and runs
+  the tool-use loop itself — no provider CLIs.
+- **Run** — a single execution of a routine. The agent's transcript (streamed
+  text + tool activity) is stored on `Run.logContent` (256 KB cap).
 - **Integration** — a connector type (Stripe, Gmail, Metabase, …). Static
   catalog defined in `server/integrations/providers/<name>.ts`.
 - **Connection** — one authenticated account inside an Integration. DB row
@@ -205,9 +207,12 @@ export const config = {
 - [x] Live-tail run logs in a modal on manual Run
 
 ### M6 — AI Models (employee-owned) ✅
+> **Superseded by M22.** The provider-CLI harnesses, subscription sign-in, and
+> per-provider config materialization below were removed; Genosyn now calls the
+> model API directly in-process. The employee-owned / one-active model remains.
 - [x] `AIModel` employee-owned — many per employee, exactly one active
       (`AIModel.isActive`, newest-added active by default, switchable any time);
-      runner + chat spawn the active one
+      runner + chat run the active one
 - [x] Provider-specific setup for claude-code / codex / opencode / goose
 - [x] Subscription sign-in flow (UI polls for credentials file)
 - [x] API-key flow with AES-256-GCM encryption
@@ -217,6 +222,23 @@ export const config = {
 - [x] `openclaw` provider added (apikey-only)
 - [x] OpenClaw built-in `genosyn` MCP server (read-merge-write of the
       `mcp.servers` block inside openclaw.json)
+
+### M22 — Direct model APIs (harnesses removed) ✅
+- [x] Removed the five provider-CLI harnesses (`claude-code`, `codex`,
+      `opencode`, `goose`, `openclaw`) — providers are now `anthropic`,
+      `openai`, `custom` (OpenAI-compatible), authMode `apikey` | `customEndpoint`
+- [x] In-process agent runtime (`server/services/agent/`): a provider-agnostic
+      tool-use loop over the Anthropic Messages API, OpenAI Chat Completions,
+      and OpenAI-compatible custom endpoints, with native streaming
+- [x] Tools provided directly to the model: built-in coding tools (bash +
+      file read/write/edit/glob/grep), the genosyn tools (dispatched in-process
+      over loopback), browser tools (bridged from the stdio MCP child), and
+      company-configured MCP servers (bridged over stdio/HTTP)
+- [x] Dropped subscription/OAuth sign-in, the in-browser pty install/login
+      surface, node-pty, and the per-provider on-disk credential dirs; model
+      credentials live encrypted on `AIModel.configJson`
+- [x] Data migration remapping existing rows onto the new provider/authMode
+      vocabulary
 
 ### M7 — Chat + Workspace ✅
 - [x] Top-nav sections with context-specific sidebars
@@ -685,10 +707,11 @@ of the original V1 backlog has shipped — what remains is mostly
       still pending
 
 ### Runner
-- [x] **Real execution** for claude-code / codex / opencode / goose
+- [x] **Real execution** via the in-process agent against the model API
+      (Anthropic / OpenAI / custom OpenAI-compatible); see M22
 - [x] **Streaming logs to UI** (SSE on `employeeSurface.ts`)
-- [x] **Provider-level sandboxing** (codex `--sandbox workspace-write`,
-      runner cwd-scoped)
+- [x] **cwd-scoped tools** — the coding tools are rooted at the employee's
+      working directory; bash inherits company secrets + repo env
 - [x] **Browser access for AI employees** — headless Chromium bundled in
       the App container (Alpine `chromium` driven by `playwright-core`),
       opt-in per employee via `AIEmployee.browserEnabled`. Reserved

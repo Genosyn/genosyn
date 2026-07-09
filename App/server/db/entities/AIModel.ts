@@ -6,31 +6,32 @@ import {
   Index,
 } from "typeorm";
 
-export type Provider = "claude-code" | "codex" | "opencode" | "goose" | "openclaw";
-export type AuthMode = "subscription" | "apikey" | "customEndpoint";
+export type Provider = "anthropic" | "openai" | "custom";
+export type AuthMode = "apikey" | "customEndpoint";
 
 /**
  * An AIModel is one of the brains an AI Employee can run on. An employee can
  * register several (`employeeId` is indexed, not unique) and flip exactly one
- * to active at a time via `isActive` — the runner + chat seams always spawn
- * the active one. Credentials live on disk under the employee's per-provider
- * dir (subscription) or encrypted in `configJson` (apikey / customEndpoint).
- * See ROADMAP.md §5 for rationale.
+ * to active at a time via `isActive` — the runner + chat seams talk to the
+ * active one's API directly. Credentials are always encrypted in `configJson`:
+ * there are no on-disk provider credentials any more.
+ *
+ * `provider` names the model API Genosyn calls in-process:
+ *   - `anthropic` → the Anthropic Messages API (Claude), authMode `apikey`
+ *   - `openai`    → the OpenAI Chat Completions API (GPT), authMode `apikey`
+ *   - `custom`    → any OpenAI-compatible endpoint (Ollama, vLLM, llama.cpp,
+ *                   LM Studio, a gateway), authMode `customEndpoint`
  *
  * `isActive` invariant: at most one row per employee is `true`. The model
  * service maintains it on every create / switch / delete; reads fall back to
  * the most-recently-created row when no row is flagged (covers rows that
  * predate this column, which migrate in as `false`).
  *
- * `customEndpoint` is the "point this employee at a local OpenAI-compatible
- * server" path. Valid on the two router providers — opencode and goose —
- * which can both talk arbitrary HTTP. The harness picker in the UI just
- * sets `provider` to whichever the user prefers. configJson carries
- * `{ baseURLEncrypted, baseURLPreview, apiKeyEncrypted?, apiKeyPreview?,
- *    modelId }`. Before each spawn the runner materializes the right
- * provider config file (opencode.json + auth.json, or goose's
- * config.yaml) and injects matching env vars — the user never drops into
- * a terminal.
+ * configJson shape:
+ *   - apikey:         `{ apiKeyEncrypted, apiKeyPreview }`
+ *   - customEndpoint: `{ baseURLEncrypted, baseURLPreview, modelId,
+ *                        apiKeyEncrypted?, apiKeyPreview? }`
+ * All `*Encrypted` fields are AES-256-GCM via `lib/secret.ts`.
  */
 @Entity("ai_models")
 @Index(["employeeId"])
@@ -47,7 +48,7 @@ export class AIModel {
   @Column({ type: "varchar" })
   model!: string;
 
-  @Column({ type: "varchar", default: "subscription" })
+  @Column({ type: "varchar", default: "apikey" })
   authMode!: AuthMode;
 
   /**

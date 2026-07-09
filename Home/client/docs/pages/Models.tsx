@@ -21,169 +21,131 @@ export function Models() {
           <>
             Every AI Employee can register one or more <Strong>AI Models</Strong>{" "}
             — their brains — and keep exactly one <Strong>active</Strong> at a
-            time. Pick a provider, sign in (or paste an API key), and the runner
-            spawns the active model&apos;s CLI inside the employee&apos;s
-            sandboxed directory. Switch the active model any time without losing
-            the others&apos; credentials.
+            time. A model is a direct connection to a model API: pick a provider
+            kind, paste a key (or point at your own endpoint), and the runner
+            drives that model through an in-process agent loop. Switch the active
+            model any time without losing the others&apos; credentials.
           </>
         }
       />
 
-      <H2 id="supported-providers">Supported providers</H2>
+      <H2 id="supported-providers">Provider kinds</H2>
       <P>
-        Genosyn supports five provider CLIs today. None of them are written by
-        Genosyn — they&apos;re the official tools from each vendor. Genosyn
-        just wraps them in a per-employee sandbox.
-      </P>
-      <P>
-        Three of them (<Code>opencode</Code>, <Code>goose</Code>,{" "}
-        <Code>openclaw</Code>) are routers and can point at an
-        OpenAI-compatible endpoint you host yourself — see{" "}
-        <DocLink to="/docs/open-source-models">Open-source LLMs</DocLink>{" "}
-        for that flow.
+        A model talks straight to a model API from inside Genosyn — there&apos;s
+        no CLI to install, no subscription sign-in, and nothing written to disk.
+        Three provider kinds cover every setup:
       </P>
 
       <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <ProviderCard
-          name="claude-code"
+          name="Anthropic (Claude)"
           vendor="Anthropic"
-          auth="Subscription sign-in or ANTHROPIC_API_KEY."
-          mcpHost=".mcp.json at the employee's cwd"
+          creds="Paste an API key."
+          connects="Claude models — Opus, Sonnet, Haiku."
         />
         <ProviderCard
-          name="codex"
+          name="OpenAI (GPT)"
           vendor="OpenAI"
-          auth="Subscription sign-in or OPENAI_API_KEY."
-          mcpHost="$CODEX_HOME/config.toml — [mcp_servers.*] (stdio only)"
+          creds="Paste an API key."
+          connects="GPT models."
         />
         <ProviderCard
-          name="opencode"
-          vendor="opencode.ai"
-          auth="Subscription sign-in or provider keys."
-          mcpHost="opencode.json — mcp.* entries"
-        />
-        <ProviderCard
-          name="goose"
-          vendor="Block"
-          auth="goose configure handles auth — Genosyn doesn't touch it."
-          mcpHost="Passed as runtime --with-extension flags"
-        />
-        <ProviderCard
-          name="openclaw"
-          vendor="OpenClaw"
-          auth="API key only."
-          mcpHost="openclaw.json — mcp.servers.* (read-merge-write)"
+          name="Custom"
+          vendor="OpenAI-compatible"
+          creds="Base URL + model id, plus an optional key."
+          connects="Ollama, vLLM, llama.cpp, LM Studio, or any gateway."
         />
       </div>
 
-      <H2 id="auth-modes">Auth modes</H2>
       <P>
-        Three flows ship across the picker. Each provider opts into the ones
-        that make sense for it — see the cards above.
+        The <Code>Custom</Code> kind is the path for any self-hosted or gatewayed
+        LLM that speaks the OpenAI API — see{" "}
+        <DocLink to="/docs/open-source-models">Open-source LLMs</DocLink> for
+        that flow.
+      </P>
+
+      <H2 id="credentials">Credentials</H2>
+      <P>
+        Everything a model needs is entered in the app. There&apos;s no OAuth
+        sign-in and no per-provider config file to manage — just the fields the
+        kind requires:
       </P>
       <UL>
         <LI>
-          <Strong>Subscription sign-in.</Strong> The runner launches the
-          provider CLI&apos;s sign-in command, mirrors the OAuth URL into the
-          browser, and waits for the credentials file to appear on disk. No
-          tokens transit the database. When a subscription token expires (or you
-          want to swap accounts), hit <Strong>Reconnect</Strong> on the model
-          card to run the sign-in again in place — the model stays active and
-          nothing else is touched.
+          <Strong>Anthropic and OpenAI.</Strong> Paste an API key. That&apos;s
+          the whole setup — the runner picks the default model for the kind, or
+          you can name a specific model string.
         </LI>
         <LI>
-          <Strong>API key.</Strong> Paste a key, Genosyn AES-256-GCM encrypts
-          it, and decrypts it back into env vars only at spawn time. The
-          plaintext never lives on disk.
-        </LI>
-        <LI>
-          <Strong>Custom OpenAI-compatible endpoint.</Strong> opencode and
-          goose only. Paste a base URL + model id (and optionally an API
-          key); Genosyn materializes the harness&apos;s config files
-          (opencode.json + auth.json, or goose&apos;s config.yaml) before
-          each spawn pointed at your endpoint. The path for any self-hosted
-          LLM — see{" "}
-          <DocLink to="/docs/open-source-models">Open-source LLMs</DocLink>.
+          <Strong>Custom.</Strong> Paste a base URL and a model id, plus an
+          optional API key if your endpoint requires one. The loop then points
+          every request at that endpoint.
         </LI>
       </UL>
+      <Callout kind="info" title="Encrypted at rest.">
+        Keys and endpoints are AES-256-GCM encrypted and stored in the database
+        — never on disk. They&apos;re decrypted in memory only when the agent
+        loop makes a request. Removing a model (or firing the employee) deletes
+        the encrypted row, so access dies with it.
+      </Callout>
 
-      <H2 id="credentials-on-disk">Credentials on disk</H2>
+      <H2 id="built-in-tools">Built-in agent tools</H2>
       <P>
-        Each provider has its own credential format. Genosyn keeps them under
-        the employee&apos;s directory so a fired employee&apos;s access dies
-        with their folder:
-      </P>
-      <pre className="mt-4 overflow-x-auto rounded-xl border border-zinc-200 bg-zinc-50 px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-zinc-700">
-        {`data/companies/<co>/employees/<emp>/
-├── .claude/      claude-code
-├── .codex/       codex
-├── .opencode/    opencode
-├── .goose/       goose
-└── .openclaw/    openclaw`}
-      </pre>
-
-      <H2 id="built-in-mcp">Built-in MCP servers</H2>
-      <P>
-        No matter which provider you pick, every spawn gets two built-in MCP
-        servers materialized into the provider&apos;s config:
+        The runner and chat both run an in-process agent loop that hands the
+        model tools directly — no matter which provider kind you pick, every
+        model gets the same toolset:
       </P>
       <UL>
         <LI>
-          <Code>genosyn</Code> — stdio server the employee calls to write
-          journal notes, create Routines / Todos / Notes, send messages on
-          channels, and reach{" "}
+          <Strong>Coding tools.</Strong> <Code>bash</Code>, <Code>read_file</Code>,{" "}
+          <Code>write_file</Code>, <Code>edit_file</Code>, <Code>glob</Code>, and{" "}
+          <Code>grep</Code> — run inside the employee&apos;s sandboxed directory.
+        </LI>
+        <LI>
+          <Code>genosyn</Code> — the tools the employee calls to run Routines and
+          Todos, write journal notes, save Memory, work with Bases and
+          attachments, and reach{" "}
           <Strong>any registered Integration tool</Strong>. Always on.
         </LI>
         <LI>
-          <Code>browser</Code> — stdio server backed by a headless Chromium
-          when <Code>browserEnabled</Code> is true on the employee. Skipped
-          when off.
+          <Code>browser</Code> — browser tools backed by a headless Chromium when{" "}
+          <Code>browserEnabled</Code> is true on the employee. Skipped when off.
+        </LI>
+        <LI>
+          <Strong>Company MCP servers.</Strong> Any MCP servers your company has
+          configured are added to the loop alongside the built-ins.
         </LI>
       </UL>
 
       <Callout kind="warn" title="Reserved names.">
-        <Code>genosyn</Code> and <Code>browser</Code> are reserved MCP server
-        names. If you register a user MCP server with either name, it&apos;s
-        silently dropped when the config is materialized — the built-ins
-        always win.
+        <Code>genosyn</Code> and <Code>browser</Code> are reserved tool names. If
+        a company MCP server uses either name, it&apos;s silently dropped — the
+        built-ins always win.
       </Callout>
 
       <H2 id="multiple-models">Multiple models &amp; the active one</H2>
       <P>
-        An employee can hold several models side by side — say a{" "}
-        <Code>claude-code</Code> subscription for everyday work and a{" "}
-        <Code>codex</Code> API key for a second opinion. Exactly one is{" "}
-        <Strong>active</Strong> at a time; the active model is the brain the
-        runner spawns for routines and the chat seam answers with. The most
-        recently added model becomes active automatically — hit{" "}
-        <Strong>Make active</Strong> on any other to switch, instantly and as
-        often as you like.
+        An employee can hold several models side by side — say an{" "}
+        <Code>Anthropic</Code> key for everyday work and an <Code>OpenAI</Code>{" "}
+        key for a second opinion. Exactly one is <Strong>active</Strong> at a
+        time; the active model is the brain the loop runs for routines and the
+        chat seam answers with. The most recently added model becomes active
+        automatically — hit <Strong>Make active</Strong> on any other to switch,
+        instantly and as often as you like.
       </P>
       <P>
         Open an employee, then <Strong>Settings → Model</Strong> to see the
-        roster: each card shows the provider, model string, connection status,
-        and an <Strong>Active</Strong> badge on the current brain. Use{" "}
+        roster: each card shows the provider kind, model string, connection
+        status, and an <Strong>Active</Strong> badge on the current brain. Use{" "}
         <Strong>Add model</Strong> to register another.
       </P>
 
-      <H2 id="switching-disconnecting">Removing a model</H2>
+      <H3 id="removing-a-model">Removing a model</H3>
       <P>
-        <Strong>Remove</Strong> on a model card deletes that AIModel row. Its
-        on-disk credentials for the provider are wiped <em>unless</em> another
-        of the employee&apos;s models still uses the same provider (two{" "}
-        <Code>claude-code</Code> models share one <Code>.claude/</Code> dir, so
-        the survivor keeps its sign-in). If you remove the active model, the
-        most recently added survivor is promoted to active. No data on Soul,
-        Skills, Routines, or past Runs is affected.
-      </P>
-
-      <H3 id="openclaw-defaults">OpenClaw extras</H3>
-      <P>
-        OpenClaw&apos;s config file mixes MCP server settings with other
-        runtime defaults (model picks, gateway, channels). Genosyn does a{" "}
-        <Code>read-merge-write</Code> on <Code>openclaw.json</Code> so it
-        preserves everything outside the <Code>mcp.servers</Code> block and
-        only overlays its managed entries on top.
+        <Strong>Remove</Strong> on a model card deletes that AIModel row along
+        with its encrypted credentials. If you remove the active model, the most
+        recently added survivor is promoted to active. No data on Soul, Skills,
+        Routines, or past Runs is affected.
       </P>
     </>
   );
@@ -192,13 +154,13 @@ export function Models() {
 function ProviderCard({
   name,
   vendor,
-  auth,
-  mcpHost,
+  creds,
+  connects,
 }: {
   name: string;
   vendor: string;
-  auth: string;
-  mcpHost: string;
+  creds: string;
+  connects: string;
 }) {
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-card">
@@ -213,15 +175,15 @@ function ProviderCard({
       <dl className="mt-3 space-y-2 text-[13px] leading-[1.6]">
         <div>
           <dt className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
-            Auth
+            Credentials
           </dt>
-          <dd className="text-zinc-700">{auth}</dd>
+          <dd className="text-zinc-700">{creds}</dd>
         </div>
         <div>
           <dt className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
-            MCP config
+            Connects to
           </dt>
-          <dd className="font-mono text-[12px] text-zinc-700">{mcpHost}</dd>
+          <dd className="text-zinc-700">{connects}</dd>
         </div>
       </dl>
     </div>

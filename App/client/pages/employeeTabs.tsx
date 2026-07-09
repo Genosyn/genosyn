@@ -12,22 +12,17 @@ import {
   Camera,
   Check,
   Copy,
-  Download,
   Edit3,
   ExternalLink,
   Globe,
-  KeyRound,
   Loader2,
   BookText,
   History,
   Play,
   Plug,
-  PlugZap,
   Plus,
   RotateCcw,
-  Server,
   Sparkles,
-  Terminal,
   Trash2,
   Unplug,
   UserRound,
@@ -41,7 +36,6 @@ import {
   Company,
   Employee,
   Provider,
-  PtySessionView,
   Routine,
   Run,
   RunLog,
@@ -1073,49 +1067,11 @@ function RoutineEditor({
 
 const PROVIDER_DEFAULTS: Record<
   Provider,
-  {
-    label: string;
-    model: string;
-    supportsApiKey: boolean;
-    supportsSubscription: boolean;
-    supportsCustomEndpoint: boolean;
-  }
+  { label: string; model: string; authMode: AuthMode }
 > = {
-  "claude-code": {
-    label: "claude-code",
-    model: "claude-opus-4-6",
-    supportsApiKey: true,
-    supportsSubscription: true,
-    supportsCustomEndpoint: false,
-  },
-  codex: {
-    label: "codex",
-    model: "gpt-5-codex",
-    supportsApiKey: true,
-    supportsSubscription: true,
-    supportsCustomEndpoint: false,
-  },
-  opencode: {
-    label: "opencode",
-    model: "anthropic/claude-opus-4-6",
-    supportsApiKey: false,
-    supportsSubscription: true,
-    supportsCustomEndpoint: true,
-  },
-  goose: {
-    label: "goose",
-    model: "anthropic/claude-opus-4-6",
-    supportsApiKey: false,
-    supportsSubscription: true,
-    supportsCustomEndpoint: true,
-  },
-  openclaw: {
-    label: "openclaw",
-    model: "anthropic/claude-opus-4-7",
-    supportsApiKey: true,
-    supportsSubscription: false,
-    supportsCustomEndpoint: false,
-  },
+  anthropic: { label: "Anthropic (Claude)", model: "claude-opus-4-6", authMode: "apikey" },
+  openai: { label: "OpenAI (GPT)", model: "gpt-4o", authMode: "apikey" },
+  custom: { label: "Custom OpenAI-compatible endpoint", model: "", authMode: "customEndpoint" },
 };
 
 /**
@@ -1758,7 +1714,6 @@ export function ModelSettingsPage() {
 export function EmployeeModelSection({ company, emp }: { company: Company; emp: Employee }) {
   const [models, setModels] = React.useState<AIModel[] | undefined>(undefined);
   const [adding, setAdding] = React.useState(false);
-  const { toast } = useToast();
 
   const reload = React.useCallback(async () => {
     const list = await api.get<AIModel[]>(
@@ -1770,41 +1725,6 @@ export function EmployeeModelSection({ company, emp }: { company: Company; emp: 
   React.useEffect(() => {
     reload().catch(() => setModels([]));
   }, [reload]);
-
-  // While any subscription model is mid sign-in, poll its /refresh endpoint so
-  // the status flips to connected as soon as the creds file lands on disk. We
-  // refresh each pending model and merge the result back into the list.
-  React.useEffect(() => {
-    if (!models) return;
-    const pending = models.filter(
-      (m) => m.authMode === "subscription" && m.status !== "connected",
-    );
-    if (pending.length === 0) return;
-    let alive = true;
-    const id = window.setInterval(async () => {
-      for (const pm of pending) {
-        if (!alive) return;
-        try {
-          const updated = await api.post<AIModel>(
-            `/api/companies/${company.id}/employees/${emp.id}/models/${pm.id}/refresh`,
-          );
-          if (!alive) return;
-          setModels((prev) =>
-            prev ? prev.map((x) => (x.id === updated.id ? updated : x)) : prev,
-          );
-          if (updated.status === "connected") {
-            toast(`${emp.name} signed in with ${updated.provider}`, "success");
-          }
-        } catch {
-          // network blip — try again next tick
-        }
-      }
-    }, 2500);
-    return () => {
-      alive = false;
-      window.clearInterval(id);
-    };
-  }, [models, company.id, emp.id, emp.name, toast]);
 
   if (models === undefined) return <Spinner />;
 
@@ -1849,7 +1769,7 @@ export function EmployeeModelSection({ company, emp }: { company: Company; emp: 
             </div>
             <ModelForm
               mode="create"
-              initial={{ provider: "claude-code", model: "claude-opus-4-6", authMode: "subscription" }}
+              initial={{ provider: "anthropic", model: "claude-opus-4-6", authMode: "apikey" }}
               company={company}
               emp={emp}
               onSaved={() => {
@@ -1891,7 +1811,7 @@ function ModelSetup({
         </div>
         <ModelForm
           mode="create"
-          initial={{ provider: "claude-code", model: "claude-opus-4-6", authMode: "subscription" }}
+          initial={{ provider: "anthropic", model: "claude-opus-4-6", authMode: "apikey" }}
           company={company}
           emp={emp}
           onSaved={onSaved}
@@ -1923,37 +1843,19 @@ function ModelForm({
 }) {
   const [provider, setProvider] = React.useState<Provider>(initial.provider);
   const [modelStr, setModelStr] = React.useState(initial.model);
-  const [authMode, setAuthMode] = React.useState<AuthMode>(initial.authMode);
   const [saving, setSaving] = React.useState(false);
-  // customEndpoint inputs live on the same form so onboarding is one submit —
-  // no Continue intermediate, no "now configure the endpoint" surprise.
+  // Custom-endpoint inputs live on the same form so onboarding is one submit.
   const [baseURL, setBaseURL] = React.useState("");
   const [modelId, setModelId] = React.useState("");
   const [apiKey, setApiKey] = React.useState("");
   const { toast } = useToast();
-  const supportsApiKey = PROVIDER_DEFAULTS[provider].supportsApiKey;
-  const supportsSubscription = PROVIDER_DEFAULTS[provider].supportsSubscription;
-  const supportsCustomEndpoint = PROVIDER_DEFAULTS[provider].supportsCustomEndpoint;
 
-  React.useEffect(() => {
-    if (!supportsApiKey && authMode === "apikey") setAuthMode("subscription");
-    if (!supportsSubscription && authMode === "subscription") setAuthMode("apikey");
-    if (!supportsCustomEndpoint && authMode === "customEndpoint") {
-      setAuthMode(supportsSubscription ? "subscription" : "apikey");
-    }
-  }, [supportsApiKey, supportsSubscription, supportsCustomEndpoint, authMode]);
+  const isCustom = provider === "custom";
+  const authMode: AuthMode = isCustom ? "customEndpoint" : "apikey";
 
-  // Clicking the customEndpoint tile while on a provider that doesn't host it
-  // (claude-code / codex / openclaw) is a clear signal of intent — flip to
-  // opencode (the default harness) instead of greying the tile out.
-  const pickCustomEndpoint = () => {
-    if (supportsCustomEndpoint) {
-      setAuthMode("customEndpoint");
-      return;
-    }
-    setProvider("opencode");
-    setModelStr(PROVIDER_DEFAULTS["opencode"].model);
-    setAuthMode("customEndpoint");
+  const onProvider = (p: Provider) => {
+    setProvider(p);
+    setModelStr(PROVIDER_DEFAULTS[p].model);
   };
 
   return (
@@ -1964,15 +1866,11 @@ function ModelForm({
         setSaving(true);
         const base = `/api/companies/${company.id}/employees/${emp.id}/models`;
         try {
-          if (authMode === "customEndpoint") {
-            // Two-call save: first the model row in customEndpoint mode (the
-            // schema requires a non-empty model — a slug/configure placeholder
-            // satisfies it and gets rewritten in the POST below), then the
-            // encrypted endpoint config that flips status to connected. On
-            // create we use the id the POST hands back; on edit we already
-            // have it.
-            const slug = provider === "opencode" ? "local" : "openai";
-            const payload = { provider, model: `${slug}/configure`, authMode: "customEndpoint" };
+          if (isCustom) {
+            // Two-call save: create/update the row in customEndpoint mode (the
+            // schema requires a non-empty model — the model id satisfies it),
+            // then the encrypted endpoint config that flips status to connected.
+            const payload = { provider: "custom", model: modelId || "custom", authMode };
             const saved =
               mode === "create"
                 ? await api.post<AIModel>(base, payload)
@@ -2000,32 +1898,17 @@ function ModelForm({
         }
       }}
     >
-      <div className={authMode === "customEndpoint" ? "" : "grid gap-3 sm:grid-cols-2"}>
+      <div className={isCustom ? "" : "grid gap-3 sm:grid-cols-2"}>
         <Select
-          label={authMode === "customEndpoint" ? "Harness" : "Provider"}
+          label="Provider"
           value={provider}
-          onChange={(e) => {
-            const p = e.target.value as Provider;
-            setProvider(p);
-            setModelStr(PROVIDER_DEFAULTS[p].model);
-          }}
+          onChange={(e) => onProvider(e.target.value as Provider)}
         >
-          {authMode === "customEndpoint" ? (
-            <>
-              <option value="opencode">opencode</option>
-              <option value="goose">goose</option>
-            </>
-          ) : (
-            <>
-              <option value="claude-code">claude-code</option>
-              <option value="codex">codex</option>
-              <option value="opencode">opencode</option>
-              <option value="goose">goose</option>
-              <option value="openclaw">openclaw</option>
-            </>
-          )}
+          <option value="anthropic">Anthropic (Claude)</option>
+          <option value="openai">OpenAI (GPT)</option>
+          <option value="custom">Custom OpenAI-compatible endpoint</option>
         </Select>
-        {authMode !== "customEndpoint" && (
+        {!isCustom && (
           <Input
             label="Model"
             value={modelStr}
@@ -2034,48 +1917,7 @@ function ModelForm({
           />
         )}
       </div>
-      <div className="flex flex-col gap-2">
-        <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-          Authentication
-        </div>
-        <div className="grid gap-2 sm:grid-cols-3">
-          <AuthModeChoice
-            active={authMode === "subscription"}
-            onClick={() => supportsSubscription && setAuthMode("subscription")}
-            disabled={!supportsSubscription}
-            icon={<PlugZap size={16} />}
-            title="Sign in with subscription"
-            description={
-              supportsSubscription
-                ? subscriptionBlurb(provider)
-                : "Not supported for this provider."
-            }
-          />
-          <AuthModeChoice
-            active={authMode === "apikey"}
-            onClick={() => supportsApiKey && setAuthMode("apikey")}
-            disabled={!supportsApiKey}
-            icon={<KeyRound size={16} />}
-            title="Use an API key"
-            description={
-              supportsApiKey ? apiKeyBlurb(provider) : "Not supported for this provider."
-            }
-          />
-          <AuthModeChoice
-            active={authMode === "customEndpoint"}
-            onClick={pickCustomEndpoint}
-            disabled={false}
-            icon={<Server size={16} />}
-            title="Custom OpenAI-compatible endpoint"
-            description={
-              supportsCustomEndpoint
-                ? "Point this employee at a self-hosted server — Ollama, vLLM, llama.cpp, LM Studio."
-                : "Click to switch to opencode and connect a self-hosted server."
-            }
-          />
-        </div>
-      </div>
-      {authMode === "customEndpoint" && (
+      {isCustom && (
         <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900">
           <div className="grid gap-3 sm:grid-cols-2">
             <Input
@@ -2101,10 +1943,17 @@ function ModelForm({
             placeholder="leave blank if not needed"
           />
           <div className="text-xs text-slate-500 dark:text-slate-400">
-            Routed through <span className="font-medium">{provider}</span>. We
-            materialize its config before each spawn — the user never has to
-            run a CLI command. Base URL + key are stored encrypted at rest.
+            Point this employee at a self-hosted OpenAI-compatible server —
+            Ollama, vLLM, llama.cpp, LM Studio. Base URL + key are stored
+            encrypted at rest.
           </div>
+        </div>
+      )}
+      {!isCustom && (
+        <div className="text-xs text-slate-500 dark:text-slate-400">
+          {provider === "anthropic"
+            ? "Claude via the Anthropic API. Add the API key after saving."
+            : "GPT via the OpenAI API. Add the API key after saving."}
         </div>
       )}
       <div>
@@ -2112,8 +1961,7 @@ function ModelForm({
           type="submit"
           disabled={
             saving ||
-            (authMode === "customEndpoint" &&
-              (baseURL.trim().length === 0 || modelId.trim().length === 0))
+            (isCustom && (baseURL.trim().length === 0 || modelId.trim().length === 0))
           }
         >
           {saving ? "Saving…" : submitLabel}
@@ -2123,86 +1971,10 @@ function ModelForm({
   );
 }
 
-function subscriptionBlurb(p: Provider): string {
-  switch (p) {
-    case "claude-code":
-      return "Use a Claude Pro or Max plan — sign in with one click.";
-    case "codex":
-      return "Use a ChatGPT plan — sign in with one click.";
-    case "opencode":
-      return "Sign in to any provider opencode supports.";
-    case "goose":
-      return "Sign in to any provider goose supports.";
-    case "openclaw":
-      return "";
-  }
-}
-
-function apiKeyBlurb(p: Provider): string {
-  switch (p) {
-    case "claude-code":
-      return "Pay-as-you-go from console.anthropic.com.";
-    case "codex":
-      return "Pay-as-you-go from platform.openai.com.";
-    case "opencode":
-      return "";
-    case "goose":
-      return "";
-    case "openclaw":
-      return "Pay-as-you-go via the underlying provider (Anthropic by default).";
-  }
-}
-
-function AuthModeChoice({
-  active,
-  onClick,
-  icon,
-  title,
-  description,
-  disabled,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={
-        "flex items-start gap-3 rounded-lg border px-3 py-3 text-left transition " +
-        (disabled
-          ? "cursor-not-allowed border-slate-200 bg-slate-50 opacity-60 dark:bg-slate-900 dark:border-slate-700"
-          : active
-            ? "border-indigo-500 bg-indigo-50/60 ring-1 ring-indigo-200"
-            : "border-slate-200 bg-white hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-700 dark:hover:bg-slate-800")
-      }
-    >
-      <div
-        className={
-          "mt-0.5 rounded-md p-1.5 " +
-          (active ? "bg-indigo-100 text-indigo-700 dark:text-indigo-300" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400")
-        }
-      >
-        {icon}
-      </div>
-      <div className="min-w-0">
-        <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{title}</div>
-        <div className="text-xs text-slate-500 dark:text-slate-400">{description}</div>
-      </div>
-    </button>
-  );
-}
-
 /**
- * One model in the employee's roster: status, an active toggle, the
- * provider-specific connect panel (subscription sign-in / API key / custom
- * endpoint), and a reconfigure disclosure. The active model is ringed and
- * badged; any non-active model gets a one-click "Make active" button.
+ * One model in the employee's roster: status, an active toggle, the connect
+ * panel (API key or custom endpoint), and a reconfigure disclosure. The active
+ * model is ringed and badged; any non-active model gets a "Make active" button.
  */
 function ModelCard({
   company,
@@ -2219,10 +1991,6 @@ function ModelCard({
   const dialog = useDialog();
   const connected = model.status === "connected";
   const [activating, setActivating] = React.useState(false);
-  // A connected subscription model can be signed in again — tokens expire, or
-  // the operator wants to swap which account backs the employee. Revealing the
-  // sign-in panel in place is gentler than asking them to Remove + re-add.
-  const [reconnecting, setReconnecting] = React.useState(false);
   const base = `/api/companies/${company.id}/employees/${emp.id}/models`;
 
   async function activate() {
@@ -2239,14 +2007,10 @@ function ModelCard({
   }
 
   async function disconnect() {
-    // The wording adapts to current state. When the model is connected, this
-    // is a destructive action that wipes the creds. When it isn't, the row
-    // holds no creds yet — the operator hasn't paid any cost beyond picking a
-    // provider, so we don't need a scary confirm dialog.
     if (connected) {
       const ok = await dialog.confirm({
-        title: `Remove ${model.provider}?`,
-        message: `${emp.name}'s on-disk credentials for ${model.provider} will be wiped (unless another model still uses it). You can reconnect any time.`,
+        title: `Remove this model?`,
+        message: `${emp.name}'s stored credentials for ${model.provider} · ${model.model} will be removed. You can reconnect any time.`,
         confirmLabel: "Remove",
         variant: "danger",
       });
@@ -2254,34 +2018,24 @@ function ModelCard({
     }
     try {
       await api.del(`${base}/${model.id}`);
-      toast(connected ? "Model removed" : "Sign-in cancelled", "success");
+      toast(connected ? "Model removed" : "Removed", "success");
       onChanged();
     } catch (err) {
       toast((err as Error).message, "error");
     }
   }
 
-  // Subtitle has to be honest about state. The previous copy
-  // ("Signed in with claude-code subscription") was rendered even when the
-  // user hadn't actually completed sign-in yet — looked like a contradiction
-  // next to the WAITING badge.
   const subtitle = (() => {
     if (connected) {
-      if (model.authMode === "subscription") {
-        return `Signed in with ${model.provider} subscription`;
-      }
       if (model.authMode === "customEndpoint") {
         return model.customEndpointHost
-          ? `Pointed at ${model.customEndpointHost} via ${model.provider}`
-          : `Custom endpoint configured via ${model.provider}`;
+          ? `Pointed at ${model.customEndpointHost}`
+          : "Custom endpoint configured";
       }
       return `Authenticated with ${model.apiKeyEnv ?? "API"} key`;
     }
-    if (model.authMode === "subscription") {
-      return `Not signed in yet — finish the steps below to connect ${model.provider}.`;
-    }
     if (model.authMode === "customEndpoint") {
-      return "Enter the local server's base URL and model id below to connect.";
+      return "Enter the server's base URL and model id below to connect.";
     }
     return `No ${model.apiKeyEnv ?? "API"} key on file yet — paste one below to connect.`;
   })();
@@ -2320,61 +2074,12 @@ function ModelCard({
                 Make active
               </Button>
             )}
-            {connected && model.authMode === "subscription" && !reconnecting && (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setReconnecting(true)}
-              >
-                <PlugZap size={14} /> Reconnect
-              </Button>
-            )}
             <Button size="sm" variant="ghost" onClick={disconnect}>
               <Unplug size={14} /> {connected ? "Remove" : "Cancel"}
             </Button>
           </div>
         </div>
 
-        {!connected && model.authMode === "subscription" && (
-          <SubscriptionLoginPanel
-            company={company}
-            emp={emp}
-            model={model}
-            onConnected={onChanged}
-          />
-        )}
-        {connected && model.authMode === "subscription" && reconnecting && (
-          <div className="flex flex-col gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                Reconnect {model.provider}
-              </div>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setReconnecting(false)}
-              >
-                Cancel
-              </Button>
-            </div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-              Sign in again to refresh {emp.name}&apos;s {model.provider}{" "}
-              credentials. This keeps the model active and won&apos;t touch
-              anything else.
-            </div>
-            <SubscriptionLoginPanel
-              company={company}
-              emp={emp}
-              model={model}
-              onConnected={onChanged}
-              onSignedIn={() => {
-                setReconnecting(false);
-                toast(`${emp.name} reconnected to ${model.provider}`, "success");
-                onChanged();
-              }}
-            />
-          </div>
-        )}
         {!connected && model.authMode === "apikey" && (
           <ApiKeyPanel company={company} emp={emp} model={model} onSaved={onChanged} />
         )}
@@ -2389,7 +2094,7 @@ function ModelCard({
 
         <details className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700">
           <summary className="cursor-pointer text-xs text-slate-600 dark:text-slate-300">
-            Change provider, model, or auth method
+            Change provider, model, or endpoint
           </summary>
           <div className="mt-3">
             <ModelForm
@@ -2431,978 +2136,8 @@ function ActiveBadge() {
   );
 }
 
-/**
- * Drives the full sign-in flow without ever sending the operator to a
- * terminal. The CLI runs server-side under a pty; we stream its output here
- * and forward keystrokes back. Three states, in order:
- *
- *   1. CLI not installed → "Install <provider>" button → live install log.
- *   2. CLI installed, awaiting OAuth → "Sign in" button → live terminal +
- *      paste-back input. Any URL the CLI prints is surfaced as a clickable
- *      "Open in browser" button so the operator never has to copy it.
- *   3. CLI installed, signed in → unmounted by parent (status flips).
- *
- * The escape hatch for SSH-only setups is the disclosure at the bottom: the
- * original "copy this command and paste in a terminal" string is still
- * available, just no longer the primary path.
- */
-function SubscriptionLoginPanel({
-  company,
-  emp,
-  model,
-  onConnected,
-  onSignedIn,
-}: {
-  company: Company;
-  emp: Employee;
-  model: AIModel;
-  onConnected: () => void;
-  /**
-   * Fired when the login pty exits cleanly. The first-time flow leaves this
-   * undefined and lets the parent's /refresh poll observe the creds landing
-   * (and toast). A reconnect of an already-connected model has no such poll —
-   * the status never changes — so it passes this to collapse the panel itself.
-   */
-  onSignedIn?: () => void;
-}) {
-  const employeeId = emp.id;
-  return (
-    <SubscriptionLoginInner
-      key={`${model.id}:${employeeId}:${model.cliInstalled}`}
-      company={company}
-      emp={emp}
-      model={model}
-      onConnected={onConnected}
-      onSignedIn={onSignedIn}
-    />
-  );
-}
-
-function SubscriptionLoginInner({
-  company,
-  emp,
-  model,
-  onConnected,
-  onSignedIn,
-}: {
-  company: Company;
-  emp: Employee;
-  model: AIModel;
-  onConnected: () => void;
-  onSignedIn?: () => void;
-}) {
-  // We track the active pty session here. The session abstraction is shared
-  // by install + login — same shape, same polling — so one piece of state
-  // covers both phases.
-  const [session, setSession] = React.useState<PtySessionView | null>(null);
-  const [phase, setPhase] = React.useState<"idle" | "installing" | "signingIn">("idle");
-  const [busy, setBusy] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const sinceRef = React.useRef(0);
-  const sessionRef = React.useRef<PtySessionView | null>(null);
-  const baseUrl = `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}`;
-  const { toast } = useToast();
-
-  // Cancel any live session when we unmount or when the parent flips the
-  // model status to connected. Without this an aborted login pty would sit
-  // around until the 30-min hard sweeper kicks it.
-  const cancelActive = React.useCallback(async () => {
-    const cur = sessionRef.current;
-    if (!cur) return;
-    sessionRef.current = null;
-    try {
-      await api.post(`${baseUrl}/session/${cur.sessionId}/cancel`);
-    } catch {
-      // best-effort; the server's sweeper handles abandoned sessions.
-    }
-  }, [baseUrl]);
-
-  React.useEffect(() => {
-    return () => {
-      void cancelActive();
-    };
-  }, [cancelActive]);
-
-  // Poll for new pty output. We hammer the endpoint at 700ms — enough to feel
-  // live for "code printed" and "URL printed" moments without flooding the
-  // server. The polling stops as soon as the session exits or the user
-  // dismisses it.
-  React.useEffect(() => {
-    if (!session || session.exited) return;
-    let alive = true;
-    const id = window.setInterval(async () => {
-      if (!alive) return;
-      try {
-        const next = await api.get<PtySessionView>(
-          `${baseUrl}/session/${session.sessionId}?since=${sinceRef.current}`,
-        );
-        if (!alive) return;
-        sinceRef.current = next.totalBytes;
-        // Merge: append the freshly fetched chunk to the last cumulative
-        // snapshot. We never re-fetch already-seen bytes thanks to `since`.
-        setSession((prev) => {
-          if (!prev) return next;
-          return {
-            ...next,
-            output: (prev.output ?? "") + next.output,
-          };
-        });
-        if (next.exited) {
-          if (next.exitCode !== 0 && next.exitCode !== null) {
-            setError(
-              `${phase === "installing" ? "Installer" : "Login"} exited with code ${next.exitCode}.`,
-            );
-          }
-          // For installs, refresh the parent so cliInstalled flips true and we
-          // can move on to the sign-in step.
-          if (phase === "installing" && next.exitCode === 0) {
-            onConnected();
-          }
-          // For first-time logins the parent's /refresh poll picks up the creds
-          // file and unmounts us, so we just stop polling. A reconnect has no
-          // such poll (status was already "connected"), so it hands us an
-          // onSignedIn to collapse the panel on a clean exit.
-          if (phase === "signingIn" && next.exitCode === 0) {
-            onSignedIn?.();
-          }
-        }
-      } catch {
-        // network blip — try again next tick
-      }
-    }, 700);
-    return () => {
-      alive = false;
-      window.clearInterval(id);
-    };
-  }, [session, baseUrl, phase, onConnected, onSignedIn]);
-
-  React.useEffect(() => {
-    sessionRef.current = session;
-  }, [session]);
-
-  async function startInstall() {
-    setBusy(true);
-    setError(null);
-    sinceRef.current = 0;
-    try {
-      const { sessionId } = await api.post<{ sessionId: string }>(`${baseUrl}/install`);
-      setPhase("installing");
-      setSession({
-        sessionId,
-        kind: "install",
-        provider: model.provider,
-        output: "",
-        totalBytes: 0,
-        truncated: false,
-        exited: false,
-        exitCode: null,
-      });
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function startLogin() {
-    setBusy(true);
-    setError(null);
-    sinceRef.current = 0;
-    try {
-      const { sessionId } = await api.post<{ sessionId: string }>(`${baseUrl}/login`);
-      setPhase("signingIn");
-      setSession({
-        sessionId,
-        kind: "login",
-        provider: model.provider,
-        output: "",
-        totalBytes: 0,
-        truncated: false,
-        exited: false,
-        exitCode: null,
-      });
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function send(data: string) {
-    if (!session) return;
-    try {
-      await api.post(`${baseUrl}/session/${session.sessionId}/input`, { data });
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
-  }
-
-  async function dismissSession() {
-    await cancelActive();
-    setSession(null);
-    setPhase("idle");
-    setError(null);
-  }
-
-  // Step 1: CLI is not installed. Either offer to install it from here, or
-  // (for operators who'd rather drive their own host) fall back to the
-  // copy-this-command card.
-  if (!model.cliInstalled && phase !== "installing") {
-    return (
-      <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:bg-slate-900 dark:border-slate-700">
-        <div className="flex items-start gap-3">
-          <div className="rounded-md bg-amber-100 p-1.5 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-            <Download size={14} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-              {model.provider} isn&apos;t installed on this server yet
-            </div>
-            <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              We&apos;ll install it for you. The Docker image ships with all CLIs
-              pre-installed; you&apos;ll only see this on a fresh bare-metal host.
-            </div>
-            <div className="mt-2 flex items-center gap-2">
-              <Button size="sm" onClick={startInstall} disabled={busy}>
-                {busy ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-                Install {model.provider}
-              </Button>
-              {error && <span className="text-xs text-red-600 dark:text-red-400">{error}</span>}
-            </div>
-          </div>
-        </div>
-        <ManualCommandFallback model={model} />
-      </div>
-    );
-  }
-
-  // Step 2: CLI is installed. Either we're mid-install-just-finished, or we
-  // need to start the sign-in pty.
-  if (!session) {
-    return (
-      <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:bg-slate-900 dark:border-slate-700">
-        <div className="flex items-start gap-3">
-          <div className="rounded-md bg-indigo-100 p-1.5 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
-            <PlugZap size={14} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-              Sign {emp.name} into {model.provider}
-            </div>
-            <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              We&apos;ll open the provider&apos;s login flow. You&apos;ll get a URL to click,
-              and any code the provider asks for goes back into the box below.
-            </div>
-            <div className="mt-2 flex items-center gap-2">
-              <Button size="sm" onClick={startLogin} disabled={busy}>
-                {busy ? <Loader2 size={14} className="animate-spin" /> : <PlugZap size={14} />}
-                Sign in with {model.provider}
-              </Button>
-              {error && <span className="text-xs text-red-600 dark:text-red-400">{error}</span>}
-            </div>
-          </div>
-        </div>
-        <ManualCommandFallback model={model} />
-      </div>
-    );
-  }
-
-  // Step 3: a pty is running. Render the wizard.
-  // `loginCommand` is non-null whenever a session exists — the only way to
-  // reach this branch is through `startLogin`, which is gated on
-  // supportsSubscription which implies a real login command. The `?? ""`
-  // is defensive padding to satisfy the panel's non-nullable prop type.
-  return (
-    <PtySessionPanel
-      session={session}
-      phase={phase}
-      configDir={model.configDir}
-      configDirEnv={model.configDirEnv}
-      loginCommand={model.loginCommand ?? ""}
-      onSend={send}
-      onDismiss={dismissSession}
-      error={error}
-    />
-  );
-}
-
-/**
- * Live sign-in / install wizard. Replaces the raw-terminal experience with a
- * focused two-step flow:
- *
- *   1. Open the provider's authorization URL (primary CTA, appears as soon as
- *      the URL is printed by the CLI).
- *   2. Paste the code the provider hands you, click Connect.
- *
- * The CLI's actual stdout is still useful for debugging weird hosts or
- * unfamiliar provider quirks, so it lives behind a "Show terminal output"
- * disclosure — collapsed by default, auto-opens on a non-zero exit.
- *
- * For the install phase (rare — only on bare metal) we render a compact
- * progress card with a tail of the install log so the operator can see npm
- * doing its thing.
- */
-function PtySessionPanel({
-  session,
-  phase,
-  configDir,
-  configDirEnv,
-  loginCommand,
-  onSend,
-  onDismiss,
-  error,
-}: {
-  session: PtySessionView;
-  phase: "idle" | "installing" | "signingIn";
-  configDir: string;
-  configDirEnv: string;
-  loginCommand: string;
-  onSend: (data: string) => void;
-  onDismiss: () => void;
-  error: string | null;
-}) {
-  const cleanedOutput = React.useMemo(() => stripAnsi(session.output), [session.output]);
-  const status = computeWizardStatus(session, cleanedOutput, phase);
-
-  if (phase === "installing") {
-    return (
-      <InstallProgressPanel
-        session={session}
-        cleanedOutput={cleanedOutput}
-        onDismiss={onDismiss}
-        error={error}
-      />
-    );
-  }
-
-  return (
-    <SignInWizard
-      session={session}
-      cleanedOutput={cleanedOutput}
-      status={status}
-      configDir={configDir}
-      configDirEnv={configDirEnv}
-      loginCommand={loginCommand}
-      onSend={onSend}
-      onDismiss={onDismiss}
-      error={error}
-    />
-  );
-}
-
-type WizardStatus =
-  | "starting"
-  | "openLink"
-  | "verifying"
-  | "succeeded"
-  | "failed";
-
-/**
- * Map raw CLI state to a friendly status. The CLI doesn't speak in terms the
- * end user cares about, so we paper over its quirks with a small state machine
- * keyed on the output we've seen so far + the pty's exit state.
- */
-function computeWizardStatus(
-  session: PtySessionView,
-  cleanedOutput: string,
-  phase: "idle" | "installing" | "signingIn",
-): WizardStatus {
-  if (phase !== "signingIn") return "starting";
-  if (session.exited) {
-    if (session.exitCode === 0 && /login successful|signed in/i.test(cleanedOutput)) {
-      return "succeeded";
-    }
-    if (session.exitCode === 0) return "succeeded"; // best-effort; outer poll re-checks
-    return "failed";
-  }
-  if (/login successful|signed in/i.test(cleanedOutput)) return "succeeded";
-  if (extractFirstUrl(cleanedOutput)) return "openLink";
-  return "starting";
-}
-
-function SignInWizard({
-  session,
-  cleanedOutput,
-  status,
-  configDir,
-  configDirEnv,
-  loginCommand,
-  onSend,
-  onDismiss,
-  error,
-}: {
-  session: PtySessionView;
-  cleanedOutput: string;
-  status: WizardStatus;
-  configDir: string;
-  configDirEnv: string;
-  loginCommand: string;
-  onSend: (data: string) => void;
-  onDismiss: () => void;
-  error: string | null;
-}) {
-  const [code, setCode] = React.useState("");
-  const [submitting, setSubmitting] = React.useState(false);
-  // Once the user has clicked "Open authorization page" we surface a small
-  // "Didn't see the page open?" hint with the raw URL — gives them a copy
-  // path without making the URL the primary affordance from the start.
-  const [opened, setOpened] = React.useState(false);
-  const codeInputRef = React.useRef<HTMLInputElement | null>(null);
-
-  const url = extractFirstUrl(cleanedOutput);
-
-  // Stop the "Verifying…" spinner once the CLI either resolves or errors.
-  React.useEffect(() => {
-    if (status === "succeeded" || status === "failed") setSubmitting(false);
-    // Some CLIs print "Invalid code" or "Error" without exiting — peek for that.
-    if (/invalid|error|expired|failed/i.test(cleanedOutput)) setSubmitting(false);
-  }, [cleanedOutput, status]);
-
-  // Auto-focus the code input the moment the URL appears so the user can
-  // paste their code immediately after returning from the OAuth tab.
-  React.useEffect(() => {
-    if (status === "openLink" && codeInputRef.current) {
-      codeInputRef.current.focus();
-    }
-  }, [status]);
-
-  function submitCode(e: React.FormEvent) {
-    e.preventDefault();
-    const trimmed = code.trim();
-    if (!trimmed || submitting) return;
-    setSubmitting(true);
-    onSend(`${trimmed}\r`);
-    setCode("");
-  }
-
-  return (
-    <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 dark:bg-slate-950 dark:border-slate-700">
-      <SignInWizardHeader
-        provider={session.provider}
-        status={status}
-        submitting={submitting}
-        onDismiss={onDismiss}
-      />
-
-      {(status === "starting" || status === "openLink" || (status === "succeeded" && submitting)) && (
-        <div className="flex flex-col gap-3">
-          <SignInStep
-            n={1}
-            title={
-              opened
-                ? "Authorize Genosyn in Anthropic"
-                : "Open the authorization page"
-            }
-            description={
-              opened
-                ? "Sign in with your Claude account, then copy the code Anthropic shows you."
-                : "We'll open Anthropic in a new tab. You'll get a code to paste below."
-            }
-            done={opened}
-            primary={
-              url ? (
-                <a
-                  href={url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => setOpened(true)}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-950"
-                >
-                  {opened ? "Reopen authorization page" : `Open ${providerLabel(session.provider)} to authorize`}
-                  <ExternalLink size={14} />
-                </a>
-              ) : (
-                <Button size="sm" disabled>
-                  <Loader2 size={14} className="animate-spin" />
-                  Preparing the link…
-                </Button>
-              )
-            }
-            secondary={
-              url ? (
-                <CopyableUrl url={url} />
-              ) : null
-            }
-          />
-
-          <SignInStep
-            n={2}
-            title="Paste your code"
-            description="Anthropic will give you a one-time code after you authorize. Paste it here."
-            done={false}
-            primary={
-              <form onSubmit={submitCode} className="flex flex-col gap-2 sm:flex-row sm:items-start">
-                <Input
-                  ref={codeInputRef}
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  placeholder="paste your code here"
-                  className="flex-1 font-mono text-sm"
-                  disabled={status === "starting" || submitting}
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-                <Button type="submit" disabled={!code.trim() || status === "starting" || submitting}>
-                  {submitting ? (
-                    <>
-                      <Loader2 size={14} className="animate-spin" />
-                      Connecting…
-                    </>
-                  ) : (
-                    <>
-                      <PlugZap size={14} />
-                      Connect
-                    </>
-                  )}
-                </Button>
-              </form>
-            }
-          />
-        </div>
-      )}
-
-      {status === "succeeded" && !submitting && (
-        <div className="flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 dark:bg-emerald-950 dark:border-emerald-800">
-          <div className="rounded-md bg-emerald-100 p-1.5 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
-            <Check size={14} />
-          </div>
-          <div className="min-w-0 flex-1 text-sm text-emerald-800 dark:text-emerald-200">
-            <div className="font-medium">Signed in.</div>
-            <div className="text-xs text-emerald-700/80 dark:text-emerald-300/80">
-              Verifying credentials…
-            </div>
-          </div>
-        </div>
-      )}
-
-      {status === "failed" && (
-        <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-3 dark:bg-red-950 dark:border-red-800">
-          <div className="rounded-md bg-red-100 p-1.5 text-red-700 dark:bg-red-900 dark:text-red-300">
-            <X size={14} />
-          </div>
-          <div className="min-w-0 flex-1 text-sm">
-            <div className="font-medium text-red-800 dark:text-red-200">Sign-in didn&apos;t complete.</div>
-            <div className="mt-0.5 text-xs text-red-700 dark:text-red-300">
-              {error ??
-                "The CLI exited before the code could be verified. Open the terminal output below for details, then try again."}
-            </div>
-            <div className="mt-2">
-              <Button size="sm" variant="secondary" onClick={onDismiss}>
-                Try again
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <SignInWizardFooter
-        cleanedOutput={cleanedOutput}
-        configDir={configDir}
-        configDirEnv={configDirEnv}
-        loginCommand={loginCommand}
-        autoOpen={status === "failed"}
-      />
-    </div>
-  );
-}
-
-function SignInWizardHeader({
-  provider,
-  status,
-  submitting,
-  onDismiss,
-}: {
-  provider: PtySessionView["provider"];
-  status: WizardStatus;
-  submitting: boolean;
-  onDismiss: () => void;
-}) {
-  let pillIcon: React.ReactNode;
-  let pillText: string;
-  let pillTone: "indigo" | "emerald" | "red" | "slate";
-  if (status === "succeeded") {
-    pillIcon = <Check size={12} />;
-    pillText = "Signed in";
-    pillTone = "emerald";
-  } else if (status === "failed") {
-    pillIcon = <X size={12} />;
-    pillText = "Failed";
-    pillTone = "red";
-  } else if (submitting) {
-    pillIcon = <Loader2 size={12} className="animate-spin" />;
-    pillText = "Verifying";
-    pillTone = "indigo";
-  } else if (status === "openLink") {
-    pillIcon = <ExternalLink size={12} />;
-    pillText = "Awaiting authorization";
-    pillTone = "indigo";
-  } else {
-    pillIcon = <Loader2 size={12} className="animate-spin" />;
-    pillText = "Connecting";
-    pillTone = "slate";
-  }
-  const dismissLabel = status === "succeeded" || status === "failed" ? "Close" : "Cancel sign-in";
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <div className="flex items-center gap-2">
-        <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-          Sign in to {providerLabel(provider)}
-        </span>
-        <StatusPill tone={pillTone} icon={pillIcon}>
-          {pillText}
-        </StatusPill>
-      </div>
-      <Button size="sm" variant="ghost" onClick={onDismiss}>
-        <X size={14} /> {dismissLabel}
-      </Button>
-    </div>
-  );
-}
-
-function SignInStep({
-  n,
-  title,
-  description,
-  done,
-  primary,
-  secondary,
-}: {
-  n: number;
-  title: string;
-  description: string;
-  done: boolean;
-  primary: React.ReactNode;
-  secondary?: React.ReactNode;
-}) {
-  return (
-    <div className="flex gap-3">
-      <div
-        className={
-          "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold " +
-          (done
-            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300"
-            : "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300")
-        }
-      >
-        {done ? <Check size={12} /> : n}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{title}</div>
-        <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{description}</div>
-        <div className="mt-2">{primary}</div>
-        {secondary && <div className="mt-2">{secondary}</div>}
-      </div>
-    </div>
-  );
-}
-
-function CopyableUrl({ url }: { url: string }) {
-  const [copied, setCopied] = React.useState(false);
-  return (
-    <details className="group rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:bg-slate-900 dark:border-slate-700">
-      <summary className="flex cursor-pointer items-center gap-1 text-slate-600 dark:text-slate-300">
-        <span className="font-medium">Page didn&apos;t open?</span>
-        <span className="text-slate-500 dark:text-slate-400">Copy the link manually.</span>
-      </summary>
-      <div className="mt-2 flex items-center gap-2">
-        <code className="flex-1 overflow-x-auto whitespace-nowrap rounded bg-white px-2 py-1 font-mono text-[11px] text-slate-700 dark:bg-slate-950 dark:text-slate-200">
-          {url}
-        </code>
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={async () => {
-            const ok = await copyToClipboard(url);
-            if (!ok) return;
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 1500);
-          }}
-        >
-          {copied ? <Check size={12} /> : <Copy size={12} />}
-          {copied ? "Copied" : "Copy"}
-        </Button>
-      </div>
-    </details>
-  );
-}
-
-function SignInWizardFooter({
-  cleanedOutput,
-  configDir,
-  configDirEnv,
-  loginCommand,
-  autoOpen,
-}: {
-  cleanedOutput: string;
-  configDir: string;
-  configDirEnv: string;
-  loginCommand: string;
-  autoOpen: boolean;
-}) {
-  const outRef = React.useRef<HTMLPreElement | null>(null);
-  const stickRef = React.useRef(true);
-  React.useEffect(() => {
-    const el = outRef.current;
-    if (!el) return;
-    if (stickRef.current) el.scrollTop = el.scrollHeight;
-  }, [cleanedOutput]);
-
-  const command = `${configDirEnv}=${shellQuote(configDir)} ${loginCommand}`;
-  const [copied, setCopied] = React.useState(false);
-  return (
-    <details
-      className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:bg-slate-900 dark:border-slate-700"
-      open={autoOpen}
-    >
-      <summary className="flex cursor-pointer items-center gap-2 text-slate-600 dark:text-slate-300">
-        <Terminal size={12} />
-        Show terminal output and SSH-equivalent
-      </summary>
-      <div className="mt-3 flex flex-col gap-3">
-        <div>
-          <div className="mb-1 text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Live output
-          </div>
-          <pre
-            ref={outRef}
-            onScroll={(e) => {
-              const el = e.currentTarget;
-              stickRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
-            }}
-            className="max-h-48 min-h-[5rem] overflow-auto whitespace-pre-wrap break-words rounded bg-slate-950 px-3 py-2 font-mono text-[11px] leading-snug text-slate-100"
-          >
-            {cleanedOutput.trim() || "Waiting for output…"}
-          </pre>
-        </div>
-        <div>
-          <div className="mb-1 text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            SSH-only host? Run this in a terminal instead.
-          </div>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 overflow-x-auto whitespace-nowrap rounded bg-white px-2 py-1 font-mono text-[11px] text-slate-800 dark:bg-slate-950 dark:text-slate-100">
-              {command}
-            </code>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={async () => {
-                const ok = await copyToClipboard(command);
-                if (!ok) return;
-                setCopied(true);
-                window.setTimeout(() => setCopied(false), 1500);
-              }}
-            >
-              {copied ? <Check size={12} /> : <Copy size={12} />}
-              {copied ? "Copied" : "Copy"}
-            </Button>
-          </div>
-        </div>
-        <div className="text-[10px] text-slate-500 dark:text-slate-400">
-          Credentials land at <code>{configDir}</code>
-        </div>
-      </div>
-    </details>
-  );
-}
-
-function InstallProgressPanel({
-  session,
-  cleanedOutput,
-  onDismiss,
-  error,
-}: {
-  session: PtySessionView;
-  cleanedOutput: string;
-  onDismiss: () => void;
-  error: string | null;
-}) {
-  const outRef = React.useRef<HTMLPreElement | null>(null);
-  const stickRef = React.useRef(true);
-  React.useEffect(() => {
-    const el = outRef.current;
-    if (!el) return;
-    if (stickRef.current) el.scrollTop = el.scrollHeight;
-  }, [cleanedOutput]);
-  const exitedOk = session.exited && session.exitCode === 0;
-  const failed = session.exited && session.exitCode !== 0;
-  return (
-    <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 dark:bg-slate-950 dark:border-slate-700">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            Installing {providerLabel(session.provider)}
-          </span>
-          {failed ? (
-            <StatusPill tone="red" icon={<X size={12} />}>
-              Failed
-            </StatusPill>
-          ) : exitedOk ? (
-            <StatusPill tone="emerald" icon={<Check size={12} />}>
-              Installed
-            </StatusPill>
-          ) : (
-            <StatusPill tone="indigo" icon={<Loader2 size={12} className="animate-spin" />}>
-              Installing
-            </StatusPill>
-          )}
-        </div>
-        <Button size="sm" variant="ghost" onClick={onDismiss}>
-          <X size={14} /> {session.exited ? "Close" : "Cancel"}
-        </Button>
-      </div>
-      <pre
-        ref={outRef}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          stickRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
-        }}
-        className="max-h-48 min-h-[6rem] overflow-auto whitespace-pre-wrap break-words rounded-md bg-slate-950 px-3 py-2 font-mono text-[11px] leading-snug text-slate-100"
-      >
-        {cleanedOutput.trim() || "Starting installer…"}
-      </pre>
-      {exitedOk && (
-        <div className="text-xs text-emerald-700 dark:text-emerald-400">
-          Installed. Click &quot;Sign in&quot; to continue.
-        </div>
-      )}
-      {failed && (
-        <div className="text-xs text-red-600 dark:text-red-400">
-          {error ?? "Installer exited with a non-zero status. See the log above for details."}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function StatusPill({
-  tone,
-  icon,
-  children,
-}: {
-  tone: "indigo" | "emerald" | "red" | "slate";
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  const palette: Record<typeof tone, string> = {
-    indigo:
-      "bg-indigo-50 text-indigo-700 ring-indigo-200 dark:bg-indigo-950 dark:text-indigo-300 dark:ring-indigo-900",
-    emerald:
-      "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:ring-emerald-900",
-    red:
-      "bg-red-50 text-red-700 ring-red-200 dark:bg-red-950 dark:text-red-300 dark:ring-red-900",
-    slate:
-      "bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700",
-  };
-  return (
-    <span
-      className={
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ring-1 " +
-        palette[tone]
-      }
-    >
-      {icon}
-      {children}
-    </span>
-  );
-}
-
-function providerLabel(p: PtySessionView["provider"]): string {
-  switch (p) {
-    case "claude-code":
-      return "Claude Code";
-    case "codex":
-      return "Codex";
-    case "opencode":
-      return "OpenCode";
-    case "goose":
-      return "Goose";
-    case "openclaw":
-      return "OpenClaw";
-  }
-}
-
-function ManualCommandFallback({ model }: { model: AIModel }) {
-  const [open, setOpen] = React.useState(false);
-  const [copied, setCopied] = React.useState(false);
-  // Providers without a login command (openclaw) have nothing to fall back to —
-  // the fallback only mirrors the in-browser sign-in button. Early return must
-  // come after the hooks above to keep the call order stable.
-  if (!model.loginCommand) return null;
-  const command = `${model.configDirEnv}=${shellQuote(model.configDir)} ${model.loginCommand}`;
-  return (
-    <details
-      className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-950"
-      open={open}
-      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
-    >
-      <summary className="flex cursor-pointer items-center gap-2 text-slate-600 dark:text-slate-300">
-        <Terminal size={12} />
-        SSH-only host? Run the equivalent in a terminal.
-      </summary>
-      <div className="mt-2 flex items-center gap-2">
-        <code className="flex-1 overflow-x-auto whitespace-nowrap rounded-md bg-slate-900 px-3 py-2 font-mono text-[11px] text-slate-100">
-          {command}
-        </code>
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={async () => {
-            const ok = await copyToClipboard(command);
-            if (!ok) return;
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 1500);
-          }}
-        >
-          {copied ? <Check size={14} /> : <Copy size={14} />}
-          {copied ? "Copied" : "Copy"}
-        </Button>
-      </div>
-    </details>
-  );
-}
-
-/**
- * Pull the first http(s) URL out of a chunk of CLI output. Used to surface
- * an OAuth URL as a clickable button — every provider's login command prints
- * one early in its run.
- */
-function extractFirstUrl(s: string): string | null {
-  if (!s) return null;
-  const cleaned = stripAnsi(s);
-  // Stop at whitespace, BEL (0x07 — provider CLIs sometimes embed BEL
-  // in status lines), and the usual URL-terminator punctuation.
-  // eslint-disable-next-line no-control-regex
-  const match = cleaned.match(/https?:\/\/[^\s\x07"'`<>]+/);
-  return match ? match[0] : null;
-}
-
-/**
- * Strip ANSI color and cursor escape sequences so the in-browser terminal
- * stays readable. We don't try to emulate a real terminal — the login flows
- * are short and linear, so dropping the styling is a reasonable trade for
- * not pulling in xterm.js.
- */
-function stripAnsi(s: string): string {
-  // Matches CSI escapes (color, cursor moves, screen clears) — covers what
-  // the install + login CLIs actually emit in practice.
-  // eslint-disable-next-line no-control-regex
-  return s.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "").replace(/\r(?!\n)/g, "");
-}
-
-function shellQuote(s: string): string {
-  return `'${s.replace(/'/g, `'\\''`)}'`;
-}
-
 function apiKeyPlaceholder(p: Provider): string {
-  switch (p) {
-    case "codex":
-      return "sk-…";
-    case "claude-code":
-    case "opencode":
-    case "goose":
-    case "openclaw":
-      return "sk-ant-…";
-  }
+  return p === "openai" ? "sk-…" : "sk-ant-…";
 }
 
 function ApiKeyPanel({
@@ -3441,7 +2176,7 @@ function ApiKeyPanel({
       }}
     >
       <Input
-        label={model.apiKeyEnv ?? "API_KEY"}
+        label={model.apiKeyEnv ?? "API key"}
         type="password"
         value={key}
         onChange={(e) => setKey(e.target.value)}
@@ -3449,7 +2184,7 @@ function ApiKeyPanel({
         required
       />
       <div className="text-xs text-slate-500 dark:text-slate-400">
-        Stored encrypted at rest. Wiped on disconnect.
+        Stored encrypted at rest. Removed on disconnect.
       </div>
       <div>
         <Button type="submit" disabled={saving || key.length === 0}>
@@ -3462,11 +2197,8 @@ function ApiKeyPanel({
 
 /**
  * Form for the customEndpoint auth mode. Three fields: base URL, model id,
- * optional API key. The harness (opencode / goose) is implicit in the
- * model row's `provider` field — the user picks it via the provider
- * dropdown above this panel. Base URL is the load-bearing signal: until
- * it's saved the model row stays in "Waiting" status even though
- * authMode + provider are already configured.
+ * optional API key. Base URL is the load-bearing signal: until it's saved the
+ * model row stays in "Waiting" status even though provider + auth are set.
  */
 function CustomEndpointPanel({
   company,
@@ -3479,13 +2211,11 @@ function CustomEndpointPanel({
   model: AIModel;
   onSaved: () => void;
 }) {
-  const initialPlaceholder = baseUrlPlaceholder(model.provider);
   const [baseURL, setBaseURL] = React.useState("");
   const [modelId, setModelId] = React.useState(model.customEndpointModelId ?? "");
   const [apiKey, setApiKey] = React.useState("");
   const [saving, setSaving] = React.useState(false);
   const { toast } = useToast();
-  const harnessLabel = model.provider === "opencode" ? "opencode" : "goose";
   const connected = model.status === "connected";
   return (
     <form
@@ -3517,7 +2247,7 @@ function CustomEndpointPanel({
           label="Base URL"
           value={baseURL}
           onChange={(e) => setBaseURL(e.target.value)}
-          placeholder={initialPlaceholder}
+          placeholder={baseUrlPlaceholder(model.provider)}
           required
         />
         <Input
@@ -3536,9 +2266,8 @@ function CustomEndpointPanel({
         placeholder={model.customEndpointHasApiKey ? "•••••••• (replace to update)" : "leave blank if not needed"}
       />
       <div className="text-xs text-slate-500 dark:text-slate-400">
-        Routed through <span className="font-medium">{harnessLabel}</span>. We
-        materialize its config before each spawn — the user never has to run a
-        CLI command. Base URL + key are stored encrypted at rest.
+        Point this employee at a self-hosted OpenAI-compatible server. Base URL +
+        key are stored encrypted at rest.
       </div>
       <div>
         <Button type="submit" disabled={saving || baseURL.length === 0 || modelId.length === 0}>
@@ -3549,11 +2278,10 @@ function CustomEndpointPanel({
   );
 }
 
-function baseUrlPlaceholder(provider: Provider): string {
-  // Common defaults the operator can paste. Ollama's port is the easiest
-  // sanity check; vLLM and llama-server are also documented in /docs.
-  if (provider === "opencode") return "http://host.docker.internal:11434/v1";
-  return "http://host.docker.internal:11434";
+function baseUrlPlaceholder(_provider: Provider): string {
+  // Ollama's port is the easiest sanity check; vLLM and llama-server are also
+  // documented in /docs. host.docker.internal reaches the host from the container.
+  return "http://host.docker.internal:11434/v1";
 }
 
 function WebhookField({

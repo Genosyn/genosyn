@@ -7,9 +7,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch --ignore='**/vite.config.*' --ignore='client/**' --ignore='dist/**' --ignore='data/**' server/index.ts",
-    "postinstall": "node scripts/rebuild-node-pty.mjs",
     "build": "npm run build:server && npm run build:client",
-    "build:server": "tsc -p tsconfig.server.json && mkdir -p dist/server/mcp-genosyn dist/server/mcp-browser/viewer && cp server/mcp-genosyn/*.mjs dist/server/mcp-genosyn/ && cp server/mcp-browser/*.mjs dist/server/mcp-browser/ && cp server/mcp-browser/viewer/index.html server/mcp-browser/viewer/viewer.js dist/server/mcp-browser/viewer/",
+    "build:server": "tsc -p tsconfig.server.json && mkdir -p dist/server/mcp-browser/viewer && cp server/mcp-browser/*.mjs dist/server/mcp-browser/ && cp server/mcp-browser/viewer/index.html server/mcp-browser/viewer/viewer.js dist/server/mcp-browser/viewer/",
     "build:client": "vite build",
     "start": "node dist/server/index.js",
     "lint": "eslint . --ext .ts,.tsx",
@@ -22,8 +21,10 @@
     "migration:show": "npm run typeorm -- migration:show -d ormconfig.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
     "@asteasolutions/zod-to-openapi": "^7.3.4",
     "@clickhouse/client": "^1.18.3",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@noble/hashes": "^1.4.0",
     "@types/archiver": "^7.0.0",
     "@types/unzipper": "^0.10.11",
@@ -45,9 +46,9 @@
     "multer": "^2.1.1",
     "mysql2": "^3.22.3",
     "node-cron": "^3.0.3",
-    "node-pty": "^1.0.0",
     "nodemailer": "^6.9.15",
     "nostr-tools": "^2.7.2",
+    "openai": "^6.45.0",
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^1.1.4",
     "pg": "^8.13.0",

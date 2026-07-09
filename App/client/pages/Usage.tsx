@@ -10,10 +10,10 @@ import { useToast } from "../components/ui/Toast";
 import type { SettingsOutletCtx } from "./SettingsLayout";
 
 /**
- * Compute-time + run-count visibility per company. We don't have provider
+ * Compute-time + run-count visibility per company. We don't surface model
  * token/cost metadata yet — this page reports what we can measure from the
- * Run table (count + wall-clock duration). A tooltip calls this out so
- * operators know what's missing.
+ * Run table (count + wall-clock duration). A note calls this out so operators
+ * know what's missing.
  */
 const WINDOW_OPTIONS = [
   { label: "Last 24 hours", value: 1 },
@@ -57,8 +57,7 @@ export default function Usage() {
         }
       />
       <p className="mb-6 text-xs text-slate-500 dark:text-slate-400">
-        Measured from routine runs. Token counts and dollar costs aren&apos;t tracked yet — the
-        provider CLIs don&apos;t surface that metadata in a stable way.
+        Measured from routine runs. Token counts and dollar costs aren&apos;t tracked yet.
       </p>
       {summary === null ? (
         <Spinner />

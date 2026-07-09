@@ -269,41 +269,26 @@ export type RunLog = {
   startedAt?: string;
   finishedAt?: string | null;
 };
-export type Provider = "claude-code" | "codex" | "opencode" | "goose" | "openclaw";
-export type AuthMode = "subscription" | "apikey" | "customEndpoint";
+export type Provider = "anthropic" | "openai" | "custom";
+export type AuthMode = "apikey" | "customEndpoint";
 export type AIModel = {
   id: string;
   employeeId: string;
   provider: Provider;
   model: string;
   authMode: AuthMode;
-  /** True if this is the brain the runner + chat seams spawn for the employee. */
+  /** True if this is the brain the runner + chat seams use for the employee. */
   isActive: boolean;
   connectedAt: string | null;
   status: "not_connected" | "connected";
   apiKeyMasked: string | null;
-  configDir: string;
-  configDirEnv: string;
-  loginCommand: string | null;
+  /** Env var the provider conventionally reads (informational), or null. */
   apiKeyEnv: string | null;
   supportsApiKey: boolean;
-  supportsSubscription: boolean;
   supportsCustomEndpoint: boolean;
   customEndpointHost: string | null;
   customEndpointModelId: string | null;
   customEndpointHasApiKey: boolean;
-  cliInstalled: boolean;
-};
-
-export type PtySessionView = {
-  sessionId: string;
-  kind: "install" | "login";
-  provider: Provider;
-  output: string;
-  totalBytes: number;
-  truncated: boolean;
-  exited: boolean;
-  exitCode: number | null;
 };
 export type Member = {
   userId: string;

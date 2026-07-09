@@ -109,7 +109,7 @@ const REASONS: Reason[] = [
   {
     icon: KeyRound,
     title: "Your model keys, your bill",
-    body: "Wire Genosyn to your existing Anthropic, OpenAI, Bedrock, or Vertex contracts. No usage routing through a vendor.",
+    body: "Point Genosyn at your own Anthropic or OpenAI keys, or any OpenAI-compatible endpoint you host. Bedrock and Vertex are on the roadmap. No usage routing through a vendor.",
   },
   {
     icon: FileLock2,
@@ -382,7 +382,7 @@ const PROOFS: Proof[] = [
     icon: Sparkles,
     label: "Models",
     value: "Bring your own",
-    body: "Claude, GPT, OSS via Bedrock or self-hosted. We never sit in the inference path.",
+    body: "Claude, GPT, or any OpenAI-compatible endpoint you self-host. We never sit in the inference path.",
   },
   {
     icon: Github,

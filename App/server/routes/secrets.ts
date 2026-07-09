@@ -9,24 +9,24 @@ import { recordAudit } from "../services/audit.js";
 
 /**
  * Per-company secrets vault. Values are encrypted at rest and never leave the
- * server unmasked — the list endpoint returns only a masked preview. On
- * spawn, the runner decrypts each secret and merges them into the child's
- * env (see buildProviderEnv).
+ * server unmasked — the list endpoint returns only a masked preview. On each
+ * run, the chat/routine seam decrypts each secret and merges them into the
+ * environment the built-in `bash` coding tool runs with.
  *
  * Names are validated as POSIX-style env var identifiers so they can be used
- * directly. A small blacklist prevents overriding reserved keys the runner
- * uses for its own auth plumbing.
+ * directly. A small blacklist (RESERVED_NAMES) prevents overriding keys the
+ * tools rely on.
  */
 export const secretsRouter = Router({ mergeParams: true });
 secretsRouter.use(requireAuth);
 secretsRouter.use(requireCompanyMember);
 
 const RESERVED_NAMES = new Set([
+  // The model providers' conventional key names — reserved so a company secret
+  // named like one can't shadow or confuse a model connection when it lands in
+  // the bash tool's environment.
   "ANTHROPIC_API_KEY",
   "OPENAI_API_KEY",
-  "CLAUDE_CONFIG_DIR",
-  "CODEX_HOME",
-  "XDG_DATA_HOME",
   "PATH",
   "HOME",
   "USER",
