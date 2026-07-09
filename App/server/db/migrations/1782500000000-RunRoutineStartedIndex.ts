@@ -8,7 +8,7 @@ export class RunRoutineStartedIndex1782500000000 implements MigrationInterface {
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`DROP INDEX "IDX_256fc3e671f60318bb6a3c26d7"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_256fc3e671f60318bb6a3c26d7"`);
     }
 
 }

@@ -39,10 +39,10 @@ export class ApiKeys1780200000000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX "IDX_api_keys_tokenHash"`);
-    await queryRunner.query(`DROP INDEX "IDX_api_keys_prefix"`);
-    await queryRunner.query(`DROP INDEX "IDX_api_keys_userId"`);
-    await queryRunner.query(`DROP INDEX "IDX_api_keys_companyId"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_api_keys_tokenHash"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_api_keys_prefix"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_api_keys_userId"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_api_keys_companyId"`);
     await queryRunner.query(`DROP TABLE "api_keys"`);
   }
 }

@@ -25,7 +25,7 @@ export class ApprovalKinds1780100000000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX "IDX_approvals_kind"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_approvals_kind"`);
     await queryRunner.query(`ALTER TABLE "approvals" DROP COLUMN "errorMessage"`);
     await queryRunner.query(`ALTER TABLE "approvals" DROP COLUMN "resultJson"`);
     await queryRunner.query(`ALTER TABLE "approvals" DROP COLUMN "payloadJson"`);

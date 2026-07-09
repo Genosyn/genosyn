@@ -14,12 +14,12 @@ export class M19RecurringInvoices1781900000000 implements MigrationInterface {
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`DROP INDEX "IDX_08115b7bd475f8408639498ac2"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_08115b7bd475f8408639498ac2"`);
         await queryRunner.query(`DROP TABLE "recurring_invoice_line_items"`);
-        await queryRunner.query(`DROP INDEX "IDX_f53af82436c43379d715fb5b2b"`);
-        await queryRunner.query(`DROP INDEX "IDX_4dd25c6fdfc989fa3bf6b0e1dd"`);
-        await queryRunner.query(`DROP INDEX "IDX_3d4c08173d626b3f7c22b2f251"`);
-        await queryRunner.query(`DROP INDEX "IDX_7e659c93d19a0d00b17a3cb47f"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_f53af82436c43379d715fb5b2b"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_4dd25c6fdfc989fa3bf6b0e1dd"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_3d4c08173d626b3f7c22b2f251"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_7e659c93d19a0d00b17a3cb47f"`);
         await queryRunner.query(`DROP TABLE "recurring_invoices"`);
     }
 

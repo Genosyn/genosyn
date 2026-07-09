@@ -13,11 +13,11 @@ export class CodeRepositories1782600000000 implements MigrationInterface {
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`DROP INDEX "IDX_36aeeb6816fc49cf682c343742"`);
-        await queryRunner.query(`DROP INDEX "IDX_c26165830e566d19374b33c916"`);
-        await queryRunner.query(`DROP INDEX "IDX_375473a9b0e4701a0a3cf3506e"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_36aeeb6816fc49cf682c343742"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_c26165830e566d19374b33c916"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_375473a9b0e4701a0a3cf3506e"`);
         await queryRunner.query(`DROP TABLE "employee_code_repository_grants"`);
-        await queryRunner.query(`DROP INDEX "IDX_cc2fdb26c088604ffd160ffeed"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_cc2fdb26c088604ffd160ffeed"`);
         await queryRunner.query(`DROP TABLE "code_repositories"`);
     }
 

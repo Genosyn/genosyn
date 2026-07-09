@@ -21,15 +21,15 @@ export class Init1776188492090 implements MigrationInterface {
 
     public async down(queryRunner: QueryRunner): Promise<void> {
         await queryRunner.query(`DROP TABLE "runs"`);
-        await queryRunner.query(`DROP INDEX "IDX_59e11503010aeeab1de06f89a9"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_59e11503010aeeab1de06f89a9"`);
         await queryRunner.query(`DROP TABLE "routines"`);
-        await queryRunner.query(`DROP INDEX "IDX_5b93a7f44ad4d2d2267ff5be01"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_5b93a7f44ad4d2d2267ff5be01"`);
         await queryRunner.query(`DROP TABLE "skills"`);
-        await queryRunner.query(`DROP INDEX "IDX_ee8cf7de39f600c1d51250df21"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_ee8cf7de39f600c1d51250df21"`);
         await queryRunner.query(`DROP TABLE "ai_employees"`);
         await queryRunner.query(`DROP TABLE "ai_models"`);
         await queryRunner.query(`DROP TABLE "invitations"`);
-        await queryRunner.query(`DROP INDEX "IDX_3a1cdbb1434a2c0a6f3f95a860"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_3a1cdbb1434a2c0a6f3f95a860"`);
         await queryRunner.query(`DROP TABLE "memberships"`);
         await queryRunner.query(`DROP TABLE "companies"`);
         await queryRunner.query(`DROP TABLE "users"`);

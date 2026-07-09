@@ -28,9 +28,9 @@ export class EmployeeBaseGrants1778000000000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX "IDX_employee_base_grants_pair"`);
-    await queryRunner.query(`DROP INDEX "IDX_employee_base_grants_baseId"`);
-    await queryRunner.query(`DROP INDEX "IDX_employee_base_grants_employeeId"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_employee_base_grants_pair"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_employee_base_grants_baseId"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_employee_base_grants_employeeId"`);
     await queryRunner.query(`DROP TABLE "employee_base_grants"`);
   }
 }

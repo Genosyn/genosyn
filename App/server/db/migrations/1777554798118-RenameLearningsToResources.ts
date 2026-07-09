@@ -38,12 +38,12 @@ export class RenameLearningsToResources1777554798118 implements MigrationInterfa
 
     public async down(queryRunner: QueryRunner): Promise<void> {
         // Drop the new "Resources" tables (auto-generated reverse).
-        await queryRunner.query(`DROP INDEX "IDX_07191e9a92b46bafc94513ffd7"`);
-        await queryRunner.query(`DROP INDEX "IDX_a67558128d298c6dd78e478601"`);
-        await queryRunner.query(`DROP INDEX "IDX_199a481acc6c94c487097bdaa3"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_07191e9a92b46bafc94513ffd7"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_a67558128d298c6dd78e478601"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_199a481acc6c94c487097bdaa3"`);
         await queryRunner.query(`DROP TABLE "employee_resource_grants"`);
-        await queryRunner.query(`DROP INDEX "IDX_6b45e2ff392972158a306f0fbc"`);
-        await queryRunner.query(`DROP INDEX "IDX_7e67e70759a1a595641031a8d4"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_6b45e2ff392972158a306f0fbc"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_7e67e70759a1a595641031a8d4"`);
         await queryRunner.query(`DROP TABLE "resources"`);
 
         // Re-create the old "Learnings" tables to match the M18 migration.

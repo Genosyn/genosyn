@@ -10,8 +10,8 @@ export class M19FinancePhaseF1780800000000 implements MigrationInterface {
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`DROP INDEX "IDX_138d0337c7fb52a70a61bf17f9"`);
-        await queryRunner.query(`DROP INDEX "IDX_d27859f80625f11e86e0afecff"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_138d0337c7fb52a70a61bf17f9"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_d27859f80625f11e86e0afecff"`);
         await queryRunner.query(`DROP TABLE "accounting_periods"`);
     }
 

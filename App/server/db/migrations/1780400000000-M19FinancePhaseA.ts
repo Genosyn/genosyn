@@ -24,22 +24,22 @@ export class M19FinancePhaseA1780400000000 implements MigrationInterface {
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`DROP INDEX "IDX_3b2a25d4269ebe9d7ca0c1001d"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_3b2a25d4269ebe9d7ca0c1001d"`);
         await queryRunner.query(`DROP TABLE "invoice_payments"`);
-        await queryRunner.query(`DROP INDEX "IDX_2ec8b1cda36ed79a7ded49bd91"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_2ec8b1cda36ed79a7ded49bd91"`);
         await queryRunner.query(`DROP TABLE "invoice_line_items"`);
-        await queryRunner.query(`DROP INDEX "IDX_0afa115f708972afe8a7ec2d26"`);
-        await queryRunner.query(`DROP INDEX "IDX_f3ffc04f81b4de8bda218c8982"`);
-        await queryRunner.query(`DROP INDEX "IDX_f73f492a1b636e2bfa2fea3cd6"`);
-        await queryRunner.query(`DROP INDEX "IDX_1a8aa00285e3a99a1a1d751369"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_0afa115f708972afe8a7ec2d26"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_f3ffc04f81b4de8bda218c8982"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_f73f492a1b636e2bfa2fea3cd6"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_1a8aa00285e3a99a1a1d751369"`);
         await queryRunner.query(`DROP TABLE "invoices"`);
-        await queryRunner.query(`DROP INDEX "IDX_f0ba22e44ed96bd6b9892db29d"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_f0ba22e44ed96bd6b9892db29d"`);
         await queryRunner.query(`DROP TABLE "tax_rates"`);
-        await queryRunner.query(`DROP INDEX "IDX_53d867140bc74d0fb238a29ed2"`);
-        await queryRunner.query(`DROP INDEX "IDX_6537e40d536cc111b3fb99ec7b"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_53d867140bc74d0fb238a29ed2"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_6537e40d536cc111b3fb99ec7b"`);
         await queryRunner.query(`DROP TABLE "products"`);
-        await queryRunner.query(`DROP INDEX "IDX_e8ba264e557c27ffe461eb6c69"`);
-        await queryRunner.query(`DROP INDEX "IDX_8bc655492a3f2878a887a75b86"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_e8ba264e557c27ffe461eb6c69"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_8bc655492a3f2878a887a75b86"`);
         await queryRunner.query(`DROP TABLE "customers"`);
     }
 

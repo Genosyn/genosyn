@@ -15,13 +15,13 @@ export class M20Explore1781400000000 implements MigrationInterface {
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`DROP INDEX "IDX_ab44fdb49c60d0820faa28ae67"`);
-        await queryRunner.query(`DROP INDEX "IDX_bf8dab799955c90603a0197bec"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_ab44fdb49c60d0820faa28ae67"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_bf8dab799955c90603a0197bec"`);
         await queryRunner.query(`DROP TABLE "dashboard_cards"`);
-        await queryRunner.query(`DROP INDEX "IDX_5d047d00801362457bea3e7dcb"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_5d047d00801362457bea3e7dcb"`);
         await queryRunner.query(`DROP TABLE "dashboards"`);
-        await queryRunner.query(`DROP INDEX "IDX_04fdc19be6ac762b25e46882d2"`);
-        await queryRunner.query(`DROP INDEX "IDX_b82f0964a35cc821000fbc2975"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_04fdc19be6ac762b25e46882d2"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_b82f0964a35cc821000fbc2975"`);
         await queryRunner.query(`DROP TABLE "charts"`);
     }
 

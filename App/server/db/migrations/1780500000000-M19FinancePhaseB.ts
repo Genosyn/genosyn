@@ -17,15 +17,15 @@ export class M19FinancePhaseB1780500000000 implements MigrationInterface {
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`DROP INDEX "IDX_d821017bf0365ffc14d10fec65"`);
-        await queryRunner.query(`DROP INDEX "IDX_857badb2b30b781890a3d6190c"`);
-        await queryRunner.query(`DROP INDEX "IDX_131649f21636a46d6f0913ba76"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_d821017bf0365ffc14d10fec65"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_857badb2b30b781890a3d6190c"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_131649f21636a46d6f0913ba76"`);
         await queryRunner.query(`DROP TABLE "ledger_lines"`);
-        await queryRunner.query(`DROP INDEX "IDX_bc48646cddb5934d0a8ea980d6"`);
-        await queryRunner.query(`DROP INDEX "IDX_a491c27dd948cdc988487949cf"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_bc48646cddb5934d0a8ea980d6"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_a491c27dd948cdc988487949cf"`);
         await queryRunner.query(`DROP TABLE "ledger_entries"`);
-        await queryRunner.query(`DROP INDEX "IDX_5c4d8213d09415425f957521eb"`);
-        await queryRunner.query(`DROP INDEX "IDX_a28f4daf5e97e6474a84eb0ef5"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_5c4d8213d09415425f957521eb"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_a28f4daf5e97e6474a84eb0ef5"`);
         await queryRunner.query(`DROP TABLE "accounts"`);
     }
 

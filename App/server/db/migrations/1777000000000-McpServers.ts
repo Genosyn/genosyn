@@ -32,8 +32,8 @@ export class McpServers1777000000000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX "IDX_mcp_servers_employee_name"`);
-    await queryRunner.query(`DROP INDEX "IDX_mcp_servers_employeeId"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_mcp_servers_employee_name"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_mcp_servers_employeeId"`);
     await queryRunner.query(`DROP TABLE "mcp_servers"`);
   }
 }

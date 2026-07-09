@@ -11,8 +11,8 @@ export class WebPush1782400000000 implements MigrationInterface {
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`DROP INDEX "IDX_4cc061875e9eecc311a94b3e43"`);
-        await queryRunner.query(`DROP INDEX "IDX_0008bdfd174e533a3f98bf9af1"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_4cc061875e9eecc311a94b3e43"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_0008bdfd174e533a3f98bf9af1"`);
         await queryRunner.query(`DROP TABLE "push_subscriptions"`);
         await queryRunner.query(`DROP TABLE "app_settings"`);
     }

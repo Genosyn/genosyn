@@ -28,7 +28,7 @@ export class JournalEntries1776700000000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX "IDX_journal_entries_employeeId"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_journal_entries_employeeId"`);
     await queryRunner.query(`DROP TABLE "journal_entries"`);
   }
 }

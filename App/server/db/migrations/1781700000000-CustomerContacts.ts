@@ -10,8 +10,8 @@ export class CustomerContacts1781700000000 implements MigrationInterface {
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`DROP INDEX "IDX_b13b378eb8eb28736fb8cc1195"`);
-        await queryRunner.query(`DROP INDEX "IDX_3fdc734bc052fa246e3f8863e2"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_b13b378eb8eb28736fb8cc1195"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_3fdc734bc052fa246e3f8863e2"`);
         await queryRunner.query(`DROP TABLE "customer_contacts"`);
     }
 

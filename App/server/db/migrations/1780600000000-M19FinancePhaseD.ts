@@ -15,13 +15,13 @@ export class M19FinancePhaseD1780600000000 implements MigrationInterface {
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`DROP INDEX "IDX_c1517c32327ed32204813a5f4d"`);
-        await queryRunner.query(`DROP INDEX "IDX_dd9de51594085b276efe00ff2e"`);
-        await queryRunner.query(`DROP INDEX "IDX_b22a3c009323ff797c672f15d6"`);
-        await queryRunner.query(`DROP INDEX "IDX_bb323c24b475395a4d08805b87"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_c1517c32327ed32204813a5f4d"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_dd9de51594085b276efe00ff2e"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_b22a3c009323ff797c672f15d6"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_bb323c24b475395a4d08805b87"`);
         await queryRunner.query(`DROP TABLE "bank_transactions"`);
-        await queryRunner.query(`DROP INDEX "IDX_8981f153643ea13187e82d41e3"`);
-        await queryRunner.query(`DROP INDEX "IDX_b5bc8dc3001a897c4d50e05720"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_8981f153643ea13187e82d41e3"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_b5bc8dc3001a897c4d50e05720"`);
         await queryRunner.query(`DROP TABLE "bank_feeds"`);
     }
 

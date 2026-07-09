@@ -20,10 +20,10 @@ export class BrowserLiveViewAndDropBrowserbase1781200000000 implements Migration
         await queryRunner.query(`CREATE TABLE "companies" ("id" varchar PRIMARY KEY NOT NULL, "name" varchar NOT NULL, "slug" varchar NOT NULL, "ownerId" varchar NOT NULL, "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "browserBackend" varchar NOT NULL DEFAULT ('local'), "browserbaseApiKeyEnc" text, "browserbaseProjectId" varchar, CONSTRAINT "UQ_b28b07d25e4324eee577de5496d" UNIQUE ("slug"))`);
         await queryRunner.query(`INSERT INTO "companies"("id", "name", "slug", "ownerId", "createdAt") SELECT "id", "name", "slug", "ownerId", "createdAt" FROM "temporary_companies"`);
         await queryRunner.query(`DROP TABLE "temporary_companies"`);
-        await queryRunner.query(`DROP INDEX "IDX_fc1a88b2687b805dc333f0835c"`);
-        await queryRunner.query(`DROP INDEX "IDX_f2279a001f6b0b5c31f893edf0"`);
-        await queryRunner.query(`DROP INDEX "IDX_339b67839b06c54aebc971b4e0"`);
-        await queryRunner.query(`DROP INDEX "IDX_58f28cd53f8d042870e7a92c2c"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_fc1a88b2687b805dc333f0835c"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_f2279a001f6b0b5c31f893edf0"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_339b67839b06c54aebc971b4e0"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_58f28cd53f8d042870e7a92c2c"`);
         await queryRunner.query(`DROP TABLE "browser_sessions"`);
     }
 

@@ -26,7 +26,7 @@ export class EmployeeMemory1778100000000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX "IDX_employee_memory_items_employeeId"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_employee_memory_items_employeeId"`);
     await queryRunner.query(`DROP TABLE "employee_memory_items"`);
   }
 }

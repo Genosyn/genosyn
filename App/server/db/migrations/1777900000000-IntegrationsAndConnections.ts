@@ -58,12 +58,12 @@ export class IntegrationsAndConnections1777900000000 implements MigrationInterfa
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX "IDX_employee_connection_grants_pair"`);
-    await queryRunner.query(`DROP INDEX "IDX_employee_connection_grants_connectionId"`);
-    await queryRunner.query(`DROP INDEX "IDX_employee_connection_grants_employeeId"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_employee_connection_grants_pair"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_employee_connection_grants_connectionId"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_employee_connection_grants_employeeId"`);
     await queryRunner.query(`DROP TABLE "employee_connection_grants"`);
-    await queryRunner.query(`DROP INDEX "IDX_integration_connections_company_provider"`);
-    await queryRunner.query(`DROP INDEX "IDX_integration_connections_companyId"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_integration_connections_company_provider"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_integration_connections_companyId"`);
     await queryRunner.query(`DROP TABLE "integration_connections"`);
   }
 }

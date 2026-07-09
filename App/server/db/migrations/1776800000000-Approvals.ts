@@ -33,8 +33,8 @@ export class Approvals1776800000000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX "IDX_approvals_routineId"`);
-    await queryRunner.query(`DROP INDEX "IDX_approvals_companyId"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_approvals_routineId"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_approvals_companyId"`);
     await queryRunner.query(`DROP TABLE "approvals"`);
     await queryRunner.query(`ALTER TABLE "routines" DROP COLUMN "requiresApproval"`);
   }

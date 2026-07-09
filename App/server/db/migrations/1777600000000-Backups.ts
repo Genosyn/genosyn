@@ -39,7 +39,7 @@ export class Backups1777600000000 implements MigrationInterface {
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`DROP TABLE "backup_schedules"`);
-    await queryRunner.query(`DROP INDEX "IDX_backups_createdAt"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_backups_createdAt"`);
     await queryRunner.query(`DROP TABLE "backups"`);
   }
 }

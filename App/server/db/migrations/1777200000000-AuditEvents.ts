@@ -24,7 +24,7 @@ export class AuditEvents1777200000000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX "IDX_audit_company_createdAt"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_audit_company_createdAt"`);
     await queryRunner.query(`DROP TABLE "audit_events"`);
   }
 }

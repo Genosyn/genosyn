@@ -61,3 +61,50 @@ jobs:
       - name: Typecheck
         if: steps.exists.outputs.ready == 'true'
         run: npm run typecheck
+
+  fresh-boot:
+    name: Fresh-DB boot (App)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: App
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: App/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      # Boot the compiled server against an EMPTY data dir so the full TypeORM
+      # migration chain runs from scratch. This catches migrations that abort a
+      # fresh install (e.g. a `DROP INDEX` on an index a pure migration-chain
+      # boot never created) — which a synchronize-seeded dev DB never exercises.
+      - name: Boot against a fresh database
+        run: |
+          rm -rf data
+          NODE_ENV=production PORT=8471 node dist/server/index.js > /tmp/boot.log 2>&1 &
+          PID=$!
+          ok=0
+          for i in $(seq 1 60); do
+            if grep -q "listening on" /tmp/boot.log; then ok=1; break; fi
+            if ! kill -0 "$PID" 2>/dev/null; then break; fi   # process exited (crash)
+            sleep 1
+          done
+          kill "$PID" 2>/dev/null || true
+          echo "----- server boot log -----"
+          cat /tmp/boot.log
+          if [ "$ok" != "1" ]; then
+            echo "::error::Server did not boot against a fresh database — the migration chain or startup crashed."
+            exit 1
+          fi
+          echo "Server booted cleanly against a fresh database."

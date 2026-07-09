@@ -14,12 +14,12 @@ export class M19Estimates1781600000000 implements MigrationInterface {
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`DROP INDEX "IDX_a999b1ff0276fd479644a45077"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_a999b1ff0276fd479644a45077"`);
         await queryRunner.query(`DROP TABLE "estimate_line_items"`);
-        await queryRunner.query(`DROP INDEX "IDX_50e84f6fc9a247ab896845267d"`);
-        await queryRunner.query(`DROP INDEX "IDX_e7147292a569a965ecb2134236"`);
-        await queryRunner.query(`DROP INDEX "IDX_4b554f95e27e5ed7ef3c8a8401"`);
-        await queryRunner.query(`DROP INDEX "IDX_a369800c9ccabeb4e8eb527d52"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_50e84f6fc9a247ab896845267d"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_e7147292a569a965ecb2134236"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_4b554f95e27e5ed7ef3c8a8401"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_a369800c9ccabeb4e8eb527d52"`);
         await queryRunner.query(`DROP TABLE "estimates"`);
     }
 

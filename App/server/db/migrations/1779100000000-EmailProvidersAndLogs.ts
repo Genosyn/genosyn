@@ -68,11 +68,11 @@ export class EmailProvidersAndLogs1779100000000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX "IDX_email_logs_status"`);
-    await queryRunner.query(`DROP INDEX "IDX_email_logs_company_createdAt"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_email_logs_status"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_email_logs_company_createdAt"`);
     await queryRunner.query(`DROP TABLE "email_logs"`);
-    await queryRunner.query(`DROP INDEX "IDX_email_providers_company_default"`);
-    await queryRunner.query(`DROP INDEX "IDX_email_providers_companyId"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_email_providers_company_default"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_email_providers_companyId"`);
     await queryRunner.query(`DROP TABLE "email_providers"`);
   }
 }

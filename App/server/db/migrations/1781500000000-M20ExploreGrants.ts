@@ -76,13 +76,13 @@ export class M20ExploreGrants1781500000000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX "IDX_4669ae8a3773bbf599f8d0d052"`);
-    await queryRunner.query(`DROP INDEX "IDX_568d6dc882fa8354935d0c9631"`);
-    await queryRunner.query(`DROP INDEX "IDX_daa18a8e61b39e483c54fae4ae"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_4669ae8a3773bbf599f8d0d052"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_568d6dc882fa8354935d0c9631"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_daa18a8e61b39e483c54fae4ae"`);
     await queryRunner.query(`DROP TABLE "employee_dashboard_grants"`);
-    await queryRunner.query(`DROP INDEX "IDX_cf6f38fe61de6cec090c876562"`);
-    await queryRunner.query(`DROP INDEX "IDX_db4e91603d28d3588e61e0e03a"`);
-    await queryRunner.query(`DROP INDEX "IDX_6d8e2f5669778d6f41f55be118"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_cf6f38fe61de6cec090c876562"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_db4e91603d28d3588e61e0e03a"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_6d8e2f5669778d6f41f55be118"`);
     await queryRunner.query(`DROP TABLE "employee_chart_grants"`);
   }
 }
