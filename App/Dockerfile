@@ -43,13 +43,17 @@ WORKDIR /app
 
 # Provider CLIs + the small toolset they need at runtime. curl/bash power the
 # goose installer; libstdc++ is what node-pty's native addon dynamically
-# links against. chromium + nss + freetype + harfbuzz + ttf-freefont +
-# ca-certificates back the built-in `browser` MCP server (driven by
-# playwright-core when AIEmployee.browserEnabled is true). Playwright's
-# bundled Chromium is glibc and won't run on musl, so we use the apk build
-# and point playwright-core at it via PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH.
+# links against. git + openssh-client back the Code Repositories feature —
+# the server shells out to `git` (ls-remote to test a connection, then
+# clone/fetch/checkout before every employee spawn), and SSH-auth repos run
+# `ssh` via GIT_SSH_COMMAND. chromium + nss + freetype + harfbuzz +
+# ttf-freefont + ca-certificates back the built-in `browser` MCP server
+# (driven by playwright-core when AIEmployee.browserEnabled is true).
+# Playwright's bundled Chromium is glibc and won't run on musl, so we use
+# the apk build and point playwright-core at it via
+# PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH.
 RUN apk add --no-cache \
-      bash curl libstdc++ \
+      bash curl libstdc++ git openssh-client \
       chromium nss freetype harfbuzz ca-certificates ttf-freefont
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 

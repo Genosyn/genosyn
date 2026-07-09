@@ -273,6 +273,11 @@ async function runGit(cwd: string, args: string[]): Promise<void> {
       maxBuffer: 16 * 1024 * 1024,
     });
   } catch (err) {
+    if ((err as { code?: string }).code === "ENOENT") {
+      throw new Error(
+        `git is not installed on the Genosyn server, so "git ${args[0]}" could not run. Install git (the official Genosyn Docker image bundles it) and try again.`,
+      );
+    }
     const e = err as { stderr?: string; stdout?: string; message?: string };
     const tail = (e.stderr || e.stdout || e.message || "").toString().trim();
     throw new Error(`git ${args[0]} failed: ${tail.split("\n").slice(-3).join(" | ")}`);

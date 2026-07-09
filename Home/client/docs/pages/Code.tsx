@@ -67,6 +67,16 @@ export function CodeRepositories() {
         </LI>
       </OL>
 
+      <Callout kind="info" title="The Genosyn server needs git installed.">
+        Repositories are cloned and fetched by shelling out to <Code>git</Code>{" "}
+        on the Genosyn server, and SSH remotes also need an <Code>ssh</Code>{" "}
+        client. The official Docker image bundles both, so there is nothing to
+        install. On a bare-host install, make sure <Code>git</Code> (and{" "}
+        <Code>openssh-client</Code>, for SSH auth) is on the server&apos;s{" "}
+        <Code>PATH</Code> — otherwise <Strong>Test connection</Strong> fails
+        with <Code>spawn git ENOENT</Code>.
+      </Callout>
+
       <H2 id="auth">Authentication</H2>
       <P>
         Credentials are encrypted at rest with the same AES-256-GCM key that
