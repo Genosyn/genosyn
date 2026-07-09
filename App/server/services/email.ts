@@ -15,6 +15,8 @@ import {
   EmailAttachment,
   EmailMessage,
   EmailProviderConfig,
+  explainSmtpError,
+  resolveSmtpTransportSecurity,
   sendViaProvider,
   validateProviderConfig,
 } from "./emailTransports.js";
@@ -44,10 +46,17 @@ let configSmtpTransporter: Transporter | null = null;
 function getConfigSmtpTransporter(): Transporter | null {
   if (!config.smtp.host) return null;
   if (!configSmtpTransporter) {
+    const { secure, requireTLS } = resolveSmtpTransportSecurity(
+      config.smtp.port,
+      config.smtp.secure,
+    );
     configSmtpTransporter = nodemailer.createTransport({
       host: config.smtp.host,
       port: config.smtp.port,
-      secure: config.smtp.secure,
+      secure,
+      requireTLS,
+      connectionTimeout: 15000,
+      greetingTimeout: 10000,
       auth: config.smtp.user
         ? { user: config.smtp.user, pass: config.smtp.pass }
         : undefined,
@@ -186,7 +195,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult
         logId: log.id,
       };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = explainSmtpError(err, config.smtp.port);
       const log = await writeLog({
         companyId: opts.companyId ?? null,
         providerId: null,

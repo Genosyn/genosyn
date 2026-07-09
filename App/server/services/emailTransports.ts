@@ -132,15 +132,15 @@ export const PROVIDER_CATALOG: EmailProviderCatalogEntry[] = [
         type: "number",
         required: true,
         defaultValue: 587,
-        hint: "Common: 587 (STARTTLS), 465 (TLS), 25 (unencrypted, rare).",
+        hint: "Common: 587 (STARTTLS), 465 (implicit TLS), 25 (plaintext relay). TLS mode is auto-detected for these ports.",
       },
       {
         key: "secure",
-        label: "Use TLS (port 465)",
+        label: "Use implicit TLS",
         type: "checkbox",
         required: false,
         defaultValue: false,
-        hint: "Tick for implicit TLS on port 465. Leave unchecked for STARTTLS on 587.",
+        hint: "Auto-detected for standard ports (465 on, 587/25 off). Only tick this for a non-standard port that needs implicit TLS.",
       },
       {
         key: "user",
@@ -391,32 +391,107 @@ function maskKey(s: string): string {
   return `${s.slice(0, 4)}…${s.slice(-4)}`;
 }
 
+// ───────────────────────── smtp helpers ─────────────────────────────────────
+
+/**
+ * Reconcile the TLS mode with the port so a mis-ticked "secure" checkbox
+ * can't produce the opaque OpenSSL error `wrong version number`.
+ *
+ * That error is what you get when nodemailer runs an *implicit* TLS handshake
+ * (`secure: true`) against a port that actually speaks plaintext first: the
+ * server's `220 …` greeting is read as a TLS record header and OpenSSL rejects
+ * the version bytes. The inverse (`secure: false` against an implicit-TLS
+ * port) hangs waiting for a plaintext greeting.
+ *
+ * Implicit TLS is standard only on 465. Port 587 (submission) and 25 speak
+ * plaintext and upgrade via STARTTLS. Deriving the mode from these well-known
+ * ports makes the Test button forgiving; non-standard ports keep whatever the
+ * operator explicitly chose.
+ */
+export function resolveSmtpTransportSecurity(
+  port: number,
+  secure: boolean,
+): { secure: boolean; requireTLS: boolean } {
+  switch (port) {
+    case 465:
+      return { secure: true, requireTLS: false };
+    case 587:
+      // Submission port: never implicit TLS, but require the STARTTLS upgrade
+      // so we don't silently fall back to sending credentials in the clear.
+      return { secure: false, requireTLS: true };
+    case 25:
+      // Relay port: opportunistic STARTTLS, but tolerate plaintext-only relays.
+      return { secure: false, requireTLS: false };
+    default:
+      return { secure, requireTLS: false };
+  }
+}
+
+/**
+ * Turn a raw nodemailer/OpenSSL SMTP failure into a message an operator can
+ * act on. The TLS-handshake mismatch surfaces as `wrong version number`
+ * (wrapped by nodemailer as an `ESOCKET` error) — cryptic unless you already
+ * know it means "your port and encryption mode disagree".
+ */
+export function explainSmtpError(err: unknown, port: number): string {
+  const raw = (err instanceof Error ? err.message : String(err)).trim();
+  const code = (err as { code?: string })?.code ?? "";
+  if (/wrong version number/i.test(raw) || /ERR_SSL/i.test(raw)) {
+    return (
+      `TLS handshake failed on port ${port} (${raw}). The port and encryption ` +
+      `mode disagree — use port 465 for implicit TLS, or port 587 for ` +
+      `STARTTLS. Check the host and port and try again.`
+    );
+  }
+  if (code === "ETIMEDOUT" || /greeting never received/i.test(raw)) {
+    return (
+      `The SMTP server at port ${port} did not respond (${raw}). If this is an ` +
+      `implicit-TLS server use port 465; otherwise check the host, port, and ` +
+      `that the server is reachable from Genosyn.`
+    );
+  }
+  return raw;
+}
+
 // ───────────────────────── senders ─────────────────────────────────────────
 
 async function sendSmtp(
   cfg: SmtpConfig,
   msg: EmailMessage,
 ): Promise<EmailSendResult> {
+  const { secure, requireTLS } = resolveSmtpTransportSecurity(
+    cfg.port,
+    cfg.secure,
+  );
   const transport = nodemailer.createTransport({
     host: cfg.host,
     port: cfg.port,
-    secure: cfg.secure,
+    secure,
+    requireTLS,
+    // Bound the pathological hang (e.g. plaintext client against an implicit
+    // TLS port) so the Test button fails fast instead of spinning forever.
+    connectionTimeout: 15000,
+    greetingTimeout: 10000,
     auth: cfg.user ? { user: cfg.user, pass: cfg.pass } : undefined,
   });
-  const info = await transport.sendMail({
-    from: msg.fromAddress,
-    to: msg.to,
-    subject: msg.subject,
-    text: msg.text,
-    html: msg.html,
-    replyTo: msg.replyTo || undefined,
-    attachments: msg.attachments?.map((a) => ({
-      filename: a.filename,
-      content: a.content,
-      contentType: a.contentType,
-    })),
-  });
-  return { messageId: info.messageId ?? "" };
+  try {
+    const info = await transport.sendMail({
+      from: msg.fromAddress,
+      to: msg.to,
+      subject: msg.subject,
+      text: msg.text,
+      html: msg.html,
+      replyTo: msg.replyTo || undefined,
+      attachments: msg.attachments?.map((a) => ({
+        filename: a.filename,
+        content: a.content,
+        contentType: a.contentType,
+      })),
+    });
+    return { messageId: info.messageId ?? "" };
+  } catch (err) {
+    throw new Error(explainSmtpError(err, cfg.port));
+  }
 }
 
 async function sendSendGrid(
