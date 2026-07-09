@@ -129,9 +129,14 @@ export function AdminOverview() {
     { icon: MemoryStick, label: "Memory (RSS)", value: formatBytes(info.memory.rssBytes) },
   ];
 
-  const inventory: { icon: typeof Building2; label: string; value: number }[] = [
-    { icon: Building2, label: "Companies", value: info.counts.companies },
-    { icon: Users, label: "Members", value: info.counts.users },
+  const inventory: {
+    icon: typeof Building2;
+    label: string;
+    value: number;
+    to?: string;
+  }[] = [
+    { icon: Building2, label: "Companies", value: info.counts.companies, to: `${base}/companies` },
+    { icon: Users, label: "Members", value: info.counts.users, to: `${base}/users` },
     { icon: Bot, label: "AI employees", value: info.counts.employees },
   ];
 
@@ -205,6 +210,7 @@ export function AdminOverview() {
                 icon={t.icon}
                 label={t.label}
                 value={t.value.toLocaleString()}
+                to={t.to}
                 big
               />
             ))}
@@ -229,6 +235,18 @@ export function AdminOverview() {
 
         {/* Quick actions */}
         <div className="grid gap-3 sm:grid-cols-2">
+          <NavCard
+            to={`${base}/users`}
+            icon={Users}
+            title="Users"
+            description="Every member across all companies. Remove accounts."
+          />
+          <NavCard
+            to={`${base}/companies`}
+            icon={Building2}
+            title="Companies"
+            description="Every company on the instance. Delete tenants."
+          />
           <NavCard
             to={`${base}/instance-health`}
             icon={Activity}
@@ -266,15 +284,17 @@ function StatTile({
   value,
   mono,
   big,
+  to,
 }: {
   icon: typeof Tag;
   label: string;
   value: string;
   mono?: boolean;
   big?: boolean;
+  to?: string;
 }) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+  const body = (
+    <>
       <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
         <Icon size={13} className="shrink-0" />
         <span className="truncate">{label}</span>
@@ -289,8 +309,24 @@ function StatTile({
       >
         {value}
       </div>
-    </div>
+    </>
   );
+  const base =
+    "rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900";
+  if (to) {
+    return (
+      <Link
+        to={to}
+        className={clsx(
+          base,
+          "block transition-colors hover:border-slate-300 hover:bg-slate-50 dark:hover:border-slate-700 dark:hover:bg-slate-800/50",
+        )}
+      >
+        {body}
+      </Link>
+    );
+  }
+  return <div className={base}>{body}</div>;
 }
 
 function CheckRow({ check, to }: { check: InstanceCheck; to: string }) {
