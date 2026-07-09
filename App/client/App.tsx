@@ -31,12 +31,16 @@ import {
 } from "./pages/employeeTabs";
 import SettingsLayout from "./pages/SettingsLayout";
 import {
-  SettingsAccount,
-  SettingsBackup,
   SettingsCompany,
   SettingsMembers,
   SettingsSecrets,
 } from "./pages/Settings";
+import AccountLayout from "./pages/AccountLayout";
+import { AccountProfile } from "./pages/AccountProfile";
+import AdminLayout from "./pages/AdminLayout";
+import { AdminOverview } from "./pages/AdminOverview";
+import { AdminInstanceHealth } from "./pages/AdminInstanceHealth";
+import { AdminBackup } from "./pages/AdminBackup";
 import { SettingsIntegrations } from "./pages/SettingsIntegrations";
 import { SettingsTeams } from "./pages/SettingsTeams";
 import { SettingsApiKeys } from "./pages/SettingsApiKeys";
@@ -399,8 +403,9 @@ function CompanyRoutes({
           element={<Workspace company={company} me={me} />}
         />
 
-        {/* Settings — own sidebar, like Employees/Tasks/Bases. Holds both
-            personal-account pages and company-level pages. */}
+        {/* Settings — company-scoped only. Its own sidebar, like
+            Employees/Tasks/Bases. Account-global pages live under /account;
+            install-wide pages live under /admin. */}
         <Route
           path="settings"
           element={
@@ -408,7 +413,6 @@ function CompanyRoutes({
           }
         >
           <Route index element={<Navigate to="company" replace />} />
-          <Route path="profile" element={<SettingsAccount />} />
           <Route path="company" element={<SettingsCompany />} />
           <Route path="members" element={<SettingsMembers />} />
           <Route path="teams" element={<SettingsTeams />} />
@@ -420,11 +424,41 @@ function CompanyRoutes({
           </Route>
           <Route path="secrets" element={<SettingsSecrets />} />
           <Route path="api-keys" element={<SettingsApiKeys />} />
-          <Route path="backup" element={<SettingsBackup />} />
           <Route path="usage" element={<Usage />} />
           <Route path="audit" element={<AuditLog />} />
           <Route path="system-health" element={<SettingsSystemHealth />} />
         </Route>
+
+        {/* Account — global to the signed-in user, not the current company.
+            Profile, password, and per-device notifications live here. */}
+        <Route
+          path="account"
+          element={
+            <AccountLayout company={company} me={me} onCompaniesChanged={onChanged} />
+          }
+        >
+          <Route index element={<Navigate to="profile" replace />} />
+          <Route path="profile" element={<AccountProfile />} />
+        </Route>
+
+        {/* Admin — install-wide operations that span every company: the
+            instance health dashboard and backups. */}
+        <Route path="admin" element={<AdminLayout company={company} me={me} />}>
+          <Route index element={<Navigate to="overview" replace />} />
+          <Route path="overview" element={<AdminOverview />} />
+          <Route path="instance-health" element={<AdminInstanceHealth />} />
+          <Route path="backup" element={<AdminBackup />} />
+        </Route>
+
+        {/* Legacy redirects: Profile moved to Account; Backup moved to Admin. */}
+        <Route
+          path="settings/profile"
+          element={<Navigate to={`/c/${company.slug}/account/profile`} replace />}
+        />
+        <Route
+          path="settings/backup"
+          element={<Navigate to={`/c/${company.slug}/admin/backup`} replace />}
+        />
 
         {/* Legacy redirects: Customers used to live under Finance. */}
         <Route

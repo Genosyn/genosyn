@@ -4,6 +4,7 @@ import {
   BarChart3,
   ChevronDown,
   ChevronRight,
+  CircleUser,
   Contact2,
   FolderGit2,
   GitBranch,
@@ -18,6 +19,7 @@ import {
   NotebookPen,
   NotebookText,
   PanelLeft,
+  ServerCog,
   Settings as SettingsIcon,
   ShieldCheck,
   Sun,
@@ -119,7 +121,9 @@ type SectionKey =
   | "finance"
   | "pipelines"
   | "approvals"
-  | "settings";
+  | "settings"
+  | "account"
+  | "admin";
 
 export type SectionItem = {
   key: SectionKey;
@@ -286,11 +290,29 @@ export const SECTION_GROUPS: SectionGroup[] = [
       {
         key: "settings",
         label: "Settings",
-        description: "Members, integrations, billing.",
+        description: "Members, integrations, email, secrets.",
         icon: SettingsIcon,
         path: "/settings",
         iconBg:
           "bg-slate-200 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
+      },
+      {
+        key: "account",
+        label: "Account",
+        description: "Your profile, password, and notifications.",
+        icon: CircleUser,
+        path: "/account",
+        iconBg:
+          "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
+      },
+      {
+        key: "admin",
+        label: "Admin",
+        description: "Instance health and backups.",
+        icon: ServerCog,
+        path: "/admin",
+        iconBg:
+          "bg-slate-800 text-slate-100 dark:bg-slate-200/20 dark:text-slate-100",
       },
     ],
   },
@@ -429,11 +451,18 @@ function TopNav({
                   <div className="truncate">{me.email}</div>
                 </div>
                 <Link
-                  to={`/c/${current.slug}/settings/profile`}
+                  to={`/c/${current.slug}/account/profile`}
                   onClick={() => setUserOpen(false)}
                   className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                 >
                   <UserCog size={14} /> Profile settings
+                </Link>
+                <Link
+                  to={`/c/${current.slug}/admin`}
+                  onClick={() => setUserOpen(false)}
+                  className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  <ServerCog size={14} /> Admin
                 </Link>
                 <button
                   onClick={logout}
@@ -475,6 +504,8 @@ function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/finance(\/|$)/.test(pathname)) return "finance";
   if (/\/c\/[^/]+\/pipelines(\/|$)/.test(pathname)) return "pipelines";
   if (/\/c\/[^/]+\/approvals(\/|$)/.test(pathname)) return "approvals";
+  if (/\/c\/[^/]+\/account(\/|$)/.test(pathname)) return "account";
+  if (/\/c\/[^/]+\/admin(\/|$)/.test(pathname)) return "admin";
   if (/\/c\/[^/]+\/settings(\/|$)/.test(pathname)) return "settings";
   return "home";
 }

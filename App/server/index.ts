@@ -34,6 +34,7 @@ import { usageRouter } from "./routes/usage.js";
 import { templatesRouter } from "./routes/templates.js";
 import { basesRouter } from "./routes/bases.js";
 import { backupsRouter } from "./routes/backups.js";
+import { adminRouter } from "./routes/admin.js";
 import { integrationsRouter } from "./routes/integrations.js";
 import { integrationsOauthRouter } from "./routes/integrationsOauth.js";
 import { workspaceRouter } from "./routes/workspace.js";
@@ -123,6 +124,9 @@ async function main() {
   app.use("/api/companies", companiesRouter);
   app.use("/api/invitations", invitationsRouter);
   app.use("/api/backups", backupsRouter);
+  // Instance-wide admin — install health (DB, migrations, disk, runtime).
+  // Not company-scoped; see routes/admin.ts for the auth rationale.
+  app.use("/api/admin", adminRouter);
   app.use("/api", templatesRouter);
   // Nested under /api/companies/:cid/...
   app.use("/api/companies/:cid/employees", employeesRouter);
