@@ -38,8 +38,14 @@ emailProvidersRouter.use(requireCompanyMember);
 const KIND_VALUES = ["smtp", "sendgrid", "mailgun", "resend", "postmark"] as const;
 const kindSchema = z.enum(KIND_VALUES);
 
-emailProvidersRouter.get("/catalog", (_req, res) => {
-  res.json(buildProviderCatalog());
+emailProvidersRouter.get("/catalog", async (_req, res, next) => {
+  // Now does a DB read (global-SMTP prefill); forward failures to the error
+  // middleware rather than leaving the request hanging on a rejected promise.
+  try {
+    res.json(await buildProviderCatalog());
+  } catch (err) {
+    next(err);
+  }
 });
 
 emailProvidersRouter.get("/", async (req, res) => {

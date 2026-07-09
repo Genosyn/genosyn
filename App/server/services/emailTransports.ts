@@ -1,6 +1,6 @@
 import nodemailer from "nodemailer";
-import { config } from "../../config.js";
 import type { EmailProviderKind } from "../db/entities/EmailProvider.js";
+import { getEffectiveGlobalSmtp } from "./globalEmailTransport.js";
 
 /**
  * Transport adapters for every supported email provider kind. Each adapter
@@ -253,24 +253,28 @@ export function getProviderCatalogEntry(
 }
 
 /**
- * The connect-form catalog, with the SMTP entry pre-seeded from the global
- * `config.ts` SMTP block when the operator has configured one (i.e. the
- * host is set). Only non-secret fields are seeded — the password is never
- * exposed, so the form leaves it blank for the user to enter. When no
- * global SMTP host is configured the catalog is returned unchanged.
+ * The connect-form catalog, with the SMTP entry pre-seeded from the effective
+ * global SMTP transport when the operator has configured one (the Admin →
+ * Email transport override, else the `config.ts` block). Only non-secret
+ * fields are seeded — the password is never exposed, so the form leaves it
+ * blank for the user to enter. When no global SMTP host is configured the
+ * catalog is returned unchanged.
  */
-export function buildProviderCatalog(): EmailProviderCatalogEntry[] {
-  const smtp = config.smtp;
-  if (!smtp.host) return PROVIDER_CATALOG;
+export async function buildProviderCatalog(): Promise<
+  EmailProviderCatalogEntry[]
+> {
+  const eff = await getEffectiveGlobalSmtp();
+  if (!eff.configured || !eff.settings.host) return PROVIDER_CATALOG;
+  const s = eff.settings;
   const fields: Record<string, string | number | boolean> = {
-    host: smtp.host,
-    port: smtp.port,
-    secure: smtp.secure,
+    host: s.host,
+    port: s.port,
+    secure: s.secure,
   };
-  if (smtp.user) fields.user = smtp.user;
+  if (s.user) fields.user = s.user;
   return PROVIDER_CATALOG.map((entry) =>
     entry.kind === "smtp"
-      ? { ...entry, prefill: { from: smtp.from || undefined, fields } }
+      ? { ...entry, prefill: { from: s.from || undefined, fields } }
       : entry,
   );
 }

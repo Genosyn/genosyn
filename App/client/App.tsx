@@ -40,6 +40,7 @@ import { AccountProfile } from "./pages/AccountProfile";
 import AdminLayout from "./pages/AdminLayout";
 import { AdminOverview } from "./pages/AdminOverview";
 import { AdminInstanceHealth } from "./pages/AdminInstanceHealth";
+import { AdminEmail } from "./pages/AdminEmail";
 import { AdminBackup } from "./pages/AdminBackup";
 import { SettingsIntegrations } from "./pages/SettingsIntegrations";
 import { SettingsTeams } from "./pages/SettingsTeams";
@@ -447,6 +448,7 @@ function CompanyRoutes({
           <Route index element={<Navigate to="overview" replace />} />
           <Route path="overview" element={<AdminOverview />} />
           <Route path="instance-health" element={<AdminInstanceHealth />} />
+          <Route path="email" element={<AdminEmail />} />
           <Route path="backup" element={<AdminBackup />} />
         </Route>
 

@@ -14,7 +14,10 @@ export const config = {
   publicUrl: "http://localhost:8471",
   sessionSecret: "change-me-in-production",
 
-  // SMTP — leave host empty to disable; reset links log to console instead
+  // Global SMTP fallback for system-level sends (password resets, invites).
+  // Leave host empty to disable — reset links then log to the console instead.
+  // This block is the file-based default; operators can override it at runtime
+  // from Admin → Email transport (stored in the DB, takes precedence over this).
   smtp: {
     host: "",
     port: 587,

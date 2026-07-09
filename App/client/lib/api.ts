@@ -1497,6 +1497,21 @@ export type InstanceHealthReport = {
   instance: InstanceInfo;
 };
 
+export type GlobalSmtpSource = "database" | "config" | "none";
+/** Non-secret view of the install-wide global email transport (Admin → Email). */
+export type GlobalEmailTransport = {
+  configured: boolean;
+  source: GlobalSmtpSource;
+  overrideActive: boolean;
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  from: string;
+  hasPassword: boolean;
+  configFallback: { configured: boolean; host: string; from: string };
+};
+
 export type HomeData = {
   notifications: Notification[];
   unreadNotificationCount: number;

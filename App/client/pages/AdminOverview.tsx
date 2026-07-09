@@ -11,6 +11,7 @@ import {
   Database,
   GitCommitHorizontal,
   HardDrive,
+  Mail,
   MemoryStick,
   RefreshCw,
   Tag,
@@ -233,6 +234,12 @@ export function AdminOverview() {
             icon={Activity}
             title="Instance Health"
             description="Database, migrations, disk, and runtime checks."
+          />
+          <NavCard
+            to={`${base}/email`}
+            icon={Mail}
+            title="Email transport"
+            description="Configure the global SMTP server for system emails."
           />
           <NavCard
             to={`${base}/backup`}

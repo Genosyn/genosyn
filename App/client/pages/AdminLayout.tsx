@@ -1,6 +1,6 @@
 import React from "react";
 import { Outlet, useLocation } from "react-router-dom";
-import { Activity, Archive, LayoutDashboard, ServerCog } from "lucide-react";
+import { Activity, Archive, LayoutDashboard, Mail, ServerCog } from "lucide-react";
 import { Company, Me } from "../lib/api";
 import { Breadcrumbs, ContextualLayout, SidebarLink } from "../components/AppShell";
 
@@ -21,6 +21,7 @@ export type AdminOutletCtx = {
 const ADMIN_TAB_LABEL: Record<string, string> = {
   overview: "Overview",
   "instance-health": "Instance Health",
+  email: "Email transport",
   backup: "Backups",
 };
 
@@ -54,6 +55,11 @@ export default function AdminLayout({
           to={`${base}/instance-health`}
           icon={<Activity size={14} />}
           label="Instance Health"
+        />
+        <SidebarLink
+          to={`${base}/email`}
+          icon={<Mail size={14} />}
+          label="Email transport"
         />
         <SidebarLink to={`${base}/backup`} icon={<Archive size={14} />} label="Backups" />
       </nav>
