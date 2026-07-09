@@ -73,8 +73,8 @@ export function CodeRepositories() {
         client. The official Docker image bundles both, so there is nothing to
         install. On a bare-host install, make sure <Code>git</Code> (and{" "}
         <Code>openssh-client</Code>, for SSH auth) is on the server&apos;s{" "}
-        <Code>PATH</Code> — otherwise <Strong>Test connection</Strong> fails
-        with <Code>spawn git ENOENT</Code>.
+        <Code>PATH</Code> — otherwise <Strong>Test connection</Strong> reports
+        that git is not installed on the server.
       </Callout>
 
       <H2 id="auth">Authentication</H2>
