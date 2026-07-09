@@ -9,7 +9,7 @@ export class BackupDestinations1783623733179 implements MigrationInterface {
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`DROP INDEX "IDX_cb8144bbf780a2747bc5cdd9e2"`);
+        await queryRunner.query(`DROP INDEX IF EXISTS "IDX_cb8144bbf780a2747bc5cdd9e2"`);
         await queryRunner.query(`DROP TABLE "backup_destinations"`);
     }
 
