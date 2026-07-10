@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   Mail,
   ServerCog,
+  UserPlus,
   Users,
 } from "lucide-react";
 import { Company, Me } from "../lib/api";
@@ -35,6 +36,7 @@ const ADMIN_TAB_LABEL: Record<string, string> = {
   "instance-health": "Instance Health",
   db: "Database",
   email: "Email transport",
+  signups: "Sign-ups",
   backup: "Backups",
   users: "Users",
   companies: "Companies",
@@ -82,6 +84,11 @@ export default function AdminLayout({
           to={`${base}/email`}
           icon={<Mail size={14} />}
           label="Email transport"
+        />
+        <SidebarLink
+          to={`${base}/signups`}
+          icon={<UserPlus size={14} />}
+          label="Sign-ups"
         />
         <SidebarLink to={`${base}/backup`} icon={<Archive size={14} />} label="Backups" />
 

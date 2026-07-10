@@ -13,6 +13,10 @@ import {
   runAdminQuery,
 } from "../services/adminDbConsole.js";
 import { listAdminCompanies, listAdminUsers } from "../services/adminDirectory.js";
+import {
+  getSignupSettings,
+  setSignupsDisabled,
+} from "../services/signupSettings.js";
 import { deleteUserCascade, UserOwnsCompaniesError } from "../services/userDelete.js";
 import { deleteCompanyCascade } from "../services/companyDelete.js";
 import { avatarAbsPath, mimeFromKey, removeAvatarFile } from "../services/avatars.js";
@@ -174,6 +178,35 @@ adminRouter.post(
         ok: false,
         error: err instanceof Error ? err.message : String(err),
       });
+    }
+  },
+);
+
+// ─────────────────────────── sign-up policy ────────────────────────────────
+//
+// Instance-wide toggle for self-service registration. When disabled, the public
+// signup endpoint refuses everyone but the first-user bootstrap; existing
+// members and invited users are unaffected.
+
+adminRouter.get("/signup-settings", async (_req, res, next) => {
+  try {
+    res.json(await getSignupSettings());
+  } catch (err) {
+    next(err);
+  }
+});
+
+const signupSettingsSchema = z.object({ signupsDisabled: z.boolean() });
+
+adminRouter.put(
+  "/signup-settings",
+  validateBody(signupSettingsSchema),
+  async (req, res, next) => {
+    try {
+      const { signupsDisabled } = req.body as z.infer<typeof signupSettingsSchema>;
+      res.json(await setSignupsDisabled(signupsDisabled));
+    } catch (err) {
+      next(err);
     }
   },
 );

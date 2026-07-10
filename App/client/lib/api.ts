@@ -1535,6 +1535,12 @@ export type GlobalEmailTransport = {
   configFallback: { configured: boolean; host: string; from: string };
 };
 
+// ───────────────────────── Admin sign-up policy ─────────────────────────────
+// Instance-wide toggle for self-service registration, served by
+// /api/admin/signup-settings. The public sign-up page reads /api/auth/signup-status.
+export type SignupSettings = { signupsDisabled: boolean };
+export type SignupStatus = { open: boolean };
+
 // ───────────────────── Admin directory (Users + Companies) ───────────────────
 // Instance-wide management surfaces served by /api/admin/users and
 // /api/admin/companies. Not company-scoped — see routes/admin.ts.

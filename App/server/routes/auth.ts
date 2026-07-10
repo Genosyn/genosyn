@@ -10,6 +10,7 @@ import { validateBody } from "../middleware/validate.js";
 import { requireAuth } from "../middleware/auth.js";
 import { sendEmail } from "../services/email.js";
 import { ensureUserHandle } from "../services/userHandle.js";
+import { areSignupsDisabled } from "../services/signupSettings.js";
 import { generateToken } from "../lib/token.js";
 import {
   avatarAbsPath,
@@ -37,6 +38,15 @@ authRouter.post("/signup", validateBody(signupSchema), async (req, res) => {
   // admin — the operator who stood the box up. Everyone after signs up as a
   // normal user until an existing master admin promotes them from Admin → Users.
   const isFirstUser = (await repo.count()) === 0;
+  // Operators can turn off self-service sign-ups from Admin → Sign-ups. The
+  // first-user bootstrap is always allowed through so an install with no users
+  // can never lock itself out.
+  if (!isFirstUser && (await areSignupsDisabled())) {
+    return res.status(403).json({
+      error:
+        "Sign-ups are disabled on this instance. Ask an administrator for an invitation.",
+    });
+  }
   const user = repo.create({
     email: email.toLowerCase(),
     name,
@@ -56,6 +66,18 @@ authRouter.post("/signup", validateBody(signupSchema), async (req, res) => {
     triggeredByUserId: user.id,
   });
   res.json({ id: user.id, email: user.email, name: user.name });
+});
+
+/**
+ * Public probe for the sign-up page: is self-service registration open right
+ * now? Open when sign-ups aren't disabled, or when the install has no users yet
+ * (the first account must always be creatable to bootstrap the master admin).
+ * Deliberately leaks no more than that boolean.
+ */
+authRouter.get("/signup-status", async (_req, res) => {
+  const userCount = await AppDataSource.getRepository(User).count();
+  const closed = userCount > 0 && (await areSignupsDisabled());
+  res.json({ open: !closed });
 });
 
 const loginSchema = z.object({

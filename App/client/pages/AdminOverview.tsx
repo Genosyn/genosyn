@@ -15,6 +15,7 @@ import {
   MemoryStick,
   RefreshCw,
   Tag,
+  UserPlus,
   Users,
 } from "lucide-react";
 import { api, InstanceCheck, InstanceHealthReport, InstanceSeverity } from "../lib/api";
@@ -264,6 +265,12 @@ export function AdminOverview() {
             icon={Mail}
             title="Email transport"
             description="Configure the global SMTP server for system emails."
+          />
+          <NavCard
+            to={`${base}/signups`}
+            icon={UserPlus}
+            title="Sign-ups"
+            description="Allow or block self-service registration for this instance."
           />
           <NavCard
             to={`${base}/backup`}

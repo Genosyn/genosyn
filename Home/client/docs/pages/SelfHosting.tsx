@@ -224,6 +224,10 @@ export function SelfHosting() {
           send. See <Code>Email</Code> above.
         </LI>
         <LI>
+          <Strong>Sign-ups</Strong> — an instance-wide toggle for self-service
+          registration. See <Code>Sign-ups</Code> below.
+        </LI>
+        <LI>
           <Strong>Users</Strong> — every human member across every company, with
           their handle, how many companies they belong to, and which companies
           they own. Grant or revoke <Strong>master admin</Strong> on any user
@@ -246,6 +250,25 @@ export function SelfHosting() {
           <Strong>Backups</Strong> — see below.
         </LI>
       </UL>
+
+      <H3 id="signups">Sign-ups</H3>
+      <P>
+        <Code>Admin → Sign-ups</Code> is an instance-wide toggle for
+        self-service registration. Flip <Strong>Disable sign-ups</Strong> on and
+        the public sign-up page stops accepting new accounts — anyone who lands
+        on it sees a &ldquo;sign-ups are closed&rdquo; notice instead of the
+        form, and the API refuses a registration attempt with a{" "}
+        <Code>403</Code>. Existing members keep their accounts and can still sign
+        in; this only stops <em>new</em> people from registering themselves.
+      </P>
+      <P>
+        One account is always exempt: the very first account on a fresh install,
+        so a box with no users yet can never lock itself out before an operator
+        exists. With sign-ups disabled, add people by promoting an existing
+        account to <Strong>master admin</Strong> from <Code>Admin → Users</Code>,
+        or by inviting them into a company from that company&apos;s{" "}
+        <Code>Settings → Members</Code>.
+      </P>
 
       <H3 id="db-console">Database console</H3>
       <P>
