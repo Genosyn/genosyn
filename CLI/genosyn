@@ -11,16 +11,19 @@
 #   GENOSYN_IMAGE    image reference      (default: ghcr.io/genosyn/app:latest)
 #   GENOSYN_CLI_URL  fetch URL for the CLI script used by self-upgrade
 #                    (default: https://genosyn.com/genosyn)
+#   GENOSYN_VLLM_DIR working dir for the `vllm` command's compose + .env
+#                    (default: ~/.genosyn/vllm)
 
 set -euo pipefail
 
-CLI_VERSION="0.1.4"
+CLI_VERSION="0.2.0"
 
 PORT="${GENOSYN_PORT:-8471}"
 NAME="${GENOSYN_NAME:-genosyn}"
 VOLUME="${GENOSYN_VOLUME:-genosyn-data}"
 IMAGE="${GENOSYN_IMAGE:-ghcr.io/genosyn/app:latest}"
 CLI_URL="${GENOSYN_CLI_URL:-https://genosyn.com/genosyn}"
+VLLM_DIR="${GENOSYN_VLLM_DIR:-${HOME}/.genosyn/vllm}"
 
 # ---------- output helpers ----------
 
@@ -964,6 +967,350 @@ cmd_user() {
   esac
 }
 
+# ---------- vllm: self-hosted OpenAI-compatible model server ----------
+#
+# `genosyn vllm` stands up a vLLM server on a GPU host so a Genosyn AI Employee
+# can use the "Custom" provider and point at it — no Anthropic/OpenAI key. It
+# drives docker compose against a compose file this CLI materializes into
+# VLLM_DIR (so `curl | bash` installs need no repo checkout). The service
+# definition below mirrors CLI/vllm/docker-compose.yml (comments trimmed) —
+# keep the two in sync.
+
+# Resolve the compose CLI into the COMPOSE_CMD array (plugin form preferred).
+COMPOSE_CMD=()
+resolve_compose() {
+  if docker compose version >/dev/null 2>&1; then
+    COMPOSE_CMD=(docker compose)
+  elif command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE_CMD=(docker-compose)
+  else
+    die "Docker Compose is not available. Install the Compose plugin ('docker compose') or docker-compose."
+  fi
+}
+
+# Run compose scoped to our project + files. --env-file only when it exists so
+# read-only subcommands work before the first `up`.
+vllm_compose() {
+  local base=(-f "${VLLM_DIR}/docker-compose.yml" --project-name genosyn-vllm)
+  if [ -f "${VLLM_DIR}/.env" ]; then
+    base+=(--env-file "${VLLM_DIR}/.env")
+  fi
+  "${COMPOSE_CMD[@]}" "${base[@]}" "$@"
+}
+
+# Materialize the compose file. Quoted heredoc → ${...} land literally so
+# Compose interpolates them from .env at runtime.
+vllm_write_compose() {
+  mkdir -p "${VLLM_DIR}"
+  cat > "${VLLM_DIR}/docker-compose.yml" <<'VLLM_COMPOSE'
+# Genosyn — vLLM model server (OpenAI-compatible). Managed by `genosyn vllm`.
+# Canonical source: CLI/vllm/docker-compose.yml in the Genosyn repo.
+services:
+  vllm:
+    image: vllm/vllm-openai:${VLLM_TAG:-latest}
+    container_name: ${VLLM_CONTAINER:-genosyn-vllm}
+    restart: unless-stopped
+    ports:
+      - "${VLLM_PORT:-8000}:8000"
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+      VLLM_API_KEY: ${VLLM_API_KEY:-}
+    ipc: host
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+    command: >
+      --model ${VLLM_MODEL:-Qwen/Qwen2.5-Coder-32B-Instruct}
+      --host 0.0.0.0
+      --port 8000
+      --max-model-len ${VLLM_MAX_MODEL_LEN:-32768}
+      --gpu-memory-utilization ${VLLM_GPU_UTIL:-0.90}
+      --tensor-parallel-size ${VLLM_TP:-1}
+      --enable-auto-tool-choice
+      --tool-call-parser ${VLLM_TOOL_PARSER:-hermes}
+      ${VLLM_EXTRA_ARGS:-}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 20
+      start_period: 600s
+
+volumes:
+  hf-cache:
+VLLM_COMPOSE
+}
+
+# Seed a default .env on first run. Quoted heredoc; values mirror .env.example.
+vllm_write_default_env() {
+  cat > "${VLLM_DIR}/.env" <<'VLLM_ENV'
+VLLM_MODEL=Qwen/Qwen2.5-Coder-32B-Instruct
+VLLM_TOOL_PARSER=hermes
+VLLM_MAX_MODEL_LEN=32768
+VLLM_GPU_UTIL=0.90
+VLLM_TP=1
+VLLM_PORT=8000
+HUGGING_FACE_HUB_TOKEN=
+VLLM_API_KEY=
+VLLM_TAG=latest
+VLLM_CONTAINER=genosyn-vllm
+VLLM_EXTRA_ARGS=
+VLLM_ENV
+}
+
+# Upsert KEY=VALUE in an env file, preserving every other line.
+vllm_env_set() {
+  local key="$1" val="$2" file="$3" tmp found=0 line
+  tmp="$(mktemp)"
+  if [ -f "${file}" ]; then
+    while IFS= read -r line || [ -n "${line}" ]; do
+      case "${line}" in
+        "${key}="*) printf '%s=%s\n' "${key}" "${val}" >> "${tmp}"; found=1 ;;
+        *)          printf '%s\n' "${line}" >> "${tmp}" ;;
+      esac
+    done < "${file}"
+  fi
+  [ "${found}" = "1" ] || printf '%s=%s\n' "${key}" "${val}" >> "${tmp}"
+  mv "${tmp}" "${file}"
+}
+
+# Read a KEY's value from an env file (last match wins). Empty if absent.
+vllm_env_get() {
+  local key="$1" file="$2"
+  [ -f "${file}" ] || return 0
+  grep -E "^${key}=" "${file}" 2>/dev/null | tail -n1 | cut -d= -f2-
+}
+
+# Best-effort primary IP of this host, for the connect URL we print.
+vllm_host_ip() {
+  local ip=""
+  if command -v ip >/dev/null 2>&1; then
+    ip="$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')"
+  fi
+  if [ -z "${ip}" ] && command -v hostname >/dev/null 2>&1; then
+    ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  fi
+  [ -n "${ip}" ] || ip="<vm-ip>"
+  printf '%s' "${ip}"
+}
+
+# Print the exact values to paste into Genosyn (Settings → AI Model → Custom).
+vllm_print_connect() {
+  local port model key ip
+  port="$(vllm_env_get VLLM_PORT "${VLLM_DIR}/.env")"; [ -n "${port}" ] || port="8000"
+  model="$(vllm_env_get VLLM_MODEL "${VLLM_DIR}/.env")"; [ -n "${model}" ] || model="<model-id>"
+  key="$(vllm_env_get VLLM_API_KEY "${VLLM_DIR}/.env")"
+  ip="$(vllm_host_ip)"
+  echo
+  printf '%sConnect Genosyn%s — Settings → AI Model → Custom:\n' "${C_BOLD}" "${C_RESET}"
+  printf '   Base URL  %shttp://%s:%s/v1%s\n' "${C_INDIGO}" "${ip}" "${port}" "${C_RESET}"
+  printf '   Model id  %s\n' "${model}"
+  if [ -n "${key}" ]; then
+    printf '   API key   %s\n' "${key}"
+  else
+    printf '   API key   %s(none — endpoint is unauthenticated)%s\n' "${C_YELLOW}" "${C_RESET}"
+  fi
+  echo
+  if [ -z "${key}" ]; then
+    warn "No API key set — anyone who can reach ${ip}:${port} can use this GPU. Re-run 'genosyn vllm up --api-key <secret>' and firewall the port."
+  fi
+}
+
+cmd_vllm_up() {
+  local model="" port="" hf="" apikey="" tp="" maxlen="" parser="" gpuutil="" tag=""
+  local set_hf=0 set_key=0
+  while [ $# -gt 0 ]; do
+    case "${1:-}" in
+      --model)           model="$2"; shift 2 ;;
+      --model=*)         model="${1#*=}"; shift ;;
+      --port)            port="$2"; shift 2 ;;
+      --port=*)          port="${1#*=}"; shift ;;
+      --hf-token)        hf="$2"; set_hf=1; shift 2 ;;
+      --hf-token=*)      hf="${1#*=}"; set_hf=1; shift ;;
+      --api-key)         apikey="$2"; set_key=1; shift 2 ;;
+      --api-key=*)       apikey="${1#*=}"; set_key=1; shift ;;
+      --tp)              tp="$2"; shift 2 ;;
+      --tp=*)            tp="${1#*=}"; shift ;;
+      --max-model-len)   maxlen="$2"; shift 2 ;;
+      --max-model-len=*) maxlen="${1#*=}"; shift ;;
+      --parser)          parser="$2"; shift 2 ;;
+      --parser=*)        parser="${1#*=}"; shift ;;
+      --gpu-util)        gpuutil="$2"; shift 2 ;;
+      --gpu-util=*)      gpuutil="${1#*=}"; shift ;;
+      --tag)             tag="$2"; shift 2 ;;
+      --tag=*)           tag="${1#*=}"; shift ;;
+      -h|--help)         cmd_vllm_help; return 0 ;;
+      *) die "Unknown argument to 'vllm up': $1" ;;
+    esac
+  done
+
+  require_docker
+  resolve_compose
+
+  step "Writing compose + config to ${VLLM_DIR}"
+  vllm_write_compose
+  [ -f "${VLLM_DIR}/.env" ] || vllm_write_default_env
+
+  [ -n "${model}" ]   && vllm_env_set VLLM_MODEL "${model}" "${VLLM_DIR}/.env"
+  [ -n "${port}" ]    && vllm_env_set VLLM_PORT "${port}" "${VLLM_DIR}/.env"
+  [ -n "${tp}" ]      && vllm_env_set VLLM_TP "${tp}" "${VLLM_DIR}/.env"
+  [ -n "${maxlen}" ]  && vllm_env_set VLLM_MAX_MODEL_LEN "${maxlen}" "${VLLM_DIR}/.env"
+  [ -n "${parser}" ]  && vllm_env_set VLLM_TOOL_PARSER "${parser}" "${VLLM_DIR}/.env"
+  [ -n "${gpuutil}" ] && vllm_env_set VLLM_GPU_UTIL "${gpuutil}" "${VLLM_DIR}/.env"
+  [ -n "${tag}" ]     && vllm_env_set VLLM_TAG "${tag}" "${VLLM_DIR}/.env"
+  [ "${set_hf}" = "1" ]  && vllm_env_set HUGGING_FACE_HUB_TOKEN "${hf}" "${VLLM_DIR}/.env"
+  [ "${set_key}" = "1" ] && vllm_env_set VLLM_API_KEY "${apikey}" "${VLLM_DIR}/.env"
+
+  local the_model
+  the_model="$(vllm_env_get VLLM_MODEL "${VLLM_DIR}/.env")"
+  step "Starting vLLM for ${the_model}"
+  vllm_compose up -d
+
+  ok "vLLM container is up. First boot downloads the weights — that can take a while."
+  printf '   Follow   %sgenosyn vllm logs -f%s\n' "${C_DIM}" "${C_RESET}"
+  printf '   Ready?   %sgenosyn vllm status%s\n' "${C_DIM}" "${C_RESET}"
+  vllm_print_connect
+}
+
+cmd_vllm_down() {
+  local purge=0
+  while [ $# -gt 0 ]; do
+    case "${1:-}" in
+      --purge)   purge=1; shift ;;
+      -h|--help) cmd_vllm_help; return 0 ;;
+      *) die "Unknown argument to 'vllm down': $1" ;;
+    esac
+  done
+
+  require_docker
+  resolve_compose
+  [ -f "${VLLM_DIR}/docker-compose.yml" ] \
+    || die "vLLM isn't set up here. Run 'genosyn vllm up' first."
+
+  step "Stopping vLLM"
+  if [ "${purge}" = "1" ]; then
+    warn "--purge also deletes the model cache volume — weights will be re-downloaded next time."
+    vllm_compose down --volumes
+    ok "vLLM stopped and its model cache removed."
+  else
+    vllm_compose down
+    ok "vLLM stopped. Downloaded weights are kept in the hf-cache volume."
+  fi
+}
+
+cmd_vllm_status() {
+  require_docker
+  resolve_compose
+
+  if [ ! -f "${VLLM_DIR}/docker-compose.yml" ]; then
+    printf '%sNot set up%s — run %sgenosyn vllm up%s\n' \
+      "${C_YELLOW}" "${C_RESET}" "${C_BOLD}" "${C_RESET}"
+    return 0
+  fi
+
+  vllm_compose ps
+
+  local port
+  port="$(vllm_env_get VLLM_PORT "${VLLM_DIR}/.env")"; [ -n "${port}" ] || port="8000"
+  echo
+  if curl -fsS "http://localhost:${port}/health" >/dev/null 2>&1 \
+     || wget -qO- "http://localhost:${port}/health" >/dev/null 2>&1; then
+    ok "API is answering on :${port}."
+  else
+    warn "API not answering on :${port} yet — the model may still be loading. Check 'genosyn vllm logs -f'."
+  fi
+  vllm_print_connect
+}
+
+cmd_vllm_logs() {
+  local follow=0 tail=""
+  while [ $# -gt 0 ]; do
+    case "${1:-}" in
+      -f|--follow) follow=1; shift ;;
+      --tail)      tail="$2"; shift 2 ;;
+      --tail=*)    tail="${1#*=}"; shift ;;
+      -n)          tail="$2"; shift 2 ;;
+      -h|--help)   cmd_vllm_help; return 0 ;;
+      *) die "Unknown argument to 'vllm logs': $1" ;;
+    esac
+  done
+
+  require_docker
+  resolve_compose
+  [ -f "${VLLM_DIR}/docker-compose.yml" ] \
+    || die "vLLM isn't set up here. Run 'genosyn vllm up' first."
+
+  local args=(logs)
+  [ "${follow}" = "1" ] && args+=(-f)
+  [ -n "${tail}" ] && args+=(--tail "${tail}")
+  vllm_compose "${args[@]}"
+}
+
+cmd_vllm_help() {
+  cat <<EOF
+${C_BOLD}genosyn vllm${C_RESET} — run a self-hosted, OpenAI-compatible model server.
+
+Stand up vLLM on a GPU host, then point a Genosyn employee at it with the
+${C_BOLD}Custom${C_RESET} provider. No Anthropic or OpenAI key required.
+
+${C_BOLD}Usage:${C_RESET}
+  genosyn vllm <subcommand> [flags]
+
+${C_BOLD}Subcommands:${C_RESET}
+  up [flags]           Write the compose + .env to ${VLLM_DIR}
+                       and start the server (idempotent). Flags:
+                         --model <hf-id>      model to serve (also the Genosyn
+                                              "Model id"); default
+                                              Qwen/Qwen2.5-Coder-32B-Instruct
+                         --port <n>           host port (default 8000)
+                         --api-key <secret>   bearer token clients must send
+                         --hf-token <token>   HuggingFace token for gated weights
+                         --tp <n>             GPUs to shard across (default 1)
+                         --max-model-len <n>  context length (default 32768)
+                         --parser <name>      tool-call parser (hermes | llama3_json
+                                              | mistral); default hermes
+                         --gpu-util <0..1>    GPU memory fraction (default 0.90)
+                         --tag <tag>          vllm/vllm-openai image tag
+  status               Show container state, readiness, and the connect URL.
+  logs [-f] [--tail N] Show server logs. -f follows.
+  down [--purge]       Stop the server. --purge also deletes the model cache.
+
+${C_BOLD}Requires on the host:${C_RESET} an NVIDIA GPU + driver + the
+nvidia-container-toolkit, and Docker Compose. See
+https://genosyn.com/docs/open-source-models
+
+${C_BOLD}Examples:${C_RESET}
+  genosyn vllm up --model Qwen/Qwen2.5-Coder-32B-Instruct --api-key \$(openssl rand -hex 24)
+  genosyn vllm up --model meta-llama/Llama-3.3-70B-Instruct --tp 4 --parser llama3_json --hf-token hf_xxx
+  genosyn vllm status
+  genosyn vllm logs -f
+  genosyn vllm down
+EOF
+}
+
+# `genosyn vllm <subcommand>` — namespace for the self-hosted model server.
+cmd_vllm() {
+  if [ $# -eq 0 ]; then
+    cmd_vllm_help
+    return 0
+  fi
+  local sub="$1"; shift
+  case "${sub}" in
+    up|start)       cmd_vllm_up     "$@" ;;
+    down|stop)      cmd_vllm_down   "$@" ;;
+    status|ps)      cmd_vllm_status "$@" ;;
+    logs|log)       cmd_vllm_logs   "$@" ;;
+    help|-h|--help) cmd_vllm_help ;;
+    *) die "Unknown vllm subcommand: ${sub}. Run 'genosyn vllm help' for usage." ;;
+  esac
+}
+
 cmd_version() {
   printf 'genosyn cli  %s\n' "${CLI_VERSION}"
   if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 && container_exists; then
@@ -995,6 +1342,9 @@ ${C_BOLD}Commands:${C_RESET}
   restore <FILE> [-y]  Restore a backup tarball. Destructive; prompts unless -y.
   uninstall [--purge]  Remove the container. --purge also deletes the data volume.
   prune [--dry-run]    Remove orphaned Genosyn images left over from prior upgrades.
+  vllm <subcommand>    Run a self-hosted, OpenAI-compatible model server (vLLM)
+                       on a GPU host and connect an employee to it. Run
+                       'genosyn vllm help' for up/status/logs/down.
   user <subcommand>    Manage human users. Run 'genosyn user help' for the
                        list, reset-password, and delete subcommands.
   version              Print CLI and container image versions.
@@ -1016,6 +1366,7 @@ ${C_BOLD}Examples:${C_RESET}
   genosyn user list
   genosyn user reset-password alice@example.com
   genosyn user delete alice@example.com
+  genosyn vllm up --model Qwen/Qwen2.5-Coder-32B-Instruct --api-key \$(openssl rand -hex 24)
   genosyn uninstall --purge
 
 Docs: https://genosyn.com  •  Source: https://github.com/genosyn/genosyn
@@ -1043,6 +1394,7 @@ main() {
     restore)           cmd_restore   "$@" ;;
     uninstall|remove)  cmd_uninstall "$@" ;;
     prune|clean)       cmd_prune     "$@" ;;
+    vllm)              cmd_vllm      "$@" ;;
     user)              cmd_user      "$@" ;;
     # Back-compat aliases for the pre-`user`-namespace commands.
     users)             cmd_users     "$@" ;;

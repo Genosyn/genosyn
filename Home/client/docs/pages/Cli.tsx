@@ -70,6 +70,30 @@ const COMMANDS: Cmd[] = [
       "Remove orphaned Genosyn images left over from prior upgrades. --dry-run lists what would be removed.",
   },
   {
+    name: "vllm up",
+    flags:
+      "[--model <id>] [--port <n>] [--api-key <s>] [--hf-token <t>] [--tp <n>] [--max-model-len <n>] [--parser <name>] [--gpu-util <0..1>] [--tag <t>]",
+    blurb:
+      "Stand up a self-hosted, OpenAI-compatible vLLM server on a GPU host, then print the Base URL / Model id / API key to paste into Genosyn's Custom provider. Writes a compose file + .env to ~/.genosyn/vllm and drives docker compose. Idempotent — re-run to change the model or add a key. Requires an NVIDIA GPU + nvidia-container-toolkit + Docker Compose on the host.",
+  },
+  {
+    name: "vllm status",
+    blurb:
+      "Show the vLLM container state, whether the API is answering, and the connect URL. (Alias: genosyn vllm ps.)",
+  },
+  {
+    name: "vllm logs",
+    flags: "[-f] [--tail N]",
+    blurb:
+      "Show vLLM server logs — useful for watching the first model download and load. -f follows.",
+  },
+  {
+    name: "vllm down",
+    flags: "[--purge]",
+    blurb:
+      "Stop the vLLM server. Downloaded weights are kept by default; --purge also deletes the model cache volume.",
+  },
+  {
     name: "user list",
     flags: "[--json]",
     blurb:

@@ -118,6 +118,26 @@ ollama serve`}</Pre>
         For a real GPU box. Highest tokens/sec, batches concurrent requests
         across multiple employees. Native OpenAI-compatible server.
       </P>
+
+      <Callout kind="tip" title="One command: genosyn vllm up">
+        The <Code>genosyn</Code> CLI ships a managed, Dockerized vLLM server
+        so you don&apos;t have to hand-write install or tool-call flags. On a
+        GPU VM with Docker + the{" "}
+        <Code>nvidia-container-toolkit</Code>:
+        <Pre lang="bash">{`curl -fsSL https://genosyn.com/genosyn -o /usr/local/bin/genosyn && chmod +x /usr/local/bin/genosyn
+
+genosyn vllm up --model Qwen/Qwen2.5-Coder-32B-Instruct --api-key "$(openssl rand -hex 24)"
+genosyn vllm status   # prints the Base URL, Model id, and API key to paste below`}</Pre>
+        It writes a <Code>docker-compose.yml</Code> + <Code>.env</Code> to{" "}
+        <Code>~/.genosyn/vllm</Code>, sets the tool-call flags for you, and
+        persists downloaded weights across restarts. See the{" "}
+        <DocLink to="/docs/cli">CLI reference</DocLink> for{" "}
+        <Code>status</Code>, <Code>logs</Code>, and <Code>down</Code>.
+      </Callout>
+
+      <P>
+        Prefer to run it by hand instead? The bare server is one pip install:
+      </P>
       <Pre lang="bash">{`pip install vllm
 
 vllm serve Qwen/Qwen2.5-Coder-32B-Instruct \\

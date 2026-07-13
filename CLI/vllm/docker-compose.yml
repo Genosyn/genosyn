@@ -1,0 +1,73 @@
+# Genosyn — vLLM model server (OpenAI-compatible)
+#
+# Runs an open-weight LLM behind an OpenAI-compatible /v1 API on this host's
+# GPU, so a Genosyn AI Employee can use the "Custom" provider and point at it.
+#
+# Two ways to run this:
+#   • Managed:  `genosyn vllm up`   (the CLI writes a copy of this file + a
+#               .env next to it, then drives docker compose for you)
+#   • Direct:   copy .env.example → .env, edit it, then `docker compose up -d`
+#
+# Requires on the host: an NVIDIA GPU + driver + the nvidia-container-toolkit
+# (so Docker can hand the GPU to the container). See ./README.md.
+#
+# NOTE: this file is the canonical source. The `genosyn` CLI embeds a copy of
+# the service definition (comments trimmed) so `curl | bash` installs need no
+# repo checkout — if you edit one, edit the other (search VLLM_COMPOSE in
+# CLI/genosyn).
+
+services:
+  vllm:
+    image: vllm/vllm-openai:${VLLM_TAG:-latest}
+    container_name: ${VLLM_CONTAINER:-genosyn-vllm}
+    restart: unless-stopped
+    ports:
+      # Host:container. The API is served on 8000 inside the container.
+      - "${VLLM_PORT:-8000}:8000"
+    environment:
+      # HuggingFace token — required to pull gated weights (Llama, some Qwen).
+      # Leave blank for openly-licensed models.
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+      # Optional bearer token clients must present. Blank = no auth, which is
+      # only safe when the port is unreachable from outside the host. If this
+      # VM is reachable on a network, SET THIS and paste the same value into
+      # Genosyn's "API key" field.
+      VLLM_API_KEY: ${VLLM_API_KEY:-}
+    # vLLM needs a large /dev/shm for paged-attention + tensor parallelism.
+    ipc: host
+    volumes:
+      # Persist downloaded weights so you pull each model only once.
+      - hf-cache:/root/.cache/huggingface
+    # A string command is tokenized into argv by Compose (env vars expand
+    # first), so ${VLLM_EXTRA_ARGS} can carry multiple space-separated flags.
+    command: >
+      --model ${VLLM_MODEL:-Qwen/Qwen2.5-Coder-32B-Instruct}
+      --host 0.0.0.0
+      --port 8000
+      --max-model-len ${VLLM_MAX_MODEL_LEN:-32768}
+      --gpu-memory-utilization ${VLLM_GPU_UTIL:-0.90}
+      --tensor-parallel-size ${VLLM_TP:-1}
+      --enable-auto-tool-choice
+      --tool-call-parser ${VLLM_TOOL_PARSER:-hermes}
+      ${VLLM_EXTRA_ARGS:-}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            # Reserve every GPU on the host; --tensor-parallel-size decides how
+            # many vLLM actually shards across.
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      # The image is Python-based, so urllib is always present (curl may not be).
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 20
+      # Weights can take many minutes to download + load on first boot; don't
+      # mark the container unhealthy while that's happening.
+      start_period: 600s
+
+volumes:
+  hf-cache:
