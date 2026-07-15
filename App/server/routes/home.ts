@@ -1,4 +1,5 @@
-import { Router } from "express";
+import { Request, Router } from "express";
+import { Role } from "../db/entities/Membership.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { getHomeData } from "../services/home.js";
 
@@ -12,5 +13,13 @@ homeRouter.use(requireCompanyMember);
 
 homeRouter.get("/home", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
-  res.json(await getHomeData({ companyId: cid, userId: req.userId! }));
+  // `requireCompanyMember` stamped `role` after proving the membership, so
+  // reading it back is a pure re-shaping — no DB hit.
+  res.json(
+    await getHomeData({
+      companyId: cid,
+      userId: req.userId!,
+      role: (req as Request & { role: Role }).role,
+    }),
+  );
 });

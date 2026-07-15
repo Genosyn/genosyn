@@ -72,6 +72,7 @@ import { Pipeline } from "../db/entities/Pipeline.js";
 import { PipelineRun } from "../db/entities/PipelineRun.js";
 import { Product } from "../db/entities/Product.js";
 import { Project } from "../db/entities/Project.js";
+import { ProjectMember } from "../db/entities/ProjectMember.js";
 import { RecurringInvoice } from "../db/entities/RecurringInvoice.js";
 import { RecurringInvoiceLineItem } from "../db/entities/RecurringInvoiceLineItem.js";
 import { Resource } from "../db/entities/Resource.js";
@@ -215,6 +216,9 @@ export async function deleteCompanyCascade(args: {
     if (todoIds.length) {
       await m.delete(TodoComment, { todoId: In(todoIds) });
       await m.delete(Todo, { id: In(todoIds) });
+    }
+    if (projectIds.length) {
+      await m.delete(ProjectMember, { projectId: In(projectIds) });
     }
     if (billIds.length) {
       await m.delete(BillLineItem, { billId: In(billIds) });

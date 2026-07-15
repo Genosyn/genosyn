@@ -36,6 +36,7 @@ import { Notification } from "../db/entities/Notification.js";
 import { Pipeline } from "../db/entities/Pipeline.js";
 import { Product } from "../db/entities/Product.js";
 import { Project } from "../db/entities/Project.js";
+import { ProjectMember } from "../db/entities/ProjectMember.js";
 import { RecurringInvoice } from "../db/entities/RecurringInvoice.js";
 import { Resource } from "../db/entities/Resource.js";
 import { Todo } from "../db/entities/Todo.js";
@@ -121,6 +122,11 @@ export async function deleteUserCascade(args: {
     const notifications = (await m.delete(Notification, { userId })).affected ?? 0;
     const channelMembers = (await m.delete(ChannelMember, { userId })).affected ?? 0;
     const reactions = (await m.delete(MessageReaction, { userId })).affected ?? 0;
+    // Project access is an entry, not authorship — so it is deleted here rather
+    // than NULLed below. A row with a NULL `userId` would match no principal yet
+    // still count toward the "last human with write" quorum in
+    // `services/projects.ts`, locking the project for everyone left.
+    await m.delete(ProjectMember, { userId });
 
     // ── 2. Authored content — preserve the row, unlink the author ──────
     await m.update(AIEmployee, { reportsToUserId: userId }, { reportsToUserId: null });

@@ -83,10 +83,11 @@ code, UI copy, commits, and docs.
 | **Run** (one execution of a Routine) | Execution, Invocation |
 | **Integration** (a connector type: Stripe, Gmail, …; static in code) | Provider, Plugin, Service (in product copy) |
 | **Connection** (one authenticated account inside an Integration; DB row) | Account, Instance, Integration (of the DB row) |
-| **Grant** (an AI employee's access to a Connection) | Permission, Attachment, Binding |
+| **Grant** (an AI employee's access to a resource — a Connection, Note, Chart, Repo, …) | Permission, Attachment, Binding |
+| **Project member** (a human Member *or* an AI Employee authorized on a Project — `ProjectMember`) | Grant, Permission, Collaborator |
 
-**"Tasks" is reserved** for a future task-manager feature (Projects + Todos).
-Do not use "Task" for scheduled AI work, ever.
+**"Tasks" is reserved** for the task-manager feature (Projects + Todos), which
+has shipped. Do not use "Task" for scheduled AI work, ever.
 
 ---
 

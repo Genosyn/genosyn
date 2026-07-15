@@ -122,7 +122,8 @@ genosyn/
 - **Bases (M11.5):** `Base`, `BaseTable`, `BaseField`, `BaseView`,
   `BaseRecord`, `BaseRecordComment`, `BaseRecordAttachment`,
   `EmployeeBaseGrant`
-- **Tasks (Projects + Todos):** `Project`, `Todo`, `TodoComment`
+- **Tasks (Projects + Todos):** `Project`, `Todo`, `TodoComment`,
+  `ProjectMember`
 - **Pipelines (M10):** `Pipeline`, `PipelineRun`
 - **Integrations:** `IntegrationConnection`, `EmployeeConnectionGrant`,
   `McpServer` (external MCP server registry)
@@ -685,6 +686,13 @@ of the original V1 backlog has shipped — what remains is mostly
       assignee belongs to whoever created it (explicit null still means
       unassigned; MCP `create_todo` already defaulted to the calling
       employee)
+- [x] **Project access** — `Project.accessMode` (`open` / `restricted`) plus
+      `ProjectMember` rows authorizing human Members *and* AI Employees at
+      `read` / `write`. Todos and comments inherit the project's access;
+      both the list and board views are gated by it. Projects are `open` by
+      default, so nothing changes until someone restricts one
+- [ ] **Share a project with a Team** — blocked on humans being able to
+      belong to a `Team` at all (today `Team` groups AI employees only)
 
 ### Integrations
 - [x] **MCP server support** (external + built-in `genosyn` stdio binary
@@ -709,7 +717,13 @@ of the original V1 backlog has shipped — what remains is mostly
 - [x] **Usage & cost** — per-employee / per-routine token spend rollups
 - [x] **Backups** — `Backup` + `BackupSchedule`, restore endpoint,
       catch-up backup on boot, plus off-box `BackupDestination` mirrors
-      (mounted NAS path or SFTP) that auto-deliver every completed archive
+      (mounted NAS path, SMB share, or SFTP) that auto-deliver every
+      completed archive
+- [x] **Migrations dashboard** — read-only `Admin → Migrations` over the
+      TypeORM ledger: applied / pending counts plus drift detection (rows
+      matching no shipped migration, out-of-order timestamps from a branch
+      merge). Boot still applies migrations automatically; this is the
+      detail view behind the Instance Health migrations probe
 - [x] **Notifications** — bell + panel, per-user feed
 - [x] **Web Push (PWA)** — `web-push` + auto-generated VAPID keypair in
       `app_settings`, `PushSubscription` per device, fan-out on every
@@ -771,7 +785,16 @@ of the original V1 backlog has shipped — what remains is mostly
         stays as the fallback for unattended routines.
 - [ ] **Genosyn-level sandbox** (docker / lightweight jail around the
       child process — provider sandboxes don't fully contain the spawn)
-- [ ] **Per-run context window budget**
+- [x] **Per-run context window budget** — the loop budgets each turn against
+      `AIModel.contextWindow` (85% of it, leaving room to reply), and drops the
+      oldest tool results to a stub when the next prompt wouldn't fit. Results
+      are shrunk in place, never removed, because both wire formats require a
+      `tool_use` to keep its `tool_result`. A provider that rejects a prompt
+      anyway is caught, compacted hard, and retried once, so an unknown window
+      degrades instead of killing the run. Per-result caps scale to the window;
+      the transcript shows `[compact]` whenever history was dropped. Operators
+      can set the window by hand (`contextWindowSource: "manual"`) for the many
+      servers that report none
 
 ---
 

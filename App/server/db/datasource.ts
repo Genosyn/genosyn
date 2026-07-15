@@ -14,6 +14,7 @@ import { Skill } from "./entities/Skill.js";
 import { Routine } from "./entities/Routine.js";
 import { Run } from "./entities/Run.js";
 import { Project } from "./entities/Project.js";
+import { ProjectMember } from "./entities/ProjectMember.js";
 import { Todo } from "./entities/Todo.js";
 import { TodoComment } from "./entities/TodoComment.js";
 import { Conversation } from "./entities/Conversation.js";
@@ -103,6 +104,7 @@ const entities = [
   Routine,
   Run,
   Project,
+  ProjectMember,
   Todo,
   TodoComment,
   Conversation,

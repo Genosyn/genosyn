@@ -326,6 +326,16 @@ export type AIModel = {
   customEndpointHost: string | null;
   customEndpointModelId: string | null;
   customEndpointHasApiKey: boolean;
+  /**
+   * Tokens this model accepts, or null when nobody knows. Null isn't cosmetic:
+   * without it a run can't budget its context and only finds out it overflowed
+   * when the provider rejects a turn.
+   */
+  contextWindow: number | null;
+  /** Whether `contextWindow` was probed from the provider or typed in by hand. */
+  contextWindowSource: "probed" | "manual" | null;
+  /** False when the provider can't be asked at all (OpenAI reports no window). */
+  contextWindowProbeable: boolean;
 };
 export type Member = {
   userId: string;
@@ -751,12 +761,14 @@ export type BackupSchedule = {
   updatedAt: string;
 };
 
-export type BackupDestinationKind = "local" | "sftp";
+export type BackupDestinationKind = "local" | "sftp" | "smb";
 export type BackupDestinationStatus = "unknown" | "ok" | "error";
 export type SftpAuthMode = "password" | "key";
-/** Off-box mirror target for backups (a mounted NAS path or an SFTP host).
- *  Secrets are never returned — only whether one is set (`hasPassword` /
- *  `hasPrivateKey`). */
+/** Off-box mirror target for backups (a mounted NAS path, an SFTP host, or an
+ *  SMB share). Secrets are never returned — only whether one is set
+ *  (`hasPassword` / `hasPrivateKey`). `host` / `port` / `username` /
+ *  `remoteDir` are shared by the sftp and smb kinds; `share` / `domain` /
+ *  `encrypt` are smb-only and null otherwise. */
 export type BackupDestination = {
   id: string;
   name: string;
@@ -769,6 +781,9 @@ export type BackupDestination = {
   username: string | null;
   remoteDir: string | null;
   authMode: SftpAuthMode | null;
+  share: string | null;
+  domain: string | null;
+  encrypt: boolean | null;
   hasPassword: boolean;
   hasPrivateKey: boolean;
   configError: boolean;
@@ -803,6 +818,38 @@ export type TodoRecurrence =
   | "biweekly"
   | "monthly"
   | "yearly";
+/**
+ * Access lives on the Project, not on a view of it — "Board" is just a view
+ * mode, so the list and the board inherit the same rules.
+ *
+ *   - open       → everyone in the company can edit it (the default)
+ *   - restricted → only the people and AI employees explicitly added
+ */
+export type ProjectAccessMode = "open" | "restricted";
+export type ProjectAccessLevel = "read" | "write";
+/** Humans and AI employees share one member list. */
+export type ProjectMemberKind = "user" | "ai";
+
+/** A `ProjectMember` row hydrated with the principal's display fields. */
+export type ProjectMember = {
+  id: string;
+  memberKind: ProjectMemberKind;
+  accessLevel: ProjectAccessLevel;
+  userId: string | null;
+  employeeId: string | null;
+  name: string;
+  /** Set for humans only. */
+  email: string | null;
+  /** Set for AI employees only. */
+  slug: string | null;
+};
+
+export type ProjectAccessResponse = {
+  accessMode: ProjectAccessMode;
+  myAccessLevel: ProjectAccessLevel;
+  members: ProjectMember[];
+};
+
 export type Project = {
   id: string;
   companyId: string;
@@ -810,9 +857,15 @@ export type Project = {
   slug: string;
   description: string;
   key: string;
+  accessMode: ProjectAccessMode;
   createdById: string | null;
   todoCounter: number;
   createdAt: string;
+  /**
+   * The level the current viewer was served with. Present on the single-project
+   * and todos endpoints; absent on the list endpoint.
+   */
+  myAccessLevel?: ProjectAccessLevel;
   totalTodos?: number;
   openTodos?: number;
   reviewTodos?: number;
@@ -1553,6 +1606,59 @@ export type InstanceHealthReport = {
   issueCount: number;
   checks: InstanceCheck[];
   instance: InstanceInfo;
+};
+
+// ─────────────────────────── Migrations (Admin) ─────────────────────────
+// The per-migration detail behind the Instance Health "migrations" check,
+// served read-only by /api/admin/migrations. Severity reuses InstanceSeverity
+// above so the two admin surfaces grade themselves on one scale.
+//
+// NOTE: there is no "applied at" here, and that is not an oversight. TypeORM's
+// migrations table records only id (execution ORDER), the migration's own
+// AUTHORED timestamp, and its name — nothing stores when a migration actually
+// ran. `authoredAt` is when the migration was WRITTEN; never label it "Applied
+// at" or "Ran at" in the UI. Use `batchId` for run order.
+export type MigrationState = "applied" | "pending" | "unknown";
+export type MigrationEntry = {
+  /** TypeORM migration class name, e.g. "Init1776188492090". */
+  name: string;
+  /** Human title with the timestamp suffix stripped, e.g. "Init". */
+  title: string;
+  /** Authored timestamp (ms epoch) parsed from the class-name suffix. */
+  timestamp: number;
+  /** ISO of `timestamp` — when the migration was WRITTEN, not when it ran. */
+  authoredAt: string;
+  state: MigrationState;
+  /** migrations.id — the execution order rank. null when pending. */
+  batchId: number | null;
+};
+export type MigrationIssue = {
+  /** Stable key: "pending" | "unknown" | "out_of_order". */
+  id: string;
+  severity: InstanceSeverity;
+  title: string;
+  detail: string;
+  /** Migration class names implicated by this issue. */
+  migrations: string[];
+};
+export type MigrationReport = {
+  generatedAt: string;
+  driver: "sqlite" | "postgres";
+  status: InstanceSeverity;
+  summary: string;
+  total: number;
+  appliedCount: number;
+  pendingCount: number;
+  unknownCount: number;
+  lastApplied: {
+    name: string;
+    title: string;
+    authoredAt: string;
+    batchId: number | null;
+  } | null;
+  issues: MigrationIssue[];
+  /** Every migration, sorted by `timestamp` DESC (newest first). */
+  migrations: MigrationEntry[];
 };
 
 export type GlobalSmtpSource = "database" | "config" | "none";

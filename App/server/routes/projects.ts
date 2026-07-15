@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Request, Router } from "express";
 import { z } from "zod";
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
@@ -6,14 +6,31 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Project } from "../db/entities/Project.js";
+import {
+  PROJECT_ACCESS_LEVELS,
+  ProjectAccessLevel,
+  ProjectMember,
+} from "../db/entities/ProjectMember.js";
 import { Todo, TodoPriority, TodoRecurrence, TodoStatus } from "../db/entities/Todo.js";
 import { TodoComment } from "../db/entities/TodoComment.js";
 import { User } from "../db/entities/User.js";
+import { Role } from "../db/entities/Membership.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { ChatTurn, chatWithEmployee } from "../services/chat.js";
 import { createNotification } from "../services/notifications.js";
+import {
+  ProjectActor,
+  countWriteHumans,
+  deleteMembersForProject,
+  findProjectAccess,
+  hasProjectAccess,
+  listAccessibleProjectIds,
+  listProjectMembers,
+  restrictProject,
+  upsertProjectMember,
+} from "../services/projects.js";
 
 export const projectsRouter = Router({ mergeParams: true });
 projectsRouter.use(requireAuth);
@@ -123,8 +140,10 @@ function deriveKey(name: string): string {
  */
 projectsRouter.get("/reviews", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
+  const accessible = await listAccessibleProjectIds(cid, actorOf(req));
+  if (accessible.size === 0) return res.json({ todos: [] });
   const projects = await AppDataSource.getRepository(Project).find({
-    where: { companyId: cid },
+    where: { companyId: cid, id: In([...accessible]) },
     select: ["id", "key", "name", "slug"],
   });
   if (projects.length === 0) return res.json({ todos: [] });
@@ -146,8 +165,10 @@ projectsRouter.get("/reviews", async (req, res) => {
 
 projectsRouter.get("/projects", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
+  const accessible = await listAccessibleProjectIds(cid, actorOf(req));
+  if (accessible.size === 0) return res.json([]);
   const projects = await AppDataSource.getRepository(Project).find({
-    where: { companyId: cid },
+    where: { companyId: cid, id: In([...accessible]) },
     order: { createdAt: "ASC" },
   });
   // Attach todo counts so the sidebar can render lightweight badges without a
@@ -216,11 +237,28 @@ async function loadProjectBySlug(cid: string, pSlug: string) {
   });
 }
 
+/**
+ * The human behind this request, as a principal `services/projects.ts` can
+ * check. `requireCompanyMember` has already stamped `role` and proved the
+ * membership, so this is a pure re-shaping — no DB hit.
+ */
+function actorOf(req: Request): ProjectActor {
+  return {
+    kind: "user",
+    id: req.userId!,
+    role: (req as Request & { role: Role }).role,
+  };
+}
+
 projectsRouter.get("/projects/:pSlug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const p = await loadProjectBySlug(cid, req.params.pSlug);
   if (!p) return res.status(404).json({ error: "Project not found" });
-  res.json(p);
+  const level = await findProjectAccess(p, actorOf(req));
+  if (!level) return res.status(403).json({ error: "No access to that project" });
+  // The client hides edit affordances on a read-only project, so it needs to
+  // know the level it was served with.
+  res.json({ ...p, myAccessLevel: level });
 });
 
 const patchProjectSchema = z.object({
@@ -232,6 +270,7 @@ const patchProjectSchema = z.object({
     .max(6)
     .regex(/^[A-Za-z0-9]+$/)
     .optional(),
+  accessMode: z.enum(["open", "restricted"]).optional(),
 });
 
 projectsRouter.patch(
@@ -241,18 +280,34 @@ projectsRouter.patch(
     const cid = (req.params as Record<string, string>).cid;
     const p = await loadProjectBySlug(cid, req.params.pSlug);
     if (!p) return res.status(404).json({ error: "Project not found" });
-    const body = req.body as z.infer<typeof patchProjectSchema>;
-    if (body.name !== undefined) {
-      if (await findProjectByName(cid, body.name, p.id)) {
-        return res
-          .status(409)
-          .json({ error: "A project with that name already exists" });
-      }
-      p.name = body.name;
+    if (!(await hasProjectAccess(p, actorOf(req), "write"))) {
+      return res.status(403).json({ error: "No access to that project" });
     }
+    const body = req.body as z.infer<typeof patchProjectSchema>;
+    // Validate everything before writing anything: a request carrying both a
+    // duplicate name and an accessMode flip must not restrict the project on
+    // its way to a 409.
+    if (body.name !== undefined && (await findProjectByName(cid, body.name, p.id))) {
+      return res
+        .status(409)
+        .json({ error: "A project with that name already exists" });
+    }
+    if (body.name !== undefined) p.name = body.name;
     if (body.description !== undefined) p.description = body.description;
     if (body.key !== undefined) p.key = body.key.toUpperCase();
     await AppDataSource.getRepository(Project).save(p);
+    // Restricting goes through the service so the actor is seeded with `write`
+    // in the same transaction — otherwise the flip locks everyone out,
+    // including whoever just clicked the button. It saves the project itself,
+    // so it runs after the plain-field save rather than before.
+    if (body.accessMode !== undefined && body.accessMode !== p.accessMode) {
+      if (body.accessMode === "restricted") {
+        await restrictProject(p, actorOf(req));
+      } else {
+        p.accessMode = "open";
+        await AppDataSource.getRepository(Project).save(p);
+      }
+    }
     res.json(p);
   },
 );
@@ -261,8 +316,168 @@ projectsRouter.delete("/projects/:pSlug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const p = await loadProjectBySlug(cid, req.params.pSlug);
   if (!p) return res.status(404).json({ error: "Project not found" });
+  if (!(await hasProjectAccess(p, actorOf(req), "write"))) {
+    return res.status(403).json({ error: "No access to that project" });
+  }
+  await deleteMembersForProject(p.id);
   await AppDataSource.getRepository(Todo).delete({ projectId: p.id });
   await AppDataSource.getRepository(Project).delete({ id: p.id });
+  res.json({ ok: true });
+});
+
+// ----- Access -----
+
+/**
+ * Resolve `ProjectMember` rows into something renderable — names and avatars
+ * for both principal kinds. Batched: two queries regardless of row count.
+ */
+async function hydrateProjectMembers(cid: string, rows: ProjectMember[]) {
+  const userIds = rows.flatMap((r) => (r.userId ? [r.userId] : []));
+  const empIds = rows.flatMap((r) => (r.employeeId ? [r.employeeId] : []));
+  const users = userIds.length
+    ? await AppDataSource.getRepository(User).find({ where: { id: In(userIds) } })
+    : [];
+  const emps = empIds.length
+    ? await AppDataSource.getRepository(AIEmployee).find({
+        where: { id: In(empIds), companyId: cid },
+      })
+    : [];
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const empById = new Map(emps.map((e) => [e.id, e]));
+  return rows.map((r) => {
+    const u = r.userId ? userById.get(r.userId) : null;
+    const e = r.employeeId ? empById.get(r.employeeId) : null;
+    return {
+      id: r.id,
+      memberKind: r.memberKind,
+      accessLevel: r.accessLevel,
+      userId: r.userId,
+      employeeId: r.employeeId,
+      name: u?.name ?? e?.name ?? "Unknown",
+      email: u?.email ?? null,
+      slug: e?.slug ?? null,
+    };
+  });
+}
+
+projectsRouter.get("/projects/:pSlug/access", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const p = await loadProjectBySlug(cid, req.params.pSlug);
+  if (!p) return res.status(404).json({ error: "Project not found" });
+  const level = await findProjectAccess(p, actorOf(req));
+  if (!level) return res.status(403).json({ error: "No access to that project" });
+  const rows = await listProjectMembers(p.id);
+  res.json({
+    accessMode: p.accessMode,
+    myAccessLevel: level,
+    members: await hydrateProjectMembers(cid, rows),
+  });
+});
+
+const addAccessSchema = z.object({
+  memberKind: z.enum(["user", "ai"]),
+  memberId: z.string().uuid(),
+  accessLevel: z.enum(PROJECT_ACCESS_LEVELS as [ProjectAccessLevel, ...ProjectAccessLevel[]]).optional(),
+});
+
+projectsRouter.post(
+  "/projects/:pSlug/access",
+  validateBody(addAccessSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const p = await loadProjectBySlug(cid, req.params.pSlug);
+    if (!p) return res.status(404).json({ error: "Project not found" });
+    if (!(await hasProjectAccess(p, actorOf(req), "write"))) {
+      return res.status(403).json({ error: "No access to that project" });
+    }
+    const body = req.body as z.infer<typeof addAccessSchema>;
+    // The id must name someone in *this* company, or a caller could hand out
+    // access to a stranger by pasting a uuid.
+    if (body.memberKind === "user") {
+      const m = await AppDataSource.getRepository(Membership).findOneBy({
+        companyId: cid,
+        userId: body.memberId,
+      });
+      if (!m) return res.status(400).json({ error: "Unknown member" });
+    } else {
+      const e = await AppDataSource.getRepository(AIEmployee).findOneBy({
+        id: body.memberId,
+        companyId: cid,
+      });
+      if (!e) return res.status(400).json({ error: "Unknown member" });
+    }
+    const row = await upsertProjectMember(
+      p.id,
+      { kind: body.memberKind, id: body.memberId },
+      body.accessLevel ?? "read",
+    );
+    const [hydrated] = await hydrateProjectMembers(cid, [row]);
+    res.json(hydrated);
+  },
+);
+
+const patchAccessSchema = z.object({
+  accessLevel: z.enum(PROJECT_ACCESS_LEVELS as [ProjectAccessLevel, ...ProjectAccessLevel[]]),
+});
+
+/**
+ * A restricted project must keep at least one human who can edit it, or it
+ * becomes unadministrable from the UI — AI employees can't open the Access
+ * tab. Owners/admins can still recover it, but that shouldn't be routine.
+ */
+async function wouldStrandProject(
+  p: Project,
+  row: ProjectMember,
+  nextLevel: ProjectAccessLevel | null,
+): Promise<boolean> {
+  if (p.accessMode !== "restricted") return false;
+  if (row.memberKind !== "user" || row.accessLevel !== "write") return false;
+  if (nextLevel === "write") return false;
+  return (await countWriteHumans(p.id)) <= 1;
+}
+
+projectsRouter.patch(
+  "/projects/:pSlug/access/:memberRowId",
+  validateBody(patchAccessSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const p = await loadProjectBySlug(cid, req.params.pSlug);
+    if (!p) return res.status(404).json({ error: "Project not found" });
+    if (!(await hasProjectAccess(p, actorOf(req), "write"))) {
+      return res.status(403).json({ error: "No access to that project" });
+    }
+    const repo = AppDataSource.getRepository(ProjectMember);
+    const row = await repo.findOneBy({ id: req.params.memberRowId, projectId: p.id });
+    if (!row) return res.status(404).json({ error: "Not found" });
+    const body = req.body as z.infer<typeof patchAccessSchema>;
+    if (await wouldStrandProject(p, row, body.accessLevel)) {
+      return res
+        .status(400)
+        .json({ error: "A project needs at least one person who can edit it" });
+    }
+    row.accessLevel = body.accessLevel;
+    await repo.save(row);
+    const [hydrated] = await hydrateProjectMembers(cid, [row]);
+    res.json(hydrated);
+  },
+);
+
+projectsRouter.delete("/projects/:pSlug/access/:memberRowId", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const p = await loadProjectBySlug(cid, req.params.pSlug);
+  if (!p) return res.status(404).json({ error: "Project not found" });
+  if (!(await hasProjectAccess(p, actorOf(req), "write"))) {
+    return res.status(403).json({ error: "No access to that project" });
+  }
+  const repo = AppDataSource.getRepository(ProjectMember);
+  const row = await repo.findOneBy({ id: req.params.memberRowId, projectId: p.id });
+  if (!row) return res.status(404).json({ error: "Not found" });
+  if (await wouldStrandProject(p, row, null)) {
+    return res
+      .status(400)
+      .json({ error: "A project needs at least one person who can edit it" });
+  }
+  await repo.delete({ id: row.id });
   res.json({ ok: true });
 });
 
@@ -331,16 +546,19 @@ async function validatePersonPair(
   employeeId: string | null | undefined,
   userId: string | null | undefined,
   label: string,
+  project: Project,
 ): Promise<string | null> {
   if (employeeId && userId) {
     return `Cannot set both an AI employee and a human as ${label} at the same time`;
   }
+  let actor: ProjectActor | null = null;
   if (employeeId) {
     const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
       id: employeeId,
       companyId: cid,
     });
     if (!emp) return `Invalid ${label}`;
+    actor = { kind: "ai", id: employeeId };
   }
   if (userId) {
     const mem = await AppDataSource.getRepository(Membership).findOneBy({
@@ -348,6 +566,16 @@ async function validatePersonPair(
       userId,
     });
     if (!mem) return `Invalid ${label}`;
+    // Their real role, not an assumed one — an owner reaches every project in
+    // their company, so assuming "member" here would reject assigning to them.
+    actor = { kind: "user", id: userId, role: mem.role };
+  }
+  // On a restricted project, handing work to someone who can't open it would
+  // leave them an invisible todo and a notification they can't act on.
+  if (project.accessMode === "restricted" && actor) {
+    if (!(await hasProjectAccess(project, actor, "read"))) {
+      return `That ${label} doesn't have access to this project`;
+    }
   }
   return null;
 }
@@ -356,16 +584,18 @@ async function validateAssignees(
   cid: string,
   assigneeEmployeeId: string | null | undefined,
   assigneeUserId: string | null | undefined,
+  project: Project,
 ): Promise<string | null> {
-  return validatePersonPair(cid, assigneeEmployeeId, assigneeUserId, "assignee");
+  return validatePersonPair(cid, assigneeEmployeeId, assigneeUserId, "assignee", project);
 }
 
 async function validateReviewers(
   cid: string,
   reviewerEmployeeId: string | null | undefined,
   reviewerUserId: string | null | undefined,
+  project: Project,
 ): Promise<string | null> {
-  return validatePersonPair(cid, reviewerEmployeeId, reviewerUserId, "reviewer");
+  return validatePersonPair(cid, reviewerEmployeeId, reviewerUserId, "reviewer", project);
 }
 
 /**
@@ -398,11 +628,16 @@ projectsRouter.get("/projects/:pSlug/todos", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const p = await loadProjectBySlug(cid, req.params.pSlug);
   if (!p) return res.status(404).json({ error: "Project not found" });
+  const level = await findProjectAccess(p, actorOf(req));
+  if (!level) return res.status(403).json({ error: "No access to that project" });
   const todos = await AppDataSource.getRepository(Todo).find({
     where: { projectId: p.id },
     order: { sortOrder: "ASC", createdAt: "ASC" },
   });
-  res.json({ project: p, todos: await hydrateTodos(cid, todos) });
+  res.json({
+    project: { ...p, myAccessLevel: level },
+    todos: await hydrateTodos(cid, todos),
+  });
 });
 
 const createTodoSchema = z.object({
@@ -426,6 +661,9 @@ projectsRouter.post(
     const cid = (req.params as Record<string, string>).cid;
     const p = await loadProjectBySlug(cid, req.params.pSlug);
     if (!p) return res.status(404).json({ error: "Project not found" });
+    if (!(await hasProjectAccess(p, actorOf(req), "write"))) {
+      return res.status(403).json({ error: "No access to that project" });
+    }
     const body = req.body as z.infer<typeof createTodoSchema>;
 
     // Unassigned work tends to sit forever — when the caller doesn't
@@ -445,12 +683,14 @@ projectsRouter.post(
       cid,
       assigneeEmployeeId,
       assigneeUserId,
+      p,
     );
     if (assigneeErr) return res.status(400).json({ error: assigneeErr });
     const reviewerErr = await validateReviewers(
       cid,
       body.reviewerEmployeeId,
       body.reviewerUserId,
+      p,
     );
     if (reviewerErr) return res.status(400).json({ error: reviewerErr });
 
@@ -530,6 +770,9 @@ projectsRouter.patch("/todos/:tid", validateBody(patchTodoSchema), async (req, r
   const cid = (req.params as Record<string, string>).cid;
   const found = await loadTodo(cid, req.params.tid);
   if (!found) return res.status(404).json({ error: "Not found" });
+  if (!(await hasProjectAccess(found.project, actorOf(req), "write"))) {
+    return res.status(403).json({ error: "No access to that project" });
+  }
   const body = req.body as z.infer<typeof patchTodoSchema>;
   const t = found.todo;
 
@@ -546,6 +789,7 @@ projectsRouter.patch("/todos/:tid", validateBody(patchTodoSchema), async (req, r
     cid,
     effectiveAssigneeEmp,
     effectiveAssigneeUser,
+    found.project,
   );
   if (assigneeErr) return res.status(400).json({ error: assigneeErr });
 
@@ -559,6 +803,7 @@ projectsRouter.patch("/todos/:tid", validateBody(patchTodoSchema), async (req, r
     cid,
     effectiveReviewerEmp,
     effectiveReviewerUser,
+    found.project,
   );
   if (reviewerErr) return res.status(400).json({ error: reviewerErr });
 
@@ -685,6 +930,9 @@ projectsRouter.delete("/todos/:tid", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const found = await loadTodo(cid, req.params.tid);
   if (!found) return res.status(404).json({ error: "Not found" });
+  if (!(await hasProjectAccess(found.project, actorOf(req), "write"))) {
+    return res.status(403).json({ error: "No access to that project" });
+  }
   // Subtasks are parts of their parent — they go with it, comments and all.
   const todoRepo = AppDataSource.getRepository(Todo);
   const children = await todoRepo.find({
@@ -751,6 +999,9 @@ projectsRouter.get("/todos/:tid/comments", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const found = await loadTodo(cid, req.params.tid);
   if (!found) return res.status(404).json({ error: "Not found" });
+  if (!(await hasProjectAccess(found.project, actorOf(req), "read"))) {
+    return res.status(403).json({ error: "No access to that project" });
+  }
   const comments = await AppDataSource.getRepository(TodoComment).find({
     where: { todoId: found.todo.id },
     order: { createdAt: "ASC" },
@@ -771,6 +1022,9 @@ projectsRouter.post(
     const cid = (req.params as Record<string, string>).cid;
     const found = await loadTodo(cid, req.params.tid);
     if (!found) return res.status(404).json({ error: "Not found" });
+    if (!(await hasProjectAccess(found.project, actorOf(req), "write"))) {
+      return res.status(403).json({ error: "No access to that project" });
+    }
     const body = req.body as z.infer<typeof createCommentSchema>;
     const commentRepo = AppDataSource.getRepository(TodoComment);
 
@@ -782,6 +1036,21 @@ projectsRouter.post(
         companyId: cid,
       });
       if (!mentionEmp) return res.status(400).json({ error: "Invalid mention" });
+      // A mention hands the employee the todo and the whole thread as context,
+      // so it has to clear the same bar as reading the project. Without this,
+      // @-mentioning is a side door into a project the employee is denied at
+      // every other one.
+      if (
+        !(await hasProjectAccess(
+          found.project,
+          { kind: "ai", id: mentionEmp.id },
+          "read",
+        ))
+      ) {
+        return res
+          .status(400)
+          .json({ error: "That AI employee doesn't have access to this project" });
+      }
     }
 
     // 1. Save the human comment.
@@ -832,6 +1101,9 @@ projectsRouter.delete("/comments/:cmtId", async (req, res) => {
   // Comment must belong to a todo in this company.
   const found = await loadTodo(cid, cmt.todoId);
   if (!found) return res.status(404).json({ error: "Not found" });
+  if (!(await hasProjectAccess(found.project, actorOf(req), "write"))) {
+    return res.status(403).json({ error: "No access to that project" });
+  }
   // Only the human author may delete their own comment. AI comments can be
   // cleared by any member (treating them as transient thread noise).
   if (cmt.authorUserId && cmt.authorUserId !== req.userId) {

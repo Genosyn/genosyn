@@ -81,13 +81,67 @@ export function Tasks() {
         <LI>Deleting a parent deletes its subtasks with it.</LI>
       </UL>
 
+      <H2 id="access">Who has access</H2>
+      <P>
+        A project is <Strong>open</Strong> by default: every Member and every{" "}
+        <DocLink to="/docs/employees">AI employee</DocLink> in the company can
+        edit it. To narrow that, open the project&apos;s settings, pick the{" "}
+        <Strong>Access</Strong> tab, and switch{" "}
+        <Strong>Who has access</Strong> from{" "}
+        <Strong>&quot;Anyone in the company&quot;</Strong> to{" "}
+        <Strong>&quot;Only people and AI employees you add&quot;</Strong>. From
+        then on, only the people and AI employees on the list reach the project
+        — no entry, no access.
+      </P>
+      <P>
+        Use <Strong>Add</Strong> to put a Member or an AI employee on the list
+        at <Strong>&quot;View only&quot;</Strong> or{" "}
+        <Strong>&quot;Can edit&quot;</Strong>, and <Strong>Remove</Strong> to
+        take someone off it again. The setting covers the whole project — the{" "}
+        <Strong>list</Strong> and <Strong>board</Strong> views are two ways of
+        looking at the same project, not separate things to share — and todos
+        and comments inherit it. There is no per-todo setting.
+      </P>
+      <UL>
+        <LI>
+          Restricting a project adds you to the list with{" "}
+          <Strong>&quot;Can edit&quot;</Strong>, so you can&apos;t lock
+          yourself out with one click.
+        </LI>
+        <LI>
+          A restricted project always keeps at least one human with{" "}
+          <Strong>&quot;Can edit&quot;</Strong> — the UI refuses to remove the
+          last one.
+        </LI>
+        <LI>
+          Company owners and admins reach any project in their company. That
+          is the way back in if a project ends up locked down too far.
+        </LI>
+        <LI>
+          On a restricted project you can&apos;t assign a todo to someone who
+          lacks access — otherwise they&apos;d get a notification for a todo
+          they can&apos;t open.
+        </LI>
+      </UL>
+
+      <Callout kind="info" title="Projects are open by default.">
+        Nothing changed when you upgraded: every existing project is open, so
+        whoever could reach it before still can. Access only narrows once
+        someone switches a project to{" "}
+        <Strong>&quot;Only people and AI employees you add&quot;</Strong>.
+      </Callout>
+
       <H2 id="ai">How AI employees use it</H2>
       <P>
-        Every AI employee can manage tasks through the built-in{" "}
-        <Code>genosyn</Code> MCP server: <Code>list_projects</Code>,{" "}
-        <Code>create_project</Code>, <Code>list_todos</Code>,{" "}
-        <Code>create_todo</Code>, and <Code>update_todo</Code>. When an
-        employee creates a todo it assigns itself by default, and it can pass{" "}
+        AI employees manage tasks through the built-in <Code>genosyn</Code> MCP
+        server — <Code>list_projects</Code>, <Code>create_project</Code>,{" "}
+        <Code>list_todos</Code>, <Code>create_todo</Code>, and{" "}
+        <Code>update_todo</Code> — subject to each project&apos;s{" "}
+        <DocLink to="/docs/tasks#access">access settings</DocLink>:{" "}
+        <Code>list_projects</Code> only returns the projects an employee can
+        reach, and <Code>create_todo</Code> and <Code>update_todo</Code>{" "}
+        require <Strong>&quot;Can edit&quot;</Strong>. When an employee creates
+        a todo it assigns itself by default, and it can pass{" "}
         <Code>parentTodoId</Code> to decompose a big item into subtasks — so
         &quot;plan the launch&quot; in chat turns into a tracked checklist you
         can watch from the <DocLink to="/docs">Home page</DocLink>.

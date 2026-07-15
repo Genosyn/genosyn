@@ -33,6 +33,8 @@ import {
   RefreshCw,
   ShieldCheck,
   CornerUpLeft,
+  Users,
+  Eye,
 } from "lucide-react";
 import {
   api,
@@ -41,6 +43,10 @@ import {
   Me,
   Member,
   Project,
+  ProjectAccessLevel,
+  ProjectAccessMode,
+  ProjectAccessResponse,
+  ProjectMember,
   Todo,
   TodoComment,
   TodoPriority,
@@ -51,6 +57,7 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
+import { Modal } from "../components/ui/Modal";
 import { Spinner } from "../components/ui/Spinner";
 import { Breadcrumbs } from "../components/AppShell";
 import { Menu, MenuHeader, MenuItem, MenuSeparator } from "../components/ui/Menu";
@@ -256,16 +263,19 @@ function StatusPicker({
   value,
   onChange,
   compact,
+  disabled,
 }: {
   value: TodoStatus;
   onChange: (v: TodoStatus) => void;
   compact?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <Menu
       trigger={({ ref, onClick, open }) => (
         <button
           ref={ref}
+          disabled={disabled}
           onClick={(e) => {
             e.stopPropagation();
             onClick();
@@ -274,7 +284,11 @@ function StatusPicker({
           className={clsx(
             "flex items-center gap-1.5 rounded-md text-left text-xs",
             compact ? "p-0.5" : "px-1.5 py-1",
-            open ? "bg-slate-100 dark:bg-slate-800" : "hover:bg-slate-100 dark:hover:bg-slate-800",
+            disabled
+              ? "cursor-default"
+              : open
+                ? "bg-slate-100 dark:bg-slate-800"
+                : "hover:bg-slate-100 dark:hover:bg-slate-800",
           )}
         >
           <StatusIcon status={value} />
@@ -308,16 +322,19 @@ function PriorityPicker({
   value,
   onChange,
   compact,
+  disabled,
 }: {
   value: TodoPriority;
   onChange: (v: TodoPriority) => void;
   compact?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <Menu
       trigger={({ ref, onClick, open }) => (
         <button
           ref={ref}
+          disabled={disabled}
           onClick={(e) => {
             e.stopPropagation();
             onClick();
@@ -326,7 +343,11 @@ function PriorityPicker({
           className={clsx(
             "flex items-center gap-1.5 rounded-md text-left text-xs",
             compact ? "p-0.5" : "px-1.5 py-1",
-            open ? "bg-slate-100 dark:bg-slate-800" : "hover:bg-slate-100 dark:hover:bg-slate-800",
+            disabled
+              ? "cursor-default"
+              : open
+                ? "bg-slate-100 dark:bg-slate-800"
+                : "hover:bg-slate-100 dark:hover:bg-slate-800",
           )}
         >
           <PriorityIcon priority={value} />
@@ -365,6 +386,7 @@ function AssigneePicker({
   onChange,
   compact,
   role = "assignee",
+  disabled,
 }: {
   value: AssigneeRef;
   employees: Employee[];
@@ -372,6 +394,7 @@ function AssigneePicker({
   onChange: (ref: AssigneeRef) => void;
   compact?: boolean;
   role?: "assignee" | "reviewer";
+  disabled?: boolean;
 }) {
   const [query, setQuery] = React.useState("");
   const unsetLabel = role === "reviewer" ? "No reviewer" : "Unassigned";
@@ -411,6 +434,7 @@ function AssigneePicker({
       trigger={({ ref, onClick, open }) => (
         <button
           ref={ref}
+          disabled={disabled}
           onClick={(e) => {
             e.stopPropagation();
             onClick();
@@ -419,9 +443,11 @@ function AssigneePicker({
           className={clsx(
             "flex items-center gap-1.5 rounded-md text-xs",
             compact ? "p-0.5" : "px-1.5 py-1",
-            open
-              ? "bg-slate-100 dark:bg-slate-800"
-              : "hover:bg-slate-100 dark:hover:bg-slate-800",
+            disabled
+              ? "cursor-default"
+              : open
+                ? "bg-slate-100 dark:bg-slate-800"
+                : "hover:bg-slate-100 dark:hover:bg-slate-800",
           )}
         >
           {current ? (
@@ -546,10 +572,12 @@ function RecurrencePicker({
   value,
   onChange,
   compact,
+  disabled,
 }: {
   value: TodoRecurrence;
   onChange: (v: TodoRecurrence) => void;
   compact?: boolean;
+  disabled?: boolean;
 }) {
   const active = value !== "none";
   return (
@@ -557,6 +585,7 @@ function RecurrencePicker({
       trigger={({ ref, onClick, open }) => (
         <button
           ref={ref}
+          disabled={disabled}
           onClick={(e) => {
             e.stopPropagation();
             onClick();
@@ -565,11 +594,16 @@ function RecurrencePicker({
           className={clsx(
             "flex items-center gap-1.5 rounded-md text-left text-xs",
             compact ? "p-0.5" : "px-1.5 py-1",
-            open
-              ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
-              : active
-                ? "text-indigo-600 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-500/10"
-                : "text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800",
+            disabled
+              ? clsx(
+                  "cursor-default",
+                  active ? "text-indigo-600 dark:text-indigo-300" : "text-slate-500 dark:text-slate-400",
+                )
+              : open
+                ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
+                : active
+                  ? "text-indigo-600 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-500/10"
+                  : "text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800",
           )}
         >
           <Repeat size={compact ? 12 : 13} />
@@ -727,6 +761,16 @@ export default function ProjectDetail({
   const [filters, setFilters] = React.useState<Filters>(emptyFilters);
   const addInputRef = React.useRef<HTMLInputElement>(null);
 
+  // Every write affordance below hangs off this one value. `myAccessLevel` is
+  // optional on `Project` (the list endpoint omits it) but always present on
+  // the todos response we render from, so in practice it is set. When it IS
+  // missing we deliberately fall back to ALLOWING edits: an open project is
+  // editable by the whole company, and guessing "read" would strip the UI from
+  // every normal user. The server is the real gate — it 403s a viewer who
+  // shouldn't write — so an optimistic client is safe, while a pessimistic one
+  // would be a regression.
+  const canEdit = data ? data.project.myAccessLevel !== "read" : true;
+
   const reload = React.useCallback(async () => {
     if (!pSlug) return;
     try {
@@ -777,6 +821,8 @@ export default function ProjectDetail({
         return;
       }
       if (e.key === "c") {
+        // Read-only viewers have no composer to focus — leave `c` alone.
+        if (!canEdit) return;
         e.preventDefault();
         addInputRef.current?.focus();
       } else if (e.key === "Escape") {
@@ -785,7 +831,7 @@ export default function ProjectDetail({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [peekId]);
+  }, [peekId, canEdit]);
 
   if (!data) {
     return (
@@ -887,6 +933,14 @@ export default function ProjectDetail({
               <span className="ml-2 text-xs text-slate-500 dark:text-slate-400">
                 {summary.open} open · {summary.done} done
               </span>
+              {!canEdit && (
+                <span
+                  className="flex shrink-0 items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                  title="You have view-only access to this project"
+                >
+                  <Eye size={10} /> View only
+                </span>
+              )}
             </div>
             {project.description && (
               <p className="mt-1 truncate text-sm text-slate-500 dark:text-slate-400">
@@ -913,19 +967,21 @@ export default function ProjectDetail({
           todos={todos}
         />
 
-        {/* New todo row */}
-        <NewTodoRow
-          companyId={company.id}
-          projectSlug={project.slug}
-          employees={employees}
-          members={members}
-          meId={me.id}
-          inputRef={addInputRef}
-          onCreated={(t) => {
-            setData((d) => (d ? { ...d, todos: [...d.todos, t] } : d));
-            reloadProjects();
-          }}
-        />
+        {/* New todo row — writers only; the server 403s a read-only create. */}
+        {canEdit && (
+          <NewTodoRow
+            companyId={company.id}
+            projectSlug={project.slug}
+            employees={employees}
+            members={members}
+            meId={me.id}
+            inputRef={addInputRef}
+            onCreated={(t) => {
+              setData((d) => (d ? { ...d, todos: [...d.todos, t] } : d));
+              reloadProjects();
+            }}
+          />
+        )}
 
         {/* Body */}
         <div className="min-h-0 flex-1 overflow-auto">
@@ -939,6 +995,7 @@ export default function ProjectDetail({
               activePeekId={peekId}
               childStats={childStats}
               todoById={todoById}
+              canEdit={canEdit}
               onOpen={setPeekId}
               onPatch={patchTodo}
               onDelete={deleteTodo}
@@ -952,6 +1009,7 @@ export default function ProjectDetail({
               activePeekId={peekId}
               childStats={childStats}
               todoById={todoById}
+              canEdit={canEdit}
               onPatch={patchTodo}
             />
           )}
@@ -967,6 +1025,7 @@ export default function ProjectDetail({
           employees={employees}
           members={members}
           companyId={company.id}
+          canEdit={canEdit}
           onClose={() => setPeekId(null)}
           onPatch={(patch) => patchTodo(peekTodo, patch)}
           onPatchTodo={patchTodo}
@@ -983,6 +1042,9 @@ export default function ProjectDetail({
         <ProjectSettingsModal
           company={company}
           project={project}
+          me={me}
+          employees={employees}
+          members={members}
           onClose={() => setShowSettings(false)}
           onSaved={async () => {
             await reload();
@@ -1397,6 +1459,7 @@ function ListView({
   activePeekId,
   childStats,
   todoById,
+  canEdit,
   onOpen,
   onPatch,
   onDelete,
@@ -1410,6 +1473,7 @@ function ListView({
   activePeekId: string | null;
   childStats: Map<string, ChildStats>;
   todoById: Map<string, Todo>;
+  canEdit: boolean;
   onOpen: (id: string) => void;
   onPatch: (t: Todo, patch: Partial<Todo>) => void;
   onDelete: (t: Todo) => void;
@@ -1422,11 +1486,17 @@ function ListView({
   if (totalBeforeFilter === 0) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500 dark:text-slate-400">
-        No todos yet — press{" "}
-        <kbd className="mx-1 rounded border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-600 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300">
-          c
-        </kbd>{" "}
-        or type above to add one.
+        {canEdit ? (
+          <>
+            No todos yet — press{" "}
+            <kbd className="mx-1 rounded border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-600 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300">
+              c
+            </kbd>{" "}
+            or type above to add one.
+          </>
+        ) : (
+          "No todos yet."
+        )}
       </div>
     );
   }
@@ -1463,6 +1533,7 @@ function ListView({
                   active={activePeekId === t.id}
                   parent={t.parentTodoId ? todoById.get(t.parentTodoId) ?? null : null}
                   stats={childStats.get(t.id) ?? null}
+                  canEdit={canEdit}
                   onOpen={() => onOpen(t.id)}
                   onOpenTodo={onOpen}
                   onPatch={(patch) => onPatch(t, patch)}
@@ -1486,6 +1557,7 @@ function TodoRow({
   active,
   parent,
   stats,
+  canEdit,
   onOpen,
   onOpenTodo,
   onPatch,
@@ -1499,6 +1571,7 @@ function TodoRow({
   active: boolean;
   parent: Todo | null;
   stats: ChildStats | null;
+  canEdit: boolean;
   onOpen: () => void;
   onOpenTodo: (id: string) => void;
   onPatch: (patch: Partial<Todo>) => void;
@@ -1533,6 +1606,7 @@ function TodoRow({
         value={todo.status}
         onChange={(s) => onPatch({ status: s })}
         compact
+        disabled={!canEdit}
       />
       <span className="w-14 shrink-0 font-mono text-[11px] text-slate-400 dark:text-slate-500">
         {project.key}-{todo.number}
@@ -1541,6 +1615,7 @@ function TodoRow({
         value={todo.priority}
         onChange={(p) => onPatch({ priority: p })}
         compact
+        disabled={!canEdit}
       />
       <div className="min-w-0 flex-1" onClick={(e) => editing && e.stopPropagation()}>
         {editing ? (
@@ -1561,6 +1636,8 @@ function TodoRow({
         ) : (
           <button
             onDoubleClick={(e) => {
+              // Rename is a write — read-only viewers just open the peek.
+              if (!canEdit) return;
               e.stopPropagation();
               setEditing(true);
             }}
@@ -1632,6 +1709,7 @@ function TodoRow({
           onChange={(ref) => onPatch(patchForReviewerRef(ref))}
           role="reviewer"
           compact
+          disabled={!canEdit}
         />
       )}
       <AssigneePicker
@@ -1640,17 +1718,20 @@ function TodoRow({
         members={members}
         onChange={(ref) => onPatch(patchForRef(ref))}
         compact
+        disabled={!canEdit}
       />
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete();
-        }}
-        className="rounded p-1 text-slate-400 opacity-0 hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 dark:text-slate-500"
-        title="Delete"
-      >
-        <Trash2 size={13} />
-      </button>
+      {canEdit && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          className="rounded p-1 text-slate-400 opacity-0 hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 dark:text-slate-500"
+          title="Delete"
+        >
+          <Trash2 size={13} />
+        </button>
+      )}
     </li>
   );
 }
@@ -1672,6 +1753,7 @@ function BoardView({
   activePeekId,
   childStats,
   todoById,
+  canEdit,
   onPatch,
 }: {
   todos: Todo[];
@@ -1680,6 +1762,7 @@ function BoardView({
   activePeekId: string | null;
   childStats: Map<string, ChildStats>;
   todoById: Map<string, Todo>;
+  canEdit: boolean;
   onPatch: (t: Todo, patch: Partial<Todo>) => void;
 }) {
   const byStatus = new Map<TodoStatus, Todo[]>();
@@ -1701,11 +1784,15 @@ function BoardView({
           <div
             key={status}
             onDragOver={(e) => {
+              // Dropping issues a status PATCH, so read-only viewers get no
+              // drop target at all — their cards aren't draggable either.
+              if (!canEdit) return;
               e.preventDefault();
               if (overCol !== status) setOverCol(status);
             }}
             onDragLeave={() => setOverCol((c) => (c === status ? null : c))}
             onDrop={() => {
+              if (!canEdit) return;
               setOverCol(null);
               if (!dragId) return;
               const t = todos.find((x) => x.id === dragId);
@@ -1729,7 +1816,7 @@ function BoardView({
             <div className="flex flex-1 flex-col gap-2 p-2">
               {items.length === 0 ? (
                 <div className="rounded border border-dashed border-slate-200 py-6 text-center text-[11px] text-slate-400 dark:border-slate-700 dark:text-slate-500">
-                  Drop here
+                  {canEdit ? "Drop here" : "Nothing here"}
                 </div>
               ) : (
                 items.map((t) => (
@@ -1742,6 +1829,7 @@ function BoardView({
                       t.parentTodoId ? todoById.get(t.parentTodoId) ?? null : null
                     }
                     stats={childStats.get(t.id) ?? null}
+                    canEdit={canEdit}
                     onClick={() => onOpen(t.id)}
                     onOpenTodo={onOpen}
                     onDragStart={() => setDragId(t.id)}
@@ -1763,6 +1851,7 @@ function BoardCard({
   active,
   parent,
   stats,
+  canEdit,
   onClick,
   onOpenTodo,
   onDragStart,
@@ -1773,6 +1862,7 @@ function BoardCard({
   active: boolean;
   parent: Todo | null;
   stats: ChildStats | null;
+  canEdit: boolean;
   onClick: () => void;
   onOpenTodo: (id: string) => void;
   onDragStart: () => void;
@@ -1782,7 +1872,8 @@ function BoardCard({
   const isReview = todo.status === "in_review";
   return (
     <div
-      draggable
+      // Dragging a card moves it between columns, which is a status PATCH.
+      draggable={canEdit}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onClick={onClick}
@@ -1882,6 +1973,7 @@ function TodoPeek({
   employees,
   members,
   companyId,
+  canEdit,
   onClose,
   onPatch,
   onPatchTodo,
@@ -1895,6 +1987,7 @@ function TodoPeek({
   employees: Employee[];
   members: Member[];
   companyId: string;
+  canEdit: boolean;
   onClose: () => void;
   onPatch: (patch: Partial<Todo>) => void;
   onPatchTodo: (t: Todo, patch: Partial<Todo>) => void;
@@ -1973,6 +2066,7 @@ function TodoPeek({
         )}
         <input
           value={title}
+          readOnly={!canEdit}
           onChange={(e) => setTitle(e.target.value)}
           onBlur={commitTitle}
           onKeyDown={(e) => {
@@ -1989,7 +2083,7 @@ function TodoPeek({
             <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
               Description
             </span>
-            {!descEditing && desc && (
+            {!descEditing && desc && canEdit && (
               <button
                 onClick={() => setDescEditing(true)}
                 className="text-[11px] text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-200"
@@ -2008,14 +2102,20 @@ function TodoPeek({
               onDone={commitDesc}
             />
           ) : desc ? (
-            <button
-              type="button"
-              onClick={() => setDescEditing(true)}
-              className="block w-full rounded-lg border border-transparent px-3 py-2 text-left hover:border-slate-200 hover:bg-slate-50 dark:hover:border-slate-700 dark:hover:bg-slate-800"
-            >
-              <MarkdownView source={desc} />
-            </button>
-          ) : (
+            canEdit ? (
+              <button
+                type="button"
+                onClick={() => setDescEditing(true)}
+                className="block w-full rounded-lg border border-transparent px-3 py-2 text-left hover:border-slate-200 hover:bg-slate-50 dark:hover:border-slate-700 dark:hover:bg-slate-800"
+              >
+                <MarkdownView source={desc} />
+              </button>
+            ) : (
+              <div className="px-3 py-2">
+                <MarkdownView source={desc} />
+              </div>
+            )
+          ) : canEdit ? (
             <button
               type="button"
               onClick={() => setDescEditing(true)}
@@ -2023,6 +2123,10 @@ function TodoPeek({
             >
               Add a description — supports **markdown**, `code`, lists, links…
             </button>
+          ) : (
+            <p className="px-3 py-2 text-sm text-slate-400 dark:text-slate-500">
+              No description.
+            </p>
           )}
         </div>
 
@@ -2031,7 +2135,11 @@ function TodoPeek({
             Status
           </span>
           <div>
-            <StatusPicker value={todo.status} onChange={(s) => onPatch({ status: s })} />
+            <StatusPicker
+              value={todo.status}
+              onChange={(s) => onPatch({ status: s })}
+              disabled={!canEdit}
+            />
           </div>
           <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
             Priority
@@ -2040,6 +2148,7 @@ function TodoPeek({
             <PriorityPicker
               value={todo.priority}
               onChange={(p) => onPatch({ priority: p })}
+              disabled={!canEdit}
             />
           </div>
           <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
@@ -2051,6 +2160,7 @@ function TodoPeek({
               employees={employees}
               members={members}
               onChange={(ref) => onPatch(patchForRef(ref))}
+              disabled={!canEdit}
             />
           </div>
           <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
@@ -2063,6 +2173,7 @@ function TodoPeek({
               members={members}
               onChange={(ref) => onPatch(patchForReviewerRef(ref))}
               role="reviewer"
+              disabled={!canEdit}
             />
           </div>
           <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
@@ -2072,6 +2183,7 @@ function TodoPeek({
             <Input
               type="date"
               value={due}
+              disabled={!canEdit}
               onChange={(e) =>
                 onPatch({
                   dueAt: e.target.value
@@ -2080,7 +2192,7 @@ function TodoPeek({
                 })
               }
             />
-            {due && (
+            {due && canEdit && (
               <button
                 onClick={() => onPatch({ dueAt: null })}
                 className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
@@ -2097,12 +2209,13 @@ function TodoPeek({
             <RecurrencePicker
               value={todo.recurrence}
               onChange={(r) => onPatch({ recurrence: r })}
+              disabled={!canEdit}
             />
           </div>
         </div>
 
         {todo.status === "in_review" && (
-          <ReviewPanel todo={todo} onPatch={onPatch} />
+          <ReviewPanel todo={todo} canEdit={canEdit} onPatch={onPatch} />
         )}
 
         {todo.recurrence !== "none" && (
@@ -2123,22 +2236,30 @@ function TodoPeek({
             subtasks={subtasks}
             project={project}
             companyId={companyId}
+            canEdit={canEdit}
             onPatchTodo={onPatchTodo}
             onOpenTodo={onOpenTodo}
             onCreated={onCreated}
           />
         )}
 
-        <CommentThread todo={todo} employees={employees} companyId={companyId} />
+        <CommentThread
+          todo={todo}
+          employees={employees}
+          companyId={companyId}
+          canEdit={canEdit}
+        />
       </div>
 
       <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 dark:border-slate-700">
         <span className="text-[11px] text-slate-400 dark:text-slate-500">
           Created {new Date(todo.createdAt).toLocaleDateString()}
         </span>
-        <Button variant="danger" size="sm" onClick={onDelete}>
-          <Trash2 size={13} /> Delete
-        </Button>
+        {canEdit && (
+          <Button variant="danger" size="sm" onClick={onDelete}>
+            <Trash2 size={13} /> Delete
+          </Button>
+        )}
       </div>
     </aside>
   );
@@ -2156,6 +2277,7 @@ function SubtasksSection({
   subtasks,
   project,
   companyId,
+  canEdit,
   onPatchTodo,
   onOpenTodo,
   onCreated,
@@ -2164,6 +2286,7 @@ function SubtasksSection({
   subtasks: Todo[];
   project: Project;
   companyId: string;
+  canEdit: boolean;
   onPatchTodo: (t: Todo, patch: Partial<Todo>) => void;
   onOpenTodo: (id: string) => void;
   onCreated: (t: Todo) => void;
@@ -2230,6 +2353,7 @@ function SubtasksSection({
                 value={s.status}
                 onChange={(status) => onPatchTodo(s, { status })}
                 compact
+                disabled={!canEdit}
               />
               <span className="shrink-0 font-mono text-[10px] text-slate-400 dark:text-slate-500">
                 {project.key}-{s.number}
@@ -2260,20 +2384,25 @@ function SubtasksSection({
         </ul>
       )}
 
-      <form onSubmit={add} className="mt-2 flex items-center gap-2">
-        <Plus size={14} className="shrink-0 text-slate-400 dark:text-slate-500" />
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Add a subtask…"
-          className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
-        />
-        {title.trim() && (
-          <Button type="submit" size="sm" disabled={busy}>
-            {busy ? "…" : "Add"}
-          </Button>
-        )}
-      </form>
+      {canEdit && (
+        <form onSubmit={add} className="mt-2 flex items-center gap-2">
+          <Plus size={14} className="shrink-0 text-slate-400 dark:text-slate-500" />
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Add a subtask…"
+            className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
+          />
+          {title.trim() && (
+            <Button type="submit" size="sm" disabled={busy}>
+              {busy ? "…" : "Add"}
+            </Button>
+          )}
+        </form>
+      )}
+      {!canEdit && subtasks.length === 0 && (
+        <p className="text-sm text-slate-400 dark:text-slate-500">No subtasks.</p>
+      )}
     </div>
   );
 }
@@ -2288,9 +2417,11 @@ function SubtasksSection({
  */
 function ReviewPanel({
   todo,
+  canEdit,
   onPatch,
 }: {
   todo: Todo;
+  canEdit: boolean;
   onPatch: (patch: Partial<Todo>) => void;
 }) {
   const assigneeName = todo.assignee?.name ?? "the assignee";
@@ -2309,36 +2440,44 @@ function ReviewPanel({
                 Waiting on <b>{reviewerName}</b> to sign off on work by{" "}
                 <b>{assigneeName}</b>.
               </>
-            ) : (
+            ) : canEdit ? (
               <>
                 <b>{assigneeName}</b> finished this task. Pick a reviewer above
                 to assign sign-off, or approve it below.
+              </>
+            ) : (
+              <>
+                <b>{assigneeName}</b> finished this task. It is waiting on a
+                reviewer.
               </>
             )}
           </div>
         </div>
       </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <Button
-          size="sm"
-          onClick={() => onPatch({ status: "done" })}
-          title="Approve and mark this todo done"
-        >
-          <Check size={13} /> Approve &amp; mark done
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => onPatch({ status: "in_progress" })}
-          title={
-            assigneeIsAi
-              ? "Send back to the AI assignee for another pass"
-              : "Send back to the assignee for another pass"
-          }
-        >
-          <CornerUpLeft size={13} /> Push back {assigneeIsAi ? "to AI" : "to assignee"}
-        </Button>
-      </div>
+      {/* Both resolutions PATCH the status, so they are writers-only. */}
+      {canEdit && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            onClick={() => onPatch({ status: "done" })}
+            title="Approve and mark this todo done"
+          >
+            <Check size={13} /> Approve &amp; mark done
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => onPatch({ status: "in_progress" })}
+            title={
+              assigneeIsAi
+                ? "Send back to the AI assignee for another pass"
+                : "Send back to the assignee for another pass"
+            }
+          >
+            <CornerUpLeft size={13} /> Push back {assigneeIsAi ? "to AI" : "to assignee"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -2348,19 +2487,130 @@ function ReviewPanel({
 function ProjectSettingsModal({
   company,
   project,
+  me,
+  employees,
+  members,
   onClose,
   onSaved,
   onDeleted,
 }: {
   company: Company;
   project: Project;
+  me: Me;
+  employees: Employee[];
+  members: Member[];
   onClose: () => void;
   onSaved: () => Promise<void>;
   onDeleted: () => void;
 }) {
+  const [tab, setTab] = React.useState<"general" | "access">("general");
+  // A viewer served with `read` can't write anything here — the server would
+  // 403 every one of these controls, so don't offer them.
+  const canEdit = project.myAccessLevel !== "read";
+  // The General tab unmounts when you switch to Access, so its field state
+  // lives here instead — otherwise a half-typed rename is silently lost on a
+  // round-trip to check the member list and back.
   const [name, setName] = React.useState(project.name);
   const [key, setKey] = React.useState(project.key);
   const [description, setDescription] = React.useState(project.description);
+
+  return (
+    <Modal open onClose={onClose} title="Project settings" size="lg">
+      <div className="-mx-5 -mt-5 mb-5 flex gap-1 border-b border-slate-100 px-5 dark:border-slate-800">
+        <TabButton active={tab === "general"} onClick={() => setTab("general")}>
+          General
+        </TabButton>
+        <TabButton active={tab === "access"} onClick={() => setTab("access")}>
+          <Users size={12} /> Access
+        </TabButton>
+      </div>
+
+      {tab === "general" ? (
+        <ProjectGeneralTab
+          company={company}
+          project={project}
+          canEdit={canEdit}
+          name={name}
+          setName={setName}
+          projectKey={key}
+          setProjectKey={setKey}
+          description={description}
+          setDescription={setDescription}
+          onClose={onClose}
+          onSaved={onSaved}
+          onDeleted={onDeleted}
+        />
+      ) : (
+        <ProjectAccessTab
+          company={company}
+          project={project}
+          me={me}
+          employees={employees}
+          members={members}
+          canEdit={canEdit}
+          onClose={onClose}
+          onSaved={onSaved}
+        />
+      )}
+    </Modal>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={clsx(
+        "flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition",
+        active
+          ? "border-indigo-500 text-indigo-700 dark:text-indigo-300"
+          : "border-transparent text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * Field state is owned by `ProjectSettingsModal` — this tab unmounts on a
+ * switch to Access, and unsaved edits must survive the round-trip.
+ */
+function ProjectGeneralTab({
+  company,
+  project,
+  canEdit,
+  name,
+  setName,
+  projectKey,
+  setProjectKey,
+  description,
+  setDescription,
+  onClose,
+  onSaved,
+  onDeleted,
+}: {
+  company: Company;
+  project: Project;
+  canEdit: boolean;
+  name: string;
+  setName: (v: string) => void;
+  projectKey: string;
+  setProjectKey: (v: string) => void;
+  description: string;
+  setDescription: (v: string) => void;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+  onDeleted: () => void;
+}) {
   const [busy, setBusy] = React.useState(false);
   const { toast } = useToast();
   const dialog = useDialog();
@@ -2370,7 +2620,7 @@ function ProjectSettingsModal({
     try {
       await api.patch(`/api/companies/${company.id}/projects/${project.slug}`, {
         name,
-        key,
+        key: projectKey,
         description,
       });
       await onSaved();
@@ -2402,58 +2652,453 @@ function ProjectSettingsModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4"
-      onClick={onClose}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:bg-slate-900 dark:border-slate-700"
-      >
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3 dark:border-slate-800">
-          <h2 className="text-base font-semibold">Project settings</h2>
-          <button
-            onClick={onClose}
-            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-          >
-            <X size={16} />
-          </button>
-        </div>
-        <div className="flex flex-col gap-3 p-5">
-          <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
-          <Input
-            label="Key"
-            value={key}
-            onChange={(e) =>
-              setKey(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))
-            }
-            maxLength={6}
-          />
-          <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Description</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
-            />
-          </div>
-          <div className="mt-2 flex items-center justify-between">
-            <Button variant="danger" onClick={remove} disabled={busy}>
-              <Trash2 size={14} /> Delete project
+    <div className="flex flex-col gap-3">
+      {!canEdit && (
+        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
+          You have view-only access to this project, so its settings are
+          read-only.
+        </p>
+      )}
+      <Input
+        label="Name"
+        value={name}
+        disabled={!canEdit}
+        onChange={(e) => setName(e.target.value)}
+      />
+      <Input
+        label="Key"
+        value={projectKey}
+        disabled={!canEdit}
+        onChange={(e) =>
+          setProjectKey(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))
+        }
+        maxLength={6}
+      />
+      <div className="flex flex-col gap-1">
+        <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
+          Description
+        </label>
+        <textarea
+          value={description}
+          disabled={!canEdit}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={3}
+          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 disabled:opacity-60 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
+        />
+      </div>
+      <div className="mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+        {canEdit ? (
+          <Button variant="danger" onClick={remove} disabled={busy}>
+            <Trash2 size={14} /> Delete project
+          </Button>
+        ) : (
+          <span />
+        )}
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>
+            {canEdit ? "Cancel" : "Close"}
+          </Button>
+          {canEdit && (
+            <Button
+              onClick={save}
+              disabled={busy || !name.trim() || !projectKey.trim()}
+            >
+              {busy ? "Saving…" : "Save"}
             </Button>
-            <div className="flex gap-2">
-              <Button variant="secondary" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button onClick={save} disabled={busy || !name.trim() || !key.trim()}>
-                {busy ? "Saving…" : "Save"}
-              </Button>
-            </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
+  );
+}
+
+// ───────────────────────── project access ────────────────────────────────────
+
+/**
+ * Who can open this project. Access lives on the Project, so the list and the
+ * board views inherit it — there is nothing to configure per view.
+ *
+ *   - open       → everyone in the company can edit (the default)
+ *   - restricted → only the humans and AI employees on this list
+ *
+ * Both principal kinds share one list. Adds and removes apply immediately;
+ * there is no Save button on this tab.
+ */
+function ProjectAccessTab({
+  company,
+  project,
+  me,
+  employees,
+  members,
+  canEdit,
+  onClose,
+  onSaved,
+}: {
+  company: Company;
+  project: Project;
+  me: Me;
+  employees: Employee[];
+  members: Member[];
+  canEdit: boolean;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const { toast } = useToast();
+  const dialog = useDialog();
+  const [access, setAccess] = React.useState<ProjectAccessResponse | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  const [addPick, setAddPick] = React.useState("");
+  const [addLevel, setAddLevel] = React.useState<ProjectAccessLevel>("write");
+
+  const base = `/api/companies/${company.id}/projects/${project.slug}`;
+
+  const reloadAccess = React.useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      setAccess(await api.get<ProjectAccessResponse>(`${base}/access`));
+    } catch (err) {
+      setLoadError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [base]);
+
+  React.useEffect(() => {
+    reloadAccess();
+  }, [reloadAccess]);
+
+  async function setMode(next: ProjectAccessMode) {
+    if (!access || access.accessMode === next) return;
+    setBusy(true);
+    try {
+      await api.patch(base, { accessMode: next });
+      // Flipping to restricted seeds the acting user with "Can edit" server
+      // side, so the list has to come back from the server, not from here.
+      await reloadAccess();
+      await onSaved();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addMember() {
+    if (!addPick) return;
+    const [kind, id] = addPick.split(":");
+    setBusy(true);
+    try {
+      await api.post<ProjectMember>(`${base}/access`, {
+        memberKind: kind === "ai" ? "ai" : "user",
+        memberId: id,
+        accessLevel: addLevel,
+      });
+      setAddPick("");
+      await reloadAccess();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function changeLevel(m: ProjectMember, next: ProjectAccessLevel) {
+    if (m.accessLevel === next) return;
+    setBusy(true);
+    try {
+      await api.patch(`${base}/access/${m.id}`, { accessLevel: next });
+      await reloadAccess();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeMember(m: ProjectMember) {
+    const isMe = m.memberKind === "user" && m.userId === me.id;
+    if (isMe) {
+      const ok = await dialog.confirm({
+        title: "Remove yourself from this project?",
+        message: "You will lose access to this project and all of its todos.",
+        confirmLabel: "Remove",
+        variant: "danger",
+      });
+      if (!ok) return;
+    }
+    setBusy(true);
+    try {
+      await api.del(`${base}/access/${m.id}`);
+      if (isMe) {
+        // We just handed in our own key — let the page re-check and bounce us
+        // out rather than sit here re-fetching a list we can no longer read.
+        onClose();
+        await onSaved();
+        return;
+      }
+      await reloadAccess();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loading && !access) {
+    return (
+      <div className="flex min-h-[12rem] items-center justify-center">
+        <Spinner />
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex min-h-[12rem] flex-col items-center justify-center gap-3 text-center">
+        <p className="text-sm text-slate-500 dark:text-slate-400">{loadError}</p>
+        <Button variant="secondary" size="sm" onClick={reloadAccess}>
+          <RefreshCw size={13} /> Try again
+        </Button>
+      </div>
+    );
+  }
+
+  if (!access) return null;
+
+  const restricted = access.accessMode === "restricted";
+  // Rows survive a flip back to `open`, so the list can be non-empty while it
+  // has no effect. Show it dimmed rather than hiding what is still stored.
+  const interactive = canEdit && restricted && !busy;
+
+  const takenUsers = new Set(
+    access.members.flatMap((m) => (m.userId ? [m.userId] : [])),
+  );
+  const takenEmployees = new Set(
+    access.members.flatMap((m) => (m.employeeId ? [m.employeeId] : [])),
+  );
+  const humanChoices = members.filter((m) => !takenUsers.has(m.userId));
+  const aiChoices = employees.filter((e) => !takenEmployees.has(e.id));
+  const hasChoices = humanChoices.length + aiChoices.length > 0;
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-2">
+        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          Who can open this project
+        </h3>
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          The list and board are two views of the same project, so this applies
+          to both — and to every todo inside it.
+        </p>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <ModeOption
+            active={!restricted}
+            disabled={!canEdit || busy}
+            title="Anyone in the company"
+            subtitle="Every member and AI employee can view and edit."
+            onClick={() => setMode("open")}
+          />
+          <ModeOption
+            active={restricted}
+            disabled={!canEdit || busy}
+            title="Only people and AI employees you add"
+            subtitle="Everyone else is locked out of the project and its todos."
+            onClick={() => setMode("restricted")}
+          />
+        </div>
+      </div>
+
+      <div>
+        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          Who has access
+        </h3>
+        {!restricted && (
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            Everyone in the company already has access. This list only takes
+            effect once you switch to{" "}
+            <span className="font-medium">
+              Only people and AI employees you add
+            </span>
+            .
+          </p>
+        )}
+        {access.members.length === 0 ? (
+          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+            No one has been added yet.
+          </p>
+        ) : (
+          <ul
+            className={clsx(
+              "mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-700",
+              !restricted && "opacity-60",
+            )}
+          >
+            {access.members.map((m) => {
+              const isAi = m.memberKind === "ai";
+              const secondary = isAi ? m.slug : m.email;
+              const isMe = m.memberKind === "user" && m.userId === me.id;
+              return (
+                <li
+                  key={m.id}
+                  className="flex items-center justify-between gap-3 px-3 py-2"
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Avatar name={m.name} size={20} kind={isAi ? "ai" : "human"} />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                          {m.name}
+                        </span>
+                        {isMe && (
+                          <span className="shrink-0 rounded bg-slate-100 px-1 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                            You
+                          </span>
+                        )}
+                      </div>
+                      {secondary && (
+                        <div className="truncate text-xs text-slate-500 dark:text-slate-400">
+                          {secondary}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <LevelSelect
+                      value={m.accessLevel}
+                      disabled={!interactive}
+                      onChange={(next) => changeLevel(m, next)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeMember(m)}
+                      disabled={!interactive}
+                      title="Remove from project"
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50 dark:text-slate-500 dark:hover:bg-rose-500/10 dark:hover:text-rose-400"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      {canEdit && restricted && (
+        <div>
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+            Add someone
+          </h3>
+          {!hasChoices ? (
+            <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+              Everyone in this company already has access.
+            </p>
+          ) : (
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+              <select
+                value={addPick}
+                disabled={busy}
+                onChange={(e) => setAddPick(e.target.value)}
+                className="h-8 min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              >
+                <option value="">Pick a person or AI employee…</option>
+                {humanChoices.length > 0 && (
+                  <optgroup label="Members">
+                    {humanChoices.map((m) => (
+                      <option key={m.userId} value={`user:${m.userId}`}>
+                        {m.name ?? m.email ?? "Member"}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {aiChoices.length > 0 && (
+                  <optgroup label="AI employees">
+                    {aiChoices.map((e) => (
+                      <option key={e.id} value={`ai:${e.id}`}>
+                        {e.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+              <div className="flex items-center gap-2">
+                <LevelSelect
+                  value={addLevel}
+                  disabled={busy}
+                  onChange={setAddLevel}
+                />
+                <Button size="sm" onClick={addMember} disabled={busy || !addPick}>
+                  <Plus size={13} /> Add
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ModeOption({
+  active,
+  disabled,
+  title,
+  subtitle,
+  onClick,
+}: {
+  active: boolean;
+  disabled: boolean;
+  title: string;
+  subtitle: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={active}
+      className={clsx(
+        "flex flex-1 flex-col gap-0.5 rounded-lg border px-3 py-2 text-left transition disabled:opacity-60",
+        active
+          ? "border-indigo-500 bg-indigo-50/60 dark:border-indigo-500 dark:bg-indigo-500/10"
+          : "border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800",
+      )}
+    >
+      <span className="flex items-center gap-1.5 text-xs font-medium text-slate-900 dark:text-slate-100">
+        {active && <Check size={12} className="shrink-0 text-indigo-600 dark:text-indigo-400" />}
+        {title}
+      </span>
+      <span className="text-[11px] text-slate-500 dark:text-slate-400">
+        {subtitle}
+      </span>
+    </button>
+  );
+}
+
+function LevelSelect({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: ProjectAccessLevel;
+  disabled: boolean;
+  onChange: (next: ProjectAccessLevel) => void;
+}) {
+  return (
+    <select
+      value={value}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value as ProjectAccessLevel)}
+      className="h-7 shrink-0 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+    >
+      <option value="read">View only</option>
+      <option value="write">Can edit</option>
+    </select>
   );
 }
 
@@ -2470,10 +3115,12 @@ function CommentThread({
   todo,
   employees,
   companyId,
+  canEdit,
 }: {
   todo: Todo;
   employees: Employee[];
   companyId: string;
+  canEdit: boolean;
 }) {
   const { toast } = useToast();
   const [comments, setComments] = React.useState<TodoComment[] | null>(null);
@@ -2575,65 +3222,78 @@ function CommentThread({
           </div>
         ) : comments.length === 0 ? (
           <div className="rounded-md border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
-            No messages yet. Ping a teammate — @mention an AI employee to loop
-            them in.
+            {canEdit
+              ? "No messages yet. Ping a teammate — @mention an AI employee to loop them in."
+              : "No messages yet."}
           </div>
         ) : (
-          comments.map((c) => <CommentRow key={c.id} comment={c} onDelete={remove} />)
+          comments.map((c) => (
+            <CommentRow
+              key={c.id}
+              comment={c}
+              canEdit={canEdit}
+              onDelete={remove}
+            />
+          ))
         )}
       </div>
 
-      <div className="mt-3 rounded-lg border border-slate-200 bg-white focus-within:border-indigo-400 dark:bg-slate-900 dark:border-slate-700">
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-              e.preventDefault();
-              submit(!!mentionId);
-            }
-          }}
-          placeholder="Write a message…"
-          rows={2}
-          className="w-full resize-none rounded-t-lg bg-transparent px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
-        />
-        <div className="flex items-center gap-1 border-t border-slate-100 px-2 py-1.5 dark:border-slate-800">
-          <MentionPicker
-            value={mentionId}
-            employees={employees}
-            onChange={setMentionId}
+      {/* Posting a comment needs write access — the server 403s otherwise. */}
+      {canEdit && (
+        <div className="mt-3 rounded-lg border border-slate-200 bg-white focus-within:border-indigo-400 dark:bg-slate-900 dark:border-slate-700">
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                e.preventDefault();
+                submit(!!mentionId);
+              }
+            }}
+            placeholder="Write a message…"
+            rows={2}
+            className="w-full resize-none rounded-t-lg bg-transparent px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
           />
-          <div className="flex-1" />
-          {mentionEmp ? (
-            <Button
-              size="sm"
-              onClick={() => submit(true)}
-              disabled={!body.trim() || posting}
-              title="Post and ask the AI employee to reply (⌘⏎)"
-            >
-              <Sparkles size={13} /> Ask {mentionEmp.name.split(" ")[0]}
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              onClick={() => submit(false)}
-              disabled={!body.trim() || posting}
-              title="Post comment (⌘⏎)"
-            >
-              <Send size={13} /> Send
-            </Button>
-          )}
+          <div className="flex items-center gap-1 border-t border-slate-100 px-2 py-1.5 dark:border-slate-800">
+            <MentionPicker
+              value={mentionId}
+              employees={employees}
+              onChange={setMentionId}
+            />
+            <div className="flex-1" />
+            {mentionEmp ? (
+              <Button
+                size="sm"
+                onClick={() => submit(true)}
+                disabled={!body.trim() || posting}
+                title="Post and ask the AI employee to reply (⌘⏎)"
+              >
+                <Sparkles size={13} /> Ask {mentionEmp.name.split(" ")[0]}
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                onClick={() => submit(false)}
+                disabled={!body.trim() || posting}
+                title="Post comment (⌘⏎)"
+              >
+                <Send size={13} /> Send
+              </Button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
 function CommentRow({
   comment,
+  canEdit,
   onDelete,
 }: {
   comment: TodoComment;
+  canEdit: boolean;
   onDelete: (c: TodoComment) => void;
 }) {
   const author = comment.author;
@@ -2663,13 +3323,15 @@ function CommentRow({
           <span className="text-slate-400 dark:text-slate-500">·</span>
           <span className="text-slate-400 dark:text-slate-500">{when}</span>
           <div className="flex-1" />
-          <button
-            onClick={() => onDelete(comment)}
-            title="Delete"
-            className="rounded p-0.5 text-slate-300 opacity-0 hover:bg-slate-100 hover:text-slate-600 group-hover:opacity-100 dark:hover:bg-slate-800"
-          >
-            <X size={12} />
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => onDelete(comment)}
+              title="Delete"
+              className="rounded p-0.5 text-slate-300 opacity-0 hover:bg-slate-100 hover:text-slate-600 group-hover:opacity-100 dark:hover:bg-slate-800"
+            >
+              <X size={12} />
+            </button>
+          )}
         </div>
         {comment.pending ? (
           <div className="mt-1 flex items-center gap-2 text-xs italic text-slate-400 dark:text-slate-500">

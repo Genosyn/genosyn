@@ -164,13 +164,13 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_projects",
     description:
-      "List every Project (task manager container) in this company. Projects hold Todos.",
+      "List every Project (task manager container) you have access to. Projects hold Todos. Most projects are open to everyone in the company, but a human can restrict one to a named list of people and AI employees — a project you were not given access to simply will not appear here.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "create_project",
     description:
-      "Create a new Project (a container for Todos). Choose a short uppercase key (e.g. 'ENG' or 'OPS') used to prefix todo numbers; the server derives one from the name if you omit it.",
+      "Create a new Project (a container for Todos). Check `list_projects` first — a project with this name may already exist that you do not have access to. Choose a short uppercase key (e.g. 'ENG' or 'OPS') used to prefix todo numbers; the server derives one from the name if you omit it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -200,7 +200,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "create_todo",
     description:
-      "Add a Todo to a Project. Defaults the assignee to yourself so you can take ownership of follow-through; pass `assigneeEmployeeSlug` to delegate, or `null` to leave it unassigned. Pass `reviewerEmployeeSlug` to nominate a reviewer — when the assignee marks the todo `in_review`, that reviewer is expected to sign it off. To break a big todo into steps, pass `parentTodoId` to create a subtask (one level deep; subtasks keep their own status and assignee).",
+      "Add a Todo to a Project you can edit. Defaults the assignee to yourself so you can take ownership of follow-through; pass `assigneeEmployeeSlug` to delegate, or `null` to leave it unassigned. Pass `reviewerEmployeeSlug` to nominate a reviewer — when the assignee marks the todo `in_review`, that reviewer is expected to sign it off. To break a big todo into steps, pass `parentTodoId` to create a subtask (one level deep; subtasks keep their own status and assignee).",
     inputSchema: {
       type: "object",
       properties: {
@@ -245,7 +245,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "update_todo",
     description:
-      "Update a Todo by id — change status, priority, title, description, assignee, reviewer, or due date. When you finish work on a todo assigned to you, set `status: \"in_review\"` (and optionally set `reviewerEmployeeSlug`) so a reviewer can sign it off instead of marking it done yourself.",
+      "Update a Todo by id, in a Project you can edit — change status, priority, title, description, assignee, reviewer, or due date. When you finish work on a todo assigned to you, set `status: \"in_review\"` (and optionally set `reviewerEmployeeSlug`) so a reviewer can sign it off instead of marking it done yourself.",
     inputSchema: {
       type: "object",
       properties: {

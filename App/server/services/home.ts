@@ -3,6 +3,7 @@ import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Approval } from "../db/entities/Approval.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
+import { Role } from "../db/entities/Membership.js";
 import { Project } from "../db/entities/Project.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run, RunStatus } from "../db/entities/Run.js";
@@ -12,6 +13,7 @@ import {
   listUnreadForUser,
   NotificationDTO,
 } from "./notifications.js";
+import { listAccessibleProjectIds } from "./projects.js";
 import { getSystemHealthSummary, SystemHealthSummary } from "./systemHealth.js";
 import { listChannelsForUser } from "./workspaceChat.js";
 
@@ -119,13 +121,27 @@ function compareTodos(a: Todo, b: Todo): number {
 export async function getHomeData(params: {
   companyId: string;
   userId: string;
+  /** The caller's company role — `requireCompanyMember` has already stamped it
+   *  on the request. Needed to resolve project access; never assume a value. */
+  role: Role;
 }): Promise<HomeData> {
-  const { companyId, userId } = params;
+  const { companyId, userId, role } = params;
 
-  const projects = await AppDataSource.getRepository(Project).find({
-    where: { companyId },
-    select: ["id", "key", "name", "slug"],
+  // Home is a feed, not a named lookup, so restricted projects the member
+  // can't reach are filtered out rather than 403'd. Narrowing the project set
+  // here is what keeps their todo titles off this page: every query below
+  // scopes to `projectIds`.
+  const accessibleIds = await listAccessibleProjectIds(companyId, {
+    kind: "user",
+    id: userId,
+    role,
   });
+  const projects = (
+    await AppDataSource.getRepository(Project).find({
+      where: { companyId },
+      select: ["id", "key", "name", "slug"],
+    })
+  ).filter((p) => accessibleIds.has(p.id));
   const projectById = new Map(projects.map((p) => [p.id, p]));
   const projectIds = projects.map((p) => p.id);
 

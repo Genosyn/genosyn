@@ -90,6 +90,13 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
     return { outputs: { messageId: saved.id, channelId: channel.id } };
   },
 
+  /**
+   * Deliberately bypasses `Project.accessMode` — a pipeline runs as the
+   * company, not as a person, so there is no principal to check. The gate is
+   * upstream: a member with access wired this node to this project when they
+   * built the pipeline. Without this note the missing check reads as the bug
+   * the access feature just fixed everywhere else.
+   */
   "action.createTodo": async (ctx) => {
     const projectSlug = String(ctx.config.projectSlug ?? "").trim();
     const title = String(ctx.config.title ?? "").trim();

@@ -29,6 +29,11 @@ import { createBrowserActionApproval } from "../services/approvals.js";
 import { createNotification } from "../services/notifications.js";
 import { validateParentTodo } from "./projects.js";
 import {
+  ProjectActor,
+  hasProjectAccess,
+  listAccessibleProjectIds,
+} from "../services/projects.js";
+import {
   getGrantWithConnection,
   invokeConnectionTool,
   loadEmployeeConnections,
@@ -568,10 +573,40 @@ mcpInternalRouter.post(
 
 // ----- Projects & todos -----
 
+/**
+ * The calling AI employee as a principal `services/projects.ts` can check.
+ * `requireMcpToken` has already resolved the token to this employee.
+ */
+function mcpActorOf(req: McpRequest): ProjectActor {
+  return { kind: "ai", id: req.mcpEmployee!.id };
+}
+
+/**
+ * Whether a human reviewer can still open `project`. Reads their real role —
+ * an owner reaches every project in their company, so assuming "member" here
+ * would silently drop notifications they should get.
+ */
+async function reviewerCanSeeProject(
+  companyId: string,
+  userId: string,
+  project: Project,
+): Promise<boolean> {
+  const mem = await AppDataSource.getRepository(Membership).findOneBy({
+    companyId,
+    userId,
+  });
+  if (!mem) return false;
+  return hasProjectAccess(project, { kind: "user", id: userId, role: mem.role }, "read");
+}
+
 mcpInternalRouter.post("/tools/list_projects", async (req: McpRequest, res) => {
   const co = req.mcpCompany!;
+  // Filter rather than 403 — an employee shouldn't be told a project exists
+  // just to be refused it.
+  const accessible = await listAccessibleProjectIds(co.id, mcpActorOf(req));
+  if (accessible.size === 0) return res.json({ projects: [] });
   const projects = await AppDataSource.getRepository(Project).find({
-    where: { companyId: co.id },
+    where: { companyId: co.id, id: In([...accessible]) },
     order: { createdAt: "ASC" },
   });
   res.json({ projects: projects.map(serializeProject) });
@@ -668,6 +703,9 @@ mcpInternalRouter.post(
       slug: body.projectSlug,
     });
     if (!p) return res.status(404).json({ error: "Project not found" });
+    if (!(await hasProjectAccess(p, mcpActorOf(req), "read"))) {
+      return res.status(403).json({ error: "No access to that project" });
+    }
     const todos = await AppDataSource.getRepository(Todo).find({
       where: { projectId: p.id },
       order: { sortOrder: "ASC", createdAt: "ASC" },
@@ -727,6 +765,9 @@ mcpInternalRouter.post(
     const projRepo = AppDataSource.getRepository(Project);
     const project = await projRepo.findOneBy({ companyId: co.id, slug: body.projectSlug });
     if (!project) return res.status(404).json({ error: "Project not found" });
+    if (!(await hasProjectAccess(project, mcpActorOf(req), "write"))) {
+      return res.status(403).json({ error: "No access to that project" });
+    }
 
     // Default assignee = the employee who called us. Humans can explicitly
     // pass null to unassign, or a different slug to delegate.
@@ -840,6 +881,9 @@ mcpInternalRouter.post(
       companyId: co.id,
     });
     if (!project) return res.status(404).json({ error: "Todo not found" });
+    if (!(await hasProjectAccess(project, mcpActorOf(req), "write"))) {
+      return res.status(403).json({ error: "No access to that project" });
+    }
 
     if (body.assigneeEmployeeSlug !== undefined) {
       if (body.assigneeEmployeeSlug === null) {
@@ -900,7 +944,15 @@ mcpInternalRouter.post(
     }
     await todoRepo.save(t);
 
-    if (justEnteredReview && t.reviewerUserId) {
+    // The reviewer may have been set while the project was still open, or had
+    // their access removed since. Notifying them anyway would push the todo's
+    // title to someone who can only 403 on the link, so re-check before
+    // sending rather than trusting the stored reviewer.
+    const reviewerStillHasAccess =
+      justEnteredReview && t.reviewerUserId
+        ? await reviewerCanSeeProject(co.id, t.reviewerUserId, project)
+        : false;
+    if (justEnteredReview && t.reviewerUserId && reviewerStillHasAccess) {
       void notifyTodoReviewByEmployee({
         companyId: co.id,
         todo: t,

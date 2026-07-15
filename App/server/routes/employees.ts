@@ -8,6 +8,7 @@ import { Skill } from "../db/entities/Skill.js";
 import { Routine } from "../db/entities/Routine.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
+import { ProjectMember } from "../db/entities/ProjectMember.js";
 import { Approval } from "../db/entities/Approval.js";
 import { McpServer } from "../db/entities/McpServer.js";
 import { Team } from "../db/entities/Team.js";
@@ -362,6 +363,9 @@ employeesRouter.delete("/:eid", async (req, res) => {
   await AppDataSource.getRepository(McpServer).delete({ employeeId: emp.id });
   await deleteEmployeeConversations(emp.id);
   await AppDataSource.getRepository(JournalEntry).delete({ employeeId: emp.id });
+  // Access entries are deleted, not nulled — a row whose employee is gone
+  // matches nobody and would linger in the project's Access list.
+  await AppDataSource.getRepository(ProjectMember).delete({ employeeId: emp.id });
   await empRepo.delete({ id: emp.id });
 
   if (co) removeDir(employeeDir(co.slug, emp.slug));
