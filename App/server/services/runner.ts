@@ -17,6 +17,7 @@ import {
   materializeCodeReposForEmployee,
 } from "./codeRepos.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
+import type { TurnUsage } from "./agent/types.js";
 
 /**
  * Run seam.
@@ -217,6 +218,7 @@ export async function startRoutineRun(
             onToolUse: (name, input) => log.line(`\n[tool] ${name} ${previewArgs(input)}`),
             onToolResult: (name, r) =>
               log.line(`[tool:${name}] ${r.isError ? "error" : "ok"}`),
+            onUsage: (u) => log.line(usageLine(u, model.contextWindow)),
           },
         });
       } finally {
@@ -272,6 +274,29 @@ function previewArgs(input: Record<string, unknown>): string {
   } catch {
     return "";
   }
+}
+
+/** Warn once the prompt is using this share of the window. */
+const CONTEXT_WARN_PCT = 80;
+
+/**
+ * Record what each turn's prompt cost, so a run approaching the model's ceiling
+ * is visible in the transcript rather than arriving as an unexplained provider
+ * 400 on the turn that finally overflows.
+ *
+ * The counts come from the provider's own tokenizer, which is the only source
+ * that can be right: a custom endpoint can serve any weights, so we can't know
+ * the tokenizer and any local estimate would be a guess.
+ */
+function usageLine(u: TurnUsage, contextWindow: number | null): string {
+  const base = `[tokens] in=${u.inputTokens} out=${u.outputTokens}`;
+  // Say "unknown" rather than implying a ceiling we were never told.
+  if (!contextWindow) return `${base} (context window unknown)`;
+  const pct = Math.round((u.inputTokens / contextWindow) * 100);
+  const line = `${base} — ${pct}% of ${contextWindow}`;
+  return pct >= CONTEXT_WARN_PCT
+    ? `${line}\n[warn] Prompt is using ${pct}% of this model's context window. The next tool result may not fit.`
+    : line;
 }
 
 /**

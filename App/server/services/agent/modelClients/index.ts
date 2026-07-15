@@ -72,6 +72,6 @@ function decryptApiKey(model: AIModel): { apiKey: string } | { error: string } {
  * `.../v1` URL; both are fine. We just strip a trailing slash so the SDK's own
  * path join doesn't double up.
  */
-function normalizeBaseURL(s: string): string {
+export function normalizeBaseURL(s: string): string {
   return s.trim().replace(/\/+$/, "");
 }

@@ -37,6 +37,11 @@ export function createOpenAIClient(opts: {
         {
           model: opts.model,
           stream: true,
+          // Without this, a streamed response reports no token counts at all —
+          // the server defaults it off. It's how we learn how full the context
+          // is; every OpenAI-compatible server we target (vLLM included)
+          // accepts it.
+          stream_options: { include_usage: true },
           messages: toOpenAIMessages(system, messages),
           ...(tools.length > 0 ? { tools: tools.map(toOpenAITool) } : {}),
         },
@@ -45,6 +50,7 @@ export function createOpenAIClient(opts: {
 
       let text = "";
       let finishReason = "stop";
+      let usage: AssistantTurn["usage"];
       // tool_call deltas arrive fragmented and keyed by index; assemble them.
       const toolAcc = new Map<
         number,
@@ -52,6 +58,14 @@ export function createOpenAIClient(opts: {
       >();
 
       for await (const chunk of stream) {
+        // The usage chunk arrives last and carries an empty `choices` array, so
+        // read it before the guard below skips the chunk entirely.
+        if (chunk.usage) {
+          usage = {
+            inputTokens: chunk.usage.prompt_tokens,
+            outputTokens: chunk.usage.completion_tokens,
+          };
+        }
         const choice = chunk.choices[0];
         if (!choice) continue;
         const delta = choice.delta;
@@ -92,7 +106,7 @@ export function createOpenAIClient(opts: {
 
       const stopReason =
         finishReason === "tool_calls" || toolAcc.size > 0 ? "tool_use" : finishReason;
-      return { blocks, stopReason };
+      return { blocks, stopReason, ...(usage ? { usage } : {}) };
     },
   };
 }

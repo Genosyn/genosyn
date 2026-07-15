@@ -66,6 +66,18 @@ export class AIModel {
   @Column({ type: "datetime", nullable: true })
   connectedAt!: Date | null;
 
+  /**
+   * The model's context window in tokens, as reported by the provider when the
+   * credential was saved (see services/agent/contextWindow.ts).
+   *
+   * Null means "we don't know" — the provider doesn't report one, or the probe
+   * couldn't reach it. Callers must treat null as unknown rather than assuming
+   * a default: guessing high fails the run, guessing low truncates work that
+   * would have fit.
+   */
+  @Column({ type: "integer", nullable: true })
+  contextWindow!: number | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

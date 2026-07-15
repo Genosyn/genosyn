@@ -64,6 +64,8 @@ export async function runAgentLoop(params: {
       onText: callbacks?.onText,
     });
 
+    if (turn.usage) callbacks?.onUsage?.(turn.usage);
+
     messages.push({ role: "assistant", content: turn.blocks });
 
     const turnText = turn.blocks

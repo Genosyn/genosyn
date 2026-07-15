@@ -10,6 +10,7 @@ import { PROVIDERS, isModelConnected } from "../services/providers.js";
 import { effectiveActiveId, setActiveModel } from "../services/models.js";
 import { encryptSecret, maskSecret } from "../lib/secret.js";
 import { previewBaseURL } from "../services/customEndpoint.js";
+import { probeContextWindow } from "../services/agent/contextWindow.js";
 import { recordAudit } from "../services/audit.js";
 
 /**
@@ -53,6 +54,11 @@ type PublicModel = {
   customEndpointModelId: string | null;
   /** True if a custom-endpoint API key is on file (we never echo the plaintext). */
   customEndpointHasApiKey: boolean;
+  /**
+   * Context window in tokens as reported by the provider, or null when it
+   * doesn't say (OpenAI) or we couldn't reach it. Null means unknown.
+   */
+  contextWindow: number | null;
 };
 
 type CoEmp = { co: Company; emp: AIEmployee };
@@ -110,7 +116,27 @@ function toPublic(m: AIModel, isActive: boolean): PublicModel {
     customEndpointHost,
     customEndpointModelId,
     customEndpointHasApiKey: m.authMode === "customEndpoint" && Boolean(apiKeyEncrypted),
+    contextWindow: m.contextWindow ?? null,
   };
+}
+
+/**
+ * Re-ask the provider for the model's context window and persist what it says.
+ *
+ * Called after a credential lands, because that's the first moment we can ask.
+ * Best-effort by design: an unreachable endpoint must not block saving a model,
+ * so a failed probe just leaves the window unknown and the operator can retry
+ * with `POST /:id/refresh`.
+ */
+async function refreshContextWindow(m: AIModel): Promise<void> {
+  const found = await probeContextWindow(m);
+  // Null means "couldn't ask", not "has no window" — keep whatever we already
+  // knew rather than letting one unreachable moment erase it. Callers that
+  // change the endpoint clear the field themselves, since the old number is
+  // stale by definition at that point.
+  if (found === null || found === m.contextWindow) return;
+  m.contextWindow = found;
+  await AppDataSource.getRepository(AIModel).save(m);
 }
 
 /** Shape a single model for the wire, computing its `isActive` live. */
@@ -278,6 +304,9 @@ modelsRouter.post("/:id/apikey", validateBody(apiKeySchema), async (req, res) =>
   m.configJson = JSON.stringify(cfg);
   m.connectedAt = new Date();
   await AppDataSource.getRepository(AIModel).save(m);
+  // First moment we can ask the provider anything — find out how much room the
+  // model actually has.
+  await refreshContextWindow(m);
   await recordAudit({
     companyId: ctx.co.id,
     actorUserId: req.userId ?? null,
@@ -348,7 +377,11 @@ modelsRouter.post(
     // Mirror the model id onto the row so the in-process client uses it directly.
     m.model = modelId;
     m.connectedAt = new Date();
+    // The endpoint or model id may have changed, so any window we knew is stale.
+    // Drop it, then ask the new endpoint what it serves.
+    m.contextWindow = null;
     await AppDataSource.getRepository(AIModel).save(m);
+    await refreshContextWindow(m);
     await recordAudit({
       companyId: ctx.co.id,
       actorUserId: req.userId ?? null,
@@ -384,6 +417,9 @@ modelsRouter.post("/:id/refresh", async (req, res) => {
     m.connectedAt = null;
     await AppDataSource.getRepository(AIModel).save(m);
   }
+  // Also the operator's retry path when the probe missed at save time (endpoint
+  // still booting, GPU host asleep) — cheap enough to just re-ask.
+  if (nowConnected) await refreshContextWindow(m);
   res.json(await publicModel(m, ctx.emp));
 });
 

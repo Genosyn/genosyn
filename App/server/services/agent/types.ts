@@ -75,6 +75,24 @@ export type StreamCallbacks = {
   onToolUse?: (name: string, input: Record<string, unknown>) => void;
   /** Fired after a tool returns, before the result is fed back to the model. */
   onToolResult?: (name: string, result: ToolResult) => void;
+  /** Fired once per turn with what the provider says the turn cost. */
+  onUsage?: (usage: TurnUsage) => void;
+};
+
+/**
+ * What a turn actually cost, as counted by the provider's own tokenizer.
+ *
+ * This is the only trustworthy measure of how full the context is: model ids are
+ * free text and a custom endpoint can serve any weights, so we can't know the
+ * tokenizer and any local estimate would be a guess.
+ *
+ * `inputTokens` is the whole prompt the provider billed for — on Anthropic that
+ * means summing the cached spans back in, since `input_tokens` there counts only
+ * the uncached remainder.
+ */
+export type TurnUsage = {
+  inputTokens: number;
+  outputTokens: number;
 };
 
 export type AssistantTurn = {
@@ -82,6 +100,8 @@ export type AssistantTurn = {
   blocks: AssistantBlock[];
   /** Provider stop reason, normalized loosely: "tool_use" when tools are pending. */
   stopReason: string;
+  /** Token counts for this turn, when the provider reported them. */
+  usage?: TurnUsage;
 };
 
 /**

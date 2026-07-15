@@ -79,7 +79,20 @@ export function createAnthropicClient(opts: {
         // thinking / redacted_thinking / server-tool blocks are not part of our
         // loop — we don't advertise those capabilities.
       }
-      return { blocks, stopReason: final.stop_reason ?? "end_turn" };
+      return {
+        blocks,
+        stopReason: final.stop_reason ?? "end_turn",
+        usage: {
+          // `input_tokens` is only the uncached remainder — the cached spans
+          // were part of the prompt too, so add them back or we'd under-report
+          // context use the moment prompt caching is switched on.
+          inputTokens:
+            final.usage.input_tokens +
+            (final.usage.cache_read_input_tokens ?? 0) +
+            (final.usage.cache_creation_input_tokens ?? 0),
+          outputTokens: final.usage.output_tokens,
+        },
+      };
     },
   };
 }
