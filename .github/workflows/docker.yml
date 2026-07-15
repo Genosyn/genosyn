@@ -227,6 +227,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # `latest` is deliberately absent here. metadata-action's default
+      # `flavor: latest=auto` already tags it from `type=semver` on a v* tag
+      # build, so `latest` means "newest non-prerelease release" and nothing
+      # else. A raw latest-on-main directive used to live here too, which made
+      # the tag mean "whichever of {last main push, last release} ran most
+      # recently" — and since the genosyn CLI defaults to :latest, that shipped
+      # dev code to self-hosters. Main tip is still available as `:main` and
+      # `:sha-<short>`. Don't add `flavor: latest=false`: it suppresses latest
+      # on *tag* builds, which is the opposite of what we want.
       - name: Extract metadata
         if: steps.exists.outputs.ready == 'true'
         id: meta
@@ -239,7 +248,6 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,format=short
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
 
       # Build the manifest list: one `-t` per tag from metadata-action, and
       # one `image@sha256:<digest>` argument per per-platform digest file.

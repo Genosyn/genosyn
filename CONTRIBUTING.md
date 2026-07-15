@@ -65,18 +65,20 @@ object. Flip `config.db.driver` from `"sqlite"` to `"postgres"` to switch databa
 
 ## Run it with Docker
 
-Pre-built images are published to GitHub Container Registry on every push to `main`.
+Pre-built images are published to GitHub Container Registry on every push to
+`main`. Those builds are tagged **`:main`** (and `:sha-<short>`) — that's what
+you want as a contributor. `:latest` tracks the newest *release*, not main tip.
 
 ```bash
 # Product app — API + UI on one port
 docker run -d --name genosyn -p 8471:8471 \
   -v genosyn-data:/app/data \
-  ghcr.io/genosyn/app:latest
+  ghcr.io/genosyn/app:main
 # → http://localhost:8471
 
 # Marketing site
 docker run -d --name genosyn-home -p 8472:8472 \
-  ghcr.io/genosyn/home:latest
+  ghcr.io/genosyn/home:main
 # → http://localhost:8472
 ```
 
@@ -89,7 +91,7 @@ To override `config.ts` without rebuilding, mount your own on top:
 docker run -d --name genosyn -p 8471:8471 \
   -v genosyn-data:/app/data \
   -v "$PWD/config.ts:/app/config.ts:ro" \
-  ghcr.io/genosyn/app:latest
+  ghcr.io/genosyn/app:main
 ```
 
 ---

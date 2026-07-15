@@ -120,14 +120,24 @@ truth — if you change it, update this table):
 
 | Trigger | Tags pushed |
 | --- | --- |
-| push to `main` | `main`, `latest`, `sha-<short>` |
+| push to `main` | `main`, `sha-<short>` |
 | tag `v0.3.3` (dispatched by `release.yml`) | `0.3.3`, `0.3`, `latest`, `sha-<short>` |
 | pull request | none — images build but never push |
 
-> **`latest` does not mean "latest release".** Both triggers push it, so
-> whichever ran most recently wins — merge anything to `main` after a release
-> and `latest` is dev code again. Pin a semver tag (`app:0.3.3`) for anything
-> you care about, and don't point users at `latest` expecting the release.
+`latest` moves **only** on a release, so it always means "newest release" —
+that's what the `genosyn` CLI pulls by default. It comes from
+`metadata-action`'s default `flavor: latest=auto` acting on the `type=semver`
+entries, not from an explicit rule, which is why you won't find it in the
+`tags:` list. A prerelease (`v0.3.3-rc.1`) never moves it.
+
+Main tip is `:main` or `:sha-<short>` — use those to run unreleased code.
+
+> **Don't add `flavor: latest=false`** if you're trying to stop `latest`
+> tracking something. It suppresses `latest` on *tag* builds — the opposite of
+> what you almost certainly want. Until 1.10.0 a `type=raw,value=latest,
+> enable=<ref==main>` line also tagged `latest` from main, which meant `latest`
+> was whichever build ran most recently, and the CLI shipped dev code to
+> self-hosters. Don't reintroduce it.
 
 ## Recovery
 
