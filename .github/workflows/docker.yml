@@ -4,14 +4,24 @@ on:
   push:
     branches: [main]
     tags: ["v*.*.*"]
+    # CLI/** is here because Home's prebuild copies ../CLI into the image (see
+    # Home/Dockerfile) and serves it at /genosyn — a CLI-only change with no
+    # Home rebuild leaves the script users download stale. VERSION is here
+    # because it's baked in as the image's org.opencontainers.image.version
+    # label and the APP_VERSION build arg, and RELEASING.md has you push the
+    # bump as its own commit — which matches no other path.
     paths:
       - "App/**"
       - "Home/**"
+      - "CLI/**"
+      - "VERSION"
       - ".github/workflows/docker.yml"
   pull_request:
     paths:
       - "App/**"
       - "Home/**"
+      - "CLI/**"
+      - "VERSION"
       - ".github/workflows/docker.yml"
   # release.yml dispatches this workflow after creating a v*.*.* tag, because
   # tags created by GITHUB_TOKEN don't fire the push trigger above.
