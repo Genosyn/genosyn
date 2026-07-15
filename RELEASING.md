@@ -27,8 +27,10 @@ The release workflow then:
 
 ## Versioning
 
-Pre-1.0 we bump **patch** for both features and fixes; reserve **minor** for
-larger reshapes (e.g. dropping a provider, swapping the storage layer).
+Since 1.0 we bump **minor** for features and **patch** for fixes — one bump per
+release, chosen by the heaviest commit in it. A release containing any `feat:`
+is a minor even if it also carries fixes. (Pre-1.0 the rule was patch for both,
+which is why the 0.3.x line ran all the way to 0.3.88.)
 The `VERSION` file is the single source of truth — do not maintain version
 numbers in `package.json` files; the build scripts read `VERSION`.
 
