@@ -284,7 +284,9 @@ function StatStrip({ company, data }: { company: Company; data: HomeData }) {
 
 function failedRunLink(company: Company, r: HomeFailedRun): string {
   const params = new URLSearchParams({ routine: r.routineId, run: r.runId });
-  return `/c/${company.slug}/employees/${r.employee.slug}/routines?${params.toString()}`;
+  // The rollup knows a routine id but not its slug; the Routines index resolves
+  // the id and forwards to that run's history.
+  return `/c/${company.slug}/routines?${params.toString()}`;
 }
 
 function failedRunBadge(r: HomeFailedRun): string {

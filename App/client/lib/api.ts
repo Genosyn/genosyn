@@ -218,6 +218,13 @@ export type Routine = {
   cronExpr: string;
   enabled: boolean;
   lastRunAt: string | null;
+  /**
+   * When the schedule next fires. Null when the routine is paused, or when
+   * `cronExpr` parses for `node-cron` (which validates it) but not for
+   * `cron-parser` (which computes this) — so a null here on an *enabled*
+   * routine means the schedule never fires, and the UI says so.
+   */
+  nextRunAt: string | null;
   timeoutSec: number;
   requiresApproval: boolean;
   webhookEnabled: boolean;
@@ -235,6 +242,28 @@ export type Routine = {
    *   * `false` — force-disable browser access for this routine only.
    */
   browserEnabledOverride?: boolean | null;
+};
+
+/** The slice of an AI employee the Routines section shows as "assigned to". */
+export type RoutineEmployee = {
+  id: string;
+  name: string;
+  slug: string;
+  role: string;
+  avatarKey: string | null;
+};
+
+/**
+ * A routine as the company-wide Routines section sees it: the row plus the
+ * employee it belongs to and how its most recent run went. Served by
+ * `/api/companies/:cid/routines` (list, no `body`) and
+ * `/api/companies/:cid/routines/:rid` (one, `body` included).
+ */
+export type RoutineWithMeta = Routine & {
+  employee: RoutineEmployee | null;
+  lastRun: Run | null;
+  /** Only present on the single-routine endpoint. */
+  body?: string;
 };
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";

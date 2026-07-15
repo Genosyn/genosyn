@@ -66,7 +66,8 @@ export function Employees() {
             term: "routines[]",
             def: (
               <>
-                One-to-many <Code>Routine</Code> rows. See{" "}
+                One-to-many <Code>Routine</Code> rows, managed from the
+                top-level AI → Routines section. See{" "}
                 <DocLink to="/docs/routines">Routines</DocLink>.
               </>
             ),
@@ -157,8 +158,13 @@ export function Employees() {
           directory — read what they wrote, edit it, drop in fixtures.
         </LI>
         <LI>
-          <Strong>Soul / Skills / Routines.</Strong> The three editors.
-          Markdown, ⌘S to save.
+          <Strong>Soul / Skills.</Strong> The two editors. Markdown, ⌘S to
+          save.
+        </LI>
+        <LI>
+          <Strong>Routines.</Strong> Not an employee tab anymore — they live in
+          the top-level AI → <DocLink to="/docs/routines">Routines</DocLink>{" "}
+          section. The sidebar link opens that list filtered to this employee.
         </LI>
         <LI>
           <Strong>Connections.</Strong> The list of{" "}

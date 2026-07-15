@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import cron from "node-cron";
+import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
@@ -55,6 +56,89 @@ async function findRoutineByName(
   if (excludeId) qb.andWhere("r.id != :excludeId", { excludeId });
   return qb.getOne();
 }
+
+/**
+ * The employee fields the Routines section needs to answer "who is this
+ * assigned to?" — enough for an avatar, a name, and a link to the employee.
+ * Deliberately narrow: the full row carries the Soul body and browser
+ * allowlist, neither of which a routine list has any business shipping.
+ */
+type EmployeeSummary = Pick<AIEmployee, "id" | "name" | "slug" | "role" | "avatarKey">;
+
+function employeeSummary(emp: AIEmployee): EmployeeSummary {
+  return { id: emp.id, name: emp.name, slug: emp.slug, role: emp.role, avatarKey: emp.avatarKey };
+}
+
+/**
+ * Newest Run per routine, in one query. `Routine.lastRunAt` already records
+ * *when* a routine last fired, but not how it went — the Routines list wants
+ * the outcome so a failing routine is visible without opening it.
+ *
+ * The correlated MAX subquery is portable across the sqlite and postgres
+ * drivers (a window function or DISTINCT ON would not be) and rides the
+ * `["routineId", "startedAt"]` index that Run already declares for exactly
+ * this access pattern. Two runs of one routine sharing a startedAt timestamp
+ * would both come back; the Map below keeps the first and drops the tie.
+ */
+async function lastRunByRoutine(routineIds: string[]): Promise<Map<string, Run>> {
+  if (routineIds.length === 0) return new Map();
+  const runs = await AppDataSource.getRepository(Run)
+    .createQueryBuilder("run")
+    .select([
+      "run.id",
+      "run.routineId",
+      "run.status",
+      "run.startedAt",
+      "run.finishedAt",
+      "run.exitCode",
+    ])
+    .where("run.routineId IN (:...routineIds)", { routineIds })
+    .andWhere(
+      "run.startedAt = (SELECT MAX(r2.startedAt) FROM runs r2 WHERE r2.routineId = run.routineId)",
+    )
+    .getMany();
+  const byRoutine = new Map<string, Run>();
+  for (const run of runs) if (!byRoutine.has(run.routineId)) byRoutine.set(run.routineId, run);
+  return byRoutine;
+}
+
+/**
+ * Every routine in the company, with its employee and last run attached.
+ *
+ * Routines used to be reachable only through the employee that owns them, so
+ * "what is scheduled around here?" meant opening each employee in turn. This
+ * backs the top-level Routines section. `body` is omitted — the list renders
+ * names and schedules, and the briefs are fetched per routine via
+ * `/routines/:rid/readme`.
+ */
+routinesRouter.get("/routines", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const employees = await AppDataSource.getRepository(AIEmployee).findBy({ companyId: cid });
+  if (employees.length === 0) return res.json([]);
+  const byId = new Map(employees.map((e) => [e.id, e]));
+
+  const routines = await AppDataSource.getRepository(Routine).find({
+    where: { employeeId: In([...byId.keys()]) },
+  });
+  const lastRuns = await lastRunByRoutine(routines.map((r) => r.id));
+
+  // Group by employee, then by name, so the list reads like a roster rather
+  // than insertion order.
+  const rows = routines.map(({ body: _body, ...routine }) => {
+    const emp = byId.get(routine.employeeId);
+    return {
+      ...routine,
+      employee: emp ? employeeSummary(emp) : null,
+      lastRun: lastRuns.get(routine.id) ?? null,
+    };
+  });
+  rows.sort(
+    (a, b) =>
+      (a.employee?.name ?? "").localeCompare(b.employee?.name ?? "") ||
+      a.name.localeCompare(b.name),
+  );
+  res.json(rows);
+});
 
 routinesRouter.get("/employees/:eid/routines", async (req, res) => {
   const emp = await loadEmp((req.params as Record<string, string>).cid, req.params.eid);
@@ -202,6 +286,23 @@ routinesRouter.delete("/routines/:rid", async (req, res) => {
     metadata: { employeeId: found.emp.id },
   });
   res.json({ ok: true });
+});
+
+/**
+ * One routine, with its employee attached. The Routines detail page resolves a
+ * routine from `/routines/:empSlug/:routineSlug`, so it needs the employee to
+ * render "assigned to" and to load that employee's models for the pin picker.
+ * `body` rides along here (unlike the list) — the detail page shows the brief.
+ */
+routinesRouter.get("/routines/:rid", async (req, res) => {
+  const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
+  if (!found) return res.status(404).json({ error: "Not found" });
+  const lastRuns = await lastRunByRoutine([found.routine.id]);
+  res.json({
+    ...found.routine,
+    employee: employeeSummary(found.emp),
+    lastRun: lastRuns.get(found.routine.id) ?? null,
+  });
 });
 
 routinesRouter.get("/routines/:rid/readme", async (req, res) => {

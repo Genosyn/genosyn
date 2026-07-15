@@ -63,17 +63,15 @@ function entryIcon(kind: JournalKind) {
 }
 
 /**
- * Deep-link into the routine that produced a journal entry: the employee's
- * Routines tab, with the routine's run history opened on the failing run.
+ * Deep-link into the routine that produced a journal entry, with its run
+ * history opened on the run in question. An entry carries a routine id but not
+ * its slug, so this lands on the Routines index, which resolves the id and
+ * forwards to the routine.
  */
-function routineLink(
-  companySlug: string,
-  empSlug: string,
-  entry: InboxEntry,
-): string {
+function routineLink(companySlug: string, entry: InboxEntry): string {
   const params = new URLSearchParams({ routine: entry.routineId! });
   if (entry.runId) params.set("run", entry.runId);
-  return `/c/${companySlug}/employees/${empSlug}/routines?${params.toString()}`;
+  return `/c/${companySlug}/routines?${params.toString()}`;
 }
 
 export default function Inbox({ company }: { company: Company }) {
@@ -254,7 +252,7 @@ export default function Inbox({ company }: { company: Company }) {
                       <li key={e.id}>
                         {e.routineId ? (
                           <Link
-                            to={routineLink(company.slug, g.employee.slug, e)}
+                            to={routineLink(company.slug, e)}
                             className="group block rounded-md border border-slate-100 bg-slate-50 p-2 text-sm transition-colors hover:border-slate-200 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-800/30 dark:hover:border-slate-700 dark:hover:bg-slate-800/60"
                           >
                             {body}

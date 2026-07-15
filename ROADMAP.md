@@ -210,6 +210,25 @@ export const config = {
       model. Runner resolves via `resolveRoutineModel()`; deleting a model
       clears the pins naming it. Runs only — chat stays on the active model.
 
+### M23 — Routines section ✅
+
+Routines were reachable only as a tab inside one employee. They are now a
+top-level section of their own, listing every routine in the company.
+
+- [x] Top-level **Routines** entry in the nav under a new "AI" group,
+      alongside **AI Employees** (moved out of Essentials and relabelled
+      from "Employees")
+- [x] Company-wide `GET /routines` — every routine in the company with its
+      `employee` and `lastRun` attached, sorted by employee then routine
+      name. `GET /routines/:rid` is the same shape plus `body`.
+- [x] Routines index: per-employee sidebar filter, health chips (All /
+      Active / Paused / Needs attention), assigned-to column
+- [x] Routine detail at `/routines/:empSlug/:routineSlug` — two slug
+      segments because a routine slug is unique only per-employee — with
+      Overview / Brief / Runs / Settings tabs
+- [x] The employee Routines tab redirects to the company list filtered to
+      that employee; existing `?routine=&run=` deep links preserved
+
 ### M6 — AI Models (employee-owned) ✅
 > **Superseded by M22.** The provider-CLI harnesses, subscription sign-in, and
 > per-provider config materialization below were removed; Genosyn now calls the
@@ -246,8 +265,8 @@ export const config = {
 
 ### M7 — Chat + Workspace ✅
 - [x] Top-nav sections with context-specific sidebars
-- [x] Per-employee sub-nav (Chat / Workspace / Soul / Skills / Routines /
-      Settings / Connections / Handoffs / Journal)
+- [x] Per-employee sub-nav (Chat / Workspace / Soul / Skills / Settings /
+      Connections / Handoffs / Journal)
 - [x] Persisted conversations (`Conversation` + `ConversationMessage`),
       action pills rendered from `actionsJson`
 - [x] Workspace file editor with path-traversal guards, 2 MiB text-only cap

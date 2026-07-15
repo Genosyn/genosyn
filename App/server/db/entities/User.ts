@@ -18,7 +18,7 @@ export class User {
    * Short URL-safe identifier used for `@handle` mentions in workspace
    * chat and (eventually) anywhere we need to link to this person.
    * Globally unique so a mention can resolve without needing a company
-   * scope. Nullable until the user picks one in Profile Settings.
+   * scope. Nullable until the user picks one in Account → Profile.
    */
   @Index({ unique: true, where: "handle IS NOT NULL" })
   @Column({ type: "varchar", nullable: true })

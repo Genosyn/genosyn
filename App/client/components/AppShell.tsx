@@ -2,6 +2,7 @@ import React from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   BarChart3,
+  CalendarClock,
   ChevronDown,
   ChevronRight,
   CircleUser,
@@ -24,7 +25,6 @@ import {
   ShieldCheck,
   Sun,
   Table2,
-  UserCog,
   Users,
   Wallet,
 } from "lucide-react";
@@ -47,11 +47,11 @@ import { useTheme, Theme } from "./Theme";
  *   │         │                                     │
  *   └─────────┴─────────────────────────────────────┘
  *
- * Sections live in the top nav (Employees / Settings). The sidebar is
- * context-specific: list of employees on the Employees section, an
- * employee's sub-nav (Chat / Workspace / Soul / Skills / Routines /
- * Settings) once one is selected, or Settings sub-pages on the Settings
- * section. Each page renders `<ContextualLayout sidebar={...}>{main}</>`
+ * Sections live in the top nav (AI Employees / Routines / Settings / …). The
+ * sidebar is context-specific: the roster on the Employees section, an
+ * employee's sub-nav (Chat / Skills / Journal / Settings / …) once one is
+ * selected, the roster-as-filter on Routines, or Settings sub-pages on the
+ * Settings section. Each page renders `<ContextualLayout sidebar={...}>{main}</>`
  * so the sidebar can change route-by-route without remounting the shell.
  */
 
@@ -111,6 +111,7 @@ type SectionKey =
   | "inbox"
   | "workspace"
   | "employees"
+  | "routines"
   | "tasks"
   | "bases"
   | "notes"
@@ -139,6 +140,32 @@ type SectionGroup = { label: string; items: SectionItem[] };
 
 export const SECTION_GROUPS: SectionGroup[] = [
   {
+    // The two halves of an AI employee's working life: who they are, and what
+    // they do on a schedule. Routines used to be reachable only by opening an
+    // employee first, which made the company's schedule invisible.
+    label: "AI",
+    items: [
+      {
+        key: "employees",
+        label: "AI Employees",
+        description: "AI teammates and their souls.",
+        icon: Users,
+        path: "/employees",
+        iconBg:
+          "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
+      },
+      {
+        key: "routines",
+        label: "Routines",
+        description: "Scheduled work, and how every run went.",
+        icon: CalendarClock,
+        path: "/routines",
+        iconBg:
+          "bg-purple-100 text-purple-600 dark:bg-purple-500/15 dark:text-purple-300",
+      },
+    ],
+  },
+  {
     label: "Essentials",
     items: [
       {
@@ -158,15 +185,6 @@ export const SECTION_GROUPS: SectionGroup[] = [
         path: "/workspace",
         iconBg:
           "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300",
-      },
-      {
-        key: "employees",
-        label: "Employees",
-        description: "AI teammates and their souls.",
-        icon: Users,
-        path: "/employees",
-        iconBg:
-          "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
       },
       {
         key: "tasks",
@@ -296,25 +314,29 @@ export const SECTION_GROUPS: SectionGroup[] = [
         iconBg:
           "bg-slate-200 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
       },
-      {
-        key: "account",
-        label: "Account",
-        description: "Your profile, password, and notifications.",
-        icon: CircleUser,
-        path: "/account",
-        iconBg:
-          "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
-      },
     ],
   },
 ];
 
-/**
- * The Admin section is deliberately NOT part of `SECTION_GROUPS`, so it never
- * shows up in the products mega-menu. It's an instance-operator surface reached
- * only by master admins, via the user menu. It still lives in the catalog here
- * so the section pill and `activeSection()` can resolve an `/admin` route.
- */
+// ────────────────── Sections outside the mega-menu ───────────────────────
+// Account and Admin are deliberately NOT part of `SECTION_GROUPS`, so they
+// never show up in the products mega-menu. Everything in that menu is scoped to
+// the company you're currently viewing; these two are not. Both are reached via
+// the user menu instead, and still live in the catalog here so the section pill
+// and `activeSection()` can resolve their routes.
+
+/** Settings for the signed-in person, global across every company they belong to. */
+const ACCOUNT_SECTION: SectionItem = {
+  key: "account",
+  label: "Account",
+  description: "Your profile, password, and notifications.",
+  icon: CircleUser,
+  path: "/account",
+  iconBg:
+    "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
+};
+
+/** Instance-operator surface, restricted to master admins. */
 const ADMIN_SECTION: SectionItem = {
   key: "admin",
   label: "Admin",
@@ -325,7 +347,9 @@ const ADMIN_SECTION: SectionItem = {
 };
 
 const SECTION_BY_KEY: Record<SectionKey, SectionItem> = Object.fromEntries(
-  [...SECTION_GROUPS.flatMap((g) => g.items), ADMIN_SECTION].map((i) => [i.key, i]),
+  [...SECTION_GROUPS.flatMap((g) => g.items), ACCOUNT_SECTION, ADMIN_SECTION].map(
+    (i) => [i.key, i],
+  ),
 ) as Record<SectionKey, SectionItem>;
 
 function TopNav({
@@ -457,11 +481,11 @@ function TopNav({
                   <div className="truncate">{me.email}</div>
                 </div>
                 <Link
-                  to={`/c/${current.slug}/account/profile`}
+                  to={`/c/${current.slug}/account`}
                   onClick={() => setUserOpen(false)}
                   className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                 >
-                  <UserCog size={14} /> Profile settings
+                  <CircleUser size={14} /> Account
                 </Link>
                 {me.isMasterAdmin && (
                   <Link
@@ -502,6 +526,7 @@ function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/inbox(\/|$)/.test(pathname)) return "inbox";
   if (/\/c\/[^/]+\/workspace(\/|$)/.test(pathname)) return "workspace";
   if (/\/c\/[^/]+\/employees(\/|$)/.test(pathname)) return "employees";
+  if (/\/c\/[^/]+\/routines(\/|$)/.test(pathname)) return "routines";
   if (/\/c\/[^/]+\/tasks(\/|$)/.test(pathname)) return "tasks";
   if (/\/c\/[^/]+\/bases(\/|$)/.test(pathname)) return "bases";
   if (/\/c\/[^/]+\/notes(\/|$)/.test(pathname)) return "notes";
@@ -563,8 +588,10 @@ function SectionMenu({
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           {/* Below lg the 56rem mega-menu can't fit, so the panel pins to the
-              viewport edges instead of the pill and the grid collapses. */}
-          <div className="fixed left-3 right-3 top-16 z-20 grid max-h-[calc(100dvh-5rem)] grid-cols-1 gap-4 overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 shadow-lg sm:grid-cols-2 lg:absolute lg:left-0 lg:right-auto lg:top-full lg:mt-2 lg:max-h-none lg:w-[56rem] lg:grid-cols-4 lg:gap-6 lg:overflow-visible lg:p-5 dark:border-slate-700 dark:bg-slate-900">
+              viewport edges instead of the pill and the grid collapses.
+              Three columns divides the six groups into two even rows; four
+              left a ragged half-empty second row. */}
+          <div className="fixed left-3 right-3 top-16 z-20 grid max-h-[calc(100dvh-5rem)] grid-cols-1 gap-4 overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 shadow-lg sm:grid-cols-2 lg:absolute lg:left-0 lg:right-auto lg:top-full lg:mt-2 lg:max-h-none lg:w-[56rem] lg:grid-cols-3 lg:gap-6 lg:overflow-visible lg:p-5 dark:border-slate-700 dark:bg-slate-900">
             {SECTION_GROUPS.map((g) => (
               <div key={g.label} className="flex flex-col gap-1">
                 <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">

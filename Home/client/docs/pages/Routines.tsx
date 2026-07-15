@@ -36,6 +36,22 @@ export function Routines() {
         surface.
       </Callout>
 
+      <H2 id="where-they-live">Where they live</H2>
+      <P>
+        Routines have their own section in the nav, under{" "}
+        <Strong>AI → Routines</Strong>. That list is company-wide: every
+        routine, every employee, one page. Filter it by the{" "}
+        <DocLink to="/docs/employees">AI Employee</DocLink> a routine is
+        assigned to, or by health — <Strong>Active</Strong>,{" "}
+        <Strong>Paused</Strong>, <Strong>Needs attention</Strong>.
+      </P>
+      <P>
+        Clicking a routine opens its detail page: <Strong>Overview</Strong>,{" "}
+        <Strong>Brief</Strong>, <Strong>Runs</Strong>, and{" "}
+        <Strong>Settings</Strong>. Each AI employee still links to their own
+        slice of that list — same page, filtered to them.
+      </P>
+
       <H2 id="anatomy">Anatomy</H2>
       <KeyList
         rows={[
@@ -175,6 +191,10 @@ Post it to the #morning channel.`}</Pre>
         directory and stores the agent transcript — the model&apos;s messages and
         tool trace, not captured CLI stdout — on <Code>Run.logContent</Code>{" "}
         (capped at 256 KB; longer logs are head-truncated with a notice).
+      </P>
+      <P>
+        A routine&apos;s full run history lives on its <Strong>Runs</Strong> tab
+        — every Run, scheduled or manual, with the log viewer.
       </P>
       <UL>
         <LI>

@@ -44,6 +44,170 @@ const RunLog = z
 
 const ErrorResponse = z.object({ error: z.string() }).openapi("Error");
 
+/**
+ * The Routine columns the company-scoped endpoints below actually return.
+ *
+ * Deliberately *not* built by extending the `Routine` schema above: that one
+ * advertises an `updatedAt` field the entity has never had, and predates
+ * `nextRunAt`, `timeoutSec`, `requiresApproval`, `webhookEnabled`,
+ * `webhookToken` and `browserEnabledOverride` — all of which these handlers do
+ * return. Reusing it would republish that drift here, so this mirrors
+ * `db/entities/Routine.ts` instead. Reconciling the older schema (and the
+ * employee-scoped path that serves it) is a separate change.
+ *
+ * `body` is not included: the list omits it, and the detail endpoint adds it
+ * back explicitly.
+ */
+const RoutineColumns = z.object({
+  id: z.string().uuid(),
+  employeeId: z.string().uuid(),
+  name: z.string(),
+  slug: z
+    .string()
+    .describe(
+      "Unique per employee rather than per company — which is why the UI addresses a " +
+        "routine as /routines/{empSlug}/{routineSlug}.",
+    ),
+  cronExpr: z.string(),
+  enabled: z.boolean(),
+  lastRunAt: z.string().datetime().nullable().describe("When the routine last fired."),
+  nextRunAt: z
+    .string()
+    .datetime()
+    .nullable()
+    .describe(
+      "Next scheduled fire time, derived from `cronExpr`. Null when the routine is " +
+        "disabled, when the expression fails to parse, or briefly on fresh rows.",
+    ),
+  timeoutSec: z
+    .number()
+    .int()
+    .describe(
+      "Per-run hard timeout. The runner SIGKILLs the CLI after this long and marks the " +
+        "run `timeout`. Defaults to 3600.",
+    ),
+  requiresApproval: z
+    .boolean()
+    .describe(
+      "When true, a cron tick enqueues an approval instead of running. Manual " +
+        "`POST /routines/{rid}/run` is unaffected — a human is already in the loop.",
+    ),
+  webhookEnabled: z.boolean(),
+  webhookToken: z
+    .string()
+    .nullable()
+    .describe(
+      "Secret for `POST /api/webhooks/r/{routineId}/{webhookToken}`. Null while the " +
+        "webhook is off.",
+    ),
+  modelId: z
+    .string()
+    .uuid()
+    .nullable()
+    .describe(
+      "The employee model this routine runs on. Null inherits whichever model is " +
+        "active for the employee.",
+    ),
+  browserEnabledOverride: z
+    .boolean()
+    .nullable()
+    .describe(
+      "Three-valued: null inherits the employee's `browserEnabled`; an explicit " +
+        "boolean overrides it for this routine only.",
+    ),
+  createdAt: z.string().datetime(),
+});
+
+/**
+ * The employee slice both endpoints attach under `employee` — enough to render
+ * an avatar, a name, and a link. Narrower than the `Employee` schema in
+ * `employees.ts` on purpose: the full row carries the Soul body and the browser
+ * allowlist, which a routine listing has no business shipping.
+ */
+const EmployeeSummary = z
+  .object({
+    id: z.string().uuid(),
+    name: z.string(),
+    slug: z.string(),
+    role: z.string().describe("Job title — e.g. 'Engineering manager'."),
+    avatarKey: z.string().nullable(),
+  })
+  .openapi("EmployeeSummary");
+
+/**
+ * `lastRun` reuses the `Run` schema above: the handler selects exactly
+ * id/routineId/status/startedAt/finishedAt/exitCode, which is what `Run`
+ * already declares, and those all exist on the entity. Unlike `Routine`, that
+ * schema carries no drift, so reuse is safe here.
+ */
+const RoutineListItem = RoutineColumns.extend({
+  employee: EmployeeSummary.nullable(),
+  lastRun: Run.nullable().describe("Newest run for this routine, or null if it has never run."),
+}).openapi("RoutineListItem");
+
+const RoutineDetail = RoutineColumns.extend({
+  body: z.string().describe("Markdown brief that describes what the routine should do."),
+  // Non-nullable here, unlike the list: the handler 404s when the routine's
+  // employee isn't in this company, so a 200 always carries an employee.
+  employee: EmployeeSummary,
+  lastRun: Run.nullable().describe("Newest run for this routine, or null if it has never run."),
+}).openapi("RoutineDetail");
+
+registry.registerPath({
+  method: "get",
+  path: "/api/companies/{cid}/routines",
+  summary: "List every routine in the company",
+  description:
+    "Every routine across every AI employee in the company, each with its assigned " +
+    "employee and newest run attached. Sorted by employee name, then routine name. " +
+    "Returns `[]` for a company with no employees.\n\n" +
+    "`body` (the markdown brief) is omitted — fetch it per routine via " +
+    "`GET /routines/{rid}` or `GET /routines/{rid}/readme`.",
+  tags: ["Routines"],
+  security: defaultSecurity,
+  request: {
+    params: z.object({ cid: z.string().uuid() }),
+  },
+  responses: {
+    200: {
+      description: "OK",
+      content: { "application/json": { schema: z.array(RoutineListItem) } },
+    },
+    401: { description: "Not authenticated", content: { "application/json": { schema: ErrorResponse } } },
+    403: { description: "Not a member of this company", content: { "application/json": { schema: ErrorResponse } } },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/companies/{cid}/routines/{rid}",
+  summary: "Get one routine",
+  description:
+    "One routine, with its assigned employee and newest run attached. Unlike the list, " +
+    "this includes `body` — the markdown brief the runner folds into the prompt each " +
+    "time the routine fires.",
+  tags: ["Routines"],
+  security: defaultSecurity,
+  request: {
+    params: z.object({
+      cid: z.string().uuid(),
+      rid: z.string().uuid(),
+    }),
+  },
+  responses: {
+    200: {
+      description: "OK",
+      content: { "application/json": { schema: RoutineDetail } },
+    },
+    401: { description: "Not authenticated", content: { "application/json": { schema: ErrorResponse } } },
+    403: { description: "Not a member of this company", content: { "application/json": { schema: ErrorResponse } } },
+    404: {
+      description: "Routine not found, or it belongs to another company",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+  },
+});
+
 registry.registerPath({
   method: "get",
   path: "/api/companies/{cid}/employees/{eid}/routines",

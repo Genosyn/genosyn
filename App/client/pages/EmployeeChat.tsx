@@ -1180,7 +1180,7 @@ function hrefForAction(
   employeeSlug: string,
 ): string | null {
   if (a.action.startsWith("routine.")) {
-    return `/c/${companySlug}/employees/${employeeSlug}/routines`;
+    return `/c/${companySlug}/routines?employee=${employeeSlug}`;
   }
   if (a.action === "journal.create" || a.action.startsWith("journal.")) {
     return `/c/${companySlug}/employees/${employeeSlug}/journal`;

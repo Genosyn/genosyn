@@ -1,5 +1,5 @@
 import React from "react";
-import { Navigate, Route, Routes, useParams } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { api, Company, Me } from "./lib/api";
 import { AppShell } from "./components/AppShell";
 import { Spinner } from "./components/ui/Spinner";
@@ -24,11 +24,14 @@ import {
   JournalPage,
   McpPage,
   MemoryPage,
-  RoutinesPage,
   SettingsPage,
   SkillsPage,
   SoulSettingsPage,
 } from "./pages/employeeTabs";
+import RoutinesLayout from "./pages/RoutinesLayout";
+import RoutinesIndex from "./pages/RoutinesIndex";
+import RoutineNew from "./pages/RoutineNew";
+import RoutineDetail from "./pages/RoutineDetail";
 import SettingsLayout from "./pages/SettingsLayout";
 import {
   SettingsCompany,
@@ -240,7 +243,6 @@ function CompanyRoutes({
           <Route index element={<Navigate to="chat" replace />} />
           <Route path="chat" element={<EmployeeChat />} />
           <Route path="skills" element={<SkillsPage />} />
-          <Route path="routines" element={<RoutinesPage />} />
           <Route path="journal" element={<JournalPage />} />
           <Route path="handoffs" element={<HandoffsPage />} />
           <Route path="memory" element={<MemoryPage />} />
@@ -253,6 +255,22 @@ function CompanyRoutes({
             <Route path="model" element={<ModelSettingsPage />} />
             <Route path="browser" element={<BrowserSettingsPage />} />
           </Route>
+        </Route>
+
+        {/* Routines — every scheduled routine in the company. Sits beside
+            Employees under the AI section: a routine always belongs to an
+            employee, but "what is scheduled around here?" is a company-level
+            question, and answering it used to mean opening each employee in
+            turn. */}
+        <Route path="routines" element={<RoutinesLayout company={company} />}>
+          <Route index element={<RoutinesIndex company={company} />} />
+          <Route path="new" element={<RoutineNew company={company} />} />
+          {/* Two segments, not one: a routine slug is unique only within its
+              employee, so `:routineSlug` alone would be ambiguous. */}
+          <Route
+            path=":empSlug/:routineSlug"
+            element={<RoutineDetail company={company} />}
+          />
         </Route>
 
         {/* Tasks (Projects + Todos) — task manager. */}
@@ -470,6 +488,12 @@ function CompanyRoutes({
           <Route path="companies" element={<AdminCompanies />} />
         </Route>
 
+        {/* Legacy redirect: Routines used to be a per-employee tab. */}
+        <Route
+          path="employees/:empSlug/routines"
+          element={<EmployeeRoutinesRedirect companySlug={company.slug} />}
+        />
+
         {/* Legacy redirects: Profile moved to Account; Backup moved to Admin. */}
         <Route
           path="settings/profile"
@@ -509,6 +533,25 @@ function CompanyRoutes({
       </ChatSessionsProvider>
     </AppShell>
   );
+}
+
+/**
+ * Routines moved out of the per-employee sub-nav into their own section, so
+ * `/employees/:empSlug/routines` now lands on the company Routines list
+ * filtered to that employee.
+ *
+ * Any query string rides along: the Home "Failed routines" panel and the
+ * Journal both deep-link with `?routine=<id>&run=<id>`, and the Routines index
+ * resolves that id and forwards to the run. When such a link is in play we skip
+ * the `employee` filter — the index is about to redirect away from itself.
+ */
+function EmployeeRoutinesRedirect({ companySlug }: { companySlug: string }) {
+  const { empSlug } = useParams();
+  const { search } = useLocation();
+  const params = new URLSearchParams(search);
+  if (empSlug && !params.has("routine")) params.set("employee", empSlug);
+  const qs = params.toString();
+  return <Navigate to={`/c/${companySlug}/routines${qs ? `?${qs}` : ""}`} replace />;
 }
 
 /** Redirect the old `/finance/customers/:slug/edit` URL to its new home in
