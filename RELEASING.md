@@ -9,8 +9,8 @@ single-source-of-truth [`VERSION`](VERSION) file at the repo root.
 
 ```bash
 # from a clean main with the work you want to ship already merged
-echo "0.3.3" > VERSION                           # bump (semver)
-git add VERSION && git commit -m "chore: bump VERSION to 0.3.3"
+echo "<version>" > VERSION                       # bump (semver) — see Versioning
+git add VERSION && git commit -m "chore: bump VERSION to <version>"
 git push origin main                             # ship code to main
 git push origin main:release                     # fast-forward release → fires release.yml
 ```
@@ -23,7 +23,7 @@ The release workflow then:
    one).
 3. Dispatches [`docker.yml`](.github/workflows/docker.yml) against the new
    tag so semver-tagged images land on GHCR
-   (`ghcr.io/genosyn/app:0.3.3` etc. — see [Images and tags](#images-and-tags)).
+   (`ghcr.io/genosyn/app:<version>` etc. — see [Images and tags](#images-and-tags)).
 
 ## Versioning
 
@@ -58,10 +58,10 @@ The release workflow refuses to run if `VERSION` isn't valid semver
 ### 2. Bump `VERSION`
 
 ```bash
-# Pick the next semver. Pre-1.0 — patch for features and fixes:
-echo "0.3.3" > VERSION
+# Pick the next semver — minor for features, patch for fixes (see Versioning):
+echo "<version>" > VERSION
 git add VERSION
-git commit -m "chore: bump VERSION to 0.3.3"
+git commit -m "chore: bump VERSION to <version>"
 git push origin main
 ```
 
@@ -88,9 +88,9 @@ gh run watch <id>                              # docker.yml: ~3-5 min
 ```
 
 The release workflow output should report:
-- `version=0.3.3` and `tag=v0.3.3` from the "Read VERSION" step.
-- A new release at `https://github.com/Genosyn/genosyn/releases/tag/v0.3.3`.
-- A dispatch line for `docker.yml --ref v0.3.3`.
+- `version=<version>` and `tag=v<version>` from the "Read VERSION" step.
+- A new release at `https://github.com/Genosyn/genosyn/releases/tag/v<version>`.
+- A dispatch line for `docker.yml --ref v<version>`.
 
 The docker workflow then publishes the images described in
 [Images and tags](#images-and-tags) below.
@@ -98,12 +98,12 @@ The docker workflow then publishes the images described in
 ### 5. Verify
 
 ```bash
-gh release view v0.3.3
-docker pull ghcr.io/genosyn/app:0.3.3      # note: no "v" on image tags
+gh release view v<version>
+docker pull ghcr.io/genosyn/app:<version>   # note: no "v" on image tags
 ```
 
 If anything looks off, the release row on GitHub can be edited in place;
-the GHCR images are immutable but you can publish a `v0.3.4` over the top.
+the GHCR images are immutable but you can publish a higher patch over the top.
 
 ## Images and tags
 
@@ -113,7 +113,8 @@ Two images, named after the repo folder — **not** `genosyn-app` / `genosyn-hom
 - `ghcr.io/genosyn/home` (from [`Home/Dockerfile`](Home/Dockerfile))
 
 **Image tags carry no `v` prefix.** Only the git tag and the GitHub release do.
-Releasing `VERSION=0.3.3` gives you git tag `v0.3.3` but image tag `0.3.3`.
+Releasing `VERSION=<version>` gives you git tag `v<version>` but image tag
+`<version>`.
 Mixing these up is the easiest way to chase a phantom "NOT FOUND".
 
 What each trigger pushes, per the `metadata-action` config in
@@ -123,14 +124,14 @@ truth — if you change it, update this table):
 | Trigger | Tags pushed |
 | --- | --- |
 | push to `main` | `main`, `sha-<short>` |
-| tag `v0.3.3` (dispatched by `release.yml`) | `0.3.3`, `0.3`, `latest`, `sha-<short>` |
+| tag `v<version>` (dispatched by `release.yml`) | `<version>`, `<major>.<minor>`, `latest`, `sha-<short>` |
 | pull request | none — images build but never push |
 
 `latest` moves **only** on a release, so it always means "newest release" —
 that's what the `genosyn` CLI pulls by default. It comes from
 `metadata-action`'s default `flavor: latest=auto` acting on the `type=semver`
 entries, not from an explicit rule, which is why you won't find it in the
-`tags:` list. A prerelease (`v0.3.3-rc.1`) never moves it.
+`tags:` list. A prerelease (`v<version>-rc.1`) never moves it.
 
 Main tip is `:main` or `:sha-<short>` — use those to run unreleased code.
 
@@ -146,7 +147,8 @@ Main tip is `:main` or `:sha-<short>` — use those to run unreleased code.
 ### "I pushed to `release` but the release workflow didn't fire"
 
 Most likely the VERSION already matched an existing tag. The workflow logs
-will show the `::notice::Release v0.3.x already exists — bump VERSION` line.
+will show the `::notice::Release v<version> already exists — bump VERSION to
+ship a new release.` line.
 Bump `VERSION` and push to main, then fast-forward release again.
 
 ### "The release was created but no GHCR images appeared"
@@ -156,7 +158,7 @@ permission (already in `release.yml`). If a token-permission change has
 broken it, manually dispatch:
 
 ```bash
-gh workflow run docker.yml --ref v0.3.3
+gh workflow run docker.yml --ref v<version>
 ```
 
 ### "The docker.yml run for `main` failed but I want to ship anyway"
@@ -167,9 +169,9 @@ Shipping a known-broken image is worse than slipping a release.
 
 ### "I bumped VERSION but something's wrong — can I un-release?"
 
-You can `gh release delete v0.3.3` and `git push --delete origin v0.3.3`,
-but the GHCR image tags will stay (registry deletes are manual). It is
-almost always cleaner to ship a `v0.3.4` with the fix than to try to
+You can `gh release delete v<version>` and `git push --delete origin
+v<version>`, but the GHCR image tags will stay (registry deletes are manual).
+It is almost always cleaner to ship the next patch with the fix than to try to
 rewind.
 
 ## Files involved
