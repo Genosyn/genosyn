@@ -10,6 +10,14 @@ const Routine = z
     cronExpr: z.string(),
     enabled: z.boolean(),
     body: z.string().describe("Markdown brief that describes what the routine should do."),
+    modelId: z
+      .string()
+      .uuid()
+      .nullable()
+      .describe(
+        "The employee model this routine runs on. Null inherits whichever model is " +
+          "active for the employee.",
+      ),
     lastRunAt: z.string().datetime().nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),

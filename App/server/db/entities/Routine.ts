@@ -72,6 +72,23 @@ export class Routine {
   webhookToken!: string | null;
 
   /**
+   * Optional pin to one of the employee's {@link AIModel} rows — the brain
+   * this routine runs on. Null (default) inherits whichever model is active
+   * for the employee, so routines follow the employee's brain unless an
+   * operator deliberately pins one (a cheap model for a noisy hourly digest,
+   * a stronger one for the weekly report).
+   *
+   * Only ever points at a model owned by the same employee — the PATCH route
+   * rejects a foreign id, and deleting a model clears the routines pinned to
+   * it. Resolution still falls back to the active model if the pin dangles;
+   * see `resolveRoutineModel()` in `services/models.ts`.
+   *
+   * Chat is unaffected — this pin applies to the routine's runs only.
+   */
+  @Column({ type: "varchar", nullable: true })
+  modelId!: string | null;
+
+  /**
    * Per-routine override for the employee's `browserEnabled` flag. Three
    * states:
    *

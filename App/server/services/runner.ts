@@ -7,7 +7,7 @@ import { Skill } from "../db/entities/Skill.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { employeeDir, ensureDir } from "./paths.js";
 import { nextRunFor } from "./cron.js";
-import { getActiveModel } from "./models.js";
+import { resolveRoutineModel } from "./models.js";
 import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
@@ -97,8 +97,9 @@ export async function startRoutineRun(
   if (!emp) throw new Error("Employee not found for routine");
   const co = await coRepo.findOneBy({ id: emp.companyId });
   if (!co) throw new Error("Company not found for employee");
-  // An employee can hold several models; the active one is the brain we run.
-  const model = await getActiveModel(emp.id);
+  // An employee can hold several models. The routine runs on the one it pins,
+  // falling back to the employee's active model when it pins none.
+  const { model, pinned } = await resolveRoutineModel(routine);
   const skills = await skillRepo.find({ where: { employeeId: emp.id } });
 
   const now = new Date();
@@ -118,7 +119,12 @@ export async function startRoutineRun(
       `routine=${routine.name} (${routine.slug})`,
       `employee=${emp.name} (${emp.slug})`,
       `company=${co.name} (${co.slug})`,
-      `model=${model ? `${model.provider}/${model.model} (${model.authMode})` : "not connected"}`,
+      `model=${
+        model
+          ? `${model.provider}/${model.model} (${model.authMode})` +
+            (pinned ? " [pinned to this routine]" : " [employee's active model]")
+          : "not connected"
+      }`,
       `cron=${routine.cronExpr}`,
       "",
     ].join("\n") + "\n",

@@ -73,6 +73,18 @@ export function Routines() {
             ),
           },
           {
+            term: "model",
+            def: (
+              <>
+                Optional. Which of the employee&apos;s{" "}
+                <DocLink to="/docs/models">AI Models</DocLink> this routine runs
+                on. Defaults to <Strong>Inherit</Strong> — whichever model is
+                active for the employee. See{" "}
+                <DocLink to="/docs/routines#model">Picking a model</DocLink>.
+              </>
+            ),
+          },
+          {
             term: "timeoutSec",
             def: (
               <>
@@ -123,6 +135,38 @@ Every weekday at 09:00, post a 5-bullet summary of:
 5. One sentence of your own opinion about the day
 
 Post it to the #morning channel.`}</Pre>
+
+      <H2 id="model">Picking a model</H2>
+      <P>
+        An employee can hold several{" "}
+        <DocLink to="/docs/models">AI Models</DocLink> and keeps one active. By
+        default a routine runs on that active model — the{" "}
+        <Strong>Model</Strong> field in the routine editor reads{" "}
+        <Strong>Inherit</Strong>, and the routine follows the employee whenever
+        you switch their brain.
+      </P>
+      <P>
+        Pick a specific model instead to <Strong>pin</Strong> it. The routine
+        then always runs on that model regardless of which one is active. This
+        is how you put a noisy hourly digest on a cheap local endpoint while the
+        employee&apos;s chat stays on a frontier model — or the reverse, pinning
+        the weekly board report to your strongest model.
+      </P>
+      <UL>
+        <LI>
+          You can only pin a model that <Strong>belongs to that employee</Strong>
+          . Register it on the employee&apos;s Models tab first.
+        </LI>
+        <LI>
+          A pin only affects this routine&apos;s <Strong>Runs</Strong>. Chat with
+          the employee always uses the active model.
+        </LI>
+        <LI>
+          Remove a pinned model and its routines quietly revert to{" "}
+          <Strong>Inherit</Strong> rather than breaking. The run log names the
+          model it used and whether it was pinned or inherited.
+        </LI>
+      </UL>
 
       <H2 id="runs">Runs</H2>
       <P>

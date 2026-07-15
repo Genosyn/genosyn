@@ -3,6 +3,7 @@ import { z } from "zod";
 import cron from "node-cron";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
@@ -36,6 +37,10 @@ async function uniqueSlug(employeeId: string, base: string): Promise<string> {
     slug = `${base}-${n}`;
   }
   return slug;
+}
+
+async function employeeOwnsModel(employeeId: string, modelId: string): Promise<boolean> {
+  return AppDataSource.getRepository(AIModel).existsBy({ id: modelId, employeeId });
 }
 
 async function findRoutineByName(
@@ -127,6 +132,9 @@ const patchSchema = z.object({
   enabled: z.boolean().optional(),
   timeoutSec: z.number().int().min(10).max(6 * 60 * 60).optional(),
   requiresApproval: z.boolean().optional(),
+  // Null inherits the employee's active model; a string pins one of the
+  // employee's own models to this routine. Ownership is checked below.
+  modelId: z.string().uuid().nullable().optional(),
   // Three-valued: null inherits the employee's `browserEnabled`; explicit
   // boolean overrides for this routine only.
   browserEnabledOverride: z.boolean().nullable().optional(),
@@ -152,6 +160,14 @@ routinesRouter.patch(
     if (body.enabled !== undefined) r.enabled = body.enabled;
     if (body.timeoutSec !== undefined) r.timeoutSec = body.timeoutSec;
     if (body.requiresApproval !== undefined) r.requiresApproval = body.requiresApproval;
+    if (body.modelId !== undefined) {
+      // A routine may only pin a model its own employee owns — otherwise one
+      // employee's routine could borrow another's credentials.
+      if (body.modelId !== null && !(await employeeOwnsModel(r.employeeId, body.modelId))) {
+        return res.status(400).json({ error: "That model does not belong to this employee" });
+      }
+      r.modelId = body.modelId;
+    }
     if (body.browserEnabledOverride !== undefined) {
       r.browserEnabledOverride = body.browserEnabledOverride;
     }

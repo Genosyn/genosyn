@@ -205,6 +205,10 @@ export const config = {
 - [x] Enable/disable toggle
 - [x] `node-cron` registration on boot, real Run records
 - [x] Live-tail run logs in a modal on manual Run
+- [x] **Per-routine model.** `Routine.modelId` pins one of the employee's
+      own `AIModel` rows; null (default) inherits the employee's active
+      model. Runner resolves via `resolveRoutineModel()`; deleting a model
+      clears the pins naming it. Runs only — chat stays on the active model.
 
 ### M6 — AI Models (employee-owned) ✅
 > **Superseded by M22.** The provider-CLI harnesses, subscription sign-in, and

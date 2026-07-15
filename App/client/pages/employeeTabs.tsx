@@ -454,6 +454,7 @@ export function RoutinesPage() {
       {editing && (
         <RoutineEditor
           company={company}
+          emp={emp}
           routine={editing}
           onClose={() => setEditing(null)}
           onSaved={() => {
@@ -893,11 +894,13 @@ function NewRoutineModal({
 
 function RoutineEditor({
   company,
+  emp,
   routine,
   onClose,
   onSaved,
 }: {
   company: Company;
+  emp: Employee;
   routine: Routine;
   onClose: () => void;
   onSaved: () => void;
@@ -910,6 +913,9 @@ function RoutineEditor({
   const [requiresApproval, setRequiresApproval] = React.useState(
     routine.requiresApproval ?? false,
   );
+  // "" is the inherit choice — the routine follows the employee's active model.
+  const [modelId, setModelId] = React.useState(routine.modelId ?? "");
+  const [models, setModels] = React.useState<AIModel[] | null>(null);
   // Tri-state: "inherit" reads as null, "on"/"off" force a boolean override.
   const [browserOverride, setBrowserOverride] = React.useState<"inherit" | "on" | "off">(
     routine.browserEnabledOverride === true
@@ -940,6 +946,23 @@ function RoutineEditor({
       .get<{ content: string }>(`/api/companies/${company.id}/routines/${routine.id}/readme`)
       .then((r) => setContent(r.content));
   }, [company.id, routine.id]);
+
+  React.useEffect(() => {
+    api
+      .get<AIModel[]>(`/api/companies/${company.id}/employees/${emp.id}/models`)
+      .then((list) => {
+        setModels(list);
+        // A pin can dangle if the model was removed out from under us. Show
+        // inherit, which is what the runner would fall back to anyway.
+        setModelId((cur) => (cur && !list.some((m) => m.id === cur) ? "" : cur));
+      })
+      .catch(() => setModels([]));
+  }, [company.id, emp.id]);
+
+  // The server computes `isActive` live, so this is the brain "Inherit" means.
+  const activeModel = (models ?? []).find((m) => m.isActive) ?? null;
+  const pinnedModelMissing =
+    models !== null && !!routine.modelId && !models.some((m) => m.id === routine.modelId);
 
   return (
     <Modal open onClose={onClose} title={`Routine: ${routine.name}`}>
@@ -983,6 +1006,32 @@ function RoutineEditor({
           </label>
           <div className="-mt-2 text-xs text-slate-500 dark:text-slate-400">
             Manual &quot;Run now&quot; still runs immediately — a human is already in the loop.
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Select
+              label="Model"
+              value={modelId}
+              disabled={models === null}
+              onChange={(e) => setModelId(e.target.value)}
+            >
+              <option value="">
+                {activeModel
+                  ? `Inherit — ${activeModel.provider} · ${activeModel.model}`
+                  : "Inherit the employee's active model"}
+              </option>
+              {(models ?? [])
+                .filter((m) => m.id !== activeModel?.id)
+                .map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.provider} · {m.model}
+                  </option>
+                ))}
+            </Select>
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              {pinnedModelMissing
+                ? "The model this routine was pinned to is gone. It now inherits the employee's active model."
+                : "Inherit follows whichever model is active for the employee. Pinning applies to this routine's runs only — chat always uses the active model."}
+            </div>
           </div>
           <div className="flex flex-col gap-1.5">
             <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
@@ -1033,6 +1082,7 @@ function RoutineEditor({
                     enabled,
                     timeoutSec,
                     requiresApproval,
+                    modelId: modelId || null,
                     browserEnabledOverride:
                       browserOverride === "on"
                         ? true

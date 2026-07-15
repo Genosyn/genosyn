@@ -223,6 +223,12 @@ export type Routine = {
   webhookEnabled: boolean;
   webhookToken: string | null;
   /**
+   * The employee model this routine runs on. `null` inherits whichever model
+   * is active for the employee; a string pins one of the employee's own
+   * models to this routine's runs.
+   */
+  modelId?: string | null;
+  /**
    * Per-routine override of `AIEmployee.browserEnabled`. Three states:
    *   * `null` — inherit the employee setting.
    *   * `true` — force-enable browser access for this routine only.

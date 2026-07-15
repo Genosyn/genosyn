@@ -7,7 +7,7 @@ import { Company } from "../db/entities/Company.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { PROVIDERS, isModelConnected } from "../services/providers.js";
-import { effectiveActiveId, setActiveModel } from "../services/models.js";
+import { clearRoutinePins, effectiveActiveId, setActiveModel } from "../services/models.js";
 import { encryptSecret, maskSecret } from "../lib/secret.js";
 import { previewBaseURL } from "../services/customEndpoint.js";
 import { probeContextWindow } from "../services/agent/contextWindow.js";
@@ -434,6 +434,9 @@ modelsRouter.delete("/:id", async (req, res) => {
     (r) => r.id !== m.id,
   );
   await repo.delete({ id: m.id });
+  // Routines pinned to this model revert to inheriting the active one, so the
+  // pin never outlives the row it names.
+  await clearRoutinePins(m.id);
   // If we removed the active brain, promote the most-recently-added survivor so
   // the employee always has a defined active model.
   if (remaining.length > 0 && !remaining.some((r) => r.isActive)) {
