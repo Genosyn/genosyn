@@ -5,6 +5,7 @@ import {
   Archive,
   Building2,
   Database,
+  Layers,
   LayoutDashboard,
   Mail,
   ServerCog,
@@ -35,6 +36,7 @@ const ADMIN_TAB_LABEL: Record<string, string> = {
   overview: "Overview",
   "instance-health": "Instance Health",
   db: "Database",
+  migrations: "Migrations",
   email: "Email transport",
   signups: "Sign-ups",
   backup: "Backups",
@@ -79,6 +81,11 @@ export default function AdminLayout({
           to={`${base}/db`}
           icon={<Database size={14} />}
           label="Database"
+        />
+        <SidebarLink
+          to={`${base}/migrations`}
+          icon={<Layers size={14} />}
+          label="Migrations"
         />
         <SidebarLink
           to={`${base}/email`}

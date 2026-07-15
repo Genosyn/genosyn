@@ -7,6 +7,7 @@ import { AppDataSource } from "../db/datasource.js";
 import { Company } from "../db/entities/Company.js";
 import { User } from "../db/entities/User.js";
 import { getInstanceHealthReport } from "../services/instanceHealth.js";
+import { getMigrationReport } from "../services/adminMigrations.js";
 import {
   AdminQueryError,
   getDbSchema,
@@ -47,6 +48,21 @@ adminRouter.use(requireMasterAdmin);
 adminRouter.get("/instance-health", async (_req, res, next) => {
   try {
     res.json(await getInstanceHealthReport());
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * The per-migration detail behind the Instance Health "schema migrations"
+ * check. Read-only, and deliberately has no run/revert companion: boot applies
+ * migrations, and a browser-triggered schema mutation isn't a power this
+ * surface should hand out. A database that won't answer comes back as a
+ * status:"error" report rather than a 500 — see `services/adminMigrations.ts`.
+ */
+adminRouter.get("/migrations", async (_req, res, next) => {
+  try {
+    res.json(await getMigrationReport());
   } catch (err) {
     next(err);
   }
