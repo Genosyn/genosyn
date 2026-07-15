@@ -135,14 +135,31 @@ const EmployeeSummary = z
   .openapi("EmployeeSummary");
 
 /**
+ * Nullable variants, registered as components of their own.
+ *
+ * Calling `.nullable()` on an already-registered schema at the point of use
+ * does not survive generation: an OpenAPI 3.0 `$ref` may not carry sibling
+ * keywords, so the v3 generator emits a bare `$ref` and silently drops the
+ * `nullable: true`. That would tell clients these fields are always present
+ * when they demonstrably are not. Registering the nullable variant keeps the
+ * null in the machine-readable contract.
+ *
  * `lastRun` reuses the `Run` schema above: the handler selects exactly
  * id/routineId/status/startedAt/finishedAt/exitCode, which is what `Run`
  * already declares, and those all exist on the entity. Unlike `Routine`, that
  * schema carries no drift, so reuse is safe here.
  */
+const EmployeeSummaryOrNull = EmployeeSummary.nullable()
+  .describe("The employee this routine is assigned to.")
+  .openapi("EmployeeSummaryOrNull");
+
+const RunOrNull = Run.nullable()
+  .describe("Newest run for this routine — null if it has never run.")
+  .openapi("RunOrNull");
+
 const RoutineListItem = RoutineColumns.extend({
-  employee: EmployeeSummary.nullable(),
-  lastRun: Run.nullable().describe("Newest run for this routine, or null if it has never run."),
+  employee: EmployeeSummaryOrNull,
+  lastRun: RunOrNull,
 }).openapi("RoutineListItem");
 
 const RoutineDetail = RoutineColumns.extend({
@@ -150,7 +167,7 @@ const RoutineDetail = RoutineColumns.extend({
   // Non-nullable here, unlike the list: the handler 404s when the routine's
   // employee isn't in this company, so a 200 always carries an employee.
   employee: EmployeeSummary,
-  lastRun: Run.nullable().describe("Newest run for this routine, or null if it has never run."),
+  lastRun: RunOrNull,
 }).openapi("RoutineDetail");
 
 registry.registerPath({
