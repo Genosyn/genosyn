@@ -88,6 +88,23 @@ export default function RoutineDetail({ company }: { company: Company }) {
         const p = new URLSearchParams(prev);
         if (next === "overview") p.delete("tab");
         else p.set("tab", next);
+        // A stale `?run=` would drag us straight back to the runs tab, since a
+        // bare `run` param reads as "show me run history".
+        if (next !== "runs") p.delete("run");
+        return p;
+      },
+      { replace: true },
+    );
+  }
+
+  // Open one run in the runs tab. Both params move together: `tab` alone would
+  // land on the newest run, `run` alone would rely on the implicit tab switch.
+  function openRun(runId: string) {
+    setSearchParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        p.set("tab", "runs");
+        p.set("run", runId);
         return p;
       },
       { replace: true },
@@ -208,7 +225,12 @@ export default function RoutineDetail({ company }: { company: Company }) {
       </div>
 
       {tab === "overview" && (
-        <OverviewTab company={company} routine={routine} onSeeRuns={() => setTab("runs")} />
+        <OverviewTab
+          company={company}
+          routine={routine}
+          onSeeRuns={() => setTab("runs")}
+          onOpenRun={openRun}
+        />
       )}
       {tab === "brief" && <BriefTab company={company} routine={routine} />}
       {tab === "runs" && (
@@ -246,10 +268,12 @@ function OverviewTab({
   company,
   routine,
   onSeeRuns,
+  onOpenRun,
 }: {
   company: Company;
   routine: RoutineWithMeta;
   onSeeRuns: () => void;
+  onOpenRun: (runId: string) => void;
 }) {
   const [runs, setRuns] = React.useState<Run[] | null>(null);
   const [model, setModel] = React.useState<AIModel | null | undefined>(undefined);
@@ -399,19 +423,25 @@ function OverviewTab({
           ) : (
             <ul className="divide-y divide-slate-100 dark:divide-slate-800">
               {recent.map((run) => (
-                <li key={run.id} className="flex items-center gap-3 py-2 text-sm">
-                  <RunStatusChip status={run.status} size="xs" />
-                  <span className="min-w-0 flex-1 truncate text-slate-600 dark:text-slate-300">
-                    {new Date(run.startedAt).toLocaleString()}
-                  </span>
-                  {run.exitCode !== null && (
-                    <span className="shrink-0 text-xs text-slate-400 dark:text-slate-500">
-                      exit {run.exitCode}
+                <li key={run.id}>
+                  <button
+                    type="button"
+                    onClick={() => onOpenRun(run.id)}
+                    className="flex w-full items-center gap-3 rounded px-1 py-2 text-left text-sm transition hover:bg-slate-50 dark:hover:bg-slate-900"
+                  >
+                    <RunStatusChip status={run.status} size="xs" />
+                    <span className="min-w-0 flex-1 truncate text-slate-600 dark:text-slate-300">
+                      {new Date(run.startedAt).toLocaleString()}
                     </span>
-                  )}
-                  <span className="shrink-0 text-xs tabular-nums text-slate-400 dark:text-slate-500">
-                    {formatDuration(run.startedAt, run.finishedAt)}
-                  </span>
+                    {run.exitCode !== null && (
+                      <span className="shrink-0 text-xs text-slate-400 dark:text-slate-500">
+                        exit {run.exitCode}
+                      </span>
+                    )}
+                    <span className="shrink-0 text-xs tabular-nums text-slate-400 dark:text-slate-500">
+                      {formatDuration(run.startedAt, run.finishedAt)}
+                    </span>
+                  </button>
                 </li>
               ))}
             </ul>
