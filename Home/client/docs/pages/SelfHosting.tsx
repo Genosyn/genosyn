@@ -215,6 +215,12 @@ export function SelfHosting() {
           company&apos;s routines, models, and integrations.
         </LI>
         <LI>
+          <Strong>Migrations</Strong> — expands the Instance Health migrations
+          probe into the full ledger: every schema migration, its state, and
+          whether the database has drifted from the code. See{" "}
+          <Code>Migrations</Code> below.
+        </LI>
+        <LI>
           <Strong>Database</Strong> — a raw SQL console over Genosyn&apos;s own
           application database. See <Code>Database console</Code> below.
         </LI>
@@ -306,6 +312,36 @@ export function SelfHosting() {
         </LI>
       </UL>
 
+      <H3 id="migrations">Migrations</H3>
+      <P>
+        <Code>Admin → Migrations</Code> is a read-only ledger of every TypeORM
+        schema migration — <Code>Total</Code> / <Code>Applied</Code> /{" "}
+        <Code>Pending</Code> / <Code>Unknown</Code> tiles over the full list.
+        Nothing runs from here: boot applies pending migrations automatically,
+        so this is the detail view behind the Instance Health probe.
+      </P>
+      <UL>
+        <LI>
+          <Strong>Applied</Strong> — recorded in the database, in the order they
+          ran. Each shows when it was <em>authored</em>, not when it ran —
+          TypeORM&apos;s migrations table records no such timestamp.
+        </LI>
+        <LI>
+          <Strong>Pending</Strong> — shipped but not applied. A healthy instance
+          has none, so anything pending points at a migration that failed at
+          boot; read that boot&apos;s server log.
+        </LI>
+        <LI>
+          <Strong>Drift</Strong> — the database disagrees with the code.{" "}
+          <Strong>Unknown</Strong> is a migrations-table row matching no shipped
+          migration file (a downgrade, or a hand-edited database);{" "}
+          <Strong>out-of-order</Strong> is an older migration applied after a
+          newer one (usually a branch merge). Take a{" "}
+          <DocLink to="/docs/self-hosting#backups">backup</DocLink> before
+          repairing either.
+        </LI>
+      </UL>
+
       <H2 id="backups">Backups</H2>
       <P>
         A backup zips the <em>entire</em> data directory — every company&apos;s
@@ -327,7 +363,7 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
         Backups live in <Code>data/Backup/</Code> by default — on the same disk
         as everything else. Add one or more <Strong>off-box destinations</Strong>{" "}
         under <Code>Admin → Backups → Off-box destinations</Code> and every
-        completed backup is mirrored there automatically. Two kinds:
+        completed backup is mirrored there automatically. Three kinds:
       </P>
       <UL>
         <LI>
@@ -335,18 +371,31 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
           write to. Mount your NAS share (SMB / NFS / iSCSI) on the host or
           bind-mount it into the container, then point the destination at that
           path (for example <Code>/mnt/nas/genosyn</Code>). The kernel handles
-          the protocol; Genosyn just copies the archive. This is the most
-          robust option for a containerised self-host.
+          the protocol; Genosyn just copies the archive. Still the simplest
+          option when you are able to mount the share.
+        </LI>
+        <LI>
+          <Strong>SMB / CIFS</Strong> — push straight to a Windows or NAS share
+          with <em>no mount required</em>. Enter the host, share, an optional
+          folder within it, and a username, password, and optional domain. For
+          when bind-mounting is not available to you — a locked-down Kubernetes
+          cluster, or a host where you cannot mount CIFS. Genosyn negotiates
+          SMB3 and signs the connection; leave <Code>Encrypt in transit</Code>{" "}
+          on (the default) so the archive is not readable on your network, and
+          turn it off only for a NAS that predates SMB3.
         </LI>
         <LI>
           <Strong>SFTP / SSH</Strong> — push to a remote host with no mount
           required. Enter the host, port, username, and a password or private
           key. Good for appliance NASes (Synology, QNAP, TrueNAS) that expose
-          SSH but are awkward to bind-mount. Credentials are encrypted at rest
-          with the same AES-256-GCM helper used for model API keys and are
-          never returned to the browser.
+          SSH but are awkward to bind-mount.
         </LI>
       </UL>
+      <P>
+        Credentials for the SMB and SFTP kinds are encrypted at rest with the
+        same AES-256-GCM helper used for model API keys, and are never returned
+        to the browser.
+      </P>
       <P>
         Use <Code>Test</Code> on a destination to confirm it is reachable and
         writable, toggle <Code>Enabled</Code> to pause mirroring without

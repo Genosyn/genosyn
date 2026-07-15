@@ -12,25 +12,32 @@ import {
  * `<dataDir>/Backup/` folder. Lets an operator mirror every backup off-box to
  * a NAS or remote volume so a lost disk doesn't take the backups with it.
  *
- *   - `local` → a filesystem path the host can already write to. This is the
- *               idiomatic way to reach a NAS from a container: mount the SMB /
- *               NFS / iSCSI share (or bind-mount it into the Genosyn
+ *   - `local` → a filesystem path the host can already write to. Still the
+ *               simplest way to reach a NAS when you can mount it: mount the
+ *               SMB / NFS / iSCSI share (or bind-mount it into the Genosyn
  *               container) and point the destination at that path. We just
  *               copy the archive there — the kernel handles the protocol.
  *   - `sftp`  → push over SSH/SFTP to a remote host with no mount required.
  *               Covers appliance NASes (Synology / QNAP / TrueNAS) that expose
  *               SSH but are awkward to bind-mount into a container.
+ *   - `smb`   → push straight to an SMB/CIFS share, no mount required. For
+ *               operators who can't bind-mount (locked-down Kubernetes, no
+ *               privileged mounts on the host) and whose NAS speaks SMB but
+ *               not SSH. Delivered by shelling out to Samba's `smbclient`, so
+ *               we get SMB3 + signing rather than a half-finished JS
+ *               implementation of the protocol.
  *
- * Kind-specific settings — including the SFTP password / private key — live
- * inside {@link encryptedConfig}, an AES-256-GCM blob keyed from
- * `config.sessionSecret` (same helper as model API keys, `lib/secret.ts`).
- * The raw secret is never returned to the client; the serializer surfaces only
- * whether a credential is set. {@link hint} is a plaintext, non-secret display
- * string (e.g. `/mnt/nas` or `backup@nas.local:/volume1/genosyn`) so the UI
- * can still label a row even if the config can't be decrypted after a secret
- * rotation.
+ * Kind-specific settings — including the SFTP password / private key and the
+ * SMB password — live inside {@link encryptedConfig}, an AES-256-GCM blob
+ * keyed from `config.sessionSecret` (same helper as model API keys,
+ * `lib/secret.ts`). The raw secret is never returned to the client; the
+ * serializer surfaces only whether a credential is set. {@link hint} is a
+ * plaintext, non-secret display string (e.g. `/mnt/nas`,
+ * `backup@nas.local:/volume1/genosyn`, or `//nas.local/backups/genosyn`) so
+ * the UI can still label a row even if the config can't be decrypted after a
+ * secret rotation.
  */
-export type BackupDestinationKind = "local" | "sftp";
+export type BackupDestinationKind = "local" | "sftp" | "smb";
 
 /** Health of the last delivery / test attempted for this destination. */
 export type BackupDestinationStatus = "unknown" | "ok" | "error";

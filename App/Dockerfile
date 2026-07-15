@@ -47,9 +47,18 @@ WORKDIR /app
 # by playwright-core when AIEmployee.browserEnabled is true). Playwright's
 # bundled Chromium is glibc and won't run on musl, so we use the apk build and
 # point playwright-core at it via PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH.
+#
+# samba-client (~54MB) backs the `smb` backup destination kind, which pushes
+# archives to a NAS with no mount required. It's here rather than as an npm
+# dependency because every JS SMB client tops out at SMB 2.1 and none of them
+# implement signing — services/backupDestinations.ts shells out to `smbclient`
+# to get SMB3 + signing/encryption. Self-hosters who only ever use the `local`
+# or `sftp` kinds pay the layer size but nothing else; the SMB code path
+# reports a clear error if the binary is ever absent.
 RUN apk add --no-cache \
       bash curl libstdc++ git openssh-client \
-      chromium nss freetype harfbuzz ca-certificates ttf-freefont
+      chromium nss freetype harfbuzz ca-certificates ttf-freefont \
+      samba-client
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Carry the dependency tree over from the deps stage instead of `npm ci`-ing

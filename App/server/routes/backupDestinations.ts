@@ -15,10 +15,11 @@ import {
 
 /**
  * Install-wide backup *destination* endpoints — where completed archives are
- * mirrored off-box (a mounted NAS path or an SFTP target). Not company-scoped,
- * matching the backups router: a backup spans every company's data, and these
- * rows hold SFTP credentials, so access is gated to master admins (the
- * instance-operator surface) exactly like the backups + admin routers.
+ * mirrored off-box (a mounted NAS path, an SFTP target, or an SMB share). Not
+ * company-scoped, matching the backups router: a backup spans every company's
+ * data, and these rows hold SFTP / SMB credentials, so access is gated to
+ * master admins (the instance-operator surface) exactly like the backups +
+ * admin routers.
  */
 export const backupDestinationsRouter = Router();
 backupDestinationsRouter.use(requireAuth);
@@ -29,21 +30,37 @@ const sftpAuthMode = z.enum(["password", "key"]);
 const createSchema = z
   .object({
     name: z.string().trim().min(1).max(120),
-    kind: z.enum(["local", "sftp"]),
+    kind: z.enum(["local", "sftp", "smb"]),
     enabled: z.boolean().optional(),
     // local
     path: z.string().max(4096).optional(),
-    // sftp
+    // sftp + smb
     host: z.string().max(255).optional(),
     port: z.number().int().min(1).max(65535).optional(),
     username: z.string().max(255).optional(),
     remoteDir: z.string().max(4096).optional(),
-    authMode: sftpAuthMode.optional(),
     password: z.string().max(4096).optional(),
+    // sftp
+    authMode: sftpAuthMode.optional(),
     privateKey: z.string().max(65536).optional(),
     passphrase: z.string().max(4096).optional(),
+    // smb
+    share: z.string().max(255).optional(),
+    domain: z.string().max(255).optional(),
+    encrypt: z.boolean().optional(),
   })
   .superRefine((val, ctx) => {
+    const req = (field: keyof typeof val, label: string, kindLabel: string) => {
+      const v = val[field];
+      if (typeof v !== "string" || !v.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `${label} is required for ${kindLabel}`,
+          path: [field],
+        });
+      }
+    };
+
     if (val.kind === "local") {
       if (!val.path || !val.path.trim()) {
         ctx.addIssue({
@@ -54,20 +71,26 @@ const createSchema = z
       }
       return;
     }
-    // sftp
-    const req = (field: keyof typeof val, label: string) => {
-      const v = val[field];
-      if (typeof v !== "string" || !v.trim()) {
+
+    if (val.kind === "smb") {
+      // remoteDir stays optional — an empty one just means the share root.
+      req("host", "Host", "an SMB destination");
+      req("share", "Share", "an SMB destination");
+      req("username", "Username", "an SMB destination");
+      if (!val.password) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: `${label} is required for an SFTP destination`,
-          path: [field],
+          message: "A password is required for an SMB destination",
+          path: ["password"],
         });
       }
-    };
-    req("host", "Host");
-    req("username", "Username");
-    req("remoteDir", "Remote directory");
+      return;
+    }
+
+    // sftp
+    req("host", "Host", "an SFTP destination");
+    req("username", "Username", "an SFTP destination");
+    req("remoteDir", "Remote directory", "an SFTP destination");
     const mode = val.authMode ?? "password";
     if (mode === "password" && !val.password) {
       ctx.addIssue({
@@ -99,6 +122,9 @@ const updateSchema = z.object({
   password: z.string().max(4096).optional(),
   privateKey: z.string().max(65536).optional(),
   passphrase: z.string().max(4096).optional(),
+  share: z.string().max(255).optional(),
+  domain: z.string().max(255).optional(),
+  encrypt: z.boolean().optional(),
 });
 
 backupDestinationsRouter.get("/", async (_req, res) => {

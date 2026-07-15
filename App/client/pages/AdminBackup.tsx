@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   Download,
   HardDrive,
+  Network,
   Pencil,
   Plug,
   Plus,
@@ -34,6 +35,22 @@ import { useDialog } from "../components/ui/Dialog";
 
 const FIELD_CLASS =
   "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900";
+
+/** Well-known port per destination kind (`local` has no host, hence the 0). */
+const DEFAULT_PORT: Record<BackupDestinationKind, number> = {
+  local: 0,
+  sftp: 22,
+  smb: 445,
+};
+
+const portDefaultFor = (kind: BackupDestinationKind) => DEFAULT_PORT[kind];
+
+/** Short badge label for a destination row. */
+const KIND_LABEL: Record<BackupDestinationKind, string> = {
+  local: "Path",
+  sftp: "SFTP",
+  smb: "SMB",
+};
 
 /**
  * Admin → Backups. Install-wide backup surface: a "Back up now" button that
@@ -423,9 +440,9 @@ function DestinationsCard({
           <div>
             <h2 className="text-sm font-semibold">Off-box destinations</h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Mirror every completed backup to a NAS path or an SFTP host so a
-              lost disk does not take the backups with it. Deliveries run
-              automatically after each backup; use{" "}
+              Mirror every completed backup to a NAS path, an SFTP host, or an
+              SMB share so a lost disk does not take the backups with it.
+              Deliveries run automatically after each backup; use{" "}
               <span className="font-medium">Send</span> in History to push an
               existing archive on demand.
             </p>
@@ -441,7 +458,7 @@ function DestinationsCard({
         ) : destinations.length === 0 ? (
           <EmptyState
             title="No destinations yet"
-            description="Add a mounted NAS path or an SFTP target to store backups off this machine."
+            description="Add a mounted NAS path, an SFTP target, or an SMB share to store backups off this machine."
           />
         ) : (
           <ul className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -454,6 +471,8 @@ function DestinationsCard({
                   <span className="mt-0.5 text-slate-400 dark:text-slate-500">
                     {d.kind === "local" ? (
                       <HardDrive size={16} />
+                    ) : d.kind === "smb" ? (
+                      <Network size={16} />
                     ) : (
                       <Server size={16} />
                     )}
@@ -464,7 +483,7 @@ function DestinationsCard({
                         {d.name}
                       </span>
                       <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                        {d.kind === "local" ? "Path" : "SFTP"}
+                        {KIND_LABEL[d.kind]}
                       </span>
                       {!d.enabled && (
                         <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
@@ -585,29 +604,36 @@ function DestinationModal({
   const [kind, setKind] = React.useState<BackupDestinationKind>("local");
   const [path, setPath] = React.useState("");
   const [host, setHost] = React.useState("");
-  const [port, setPort] = React.useState(22);
+  const [port, setPort] = React.useState(DEFAULT_PORT.sftp);
   const [username, setUsername] = React.useState("");
   const [remoteDir, setRemoteDir] = React.useState("");
   const [authMode, setAuthMode] = React.useState<SftpAuthMode>("password");
   const [password, setPassword] = React.useState("");
   const [privateKey, setPrivateKey] = React.useState("");
   const [passphrase, setPassphrase] = React.useState("");
+  const [share, setShare] = React.useState("");
+  const [domain, setDomain] = React.useState("");
+  const [encrypt, setEncrypt] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
 
   // Re-seed the form whenever the modal opens for a new target.
   React.useEffect(() => {
     if (!open) return;
+    const nextKind = editing?.kind ?? "local";
     setName(editing?.name ?? "");
-    setKind(editing?.kind ?? "local");
+    setKind(nextKind);
     setPath(editing?.path ?? "");
     setHost(editing?.host ?? "");
-    setPort(editing?.port ?? 22);
+    setPort(editing?.port ?? portDefaultFor(nextKind));
     setUsername(editing?.username ?? "");
     setRemoteDir(editing?.remoteDir ?? "");
     setAuthMode(editing?.authMode ?? "password");
     setPassword("");
     setPrivateKey("");
     setPassphrase("");
+    setShare(editing?.share ?? "");
+    setDomain(editing?.domain ?? "");
+    setEncrypt(editing?.encrypt ?? true);
   }, [open, editing]);
 
   const isEdit = editing !== null;
@@ -621,6 +647,15 @@ function DestinationModal({
       const payload: Record<string, unknown> = { name };
       if (kind === "local") {
         payload.path = path;
+      } else if (kind === "smb") {
+        payload.host = host;
+        payload.port = port;
+        payload.share = share;
+        payload.remoteDir = remoteDir;
+        payload.domain = domain;
+        payload.username = username;
+        payload.encrypt = encrypt;
+        if (password) payload.password = password;
       } else {
         payload.host = host;
         payload.port = port;
@@ -678,10 +713,17 @@ function DestinationModal({
             className={FIELD_CLASS}
             value={kind}
             disabled={isEdit}
-            onChange={(e) => setKind(e.target.value as BackupDestinationKind)}
+            onChange={(e) => {
+              const next = e.target.value as BackupDestinationKind;
+              setKind(next);
+              // Carry the operator to the new kind's well-known port rather
+              // than leaving 22 sitting in an SMB form.
+              setPort(portDefaultFor(next));
+            }}
           >
             <option value="local">Mounted path (NAS / remote volume)</option>
             <option value="sftp">SFTP / SSH host</option>
+            <option value="smb">SMB / CIFS share (no mount)</option>
           </select>
           {isEdit && (
             <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
@@ -703,7 +745,8 @@ function DestinationModal({
             />
             <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
               Mount your NAS share (SMB / NFS) on the host or into the container
-              first, then point here. The folder is created if missing.
+              first, then point here. The folder is created if missing. If you
+              can&apos;t mount it, use the SMB type instead.
             </p>
           </div>
         ) : (
@@ -730,92 +773,177 @@ function DestinationModal({
                   max={65535}
                   className={FIELD_CLASS}
                   value={port}
-                  onChange={(e) => setPort(parseInt(e.target.value, 10) || 22)}
-                />
-              </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
-                  Username
-                </label>
-                <input
-                  className={FIELD_CLASS}
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="backup"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
-                  Remote directory
-                </label>
-                <input
-                  className={`${FIELD_CLASS} font-mono`}
-                  value={remoteDir}
-                  onChange={(e) => setRemoteDir(e.target.value)}
-                  placeholder="/volume1/genosyn"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
-                Authentication
-              </label>
-              <select
-                className={FIELD_CLASS}
-                value={authMode}
-                onChange={(e) => setAuthMode(e.target.value as SftpAuthMode)}
-              >
-                <option value="password">Password</option>
-                <option value="key">Private key</option>
-              </select>
-            </div>
-            {authMode === "password" ? (
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
-                  Password
-                </label>
-                <input
-                  type="password"
-                  className={FIELD_CLASS}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder={
-                    editing?.hasPassword ? "•••••• (unchanged)" : ""
+                  onChange={(e) =>
+                    setPort(parseInt(e.target.value, 10) || portDefaultFor(kind))
                   }
-                  autoComplete="new-password"
                 />
               </div>
-            ) : (
+            </div>
+            {kind === "smb" ? (
               <>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
-                    Private key (PEM)
-                  </label>
-                  <textarea
-                    className={`${FIELD_CLASS} h-28 resize-y font-mono text-xs`}
-                    value={privateKey}
-                    onChange={(e) => setPrivateKey(e.target.value)}
-                    placeholder={
-                      editing?.hasPrivateKey
-                        ? "Stored — leave blank to keep the current key"
-                        : "-----BEGIN OPENSSH PRIVATE KEY-----"
-                    }
-                  />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                      Share
+                    </label>
+                    <input
+                      className={`${FIELD_CLASS} font-mono`}
+                      value={share}
+                      onChange={(e) => setShare(e.target.value)}
+                      placeholder="backups"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                      Folder in share (optional)
+                    </label>
+                    <input
+                      className={`${FIELD_CLASS} font-mono`}
+                      value={remoteDir}
+                      onChange={(e) => setRemoteDir(e.target.value)}
+                      placeholder="genosyn"
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                      Username
+                    </label>
+                    <input
+                      className={FIELD_CLASS}
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="backup"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                      Domain / workgroup (optional)
+                    </label>
+                    <input
+                      className={FIELD_CLASS}
+                      value={domain}
+                      onChange={(e) => setDomain(e.target.value)}
+                      placeholder="WORKGROUP"
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
-                    Key passphrase (optional)
+                    Password
                   </label>
                   <input
                     type="password"
                     className={FIELD_CLASS}
-                    value={passphrase}
-                    onChange={(e) => setPassphrase(e.target.value)}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder={editing?.hasPassword ? "•••••• (unchanged)" : ""}
                     autoComplete="new-password"
                   />
                 </div>
+                <label className="flex cursor-pointer items-start gap-2 text-xs text-slate-600 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600"
+                    checked={encrypt}
+                    onChange={(e) => setEncrypt(e.target.checked)}
+                  />
+                  <span>
+                    Encrypt in transit
+                    <span className="mt-0.5 block text-slate-400 dark:text-slate-500">
+                      Uses SMB3 encryption so the archive isn&apos;t readable on
+                      your network. Turn this off only if the NAS predates SMB3.
+                    </span>
+                  </span>
+                </label>
+              </>
+            ) : (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                      Username
+                    </label>
+                    <input
+                      className={FIELD_CLASS}
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="backup"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                      Remote directory
+                    </label>
+                    <input
+                      className={`${FIELD_CLASS} font-mono`}
+                      value={remoteDir}
+                      onChange={(e) => setRemoteDir(e.target.value)}
+                      placeholder="/volume1/genosyn"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                    Authentication
+                  </label>
+                  <select
+                    className={FIELD_CLASS}
+                    value={authMode}
+                    onChange={(e) => setAuthMode(e.target.value as SftpAuthMode)}
+                  >
+                    <option value="password">Password</option>
+                    <option value="key">Private key</option>
+                  </select>
+                </div>
+                {authMode === "password" ? (
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                      Password
+                    </label>
+                    <input
+                      type="password"
+                      className={FIELD_CLASS}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder={
+                        editing?.hasPassword ? "•••••• (unchanged)" : ""
+                      }
+                      autoComplete="new-password"
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                        Private key (PEM)
+                      </label>
+                      <textarea
+                        className={`${FIELD_CLASS} h-28 resize-y font-mono text-xs`}
+                        value={privateKey}
+                        onChange={(e) => setPrivateKey(e.target.value)}
+                        placeholder={
+                          editing?.hasPrivateKey
+                            ? "Stored — leave blank to keep the current key"
+                            : "-----BEGIN OPENSSH PRIVATE KEY-----"
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                        Key passphrase (optional)
+                      </label>
+                      <input
+                        type="password"
+                        className={FIELD_CLASS}
+                        value={passphrase}
+                        onChange={(e) => setPassphrase(e.target.value)}
+                        autoComplete="new-password"
+                      />
+                    </div>
+                  </>
+                )}
               </>
             )}
           </>
