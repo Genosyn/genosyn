@@ -9,8 +9,11 @@ import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { PROVIDERS, isModelConnected } from "../services/providers.js";
 import { clearRoutinePins, effectiveActiveId, setActiveModel } from "../services/models.js";
 import { encryptSecret, maskSecret } from "../lib/secret.js";
-import { previewBaseURL } from "../services/customEndpoint.js";
-import { probeContextWindow } from "../services/agent/contextWindow.js";
+import { previewBaseURL, readCustomEndpoint } from "../services/customEndpoint.js";
+import {
+  canProbeContextWindow,
+  probeContextWindow,
+} from "../services/agent/contextWindow.js";
 import { recordAudit } from "../services/audit.js";
 
 /**
@@ -59,6 +62,10 @@ type PublicModel = {
    * doesn't say (OpenAI) or we couldn't reach it. Null means unknown.
    */
   contextWindow: number | null;
+  /** Whether the window above was probed or typed in. Null when unknown. */
+  contextWindowSource: "probed" | "manual" | null;
+  /** Can we ask this provider for the window at all? Drives the UI's affordances. */
+  contextWindowProbeable: boolean;
 };
 
 type CoEmp = { co: Company; emp: AIEmployee };
@@ -117,6 +124,8 @@ function toPublic(m: AIModel, isActive: boolean): PublicModel {
     customEndpointModelId,
     customEndpointHasApiKey: m.authMode === "customEndpoint" && Boolean(apiKeyEncrypted),
     contextWindow: m.contextWindow ?? null,
+    contextWindowSource: m.contextWindowSource ?? null,
+    contextWindowProbeable: canProbeContextWindow(m),
   };
 }
 
@@ -126,9 +135,14 @@ function toPublic(m: AIModel, isActive: boolean): PublicModel {
  * Called after a credential lands, because that's the first moment we can ask.
  * Best-effort by design: an unreachable endpoint must not block saving a model,
  * so a failed probe just leaves the window unknown and the operator can retry
- * with `POST /:id/refresh`.
+ * with `POST /:id/refresh` — or set the number by hand via
+ * `PUT /:id/context-window`.
  */
 async function refreshContextWindow(m: AIModel): Promise<void> {
+  // A human who typed a number has told us something the probe demonstrably
+  // couldn't work out. Don't relitigate it on every save — only an explicit
+  // clear returns this model to probing.
+  if (m.contextWindowSource === "manual") return;
   const found = await probeContextWindow(m);
   // Null means "couldn't ask", not "has no window" — keep whatever we already
   // knew rather than letting one unreachable moment erase it. Callers that
@@ -136,6 +150,7 @@ async function refreshContextWindow(m: AIModel): Promise<void> {
   // stale by definition at that point.
   if (found === null || found === m.contextWindow) return;
   m.contextWindow = found;
+  m.contextWindowSource = "probed";
   await AppDataSource.getRepository(AIModel).save(m);
 }
 
@@ -361,6 +376,11 @@ modelsRouter.post(
       });
     }
     const { baseURL, modelId, apiKey } = req.body as z.infer<typeof customEndpointSchema>;
+    // Read the old target before we overwrite it: whether this save points the
+    // model somewhere new decides whether the window we knew is still true.
+    const previous = readCustomEndpoint(m);
+    const targetChanged =
+      !previous || previous.baseURL !== baseURL || previous.modelId !== modelId;
     const cfg = safeParseConfig(m.configJson);
     cfg.baseURLEncrypted = encryptSecret(baseURL);
     cfg.baseURLPreview = previewBaseURL(baseURL);
@@ -377,9 +397,14 @@ modelsRouter.post(
     // Mirror the model id onto the row so the in-process client uses it directly.
     m.model = modelId;
     m.connectedAt = new Date();
-    // The endpoint or model id may have changed, so any window we knew is stale.
-    // Drop it, then ask the new endpoint what it serves.
-    m.contextWindow = null;
+    // Only drop the window when this save actually re-points the model. Pointed
+    // at new weights, the old number is stale by definition — but a save that
+    // merely rotates the API key shouldn't silently discard a number an operator
+    // typed in, which is the one case where we can't get it back by asking.
+    if (targetChanged) {
+      m.contextWindow = null;
+      m.contextWindowSource = null;
+    }
     await AppDataSource.getRepository(AIModel).save(m);
     await refreshContextWindow(m);
     await recordAudit({
@@ -422,6 +447,61 @@ modelsRouter.post("/:id/refresh", async (req, res) => {
   if (nowConnected) await refreshContextWindow(m);
   res.json(await publicModel(m, ctx.emp));
 });
+
+// PUT /api/companies/:cid/employees/:eid/models/:id/context-window
+//
+// Set the model's context window by hand, or clear it back to whatever the
+// provider reports. Needed because "unknown" is a normal outcome, not a failure:
+// plain Ollama and OpenAI's own API report no window at all, and until one is
+// known the agent loop has no budget to keep a long run inside — it can only
+// react once the provider has already rejected a turn.
+//
+// The bounds mirror the probe's plausibility check, for the same reason: a wrong
+// number here poisons every run on this model, so reject nonsense at the edge.
+const contextWindowSchema = z.object({
+  contextWindow: z.number().int().min(1_024).max(20_000_000).nullable(),
+});
+
+modelsRouter.put(
+  "/:id/context-window",
+  validateBody(contextWindowSchema),
+  async (req, res) => {
+    const p = req.params as Record<string, string>;
+    const ctx = await loadModelContext(p.cid, p.eid, p.id);
+    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+    const m = ctx.m;
+    const { contextWindow } = req.body as z.infer<typeof contextWindowSchema>;
+
+    if (contextWindow === null) {
+      // Clearing hands the field back to the probe rather than just blanking it,
+      // so an operator who set a number by mistake lands on the real one.
+      m.contextWindow = null;
+      m.contextWindowSource = null;
+      await AppDataSource.getRepository(AIModel).save(m);
+      if (isModelConnected(m)) await refreshContextWindow(m);
+    } else {
+      m.contextWindow = contextWindow;
+      m.contextWindowSource = "manual";
+      await AppDataSource.getRepository(AIModel).save(m);
+    }
+
+    await recordAudit({
+      companyId: ctx.co.id,
+      actorUserId: req.userId ?? null,
+      action: "model.configure",
+      targetType: "employee",
+      targetId: ctx.emp.id,
+      targetLabel: ctx.emp.name,
+      metadata: {
+        provider: m.provider,
+        model: m.model,
+        contextWindow: m.contextWindow,
+        contextWindowSource: m.contextWindowSource,
+      },
+    });
+    res.json(await publicModel(m, ctx.emp));
+  },
+);
 
 // DELETE /api/companies/:cid/employees/:eid/models/:id — remove one model
 modelsRouter.delete("/:id", async (req, res) => {

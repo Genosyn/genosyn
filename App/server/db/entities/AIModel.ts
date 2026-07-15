@@ -8,6 +8,8 @@ import {
 
 export type Provider = "anthropic" | "openai" | "custom";
 export type AuthMode = "apikey" | "customEndpoint";
+/** Where `AIModel.contextWindow` came from. Null alongside a null window. */
+export type ContextWindowSource = "probed" | "manual";
 
 /**
  * An AIModel is one of the brains an AI Employee can run on. An employee can
@@ -67,16 +69,34 @@ export class AIModel {
   connectedAt!: Date | null;
 
   /**
-   * The model's context window in tokens, as reported by the provider when the
-   * credential was saved (see services/agent/contextWindow.ts).
+   * The model's context window in tokens — either as reported by the provider
+   * when the credential was saved, or as set by hand by an operator (see
+   * services/agent/contextWindow.ts and `contextWindowSource` below).
    *
    * Null means "we don't know" — the provider doesn't report one, or the probe
    * couldn't reach it. Callers must treat null as unknown rather than assuming
    * a default: guessing high fails the run, guessing low truncates work that
    * would have fit.
+   *
+   * The agent loop budgets against this to decide when to drop older tool
+   * results (services/agent/contextBudget.ts). With it null there is no budget,
+   * and an over-long prompt is only caught after the provider rejects a turn.
    */
   @Column({ type: "integer", nullable: true })
   contextWindow!: number | null;
+
+  /**
+   * Whether `contextWindow` was probed from the provider or typed in by a human.
+   *
+   * This exists so the two can't fight: plenty of servers report no window at
+   * all (plain Ollama, OpenAI's own API), so an operator who has typed the right
+   * number must not have it erased by the next best-effort probe that comes back
+   * empty. `"manual"` wins until the operator clears it.
+   *
+   * Null exactly when `contextWindow` is null.
+   */
+  @Column({ type: "varchar", nullable: true })
+  contextWindowSource!: ContextWindowSource | null;
 
   @CreateDateColumn()
   createdAt!: Date;

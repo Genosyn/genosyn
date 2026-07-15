@@ -206,7 +206,74 @@ llama-server \\
           Click <Code>Continue</Code>. That&apos;s it — the next chat or
           routine run hits your endpoint.
         </LI>
+        <LI>
+          <Strong>Check the context window</Strong> on the model card. Genosyn
+          asks your server for it on save; if it reads <Strong>Unknown</Strong>,
+          set it by hand — see below.
+        </LI>
       </OL>
+
+      <H3 id="context-window">Tell Genosyn your context window</H3>
+      <P>
+        A run budgets its history against the model&apos;s window, dropping the
+        oldest tool results when the next prompt wouldn&apos;t fit. It can only
+        do that if it knows the number, and self-hosted servers disagree about
+        whether to publish one on <Code>/v1/models</Code>:
+      </P>
+      <KeyList
+        rows={[
+          {
+            term: "vLLM",
+            def: (
+              <>
+                Reports <Code>max_model_len</Code> — whatever you passed to{" "}
+                <Code>--max-model-len</Code>. Detected automatically.
+              </>
+            ),
+          },
+          {
+            term: "LM Studio",
+            def: (
+              <>
+                Reports <Code>max_context_length</Code>. Detected automatically.
+              </>
+            ),
+          },
+          {
+            term: "llama.cpp",
+            def: (
+              <>
+                Reports <Code>n_ctx</Code> — what you passed to <Code>-c</Code>.
+                Detected automatically.
+              </>
+            ),
+          },
+          {
+            term: "Ollama",
+            def: (
+              <>
+                Reports nothing. Set it by hand: it defaults to a{" "}
+                <Code>num_ctx</Code> of 4096 unless your Modelfile or{" "}
+                <Code>OLLAMA_CONTEXT_LENGTH</Code> says otherwise — far smaller
+                than the weights allow, and a common surprise.
+              </>
+            ),
+          },
+        ]}
+      />
+      <P>
+        Use <Strong>Set manually</Strong> on the model card for anything not
+        detected. A number you type always wins over the probe, so it survives
+        key rotations and re-saves; <Strong>Clear</Strong> hands the field back.
+      </P>
+      <Callout kind="warn" title="Small windows fill up fast.">
+        The system prompt carries the Soul, every Skill, and the whole tool
+        catalog on <em>every</em> turn — easily 30k tokens on a well-equipped
+        employee. On a 64k model that&apos;s half the window gone before the
+        first tool runs. If routines keep compacting away work you wanted kept,
+        trim the employee&apos;s Skills or serve the model at a longer{" "}
+        <Code>--max-model-len</Code> before reaching for a bigger box.
+      </Callout>
 
       <Callout kind="tip" title="Credentials never touch disk.">
         The base URL, model id, and any API key you enter are stored
@@ -306,6 +373,22 @@ llama-server \\
           tool catalog at each turn; that&apos;s often 8k–16k tokens before
           the first user message. Run models with at least 32k context for
           serious work.
+        </LI>
+        <LI>
+          <Strong>
+            &quot;This model&apos;s maximum context length is N tokens.&quot;
+          </Strong>{" "}
+          The prompt outgrew the window. Genosyn drops old tool results and
+          retries once, so this shouldn&apos;t fail a run — but seeing{" "}
+          <Code>[compact]</Code> with reason <Code>overflow</Code> in the log
+          means it was caught late. Set the model&apos;s context window on its
+          card and the next run budgets ahead instead of reacting.
+        </LI>
+        <LI>
+          <Strong>Employee forgets what a tool told it earlier.</Strong> Look
+          for <Code>[compact]</Code> in the run log: history was dropped to fit
+          the window. Give the model a longer context, or trim the Skills and
+          tools that ride along on every turn.
         </LI>
         <LI>
           <Strong>Slow.</Strong> Quantize down (q8 → q5), enable batching

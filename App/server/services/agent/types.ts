@@ -77,6 +77,22 @@ export type StreamCallbacks = {
   onToolResult?: (name: string, result: ToolResult) => void;
   /** Fired once per turn with what the provider says the turn cost. */
   onUsage?: (usage: TurnUsage) => void;
+  /**
+   * Fired when the loop dropped older tool results to keep the prompt inside
+   * the model's context window. Worth surfacing: it's the difference between a
+   * run that quietly forgot something and a run that behaves inexplicably.
+   */
+  onCompact?: (info: CompactionInfo) => void;
+};
+
+/** What one round of compaction did, and what forced it. */
+export type CompactionInfo = {
+  /** How many tool results were emptied. */
+  evicted: number;
+  /** Roughly how many tokens that freed (our estimate, not the provider's). */
+  freedTokens: number;
+  /** "budget" = we saw it coming. "overflow" = the provider rejected the turn. */
+  reason: "budget" | "overflow";
 };
 
 /**

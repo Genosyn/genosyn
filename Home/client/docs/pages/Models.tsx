@@ -89,6 +89,40 @@ export function Models() {
         the encrypted row, so access dies with it.
       </Callout>
 
+      <H2 id="context-window">Context window</H2>
+      <P>
+        Every turn sends the employee&apos;s Soul, their Skills, and the whole
+        tool catalog, and each tool call adds its result on top. A long routine
+        therefore grows until it reaches whatever the model will accept — so
+        Genosyn needs to know how much room there is. When a model connects, it
+        asks the provider and shows the answer on the model card.
+      </P>
+      <P>
+        Once it knows, a run <Strong>budgets</Strong> against it: when the next
+        prompt wouldn&apos;t fit, the oldest tool results are dropped to a stub
+        so recent work and the routine&apos;s instruction survive. The run log
+        says <Code>[compact]</Code> whenever that happens, so a forgetful-looking
+        employee is always explained by its transcript.
+      </P>
+      <P>
+        Not every server reports a window. vLLM, LM Studio, and llama.cpp
+        publish one; plain Ollama and OpenAI&apos;s own API don&apos;t. When the
+        card reads <Strong>Unknown</Strong>, use{" "}
+        <Strong>Ask the provider</Strong> to retry, or <Strong>Set manually</Strong>{" "}
+        and type the number in — whatever the server was launched with, such as
+        vLLM&apos;s <Code>--max-model-len</Code> or llama.cpp&apos;s{" "}
+        <Code>-c</Code>. A number you set by hand always wins over the probe, and{" "}
+        <Strong>Clear</Strong> hands the field back to it.
+      </P>
+      <Callout kind="warn" title="Unknown is worth fixing.">
+        With no window there is nothing to budget against, so a run can only
+        discover it has overrun when the provider rejects a turn. Genosyn
+        recovers — it drops history and retries once rather than failing the run
+        — but it wastes a round-trip and loses more history than it needed to.
+        Small self-hosted models feel this first: a 64k window can be half spent
+        on the system prompt before any work begins.
+      </Callout>
+
       <H2 id="built-in-tools">Built-in agent tools</H2>
       <P>
         The runner and chat both run an in-process agent loop that hands the

@@ -70,6 +70,9 @@ export async function runEmployeeAgent(
       messages: params.messages,
       tools: gathered.tools,
       maxSteps: params.maxSteps,
+      // Read off the model row rather than taking it as a param: it's the only
+      // source, and every seam that can run an agent already holds the row.
+      contextWindow: params.model.contextWindow,
       signal: params.signal,
       callbacks: params.callbacks,
     });

@@ -17,7 +17,7 @@ import {
   materializeCodeReposForEmployee,
 } from "./codeRepos.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
-import type { TurnUsage } from "./agent/types.js";
+import type { CompactionInfo, TurnUsage } from "./agent/types.js";
 
 /**
  * Run seam.
@@ -225,6 +225,7 @@ export async function startRoutineRun(
             onToolResult: (name, r) =>
               log.line(`[tool:${name}] ${r.isError ? "error" : "ok"}`),
             onUsage: (u) => log.line(usageLine(u, model.contextWindow)),
+            onCompact: (c) => log.line(compactLine(c)),
           },
         });
       } finally {
@@ -282,7 +283,11 @@ function previewArgs(input: Record<string, unknown>): string {
   }
 }
 
-/** Warn once the prompt is using this share of the window. */
+/**
+ * Warn once the prompt is using this share of the window — just under the point
+ * where the loop starts compacting, so the transcript shows the squeeze building
+ * before it shows history being dropped.
+ */
 const CONTEXT_WARN_PCT = 80;
 
 /**
@@ -296,13 +301,33 @@ const CONTEXT_WARN_PCT = 80;
  */
 function usageLine(u: TurnUsage, contextWindow: number | null): string {
   const base = `[tokens] in=${u.inputTokens} out=${u.outputTokens}`;
-  // Say "unknown" rather than implying a ceiling we were never told.
-  if (!contextWindow) return `${base} (context window unknown)`;
+  // Say "unknown" rather than implying a ceiling we were never told. This is
+  // also a nudge: with no window there's no budget, so the loop can only react
+  // to an overflow after the fact instead of preventing one.
+  if (!contextWindow) {
+    return `${base} (context window unknown — set it on the model to let this run budget its context)`;
+  }
   const pct = Math.round((u.inputTokens / contextWindow) * 100);
   const line = `${base} — ${pct}% of ${contextWindow}`;
   return pct >= CONTEXT_WARN_PCT
-    ? `${line}\n[warn] Prompt is using ${pct}% of this model's context window. The next tool result may not fit.`
+    ? `${line}\n[warn] Prompt is using ${pct}% of this model's context window. Older tool results will be dropped to make room.`
     : line;
+}
+
+/**
+ * Say so in the transcript when the loop dropped history to stay inside the
+ * window. Without this line an operator reading the log sees an employee that
+ * inexplicably forgot what a tool told it ten steps ago.
+ *
+ * "overflow" is the louder case: the provider had already rejected a turn and we
+ * recovered. That means the pre-flight budget missed — usually because the
+ * model's context window is unknown, so there was nothing to budget against.
+ */
+function compactLine(c: CompactionInfo): string {
+  const what = `dropped ${c.evicted} older tool result${c.evicted === 1 ? "" : "s"} (~${c.freedTokens} tokens) to fit the context window`;
+  return c.reason === "budget"
+    ? `[compact] ${what}`
+    : `[compact] The model rejected the prompt as too long — ${what} and retried.`;
 }
 
 /**

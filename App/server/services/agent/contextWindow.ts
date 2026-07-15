@@ -18,6 +18,12 @@ import { normalizeBaseURL } from "./modelClients/index.js";
  * Every failure path returns null ("unknown") rather than throwing or guessing.
  * A wrong number is worse than no number: too high fails the run anyway, too low
  * truncates work that would have fit. Callers must handle null.
+ *
+ * Not every server reports one (plain Ollama doesn't, and OpenAI's own API
+ * doesn't), so "unknown" is a normal outcome rather than an error — which is why
+ * an operator can set the number by hand instead. A manually-set window is
+ * recorded as `AIModel.contextWindowSource = "manual"` and this probe never
+ * overwrites it; see `routes/models.ts`.
  */
 
 /** A probe is a nicety on a save path — never let it hang the request. */
@@ -40,10 +46,41 @@ export async function probeContextWindow(model: AIModel): Promise<number | null>
 }
 
 /**
- * vLLM publishes `max_model_len` on each model card of its OpenAI-compatible
- * `/v1/models`. It is not part of the OpenAI spec, so the SDK doesn't type it
- * and other servers (Ollama, LM Studio, llama.cpp) may omit it or name it
- * something else — in which case we report unknown rather than guess.
+ * Is there any point asking this provider for a window?
+ *
+ * Mirrors the dispatch in {@link probeContextWindow} — kept here beside it so
+ * the two can't drift. The UI reads this to decide whether "unknown" is a
+ * transient state worth offering a retry for, or simply how this provider is:
+ * there's no sense showing a Refresh button that is guaranteed to find nothing.
+ */
+export function canProbeContextWindow(model: AIModel): boolean {
+  return model.authMode === "customEndpoint" || model.provider === "anthropic";
+}
+
+/**
+ * Where each OpenAI-compatible server hides the context length on its
+ * `/v1/models` card. None of this is in the OpenAI spec — the spec's card is
+ * just id/object/created/owned_by — so every server that reports one invented
+ * its own field, and the SDK types none of them.
+ *
+ * Ordered by how specific the name is: `max_model_len` is what the server was
+ * actually launched with (vLLM's `--max-model-len`), whereas `n_ctx_train` is
+ * what the weights were trained at, which is only a fallback because a server
+ * can be serving them at less.
+ */
+const WINDOW_FIELDS = [
+  "max_model_len", // vLLM
+  "max_context_length", // LM Studio
+  "context_length", // some gateways (OpenRouter-style cards)
+  "n_ctx", // llama.cpp server
+  "n_ctx_train", // llama.cpp, trained-at length
+] as const;
+
+/**
+ * Read the window off the model's card, checking every field name we know.
+ *
+ * Servers that report nothing (plain Ollama) leave us at unknown, which is the
+ * honest answer — an operator can set the number by hand instead.
  */
 async function probeOpenAICompatible(model: AIModel): Promise<number | null> {
   const cfg = readCustomEndpoint(model);
@@ -57,7 +94,22 @@ async function probeOpenAICompatible(model: AIModel): Promise<number | null> {
   const list = await client.models.list();
   for (const entry of list.data) {
     if (entry.id !== cfg.modelId) continue;
-    return plausible(readNumber(entry, "max_model_len"));
+    return readWindow(entry);
+  }
+  return null;
+}
+
+/** Try each known field on the card, then inside a `meta` sub-object (llama.cpp). */
+function readWindow(entry: unknown): number | null {
+  for (const field of WINDOW_FIELDS) {
+    const v = plausible(readNumber(entry, field));
+    if (v !== null) return v;
+  }
+  const meta = readObject(entry, "meta");
+  if (!meta) return null;
+  for (const field of WINDOW_FIELDS) {
+    const v = plausible(readNumber(meta, field));
+    if (v !== null) return v;
   }
   return null;
 }
@@ -86,7 +138,18 @@ function readApiKey(model: AIModel): string | null {
 function readNumber(source: unknown, key: string): number | null {
   if (!source || typeof source !== "object") return null;
   const v = (source as Record<string, unknown>)[key];
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  // Some servers stringify their numbers. Accept a clean integer string, but
+  // don't get clever — anything else is a shape we don't understand.
+  if (typeof v === "string" && /^\d+$/.test(v.trim())) return Number(v.trim());
+  return null;
+}
+
+/** Pull a nested object off a provider payload (llama.cpp nests under `meta`). */
+function readObject(source: unknown, key: string): Record<string, unknown> | null {
+  if (!source || typeof source !== "object") return null;
+  const v = (source as Record<string, unknown>)[key];
+  return v && typeof v === "object" ? (v as Record<string, unknown>) : null;
 }
 
 function plausible(n: number | null): number | null {

@@ -1319,6 +1319,15 @@ function ModelCard({
           />
         )}
 
+        {connected && (
+          <ContextWindowPanel
+            company={company}
+            emp={emp}
+            model={model}
+            onChanged={onChanged}
+          />
+        )}
+
         <details className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700">
           <summary className="cursor-pointer text-xs text-slate-600 dark:text-slate-300">
             Change provider, model, or endpoint
@@ -1337,6 +1346,166 @@ function ModelCard({
         </details>
       </CardBody>
     </Card>
+  );
+}
+
+/**
+ * The model's context window, and the affordances to fix it when we don't know.
+ *
+ * This sits on the card rather than inside the advanced `<details>` because the
+ * number is load-bearing, not trivia: a run budgets against it to decide when to
+ * drop older tool results, so while it is unknown a long routine can only
+ * discover it has overrun once the provider rejects a turn.
+ *
+ * Plenty of servers genuinely don't report one — plain Ollama, OpenAI's own API
+ * — so "unknown" is a normal resting state, not an error to shout about. We
+ * offer a retry only when there's someone to ask, and otherwise let the operator
+ * type the number in.
+ */
+function ContextWindowPanel({
+  company,
+  emp,
+  model,
+  onChanged,
+}: {
+  company: Company;
+  emp: Employee;
+  model: AIModel;
+  onChanged: () => void;
+}) {
+  const { toast } = useToast();
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState(String(model.contextWindow ?? ""));
+  const [busy, setBusy] = React.useState(false);
+  const base = `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}`;
+
+  async function probe() {
+    setBusy(true);
+    try {
+      const updated = await api.post<AIModel>(`${base}/refresh`);
+      toast(
+        updated.contextWindow
+          ? `Context window: ${updated.contextWindow.toLocaleString()} tokens`
+          : "The endpoint still doesn't report a context window — set it by hand below.",
+        updated.contextWindow ? "success" : "error",
+      );
+      onChanged();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function save(next: number | null) {
+    setBusy(true);
+    try {
+      await api.put(`${base}/context-window`, { contextWindow: next });
+      toast(next ? "Context window saved" : "Context window cleared", "success");
+      setEditing(false);
+      onChanged();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const parsed = Number(draft.trim());
+  const draftValid = /^\d+$/.test(draft.trim()) && parsed >= 1024 && parsed <= 20_000_000;
+
+  return (
+    <div className="rounded-lg border border-slate-200 px-3 py-2.5 dark:border-slate-700">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-xs font-medium text-slate-700 dark:text-slate-200">
+            Context window
+          </div>
+          <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+            {model.contextWindow ? (
+              <>
+                <span className="tabular-nums text-slate-700 dark:text-slate-200">
+                  {model.contextWindow.toLocaleString()}
+                </span>{" "}
+                tokens ·{" "}
+                {model.contextWindowSource === "manual"
+                  ? "set by hand"
+                  : "reported by the provider"}
+              </>
+            ) : (
+              <>
+                Unknown — runs on this model {"can't"} budget their context, and will
+                only notice an over-long prompt once the provider rejects it.
+              </>
+            )}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {model.contextWindowProbeable && (
+            <Button size="sm" variant="ghost" onClick={probe} disabled={busy}>
+              {busy ? <Loader2 size={14} className="animate-spin" /> : <Plug size={14} />}
+              Ask the provider
+            </Button>
+          )}
+          {!editing && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setDraft(String(model.contextWindow ?? ""));
+                setEditing(true);
+              }}
+              disabled={busy}
+            >
+              <Edit3 size={14} /> Set manually
+            </Button>
+          )}
+          {model.contextWindowSource === "manual" && !editing && (
+            <Button size="sm" variant="ghost" onClick={() => save(null)} disabled={busy}>
+              <X size={14} /> Clear
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {editing && (
+        <form
+          className="mt-3 flex flex-wrap items-end gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (draftValid) save(parsed);
+          }}
+        >
+          <div className="w-44">
+            <Input
+              label="Tokens"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="65536"
+              inputMode="numeric"
+              autoFocus
+            />
+          </div>
+          <Button type="submit" size="sm" disabled={busy || !draftValid}>
+            {busy ? "Saving…" : "Save"}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => setEditing(false)}
+            disabled={busy}
+          >
+            Cancel
+          </Button>
+          <p className="w-full text-xs text-slate-500 dark:text-slate-400">
+            Whatever the server was launched with — vLLM{"'"}s <code>--max-model-len</code>,
+            llama.cpp{"'"}s <code>-c</code>, or the model{"'"}s documented limit. A number
+            set here wins over anything the provider reports.
+          </p>
+        </form>
+      )}
+    </div>
   );
 }
 
