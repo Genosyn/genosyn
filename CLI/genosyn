@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-CLI_VERSION="0.2.0"
+CLI_VERSION="0.2.1"
 
 PORT="${GENOSYN_PORT:-8471}"
 NAME="${GENOSYN_NAME:-genosyn}"
@@ -50,6 +50,26 @@ human_size() {
     i=1; while (b >= 1024 && i < 5) { b /= 1024; i++ }
     if (i == 1) printf "%dB", b; else printf "%.1f%s", b, u[i]
   }'
+}
+
+# Reduce an image reference to its bare repository: no tag, no digest.
+#
+#   ghcr.io/genosyn/app:latest        -> ghcr.io/genosyn/app
+#   localhost:5000/app                -> localhost:5000/app
+#   ghcr.io/genosyn/app@sha256:abc…   -> ghcr.io/genosyn/app
+#
+# Naively stripping at the last colon is wrong twice over: a registry can carry
+# a port, so `localhost:5000/app` would reduce to `localhost`, and a digest ref
+# would reduce to `…/app@sha256`. Only a colon in the *final path segment* is a
+# tag separator, and the digest has to come off first. `prune` compares
+# repositories with this, so a bad reduction there selects unrelated images for
+# deletion.
+image_repo() {
+  local ref="${1%%@*}"
+  case "${ref##*/}" in
+    *:*) ref="${ref%:*}" ;;
+  esac
+  printf '%s' "${ref}"
 }
 
 # Read the org.opencontainers.image.version label off a Docker image. Empty
@@ -588,17 +608,25 @@ cmd_prune() {
   local current
   current="$(docker image inspect --format '{{.Id}}' "${IMAGE}" 2>/dev/null || true)"
 
-  local repo="${IMAGE%:*}"
+  local repo
+  repo="$(image_repo "${IMAGE}")"
 
   local victims=()
-  local id refs
+  local id refs ref
   while IFS= read -r id; do
     [ -n "${id}" ] || continue
     [ "${id}" = "${current}" ] && continue
     refs="$(docker image inspect --format '{{range .RepoDigests}}{{.}} {{end}}{{range .RepoTags}}{{.}} {{end}}' "${id}" 2>/dev/null || true)"
-    case "${refs}" in
-      *"${repo}@"*|*"${repo}:"*) victims+=("${id}") ;;
-    esac
+    # Reduce each ref to its repository and compare exactly. This used to be a
+    # substring glob against the whole ref list, which matched any repository
+    # that merely *contained* ours -- `localhost` matching `localhost:5000/…`
+    # being the case that could delete a bystander's images.
+    for ref in ${refs}; do
+      if [ "$(image_repo "${ref}")" = "${repo}" ]; then
+        victims+=("${id}")
+        break
+      fi
+    done
   done < <(docker images --no-trunc --format '{{.ID}}' | sort -u)
 
   if [ "${#victims[@]}" -eq 0 ]; then
@@ -875,7 +903,7 @@ cmd_reset_password() {
   const who = user.name ? email + " (" + user.name + ")" : email;
   console.log("Password reset for " + who + ".");
   if (generated) console.log("New password: " + password);
-  console.log("Have them sign in and change it from Profile Settings.");
+  console.log("Have them sign in and change it from Account → Profile.");
 })().catch((e) => {
   console.error(e && e.message ? e.message : String(e));
   process.exit(1);
@@ -1406,4 +1434,10 @@ main() {
   esac
 }
 
-main "$@"
+# Run unless we're being sourced -- test-genosyn.sh sources this file to
+# exercise the pure helpers without docker. BASH_SOURCE is unset when the
+# script is fed to bash on stdin, where we're definitely not sourced, so it
+# defaults to $0 and main still runs.
+if [ "${BASH_SOURCE[0]:-${0}}" = "${0}" ]; then
+  main "$@"
+fi
