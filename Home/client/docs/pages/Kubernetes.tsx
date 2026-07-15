@@ -256,11 +256,13 @@ spec:
         The <Code>genosyn upgrade</Code> CLI command drives Docker on a single
         host — it has no idea about your cluster. Roll the Deployment instead:
       </P>
-      <Pre lang="bash">{`kubectl -n genosyn set image deploy/genosyn app=ghcr.io/genosyn/app:v0.3.47
+      <Pre lang="bash">{`kubectl -n genosyn set image deploy/genosyn app=ghcr.io/genosyn/app:0.3.47
 kubectl -n genosyn rollout status deploy/genosyn`}</Pre>
       <P>
         Pin a tag rather than tracking <Code>latest</Code> — that&apos;s how
-        you get repeatable rollbacks.
+        you get repeatable rollbacks. Image tags carry no <Code>v</Code>{" "}
+        prefix, even though the matching GitHub release does: the release is{" "}
+        <Code>v0.3.47</Code>, the image is <Code>app:0.3.47</Code>.
       </P>
 
       <H2 id="backups">Backups</H2>

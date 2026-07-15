@@ -23,7 +23,7 @@ The release workflow then:
    one).
 3. Dispatches [`docker.yml`](.github/workflows/docker.yml) against the new
    tag so semver-tagged images land on GHCR
-   (`ghcr.io/genosyn/genosyn-app:v0.3.3` etc.).
+   (`ghcr.io/genosyn/app:0.3.3` etc. — see [Images and tags](#images-and-tags)).
 
 ## Versioning
 
@@ -90,21 +90,44 @@ The release workflow output should report:
 - A new release at `https://github.com/Genosyn/genosyn/releases/tag/v0.3.3`.
 - A dispatch line for `docker.yml --ref v0.3.3`.
 
-The docker workflow then publishes:
-- `ghcr.io/genosyn/genosyn-app:v0.3.3`
-- `ghcr.io/genosyn/genosyn-home:v0.3.3`
-
-(plus `:0.3.3`, `:0.3`, `:latest` aliases per `docker.yml`).
+The docker workflow then publishes the images described in
+[Images and tags](#images-and-tags) below.
 
 ### 5. Verify
 
 ```bash
 gh release view v0.3.3
-docker pull ghcr.io/genosyn/genosyn-app:v0.3.3
+docker pull ghcr.io/genosyn/app:0.3.3      # note: no "v" on image tags
 ```
 
 If anything looks off, the release row on GitHub can be edited in place;
 the GHCR images are immutable but you can publish a `v0.3.4` over the top.
+
+## Images and tags
+
+Two images, named after the repo folder — **not** `genosyn-app` / `genosyn-home`:
+
+- `ghcr.io/genosyn/app` (from [`App/Dockerfile`](App/Dockerfile))
+- `ghcr.io/genosyn/home` (from [`Home/Dockerfile`](Home/Dockerfile))
+
+**Image tags carry no `v` prefix.** Only the git tag and the GitHub release do.
+Releasing `VERSION=0.3.3` gives you git tag `v0.3.3` but image tag `0.3.3`.
+Mixing these up is the easiest way to chase a phantom "NOT FOUND".
+
+What each trigger pushes, per the `metadata-action` config in
+[`docker.yml`](.github/workflows/docker.yml) (that config is the source of
+truth — if you change it, update this table):
+
+| Trigger | Tags pushed |
+| --- | --- |
+| push to `main` | `main`, `latest`, `sha-<short>` |
+| tag `v0.3.3` (dispatched by `release.yml`) | `0.3.3`, `0.3`, `latest`, `sha-<short>` |
+| pull request | none — images build but never push |
+
+> **`latest` does not mean "latest release".** Both triggers push it, so
+> whichever ran most recently wins — merge anything to `main` after a release
+> and `latest` is dev code again. Pin a semver tag (`app:0.3.3`) for anything
+> you care about, and don't point users at `latest` expecting the release.
 
 ## Recovery
 
@@ -144,6 +167,7 @@ rewind.
   reads `VERSION` and creates the GitHub release.
 - [`.github/workflows/docker.yml`](.github/workflows/docker.yml) —
   builds and publishes GHCR images for `main` (dev tag) and `v*.*.*` tags
-  (semver tags).
+  (semver tags). Its `metadata-action` config decides the tag list — see
+  [Images and tags](#images-and-tags).
 - [`App/Dockerfile`](App/Dockerfile) /
   [`Home/Dockerfile`](Home/Dockerfile) — what gets built.
