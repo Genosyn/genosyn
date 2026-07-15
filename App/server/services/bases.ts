@@ -309,9 +309,15 @@ export function hydrateRecord(r: BaseRecord): HydratedRecord {
  * Build the {id→primary label} map for the tables referenced by link fields
  * on a given set of fields. Used so a link cell in the UI can render the
  * target's primary text without a second request.
+ *
+ * `maxPerTable` caps how many options are returned per target table. The UI
+ * leaves it unset and gets every option (it needs the full picker); the agent
+ * tools set it, because a link field would otherwise pull an entire target
+ * table into the model's context no matter how few rows were asked for.
  */
 export async function buildLinkOptionsFor(
   fields: BaseField[],
+  opts?: { maxPerTable?: number },
 ): Promise<Record<string, LinkOption[]>> {
   const targetIds = new Set<string>();
   for (const f of fields) {
@@ -341,7 +347,9 @@ export async function buildLinkOptionsFor(
   const byTable: Record<string, LinkOption[]> = {};
   for (const tid of tableIds) byTable[tid] = [];
 
+  const maxPerTable = opts?.maxPerTable ?? Infinity;
   for (const r of records) {
+    if (byTable[r.tableId].length >= maxPerTable) continue;
     const primary = primaryByTable.get(r.tableId);
     let label = "(untitled)";
     if (primary) {

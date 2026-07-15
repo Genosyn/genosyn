@@ -560,13 +560,24 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_base_rows",
     description:
-      "Read rows from a table inside a Base. Returns fields, records, and link-option labels so you can reason about the data. Defaults to 100 rows; pass `limit` up to 500.",
+      "Read rows from a table inside a Base. Returns fields, records, link-option labels, and a `pagination` object with the table's `total` row count so you can tell a short page from the end of the table. Rows sort by the table's manual order, which new rows are appended to — so the newest row is last in `asc` (the default) and first in `desc`. To read the most recent row, pass `{limit: 1, order: \"desc\"}` rather than fetching everything and scanning for it. Defaults to 100 rows; pass `limit` up to 500 and `offset` to page. Link options are capped at 200 per target table — call `list_base_rows` on that table directly if you need more.",
     inputSchema: {
       type: "object",
       properties: {
         baseSlug: { type: "string" },
         tableSlug: { type: "string" },
         limit: { type: "integer", minimum: 1, maximum: 500 },
+        offset: {
+          type: "integer",
+          minimum: 0,
+          description: "Rows to skip before reading. Defaults to 0.",
+        },
+        order: {
+          type: "string",
+          enum: ["asc", "desc"],
+          description:
+            "Sort direction over the table's manual row order. Defaults to `asc` (oldest first). Use `desc` for newest first.",
+        },
       },
       required: ["baseSlug", "tableSlug"],
       additionalProperties: false,

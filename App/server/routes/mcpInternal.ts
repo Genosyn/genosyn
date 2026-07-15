@@ -1207,8 +1207,17 @@ const listRowsSchema = z
     baseSlug: z.string().min(1).max(120),
     tableSlug: z.string().min(1).max(120),
     limit: z.number().int().min(1).max(500).optional(),
+    offset: z.number().int().min(0).optional(),
+    order: z.enum(["asc", "desc"]).optional(),
   })
   .strict();
+
+/**
+ * How many link options per target table the agent tools return. A link field
+ * otherwise drags its whole target table into the model's context on every
+ * read, however few rows were asked for.
+ */
+const MCP_LINK_OPTIONS_PER_TABLE = 200;
 
 mcpInternalRouter.post(
   "/tools/list_base_rows",
@@ -1222,22 +1231,38 @@ mcpInternalRouter.post(
       slug: body.tableSlug,
     });
     if (!t) return res.status(404).json({ error: "Table not found" });
-    const [fields, records] = await Promise.all([
+    // Rows carry a manual sort order that create_base_row appends to, so the
+    // newest row sorts last. Reading "desc" is how a caller gets the latest
+    // rows without paging through the whole table to reach the end.
+    const dir = body.order === "desc" ? "DESC" : "ASC";
+    const [fields, records, total] = await Promise.all([
       AppDataSource.getRepository(BaseField).find({
         where: { tableId: t.id },
         order: { sortOrder: "ASC", createdAt: "ASC" },
       }),
       AppDataSource.getRepository(BaseRecord).find({
         where: { tableId: t.id },
-        order: { sortOrder: "ASC", createdAt: "ASC" },
+        order: { sortOrder: dir, createdAt: dir },
+        skip: body.offset ?? 0,
         take: body.limit ?? 100,
       }),
+      AppDataSource.getRepository(BaseRecord).count({ where: { tableId: t.id } }),
     ]);
-    const linkOptions = await buildLinkOptionsFor(fields);
+    const linkOptions = await buildLinkOptionsFor(fields, {
+      maxPerTable: MCP_LINK_OPTIONS_PER_TABLE,
+    });
     res.json({
       table: { id: t.id, slug: t.slug, name: t.name },
       fields: fields.map(hydrateField),
       records: records.map(hydrateRecord),
+      // So the caller can tell a short page from the end of the table without
+      // fetching everything to find out.
+      pagination: {
+        total,
+        offset: body.offset ?? 0,
+        limit: body.limit ?? 100,
+        order: body.order ?? "asc",
+      },
       linkOptions,
     });
   },
@@ -1446,7 +1471,9 @@ mcpInternalRouter.post(
       where: { tableId: found.table.id },
       order: { sortOrder: "ASC", createdAt: "ASC" },
     });
-    const linkOptions = await buildLinkOptionsFor(fields);
+    const linkOptions = await buildLinkOptionsFor(fields, {
+      maxPerTable: MCP_LINK_OPTIONS_PER_TABLE,
+    });
     const [comments, attachments] = await Promise.all([
       AppDataSource.getRepository(BaseRecordComment).find({
         where: { recordId: found.record.id },
