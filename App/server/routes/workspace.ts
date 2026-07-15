@@ -121,8 +121,7 @@ workspaceRouter.post(
   validateBody(createChannelSchema),
   async (req, res) => {
     const co = companyOf(req as unknown as { company?: Company });
-    const body = (req as unknown as { validated: z.infer<typeof createChannelSchema> })
-      .validated;
+    const body = req.body as z.infer<typeof createChannelSchema>;
     try {
       const channel = await createChannel({
         companyId: co.id,
@@ -158,8 +157,7 @@ workspaceRouter.patch(
       companyId: co.id,
     });
     if (!ok) return res.status(404).json({ error: "Channel not found" });
-    const body = (req as unknown as { validated: z.infer<typeof renameChannelSchema> })
-      .validated;
+    const body = req.body as z.infer<typeof renameChannelSchema>;
     try {
       await renameChannel({
         channelId: req.params.channelId,
@@ -203,8 +201,7 @@ workspaceRouter.post(
       companyId: co.id,
     });
     if (!ok) return res.status(404).json({ error: "Channel not found" });
-    const body = (req as unknown as { validated: z.infer<typeof addMembersSchema> })
-      .validated;
+    const body = req.body as z.infer<typeof addMembersSchema>;
     await addChannelMembers({
       channelId: req.params.channelId,
       userIds: body.userIds,
@@ -256,8 +253,7 @@ workspaceRouter.post(
   validateBody(openDMSchema),
   async (req, res) => {
     const co = companyOf(req as unknown as { company?: Company });
-    const body = (req as unknown as { validated: z.infer<typeof openDMSchema> })
-      .validated;
+    const body = req.body as z.infer<typeof openDMSchema>;
     if (!body.targetUserId && !body.targetEmployeeId) {
       return res.status(400).json({ error: "Must specify a target" });
     }
@@ -310,8 +306,7 @@ workspaceRouter.post(
   validateBody(sendMessageSchema),
   async (req, res) => {
     const co = companyOf(req as unknown as { company?: Company });
-    const body = (req as unknown as { validated: z.infer<typeof sendMessageSchema> })
-      .validated;
+    const body = req.body as z.infer<typeof sendMessageSchema>;
     const ok = await userHasChannelAccess({
       channelId: req.params.channelId,
       userId: req.userId!,
@@ -344,8 +339,7 @@ workspaceRouter.patch(
   "/messages/:messageId",
   validateBody(editMessageSchema),
   async (req, res) => {
-    const body = (req as unknown as { validated: z.infer<typeof editMessageSchema> })
-      .validated;
+    const body = req.body as z.infer<typeof editMessageSchema>;
     try {
       const updated = await editMessage({
         messageId: req.params.messageId,
@@ -383,8 +377,7 @@ workspaceRouter.post(
   validateBody(reactionSchema),
   async (req, res) => {
     const co = companyOf(req as unknown as { company?: Company });
-    const body = (req as unknown as { validated: z.infer<typeof reactionSchema> })
-      .validated;
+    const body = req.body as z.infer<typeof reactionSchema>;
     try {
       const r = await toggleReaction({
         messageId: req.params.messageId,
