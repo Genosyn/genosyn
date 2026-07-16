@@ -4,6 +4,7 @@ import { readCustomEndpoint } from "../../customEndpoint.js";
 import type { ModelClient } from "../types.js";
 import { createAnthropicClient } from "./anthropic.js";
 import { createOpenAIClient, OPENAI_MAX_TOOLS } from "./openai.js";
+import { createOpenAIResponsesClient } from "./openaiResponses.js";
 
 /**
  * Resolve an {@link AIModel} row into a live {@link ModelClient}, decrypting
@@ -11,8 +12,15 @@ import { createOpenAIClient, OPENAI_MAX_TOOLS } from "./openai.js";
  * than throwing so the seams can surface a friendly "not connected" message.
  *
  *  - anthropic + apikey       → Anthropic Messages API with the stored key
- *  - openai    + apikey       → OpenAI Chat Completions with the stored key
+ *  - openai    + apikey       → OpenAI Responses API with the stored key
  *  - custom    + customEndpoint → OpenAI-compatible client at the stored baseURL
+ *
+ * The two OpenAI-shaped providers deliberately land on different clients. The
+ * `openai` provider needs `/v1/responses`, because Chat Completions rejects
+ * function tools for a reasoning model (see `openaiResponses.ts`) — and an
+ * employee is a tool loop, so that rejection is fatal. A `custom` endpoint only
+ * borrows OpenAI's wire format: Ollama, vLLM and friends serve
+ * `/v1/chat/completions` and would 404 on `/v1/responses`, so they stay put.
  */
 export function createModelClient(
   model: AIModel,
@@ -50,7 +58,7 @@ export function createModelClient(
   }
   if (model.provider === "openai") {
     return {
-      client: createOpenAIClient({
+      client: createOpenAIResponsesClient({
         apiKey: key.apiKey,
         model: model.model,
         maxTools: OPENAI_MAX_TOOLS,

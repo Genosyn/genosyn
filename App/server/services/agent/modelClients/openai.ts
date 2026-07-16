@@ -8,10 +8,14 @@ import type {
 } from "../types.js";
 
 /**
- * OpenAI Chat Completions client — the direct replacement for the `codex`
- * harness, and also the carrier for the `custom` provider (any OpenAI-compatible
- * server: Ollama, vLLM, llama.cpp, LM Studio, a gateway, …) via a `baseURL`
- * override.
+ * OpenAI Chat Completions client — the carrier for the `custom` provider (any
+ * OpenAI-compatible server: Ollama, vLLM, llama.cpp, LM Studio, a gateway, …)
+ * via a `baseURL` override.
+ *
+ * Despite the name it no longer serves the `openai` provider itself: OpenAI's
+ * own models moved to `/v1/responses` (see `openaiResponses.ts`), which the
+ * servers above don't implement. What's left here is the wire format they *do*
+ * speak, so this client is now defined by its endpoint rather than its vendor.
  *
  * Chat Completions models tool use with a flat message list rather than content
  * blocks, so the conversion is chunkier than Anthropic's: an assistant turn with
