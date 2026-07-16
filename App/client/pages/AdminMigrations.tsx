@@ -131,6 +131,31 @@ function formatDateTime(iso: string): string {
   return d.toLocaleString();
 }
 
+/**
+ * The report the server sends when it could not read the migrations table at
+ * all (`unreadableReport()` in server/services/adminMigrations.ts). The route
+ * still answers 200 — a database that won't talk is a reportable state, not a
+ * 500 — so this arrives as an ordinary report and the fetch-error branch below
+ * never fires.
+ *
+ * It needs its own branch because every count in it is 0 as a SENTINEL FOR
+ * "unknown", not as a fact, and `migrations` is empty because no single
+ * migration's state is knowable. Rendering it through the normal
+ * banner/tiles/list would report "0 issues need attention" in error rose,
+ * "Pending 0" in calm slate, and "this build ships no migration files" directly
+ * under a Total tile reading 78 — three confident falsehoods at the exact
+ * moment the instance is broken. `status` is the signal: every derived issue is
+ * a `warn`, so `error` can only come from `unreadableReport()`. The empty
+ * `issues`/`migrations` checks are belt-and-braces against that changing.
+ */
+function isUnreadable(report: MigrationReport): boolean {
+  return (
+    report.status === "error" &&
+    report.issues.length === 0 &&
+    report.migrations.length === 0
+  );
+}
+
 export function AdminMigrations() {
   const [report, setReport] = React.useState<MigrationReport | null>(null);
   const [loading, setLoading] = React.useState(false);
@@ -156,6 +181,12 @@ export function AdminMigrations() {
     reload();
   }, [reload]);
 
+  const retry = (
+    <Button variant="secondary" onClick={reload} disabled={loading}>
+      <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Retry
+    </Button>
+  );
+
   return (
     <>
       <TopBar
@@ -171,11 +202,15 @@ export function AdminMigrations() {
         <EmptyState
           title="Couldn't load migrations"
           description={error}
-          action={
-            <Button variant="secondary" onClick={reload} disabled={loading}>
-              <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Retry
-            </Button>
-          }
+          action={retry}
+        />
+      ) : report !== null && isUnreadable(report) ? (
+        // The server reached a verdict — it just couldn't read the table. Say
+        // that, and show nothing derived from the placeholder counts.
+        <EmptyState
+          title="Schema history unavailable"
+          description={report.summary}
+          action={retry}
         />
       ) : report === null ? (
         <Card>
@@ -267,12 +302,27 @@ function StatGrid({ report }: { report: MigrationReport }) {
   const warnStyle = SEVERITY_STYLE.warn;
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      <StatTile icon={Layers} label="Total" value={report.total} />
-      <StatTile icon={CheckCircle2} label="Applied" value={report.appliedCount} />
+      {/* Total counts only what the build defines, so Total = Applied + Pending
+          and the unknown drift rows sit OUTSIDE it — by definition they have no
+          class in this build to be counted against. That makes the tiles look
+          like they don't sum against the longer list below, hence the hint. */}
+      <StatTile
+        icon={Layers}
+        label="Total"
+        value={report.total}
+        hint="Migrations defined in this build — applied plus pending. Unknown migrations exist only in the database, so they are counted separately and are not part of this total."
+      />
+      <StatTile
+        icon={CheckCircle2}
+        label="Applied"
+        value={report.appliedCount}
+        hint="Defined in this build and recorded in the database."
+      />
       <StatTile
         icon={Clock}
         label="Pending"
         value={report.pendingCount}
+        hint="Defined in this build but not yet recorded in the database."
         tone={report.pendingCount > 0 ? warnStyle.tone : undefined}
         ring={report.pendingCount > 0 ? warnStyle.ring : undefined}
       />
@@ -280,6 +330,7 @@ function StatGrid({ report }: { report: MigrationReport }) {
         icon={HelpCircle}
         label="Unknown"
         value={report.unknownCount}
+        hint="Recorded in the database but absent from this build — schema drift. Not included in Total."
         tone={report.unknownCount > 0 ? warnStyle.tone : undefined}
         ring={report.unknownCount > 0 ? warnStyle.ring : undefined}
       />
@@ -291,12 +342,14 @@ function StatTile({
   icon: Icon,
   label,
   value,
+  hint,
   tone,
   ring,
 }: {
   icon: typeof CheckCircle2;
   label: string;
   value: number;
+  hint?: string;
   tone?: string;
   ring?: string;
 }) {
@@ -306,6 +359,7 @@ function StatTile({
         "rounded-xl border bg-white p-3 shadow-sm dark:bg-slate-900",
         ring ?? "border-slate-200 dark:border-slate-800",
       )}
+      title={hint}
     >
       <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
         <Icon size={13} className="shrink-0" />
@@ -408,6 +462,13 @@ function MigrationList({ migrations }: { migrations: MigrationEntry[] }) {
     );
   }, [migrations, query]);
 
+  // Both halves of this copy are load-bearing claims, and they are only true
+  // because `isUnreadable` already peeled off the can't-read case upstream —
+  // otherwise this would assert "ships no migration files" under a Total tile
+  // reading 78. What's left is genuinely empty: no drift row can be hiding
+  // either, since a drift row would itself put an entry in this list. If you
+  // ever render MigrationList somewhere that hasn't made that check, this
+  // wording has to become conditional.
   if (migrations.length === 0) {
     return (
       <EmptyState

@@ -238,24 +238,43 @@ function buildReport(all: Migration[], executed: Migration[]): MigrationReport {
     });
   }
 
-  // Merge-order hazard: a pending migration authored BEFORE the newest applied
-  // one. It was written against an older schema but will run after newer
-  // migrations already have — the classic "two branches merged out of order"
-  // failure. Ordering is by authored timestamp, which is the only ordering the
-  // pending side has (a pending migration has no id yet).
-  const newestApplied = applied.reduce<MigrationEntry | null>(
+  // Merge-order hazard: a pending migration authored BEFORE the newest migration
+  // the database has already recorded. It was written against an older schema
+  // but will run after newer migrations already have — the classic "two branches
+  // merged out of order" failure. Ordering is by authored timestamp, which is the
+  // only ordering the pending side has (a pending migration has no id yet).
+  //
+  // The bar is every row the migrations table holds — `applied` AND `unknown` —
+  // not just `applied`. A drift row is in the database and its changes are live,
+  // so a pending migration authored before it faces exactly the hazard this rule
+  // describes. Comparing against `applied` alone would blind the rule in the
+  // rollback scenario, which is the one it exists to catch: roll back past a
+  // migration, and the row that would have raised the bar is precisely the one
+  // that just became `unknown`. This matches TypeORM's own
+  // `executePendingMigrations`, which takes its latest timestamp from the raw
+  // executed rows rather than from the code intersection, and matches
+  // `lastApplied` below, which counts drift rows for the same reason.
+  //
+  // Membership is `state !== "pending"` rather than `batchId !== null`: batchId
+  // degrades to null when a row carries no id (see `entryFrom`), and a recorded
+  // migration must raise the bar whether or not we could read its rank.
+  const recorded = migrations.filter((m) => m.state !== "pending");
+  const newestRecorded = recorded.reduce<MigrationEntry | null>(
     (acc, m) => (acc === null || m.timestamp > acc.timestamp ? m : acc),
     null,
   );
-  const outOfOrder = newestApplied
-    ? pending.filter((m) => m.timestamp < newestApplied.timestamp)
+  const outOfOrder = newestRecorded
+    ? pending.filter((m) => m.timestamp < newestRecorded.timestamp)
     : [];
-  if (newestApplied && outOfOrder.length > 0) {
+  if (newestRecorded && outOfOrder.length > 0) {
+    // The named migration may be a drift row, so the copy says "already in the
+    // database" rather than "applied" — true of both buckets, and it stops the
+    // detail contradicting the `unknown` issue sitting next to it.
     issues.push({
       id: "out_of_order",
       severity: "warn",
       title: `${outOfOrder.length} pending ${plural(outOfOrder.length, "migration was", "migrations were")} authored out of order`,
-      detail: `These are older than the newest applied migration (${newestApplied.title}, authored ${newestApplied.authoredAt}), so they will apply AFTER migrations that are already in the database. If they assume the schema as it stood when they were written, they can fail or silently do the wrong thing. Review them before the next restart.`,
+      detail: `These were authored before ${newestRecorded.title} (authored ${newestRecorded.authoredAt}), which is already in the database, so they will apply AFTER migrations whose changes are already live. If they assume the schema as it stood when they were written, they can fail or silently do the wrong thing. Review them before the next restart.`,
       migrations: outOfOrder.map((m) => m.name),
     });
   }
@@ -273,7 +292,16 @@ function buildReport(all: Migration[], executed: Migration[]): MigrationReport {
     null,
   );
 
-  const total = migrations.length;
+  // `total` is the CODE-DEFINED count: applied + pending. Deliberately NOT
+  // `migrations.length` — that array also holds the `unknown` drift rows, which
+  // by definition have no class in this build. Counting them here would make
+  // `total` disagree with the same field in `unreadableReport()` (which reports
+  // `AppDataSource.migrations.length`), break the
+  // `appliedCount + pendingCount === total` invariant the client's stat tiles
+  // are read against, and make the summary claim "78 of 79 applied" when all 78
+  // code migrations are in fact applied and nothing failed. Unknown migrations
+  // are surfaced via `unknownCount` and their own issue instead.
+  const total = applied.length + pending.length;
   const status = worstSeverity(issues.map((i) => i.severity));
 
   return {
@@ -304,7 +332,14 @@ function buildSummary(
   pendingCount: number,
   unknownCount: number,
 ): string {
-  if (total === 0) return "No migrations are defined in this build.";
+  if (total === 0) {
+    // `total` counts only code-defined migrations, so this build has none. The
+    // database can still hold drift rows, and staying silent about them here
+    // would bury the one fact worth reporting.
+    return unknownCount > 0
+      ? `No migrations are defined in this build, but the database has ${unknownCount} unknown ${plural(unknownCount, "migration", "migrations")}.`
+      : "No migrations are defined in this build.";
+  }
   if (pendingCount === 0 && unknownCount === 0) {
     return `All ${total} ${plural(total, "migration is", "migrations are")} applied — the schema matches the code.`;
   }

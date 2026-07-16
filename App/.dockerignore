@@ -1,0 +1,23 @@
+# Keep the Docker build context small — and the build hermetic.
+#
+# App's image builds with ./App as its context (see .github/workflows/docker.yml),
+# so the repo-root .dockerignore does NOT apply here: Docker only reads the
+# .dockerignore at the root of the build context. Home is unaffected because it
+# builds from the repo root and is covered by that file.
+#
+# `dist` is the important one. The build stage does `COPY . .` and then
+# `npm run build`, but tsc does not prune stale outputs — so without this, a
+# local dist/ is copied in and any orphaned .js from a since-deleted source
+# survives alongside the fresh output. TypeORM globs dist/server/db/migrations
+# at boot, so an orphaned migration there is loaded and can kill the container
+# on startup. Everything in dist/ is regenerated inside the image anyway.
+.git
+node_modules
+dist
+data
+
+# Local tooling and editor state — never needed to build.
+.claude
+coverage
+**/.vite
+**/.cache
