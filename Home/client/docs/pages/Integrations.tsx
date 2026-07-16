@@ -263,6 +263,38 @@ export function Integrations() {
         once a human ✓&apos;s it.
       </P>
 
+      <H3 id="gmail-attachments">Emailing files from Resources</H3>
+      <P>
+        An employee drafting or sending mail through the{" "}
+        <Strong>Google Workspace</Strong> connector can attach{" "}
+        <DocLink to="/docs/vocabulary">Resources</DocLink> it has been granted
+        — the ebook you uploaded, a contract, a report. It names the resource
+        by slug and Genosyn reads the bytes server-side, so the file never has
+        to travel through the model. Attachments work the same on a draft as
+        on a send: the draft lands in Gmail with the files already on it,
+        ready for a human to review before it goes out.
+      </P>
+      <P>
+        Each attachment picks a <Code>format</Code>. The default,{" "}
+        <Code>original</Code>, sends the file exactly as it was uploaded —
+        that is what you want for a PDF or EPUB that already exists. The other
+        four (<Code>pdf</Code>, <Code>html</Code>, <Code>md</Code>,{" "}
+        <Code>txt</Code>) render the resource&apos;s extracted text into a new
+        document, the same rendering the Download menu on the resource page
+        produces. Those are the only options for link- and paste-kind
+        resources, which never keep an original file.
+      </P>
+      <Callout kind="warn" title="A grant says which file, not who receives it.">
+        Genosyn checks the employee&apos;s grant on every attachment, so it
+        cannot email a Resource nobody shared with it. It does{" "}
+        <em>not</em> check the recipient. An employee that reads untrusted
+        text — a support inbox, a scraped page — can be talked into mailing a
+        document it legitimately holds to an address of the attacker&apos;s
+        choosing. Grant document access the way you&apos;d hand someone a
+        printout, and keep employees that read the open internet away from
+        Resources you would not want forwarded.
+      </Callout>
+
       <H3 id="google-analytics-search-console">
         Google Analytics &amp; Search Console
       </H3>

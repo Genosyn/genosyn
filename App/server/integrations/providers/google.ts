@@ -256,7 +256,7 @@ export const googleProvider: IntegrationProvider = {
     const grantedScope = currentGoogleGrantedScope(ctx);
     if (GMAIL_TOOL_NAMES.has(name)) {
       assertScope(grantedScope, "gmail", name);
-      return invokeGmailTool(name, args, accessToken);
+      return invokeGmailTool(name, args, accessToken, ctx);
     }
     if (DRIVE_TOOL_NAMES.has(name)) {
       assertScope(grantedScope, "drive", name);

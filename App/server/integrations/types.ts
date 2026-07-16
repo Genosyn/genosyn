@@ -165,6 +165,18 @@ export type IntegrationTool = {
 /** The JSON blob stored inside `IntegrationConnection.encryptedConfig`. */
 export type IntegrationConfig = Record<string, unknown>;
 
+/**
+ * A file a tool is about to send somewhere — an email attachment today.
+ * Providers receive these already resolved; they never learn where the
+ * bytes came from or who was allowed to read them.
+ */
+export type ResolvedAttachment = {
+  /** Header-safe filename, already sanitized by the resolver. */
+  filename: string;
+  contentType: string;
+  content: Buffer;
+};
+
 /** Runtime context handed to a tool handler. */
 export type IntegrationRuntimeContext = {
   /** Auth mode of the Connection — providers that support multiple modes
@@ -184,6 +196,19 @@ export type IntegrationRuntimeContext = {
   companyId?: string;
   /** Set when an AI employee is the caller; empty for human/system. */
   employeeId?: string;
+  /**
+   * Turn tool-supplied attachment specs into real bytes. `specs` stays
+   * `unknown` so this file never learns what a spec means — the host owns
+   * both the shape and the access check.
+   *
+   * Only the employee-facing dispatcher injects this, and it binds the
+   * caller's identity into the closure rather than reading `employeeId`
+   * back off this context. A provider therefore cannot widen its own
+   * authority by editing `ctx`, and the ctx builders that have no employee
+   * (pipelines, approval replay) leave this undefined so attachment-bearing
+   * calls fail closed instead of resolving with nobody's permissions.
+   */
+  resolveAttachments?(specs: unknown): Promise<ResolvedAttachment[]>;
   /** When true, providers that gate via Approvals should skip the gate.
    *  The approval-execution path sets this when replaying a payment a
    *  human just approved. */

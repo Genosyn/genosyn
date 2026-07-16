@@ -12,6 +12,7 @@ import {
 } from "../integrations/types.js";
 import { refreshTelegramListener } from "./telegramListener.js";
 import { createPaymentApproval } from "./approvals.js";
+import { makeResourceAttachmentResolver } from "./resourceAttachments.js";
 
 /**
  * Service layer for Integration Connections + Grants.
@@ -740,6 +741,15 @@ export async function invokeConnectionTool(args: {
     connectionId: pair.connection.id,
     companyId: pair.connection.companyId,
     employeeId: args.employee.id,
+    // Bound to this employee here, not read back off `ctx` by the provider —
+    // a tool cannot widen its own reach by rewriting the context it was
+    // handed. The other ctx builders (pipelines, approval replay) have no
+    // employee to bind, so they leave this out and attachment-bearing calls
+    // fail closed there.
+    resolveAttachments: makeResourceAttachmentResolver({
+      companyId: pair.connection.companyId,
+      employeeId: args.employee.id,
+    }),
   };
 
   let result: unknown;

@@ -727,6 +727,12 @@ of the original V1 backlog has shipped — what remains is mostly
       Console (read-only), Reddit, LinkedIn**
 - [x] **Secrets vault** (`Secret` entity, env-merged into spawns)
 - [x] **Incoming webhooks** for both routines and pipelines
+- [x] **Email attachments from Resources** — `gmail_send_message` /
+      `gmail_create_draft` take `attachments: [{resourceSlug, format}]`.
+      The server resolves the slug, checks the `EmployeeResourceGrant`,
+      and attaches the bytes; slugs only, so no base64 ever crosses the
+      model. `format: "original"` attaches the uploaded file verbatim,
+      the rest render `bodyText` through the export pipeline.
 
 ### Org depth
 - [x] **Teams** + reporting lines (`reportsToEmployeeId` org chart)
