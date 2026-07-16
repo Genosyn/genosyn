@@ -405,6 +405,48 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
         the backup itself, which is already safe in <Code>data/Backup/</Code>.
       </P>
 
+      <H3 id="retention">Retention (deleting old backups)</H3>
+      <P>
+        Left alone, <Code>data/Backup/</Code> grows forever. Tick{" "}
+        <Code>Automatically delete old backups</Code> under{" "}
+        <Code>Admin → Backups → Retention</Code> and set a number of days:
+        anything older is deleted. Genosyn checks hourly and again straight
+        after every backup, so a window that lapses at midday is honoured at
+        midday.
+      </P>
+      <P>
+        Retention is <em>independent of the recurring schedule</em> — it covers
+        every archive in <Code>data/Backup/</Code>, including ones you made by
+        hand with <Code>Back up now</Code>, and it runs even when the schedule
+        is off. Two things are always spared, on the principle that a retention
+        setting must never leave you with nothing to restore from:
+      </P>
+      <UL>
+        <LI>
+          <Strong>The newest completed archive</Strong> — kept however old it
+          is. If backups stop running for a year, the last one survives. Should
+          that archive turn out not to open — a backup killed mid-write leaves a
+          truncated <Code>.zip</Code> behind — the newest one that <em>does</em>{" "}
+          open is kept as well, so debris can never cost you the last archive
+          you could actually restore from.
+        </LI>
+        <LI>
+          <Strong>Archives you uploaded</Strong> through{" "}
+          <Code>Admin → Backups</Code> — you carried those in from somewhere
+          else and they may be the only copy. Delete them by hand when you are
+          done with them.
+        </LI>
+      </UL>
+      <P>
+        Retention is <Strong>local only</Strong>. Copies already delivered to an{" "}
+        <DocLink to="/docs/self-hosting#off-box-destinations">
+          off-box destination
+        </DocLink>{" "}
+        stay on the remote — Genosyn never reaches onto your NAS to delete
+        things. Prune those with whatever your NAS or a cron job on that host
+        already offers.
+      </P>
+
       <H2 id="upgrading">Upgrading</H2>
       <P>
         <Code>genosyn upgrade</Code> pulls the latest image and recreates the

@@ -8,10 +8,11 @@ import {
 export type BackupFrequency = "daily" | "weekly" | "monthly";
 
 /**
- * Singleton row (id='default') holding the recurring-backup configuration.
- * The row always exists — {@link getBackupSchedule} creates it lazily on
- * first read. Modelled as an entity rather than a dotfile so the settings
- * page can round-trip through the same TypeORM repo as everything else.
+ * Singleton row (id='default') holding the recurring-backup configuration
+ * and the retention policy. The row always exists — {@link getBackupSchedule}
+ * creates it lazily on first read. Modelled as an entity rather than a dotfile
+ * so the settings page can round-trip through the same TypeORM repo as
+ * everything else.
  */
 @Entity("backup_schedules")
 export class BackupSchedule {
@@ -39,6 +40,19 @@ export class BackupSchedule {
 
   @Column({ type: "datetime", nullable: true })
   lastRunAt!: Date | null;
+
+  /**
+   * When true, archives older than {@link retentionDays} are deleted from
+   * `<dataDir>/Backup/`. Independent of {@link enabled} — an install that only
+   * ever takes manual backups still accumulates them, so retention is not
+   * gated on the recurring schedule being on.
+   */
+  @Column({ type: "boolean", default: false })
+  retentionEnabled!: boolean;
+
+  /** Age (in days) past which an archive is eligible for deletion. */
+  @Column({ type: "integer", default: 30 })
+  retentionDays!: number;
 
   @UpdateDateColumn()
   updatedAt!: Date;

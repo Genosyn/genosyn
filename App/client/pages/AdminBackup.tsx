@@ -67,6 +67,7 @@ export function AdminBackup() {
   >(null);
   const [running, setRunning] = React.useState(false);
   const [savingSchedule, setSavingSchedule] = React.useState(false);
+  const [savingRetention, setSavingRetention] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);
   const [restoringId, setRestoringId] = React.useState<string | null>(null);
   const [sendingId, setSendingId] = React.useState<string | null>(null);
@@ -90,6 +91,24 @@ export function AdminBackup() {
       setDestinations([]);
     }
   }, [toast]);
+
+  /**
+   * Shared by both schedule cards — they PUT the same row. Saving enforces
+   * retention server-side, so History has to be refetched whenever the save
+   * reports that it deleted something.
+   */
+  const saveSchedule = React.useCallback(
+    async (patch: Partial<BackupSchedule>): Promise<BackupSchedule> => {
+      const next = await api.put<BackupSchedule>(
+        "/api/backups/schedule",
+        patch,
+      );
+      setSchedule(next);
+      if (next.prunedNow) setRows(await api.get<Backup[]>("/api/backups"));
+      return next;
+    },
+    [],
+  );
 
   const sendToDestinations = async (b: Backup) => {
     setSendingId(b.id);
@@ -247,16 +266,34 @@ export function AdminBackup() {
           onSave={async (patch) => {
             setSavingSchedule(true);
             try {
-              const next = await api.put<BackupSchedule>(
-                "/api/backups/schedule",
-                patch,
-              );
-              setSchedule(next);
+              await saveSchedule(patch);
               toast("Schedule saved", "success");
             } catch (err) {
               toast((err as Error).message, "error");
             } finally {
               setSavingSchedule(false);
+            }
+          }}
+        />
+
+        <RetentionCard
+          schedule={schedule}
+          saving={savingRetention}
+          onSave={async (patch) => {
+            setSavingRetention(true);
+            try {
+              const next = await saveSchedule(patch);
+              const n = next.prunedNow ?? 0;
+              toast(
+                n > 0
+                  ? `Retention saved — deleted ${n} archive${n === 1 ? "" : "s"}`
+                  : "Retention saved",
+                "success",
+              );
+            } catch (err) {
+              toast((err as Error).message, "error");
+            } finally {
+              setSavingRetention(false);
             }
           }}
         />
@@ -1159,6 +1196,131 @@ function ScheduleCard({
             </span>
             <Button type="submit" size="sm" disabled={!dirty || saving}>
               {saving ? "Saving…" : "Save schedule"}
+            </Button>
+          </div>
+        </form>
+      </CardBody>
+    </Card>
+  );
+}
+
+/**
+ * Retention policy. Deliberately its own card rather than a row inside
+ * {@link ScheduleCard}: archives pile up whether or not the recurring backup is
+ * on, so the two toggles are independent — the copy has to say so, because
+ * "delete old backups" sitting under "recurring backup" reads like it only
+ * covers scheduled ones.
+ */
+function RetentionCard({
+  schedule,
+  saving,
+  onSave,
+}: {
+  schedule: BackupSchedule | null;
+  saving: boolean;
+  onSave: (patch: Partial<BackupSchedule>) => Promise<void>;
+}) {
+  const [draft, setDraft] = React.useState<BackupSchedule | null>(schedule);
+
+  React.useEffect(() => {
+    setDraft(schedule);
+  }, [schedule]);
+
+  if (!draft || !schedule) {
+    return (
+      <Card>
+        <CardBody>
+          <Spinner />
+        </CardBody>
+      </Card>
+    );
+  }
+
+  const dirty =
+    draft.retentionEnabled !== schedule.retentionEnabled ||
+    draft.retentionDays !== schedule.retentionDays;
+
+  return (
+    <Card>
+      <CardHeader>
+        <h2 className="text-sm font-semibold">Retention</h2>
+        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+          Delete archives once they pass a certain age so the backup folder
+          doesn&apos;t grow forever. Checked hourly, and again after every
+          backup.
+        </p>
+      </CardHeader>
+      <CardBody>
+        <form
+          className="flex flex-col gap-3"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (!dirty) return;
+            await onSave({
+              retentionEnabled: draft.retentionEnabled,
+              retentionDays: draft.retentionDays,
+            });
+          }}
+        >
+          <label className="inline-flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600"
+              checked={draft.retentionEnabled}
+              onChange={(e) =>
+                setDraft({ ...draft, retentionEnabled: e.target.checked })
+              }
+            />
+            <span className="font-medium">
+              Automatically delete old backups
+            </span>
+          </label>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                Delete after
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={3650}
+                  className={FIELD_CLASS}
+                  value={draft.retentionDays}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      retentionDays: parseInt(e.target.value, 10) || 30,
+                    })
+                  }
+                  disabled={!draft.retentionEnabled}
+                />
+                <span className="text-sm text-slate-500 dark:text-slate-400">
+                  days
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+            Covers every archive in the backup folder — including ones you made
+            by hand — even when the recurring backup above is off. The newest
+            completed archive is always kept, however old it is. Archives you
+            uploaded here are never deleted, and copies already delivered to
+            off-box destinations stay on the remote.
+          </p>
+
+          <div className="flex items-center justify-between pt-1 text-xs text-slate-500 dark:text-slate-400">
+            <span>
+              {schedule.retentionEnabled
+                ? `Deleting archives older than ${schedule.retentionDays} day${
+                    schedule.retentionDays === 1 ? "" : "s"
+                  }.`
+                : "Archives are kept until you delete them."}
+            </span>
+            <Button type="submit" size="sm" disabled={!dirty || saving}>
+              {saving ? "Saving…" : "Save retention"}
             </Button>
           </div>
         </form>

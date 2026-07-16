@@ -10,6 +10,8 @@ import {
   getBackupSchedule,
   ingestUploadedArchive,
   listBackups,
+  MAX_RETENTION_DAYS,
+  MIN_RETENTION_DAYS,
   restoreFromBackup,
   runBackup,
   serializeBackup,
@@ -116,14 +118,25 @@ const scheduleSchema = z.object({
   hour: z.number().int().min(0).max(23).optional(),
   dayOfWeek: z.number().int().min(0).max(6).optional(),
   dayOfMonth: z.number().int().min(1).max(28).optional(),
+  retentionEnabled: z.boolean().optional(),
+  retentionDays: z
+    .number()
+    .int()
+    .min(MIN_RETENTION_DAYS)
+    .max(MAX_RETENTION_DAYS)
+    .optional(),
 });
 
+/**
+ * Saving retention enforces it immediately, so the response carries
+ * `prunedNow` — how many archives that save deleted — for the UI to report.
+ */
 backupsRouter.put(
   "/schedule",
   validateBody(scheduleSchema),
   async (req, res) => {
     const body = req.body as z.infer<typeof scheduleSchema>;
-    const updated = await updateBackupSchedule(body);
-    res.json(serializeSchedule(updated));
+    const { schedule, pruned } = await updateBackupSchedule(body);
+    res.json({ ...serializeSchedule(schedule), prunedNow: pruned });
   },
 );

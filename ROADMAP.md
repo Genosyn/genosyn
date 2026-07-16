@@ -718,7 +718,9 @@ of the original V1 backlog has shipped — what remains is mostly
 - [x] **Backups** — `Backup` + `BackupSchedule`, restore endpoint,
       catch-up backup on boot, plus off-box `BackupDestination` mirrors
       (mounted NAS path, SMB share, or SFTP) that auto-deliver every
-      completed archive
+      completed archive. Retention on the `BackupSchedule` row deletes local
+      archives past a day count (hourly + after each backup), always sparing
+      the newest completed archive and anything uploaded by hand
 - [x] **Migrations dashboard** — read-only `Admin → Migrations` over the
       TypeORM ledger: applied / pending counts plus drift detection (rows
       matching no shipped migration, out-of-order timestamps from a branch

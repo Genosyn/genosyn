@@ -209,7 +209,13 @@ export type Handoff = {
   createdAt: string;
   updatedAt: string;
 };
-export type Skill = { id: string; employeeId: string; name: string; slug: string };
+export type Skill = {
+  id: string;
+  employeeId: string;
+  name: string;
+  slug: string;
+  createdAt: string;
+};
 export type Routine = {
   id: string;
   employeeId: string;
@@ -244,8 +250,12 @@ export type Routine = {
   browserEnabledOverride?: boolean | null;
 };
 
-/** The slice of an AI employee the Routines section shows as "assigned to". */
-export type RoutineEmployee = {
+/**
+ * The slice of an AI employee a company-wide list shows as "assigned to" —
+ * enough for an avatar, a name, and a link. Mirrors `employeeSummary()` on
+ * the Routines and Skills routers.
+ */
+export type EmployeeSummary = {
   id: string;
   name: string;
   slug: string;
@@ -260,10 +270,20 @@ export type RoutineEmployee = {
  * `/api/companies/:cid/routines/:rid` (one, `body` included).
  */
 export type RoutineWithMeta = Routine & {
-  employee: RoutineEmployee | null;
+  employee: EmployeeSummary | null;
   lastRun: Run | null;
   /** Only present on the single-routine endpoint. */
   body?: string;
+};
+
+/**
+ * A skill as the company-wide Skills section sees it: the row plus the
+ * employee whose playbook it is. Served by `/api/companies/:cid/skills`.
+ * `body` is not on the list — each playbook is fetched via
+ * `/skills/:sid/readme` when you open it.
+ */
+export type SkillWithMeta = Skill & {
+  employee: EmployeeSummary | null;
 };
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
@@ -750,6 +770,10 @@ export type Backup = {
 };
 
 export type BackupFrequency = "daily" | "weekly" | "monthly";
+/** `retentionEnabled` / `retentionDays` are the auto-delete policy and are
+ *  independent of `enabled` — archives pile up whether or not the recurring
+ *  backup is on. `prunedNow` is response-only: PUT /api/backups/schedule
+ *  enforces retention as it saves and reports what that deleted. */
 export type BackupSchedule = {
   enabled: boolean;
   frequency: BackupFrequency;
@@ -758,7 +782,10 @@ export type BackupSchedule = {
   dayOfMonth: number;
   cronExpr: string;
   lastRunAt: string | null;
+  retentionEnabled: boolean;
+  retentionDays: number;
   updatedAt: string;
+  prunedNow?: number;
 };
 
 export type BackupDestinationKind = "local" | "sftp" | "smb";

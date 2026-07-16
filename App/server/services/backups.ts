@@ -28,14 +28,40 @@ import {
  * A singleton {@link BackupSchedule} row drives the optional recurring cron.
  * The schedule is modelled as frequency + hour (and day-of-week / day-of-
  * month where applicable) rather than a raw cron expression so the settings
- * UI stays approachable.
+ * UI stays approachable. The same row carries the retention policy — see
+ * {@link pruneOldBackups}.
  */
 
 const SCHEDULE_ID = "default";
 const BACKUP_DIR_NAME = "Backup";
 
+/**
+ * Hourly rather than daily so a window that lapses at 14:05 isn't enforced at
+ * 03:00 the next morning. The prune is a cheap no-op when nothing is past the
+ * cutoff.
+ */
+const RETENTION_CRON = "0 * * * *";
+
+/** Stable node-cron names — without one, node-cron keys each task by a fresh
+ *  uuid in a module-global map that `stop()` never clears, so every re-register
+ *  would leak an entry. */
+const SCHEDULE_TASK_NAME = "backup-schedule";
+const RETENTION_TASK_NAME = "backup-retention";
+
+export const MIN_RETENTION_DAYS = 1;
+export const MAX_RETENTION_DAYS = 3650;
+
 let scheduledTask: ScheduledTask | null = null;
+let retentionTask: ScheduledTask | null = null;
 let runningBackup: Promise<Backup> | null = null;
+let runningPrune: Promise<number> | null = null;
+
+/**
+ * True from the moment a restore is accepted until it finishes. Shared with
+ * {@link pruneOldBackups}: a restore resolves its archive on disk and then
+ * wipes `dataDir` around it, so nothing may delete archives underneath it.
+ */
+let restoreInProgress = false;
 
 function pad2(n: number): string {
   return n.toString().padStart(2, "0");
@@ -100,19 +126,29 @@ export async function getBackupSchedule(): Promise<BackupSchedule> {
       dayOfWeek: 0,
       dayOfMonth: 1,
       lastRunAt: null,
+      retentionEnabled: false,
+      retentionDays: 30,
     });
     await repo.save(row);
   }
   return row;
 }
 
+/**
+ * Persist a schedule/retention change and re-register both crons against it.
+ * Retention is enforced immediately rather than at the next hourly tick, so
+ * saving the form has a visible effect — the returned count is what the UI
+ * reports back to the operator.
+ */
 export async function updateBackupSchedule(patch: {
   enabled?: boolean;
   frequency?: BackupFrequency;
   hour?: number;
   dayOfWeek?: number;
   dayOfMonth?: number;
-}): Promise<BackupSchedule> {
+  retentionEnabled?: boolean;
+  retentionDays?: number;
+}): Promise<{ schedule: BackupSchedule; pruned: number }> {
   const repo = AppDataSource.getRepository(BackupSchedule);
   const current = await getBackupSchedule();
   if (typeof patch.enabled === "boolean") current.enabled = patch.enabled;
@@ -122,9 +158,28 @@ export async function updateBackupSchedule(patch: {
     current.dayOfWeek = clamp(patch.dayOfWeek, 0, 6);
   if (typeof patch.dayOfMonth === "number")
     current.dayOfMonth = clamp(patch.dayOfMonth, 1, 28);
+  if (typeof patch.retentionEnabled === "boolean")
+    current.retentionEnabled = patch.retentionEnabled;
+  if (typeof patch.retentionDays === "number")
+    current.retentionDays = clamp(
+      patch.retentionDays,
+      MIN_RETENTION_DAYS,
+      MAX_RETENTION_DAYS,
+    );
   await repo.save(current);
   applyBackupSchedule(current);
-  return current;
+  applyRetentionSchedule(current);
+  // Best-effort, like every other prune trigger: the schedule is already saved
+  // and both crons are already live, so a prune that fails here must not fail
+  // the save and leave the UI reporting a policy the server isn't running.
+  let pruned = 0;
+  try {
+    pruned = await pruneOldBackups();
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("[backups] retention on save failed:", err);
+  }
+  return { schedule: current, pruned };
 }
 
 /**
@@ -143,12 +198,38 @@ export function applyBackupSchedule(sched: BackupSchedule): void {
     console.warn(`[backups] invalid cron for schedule: ${expr}`);
     return;
   }
-  scheduledTask = cron.schedule(expr, () => {
-    runBackup("scheduled").catch((err) => {
-      // eslint-disable-next-line no-console
-      console.error("[backups] scheduled run failed:", err);
-    });
-  });
+  scheduledTask = cron.schedule(
+    expr,
+    () => {
+      runBackup("scheduled").catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[backups] scheduled run failed:", err);
+      });
+    },
+    { name: SCHEDULE_TASK_NAME },
+  );
+}
+
+/**
+ * Register (or unregister) the hourly task that enforces retention. Mirrors
+ * {@link applyBackupSchedule}; called on boot and after any schedule mutation.
+ */
+export function applyRetentionSchedule(sched: BackupSchedule): void {
+  if (retentionTask) {
+    retentionTask.stop();
+    retentionTask = null;
+  }
+  if (!sched.retentionEnabled) return;
+  retentionTask = cron.schedule(
+    RETENTION_CRON,
+    () => {
+      pruneOldBackups().catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[backups] retention run failed:", err);
+      });
+    },
+    { name: RETENTION_TASK_NAME },
+  );
 }
 
 export async function bootBackups(): Promise<void> {
@@ -156,7 +237,140 @@ export async function bootBackups(): Promise<void> {
   await reconcileBackupHistory();
   const sched = await getBackupSchedule();
   applyBackupSchedule(sched);
+  applyRetentionSchedule(sched);
   await maybeRunMissedBackup(sched);
+  // Catch up on anything that lapsed while the server was down. Not awaited —
+  // index.ts awaits bootBackups() before listening, and unlinking a backlog of
+  // large archives shouldn't hold up the port. Must follow the reconcile above,
+  // which is what gives on-disk archives their rows.
+  pruneOldBackups().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[backups] retention on boot failed:", err);
+  });
+}
+
+/**
+ * Delete archives older than the configured window. A no-op unless retention
+ * is enabled. Returns how many archives were actually removed.
+ *
+ * Backups are the last line of defence, so the cutoff never decides alone:
+ *
+ *   - the newest archive on disk is always kept, however old, and so is the
+ *     newest one that verifiably opens — so retention can never leave an
+ *     install with nothing to restore from;
+ *   - archives uploaded through Admin → Backups are never touched — an
+ *     operator hand-carried those in and they may be the only copy;
+ *   - an archive that can't be unlinked keeps its row, so History keeps
+ *     matching the disk instead of the row reappearing on the next reconcile.
+ *
+ * Rows whose archive is already gone (the ghosts above) are reaped once past
+ * the cutoff, which is the only thing that ever cleans them up.
+ */
+export async function pruneOldBackups(): Promise<number> {
+  // Checked before the promise is memoized so a no-op prune can't make
+  // restoreFromBackup's `runningPrune` guard fire spuriously.
+  if (restoreInProgress) return 0;
+  if (runningPrune) return runningPrune;
+  runningPrune = pruneOldBackupsInner().finally(() => {
+    runningPrune = null;
+  });
+  return runningPrune;
+}
+
+/**
+ * Can this archive actually be restored from? `status === "completed"` is not
+ * enough to answer that: {@link reconcileBackupHistory} promotes any `running`
+ * row whose file exists to `completed`, so a zip left truncated by a crash
+ * mid-write is indistinguishable from a good one at the row level — and the
+ * `PK\x03\x04` header a partial write leaves behind would satisfy a signature
+ * check too. Opening the archive reads its central directory, which only a
+ * fully-written zip has. Cheap: a seek to the end, not a decompress.
+ */
+async function isRestorableArchive(filename: string): Promise<boolean> {
+  const abs = backupFilePath(filename);
+  if (!fs.existsSync(abs)) return false;
+  try {
+    await unzipper.Open.file(abs);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function pruneOldBackupsInner(): Promise<number> {
+  const sched = await getBackupSchedule();
+  if (!sched.retentionEnabled) return 0;
+
+  const days = clamp(
+    sched.retentionDays,
+    MIN_RETENTION_DAYS,
+    MAX_RETENTION_DAYS,
+  );
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+
+  const repo = AppDataSource.getRepository(Backup);
+  const rows = await repo.find({ order: { createdAt: "DESC" } });
+
+  // Two archives are protected, and it takes both to be safe. `rows` is newest
+  // first, so each is the first match.
+  const keep = new Set<string>();
+
+  // 1. The newest archive that is simply *there*. This is the fail-safe floor:
+  //    existsSync can't be wrong for a transient reason, so an install always
+  //    keeps its newest archive no matter what else goes sideways below.
+  const newestOnDisk = rows.find(
+    (r) => r.status === "completed" && fs.existsSync(backupFilePath(r.filename)),
+  );
+  if (newestOnDisk) keep.add(newestOnDisk.id);
+
+  // 2. The newest archive that actually opens — which may be an older one, if
+  //    the newest is a zip left truncated by a crash mid-write. Without this,
+  //    that debris would hold the only slot and every real archive would age
+  //    out from under it. Deliberately *additive* to the floor rather than a
+  //    replacement for it: a failure to open can also mean a transient read
+  //    error, and treating "can't verify" as "not restorable" would let one
+  //    bad moment delete the entire history.
+  for (const row of rows) {
+    if (row.status !== "completed") continue;
+    if (await isRestorableArchive(row.filename)) {
+      keep.add(row.id);
+      break;
+    }
+  }
+
+  let deleted = 0;
+  for (const row of rows) {
+    if (keep.has(row.id)) continue;
+    if (row.kind === "uploaded") continue;
+    // A `running` row is a backup in flight (its createdAt is now, so it can't
+    // be past the cutoff anyway) or the debris of a crash that reconcile will
+    // adopt on the next boot. Neither is ours to delete.
+    if (row.status === "running") continue;
+    // createdAt, not completedAt: reconcile rewrites completedAt to restore
+    // time, which would make every archive look freshly taken after a restore.
+    if (row.createdAt.getTime() >= cutoff) continue;
+
+    const abs = backupFilePath(row.filename);
+    if (fs.existsSync(abs)) {
+      try {
+        fs.unlinkSync(abs);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn(`[backups] retention could not delete ${abs}:`, err);
+        continue;
+      }
+    }
+    await repo.delete({ id: row.id });
+    deleted += 1;
+  }
+
+  if (deleted > 0) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[backups] retention removed ${deleted} archive(s) older than ${days} day(s)`,
+    );
+  }
+  return deleted;
 }
 
 /**
@@ -279,6 +493,19 @@ async function runBackupInner(kind: "manual" | "scheduled"): Promise<Backup> {
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("[backups] off-box delivery failed:", err);
+    }
+
+    // Enforce retention now that a fresh archive has landed — that's the
+    // moment the oldest one becomes expendable. Best-effort: this backup has
+    // already succeeded and must not fail because a stale archive wouldn't
+    // unlink. Note restoreFromBackup() takes a safety snapshot through here
+    // while restoreInProgress is set; pruneOldBackups() bails in that case,
+    // which is what stops it deleting the archive being restored.
+    try {
+      await pruneOldBackups();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[backups] retention after backup failed:", err);
     }
   } catch (err) {
     row.status = "failed";
@@ -420,6 +647,12 @@ export async function deliverBackup(id: string): Promise<DeliveryResult[]> {
 }
 
 export async function deleteBackup(id: string): Promise<boolean> {
+  // Same reasoning as the guard in pruneOldBackups: a restore has already
+  // resolved its archive on disk and is about to wipe `dataDir` around it.
+  // Deleting anything underneath it strands the restore mid-flight.
+  if (restoreInProgress) {
+    throw new Error("A restore is in progress; try again when it finishes.");
+  }
   const repo = AppDataSource.getRepository(Backup);
   const row = await repo.findOneBy({ id });
   if (!row) return false;
@@ -527,8 +760,6 @@ async function assertIsZip(p: string): Promise<void> {
  * registries. Any failure is propagated to the caller — partial state on
  * disk may require manually restoring from the safety backup.
  */
-let restoreInProgress = false;
-
 export async function restoreFromBackup(id: string): Promise<{
   safety: Backup;
   restored: Backup;
@@ -538,6 +769,14 @@ export async function restoreFromBackup(id: string): Promise<{
   }
   if (runningBackup) {
     throw new Error("A backup is currently running; try again in a moment.");
+  }
+  // A prune already in flight has read its candidate list and could unlink the
+  // archive we're about to extract. Refuse rather than race it — the flag we
+  // set below only stops prunes that haven't started yet.
+  if (runningPrune) {
+    throw new Error(
+      "Backup retention is currently running; try again in a moment.",
+    );
   }
   restoreInProgress = true;
   try {
@@ -561,7 +800,23 @@ export async function restoreFromBackup(id: string): Promise<{
       scheduledTask.stop();
       scheduledTask = null;
     }
+    // The retention cron has to come down too: extracting a large archive can
+    // take minutes, and an hourly tick landing in that window would query a
+    // destroyed DataSource. bootBackups() below re-registers both.
+    if (retentionTask) {
+      retentionTask.stop();
+      retentionTask = null;
+    }
     await AppDataSource.destroy();
+
+    // Last look before the point of no return. The existsSync above ran before
+    // the safety snapshot, which takes long enough for the archive to have gone
+    // since. Failing here costs nothing; failing after the wipe costs the
+    // install.
+    if (!fs.existsSync(zipPath)) {
+      await AppDataSource.initialize();
+      throw new Error("Backup archive went missing before the restore started");
+    }
 
     wipeDataExceptBackup();
     await extractZipIntoDataRoot(zipPath);
@@ -697,6 +952,8 @@ export function serializeSchedule(s: BackupSchedule) {
     dayOfMonth: s.dayOfMonth,
     cronExpr: cronExprForSchedule(s),
     lastRunAt: s.lastRunAt,
+    retentionEnabled: s.retentionEnabled,
+    retentionDays: s.retentionDays,
     updatedAt: s.updatedAt,
   };
 }
