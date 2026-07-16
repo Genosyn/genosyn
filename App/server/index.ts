@@ -13,6 +13,8 @@ import { bootBackups } from "./services/backups.js";
 import { bootPipelineCron } from "./services/pipelines/index.js";
 import { bootRecurringInvoices } from "./services/recurringInvoices.js";
 import { bootTelegramListeners } from "./services/telegramListener.js";
+import { bootMailSync } from "./services/mail/sync.js";
+import { bootMailHandovers } from "./services/mail/handovers.js";
 import { attachRealtime } from "./services/realtime.js";
 import { errorHandler } from "./middleware/error.js";
 import { authRouter } from "./routes/auth.js";
@@ -54,6 +56,7 @@ import { notificationsRouter } from "./routes/notifications.js";
 import { teamsRouter } from "./routes/teams.js";
 import { handoffsRouter } from "./routes/handoffs.js";
 import { inboxRouter } from "./routes/inbox.js";
+import { mailRouter } from "./routes/mail.js";
 import { apiKeysRouter } from "./routes/apiKeys.js";
 import { openapiRouter } from "./routes/openapi.js";
 import { homeRouter } from "./routes/home.js";
@@ -83,6 +86,14 @@ async function main() {
   void bootTelegramListeners().catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[telegram] boot failed:", err);
+  });
+  // Email section (M25): Gmail sync heartbeat + handover queue recovery.
+  // The heartbeat's first pass runs async, so like Telegram it never gates
+  // startup; handover recovery is a quick DB sweep.
+  bootMailSync();
+  void bootMailHandovers().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[mail] handover boot failed:", err);
   });
 
   const app = express();
@@ -232,6 +243,11 @@ async function main() {
   // and Settings → Email Logs.
   app.use("/api/companies/:cid/email/providers", emailProvidersRouter);
   app.use("/api/companies/:cid/email/logs", emailLogsRouter);
+
+  // Email section (M25) — the company's real Gmail inboxes: two-way sync,
+  // threads, drafts, rules, AI handovers, and per-employee grants. Distinct
+  // from the transactional /email/* surface above; see services/mail/.
+  app.use("/api/companies/:cid", mailRouter);
 
   // Client. Dev: mount Vite as middleware so API + UI share one port and
   // HMR still works. Prod: serve the built SPA from dist/client.

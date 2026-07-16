@@ -1513,4 +1513,125 @@ export const STATIC_TOOLS: McpToolSpec[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "list_mail_accounts",
+    description:
+      "List the company mailboxes (Email section) you have been granted access to, with your access level on each: `read` (browse threads), `draft` (also write drafts, apply labels, archive, mark read), or `send` (also send mail). Call this first when asked to work with email — the account id it returns is optional for the other mail tools when you hold exactly one grant.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "search_mail",
+    description:
+      "Search the whole local index of a granted mailbox — every synced message, body included. Filters combine (all applied together): free-text `query` matches subject, participants, and message bodies; `from` / `to` match sender / recipient addresses; `after` / `before` bound the date (YYYY-MM-DD); `label` narrows to a Gmail label (system ids like INBOX / STARRED / SENT, or a user label name); `unreadOnly` keeps unread threads; `hasAttachment` keeps threads with a file. Returns thread summaries newest-first — fetch full bodies with `get_mail_thread`.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        accountId: {
+          type: "string",
+          description:
+            "Mail account id from `list_mail_accounts`. Optional when you have exactly one granted mailbox.",
+        },
+        query: {
+          type: "string",
+          description: "Free-text — matches subject, participants, and body.",
+        },
+        from: { type: "string", description: "Sender address/name substring." },
+        to: { type: "string", description: "Recipient address substring." },
+        after: { type: "string", description: "Only threads on/after this date (YYYY-MM-DD)." },
+        before: { type: "string", description: "Only threads before this date (YYYY-MM-DD)." },
+        label: {
+          type: "string",
+          description:
+            "Gmail label id (INBOX, STARRED, SENT, …) or a user label name.",
+        },
+        unreadOnly: { type: "boolean" },
+        hasAttachment: { type: "boolean" },
+        limit: { type: "integer", minimum: 1, maximum: 50 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_mail_thread",
+    description:
+      "Fetch one email thread with every message body (plain text), recipients, labels, drafts, and attachment metadata. `threadId` is the local thread id from `search_mail` or a handover briefing.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        threadId: { type: "string", description: "Local thread id." },
+      },
+      required: ["threadId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_mail_draft",
+    description:
+      "Write a Gmail draft — the human-in-the-loop way to answer email: the draft lands in the thread (and the owner's Gmail Drafts) for a human to review and send. Pass `threadId` to draft a reply (recipients and subject are inferred from the thread when omitted); omit it for a fresh compose, which requires `to` and an `accountId` when you hold more than one grant. Requires the `draft` access level.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        threadId: { type: "string", description: "Reply on this thread." },
+        accountId: { type: "string", description: "Required for fresh composes with multiple grants." },
+        to: { type: "string", description: "Comma-separated recipients. Inferred for replies." },
+        cc: { type: "string" },
+        bcc: { type: "string" },
+        subject: { type: "string", description: "Inferred (Re: …) for replies." },
+        bodyText: { type: "string", description: "Plain-text body of the draft." },
+      },
+      required: ["bodyText"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_mail_thread",
+    description:
+      "Triage a thread: mark read/unread, star/unstar, archive or move back to inbox, and apply or remove labels. `addLabels` names are created in Gmail on first use, so categorize freely (e.g. 'Support', 'Invoices'). Changes write through to Gmail immediately. Requires the `draft` access level.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        threadId: { type: "string" },
+        markRead: { type: "boolean" },
+        markUnread: { type: "boolean" },
+        star: { type: "boolean" },
+        unstar: { type: "boolean" },
+        archive: { type: "boolean" },
+        moveToInbox: { type: "boolean" },
+        addLabels: {
+          type: "array",
+          items: { type: "string" },
+          description: "User label names to apply (created if missing).",
+        },
+        removeLabels: {
+          type: "array",
+          items: { type: "string" },
+          description: "Label names or ids to remove.",
+        },
+      },
+      required: ["threadId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "send_mail",
+    description:
+      "Send email from a granted mailbox — this goes out immediately under the company's address, so only use it when the instruction explicitly allows sending; otherwise prefer `create_mail_draft`. Three forms: pass `draftMessageId` to send an existing draft; pass `threadId` (+ `bodyText`) to compose and send a reply; or pass `to` + `subject` + `bodyText` for a fresh message. Requires the `send` access level.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        draftMessageId: {
+          type: "string",
+          description: "Local message id of a draft to send as-is.",
+        },
+        threadId: { type: "string", description: "Reply on this thread." },
+        accountId: { type: "string", description: "Required for fresh composes with multiple grants." },
+        to: { type: "string", description: "Comma-separated recipients. Inferred for replies." },
+        cc: { type: "string" },
+        bcc: { type: "string" },
+        subject: { type: "string", description: "Inferred (Re: …) for replies." },
+        bodyText: { type: "string", description: "Plain-text body." },
+      },
+      additionalProperties: false,
+    },
+  },
 ];

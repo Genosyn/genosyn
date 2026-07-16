@@ -72,6 +72,13 @@ export type WsEvent =
       type: "notification.read";
       userId: string;
       notificationIds: string[];
+    }
+  | {
+      /** The Email section's local mirror changed (sync pass, write-through
+       * action, or a handover finishing). Coarse on purpose: clients
+       * refetch the views they have open rather than patching state. */
+      type: "mail.updated";
+      accountId: string;
     };
 
 type ConnectedSocket = {

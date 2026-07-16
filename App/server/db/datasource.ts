@@ -92,6 +92,13 @@ import { EmployeeChartGrant } from "./entities/EmployeeChartGrant.js";
 import { EmployeeDashboardGrant } from "./entities/EmployeeDashboardGrant.js";
 import { AppSetting } from "./entities/AppSetting.js";
 import { PushSubscription } from "./entities/PushSubscription.js";
+import { MailAccount } from "./entities/MailAccount.js";
+import { MailThread } from "./entities/MailThread.js";
+import { MailMessage } from "./entities/MailMessage.js";
+import { MailLabel } from "./entities/MailLabel.js";
+import { MailRule } from "./entities/MailRule.js";
+import { MailHandover } from "./entities/MailHandover.js";
+import { EmployeeMailAccountGrant } from "./entities/EmployeeMailAccountGrant.js";
 
 const entities = [
   User,
@@ -182,6 +189,13 @@ const entities = [
   EmployeeDashboardGrant,
   AppSetting,
   PushSubscription,
+  MailAccount,
+  MailThread,
+  MailMessage,
+  MailLabel,
+  MailRule,
+  MailHandover,
+  EmployeeMailAccountGrant,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

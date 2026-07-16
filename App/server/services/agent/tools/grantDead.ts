@@ -1,5 +1,6 @@
 import { AppDataSource } from "../../../db/datasource.js";
 import { EmployeeBaseGrant } from "../../../db/entities/EmployeeBaseGrant.js";
+import { EmployeeMailAccountGrant } from "../../../db/entities/EmployeeMailAccountGrant.js";
 
 /**
  * Which of an employee's tools can only ever answer "No grant".
@@ -46,6 +47,14 @@ const BASE_GATED_TOOLS = new Set([
 ]);
 
 /**
+ * The `mail` family (Email section, M25) is the second grant-dead surface:
+ * every op needs an `EmployeeMailAccountGrant` — there is no ungated create
+ * to keep it alive, and even `accounts`/`search` can only answer "no grant"
+ * for an employee with zero mailboxes.
+ */
+const MAIL_GATED_TOOLS = new Set(["mail"]);
+
+/**
  * The model-facing names that are dead weight for this employee right now.
  *
  * Fails safe: any error means we return an empty set and treat everything as
@@ -54,10 +63,16 @@ const BASE_GATED_TOOLS = new Set([
  */
 export async function deadToolNames(employeeId: string): Promise<Set<string>> {
   try {
+    const dead = new Set<string>();
     const bases = await AppDataSource.getRepository(EmployeeBaseGrant).count({
       where: { employeeId },
     });
-    return bases > 0 ? new Set() : new Set(BASE_GATED_TOOLS);
+    if (bases === 0) for (const t of BASE_GATED_TOOLS) dead.add(t);
+    const mailboxes = await AppDataSource.getRepository(
+      EmployeeMailAccountGrant,
+    ).count({ where: { employeeId } });
+    if (mailboxes === 0) for (const t of MAIL_GATED_TOOLS) dead.add(t);
+    return dead;
   } catch {
     return new Set();
   }

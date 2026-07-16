@@ -25,14 +25,16 @@ import {
 export type NotificationKind =
   | "mention"
   | "todo_review_requested"
-  | "approval_pending";
+  | "approval_pending"
+  | "mail_handover";
 
 export type NotificationActorKind = "user" | "ai" | "system";
 
 export type NotificationEntityKind =
   | "channel_message"
   | "todo"
-  | "approval";
+  | "approval"
+  | "mail_handover";
 
 @Entity("notifications")
 @Index(["userId", "readAt"])

@@ -61,6 +61,12 @@ import { SettingsEmailLogs } from "./pages/SettingsEmailLogs";
 import { SettingsSystemHealth } from "./pages/SettingsSystemHealth";
 import { HandoffsPage } from "./pages/EmployeeHandoffs";
 import Inbox from "./pages/Inbox";
+import MailLayout from "./pages/MailLayout";
+import MailThreadList from "./pages/MailThreadList";
+import MailThreadView from "./pages/MailThreadView";
+import MailRules from "./pages/MailRules";
+import MailHandovers from "./pages/MailHandovers";
+import MailSettings from "./pages/MailSettings";
 import HomePage from "./pages/Home";
 import { EmployeeConnections } from "./pages/EmployeeConnections";
 import Invite from "./pages/Invite";
@@ -232,6 +238,17 @@ function CompanyRoutes({
 
         {/* Inbox — company-wide rollup of today's journal entries. */}
         <Route path="inbox" element={<Inbox company={company} />} />
+
+        {/* Email (M25) — the company's Gmail inboxes. Sidebar = folders +
+            labels + automation; the index is the thread list, filtered by
+            `?view=` / `?label=` query params. */}
+        <Route path="mail" element={<MailLayout company={company} />}>
+          <Route index element={<MailThreadList />} />
+          <Route path="t/:threadId" element={<MailThreadView />} />
+          <Route path="rules" element={<MailRules />} />
+          <Route path="handovers" element={<MailHandovers />} />
+          <Route path="settings" element={<MailSettings />} />
+        </Route>
 
         {/* Employees section — sidebar = roster */}
         <Route path="employees" element={<EmployeesLayout company={company} />}>
