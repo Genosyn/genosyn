@@ -10,6 +10,7 @@ import {
   ChevronRight,
   ClipboardCheck,
   ListChecks,
+  Mail,
   MessageSquare,
   NotebookPen,
   ShieldCheck,
@@ -557,6 +558,8 @@ function KindIcon({
       return <ClipboardCheck size={12} className={className} />;
     case "approval_pending":
       return <ShieldCheck size={12} className={className} />;
+    case "mail_handover":
+      return <Mail size={12} className={className} />;
   }
 }
 
@@ -572,6 +575,10 @@ const KIND_TONE: Record<NotificationKind, { bg: string; fg: string }> = {
   approval_pending: {
     bg: "bg-amber-100 dark:bg-amber-500/15",
     fg: "text-amber-600 dark:text-amber-300",
+  },
+  mail_handover: {
+    bg: "bg-sky-100 dark:bg-sky-500/15",
+    fg: "text-sky-600 dark:text-sky-300",
   },
 };
 

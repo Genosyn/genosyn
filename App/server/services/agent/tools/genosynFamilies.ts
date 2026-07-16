@@ -197,6 +197,18 @@ const FAMILIES: Record<string, FamilySpec> = {
       add_card: "add_dashboard_card",
     },
   },
+  mail: {
+    blurb:
+      "Work with the company's Gmail mailboxes (the Email section). Access is granted per mailbox at read < draft < send; prefer `draft` over `send` unless explicitly told to send.",
+    ops: {
+      accounts: "list_mail_accounts",
+      search: "search_mail",
+      get: "get_mail_thread",
+      draft: "create_mail_draft",
+      update: "update_mail_thread",
+      send: "send_mail",
+    },
+  },
 };
 
 /** A collapsed family tool, ready to be turned into an {@link AgentTool}. */

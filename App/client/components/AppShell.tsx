@@ -14,6 +14,7 @@ import {
   type LucideIcon,
   ListChecks,
   LogOut,
+  Mail,
   MessageSquare,
   Monitor,
   Moon,
@@ -110,6 +111,7 @@ export function AppShell({ me, companies, current, onCompaniesChanged, children 
 type SectionKey =
   | "home"
   | "inbox"
+  | "mail"
   | "workspace"
   | "employees"
   | "skills"
@@ -197,6 +199,15 @@ export const SECTION_GROUPS: SectionGroup[] = [
         path: "/workspace",
         iconBg:
           "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300",
+      },
+      {
+        key: "mail",
+        label: "Email",
+        description: "Your Gmail inbox, with AI triage and drafts.",
+        icon: Mail,
+        path: "/mail",
+        iconBg:
+          "bg-sky-100 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300",
       },
       {
         key: "tasks",
@@ -536,6 +547,7 @@ function TopNav({
  */
 function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/inbox(\/|$)/.test(pathname)) return "inbox";
+  if (/\/c\/[^/]+\/mail(\/|$)/.test(pathname)) return "mail";
   if (/\/c\/[^/]+\/workspace(\/|$)/.test(pathname)) return "workspace";
   if (/\/c\/[^/]+\/employees(\/|$)/.test(pathname)) return "employees";
   if (/\/c\/[^/]+\/routines(\/|$)/.test(pathname)) return "routines";

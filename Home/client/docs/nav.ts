@@ -50,6 +50,7 @@ export const DOCS_NAV: DocsSection[] = [
   {
     label: "Operations",
     pages: [
+      { path: "/docs/email", title: "Email", blurb: "Connect Gmail, work your inbox, hand threads to AI employees, and triage new mail with rules." },
       { path: "/docs/tasks", title: "Tasks", blurb: "Projects, todos, and subtasks — assigned to humans or AI employees; restrict who reaches each project." },
       { path: "/docs/customers", title: "Customers", blurb: "Accounts, contacts, annual contract value, statements, and signed contracts." },
       { path: "/docs/finance", title: "Finance", blurb: "Estimates, invoices, bills, ledger, and reports — native double-entry accounting." },

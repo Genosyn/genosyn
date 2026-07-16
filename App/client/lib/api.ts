@@ -1504,7 +1504,8 @@ export type CodeRepoTestResult = {
 export type NotificationKind =
   | "mention"
   | "todo_review_requested"
-  | "approval_pending";
+  | "approval_pending"
+  | "mail_handover";
 
 export type NotificationActorKind = "user" | "ai" | "system";
 

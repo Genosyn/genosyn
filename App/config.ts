@@ -50,4 +50,25 @@ export const config = {
       clientSecret: "",
     },
   },
+
+  // Email section (M25) — Gmail mailbox sync tuning.
+  //
+  // Sync is poll-based (no Google Pub/Sub setup required): a 30s heartbeat
+  // syncs every active mailbox whose last sync is older than
+  // `syncIntervalSec`. The first import walks the ENTIRE mailbox (newest
+  // first) so everything is searchable locally; it is resumable and runs in
+  // bounded passes so it never blocks or hammers Gmail. After the backfill
+  // completes, sync is incremental via the Gmail history API.
+  mail: {
+    // How often an up-to-date mailbox re-checks for new mail.
+    syncIntervalSec: 60,
+    // Per backfill pass: stop after this many threads or this many seconds,
+    // then resume on the next heartbeat. Bounds each pass's Gmail API burst.
+    backfillThreadsPerPass: 200,
+    backfillPassSeconds: 25,
+    // Only-recent cap. 0 = import the whole mailbox (the default — the point
+    // is that nothing needs Gmail). Set to e.g. 365 to limit the first import
+    // to the last year on a very large account.
+    backfillDays: 0,
+  },
 } as const;

@@ -54,6 +54,22 @@ import {
   uniqueTableSlug,
 } from "../services/bases.js";
 import { findBaseTemplate } from "../services/baseTemplates.js";
+import {
+  EmployeeMailAccountGrant,
+  MAIL_ACCESS_RANK,
+  type MailAccessLevel,
+} from "../db/entities/EmployeeMailAccountGrant.js";
+import { MailAccount } from "../db/entities/MailAccount.js";
+import { MailMessage } from "../db/entities/MailMessage.js";
+import { MailThread } from "../db/entities/MailThread.js";
+import { MailLabel } from "../db/entities/MailLabel.js";
+import {
+  createMailDraft,
+  performThreadAction,
+  sendMailDraft,
+  sendMailMessage,
+} from "../services/mail/actions.js";
+import { columnToLabelIds } from "../services/mail/store.js";
 import { Base } from "../db/entities/Base.js";
 import { BaseTable } from "../db/entities/BaseTable.js";
 import { BaseField, BaseFieldType } from "../db/entities/BaseField.js";
@@ -4824,5 +4840,553 @@ mcpInternalRouter.post(
       metadata: { via: "mcp", chartId: chart.id },
     });
     res.json({ card: serializeCard(card) });
+  },
+);
+
+// ----- Email (M25): grant-gated mail tools -----
+//
+// Mirrors the human routes in `routes/mail.ts` but resolves the actor from
+// the MCP token and enforces `EmployeeMailAccountGrant` levels:
+// read < draft < send. Every write records an AuditEvent (actorKind "ai")
+// and a JournalEntry, like the rest of this file.
+
+/** Resolve the target mail account for a tool call and enforce the grant.
+ * When `accountId` is omitted and the employee holds exactly one grant, that
+ * account is used. Writes the error response itself and returns null on
+ * failure. */
+async function loadGrantedMailAccount(
+  req: McpRequest,
+  res: Response,
+  accountId: string | undefined,
+  required: MailAccessLevel,
+): Promise<MailAccount | null> {
+  const self = req.mcpEmployee!;
+  const co = req.mcpCompany!;
+  const grantRepo = AppDataSource.getRepository(EmployeeMailAccountGrant);
+  const accountRepo = AppDataSource.getRepository(MailAccount);
+
+  let account: MailAccount | null = null;
+  if (accountId) {
+    account = await accountRepo.findOneBy({ id: accountId, companyId: co.id });
+    if (!account) {
+      res.status(404).json({ error: "Mail account not found" });
+      return null;
+    }
+  } else {
+    const grants = await grantRepo.find({ where: { employeeId: self.id } });
+    const accounts = grants.length
+      ? await accountRepo.find({
+          where: { id: In(grants.map((g) => g.accountId)), companyId: co.id },
+        })
+      : [];
+    if (accounts.length === 1) {
+      account = accounts[0];
+    } else {
+      res.status(400).json({
+        error:
+          accounts.length === 0
+            ? "No grant: you do not have access to any mailbox. Ask a human to grant one under Email → Settings → AI access."
+            : "You have access to several mailboxes — pass `accountId` (see list_mail_accounts).",
+      });
+      return null;
+    }
+  }
+
+  const grant = await grantRepo.findOneBy({
+    employeeId: self.id,
+    accountId: account.id,
+  });
+  if (!grant || MAIL_ACCESS_RANK[grant.accessLevel] < MAIL_ACCESS_RANK[required]) {
+    res.status(403).json({
+      error: grant
+        ? `No grant: this needs the "${required}" access level on ${account.address}; yours is "${grant.accessLevel}".`
+        : `No grant: you do not have access to ${account.address}.`,
+    });
+    return null;
+  }
+  return account;
+}
+
+/** Load a thread and enforce the grant on its account. */
+async function loadGrantedMailThread(
+  req: McpRequest,
+  res: Response,
+  threadId: string,
+  required: MailAccessLevel,
+): Promise<{ thread: MailThread; account: MailAccount } | null> {
+  const co = req.mcpCompany!;
+  const thread = await AppDataSource.getRepository(MailThread).findOneBy({
+    id: threadId,
+    companyId: co.id,
+  });
+  if (!thread) {
+    res.status(404).json({ error: "Thread not found" });
+    return null;
+  }
+  const account = await loadGrantedMailAccount(req, res, thread.accountId, required);
+  if (!account) return null;
+  return { thread, account };
+}
+
+function serializeMailThreadForAgent(t: MailThread) {
+  return {
+    threadId: t.id,
+    subject: t.subject,
+    snippet: t.snippet,
+    participants: t.participants,
+    labels: columnToLabelIds(t.labelIds),
+    unread: t.unread,
+    messageCount: t.messageCount,
+    hasAttachments: t.hasAttachments,
+    lastMessageAt: t.lastMessageAt ? t.lastMessageAt.toISOString() : null,
+  };
+}
+
+/** Agent view of one message: text body only, capped — HTML stays server-side. */
+const AGENT_MAIL_BODY_CAP = 20_000;
+function serializeMailMessageForAgent(m: MailMessage) {
+  let attachments: unknown[] = [];
+  try {
+    attachments = (JSON.parse(m.attachmentsJson) as Array<{
+      filename?: string;
+      mimeType?: string;
+      size?: number;
+    }>).map((a) => ({ filename: a.filename, mimeType: a.mimeType, size: a.size }));
+  } catch {
+    attachments = [];
+  }
+  const body = m.bodyText || m.snippet;
+  return {
+    messageId: m.id,
+    isDraft: m.gmailDraftId !== "",
+    from: m.fromName ? `${m.fromName} <${m.fromEmail}>` : m.fromEmail,
+    to: m.toEmails,
+    cc: m.ccEmails,
+    subject: m.subject,
+    sentAt: m.sentAt ? m.sentAt.toISOString() : null,
+    labels: columnToLabelIds(m.labelIds),
+    bodyText:
+      body.length > AGENT_MAIL_BODY_CAP
+        ? `${body.slice(0, AGENT_MAIL_BODY_CAP)}\n… [truncated]`
+        : body,
+    attachments,
+  };
+}
+
+mcpInternalRouter.post(
+  "/tools/list_mail_accounts",
+  async (req: McpRequest, res: Response) => {
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const grants = await AppDataSource.getRepository(EmployeeMailAccountGrant).find({
+      where: { employeeId: self.id },
+    });
+    const accounts = grants.length
+      ? await AppDataSource.getRepository(MailAccount).find({
+          where: { id: In(grants.map((g) => g.accountId)), companyId: co.id },
+        })
+      : [];
+    const byId = new Map(accounts.map((a) => [a.id, a]));
+    res.json({
+      accounts: grants.flatMap((g) => {
+        const a = byId.get(g.accountId);
+        return a
+          ? [
+              {
+                accountId: a.id,
+                address: a.address,
+                status: a.status,
+                accessLevel: g.accessLevel,
+              },
+            ]
+          : [];
+      }),
+    });
+  },
+);
+
+const searchMailSchema = z
+  .object({
+    accountId: z.string().uuid().optional(),
+    query: z.string().max(500).optional(),
+    from: z.string().max(200).optional(),
+    to: z.string().max(200).optional(),
+    after: z.string().max(30).optional(),
+    before: z.string().max(30).optional(),
+    label: z.string().max(200).optional(),
+    unreadOnly: z.boolean().optional(),
+    hasAttachment: z.boolean().optional(),
+    limit: z.number().int().min(1).max(50).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/search_mail",
+  validateBody(searchMailSchema),
+  async (req: McpRequest, res: Response) => {
+    const body = req.body as z.infer<typeof searchMailSchema>;
+    const account = await loadGrantedMailAccount(req, res, body.accountId, "read");
+    if (!account) return;
+
+    let labelId = "";
+    if (body.label) {
+      // Accept a Gmail label id verbatim or resolve a user label by name.
+      const labels = await AppDataSource.getRepository(MailLabel).find({
+        where: { accountId: account.id },
+      });
+      const match =
+        labels.find((l) => l.gmailLabelId === body.label) ??
+        labels.find((l) => l.name.toLowerCase() === body.label!.toLowerCase());
+      if (!match) return res.json({ threads: [], note: `No label "${body.label}" on this mailbox.` });
+      labelId = match.gmailLabelId;
+    }
+
+    let qb = AppDataSource.getRepository(MailThread)
+      .createQueryBuilder("t")
+      .where("t.accountId = :aid", { aid: account.id })
+      .andWhere("t.lastMessageAt IS NOT NULL")
+      .andWhere("t.labelIds NOT LIKE :trash", { trash: "% TRASH %" });
+    if (labelId) {
+      qb = qb.andWhere("t.labelIds LIKE :lbl", { lbl: `% ${labelId} %` });
+    }
+    if (body.unreadOnly) qb = qb.andWhere("t.unread = :unread", { unread: true });
+    if (body.hasAttachment) {
+      qb = qb.andWhere("t.hasAttachments = :hasAtt", { hasAtt: true });
+    }
+    // Free-text over the full index: subject, participants, and message body.
+    if (body.query?.trim()) {
+      qb = qb.andWhere(
+        `(LOWER(t.subject) LIKE :q OR LOWER(t.participants) LIKE :q
+          OR EXISTS (SELECT 1 FROM mail_messages m WHERE m.threadId = t.id AND LOWER(m.bodyText) LIKE :q))`,
+        { q: `%${body.query.trim().toLowerCase()}%` },
+      );
+    }
+    if (body.from?.trim()) {
+      qb = qb.andWhere(
+        `EXISTS (SELECT 1 FROM mail_messages m WHERE m.threadId = t.id
+                 AND (LOWER(m.fromEmail) LIKE :from OR LOWER(m.fromName) LIKE :from))`,
+        { from: `%${body.from.trim().toLowerCase()}%` },
+      );
+    }
+    if (body.to?.trim()) {
+      qb = qb.andWhere(
+        `EXISTS (SELECT 1 FROM mail_messages m WHERE m.threadId = t.id
+                 AND (LOWER(m.toEmails) LIKE :to OR LOWER(m.ccEmails) LIKE :to))`,
+        { to: `%${body.to.trim().toLowerCase()}%` },
+      );
+    }
+    const after = body.after ? new Date(body.after) : null;
+    if (after && !Number.isNaN(after.getTime())) {
+      qb = qb.andWhere("t.lastMessageAt >= :after", { after });
+    }
+    const before = body.before ? new Date(body.before) : null;
+    if (before && !Number.isNaN(before.getTime())) {
+      qb = qb.andWhere("t.lastMessageAt < :before", { before });
+    }
+    const threads = await qb
+      .orderBy("t.lastMessageAt", "DESC")
+      .take(body.limit ?? 20)
+      .getMany();
+    res.json({ threads: threads.map(serializeMailThreadForAgent) });
+  },
+);
+
+const getMailThreadSchema = z
+  .object({ threadId: z.string().uuid() })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/get_mail_thread",
+  validateBody(getMailThreadSchema),
+  async (req: McpRequest, res: Response) => {
+    const body = req.body as z.infer<typeof getMailThreadSchema>;
+    const found = await loadGrantedMailThread(req, res, body.threadId, "read");
+    if (!found) return;
+    const messages = await AppDataSource.getRepository(MailMessage).find({
+      where: { threadId: found.thread.id },
+      order: { sentAt: "ASC" },
+    });
+    res.json({
+      thread: serializeMailThreadForAgent(found.thread),
+      account: { accountId: found.account.id, address: found.account.address },
+      messages: messages.map(serializeMailMessageForAgent),
+    });
+  },
+);
+
+const createMailDraftSchema = z
+  .object({
+    threadId: z.string().uuid().optional(),
+    accountId: z.string().uuid().optional(),
+    to: z.string().max(2000).optional(),
+    cc: z.string().max(2000).optional(),
+    bcc: z.string().max(2000).optional(),
+    subject: z.string().max(1000).optional(),
+    bodyText: z.string().min(1).max(200_000),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/create_mail_draft",
+  validateBody(createMailDraftSchema),
+  async (req: McpRequest, res: Response) => {
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const body = req.body as z.infer<typeof createMailDraftSchema>;
+
+    let thread: MailThread | null = null;
+    let account: MailAccount | null;
+    if (body.threadId) {
+      const found = await loadGrantedMailThread(req, res, body.threadId, "draft");
+      if (!found) return;
+      thread = found.thread;
+      account = found.account;
+    } else {
+      account = await loadGrantedMailAccount(req, res, body.accountId, "draft");
+      if (!account) return;
+      if (!body.to) {
+        return res
+          .status(400)
+          .json({ error: "`to` is required for a fresh compose (no threadId)." });
+      }
+    }
+
+    try {
+      const message = await createMailDraft(
+        account,
+        {
+          to: body.to ?? "",
+          cc: body.cc,
+          bcc: body.bcc,
+          subject: body.subject,
+          bodyText: body.bodyText,
+        },
+        thread,
+      );
+      await recordAudit({
+        companyId: co.id,
+        actorEmployeeId: self.id,
+        action: "mail.draft.create",
+        targetType: "mail_message",
+        targetId: message.id,
+        targetLabel: message.subject || "(no subject)",
+        metadata: { via: "mcp", threadId: thread?.id ?? null },
+      });
+      await journal(
+        self.id,
+        `Drafted an email: "${message.subject || "(no subject)"}"`,
+        thread ? `Reply draft on thread ${thread.id} in ${account.address}.` : `New draft in ${account.address}.`,
+      );
+      res.json({
+        message: serializeMailMessageForAgent(message),
+        note: "Draft saved to the thread and to Gmail Drafts. A human can now review and send it.",
+      });
+    } catch (err) {
+      res
+        .status(400)
+        .json({ error: err instanceof Error ? err.message : "Draft failed" });
+    }
+  },
+);
+
+const updateMailThreadSchema = z
+  .object({
+    threadId: z.string().uuid(),
+    markRead: z.boolean().optional(),
+    markUnread: z.boolean().optional(),
+    star: z.boolean().optional(),
+    unstar: z.boolean().optional(),
+    archive: z.boolean().optional(),
+    moveToInbox: z.boolean().optional(),
+    addLabels: z.array(z.string().min(1).max(200)).max(10).optional(),
+    removeLabels: z.array(z.string().min(1).max(200)).max(10).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/update_mail_thread",
+  validateBody(updateMailThreadSchema),
+  async (req: McpRequest, res: Response) => {
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const body = req.body as z.infer<typeof updateMailThreadSchema>;
+    const found = await loadGrantedMailThread(req, res, body.threadId, "draft");
+    if (!found) return;
+
+    const applied: string[] = [];
+    try {
+      if (body.markRead) {
+        await performThreadAction(found.account, found.thread, "markRead");
+        applied.push("markRead");
+      }
+      if (body.markUnread) {
+        await performThreadAction(found.account, found.thread, "markUnread");
+        applied.push("markUnread");
+      }
+      if (body.star) {
+        await performThreadAction(found.account, found.thread, "star");
+        applied.push("star");
+      }
+      if (body.unstar) {
+        await performThreadAction(found.account, found.thread, "unstar");
+        applied.push("unstar");
+      }
+      if (body.archive) {
+        await performThreadAction(found.account, found.thread, "archive");
+        applied.push("archive");
+      }
+      if (body.moveToInbox) {
+        await performThreadAction(found.account, found.thread, "moveToInbox");
+        applied.push("moveToInbox");
+      }
+      for (const name of body.addLabels ?? []) {
+        await performThreadAction(found.account, found.thread, "applyLabel", {
+          labelName: name,
+        });
+        applied.push(`+${name}`);
+      }
+      for (const name of body.removeLabels ?? []) {
+        await performThreadAction(found.account, found.thread, "removeLabel", {
+          labelName: name,
+        });
+        applied.push(`-${name}`);
+      }
+    } catch (err) {
+      return res.status(400).json({
+        error: err instanceof Error ? err.message : "Update failed",
+        applied,
+      });
+    }
+    if (applied.length === 0) {
+      return res
+        .status(400)
+        .json({ error: "Nothing to do — pass at least one action flag or label." });
+    }
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "mail.thread.action",
+      targetType: "mail_thread",
+      targetId: found.thread.id,
+      targetLabel: found.thread.subject || "(no subject)",
+      metadata: { via: "mcp", applied },
+    });
+    await journal(
+      self.id,
+      `Triaged an email thread: "${found.thread.subject || "(no subject)"}"`,
+      `Applied: ${applied.join(", ")} (${found.account.address}).`,
+    );
+    const fresh = await AppDataSource.getRepository(MailThread).findOneBy({
+      id: found.thread.id,
+    });
+    res.json({
+      thread: fresh ? serializeMailThreadForAgent(fresh) : null,
+      applied,
+    });
+  },
+);
+
+const sendMailSchema = z
+  .object({
+    draftMessageId: z.string().uuid().optional(),
+    threadId: z.string().uuid().optional(),
+    accountId: z.string().uuid().optional(),
+    to: z.string().max(2000).optional(),
+    cc: z.string().max(2000).optional(),
+    bcc: z.string().max(2000).optional(),
+    subject: z.string().max(1000).optional(),
+    bodyText: z.string().max(200_000).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/send_mail",
+  validateBody(sendMailSchema),
+  async (req: McpRequest, res: Response) => {
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const body = req.body as z.infer<typeof sendMailSchema>;
+
+    try {
+      if (body.draftMessageId) {
+        const draft = await AppDataSource.getRepository(MailMessage).findOneBy({
+          id: body.draftMessageId,
+          companyId: co.id,
+        });
+        if (!draft || !draft.gmailDraftId) {
+          return res.status(404).json({ error: "Draft not found" });
+        }
+        const account = await loadGrantedMailAccount(req, res, draft.accountId, "send");
+        if (!account) return;
+        const sent = await sendMailDraft(account, draft);
+        await recordAudit({
+          companyId: co.id,
+          actorEmployeeId: self.id,
+          action: "mail.send",
+          targetType: "mail_message",
+          targetId: sent.id,
+          targetLabel: sent.subject || "(no subject)",
+          metadata: { via: "mcp", fromDraft: true },
+        });
+        await journal(
+          self.id,
+          `Sent an email: "${sent.subject || "(no subject)"}"`,
+          `Sent a reviewed draft from ${account.address} to ${sent.toEmails}.`,
+        );
+        return res.json({ message: serializeMailMessageForAgent(sent) });
+      }
+
+      if (!body.bodyText) {
+        return res
+          .status(400)
+          .json({ error: "`bodyText` is required unless sending an existing draft." });
+      }
+      let thread: MailThread | null = null;
+      let account: MailAccount | null;
+      if (body.threadId) {
+        const found = await loadGrantedMailThread(req, res, body.threadId, "send");
+        if (!found) return;
+        thread = found.thread;
+        account = found.account;
+      } else {
+        account = await loadGrantedMailAccount(req, res, body.accountId, "send");
+        if (!account) return;
+        if (!body.to || !body.subject) {
+          return res.status(400).json({
+            error: "`to` and `subject` are required for a fresh compose (no threadId).",
+          });
+        }
+      }
+      const sent = await sendMailMessage(
+        account,
+        {
+          to: body.to ?? "",
+          cc: body.cc,
+          bcc: body.bcc,
+          subject: body.subject,
+          bodyText: body.bodyText,
+        },
+        thread,
+      );
+      await recordAudit({
+        companyId: co.id,
+        actorEmployeeId: self.id,
+        action: "mail.send",
+        targetType: "mail_message",
+        targetId: sent.id,
+        targetLabel: sent.subject || "(no subject)",
+        metadata: { via: "mcp", threadId: thread?.id ?? null },
+      });
+      await journal(
+        self.id,
+        `Sent an email: "${sent.subject || "(no subject)"}"`,
+        `From ${account.address} to ${sent.toEmails}.`,
+      );
+      res.json({ message: serializeMailMessageForAgent(sent) });
+    } catch (err) {
+      res
+        .status(400)
+        .json({ error: err instanceof Error ? err.message : "Send failed" });
+    }
   },
 );

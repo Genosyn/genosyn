@@ -14,6 +14,7 @@ import { OpenSourceModels } from "@/docs/pages/OpenSourceModels";
 import { Integrations } from "@/docs/pages/Integrations";
 import { CodeRepositories } from "@/docs/pages/Code";
 import { Explore } from "@/docs/pages/Explore";
+import { Email } from "@/docs/pages/Email";
 import { Tasks } from "@/docs/pages/Tasks";
 import { Customers } from "@/docs/pages/Customers";
 import { Finance } from "@/docs/pages/Finance";
@@ -36,6 +37,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/integrations": Integrations,
   "/docs/code": CodeRepositories,
   "/docs/explore": Explore,
+  "/docs/email": Email,
   "/docs/tasks": Tasks,
   "/docs/customers": Customers,
   "/docs/finance": Finance,

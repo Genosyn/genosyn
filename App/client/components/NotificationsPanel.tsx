@@ -5,6 +5,7 @@ import {
   Bell,
   CheckCircle2,
   ClipboardCheck,
+  Mail,
   ShieldCheck,
 } from "lucide-react";
 import {
@@ -328,6 +329,8 @@ function KindIcon({
       return <ClipboardCheck size={size} className={className} />;
     case "approval_pending":
       return <ShieldCheck size={size} className={className} />;
+    case "mail_handover":
+      return <Mail size={size} className={className} />;
   }
 }
 
@@ -346,6 +349,10 @@ const KIND_TONE: Record<
   approval_pending: {
     iconBg: "bg-amber-100 dark:bg-amber-500/15",
     iconFg: "text-amber-600 dark:text-amber-300",
+  },
+  mail_handover: {
+    iconBg: "bg-sky-100 dark:bg-sky-500/15",
+    iconFg: "text-sky-600 dark:text-sky-300",
   },
 };
 

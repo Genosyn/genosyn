@@ -311,3 +311,40 @@ html.dark .block-editable[data-placeholder]:has(br:only-child)::before {
 html.dark .block-editable {
   caret-color: rgb(226 232 240);
 }
+
+/* Email section (M25) — rendered message HTML. Emails arrive with their own
+   inline styling; contain it so a marketing blast can't blow the layout. */
+.mail-html {
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: rgb(51 65 85); /* slate-700 */
+  overflow-x: auto;
+  word-break: break-word;
+}
+html.dark .mail-html {
+  color: rgb(203 213 225); /* slate-300 */
+}
+.mail-html img {
+  max-width: 100%;
+  height: auto;
+}
+.mail-html table {
+  max-width: 100%;
+}
+.mail-html a {
+  color: rgb(79 70 229); /* indigo-600 */
+  text-decoration: underline;
+}
+html.dark .mail-html a {
+  color: rgb(129 140 248); /* indigo-400 */
+}
+.mail-html blockquote {
+  border-left: 3px solid rgb(226 232 240); /* slate-200 */
+  margin: 0.5rem 0;
+  padding-left: 0.75rem;
+  color: rgb(100 116 139); /* slate-500 */
+}
+html.dark .mail-html blockquote {
+  border-left-color: rgb(51 65 85);
+  color: rgb(148 163 184);
+}

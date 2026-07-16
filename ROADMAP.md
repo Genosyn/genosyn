@@ -78,6 +78,9 @@ don't re-litigate them.
   attachments.
 - **Channel / DM** — Slack-style workspace chat between humans and AI.
 - **Handoff** — formal AI→AI delegation with status workflow.
+- **Mail Handover** — one email thread handed to one AI employee to draft,
+  reply, or triage (Email section, M25). Distinct from a Handoff, which is
+  AI→AI.
 - **Approval** — gate that blocks an action until a human ✓.
 
 ---
@@ -130,7 +133,9 @@ genosyn/
 - **Code (M21):** `CodeRepository`, `EmployeeCodeRepositoryGrant`
 - **Approvals + audit:** `Approval` (kind: routine | lightning_payment | …),
   `AuditEvent`, `Notification`
-- **Email:** `EmailProvider`, `EmailLog`
+- **Email (transactional sends):** `EmailProvider`, `EmailLog`
+- **Email client (M25):** `MailAccount`, `MailThread`, `MailMessage`,
+  `MailLabel`, `MailRule`, `MailHandover`, `EmployeeMailAccountGrant`
 - **Backups:** `Backup`, `BackupSchedule`, `BackupDestination`
 - **Secrets:** `Secret`
 
@@ -251,6 +256,75 @@ own, alongside Routines — same shape, same reasoning.
       Settings tabs. ⌘S saves the playbook, as the docs always claimed.
 - [x] The employee Skills tab redirects to the company list filtered to
       that employee
+
+### M25 — Email (agentic Gmail client) ✅
+
+A top-level **Email** section: connect a Gmail account through the existing
+Google integration, read and act on the mailbox like a mail client, and hand
+threads to AI employees — on demand or automatically when mail arrives.
+Distinct from the transactional **EmailProvider / EmailLog** subsystem (which
+sends system mail); this is the company's real inbox. Internal namespace is
+`Mail*` / `/api/companies/:cid/mail` so the two never collide.
+
+- [x] **Entities.** `MailAccount` (rides on a `google` IntegrationConnection
+      whose consent included the Gmail scope group; stores address, sync
+      cursor `historyId`, status), `MailThread` + `MailMessage` (local mirror
+      of the mailbox: headers, text + HTML bodies with size caps, label ids,
+      attachment metadata), `MailLabel` (system + user labels),
+      `MailRule` (automation on inbound mail), `MailHandover` (one thread
+      handed to one AI employee with a status lifecycle), and
+      `EmployeeMailAccountGrant` with three escalating capabilities
+      `read` < `draft` < `send` (default `draft`: an employee can triage and
+      write drafts, but a human presses Send).
+- [x] **Two-way sync** (`services/mail/`). 30s heartbeat poller (same shape
+      as cron.ts) per active account. The first import walks the **entire
+      mailbox** newest-first — resumable across passes via a persisted
+      `backfillPageToken` cursor + `backfilledCount` progress, so a large
+      account imports fully in the background without blocking or flooding
+      the API — then `history.list` incremental sync from the stored
+      `historyId` (re-anchors with a fresh import + stale-row prune when
+      Gmail expires the cursor). Errored accounts self-heal on a slower
+      retry cadence rather than parking forever. Every action taken in
+      Genosyn — read/unread, star, archive, trash, label, draft, send —
+      writes through to the Gmail API first and re-syncs the affected
+      messages, so Gmail and Genosyn stay consistent both ways. No Pub/Sub
+      dependency: polling keeps self-hosted installs zero-config.
+- [x] **Mail client UI** under `/c/<co>/mail`: folder + label sidebar with
+      unread counts and import progress, thread list with **full-body
+      search** (subject, participants, and message text via a portable
+      EXISTS subquery), thread view (sanitized HTML bodies via DOMPurify —
+      remote images blocked in the DOM until clicked, inline data:/cid
+      images allowed), compose / reply / reply-all / **forward**,
+      **outbound attachments** (staged upload + multipart/mixed MIME),
+      inbound attachment download, drafts (including drafts AI employees
+      wrote — edit then send), per-thread actions, account settings. The
+      goal: never open Gmail to work the inbox.
+- [x] **Hand to AI.** "Hand to AI" on any thread picks a granted employee,
+      an instruction, and a mode: `draft` (employee writes a Gmail draft
+      into the thread for human review), `reply` (employee sends —
+      requires the `send` grant), or `triage` (employee labels / archives /
+      flags). Handovers run through the chat seam (`chatWithEmployee`) on a
+      small in-process queue; status + result surface in the thread view
+      and the Handovers page, with bell notifications on completion/failure.
+- [x] **Rules.** Per-account automation evaluated on every new inbound
+      message the sync ingests: conditions (from / to / subject / body
+      contains, has attachment) → actions (apply label, mark read, star,
+      archive, hand to an AI employee with an instruction + mode). This is
+      the "when an email comes in, ask an AI employee to categorize it"
+      loop. Scheduled email work (inbox digests etc.) needs no new
+      machinery — Routines can call the mail tools.
+- [x] **MCP surface.** `list_mail_accounts`, `search_mail` (full-body index
+      search with from / to / date / label / attachment filters),
+      `get_mail_thread`, `create_mail_draft`, `update_mail_thread`,
+      `send_mail` — grant-gated per account + capability, collapsed into a
+      single `mail` family tool for the agent. AI writes record AuditEvent +
+      JournalEntry like every other MCP write.
+- [ ] Gmail Pub/Sub push (instant sync) — deferred; polling is the
+      self-host-friendly default
+- [ ] Forwarding original attachments (re-fetch + re-stage) and send-as
+      aliases — deferred (forwarded body notes original attachment names)
+- [ ] Approval-gated `send_mail` (Approval kind `mail_send`) — deferred;
+      the `draft` grant level is the human gate today
 
 ### M6 — AI Models (employee-owned) ✅
 > **Superseded by M22.** The provider-CLI harnesses, subscription sign-in, and
