@@ -270,20 +270,13 @@ function encodeRfc822(m: {
     .replace(/=+$/, "");
 }
 
-/** The pre-attachments shape, unchanged. */
 function bodyOnlyMessage(
   headers: string[],
   body: string,
   html?: string,
 ): string {
   if (!html) {
-    return [
-      ...headers,
-      `Content-Type: text/plain; charset="UTF-8"`,
-      "Content-Transfer-Encoding: 7bit",
-      "",
-      body,
-    ].join("\r\n");
+    return [...headers, ...textPart("text/plain", body)].join("\r\n");
   }
   const boundary = newBoundary();
   return [
@@ -316,12 +309,7 @@ function mixedMessage(
       ...alternativeParts(inner, body, html),
     );
   } else {
-    lines.push(
-      `Content-Type: text/plain; charset="UTF-8"`,
-      "Content-Transfer-Encoding: 7bit",
-      "",
-      body,
-    );
+    lines.push(...textPart("text/plain", body));
   }
 
   for (const att of attachments) {
@@ -345,18 +333,85 @@ function alternativeParts(
 ): string[] {
   return [
     `--${boundary}`,
-    `Content-Type: text/plain; charset="UTF-8"`,
-    "Content-Transfer-Encoding: 7bit",
-    "",
-    body,
+    ...textPart("text/plain", body),
     `--${boundary}`,
-    `Content-Type: text/html; charset="UTF-8"`,
-    "Content-Transfer-Encoding: 7bit",
-    "",
-    html,
+    ...textPart("text/html", html),
     `--${boundary}--`,
     "",
   ];
+}
+
+/**
+ * Header lines + encoded body for one text part.
+ *
+ * `7bit` is a promise that every octet is <= 127, and we were making it while
+ * emitting UTF-8 under `charset="UTF-8"` — so one accented character or emoji
+ * already put the message out of spec. Gmail is lenient enough that nobody
+ * noticed; stricter MTAs need not be.
+ *
+ * ASCII that already fits the line limit keeps riding 7bit, byte for byte as
+ * before: the claim is simply true in that case, and it is the overwhelmingly
+ * common one, so the long-shipping happy path stays untouched. Anything else
+ * — non-ASCII, or a line past the RFC 5322 998-octet ceiling — moves to
+ * quoted-printable, which is where the bug actually lived.
+ */
+function textPart(mimeType: string, content: string): string[] {
+  const encode = needsTransferEncoding(content);
+  return [
+    `Content-Type: ${mimeType}; charset="UTF-8"`,
+    `Content-Transfer-Encoding: ${encode ? "quoted-printable" : "7bit"}`,
+    "",
+    encode ? encodeQuotedPrintable(content) : content,
+  ];
+}
+
+function needsTransferEncoding(text: string): boolean {
+  for (const byte of Buffer.from(text, "utf8")) {
+    if (byte > 0x7f) return true;
+  }
+  // 7bit also caps a line at 998 octets; quoted-printable's soft breaks are
+  // what keep a long unbroken line legal.
+  return text.split(/\r?\n/).some((line) => line.length > 998);
+}
+
+/** RFC 2045 §6.7. Encodes per source line, then soft-wraps to 76 columns. */
+function encodeQuotedPrintable(text: string): string {
+  return text
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map(encodeQpLine)
+    .join("\r\n");
+}
+
+function encodeQpLine(line: string): string {
+  const bytes = Buffer.from(line, "utf8");
+  // Atomic units: a literal character or an "=XX" triplet. Wrapping may never
+  // land inside a triplet, so build them first and wrap over the list.
+  const tokens: string[] = [];
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i];
+    const isLast = i === bytes.length - 1;
+    const isSpace = b === 0x20 || b === 0x09;
+    // Trailing whitespace must be encoded — a receiving MTA is free to strip
+    // it otherwise, silently changing the body.
+    if (isSpace && !isLast) tokens.push(String.fromCharCode(b));
+    else if (b === 0x3d || isSpace || b < 0x21 || b > 0x7e) {
+      tokens.push(`=${b.toString(16).toUpperCase().padStart(2, "0")}`);
+    } else tokens.push(String.fromCharCode(b));
+  }
+
+  const out: string[] = [];
+  let cur = "";
+  for (const token of tokens) {
+    // 75 + the trailing "=" soft break == the 76-column limit.
+    if (cur.length + token.length > 75) {
+      out.push(`${cur}=`);
+      cur = "";
+    }
+    cur += token;
+  }
+  out.push(cur);
+  return out.join("\r\n");
 }
 
 function newBoundary(): string {
