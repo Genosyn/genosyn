@@ -33,11 +33,8 @@ import {
   NotificationKind,
   TodoPriority,
 } from "../lib/api";
-import {
-  ContextualLayout,
-  SECTION_GROUPS,
-  SectionItem,
-} from "../components/AppShell";
+import { ContextualLayout } from "../components/AppShell";
+import { SECTION_GROUPS, SectionItem } from "../lib/sections";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Avatar";
 import { Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";

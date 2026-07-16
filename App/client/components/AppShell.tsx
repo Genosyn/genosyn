@@ -1,39 +1,26 @@
 import React from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
-  BarChart3,
-  CalendarClock,
   ChevronDown,
   ChevronRight,
   CircleUser,
-  Contact2,
-  FolderGit2,
-  GitBranch,
-  Home,
-  Library,
-  type LucideIcon,
-  ListChecks,
   LogOut,
-  Mail,
-  MessageSquare,
   Monitor,
   Moon,
-  NotebookPen,
-  NotebookText,
   PanelLeft,
   ServerCog,
-  Settings as SettingsIcon,
-  ShieldCheck,
   Sun,
-  Table2,
-  Users,
-  Wallet,
-  Wrench,
 } from "lucide-react";
 import { api, Company, Me } from "../lib/api";
+import { SECTION_BY_KEY, SectionItem, activeSection } from "../lib/sections";
 import { useToast } from "./ui/Toast";
 import { useDialog } from "./ui/Dialog";
 import { Avatar, meAvatarUrl } from "./ui/Avatar";
+import {
+  CommandPaletteProvider,
+  PALETTE_SHORTCUT,
+  useCommandPalette,
+} from "./CommandPalette";
 import { CompanySocketProvider } from "./CompanySocket";
 import { Logo, LogoMark } from "./Logo";
 import { NotificationsPanel } from "./NotificationsPanel";
@@ -49,7 +36,8 @@ import { useTheme, Theme } from "./Theme";
  *   │         │                                     │
  *   └─────────┴─────────────────────────────────────┘
  *
- * Sections live in the top nav (AI Employees / Routines / Settings / …). The
+ * Sections live in the ⌘K command palette, opened from the top nav's section
+ * pill or from anywhere by keyboard (see `CommandPalette`). The
  * sidebar is context-specific: the roster on the Employees section, an
  * employee's sub-nav (Chat / Skills / Journal / Settings / …) once one is
  * selected, the roster-as-filter on Routines, or Settings sub-pages on the
@@ -91,289 +79,22 @@ export function AppShell({ me, companies, current, onCompaniesChanged, children 
 
   return (
     <CompanySocketProvider companyId={current.id}>
-      <ContextualSidebarContext.Provider value={sidebarState}>
-        <div className="flex h-full flex-col">
-          <TopNav
-            me={me}
-            companies={companies}
-            current={current}
-            onCompaniesChanged={onCompaniesChanged}
-          />
-          <div className="flex min-h-0 flex-1">{children}</div>
-        </div>
-      </ContextualSidebarContext.Provider>
+      <CommandPaletteProvider me={me} companySlug={current.slug}>
+        <ContextualSidebarContext.Provider value={sidebarState}>
+          <div className="flex h-full flex-col">
+            <TopNav
+              me={me}
+              companies={companies}
+              current={current}
+              onCompaniesChanged={onCompaniesChanged}
+            />
+            <div className="flex min-h-0 flex-1">{children}</div>
+          </div>
+        </ContextualSidebarContext.Provider>
+      </CommandPaletteProvider>
     </CompanySocketProvider>
   );
 }
-
-// ───────────────────────── Section catalog ──────────────────────────────
-
-type SectionKey =
-  | "home"
-  | "inbox"
-  | "mail"
-  | "workspace"
-  | "employees"
-  | "skills"
-  | "routines"
-  | "tasks"
-  | "bases"
-  | "notes"
-  | "resources"
-  | "explore"
-  | "code"
-  | "customers"
-  | "finance"
-  | "pipelines"
-  | "approvals"
-  | "settings"
-  | "account"
-  | "admin";
-
-export type SectionItem = {
-  key: SectionKey;
-  label: string;
-  description: string;
-  icon: LucideIcon;
-  /** Path under `/c/<slug>/…` — empty string for the company root. */
-  path: string;
-  iconBg: string;
-};
-
-type SectionGroup = { label: string; items: SectionItem[] };
-
-export const SECTION_GROUPS: SectionGroup[] = [
-  {
-    // The three parts of an AI employee's working life: who they are, what
-    // they know, and what they do on a schedule. Skills and Routines used to
-    // be reachable only by opening an employee first, which made the
-    // company's playbook library and its schedule invisible.
-    label: "AI",
-    items: [
-      {
-        key: "employees",
-        label: "AI Employees",
-        description: "AI teammates and their souls.",
-        icon: Users,
-        path: "/employees",
-        iconBg:
-          "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
-      },
-      {
-        key: "skills",
-        label: "Skills",
-        description: "Playbooks your AI employees follow.",
-        icon: Wrench,
-        path: "/skills",
-        iconBg:
-          "bg-green-100 text-green-600 dark:bg-green-500/15 dark:text-green-300",
-      },
-      {
-        key: "routines",
-        label: "Routines",
-        description: "Scheduled work, and how every run went.",
-        icon: CalendarClock,
-        path: "/routines",
-        iconBg:
-          "bg-purple-100 text-purple-600 dark:bg-purple-500/15 dark:text-purple-300",
-      },
-    ],
-  },
-  {
-    label: "Essentials",
-    items: [
-      {
-        key: "home",
-        label: "Home",
-        description: "Everything that needs your attention.",
-        icon: Home,
-        path: "",
-        iconBg:
-          "bg-slate-100 text-slate-600 dark:bg-slate-700/40 dark:text-slate-200",
-      },
-      {
-        key: "workspace",
-        label: "Workspace",
-        description: "Slack-style channels and DMs.",
-        icon: MessageSquare,
-        path: "/workspace",
-        iconBg:
-          "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300",
-      },
-      {
-        key: "mail",
-        label: "Email",
-        description: "Your Gmail inbox, with AI triage and drafts.",
-        icon: Mail,
-        path: "/mail",
-        iconBg:
-          "bg-sky-100 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300",
-      },
-      {
-        key: "tasks",
-        label: "Tasks",
-        description: "Projects, todos, review queue.",
-        icon: ListChecks,
-        path: "/tasks",
-        iconBg:
-          "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300",
-      },
-    ],
-  },
-  {
-    label: "Knowledge",
-    items: [
-      {
-        key: "bases",
-        label: "Bases",
-        description: "Airtable-style structured data.",
-        icon: Table2,
-        path: "/bases",
-        iconBg:
-          "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300",
-      },
-      {
-        key: "notes",
-        label: "Notes",
-        description: "Notion-style markdown pages.",
-        icon: NotebookText,
-        path: "/notes",
-        iconBg:
-          "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300",
-      },
-      {
-        key: "resources",
-        label: "Resources",
-        description: "URLs, ebooks, transcripts AI employees can study.",
-        icon: Library,
-        path: "/resources",
-        iconBg:
-          "bg-fuchsia-100 text-fuchsia-600 dark:bg-fuchsia-500/15 dark:text-fuchsia-300",
-      },
-      {
-        key: "explore",
-        label: "Explore",
-        description: "Saved SQL charts and dashboards.",
-        icon: BarChart3,
-        path: "/explore",
-        iconBg:
-          "bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300",
-      },
-    ],
-  },
-  {
-    label: "Engineering",
-    items: [
-      {
-        key: "code",
-        label: "Code",
-        description: "Git repositories your AI employees can work on.",
-        icon: FolderGit2,
-        path: "/code",
-        iconBg:
-          "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
-      },
-      {
-        key: "pipelines",
-        label: "Pipelines",
-        description: "n8n-style visual automation.",
-        icon: GitBranch,
-        path: "/pipelines",
-        iconBg:
-          "bg-sky-100 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300",
-      },
-    ],
-  },
-  {
-    label: "Money",
-    items: [
-      {
-        key: "customers",
-        label: "Customers",
-        description: "Accounts and signed contracts.",
-        icon: Contact2,
-        path: "/customers",
-        iconBg:
-          "bg-pink-100 text-pink-600 dark:bg-pink-500/15 dark:text-pink-300",
-      },
-      {
-        key: "finance",
-        label: "Finance",
-        description: "Invoices, bills, and revenue.",
-        icon: Wallet,
-        path: "/finance",
-        iconBg:
-          "bg-teal-100 text-teal-600 dark:bg-teal-500/15 dark:text-teal-300",
-      },
-    ],
-  },
-  {
-    label: "System",
-    items: [
-      {
-        key: "inbox",
-        label: "Journal",
-        description: "Today's journal entries across employees.",
-        icon: NotebookPen,
-        path: "/inbox",
-        iconBg:
-          "bg-cyan-100 text-cyan-600 dark:bg-cyan-500/15 dark:text-cyan-300",
-      },
-      {
-        key: "approvals",
-        label: "Approvals",
-        description: "Gate routines that need a human.",
-        icon: ShieldCheck,
-        path: "/approvals",
-        iconBg:
-          "bg-orange-100 text-orange-600 dark:bg-orange-500/15 dark:text-orange-300",
-      },
-      {
-        key: "settings",
-        label: "Settings",
-        description: "Members, integrations, email, secrets.",
-        icon: SettingsIcon,
-        path: "/settings",
-        iconBg:
-          "bg-slate-200 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
-      },
-    ],
-  },
-];
-
-// ────────────────── Sections outside the mega-menu ───────────────────────
-// Account and Admin are deliberately NOT part of `SECTION_GROUPS`, so they
-// never show up in the products mega-menu. Everything in that menu is scoped to
-// the company you're currently viewing; these two are not. Both are reached via
-// the user menu instead, and still live in the catalog here so the section pill
-// and `activeSection()` can resolve their routes.
-
-/** Settings for the signed-in person, global across every company they belong to. */
-const ACCOUNT_SECTION: SectionItem = {
-  key: "account",
-  label: "Account",
-  description: "Your profile, password, and notifications.",
-  icon: CircleUser,
-  path: "/account",
-  iconBg:
-    "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
-};
-
-/** Instance-operator surface, restricted to master admins. */
-const ADMIN_SECTION: SectionItem = {
-  key: "admin",
-  label: "Admin",
-  description: "Users, companies, health, and backups.",
-  icon: ServerCog,
-  path: "/admin",
-  iconBg: "bg-slate-800 text-slate-100 dark:bg-slate-200/20 dark:text-slate-100",
-};
-
-const SECTION_BY_KEY: Record<SectionKey, SectionItem> = Object.fromEntries(
-  [...SECTION_GROUPS.flatMap((g) => g.items), ACCOUNT_SECTION, ADMIN_SECTION].map(
-    (i) => [i.key, i],
-  ),
-) as Record<SectionKey, SectionItem>;
 
 function TopNav({
   me,
@@ -478,7 +199,7 @@ function TopNav({
 
       <ChevronRight size={14} className="shrink-0 text-slate-300 dark:text-slate-600" />
 
-      <SectionMenu current={section} companySlug={current.slug} />
+      <SectionMenu current={section} />
 
       <div className="ml-auto flex items-center gap-2">
         <NotificationsPanel company={current} meId={me.id} />
@@ -541,142 +262,36 @@ function TopNav({
 }
 
 /**
- * Resolve the active top-level section from the URL path. Order matters
- * because some routes nest (e.g. `/employees/:slug/settings`); the `/settings`
- * check has to come AFTER more specific section checks fail.
+ * The section pill: shows where you are, and opens the ⌘K palette to go
+ * somewhere else. It used to drop a 56rem mega-menu down from the top nav —
+ * the palette does the same job centred, searchable, and without the mouse, so
+ * the pill is now just its click target for people who never learn shortcuts.
  */
-function activeSection(pathname: string): SectionKey {
-  if (/\/c\/[^/]+\/inbox(\/|$)/.test(pathname)) return "inbox";
-  if (/\/c\/[^/]+\/mail(\/|$)/.test(pathname)) return "mail";
-  if (/\/c\/[^/]+\/workspace(\/|$)/.test(pathname)) return "workspace";
-  if (/\/c\/[^/]+\/employees(\/|$)/.test(pathname)) return "employees";
-  if (/\/c\/[^/]+\/routines(\/|$)/.test(pathname)) return "routines";
-  if (/\/c\/[^/]+\/tasks(\/|$)/.test(pathname)) return "tasks";
-  if (/\/c\/[^/]+\/bases(\/|$)/.test(pathname)) return "bases";
-  if (/\/c\/[^/]+\/notes(\/|$)/.test(pathname)) return "notes";
-  if (/\/c\/[^/]+\/resources(\/|$)/.test(pathname)) return "resources";
-  if (/\/c\/[^/]+\/explore(\/|$)/.test(pathname)) return "explore";
-  if (/\/c\/[^/]+\/code(\/|$)/.test(pathname)) return "code";
-  if (/\/c\/[^/]+\/customers(\/|$)/.test(pathname)) return "customers";
-  if (/\/c\/[^/]+\/finance(\/|$)/.test(pathname)) return "finance";
-  if (/\/c\/[^/]+\/pipelines(\/|$)/.test(pathname)) return "pipelines";
-  if (/\/c\/[^/]+\/approvals(\/|$)/.test(pathname)) return "approvals";
-  if (/\/c\/[^/]+\/account(\/|$)/.test(pathname)) return "account";
-  if (/\/c\/[^/]+\/admin(\/|$)/.test(pathname)) return "admin";
-  if (/\/c\/[^/]+\/settings(\/|$)/.test(pathname)) return "settings";
-  return "home";
-}
-
-/**
- * Single section pill that opens the mega-menu. Replaces the row of
- * eight horizontal tabs we used before — the bell handles attention
- * counts, so the nav itself is purely a destination chooser now.
- */
-function SectionMenu({
-  current,
-  companySlug,
-}: {
-  current: SectionItem;
-  companySlug: string;
-}) {
-  const [open, setOpen] = React.useState(false);
-  const navigate = useNavigate();
+function SectionMenu({ current }: { current: SectionItem }) {
+  const palette = useCommandPalette();
   const Icon = current.icon;
 
-  React.useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
-
-  return (
-    <div className="relative shrink-0">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-2 rounded-md px-2 py-1 text-sm font-medium text-slate-900 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800"
-      >
-        <span
-          className={
-            "flex h-5 w-5 items-center justify-center rounded " + current.iconBg
-          }
-        >
-          <Icon size={12} />
-        </span>
-        <span className="hidden sm:inline">{current.label}</span>
-        <ChevronDown size={14} className="shrink-0 text-slate-400" />
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          {/* Below lg the 56rem mega-menu can't fit, so the panel pins to the
-              viewport edges instead of the pill and the grid collapses.
-              Three columns divides the six groups into two even rows; four
-              left a ragged half-empty second row. */}
-          <div className="fixed left-3 right-3 top-16 z-20 grid max-h-[calc(100dvh-5rem)] grid-cols-1 gap-4 overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 shadow-lg sm:grid-cols-2 lg:absolute lg:left-0 lg:right-auto lg:top-full lg:mt-2 lg:max-h-none lg:w-[56rem] lg:grid-cols-3 lg:gap-6 lg:overflow-visible lg:p-5 dark:border-slate-700 dark:bg-slate-900">
-            {SECTION_GROUPS.map((g) => (
-              <div key={g.label} className="flex flex-col gap-1">
-                <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                  {g.label}
-                </div>
-                {g.items.map((item) => (
-                  <SectionMenuItem
-                    key={item.key}
-                    item={item}
-                    active={item.key === current.key}
-                    onClick={() => {
-                      setOpen(false);
-                      navigate(`/c/${companySlug}${item.path}`);
-                    }}
-                  />
-                ))}
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function SectionMenuItem({
-  item,
-  active,
-  onClick,
-}: {
-  item: SectionItem;
-  active: boolean;
-  onClick: () => void;
-}) {
-  const Icon = item.icon;
   return (
     <button
-      onClick={onClick}
-      className={
-        "group flex items-start gap-3 rounded-lg p-2 text-left transition-colors " +
-        (active
-          ? "bg-slate-50 dark:bg-slate-800/60"
-          : "hover:bg-slate-50 dark:hover:bg-slate-800/60")
-      }
+      onClick={palette.open}
+      className="flex shrink-0 items-center gap-2 rounded-md px-2 py-1 text-sm font-medium text-slate-900 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800"
+      title={`Search sections (${PALETTE_SHORTCUT})`}
     >
       <span
         className={
-          "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg " +
-          item.iconBg
+          "flex h-5 w-5 items-center justify-center rounded " + current.iconBg
         }
       >
-        <Icon size={18} />
+        <Icon size={12} />
       </span>
-      <span className="min-w-0">
-        <span className="block text-sm font-medium text-slate-900 dark:text-slate-100">
-          {item.label}
-        </span>
-        <span className="block text-xs text-slate-500 dark:text-slate-400">
-          {item.description}
-        </span>
-      </span>
+      <span className="hidden sm:inline">{current.label}</span>
+      {/* The shortcut hint is the affordance on pointer-and-keyboard screens;
+          below sm there's no room and probably no keyboard, so fall back to
+          the chevron that says "this opens something". */}
+      <kbd className="hidden h-5 items-center rounded border border-slate-200 bg-slate-50 px-1 font-sans text-[10px] font-medium text-slate-400 sm:inline-flex dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500">
+        {PALETTE_SHORTCUT}
+      </kbd>
+      <ChevronDown size={14} className="shrink-0 text-slate-400 sm:hidden" />
     </button>
   );
 }

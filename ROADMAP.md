@@ -854,6 +854,11 @@ of the original V1 backlog has shipped — what remains is mostly
       `app_settings`, `PushSubscription` per device, fan-out on every
       bell row, `push`/`notificationclick` handlers in `sw.js`, opt-in
       from Home banner or Settings → Profile
+- [x] **Command palette (⌘K)** — centred, searchable directory of every
+      section, opened by `⌘K`/`Ctrl K` or the top-nav section pill. Ranked
+      search over labels, descriptions, and a hidden synonym index (typing
+      "cron" lands on Routines), full keyboard control. Replaced the mega-menu
+      that used to drop out of the section pill
 - [x] **Home page** — post-sign-in landing at the company root:
       unread notifications, my todos, reviews waiting on me, pending
       approvals, unread channels/DMs, today's journal digest, section
