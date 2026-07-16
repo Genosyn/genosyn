@@ -266,12 +266,38 @@ export const googleProvider: IntegrationProvider = {
   },
 };
 
-function assertScope(grantedScope: string, product: "gmail" | "drive", toolName: string): void {
-  // `scope` is a space-separated list of full scope URLs. We check the
-  // substring "gmail." or "drive." so any granted gmail/drive scope
-  // (modify, readonly, …) unlocks the matching tool family.
-  const needle = `auth/${product}.`;
-  if (!grantedScope.includes(needle)) {
+/** Every scope in `GOOGLE_SCOPE_GROUPS` lives under this prefix. */
+const GOOGLE_SCOPE_PREFIX = "https://www.googleapis.com/auth/";
+
+/**
+ * True when the consent Google returned carries any scope for `product`.
+ *
+ * Both scope shapes are real, and that is the whole reason this is a function
+ * rather than a substring test. Gmail only ever grants dotted scopes
+ * (`gmail.modify`), but Drive and Calendar grant the bare `auth/drive` /
+ * `auth/calendar` with no suffix at all. Testing for the substring
+ * `auth/<product>.` — with the trailing dot — therefore matched Gmail and
+ * silently rejected every bare grant, which made every Drive tool throw no
+ * matter what the user had consented to.
+ *
+ * Matching per whitespace-delimited token, anchored on the full prefix, also
+ * keeps a product from swallowing its neighbours: `auth/driveactivity.readonly`
+ * is not Drive access, and a bare `openid` token has no path to compare at all.
+ */
+function hasProductScope(grantedScope: string, product: string): boolean {
+  const exact = `${GOOGLE_SCOPE_PREFIX}${product}`;
+  const dotted = `${exact}.`;
+  return grantedScope
+    .split(/\s+/)
+    .some((token) => token === exact || token.startsWith(dotted));
+}
+
+function assertScope(
+  grantedScope: string,
+  product: "gmail" | "drive",
+  toolName: string,
+): void {
+  if (!hasProductScope(grantedScope, product)) {
     throw new Error(
       `Tool "${toolName}" requires ${product} access. Reconnect with ${product} scope.`,
     );
