@@ -323,6 +323,20 @@ sends system mail); this is the company's real inbox. Internal namespace is
       self-host-friendly default
 - [ ] Forwarding original attachments (re-fetch + re-stage) and send-as
       aliases — deferred (forwarded body notes original attachment names)
+- [x] **The grant levels bind every route to the mailbox.** The Google
+      connector's `gmail_*` tools reach the same account with the same
+      token, and originally honoured only the Connection grant — which made
+      the `draft` default advisory, since an employee could just send
+      through the integration surface instead. They now answer to the same
+      `EmployeeMailAccountGrant` levels via an `assertCapability` closure
+      the dispatcher binds to the caller (`services/connectionCapabilities.ts`),
+      mapping read/draft/send onto the five `gmail_*` tools. A connection
+      with no `MailAccount` is ungoverned and still passes — there is no
+      level to enforce until a human connects the mailbox.
+- [ ] Retire the `gmail_*` compose tools in favour of `send_mail` /
+      `create_mail_draft`, once the latter accept Resource attachments.
+      Two compose surfaces over one mailbox is a standing drift risk; the
+      gate above keeps them consistent but does not merge them.
 - [ ] Approval-gated `send_mail` (Approval kind `mail_send`) — deferred;
       the `draft` grant level is the human gate today
 

@@ -11,13 +11,24 @@ import { clampInt, safeJson } from "./util.js";
  * provider. The umbrella refreshes the access token before dispatching here,
  * so we get a known-fresh `accessToken`.
  *
- * Attachments are the one thing we can't resolve alone: turning a
- * `resourceSlug` into bytes needs the DB, the disk, and a grant check, none
- * of which belong in a provider. The umbrella forwards
- * `ctx.resolveAttachments` — a closure the dispatcher pre-bound to the
- * calling employee — and we hand it the specs verbatim. We never learn which
- * Resource the bytes came from, and we can't widen who is allowed to read it.
+ * Two things we can't decide alone, both delegated to host closures the
+ * dispatcher pre-bound to the calling employee:
+ *
+ *   - `ctx.resolveAttachments` turns a `resourceSlug` into bytes — that needs
+ *     the DB, the disk, and a grant check, none of which belong in a provider.
+ *   - `ctx.assertCapability` decides whether this employee may read, draft, or
+ *     send on this mailbox. These tools reach the same mailbox as the `mail_*`
+ *     MCP surface, so they have to answer to the same `EmployeeMailAccountGrant`
+ *     levels; without this they honoured only the Connection grant, which made
+ *     the mail client's `draft` default advisory.
+ *
+ * We never learn which Resource the bytes came from or which account the grant
+ * was on, and we can't widen either.
  */
+type GmailHostCtx = Pick<
+  IntegrationRuntimeContext,
+  "resolveAttachments" | "assertCapability"
+>;
 
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1";
 
@@ -148,11 +159,12 @@ export async function invokeGmailTool(
   name: string,
   args: unknown,
   accessToken: string,
-  ctx?: Pick<IntegrationRuntimeContext, "resolveAttachments">,
+  ctx?: GmailHostCtx,
 ): Promise<unknown> {
   const a = (args as Record<string, unknown>) ?? {};
   switch (name) {
     case "gmail_search_messages": {
+      await assertCapability("mail.read", ctx);
       const qs = new URLSearchParams();
       if (typeof a.q === "string" && a.q.trim()) qs.set("q", a.q);
       qs.set("maxResults", String(clampInt(a.maxResults, 1, 100, 20)));
@@ -164,6 +176,7 @@ export async function invokeGmailTool(
       return gmailFetch(accessToken, `/users/me/messages?${qs.toString()}`);
     }
     case "gmail_get_message": {
+      await assertCapability("mail.read", ctx);
       if (typeof a.messageId !== "string" || !a.messageId)
         throw new Error("messageId is required");
       const fmt = typeof a.format === "string" ? a.format : "full";
@@ -173,7 +186,7 @@ export async function invokeGmailTool(
       );
     }
     case "gmail_send_message": {
-      const raw = await composeRaw(a, ctx);
+      const raw = await composeRaw(a, "mail.send", ctx);
       return gmailFetch(accessToken, "/users/me/messages/send", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -181,7 +194,7 @@ export async function invokeGmailTool(
       });
     }
     case "gmail_create_draft": {
-      const raw = await composeRaw(a, ctx);
+      const raw = await composeRaw(a, "mail.draft", ctx);
       return gmailFetch(accessToken, "/users/me/drafts", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -189,6 +202,7 @@ export async function invokeGmailTool(
       });
     }
     case "gmail_list_labels":
+      await assertCapability("mail.read", ctx);
       return gmailFetch(accessToken, "/users/me/labels");
     default:
       throw new Error(`Unknown Gmail tool: ${name}`);
@@ -198,8 +212,12 @@ export async function invokeGmailTool(
 /** Shared by send + draft so the two paths cannot diverge. */
 async function composeRaw(
   a: Record<string, unknown>,
-  ctx?: Pick<IntegrationRuntimeContext, "resolveAttachments">,
+  capability: "mail.draft" | "mail.send",
+  ctx?: GmailHostCtx,
 ): Promise<string> {
+  // Before resolving attachments, so a denied send never forks Chromium to
+  // render a PDF it is about to throw away.
+  await assertCapability(capability, ctx);
   const attachments = await resolveAttachments(a.attachments, ctx);
   const raw = encodeRfc822({
     to: str(a.to, "to"),
@@ -218,9 +236,29 @@ async function composeRaw(
   return raw;
 }
 
+/**
+ * Ask the host whether this call may do `capability`.
+ *
+ * An absent gate is a denial, never a pass. Every Gmail tool reaches a real
+ * mailbox, so a context that arrived without one is a context nobody taught
+ * how to authorize this — and guessing "allow" there is how the mail grant
+ * levels got bypassed in the first place.
+ */
+async function assertCapability(
+  capability: string,
+  ctx?: GmailHostCtx,
+): Promise<void> {
+  if (!ctx?.assertCapability) {
+    throw new Error(
+      "Gmail tools are not available on this call path — they need a caller the mailbox grants can be checked against.",
+    );
+  }
+  await ctx.assertCapability(capability);
+}
+
 async function resolveAttachments(
   specs: unknown,
-  ctx?: Pick<IntegrationRuntimeContext, "resolveAttachments">,
+  ctx?: GmailHostCtx,
 ): Promise<ResolvedAttachment[]> {
   if (specs === undefined || specs === null) return [];
   if (Array.isArray(specs) && specs.length === 0) return [];

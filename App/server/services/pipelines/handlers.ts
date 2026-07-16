@@ -19,6 +19,7 @@ import {
   encryptConnectionConfig,
 } from "../integrations.js";
 import { getProvider } from "../../integrations/index.js";
+import { unrestrictedCapabilityGate } from "../connectionCapabilities.js";
 import type {
   IntegrationConfig,
   IntegrationRuntimeContext,
@@ -375,6 +376,13 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
       setConfig(next) {
         refreshed = next;
       },
+      // A pipeline node is authored by a human in the UI and cannot be
+      // created or edited from the MCP surface, so there is no employee to
+      // authorize and no employee grant to bypass. Opt in explicitly rather
+      // than leaving this undefined: providers deny when no gate is supplied,
+      // which is what stops a future context builder un-gating a tool by
+      // simply forgetting about it.
+      assertCapability: unrestrictedCapabilityGate(),
     };
     const args = parseObject(ctx.config.args, "args");
     ctx.log(`integration ${conn.provider}.${toolName} ${JSON.stringify(args).slice(0, 200)}`);

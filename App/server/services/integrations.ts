@@ -13,6 +13,7 @@ import {
 import { refreshTelegramListener } from "./telegramListener.js";
 import { createPaymentApproval } from "./approvals.js";
 import { makeResourceAttachmentResolver } from "./resourceAttachments.js";
+import { makeConnectionCapabilityGate } from "./connectionCapabilities.js";
 
 /**
  * Service layer for Integration Connections + Grants.
@@ -706,7 +707,11 @@ export async function loadEmployeeConnections(
 
 /**
  * Invoke one tool on behalf of an employee. Handles:
- *   - authorization (employee must have an active grant on the connection)
+ *   - authorization (employee must have an active grant on the connection).
+ *     The Connection grant is the outer boundary, not the whole of it: a
+ *     provider can name a finer capability via `ctx.assertCapability`, which
+ *     is how the Google connector's mail tools end up honouring the same
+ *     `EmployeeMailAccountGrant` levels the `mail_*` tools do.
  *   - decrypt → provider.invokeTool → re-encrypt if the provider rotated
  *     credentials (OAuth refresh)
  *   - status bookkeeping (tool error ≠ connection error; connection error
@@ -748,6 +753,10 @@ export async function invokeConnectionTool(args: {
     // fail closed there.
     resolveAttachments: makeResourceAttachmentResolver({
       companyId: pair.connection.companyId,
+      employeeId: args.employee.id,
+    }),
+    assertCapability: makeConnectionCapabilityGate({
+      connection: pair.connection,
       employeeId: args.employee.id,
     }),
   };

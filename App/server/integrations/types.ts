@@ -209,6 +209,22 @@ export type IntegrationRuntimeContext = {
    * calls fail closed instead of resolving with nobody's permissions.
    */
   resolveAttachments?(specs: unknown): Promise<ResolvedAttachment[]>;
+  /**
+   * Ask the host whether this call is allowed to do `capability`; throws with
+   * a caller-facing message if not. `capability` stays an opaque string so
+   * this file never learns what any provider's capabilities mean — the
+   * provider names one, the host owns the policy and the tables behind it.
+   *
+   * Same shape and same reasoning as `resolveAttachments`: the identity being
+   * authorized is bound into the closure by whoever builds this context, not
+   * read back off `employeeId` here, so a provider cannot widen its own
+   * authority by rewriting the context it was handed.
+   *
+   * Providers MUST treat this being undefined as a denial, never as a pass —
+   * that way a future context builder that forgets to supply one fails loudly
+   * instead of silently un-gating whatever this protects.
+   */
+  assertCapability?(capability: string): Promise<void>;
   /** When true, providers that gate via Approvals should skip the gate.
    *  The approval-execution path sets this when replaying a payment a
    *  human just approved. */

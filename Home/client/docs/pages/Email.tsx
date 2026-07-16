@@ -160,6 +160,24 @@ export function Email() {
         These levels only decide what an AI employee&apos;s tools and rules are
         allowed to do.
       </Callout>
+      <P>
+        The level covers <em>every</em> route an employee has to the mailbox,
+        not just the mail tools. The{" "}
+        <DocLink to="/docs/integrations">Google connector</DocLink> exposes its
+        own <Code>gmail_*</Code> tools on the same account, and once you connect
+        a mailbox here those tools answer to the level you set — an employee on{" "}
+        <Strong>Draft</Strong> is refused a send whichever tool it reaches for.
+        An employee you never granted is refused outright, even if it holds a
+        grant on the underlying Google Connection.
+      </P>
+      <Callout kind="info" title="A mailbox you haven't connected here isn't governed.">
+        These levels start applying to the <Code>gmail_*</Code> tools the
+        moment you connect the mailbox under <Strong>Email</Strong>. Before
+        that there is no mailbox record to attach a level to, so an employee
+        granted the Google Connection can still read and send through it — the
+        Connection grant is the only thing you told Genosyn. Connect the
+        mailbox to bring it under these levels.
+      </Callout>
 
       <H2 id="rules">Rules — automating the inbox</H2>
       <P>

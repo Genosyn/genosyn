@@ -294,6 +294,16 @@ export function Integrations() {
         printout, and keep employees that read the open internet away from
         Resources you would not want forwarded.
       </Callout>
+      <P>
+        Who may send at all is a separate question, and the{" "}
+        <DocLink to="/docs/email">Email</DocLink> section owns it. Once you
+        connect a mailbox there, the <Code>gmail_*</Code> tools honour that
+        mailbox&apos;s <Strong>Read / Draft / Send</Strong> level — so an
+        employee on the default <Strong>Draft</Strong> can attach a Resource to
+        a draft for you to review, but cannot send it itself. Until a mailbox
+        is connected there is no level to honour, and a Connection grant alone
+        lets an employee send.
+      </P>
 
       <H3 id="google-analytics-search-console">
         Google Analytics &amp; Search Console
