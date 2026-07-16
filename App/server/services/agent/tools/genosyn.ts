@@ -1,5 +1,5 @@
 import { config } from "../../../../config.js";
-import { STATIC_TOOLS } from "../../../mcp/toolManifest.js";
+import { collapseStaticTools } from "./genosynFamilies.js";
 import type { AgentTool, ToolResult } from "../types.js";
 
 /**
@@ -10,9 +10,15 @@ import type { AgentTool, ToolResult } from "../types.js";
  * Under the harnesses these were served over stdio/HTTP MCP by a child process
  * that proxied every call back to `/api/internal/mcp`. Now that Genosyn runs the
  * loop itself, there's no child and no transport: we read the same tool
- * catalogue ({@link STATIC_TOOLS}) and dispatch each call straight to the same
+ * catalogue (`mcp/toolManifest.ts`) and dispatch each call straight to the same
  * loopback internal API with a minted MCP token — reusing every tool's zod
  * validation, audit trail, journal write, and attachment staging unchanged.
+ *
+ * The model does not see all 79 static tools: the CRUD families are collapsed
+ * into `op`-dispatched tools first (see {@link collapseStaticTools}), which
+ * takes the static surface to 33 and buys back the slots an employee's
+ * integrations need under OpenAI's 128-tool cap. The collapse is a view, not a
+ * rewrite — every call still lands on the same `/tools/<name>` endpoint.
  */
 
 function internalApiBase(): string {
@@ -36,12 +42,39 @@ export async function loadGenosynTools(
   token: string,
   signal?: AbortSignal,
 ): Promise<AgentTool[]> {
-  const staticTools: AgentTool[] = STATIC_TOOLS.map((t) => ({
+  const { collapsed, passthrough } = collapseStaticTools();
+
+  const familyTools: AgentTool[] = collapsed.map((family) => ({
+    name: family.name,
+    description: family.description,
+    inputSchema: family.inputSchema,
+    run: async (input) => {
+      const op = typeof input.op === "string" ? input.op : "";
+      const target = family.ops[op];
+      if (!target) {
+        // A bad `op` is the one failure this layer owns — everything else is the
+        // endpoint's zod to reject. Answer like any other tool error so the model
+        // reads it and retries, rather than throwing and killing the turn.
+        return {
+          content:
+            `Unknown op ${JSON.stringify(op)} for \`${family.name}\`. ` +
+            `Valid ops: ${Object.keys(family.ops).join(", ")}.`,
+          isError: true,
+        };
+      }
+      const { op: _op, ...args } = input;
+      return callInternal(token, `/tools/${target}`, args, signal);
+    },
+  }));
+
+  const passthroughTools: AgentTool[] = passthrough.map((t) => ({
     name: t.name,
     description: t.description,
     inputSchema: t.inputSchema,
     run: (input) => callInternal(token, `/tools/${t.name}`, input, signal),
   }));
+
+  const staticTools: AgentTool[] = [...familyTools, ...passthroughTools];
 
   const integrationTools = await loadIntegrationTools(token);
   const integration: AgentTool[] = integrationTools.map((t) => ({
@@ -134,15 +167,41 @@ async function callInternal(
       parsed && typeof parsed === "object" && "error" in parsed
         ? (parsed as { error: unknown }).error
         : `HTTP ${response.status}`;
-    return {
-      content: typeof detail === "string" ? detail : JSON.stringify(detail, null, 2),
-      isError: true,
-    };
+    const text = typeof detail === "string" ? detail : JSON.stringify(detail, null, 2);
+    return { content: text + formatIssues(parsed), isError: true };
   }
 
   // Internal handlers return the MCP result envelope. Flatten its text content;
   // fall back to the raw JSON for any handler that returns a bare payload.
   return { content: flattenMcpResult(parsed), isError: mcpResultIsError(parsed) };
+}
+
+/**
+ * Spell out which argument zod rejected.
+ *
+ * `middleware/validate.ts` answers a bad call with `{error:"ValidationError",
+ * issues:[…]}`, where the issues name the offending field — but we used to
+ * forward only the `error` string, leaving the model to guess from the word
+ * "ValidationError" alone and burn turns re-guessing.
+ *
+ * It matters more since the CRUD families collapsed: a family's schema can only
+ * mark an argument required if *every* op requires it (see `genosynFamilies.ts`),
+ * so per-op requirements are now enforced here, at call time, rather than by the
+ * schema the model reads. This is the message that closes that loop.
+ */
+function formatIssues(parsed: unknown): string {
+  if (!parsed || typeof parsed !== "object" || !("issues" in parsed)) return "";
+  const issues = (parsed as { issues: unknown }).issues;
+  if (!Array.isArray(issues) || issues.length === 0) return "";
+  const lines = issues
+    .map((i) => {
+      if (!i || typeof i !== "object") return "";
+      const { path, message } = i as { path?: unknown; message?: unknown };
+      const where = Array.isArray(path) && path.length > 0 ? path.join(".") : "(root)";
+      return typeof message === "string" ? `${where}: ${message}` : "";
+    })
+    .filter(Boolean);
+  return lines.length > 0 ? ` — ${lines.join("; ")}` : "";
 }
 
 function flattenMcpResult(parsed: unknown): string {

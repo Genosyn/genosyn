@@ -2,7 +2,7 @@ import type { AIModel } from "../../db/entities/AIModel.js";
 import { runAgentLoop } from "./loop.js";
 import { createModelClient } from "./modelClients/index.js";
 import { gatherEmployeeTools } from "./tools/index.js";
-import type { AgentMessage, StreamCallbacks } from "./types.js";
+import type { AgentMessage, AgentTool, StreamCallbacks } from "./types.js";
 
 /**
  * Run one employee agent turn end-to-end — the entry point both the chat seam
@@ -45,6 +45,33 @@ export type EmployeeAgentResult =
   | { status: "ok"; finalText: string; steps: number }
   | { status: "error"; error: string };
 
+/**
+ * Cut the tool list down to what the provider will accept.
+ *
+ * OpenAI 400s an over-length `tools` array and takes the whole run with it, so a
+ * trimmed employee beats a dead one. `gatherEmployeeTools` has already ordered
+ * the list so the tools the employee holds no grant for sit at the back, which
+ * is why cutting from the tail cuts the least useful thing first rather than an
+ * arbitrary one.
+ *
+ * A null cap means the provider publishes no limit (Anthropic, any custom
+ * endpoint) — never a number we invented. Nothing is dropped in that case.
+ */
+function trimToProviderCap(
+  tools: AgentTool[],
+  limit: number | null,
+  callbacks?: StreamCallbacks,
+): AgentTool[] {
+  if (limit === null || tools.length <= limit) return tools;
+  const kept = tools.slice(0, limit);
+  callbacks?.onToolsTrimmed?.({
+    offered: tools.length,
+    limit,
+    dropped: tools.slice(limit).map((t) => t.name),
+  });
+  return kept;
+}
+
 export async function runEmployeeAgent(
   params: EmployeeAgentParams,
 ): Promise<EmployeeAgentResult> {
@@ -63,12 +90,14 @@ export async function runEmployeeAgent(
     signal: params.signal,
   });
 
+  const tools = trimToProviderCap(gathered.tools, built.client.maxTools, params.callbacks);
+
   try {
     const result = await runAgentLoop({
       client: built.client,
       system: params.system,
       messages: params.messages,
-      tools: gathered.tools,
+      tools,
       maxSteps: params.maxSteps,
       // Read off the model row rather than taking it as a param: it's the only
       // source, and every seam that can run an agent already holds the row.

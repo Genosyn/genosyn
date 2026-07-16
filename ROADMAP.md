@@ -230,6 +230,28 @@ top-level section of their own, listing every routine in the company.
 - [x] The employee Routines tab redirects to the company list filtered to
       that employee; existing `?routine=&run=` deep links preserved
 
+### M24 — Skills section ✅
+
+Skills were reachable only as a tab inside one employee, so the company's
+playbook library was invisible. They are now a top-level section of their
+own, alongside Routines — same shape, same reasoning.
+
+- [x] Top-level **Skills** entry in the nav under the "AI" group, between
+      **AI Employees** and **Routines** — who they are, what they know,
+      when they work
+- [x] Company-wide `GET /skills` — every skill in the company with its
+      `employee` attached, sorted by employee then skill name. `body` is
+      omitted; each playbook is fetched via `/skills/:sid/readme`.
+- [x] `PATCH /skills/:sid` renames a skill, leaving the slug alone so
+      links stay stable (this is what M4's "rename" claimed and never had)
+- [x] Skills index: per-employee sidebar filter, free-text search over
+      skill name and employee, known-by column
+- [x] Skill detail at `/skills/:empSlug/:skillSlug` — two slug segments
+      because a skill slug is unique only per-employee — with Playbook /
+      Settings tabs. ⌘S saves the playbook, as the docs always claimed.
+- [x] The employee Skills tab redirects to the company list filtered to
+      that employee
+
 ### M6 — AI Models (employee-owned) ✅
 > **Superseded by M22.** The provider-CLI harnesses, subscription sign-in, and
 > per-provider config materialization below were removed; Genosyn now calls the

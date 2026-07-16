@@ -41,6 +41,11 @@ export function createAnthropicClient(opts: {
 
   return {
     model: opts.model,
+    // Anthropic publishes no hard ceiling on how many tools a request may carry
+    // — the practical limit is the context window, which the loop already
+    // budgets against. Declaring a number we made up would drop tools an
+    // employee needs to work around a wall that isn't there.
+    maxTools: null,
     async streamTurn({ system, messages, tools, signal, onText }): Promise<AssistantTurn> {
       const stream = client.messages.stream(
         {

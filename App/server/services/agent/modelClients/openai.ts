@@ -19,10 +19,23 @@ import type {
  * our `tool_result` blocks becomes a separate `role:"tool"` message.
  */
 
+/**
+ * OpenAI rejects a `tools` array longer than this with a 400 that fails the
+ * whole turn ("Invalid 'tools': array too long").
+ *
+ * This is OpenAI's own number and travels with the *service*, not with the wire
+ * format — an OpenAI-compatible server (vLLM, Ollama, a gateway) speaks the same
+ * Chat Completions API through this very client and has no such cap. So it's the
+ * caller that decides whether it applies; see `modelClients/index.ts`.
+ */
+export const OPENAI_MAX_TOOLS = 128;
+
 export function createOpenAIClient(opts: {
   apiKey: string;
   model: string;
   baseURL?: string;
+  /** Provider tool ceiling; null for OpenAI-compatible servers (see above). */
+  maxTools?: number | null;
 }): ModelClient {
   const client = new OpenAI({
     // Most local servers ignore the key but the SDK refuses an empty string.
@@ -32,6 +45,7 @@ export function createOpenAIClient(opts: {
 
   return {
     model: opts.model,
+    maxTools: opts.maxTools ?? null,
     async streamTurn({ system, messages, tools, signal, onText }): Promise<AssistantTurn> {
       const stream = await client.chat.completions.create(
         {

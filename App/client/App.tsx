@@ -25,13 +25,16 @@ import {
   McpPage,
   MemoryPage,
   SettingsPage,
-  SkillsPage,
   SoulSettingsPage,
 } from "./pages/employeeTabs";
 import RoutinesLayout from "./pages/RoutinesLayout";
 import RoutinesIndex from "./pages/RoutinesIndex";
 import RoutineNew from "./pages/RoutineNew";
 import RoutineDetail from "./pages/RoutineDetail";
+import SkillsLayout from "./pages/SkillsLayout";
+import SkillsIndex from "./pages/SkillsIndex";
+import SkillNew from "./pages/SkillNew";
+import SkillDetail from "./pages/SkillDetail";
 import SettingsLayout from "./pages/SettingsLayout";
 import {
   SettingsCompany,
@@ -243,7 +246,6 @@ function CompanyRoutes({
         >
           <Route index element={<Navigate to="chat" replace />} />
           <Route path="chat" element={<EmployeeChat />} />
-          <Route path="skills" element={<SkillsPage />} />
           <Route path="journal" element={<JournalPage />} />
           <Route path="handoffs" element={<HandoffsPage />} />
           <Route path="memory" element={<MemoryPage />} />
@@ -272,6 +274,17 @@ function CompanyRoutes({
             path=":empSlug/:routineSlug"
             element={<RoutineDetail company={company} />}
           />
+        </Route>
+
+        {/* Skills — every playbook in the company. Same shape as Routines, and
+            for the same reason: a skill always belongs to an employee, but
+            "what do we know how to do?" is a company-level question. */}
+        <Route path="skills" element={<SkillsLayout company={company} />}>
+          <Route index element={<SkillsIndex company={company} />} />
+          <Route path="new" element={<SkillNew company={company} />} />
+          {/* Two segments, not one: a skill slug is unique only within its
+              employee, so `:skillSlug` alone would be ambiguous. */}
+          <Route path=":empSlug/:skillSlug" element={<SkillDetail company={company} />} />
         </Route>
 
         {/* Tasks (Projects + Todos) — task manager. */}
@@ -490,10 +503,14 @@ function CompanyRoutes({
           <Route path="companies" element={<AdminCompanies />} />
         </Route>
 
-        {/* Legacy redirect: Routines used to be a per-employee tab. */}
+        {/* Legacy redirects: Routines and Skills used to be per-employee tabs. */}
         <Route
           path="employees/:empSlug/routines"
           element={<EmployeeRoutinesRedirect companySlug={company.slug} />}
+        />
+        <Route
+          path="employees/:empSlug/skills"
+          element={<EmployeeSkillsRedirect companySlug={company.slug} />}
         />
 
         {/* Legacy redirects: Profile moved to Account; Backup moved to Admin. */}
@@ -554,6 +571,17 @@ function EmployeeRoutinesRedirect({ companySlug }: { companySlug: string }) {
   if (empSlug && !params.has("routine")) params.set("employee", empSlug);
   const qs = params.toString();
   return <Navigate to={`/c/${companySlug}/routines${qs ? `?${qs}` : ""}`} replace />;
+}
+
+/**
+ * Skills moved out of the per-employee sub-nav into their own section, so
+ * `/employees/:empSlug/skills` now lands on the company Skills list filtered
+ * to that employee.
+ */
+function EmployeeSkillsRedirect({ companySlug }: { companySlug: string }) {
+  const { empSlug } = useParams();
+  const qs = empSlug ? `?employee=${encodeURIComponent(empSlug)}` : "";
+  return <Navigate to={`/c/${companySlug}/skills${qs}`} replace />;
 }
 
 /** Redirect the old `/finance/customers/:slug/edit` URL to its new home in

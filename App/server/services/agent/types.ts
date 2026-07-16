@@ -83,6 +83,22 @@ export type StreamCallbacks = {
    * run that quietly forgot something and a run that behaves inexplicably.
    */
   onCompact?: (info: CompactionInfo) => void;
+  /**
+   * Fired when tools were dropped to fit the provider's cap. Same reasoning as
+   * {@link onCompact}: an employee that silently lost a tool looks like an
+   * employee that inexplicably refuses to do its job.
+   */
+  onToolsTrimmed?: (info: ToolTrimInfo) => void;
+};
+
+/** What the tool trim dropped, and what forced it. */
+export type ToolTrimInfo = {
+  /** How many tools the employee had before trimming. */
+  offered: number;
+  /** The provider's ceiling we trimmed to. */
+  limit: number;
+  /** Model-facing names of the tools that were dropped. */
+  dropped: string[];
 };
 
 /** What one round of compaction did, and what forced it. */
@@ -127,6 +143,19 @@ export type AssistantTurn = {
  */
 export interface ModelClient {
   readonly model: string;
+  /**
+   * The most tools this provider will accept on one request, or null when it
+   * doesn't publish a limit.
+   *
+   * Sibling of {@link AIModel.contextWindow}: a hard provider ceiling we have to
+   * respect or the turn dies. OpenAI's Chat Completions rejects an over-length
+   * `tools` array with a 400 that fails the whole run, and — like the context
+   * window — it can't be inferred. So each client declares what it knows and
+   * null means "unknown", never "unlimited": callers must treat null as no cap
+   * rather than substituting a guess, because a wrong ceiling silently drops
+   * tools an employee needs.
+   */
+  readonly maxTools: number | null;
   streamTurn(params: {
     system: string;
     messages: AgentMessage[];

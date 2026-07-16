@@ -157,6 +157,30 @@ export function Models() {
         built-ins always win.
       </Callout>
 
+      <H3 id="tool-limit">How many tools an employee can hold</H3>
+      <P>
+        OpenAI accepts at most <Strong>128 tools</Strong> on a request and
+        rejects the whole turn if you send more. Anthropic publishes no such
+        limit, and a custom endpoint sets its own — so this only constrains
+        employees whose active model is an OpenAI one.
+      </P>
+      <P>
+        The built-ins take up roughly 49 of those slots (coding, the{" "}
+        <Code>genosyn</Code> tools, and the browser tools when enabled), which
+        leaves about 79 for Integration tools and company MCP servers. That is a
+        lot — but a single Integration can register a dozen or more tools, so an
+        employee granted many Connections at once can reach the ceiling.
+      </P>
+      <P>
+        If it happens, the run doesn&apos;t fail. Genosyn drops the lowest-value
+        tools until the list fits, preferring to cut ones the employee holds no{" "}
+        <DocLink to="/docs/integrations">Grant</DocLink> for and therefore
+        couldn&apos;t have used anyway, and writes a <Code>[tools]</Code> line
+        into the run log naming exactly what it dropped. If you see that line,
+        remove a Connection or an MCP server from the employee — or move it to an
+        Anthropic or custom model, which have no cap.
+      </P>
+
       <H2 id="multiple-models">Multiple models &amp; the active one</H2>
       <P>
         An employee can hold several models side by side — say an{" "}

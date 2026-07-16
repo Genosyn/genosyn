@@ -28,6 +28,21 @@ export function Skills() {
         }
       />
 
+      <H2 id="where-they-live">Where they live</H2>
+      <P>
+        Skills have their own section in the nav, under{" "}
+        <Strong>AI → Skills</Strong>. That list is company-wide: every skill,
+        every employee, one page — your whole playbook library. Filter it by
+        the <DocLink to="/docs/employees">AI Employee</DocLink> that knows a
+        skill, or search by name.
+      </P>
+      <P>
+        Clicking a skill opens its detail page: <Strong>Playbook</Strong> — the
+        markdown editor, ⌘S to save — and <Strong>Settings</Strong>, where you
+        rename or delete it. Each AI employee still links to their own slice of
+        that list — same page, filtered to them.
+      </P>
+
       <H2 id="how-they-work">How they work</H2>
       <P>
         When the runner runs the agent, it surfaces the Soul plus every
@@ -104,8 +119,9 @@ A markdown report posted to #finance with three sections:
 
       <H2 id="sharing">Sharing skills between employees</H2>
       <P>
-        Today, copying is manual: open the source skill, copy the markdown,
-        create a new skill on the target employee, paste. The future{" "}
+        Today, copying is manual, but the company-wide list makes it quick:
+        open the source skill, copy its playbook, hit <Strong>New skill</Strong>
+        , pick the target employee, paste. The future{" "}
         <Strong>Marketplace</Strong> milestone (
         <DocLink to="/docs/vocabulary">M17</DocLink>) will let you export an
         employee — soul + skills + routines + grants — as a bundle that

@@ -31,7 +31,6 @@ import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
  */
 const EMP_TAB_LABEL: Record<string, string> = {
   chat: "Chat",
-  skills: "Skills",
   journal: "Journal",
   handoffs: "Handoffs",
   memory: "Memory",
@@ -117,9 +116,13 @@ export default function EmployeeLayout({ company }: { company: Company }) {
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
         <SidebarLink to={`${base}/chat`} icon={<MessageSquare size={14} />} label="Chat" />
-        <SidebarLink to={`${base}/skills`} icon={<Wrench size={14} />} label="Skills" />
-        {/* Routines live in their own top-level section now — this points at
-            the company list filtered to this employee. */}
+        {/* Skills and Routines live in their own top-level sections now —
+            these point at the company lists filtered to this employee. */}
+        <SidebarLink
+          to={`/c/${company.slug}/skills?employee=${emp.slug}`}
+          icon={<Wrench size={14} />}
+          label="Skills"
+        />
         <SidebarLink
           to={`/c/${company.slug}/routines?employee=${emp.slug}`}
           icon={<Calendar size={14} />}

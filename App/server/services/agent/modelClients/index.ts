@@ -3,7 +3,7 @@ import { decryptSecret } from "../../../lib/secret.js";
 import { readCustomEndpoint } from "../../customEndpoint.js";
 import type { ModelClient } from "../types.js";
 import { createAnthropicClient } from "./anthropic.js";
-import { createOpenAIClient } from "./openai.js";
+import { createOpenAIClient, OPENAI_MAX_TOOLS } from "./openai.js";
 
 /**
  * Resolve an {@link AIModel} row into a live {@link ModelClient}, decrypting
@@ -33,6 +33,10 @@ export function createModelClient(
         apiKey: cfg.apiKey ?? "",
         model: cfg.modelId,
         baseURL: normalizeBaseURL(cfg.baseURL),
+        // A custom endpoint only borrows OpenAI's wire format, not its limits:
+        // whatever vLLM/Ollama/gateway is behind this URL sets its own, and we
+        // have no way to ask. Unknown, so no cap.
+        maxTools: null,
       }),
     };
   }
@@ -45,7 +49,13 @@ export function createModelClient(
     return { client: createAnthropicClient({ apiKey: key.apiKey, model: model.model }) };
   }
   if (model.provider === "openai") {
-    return { client: createOpenAIClient({ apiKey: key.apiKey, model: model.model }) };
+    return {
+      client: createOpenAIClient({
+        apiKey: key.apiKey,
+        model: model.model,
+        maxTools: OPENAI_MAX_TOOLS,
+      }),
+    };
   }
   return { error: `${model.provider} requires a custom endpoint, not an API key.` };
 }

@@ -27,6 +27,7 @@ import {
   Table2,
   Users,
   Wallet,
+  Wrench,
 } from "lucide-react";
 import { api, Company, Me } from "../lib/api";
 import { useToast } from "./ui/Toast";
@@ -111,6 +112,7 @@ type SectionKey =
   | "inbox"
   | "workspace"
   | "employees"
+  | "skills"
   | "routines"
   | "tasks"
   | "bases"
@@ -140,9 +142,10 @@ type SectionGroup = { label: string; items: SectionItem[] };
 
 export const SECTION_GROUPS: SectionGroup[] = [
   {
-    // The two halves of an AI employee's working life: who they are, and what
-    // they do on a schedule. Routines used to be reachable only by opening an
-    // employee first, which made the company's schedule invisible.
+    // The three parts of an AI employee's working life: who they are, what
+    // they know, and what they do on a schedule. Skills and Routines used to
+    // be reachable only by opening an employee first, which made the
+    // company's playbook library and its schedule invisible.
     label: "AI",
     items: [
       {
@@ -153,6 +156,15 @@ export const SECTION_GROUPS: SectionGroup[] = [
         path: "/employees",
         iconBg:
           "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
+      },
+      {
+        key: "skills",
+        label: "Skills",
+        description: "Playbooks your AI employees follow.",
+        icon: Wrench,
+        path: "/skills",
+        iconBg:
+          "bg-green-100 text-green-600 dark:bg-green-500/15 dark:text-green-300",
       },
       {
         key: "routines",

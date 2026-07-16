@@ -158,13 +158,15 @@ export function Employees() {
           directory — read what they wrote, edit it, drop in fixtures.
         </LI>
         <LI>
-          <Strong>Soul / Skills.</Strong> The two editors. Markdown, ⌘S to
-          save.
+          <Strong>Soul.</Strong> The employee&apos;s constitution, under
+          Settings. Markdown, ⌘S to save.
         </LI>
         <LI>
-          <Strong>Routines.</Strong> Not an employee tab anymore — they live in
-          the top-level AI → <DocLink to="/docs/routines">Routines</DocLink>{" "}
-          section. The sidebar link opens that list filtered to this employee.
+          <Strong>Skills / Routines.</Strong> Not employee tabs anymore — they
+          live in the top-level AI →{" "}
+          <DocLink to="/docs/skills">Skills</DocLink> and AI →{" "}
+          <DocLink to="/docs/routines">Routines</DocLink> sections. Each
+          sidebar link opens that list filtered to this employee.
         </LI>
         <LI>
           <Strong>Connections.</Strong> The list of{" "}

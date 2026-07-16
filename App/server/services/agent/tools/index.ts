@@ -1,5 +1,6 @@
 import type { AgentTool } from "../types.js";
 import { codingTools, type CodingToolContext } from "./coding.js";
+import { deadToolNames } from "./grantDead.js";
 import { loadGenosynTools } from "./genosyn.js";
 import { connectMcpServer, type BridgedServer } from "./mcpBridge.js";
 import {
@@ -80,6 +81,11 @@ export async function gatherEmployeeTools(params: {
   // user, plus integration labels) so that can never happen.
   dedupeToolNames(tools);
 
+  // Tool *count* is the third dimension of that same provider limit, and the one
+  // that trims rather than renames. Ordering here doesn't drop anything — it
+  // decides what goes first if `runEmployeeAgent` later has to cut to fit.
+  await sinkGrantDeadTools(tools, params.employeeId);
+
   return {
     tools,
     browser,
@@ -87,6 +93,29 @@ export async function gatherEmployeeTools(params: {
       await Promise.all(bridged.map((b) => b.close()));
     },
   };
+}
+
+/**
+ * Move the tools this employee holds no grant for to the back of the list, in
+ * place, keeping everything else in its existing relative order.
+ *
+ * This is ordering only — nothing is dropped here, and an employee under the
+ * provider's cap is completely unaffected. That matters for more than tidiness:
+ * the tool list is assembled once per run, and `create_base` auto-grants its
+ * creator, so an employee who makes a Base mid-run would find the `base_*` tools
+ * gone for the rest of it if we filtered them out up front. Sorting instead of
+ * filtering means the only time a dead tool actually disappears is when
+ * something had to be cut anyway — and then it's the right thing to cut.
+ */
+async function sinkGrantDeadTools(tools: AgentTool[], employeeId: string): Promise<void> {
+  const dead = await deadToolNames(employeeId);
+  if (dead.size === 0) return;
+  // Stable partition: Array#sort is stable in Node, but comparing booleans is
+  // easy to get subtly wrong, so split and rejoin instead.
+  const live = tools.filter((t) => !dead.has(t.name));
+  const sunk = tools.filter((t) => dead.has(t.name));
+  tools.length = 0;
+  tools.push(...live, ...sunk);
 }
 
 /**

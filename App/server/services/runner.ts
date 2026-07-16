@@ -17,7 +17,7 @@ import {
   materializeCodeReposForEmployee,
 } from "./codeRepos.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
-import type { CompactionInfo, TurnUsage } from "./agent/types.js";
+import type { CompactionInfo, ToolTrimInfo, TurnUsage } from "./agent/types.js";
 
 /**
  * Run seam.
@@ -226,6 +226,7 @@ export async function startRoutineRun(
               log.line(`[tool:${name}] ${r.isError ? "error" : "ok"}`),
             onUsage: (u) => log.line(usageLine(u, model.contextWindow)),
             onCompact: (c) => log.line(compactLine(c)),
+            onToolsTrimmed: (t) => log.line(toolTrimLine(t)),
           },
         });
       } finally {
@@ -331,6 +332,21 @@ function compactLine(c: CompactionInfo): string {
 }
 
 /**
+ * Say plainly which tools the employee didn't get.
+ *
+ * This is the one line that turns "the agent ignored the CRM" into a fact the
+ * reader can act on, so it names the dropped tools rather than counting them —
+ * and points at the lever, because the fix is the employee's, not ours.
+ */
+function toolTrimLine(t: ToolTrimInfo): string {
+  return (
+    `[tools] ${t.offered} tools exceeds this model's limit of ${t.limit} — dropped ` +
+    `${t.dropped.length}: ${t.dropped.join(", ")}. Remove an integration connection or ` +
+    `MCP server from this employee, or move it to a provider without a tool cap.`
+  );
+}
+
+/**
  * Emit a journal entry for every terminal run so the employee's diary shows
  * what actually happened. We don't journal the `running` state — only the
  * terminal transition, once the status is final.
@@ -432,7 +448,8 @@ function toolsBriefing(): string {
     "## Tools",
     "You have tools available — use them instead of describing what you would do. A tool call leaves a visible audit row; prose-only claims are invisible.",
     "- Coding: `bash` (run shell commands in your working directory), `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep`. Your working directory holds any git repositories you were granted, under `repos/` and `code-repos/`.",
-    "- Genosyn: `add_journal_entry` to log what you accomplished, `add_memory` to capture durable facts, `create_routine`/`create_todo` to follow up on work, `list_*` helpers to orient, plus Bases, chat attachments, and any company integration tools you were granted.",
+    "- Genosyn: `add_journal_entry` to log what you accomplished, `memory` to capture durable facts, `create_routine`/`create_todo` to follow up on work, `get_self`/`list_employees`/`list_routines` to orient, plus Bases (`bases`, `base_rows`), chat attachments, and any company integration tools you were granted.",
+    "- Related actions are bundled behind an `op` argument rather than one tool each — `base_rows` takes `op: \"list\" | \"create\" | \"update\" | \"delete\"`, and `memory`, `notes`, `charts` and others work the same way. Each tool's description lists the ops it accepts and what each one requires; read it before calling.",
     "- Browser (when enabled) and any company-configured MCP servers appear as additional tools.",
   ].join("\n");
 }
