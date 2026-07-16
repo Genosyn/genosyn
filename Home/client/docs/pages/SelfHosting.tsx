@@ -358,6 +358,17 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
         <DocLink to="/docs/cli">CLI reference</DocLink> for the flag list.
       </P>
 
+      <P>
+        A backup is written to a temporary <Code>.part</Code> file and moved
+        into place only once it is complete, so a <Code>.zip</Code> in{" "}
+        <Code>data/Backup/</Code> is always a whole archive — never a half-one
+        left by a container restart or an OOM kill. If a backup is interrupted,
+        History keeps showing it as <Code>running</Code> and the leftover{" "}
+        <Code>.part</Code> is swept on the next start. Restoring also opens the
+        archive before it touches anything, so a damaged file is refused up
+        front rather than part-way through replacing your data.
+      </P>
+
       <H3 id="off-box-destinations">Off-box destinations (NAS / remote volumes)</H3>
       <P>
         Backups live in <Code>data/Backup/</Code> by default — on the same disk
@@ -425,10 +436,9 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
         <LI>
           <Strong>The newest completed archive</Strong> — kept however old it
           is. If backups stop running for a year, the last one survives. Should
-          that archive turn out not to open — a backup killed mid-write leaves a
-          truncated <Code>.zip</Code> behind — the newest one that <em>does</em>{" "}
-          open is kept as well, so debris can never cost you the last archive
-          you could actually restore from.
+          that archive turn out not to open, the newest one that <em>does</em>{" "}
+          open is kept as well, so an unreadable file can never cost you the
+          last archive you could actually restore from.
         </LI>
         <LI>
           <Strong>Archives you uploaded</Strong> through{" "}

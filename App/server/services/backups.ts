@@ -36,6 +36,12 @@ const SCHEDULE_ID = "default";
 const BACKUP_DIR_NAME = "Backup";
 
 /**
+ * Suffix for an archive still being written. Deliberately not `.zip` so
+ * {@link reconcileBackupHistory} can't adopt a half-written file as a backup.
+ */
+const PART_SUFFIX = ".part";
+
+/**
  * Hourly rather than daily so a window that lapses at 14:05 isn't enforced at
  * 03:00 the next morning. The prune is a cheap no-op when nothing is past the
  * cutoff.
@@ -287,7 +293,11 @@ export async function pruneOldBackups(): Promise<number> {
  * fully-written zip has. Cheap: a seek to the end, not a decompress.
  */
 async function isRestorableArchive(filename: string): Promise<boolean> {
-  const abs = backupFilePath(filename);
+  return canOpenZip(backupFilePath(filename));
+}
+
+/** {@link isRestorableArchive} for a path that isn't (yet) a backup filename. */
+async function canOpenZip(abs: string): Promise<boolean> {
   if (!fs.existsSync(abs)) return false;
   try {
     await unzipper.Open.file(abs);
@@ -512,10 +522,14 @@ async function runBackupInner(kind: "manual" | "scheduled"): Promise<Backup> {
     row.errorMessage = (err as Error).message ?? String(err);
     row.completedAt = new Date();
     await repo.save(row);
-    try {
-      if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
-    } catch {
-      // best-effort
+    // Both names: the archive may have been renamed into place before a later
+    // step threw, or still be a `.part` if writeZip is what failed.
+    for (const p of [outPath, `${outPath}${PART_SUFFIX}`]) {
+      try {
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+      } catch {
+        // best-effort
+      }
     }
     throw err;
   } finally {
@@ -550,21 +564,37 @@ async function snapshotSqlite(dest: string): Promise<void> {
  * included except for the `Backup/` folder (so backups don't recurse) and
  * the live SQLite files (the snapshot at `sqliteSnapshot` is substituted
  * in as `app.sqlite` if present).
+ *
+ * The bytes go to a `.part` sibling and are renamed into place only once the
+ * stream closes cleanly, so `outPath` never exists in a half-written state.
+ * Without this, a SIGKILL mid-write (container restart, OOM) would leave a
+ * truncated zip at the real filename — one with a valid `PK\x03\x04` header
+ * but no central directory, which every consumer here would treat as a
+ * finished backup. The rename is atomic because it stays in one directory.
  */
 function writeZip(outPath: string, sqliteSnapshot: string | null): Promise<void> {
   return new Promise((resolve, reject) => {
-    const output = createWriteStream(outPath);
+    const partPath = `${outPath}${PART_SUFFIX}`;
+    const output = createWriteStream(partPath);
     const archive = archiver("zip", { zlib: { level: 9 } });
 
     let failed = false;
     const fail = (err: Error) => {
       if (failed) return;
       failed = true;
+      output.destroy();
       reject(err);
     };
 
     output.on("close", () => {
-      if (!failed) resolve();
+      if (failed) return;
+      try {
+        fs.renameSync(partPath, outPath);
+      } catch (err) {
+        fail(err as Error);
+        return;
+      }
+      resolve();
     });
     output.on("error", fail);
     archive.on("warning", (err) => {
@@ -671,6 +701,11 @@ export async function deleteBackup(id: string): Promise<boolean> {
  * a Backup row (`kind: 'uploaded'`). The body is piped straight through with
  * a size cap so a hostile client can't fill the disk. Returns the completed
  * row on success; rolls back the on-disk file and row on error.
+ *
+ * Lands via `.part` + rename for the same reason {@link writeZip} does: an
+ * upload cut short must not leave something that looks like an archive under
+ * a real filename. It matters more here — an `uploaded` archive is exempt from
+ * retention, so debris in this path would never be cleaned up.
  */
 export const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
 
@@ -690,6 +725,7 @@ export async function ingestUploadedArchive(req: IncomingMessage): Promise<Backu
   await repo.save(row);
 
   const outPath = backupFilePath(filename);
+  const partPath = `${outPath}${PART_SUFFIX}`;
   try {
     const contentLength = Number(req.headers["content-length"] ?? "0");
     if (contentLength && contentLength > MAX_UPLOAD_BYTES) {
@@ -706,13 +742,18 @@ export async function ingestUploadedArchive(req: IncomingMessage): Promise<Backu
       }
     });
 
-    await pipeline(req, createWriteStream(outPath));
+    await pipeline(req, createWriteStream(partPath));
 
-    // Sanity-check that the uploaded file is a zip archive by peeking at the
-    // local file header signature (PK\x03\x04). Reject plain text / tampered
-    // uploads before the user can try to restore from them.
-    await assertIsZip(outPath);
+    // Open the archive rather than peeking at its `PK\x03\x04` header: a
+    // signature check passes a file that was cut off in transit, and the
+    // operator would only find out at restore time — the worst possible
+    // moment. Reading the central directory rejects both a partial upload and
+    // something that was never a zip.
+    if (!(await canOpenZip(partPath))) {
+      throw new Error("Uploaded file is not a complete zip archive");
+    }
 
+    fs.renameSync(partPath, outPath);
     const size = fs.statSync(outPath).size;
     row.sizeBytes = size;
     row.status = "completed";
@@ -724,31 +765,14 @@ export async function ingestUploadedArchive(req: IncomingMessage): Promise<Backu
     row.errorMessage = (err as Error).message ?? String(err);
     row.completedAt = new Date();
     await repo.save(row);
-    try {
-      if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
-    } catch {
-      // best-effort
+    for (const p of [outPath, partPath]) {
+      try {
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+      } catch {
+        // best-effort
+      }
     }
     throw err;
-  }
-}
-
-async function assertIsZip(p: string): Promise<void> {
-  const fd = await fs.promises.open(p, "r");
-  try {
-    const buf = Buffer.alloc(4);
-    const { bytesRead } = await fd.read(buf, 0, 4, 0);
-    if (
-      bytesRead < 4 ||
-      buf[0] !== 0x50 ||
-      buf[1] !== 0x4b ||
-      buf[2] !== 0x03 ||
-      buf[3] !== 0x04
-    ) {
-      throw new Error("File is not a valid zip archive");
-    }
-  } finally {
-    await fd.close();
   }
 }
 
@@ -790,6 +814,15 @@ export async function restoreFromBackup(id: string): Promise<{
     if (!fs.existsSync(zipPath)) {
       throw new Error("Backup archive is missing on disk");
     }
+    // Open it before doing anything expensive or destructive. `status` and
+    // `existsSync` only say a file is there, not that it can be extracted —
+    // and this restore is about to delete everything the archive is supposed
+    // to replace.
+    if (!(await isRestorableArchive(target.filename))) {
+      throw new Error(
+        "Backup archive is incomplete or corrupt and cannot be restored from",
+      );
+    }
 
     // Pre-restore safety snapshot. Reuses runBackup so the resulting archive
     // shows up in History — tagged `manual` because the user initiated the
@@ -809,13 +842,15 @@ export async function restoreFromBackup(id: string): Promise<{
     }
     await AppDataSource.destroy();
 
-    // Last look before the point of no return. The existsSync above ran before
-    // the safety snapshot, which takes long enough for the archive to have gone
-    // since. Failing here costs nothing; failing after the wipe costs the
-    // install.
-    if (!fs.existsSync(zipPath)) {
+    // Last look before the point of no return. The checks above ran before the
+    // safety snapshot, which takes long enough for the archive to have gone or
+    // been damaged since. Failing here costs nothing; failing after the wipe
+    // costs the install.
+    if (!(await isRestorableArchive(target.filename))) {
       await AppDataSource.initialize();
-      throw new Error("Backup archive went missing before the restore started");
+      throw new Error(
+        "Backup archive went missing or became unreadable before the restore started",
+      );
     }
 
     wipeDataExceptBackup();
@@ -862,6 +897,21 @@ async function reconcileBackupHistory(): Promise<void> {
   const dir = backupDir();
   if (!fs.existsSync(dir)) return;
   const repo = AppDataSource.getRepository(Backup);
+
+  // Sweep debris from a backup killed mid-write. The `.part` name is what kept
+  // it from being mistaken for an archive; nothing can resume one, so it is
+  // just dead bytes. (An install upgraded from before writeZip wrote atomically
+  // may still hold a truncated `.zip` under a real filename — the salvage loop
+  // below leaves those `running` rather than promoting them.)
+  for (const entry of fs.readdirSync(dir)) {
+    if (!entry.endsWith(PART_SUFFIX)) continue;
+    try {
+      fs.unlinkSync(path.join(dir, entry));
+    } catch {
+      // best-effort
+    }
+  }
+
   const existing = await repo.find();
   const byName = new Map(existing.map((r) => [r.filename, r]));
 
@@ -876,6 +926,13 @@ async function reconcileBackupHistory(): Promise<void> {
     if (!fs.existsSync(abs)) continue;
     let dirty = false;
     if (row.status === "running") {
+      // Existing on disk is not the same as restorable, and `completed` is a
+      // load-bearing claim: it is what lets restoreFromBackup wipe `dataDir`
+      // for this archive. Only promote one we can actually open. A row left
+      // `running` is inert — prune skips it and restore refuses it — which is
+      // the right resting place for both crash debris and an archive we simply
+      // couldn't read right now.
+      if (!(await isRestorableArchive(row.filename))) continue;
       row.status = "completed";
       if (!row.completedAt) row.completedAt = new Date();
       dirty = true;
