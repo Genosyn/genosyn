@@ -347,6 +347,24 @@ sends system mail); this is the company's real inbox. Internal namespace is
       gate above keeps them consistent but does not merge them.
 - [ ] Approval-gated `send_mail` (Approval kind `mail_send`) — deferred;
       the `draft` grant level is the human gate today
+- [x] **Sync resilience + live import.** The backfill checkpoints its page
+      cursor after every page (a caught error or hard crash resumes from the
+      last completed page, never from scratch), skips threads deleted
+      between listing and fetch instead of stalling the import, and every
+      mid-import pass ALSO replays the history log first — so new mail
+      shows up (and rules fire) within a heartbeat even while a huge
+      mailbox is still importing. Un-pausing an account syncs immediately
+      instead of waiting for the next heartbeat.
+- [x] **Search grammar** (`services/mail/searchQuery.ts`) shared by the
+      thread-list search box and the `search_mail` tool: terms AND together
+      across subject/participants/snippet/body/addresses, quoted phrases,
+      and Gmail-style operators — `from:` `to:` `subject:` `label:`
+      `in:inbox|archive|sent|drafts|all|spam|trash` `has:attachment`
+      `is:unread|read|starred` `before:`/`after:`. A search covers all mail
+      (minus spam/trash) rather than the folder being viewed; `in:` narrows
+      back down. The search box gets a `/` shortcut, a clear button, an
+      operator cheat-sheet popover, a result-count header, and term
+      highlighting in the result rows.
 - [x] **Mail assistant** — a chat panel docked beside the whole Email
       section (`MailAssistant`, one rolling conversation per mailbox on
       `MailChatMessage`). Tag any AI employee with `@slug` (sticky until

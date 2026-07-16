@@ -1522,7 +1522,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "search_mail",
     description:
-      "Search the whole local index of a granted mailbox — every synced message, body included. Filters combine (all applied together): free-text `query` matches subject, participants, and message bodies; `from` / `to` match sender / recipient addresses; `after` / `before` bound the date (YYYY-MM-DD); `label` narrows to a Gmail label (system ids like INBOX / STARRED / SENT, or a user label name); `unreadOnly` keeps unread threads; `hasAttachment` keeps threads with a file. Returns thread summaries newest-first — fetch full bodies with `get_mail_thread`.",
+      "Search the whole local index of a granted mailbox — every synced message, body included. `query` is free text: terms AND together (each may match subject, participants, or body; quote for exact phrases) and Gmail-style operators work verbatim — from:, to:, subject:, label:, in:inbox|archive|sent|drafts|spam|trash, has:attachment, is:unread|read|starred, before:/after:YYYY-MM-DD. The structured filters (`from`, `to`, `after`, `before`, `label`, `unreadOnly`, `hasAttachment`) do the same thing and win over their operator twins when both appear. Searches everything except spam/trash unless `in:` says otherwise. Returns thread summaries newest-first — fetch full bodies with `get_mail_thread`.",
     inputSchema: {
       type: "object",
       properties: {

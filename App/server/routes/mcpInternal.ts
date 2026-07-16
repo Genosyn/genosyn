@@ -22,6 +22,13 @@ import {
   stageAttachmentForToken,
   stageSidecarForToken,
 } from "../services/mcpTokens.js";
+import {
+  applyMailScope,
+  applyMailSearchFilters,
+  effectiveScope,
+  parseMailQuery,
+  resolveSearchLabelId,
+} from "../services/mail/searchQuery.js";
 import { recordAttachmentBytes } from "../services/uploads.js";
 import { resolveAttachmentFile } from "../services/uploads.js";
 import { Attachment } from "../db/entities/Attachment.js";
@@ -64,7 +71,6 @@ import {
 import { MailAccount } from "../db/entities/MailAccount.js";
 import { MailMessage } from "../db/entities/MailMessage.js";
 import { MailThread } from "../db/entities/MailThread.js";
-import { MailLabel } from "../db/entities/MailLabel.js";
 import {
   createMailDraft,
   performThreadAction,
@@ -5030,61 +5036,35 @@ mcpInternalRouter.post(
     const account = await loadGrantedMailAccount(req, res, body.accountId, "read");
     if (!account) return;
 
-    let labelId = "";
-    if (body.label) {
-      // Accept a Gmail label id verbatim or resolve a user label by name.
-      const labels = await AppDataSource.getRepository(MailLabel).find({
-        where: { accountId: account.id },
-      });
-      const match =
-        labels.find((l) => l.gmailLabelId === body.label) ??
-        labels.find((l) => l.name.toLowerCase() === body.label!.toLowerCase());
-      if (!match) return res.json({ threads: [], note: `No label "${body.label}" on this mailbox.` });
-      labelId = match.gmailLabelId;
+    // One grammar with the human search box: `query` goes through
+    // parseMailQuery, so terms AND together and Gmail-style operators
+    // (from:/to:/subject:/label:/in:/has:/is:/before:/after:) work verbatim.
+    // The structured args override their operator twins when both appear.
+    const parsed = parseMailQuery(body.query?.trim() ?? "");
+    if (body.from?.trim()) parsed.from = body.from.trim().toLowerCase();
+    if (body.to?.trim()) parsed.to = body.to.trim().toLowerCase();
+    if (body.unreadOnly) parsed.isUnread = true;
+    if (body.hasAttachment) parsed.hasAttachment = true;
+    const after = body.after ? new Date(body.after) : null;
+    if (after && !Number.isNaN(after.getTime())) parsed.after = after;
+    const before = body.before ? new Date(body.before) : null;
+    if (before && !Number.isNaN(before.getTime())) parsed.before = before;
+    if (body.label) parsed.label = body.label;
+
+    let labelId: string | null | undefined;
+    if (parsed.label) {
+      labelId = await resolveSearchLabelId(account.id, parsed.label);
+      if (!labelId) {
+        return res.json({ threads: [], note: `No label "${parsed.label}" on this mailbox.` });
+      }
     }
 
     let qb = AppDataSource.getRepository(MailThread)
       .createQueryBuilder("t")
       .where("t.accountId = :aid", { aid: account.id })
-      .andWhere("t.lastMessageAt IS NOT NULL")
-      .andWhere("t.labelIds NOT LIKE :trash", { trash: "% TRASH %" });
-    if (labelId) {
-      qb = qb.andWhere("t.labelIds LIKE :lbl", { lbl: `% ${labelId} %` });
-    }
-    if (body.unreadOnly) qb = qb.andWhere("t.unread = :unread", { unread: true });
-    if (body.hasAttachment) {
-      qb = qb.andWhere("t.hasAttachments = :hasAtt", { hasAtt: true });
-    }
-    // Free-text over the full index: subject, participants, and message body.
-    if (body.query?.trim()) {
-      qb = qb.andWhere(
-        `(LOWER(t.subject) LIKE :q OR LOWER(t.participants) LIKE :q
-          OR EXISTS (SELECT 1 FROM mail_messages m WHERE m.threadId = t.id AND LOWER(m.bodyText) LIKE :q))`,
-        { q: `%${body.query.trim().toLowerCase()}%` },
-      );
-    }
-    if (body.from?.trim()) {
-      qb = qb.andWhere(
-        `EXISTS (SELECT 1 FROM mail_messages m WHERE m.threadId = t.id
-                 AND (LOWER(m.fromEmail) LIKE :from OR LOWER(m.fromName) LIKE :from))`,
-        { from: `%${body.from.trim().toLowerCase()}%` },
-      );
-    }
-    if (body.to?.trim()) {
-      qb = qb.andWhere(
-        `EXISTS (SELECT 1 FROM mail_messages m WHERE m.threadId = t.id
-                 AND (LOWER(m.toEmails) LIKE :to OR LOWER(m.ccEmails) LIKE :to))`,
-        { to: `%${body.to.trim().toLowerCase()}%` },
-      );
-    }
-    const after = body.after ? new Date(body.after) : null;
-    if (after && !Number.isNaN(after.getTime())) {
-      qb = qb.andWhere("t.lastMessageAt >= :after", { after });
-    }
-    const before = body.before ? new Date(body.before) : null;
-    if (before && !Number.isNaN(before.getTime())) {
-      qb = qb.andWhere("t.lastMessageAt < :before", { before });
-    }
+      .andWhere("t.lastMessageAt IS NOT NULL");
+    qb = applyMailScope(qb, effectiveScope(parsed, labelId));
+    qb = applyMailSearchFilters(qb, parsed, labelId);
     const threads = await qb
       .orderBy("t.lastMessageAt", "DESC")
       .take(body.limit ?? 20)

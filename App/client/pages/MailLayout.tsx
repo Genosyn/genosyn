@@ -372,7 +372,10 @@ function FolderLink({
   const { pathname } = useLocation();
   const onIndex = pathname.replace(/\/$/, "") === base;
   const current = params.get("view") ?? "inbox";
-  const isActive = onIndex && !params.get("label") && current === view;
+  // An active search scopes to all mail server-side, so no folder row should
+  // claim to be the thing being shown.
+  const isActive =
+    onIndex && !params.get("q") && !params.get("label") && current === view;
   return (
     <Link
       to={view === "inbox" ? base : `${base}?view=${view}`}
@@ -398,7 +401,8 @@ function LabelLink({ base, label }: { base: string; label: MailLabelInfo }) {
   const [params] = useSearchParams();
   const { pathname } = useLocation();
   const onIndex = pathname.replace(/\/$/, "") === base;
-  const isActive = onIndex && params.get("label") === label.gmailLabelId;
+  const isActive =
+    onIndex && !params.get("q") && params.get("label") === label.gmailLabelId;
   return (
     <Link
       to={`${base}?label=${encodeURIComponent(label.gmailLabelId)}`}

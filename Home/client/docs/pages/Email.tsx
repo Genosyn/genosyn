@@ -71,9 +71,13 @@ export function Email() {
           The first sync imports your <Strong>entire mailbox</Strong>, newest
           first, so everything is searchable here. A big account fills in over
           a few minutes in the background (the sidebar shows the running
-          count); after that, sync is incremental. You can connect more than
-          one mailbox and switch between them from the account picker at the
-          top of the sidebar.
+          count); after that, sync is incremental. The import checkpoints its
+          progress continuously, so a restart, a rate limit, or a dropped
+          connection just picks up where it left off — and mail that arrives{" "}
+          <em>while</em> the import is still running shows up (and triggers
+          your rules) within a minute, without waiting for it to finish. You
+          can connect more than one mailbox and switch between them from the
+          account picker at the top of the sidebar.
         </LI>
       </OL>
 
@@ -93,9 +97,24 @@ export function Email() {
         <Strong>Forward</Strong>, or <Strong>Compose</Strong> a new message —
         with file attachments if you need them. Star, archive, trash, mark
         read/unread, and apply labels all act on the whole thread and land in
-        Gmail immediately. The search box matches subjects, participants, and
-        the <Strong>full text of every message</Strong> in the index, not just
-        what&apos;s visible in the list.
+        Gmail immediately.
+      </P>
+      <P>
+        Search (press <Code>/</Code> to jump to the box) covers{" "}
+        <Strong>all mail</Strong> — every folder except Spam and Trash — and
+        matches subjects, participants, and the{" "}
+        <Strong>full text of every message</Strong> in the index. Terms
+        combine, quotes match exact phrases, and Gmail-style operators narrow
+        things down: <Code>from:</Code>, <Code>to:</Code>,{" "}
+        <Code>subject:</Code>, <Code>label:</Code>, <Code>has:attachment</Code>,{" "}
+        <Code>is:unread</Code>, <Code>is:starred</Code>,{" "}
+        <Code>before:</Code>/<Code>after:</Code> with a date, and{" "}
+        <Code>in:</Code> to pick a folder (<Code>in:archive</Code>,{" "}
+        <Code>in:trash</Code>, …). So{" "}
+        <Code>from:acme has:attachment after:2026-01-01 invoice</Code> finds
+        the attachment-carrying Acme invoice threads from this year, wherever
+        they were filed. AI employees get the exact same grammar through their
+        mail search tool.
       </P>
       <P>
         Message bodies are rendered safely — scripts are stripped and remote

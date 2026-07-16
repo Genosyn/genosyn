@@ -37,17 +37,23 @@ import { runRulesForNewMessage } from "./rules.js";
  * The first import walks the ENTIRE mailbox, newest first, so every message
  * is mirrored and searchable locally without ever opening Gmail. A large
  * mailbox spans many heartbeat passes: each pass imports a bounded batch and
- * persists a resumable `backfillPageToken` cursor, so the import survives
- * restarts and never blocks or floods the API. While a backfill is in
+ * persists the resumable `backfillPageToken` cursor after EVERY page, so a
+ * failure — caught error or hard crash — costs at most one page of re-fetch
+ * and the import always picks up where it left off. While a backfill is in
  * flight the account is always "due", so passes run back-to-back until the
- * mailbox is fully imported. After that, every pass replays the Gmail
- * history log from the stored `historyId` cursor; when Gmail expires the
- * cursor (404), we fall back to a fresh backfill.
+ * mailbox is fully imported; each of those passes ALSO replays the Gmail
+ * history log first, so mail that arrives mid-import shows up (and gets
+ * rule-triaged) within a heartbeat instead of waiting for the walk to
+ * finish. After the import, every pass replays the history log from the
+ * stored `historyId` cursor; when Gmail expires the cursor (404), we fall
+ * back to a fresh backfill.
  *
  * Inbound rules fire only on messages that are (a) new to the mirror,
- * (b) not drafts, and (c) not sent by the account itself — and never during
- * a backfill, so connecting a mailbox can't storm an AI employee with a
- * mailbox's worth of historical handovers.
+ * (b) not drafts, and (c) not sent by the account itself — and never from
+ * the backfill walk itself, so connecting a mailbox can't storm an AI
+ * employee with a mailbox's worth of historical handovers. Genuinely new
+ * arrivals reach rules through the history replay only, whose cursor is
+ * anchored at connect time.
  */
 
 const HEARTBEAT_INTERVAL_MS = 30 * 1000;
@@ -61,9 +67,20 @@ let ticking = false;
 /** Accounts with a sync pass in flight — the per-account mutex. */
 const syncing = new Set<string>();
 /** When the in-flight full backfill for an account started, so a completed
- * backfill can prune messages deleted upstream (rows not re-touched). Kept
- * in memory: a restart mid-backfill simply skips that round's prune. */
+ * backfill can prune messages deleted upstream. Kept in memory: a restart
+ * mid-backfill simply skips that round's prune. */
 const backfillStartedAt = new Map<string, Date>();
+/**
+ * Every Gmail message id the in-flight import has PROVEN still exists
+ * upstream — touched by the walk or the mid-import history replay. The
+ * completion prune deletes only mirrored rows absent from this set: an
+ * `updatedAt` heuristic is not enough, because TypeORM skips the UPDATE
+ * (and the @UpdateDateColumn bump) entirely when a re-save assigns values
+ * identical to the row, so on a re-backfill the unchanged majority of the
+ * mailbox never gets "re-touched". Seeded only when a fresh import anchors
+ * in this process; missing after a restart, which skips that round's prune.
+ */
+const backfillSeenIds = new Map<string, Set<string>>();
 
 export function bootMailSync(): void {
   if (heartbeat) clearInterval(heartbeat);
@@ -120,7 +137,13 @@ export async function syncAccountNow(accountId: string): Promise<void> {
   try {
     const repo = AppDataSource.getRepository(MailAccount);
     const account = await repo.findOneBy({ id: accountId });
-    if (!account || account.status === "paused") return;
+    if (!account) {
+      // Deleted mid-import — drop the in-memory walk bookkeeping.
+      backfillStartedAt.delete(accountId);
+      backfillSeenIds.delete(accountId);
+      return;
+    }
+    if (account.status === "paused") return;
 
     let changed = false;
     try {
@@ -128,6 +151,13 @@ export async function syncAccountNow(accountId: string): Promise<void> {
       await syncLabels(account, await listLabels(token));
 
       if (!account.backfilledAt) {
+        // Mid-import, new mail must not wait for the walk to finish: the
+        // history cursor was anchored before the first page, so replaying it
+        // here surfaces (and rule-triages) everything that arrived since —
+        // even when the full import takes hours.
+        if (account.historyId) {
+          await incremental(account, token, { duringBackfill: true });
+        }
         await backfillPass(account, token);
         changed = true;
       } else {
@@ -177,13 +207,10 @@ async function backfillPass(account: MailAccount, token: string): Promise<void> 
     const profile = await getProfile(token);
     account.historyId = profile.historyId;
     backfillStartedAt.set(account.id, new Date());
-  }
-  if (!backfillStartedAt.has(account.id)) {
-    // Resuming after a restart — approximate the epoch so the prune stays safe
-    // (only rows older than any pass in this import get removed on completion).
-    backfillStartedAt.set(account.id, account.createdAt);
+    backfillSeenIds.set(account.id, new Set());
   }
 
+  const repo = AppDataSource.getRepository(MailAccount);
   const startedAt = Date.now();
   let processed = 0;
   let pageToken = account.backfillPageToken || undefined;
@@ -194,12 +221,22 @@ async function backfillPass(account: MailAccount, token: string): Promise<void> 
       maxResults: 100,
       pageToken,
     });
+    const seen = backfillSeenIds.get(account.id);
     for (const t of page.threads) {
-      const full = await getThread(token, t.id, "full");
-      for (const gm of full.messages ?? []) {
-        await upsertGmailMessage(account, gm);
+      try {
+        const full = await getThread(token, t.id, "full");
+        for (const gm of full.messages ?? []) {
+          await upsertGmailMessage(account, gm);
+          seen?.add(gm.id);
+        }
+        await recomputeThread(account, t.id);
+      } catch (err) {
+        // A thread can be deleted between the listing and our fetch. Skip it
+        // rather than erroring the whole import — the completion prune (or
+        // the history log) squares the mirror.
+        if (err instanceof GmailApiError && err.status === 404) continue;
+        throw err;
       }
-      await recomputeThread(account, t.id);
       processed += 1;
       account.backfilledCount += 1;
     }
@@ -210,10 +247,24 @@ async function backfillPass(account: MailAccount, token: string): Promise<void> 
       await refreshDraftIds(account, token);
       await pruneStaleAfterBackfill(account);
       backfillStartedAt.delete(account.id);
+      backfillSeenIds.delete(account.id);
       account.backfilledAt = new Date();
       account.backfillPageToken = "";
       return;
     }
+    // Persist the cursor (and the running count) after every page, so even a
+    // hard crash mid-pass resumes from the last completed page instead of
+    // re-importing the whole pass. A targeted UPDATE (not save) so a human
+    // pausing the account mid-import can't be clobbered by our stale copy.
+    // Broadcast so the sidebar counter ticks.
+    await repo.update(account.id, {
+      backfillPageToken: account.backfillPageToken,
+      backfilledCount: account.backfilledCount,
+    });
+    broadcastToCompany(account.companyId, {
+      type: "mail.updated",
+      accountId: account.id,
+    });
     if (processed >= threadsBudget || Date.now() - startedAt >= msBudget) {
       // Yield; the next heartbeat resumes from the persisted cursor.
       return;
@@ -222,22 +273,28 @@ async function backfillPass(account: MailAccount, token: string): Promise<void> 
 }
 
 /**
- * After a full import completes, drop locally-mirrored messages that the
- * import did not re-touch — those were deleted or hard-trashed upstream
- * during a gap (e.g. while the history cursor had expired). A full backfill
- * upserts (and so bumps `updatedAt` on) every still-existing message, so
- * anything older than the import's start is gone from Gmail.
+ * After a full import completes, drop locally-mirrored messages the import
+ * did not SEE — those were deleted or hard-trashed upstream during a gap
+ * (e.g. while the history cursor had expired). Existence is proven by the
+ * in-memory seen-set the walk and the mid-import history replay populate;
+ * an `updatedAt < start` guard is kept as well so rows written mid-import
+ * by paths outside the seen-set (write-through sends/drafts) can never be
+ * pruned. Skipped when the seen-set is missing — a process restart during
+ * the walk means it never covered the whole mailbox, and a wrong skip only
+ * defers upstream-deletion cleanup, while a wrong prune deletes the mirror.
  */
 async function pruneStaleAfterBackfill(account: MailAccount): Promise<void> {
   const startedAt = backfillStartedAt.get(account.id);
-  if (!startedAt) return;
+  const seen = backfillSeenIds.get(account.id);
+  if (!startedAt || !seen) return;
   const msgRepo = AppDataSource.getRepository(MailMessage);
-  const stale = await msgRepo
+  const candidates = await msgRepo
     .createQueryBuilder("m")
-    .select(["m.id", "m.gmailThreadId"])
+    .select(["m.id", "m.gmailMessageId", "m.gmailThreadId"])
     .where("m.accountId = :aid", { aid: account.id })
     .andWhere("m.updatedAt < :start", { start: startedAt })
     .getMany();
+  const stale = candidates.filter((m) => !seen.has(m.gmailMessageId));
   if (stale.length === 0) return;
   const threads = new Set<string>();
   for (const m of stale) {
@@ -253,10 +310,18 @@ async function pruneStaleAfterBackfill(account: MailAccount): Promise<void> {
  * Replay the history log from the stored cursor. Returns whether anything
  * changed locally. On a 404 (cursor expired) the mirror rebuilds itself via
  * a fresh backfill.
+ *
+ * `duringBackfill` marks the mid-import replay that keeps new mail flowing
+ * while the walk is still running. Its only behavioral difference is the
+ * expired-cursor path: resetting the backfill cursors there would restart
+ * the in-flight import from page one on every expiry, so the replay just
+ * skips that pass — the first post-completion incremental hits the same 404
+ * and triggers the standard re-anchor + fresh import.
  */
 async function incremental(
   account: MailAccount,
   token: string,
+  opts: { duringBackfill?: boolean } = {},
 ): Promise<boolean> {
   let records: GmailHistoryRecord[] = [];
   let latestHistoryId = account.historyId;
@@ -274,6 +339,7 @@ async function incremental(
     }
   } catch (err) {
     if (err instanceof GmailApiError && err.status === 404) {
+      if (opts.duringBackfill) return false;
       // Cursor expired — Gmail only keeps history for about a week. Re-anchor
       // by resetting to a fresh full import; the resumable backfill re-runs on
       // the following heartbeats and its completion prune drops anything
@@ -293,15 +359,25 @@ async function incremental(
   }
 
   // Fold the log into per-message outcomes so each message is fetched once
-  // no matter how many records touched it.
+  // no matter how many records touched it. `added` tracks which ids arrived
+  // via a messagesAdded record — the only kind that means "new mail". A
+  // label-change record can also reference a message the mirror has never
+  // seen (mid-import, or after a cursor gap); ingesting it is right, but
+  // treating it as a new arrival would fire rules on old mail.
   const deleted = new Set<string>();
+  const added = new Set<string>();
   const touched = new Map<string, string>(); // gmailMessageId → gmailThreadId
   for (const rec of records) {
     for (const d of rec.messagesDeleted ?? []) {
       deleted.add(d.message.id);
       touched.set(d.message.id, d.message.threadId);
     }
-    for (const group of [rec.messagesAdded, rec.labelsAdded, rec.labelsRemoved]) {
+    for (const a of rec.messagesAdded ?? []) {
+      if (deleted.has(a.message.id)) continue;
+      added.add(a.message.id);
+      touched.set(a.message.id, a.message.threadId);
+    }
+    for (const group of [rec.labelsAdded, rec.labelsRemoved]) {
       for (const item of group ?? []) {
         if (deleted.has(item.message.id)) continue;
         touched.set(item.message.id, item.message.threadId);
@@ -311,6 +387,7 @@ async function incremental(
 
   const threadsToRecompute = new Set<string>();
   const newInbound: Array<{ messageRowId: string }> = [];
+  const seen = backfillSeenIds.get(account.id);
 
   for (const [gmailMessageId, gmailThreadId] of touched) {
     if (deleted.has(gmailMessageId)) {
@@ -318,6 +395,9 @@ async function incremental(
       if (t) threadsToRecompute.add(t);
       continue;
     }
+    // Any non-deleted history event proves the message still exists — count
+    // it for the in-flight import's completion prune.
+    seen?.add(gmailMessageId);
     try {
       const mirrored = await AppDataSource.getRepository(MailMessage).existsBy({
         accountId: account.id,
@@ -330,12 +410,15 @@ async function incremental(
         threadsToRecompute.add(gmailThreadId);
         continue;
       }
-      // New to the mirror — fetch the full message.
+      // New to the mirror — fetch the full message. Rules fire only for
+      // genuine arrivals (a messagesAdded record): a label change on a
+      // message the mirror hasn't imported yet is old mail, not new.
       const gm = await getMessage(token, gmailMessageId, "full");
       const { row, created } = await upsertGmailMessage(account, gm);
       threadsToRecompute.add(gm.threadId);
       const inbound =
         created &&
+        added.has(gmailMessageId) &&
         !columnHasLabel(row.labelIds, "DRAFT") &&
         !columnHasLabel(row.labelIds, "SENT") &&
         row.fromEmail.toLowerCase() !== account.address.toLowerCase();

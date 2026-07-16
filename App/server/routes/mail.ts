@@ -56,6 +56,14 @@ import {
   serializeAssistantMessage,
 } from "../services/mail/assistant.js";
 import { columnToLabelIds } from "../services/mail/store.js";
+import {
+  applyMailScope,
+  applyMailSearchFilters,
+  effectiveScope,
+  isEmptyQuery,
+  parseMailQuery,
+  resolveSearchLabelId,
+} from "../services/mail/searchQuery.js";
 import { syncAccountNow } from "../services/mail/sync.js";
 
 /**
@@ -288,6 +296,7 @@ mailRouter.patch(
     const account = await loadAccount((req.params as Record<string, string>).cid, req.params.aid as string);
     if (!account) return res.status(404).json({ error: "Mail account not found" });
     const body = req.body as z.infer<typeof patchAccountSchema>;
+    const resumed = body.status === "active" && account.status !== "active";
     account.status = body.status;
     if (body.status === "active") account.statusMessage = "";
     await AppDataSource.getRepository(MailAccount).save(account);
@@ -299,6 +308,8 @@ mailRouter.patch(
       targetId: account.id,
       targetLabel: account.address,
     });
+    // Un-pausing should catch up immediately, not on the next heartbeat.
+    if (resumed) void syncAccountNow(account.id).catch(() => {});
     res.json({ account: serializeMailAccount(account) });
   },
 );
@@ -398,61 +409,32 @@ mailRouter.get("/mail/accounts/:aid/threads", async (req, res) => {
     100,
   );
 
+  // A search covers the whole mailbox (minus spam/trash), like Gmail —
+  // finding an archived thread from the Inbox is the whole point. The query
+  // itself can narrow back down (`in:` / `label:` / `is:` operators, see
+  // services/mail/searchQuery.ts); folder browsing without a query keeps
+  // the view/label params.
+  const parsed = q ? parseMailQuery(q) : null;
+  const searching = parsed !== null && !isEmptyQuery(parsed);
+
   let qb = AppDataSource.getRepository(MailThread)
     .createQueryBuilder("t")
     .where("t.accountId = :aid", { aid: account.id })
     .andWhere("t.lastMessageAt IS NOT NULL");
 
-  const hasLabel = (id: string, alias: string) =>
-    qb.andWhere(`t.labelIds LIKE :${alias}`, { [alias]: `% ${id} %` });
-  const notLabel = (id: string, alias: string) =>
-    qb.andWhere(`t.labelIds NOT LIKE :${alias}`, { [alias]: `% ${id} %` });
-
-  if (label) {
-    qb = hasLabel(label, "lbl");
-    qb = notLabel("TRASH", "trash");
+  if (searching) {
+    const labelId = parsed.label
+      ? await resolveSearchLabelId(account.id, parsed.label)
+      : undefined;
+    qb = applyMailScope(qb, effectiveScope(parsed, labelId));
+    qb = applyMailSearchFilters(qb, parsed, labelId);
+  } else if (label) {
+    qb = qb.andWhere("t.labelIds LIKE :lbl", { lbl: `% ${label} %` });
+    qb = qb.andWhere("t.labelIds NOT LIKE :trash", { trash: "% TRASH %" });
   } else {
-    switch (view) {
-      case "inbox":
-        qb = hasLabel("INBOX", "inbox");
-        qb = notLabel("TRASH", "trash");
-        break;
-      case "starred":
-        qb = hasLabel("STARRED", "starred");
-        qb = notLabel("TRASH", "trash");
-        break;
-      case "sent":
-        qb = hasLabel("SENT", "sent");
-        qb = notLabel("TRASH", "trash");
-        break;
-      case "drafts":
-        qb = hasLabel("DRAFT", "draft");
-        qb = notLabel("TRASH", "trash");
-        break;
-      case "spam":
-        qb = hasLabel("SPAM", "spam");
-        break;
-      case "trash":
-        qb = hasLabel("TRASH", "trash");
-        break;
-      case "all":
-        qb = notLabel("TRASH", "trash");
-        qb = notLabel("SPAM", "spam");
-        break;
-    }
+    qb = applyMailScope(qb, view);
   }
 
-  if (q) {
-    // Search the full local index: subject, participants, snippet, AND the
-    // body of any message in the thread. The EXISTS subquery is portable
-    // across sqlite and postgres (no driver-specific full-text engine).
-    qb = qb.andWhere(
-      `(LOWER(t.subject) LIKE :q OR LOWER(t.snippet) LIKE :q OR LOWER(t.participants) LIKE :q
-        OR EXISTS (SELECT 1 FROM mail_messages m WHERE m.threadId = t.id
-                   AND (LOWER(m.bodyText) LIKE :q OR LOWER(m.fromEmail) LIKE :q OR LOWER(m.toEmails) LIKE :q)))`,
-      { q: `%${q.toLowerCase()}%` },
-    );
-  }
   if (before) {
     const cursor = new Date(before);
     if (!Number.isNaN(cursor.getTime())) {
