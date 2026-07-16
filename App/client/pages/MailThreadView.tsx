@@ -13,6 +13,7 @@ import {
   Paperclip,
   Reply,
   ReplyAll,
+  Sparkles,
   Star,
   Tag,
   Trash2,
@@ -108,7 +109,7 @@ const DEFAULT_INSTRUCTIONS: Record<MailHandoverMode, string> = {
 };
 
 export default function MailThreadView() {
-  const { company, account, labels, changeTick, openCompose } =
+  const { company, account, labels, changeTick, openCompose, openAssistant } =
     useOutletContext<MailOutletCtx>();
   const { threadId } = useParams();
   const { toast } = useToast();
@@ -296,6 +297,9 @@ export default function MailThreadView() {
               </>
             )}
           </Menu>
+          <Button size="sm" variant="secondary" onClick={() => openAssistant()}>
+            <Sparkles size={14} className="mr-1.5 text-violet-500" /> Ask AI
+          </Button>
           <Button size="sm" variant="secondary" onClick={() => setHandOpen(true)}>
             <Bot size={14} className="mr-1.5" /> Hand to AI
           </Button>

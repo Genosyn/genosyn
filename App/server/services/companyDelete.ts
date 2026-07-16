@@ -40,6 +40,14 @@ import { CustomerContract } from "../db/entities/CustomerContract.js";
 import { Dashboard } from "../db/entities/Dashboard.js";
 import { DashboardCard } from "../db/entities/DashboardCard.js";
 import { EmailLog } from "../db/entities/EmailLog.js";
+import { EmployeeMailAccountGrant } from "../db/entities/EmployeeMailAccountGrant.js";
+import { MailAccount } from "../db/entities/MailAccount.js";
+import { MailChatMessage } from "../db/entities/MailChatMessage.js";
+import { MailHandover } from "../db/entities/MailHandover.js";
+import { MailLabel } from "../db/entities/MailLabel.js";
+import { MailMessage } from "../db/entities/MailMessage.js";
+import { MailRule } from "../db/entities/MailRule.js";
+import { MailThread } from "../db/entities/MailThread.js";
 import { EmailProvider } from "../db/entities/EmailProvider.js";
 import { EmployeeBaseGrant } from "../db/entities/EmployeeBaseGrant.js";
 import { EmployeeChartGrant } from "../db/entities/EmployeeChartGrant.js";
@@ -289,6 +297,19 @@ export async function deleteCompanyCascade(args: {
     await m.delete(ExchangeRate, { companyId });
     await m.delete(Currency, { companyId });
     await m.delete(CompanyFinanceSettings, { companyId });
+    // The mail-client suite (M25). Grants carry no companyId, so they go by
+    // this company's employees; the rest are direct companyId sweeps,
+    // leaf-first (messages → threads → labels/rules/handovers/chat → accounts).
+    if (employeeIds.length) {
+      await m.delete(EmployeeMailAccountGrant, { employeeId: In(employeeIds) });
+    }
+    await m.delete(MailMessage, { companyId });
+    await m.delete(MailThread, { companyId });
+    await m.delete(MailLabel, { companyId });
+    await m.delete(MailRule, { companyId });
+    await m.delete(MailHandover, { companyId });
+    await m.delete(MailChatMessage, { companyId });
+    await m.delete(MailAccount, { companyId });
     await m.delete(IntegrationConnection, { companyId });
     await m.delete(EmailLog, { companyId });
     await m.delete(EmailProvider, { companyId });

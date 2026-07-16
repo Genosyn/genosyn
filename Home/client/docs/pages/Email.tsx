@@ -21,10 +21,11 @@ export function Email() {
         lead={
           <>
             Connect a Gmail account and work your inbox inside Genosyn — read
-            threads, reply, and file mail like a normal client. Then hand
-            threads to your <DocLink to="/docs/employees">AI employees</DocLink>{" "}
-            to draft answers, and set <Strong>rules</Strong> that triage new
-            mail the moment it arrives. Everything syncs both ways.
+            threads, reply, and file mail like a normal client. Then put your{" "}
+            <DocLink to="/docs/employees">AI employees</DocLink> on it: chat
+            with them right beside the inbox, hand them threads to draft
+            answers, and set <Strong>rules</Strong> that triage new mail the
+            moment it arrives. Everything syncs both ways.
           </>
         }
       />
@@ -100,6 +101,37 @@ export function Email() {
         Message bodies are rendered safely — scripts are stripped and remote
         images stay blocked behind a <Strong>Show images</Strong> click, so a
         tracking pixel can&apos;t phone home just because you opened a message.
+      </P>
+
+      <H2 id="assistant">The mail assistant</H2>
+      <P>
+        Click <Strong>AI assistant</Strong> in the sidebar (or{" "}
+        <Strong>Ask AI</Strong> on any thread) to dock a chat panel beside the
+        inbox. Type <Code>@</Code> to tag any AI employee and ask for whatever
+        you need — &ldquo;summarize this thread&rdquo;, &ldquo;draft a
+        reply&rdquo;, &ldquo;which threads are waiting on us?&rdquo;, &ldquo;find
+        the newsletters cluttering the inbox and propose a rule&rdquo;. The
+        employee you tagged stays on the conversation until you tag somebody
+        else, and each mailbox keeps one rolling conversation, so you can pick
+        up where you left off.
+      </P>
+      <P>
+        When you ask from a thread, the employee already has it in front of
+        them — no ids, no copy-pasting. It works the mailbox with the same
+        grant-gated tools as everywhere else (an employee without access to
+        the mailbox can chat, but can&apos;t see your mail), and everything it
+        actually does shows up as small action pills under its reply.
+      </P>
+      <P>
+        Replies can also carry <Strong>action buttons</Strong> — concrete next
+        steps the employee proposes that run with <em>your</em> authority when
+        you click them: open a pre-filled reply, send a draft it just wrote,
+        archive or label the thread, start a handover, or create an inbox rule
+        it spotted a pattern for. That is the human-in-the-loop sweet spot: an
+        employee on the default <Strong>Draft</Strong> level can prepare and
+        propose a send, and the send happens only when you press the button.
+        Buttons that consume something (send, triage, handover, rule) are
+        marked done after they run, so a reload can&apos;t re-arm them.
       </P>
 
       <H2 id="hand-to-ai">Handing a thread to an AI employee</H2>
@@ -218,7 +250,9 @@ export function Email() {
         Granted employees get a <Code>mail</Code> tool on the built-in{" "}
         <Code>genosyn</Code> MCP surface, with operations to list accounts,
         search and read threads, write drafts, triage (label / archive / mark
-        read), and — with <Strong>send</Strong> access — send. Search runs over
+        read), propose the assistant panel&apos;s{" "}
+        <DocLink to="/docs/email#assistant">action buttons</DocLink>, and —
+        with <Strong>send</Strong> access — send. Search runs over
         the same full-text index humans use and takes structured filters
         (sender, recipient, date range, label, has-attachment), so an employee
         can answer &ldquo;what did the vendor say about pricing last

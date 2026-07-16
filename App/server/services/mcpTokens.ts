@@ -43,6 +43,16 @@ const tokens = new Map<string, McpTokenInfo>();
 const stagedAttachments = new Map<string, string[]>();
 
 /**
+ * Per-token staging area for arbitrary structured payloads a tool wants to
+ * hand back to whichever surface ran the turn — same lifecycle as
+ * `stagedAttachments`, but keyed by a payload kind so unrelated tools don't
+ * trample each other. Today the only producer is `suggest_mail_actions`
+ * (kind "mail.suggestions"); the mail assistant drains it after the turn and
+ * renders the payloads as one-click action buttons.
+ */
+const stagedSidecars = new Map<string, Map<string, unknown[]>>();
+
+/**
  * Mint a fresh token for an employee + company. 32 random bytes gives ~128
  * bits of entropy — plenty for a token that lives in memory and expires on
  * the hour.
@@ -63,6 +73,9 @@ export function stageAttachmentForToken(
   token: string,
   attachmentId: string,
 ): void {
+  // A revoked token's drain has already run (or never will) — staging for it
+  // would leak the entry for the life of the process.
+  if (!tokens.has(token)) return;
   const list = stagedAttachments.get(token) ?? [];
   list.push(attachmentId);
   stagedAttachments.set(token, list);
@@ -72,6 +85,31 @@ export function drainAttachmentsForToken(token: string): string[] {
   const list = stagedAttachments.get(token);
   stagedAttachments.delete(token);
   return list ?? [];
+}
+
+export function stageSidecarForToken(
+  token: string,
+  kind: string,
+  payload: unknown,
+): void {
+  // Same dead-token guard as attachments: a handler that finishes after the
+  // turn's revoke must not resurrect an undrainable entry.
+  if (!tokens.has(token)) return;
+  const byKind = stagedSidecars.get(token) ?? new Map<string, unknown[]>();
+  const list = byKind.get(kind) ?? [];
+  list.push(payload);
+  byKind.set(kind, list);
+  stagedSidecars.set(token, byKind);
+}
+
+/** Drain every staged sidecar payload for a token, grouped by kind. */
+export function drainSidecarsForToken(
+  token: string,
+): Record<string, unknown[]> {
+  const byKind = stagedSidecars.get(token);
+  stagedSidecars.delete(token);
+  if (!byKind) return {};
+  return Object.fromEntries(byKind);
 }
 
 /**
@@ -96,6 +134,7 @@ export function resolveMcpToken(token: string): McpTokenInfo | null {
 export function revokeMcpToken(token: string): void {
   tokens.delete(token);
   stagedAttachments.delete(token);
+  stagedSidecars.delete(token);
 }
 
 function sweep(): void {
@@ -104,6 +143,15 @@ function sweep(): void {
     if (v.expiresAt < now) {
       tokens.delete(k);
       stagedAttachments.delete(k);
+      stagedSidecars.delete(k);
     }
+  }
+  // Reclaim staged entries whose token is gone entirely — belt-and-braces
+  // against any staging that raced a revoke.
+  for (const k of stagedAttachments.keys()) {
+    if (!tokens.has(k)) stagedAttachments.delete(k);
+  }
+  for (const k of stagedSidecars.keys()) {
+    if (!tokens.has(k)) stagedSidecars.delete(k);
   }
 }

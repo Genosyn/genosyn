@@ -135,7 +135,8 @@ genosyn/
   `AuditEvent`, `Notification`
 - **Email (transactional sends):** `EmailProvider`, `EmailLog`
 - **Email client (M25):** `MailAccount`, `MailThread`, `MailMessage`,
-  `MailLabel`, `MailRule`, `MailHandover`, `EmployeeMailAccountGrant`
+  `MailLabel`, `MailRule`, `MailHandover`, `MailChatMessage`,
+  `EmployeeMailAccountGrant`
 - **Backups:** `Backup`, `BackupSchedule`, `BackupDestination`
 - **Secrets:** `Secret`
 
@@ -346,6 +347,21 @@ sends system mail); this is the company's real inbox. Internal namespace is
       gate above keeps them consistent but does not merge them.
 - [ ] Approval-gated `send_mail` (Approval kind `mail_send`) — deferred;
       the `draft` grant level is the human gate today
+- [x] **Mail assistant** — a chat panel docked beside the whole Email
+      section (`MailAssistant`, one rolling conversation per mailbox on
+      `MailChatMessage`). Tag any AI employee with `@slug` (sticky until
+      somebody else is tagged), and the turn runs through the chat seam
+      with the mailbox + currently-viewed thread injected as context
+      (thread contents only when the employee holds a `read` grant).
+      Replies carry **action pills** (what the employee did, from
+      AuditEvents) and **suggestion buttons** — structured next steps the
+      employee proposes via the new `suggest_mail_actions` tool (op
+      `suggest` on the `mail` family): open a pre-filled reply, send a
+      draft, triage, open a thread, start a handover, or create an inbox
+      rule. Buttons execute through the ordinary human routes with the
+      human's own authority — so a `draft`-level employee can *propose* a
+      send the human approves with one click — and consuming buttons are
+      stamped executed server-side so a reload can't re-arm them.
 
 ### M6 — AI Models (employee-owned) ✅
 > **Superseded by M22.** The provider-CLI harnesses, subscription sign-in, and

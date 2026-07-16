@@ -5,6 +5,7 @@ import { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailLabel } from "../../db/entities/MailLabel.js";
 import { MailRule } from "../../db/entities/MailRule.js";
 import { MailHandover } from "../../db/entities/MailHandover.js";
+import { MailChatMessage } from "../../db/entities/MailChatMessage.js";
 import { EmployeeMailAccountGrant } from "../../db/entities/EmployeeMailAccountGrant.js";
 import { IntegrationConnection } from "../../db/entities/IntegrationConnection.js";
 import {
@@ -124,6 +125,7 @@ export async function deleteMailAccount(account: MailAccount): Promise<void> {
   await AppDataSource.getRepository(MailLabel).delete({ accountId: id });
   await AppDataSource.getRepository(MailRule).delete({ accountId: id });
   await AppDataSource.getRepository(MailHandover).delete({ accountId: id });
+  await AppDataSource.getRepository(MailChatMessage).delete({ accountId: id });
   await AppDataSource.getRepository(EmployeeMailAccountGrant).delete({
     accountId: id,
   });

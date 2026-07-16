@@ -19,6 +19,7 @@ import {
   Settings as SettingsIcon,
   ShieldAlert,
   SlidersHorizontal,
+  Sparkles,
   Star,
   Tag,
   Trash2,
@@ -33,6 +34,7 @@ import {
   mailApi,
 } from "../lib/mail";
 import { ContextualLayout, SidebarLink } from "../components/AppShell";
+import { MailAssistant } from "./MailAssistant";
 import { AttachmentBar, useMailAttachments } from "../components/MailAttachments";
 import { useCompanySocketSubscription } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -66,9 +68,13 @@ export type MailOutletCtx = {
   changeTick: number;
   refresh: () => Promise<void>;
   openCompose: (init?: Partial<ComposeInput>) => void;
+  /** Open the AI assistant panel (no-op if already open). */
+  openAssistant: () => void;
 };
 
 const activeAccountKey = (companyId: string) => `genosyn.mail.account.${companyId}`;
+const assistantOpenKey = (companyId: string) =>
+  `genosyn.mail.assistant.${companyId}`;
 
 export default function MailLayout({ company }: { company: Company }) {
   const { toast } = useToast();
@@ -86,9 +92,25 @@ export default function MailLayout({ company }: { company: Company }) {
   const [changeTick, setChangeTick] = React.useState(0);
   const [composeOpen, setComposeOpen] = React.useState(false);
   const [composeInit, setComposeInit] = React.useState<Partial<ComposeInput>>({});
+  const [assistantOpen, setAssistantOpen] = React.useState(
+    () => localStorage.getItem(assistantOpenKey(company.id)) === "1",
+  );
+  const location = useLocation();
+  // The thread the human is looking at, if any — the assistant injects it as
+  // context so "summarize this" needs no ids.
+  const viewedThreadId =
+    location.pathname.match(/\/mail\/t\/([^/]+)/)?.[1] ?? null;
 
   const account =
     accounts.find((a) => a.id === activeId) ?? accounts[0] ?? null;
+
+  const setAssistant = React.useCallback(
+    (open: boolean) => {
+      setAssistantOpen(open);
+      localStorage.setItem(assistantOpenKey(company.id), open ? "1" : "0");
+    },
+    [company.id],
+  );
 
   const refreshAccounts = React.useCallback(async () => {
     const res = await mailApi.accounts(company.id);
@@ -234,6 +256,14 @@ export default function MailLayout({ company }: { company: Company }) {
         >
           <PenSquare size={14} className="mr-1.5" /> Compose
         </Button>
+        <Button
+          className="mt-2 w-full"
+          size="sm"
+          variant="secondary"
+          onClick={() => setAssistant(!assistantOpen)}
+        >
+          <Sparkles size={14} className="mr-1.5 text-violet-500" /> AI assistant
+        </Button>
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
         <FolderLink base={base} view="inbox" icon={<Inbox size={14} />} label="Inbox" badge={counts.inboxUnread} />
@@ -284,11 +314,34 @@ export default function MailLayout({ company }: { company: Company }) {
     changeTick,
     refresh,
     openCompose,
+    openAssistant: () => setAssistant(true),
   };
 
   return (
     <ContextualLayout sidebar={sidebar}>
-      <Outlet context={ctx} />
+      <div className="flex h-full min-h-0">
+        <div className="min-w-0 flex-1 overflow-y-auto">
+          <Outlet context={ctx} />
+        </div>
+        {assistantOpen && (
+          <>
+            {/* Mobile scrim — the panel overlays below lg and docks at lg+. */}
+            <div
+              className="fixed inset-0 z-40 bg-slate-900/40 lg:hidden"
+              onClick={() => setAssistant(false)}
+            />
+            <aside className="fixed inset-y-0 right-0 z-40 flex w-[380px] max-w-[92vw] flex-col border-l border-slate-200 bg-white shadow-xl lg:static lg:z-auto lg:w-[380px] lg:max-w-none lg:shrink-0 lg:shadow-none dark:border-slate-800 dark:bg-slate-950">
+              <MailAssistant
+                company={company}
+                account={account}
+                threadId={viewedThreadId}
+                onClose={() => setAssistant(false)}
+                openCompose={openCompose}
+              />
+            </aside>
+          </>
+        )}
+      </div>
       <MailComposeModal
         open={composeOpen}
         onClose={() => setComposeOpen(false)}

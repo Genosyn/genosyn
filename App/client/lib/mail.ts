@@ -1,4 +1,4 @@
-import { api } from "./api";
+import { api, MessageAction } from "./api";
 
 /**
  * Types + REST client for the Email section (M25). Kept out of `lib/api.ts`
@@ -194,6 +194,67 @@ export type ComposeInput = {
   attachmentIds?: string[];
 };
 
+// ───────────────────────────── assistant ─────────────────────────────
+
+/** One structured action button an employee proposed via `suggest_mail_actions`. */
+export type MailSuggestion = {
+  id: string;
+  kind:
+    | "reply"
+    | "send_draft"
+    | "thread_action"
+    | "open_thread"
+    | "hand_over"
+    | "create_rule";
+  label: string;
+  accountId?: string;
+  threadId?: string;
+  messageId?: string;
+  to?: string;
+  cc?: string;
+  subject?: string;
+  bodyText?: string;
+  action?: ThreadActionName;
+  labelName?: string;
+  employeeId?: string;
+  mode?: MailHandoverMode;
+  instruction?: string;
+  rule?: {
+    name: string;
+    conditions: MailRuleConditions;
+    actions: MailRuleAction[];
+  };
+  /** Server-verified facts snapshotted at suggest time — what the human sees
+   * next to the button is what the server checked, not the model's label. */
+  targetTo?: string;
+  targetSubject?: string;
+  targetEmployeeName?: string;
+  executedAt?: string;
+};
+
+export type MailAssistantMessage = {
+  id: string;
+  accountId: string;
+  threadId: string | null;
+  role: "user" | "assistant";
+  employeeId: string | null;
+  content: string;
+  status: "ok" | "skipped" | "error" | null;
+  actions: MessageAction[];
+  suggestions: MailSuggestion[];
+  createdAt: string;
+};
+
+export type MailAssistantRosterEntry = {
+  id: string;
+  name: string;
+  slug: string;
+  role: string;
+  avatarKey: string | null;
+  accessLevel: MailAccessLevel | null;
+  hasModel: boolean;
+};
+
 const base = (companyId: string) => `/api/companies/${companyId}/mail`;
 
 export const mailApi = {
@@ -344,6 +405,32 @@ export const mailApi = {
   grantCandidates: (cid: string, aid: string) =>
     api.get<{ candidates: MailGrantCandidate[] }>(
       `${base(cid)}/accounts/${aid}/grant-candidates`,
+    ),
+
+  assistant: (cid: string, aid: string) =>
+    api.get<{
+      messages: MailAssistantMessage[];
+      roster: MailAssistantRosterEntry[];
+    }>(`${base(cid)}/accounts/${aid}/assistant`),
+  assistantSend: (
+    cid: string,
+    aid: string,
+    input: { message: string; threadId?: string; employeeId?: string },
+    onEvent: (event: string, data: unknown) => void,
+    opts: { signal?: AbortSignal } = {},
+  ) =>
+    api.stream(
+      `${base(cid)}/accounts/${aid}/assistant/messages`,
+      input,
+      onEvent,
+      opts,
+    ),
+  assistantClear: (cid: string, aid: string) =>
+    api.del<{ ok: true }>(`${base(cid)}/accounts/${aid}/assistant/messages`),
+  assistantMarkExecuted: (cid: string, mid: string, sid: string) =>
+    api.post<{ message: MailAssistantMessage }>(
+      `${base(cid)}/assistant/messages/${mid}/suggestions/${sid}/executed`,
+      {},
     ),
 };
 

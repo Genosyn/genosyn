@@ -47,6 +47,14 @@ import {
   handoverGrantError,
   retryMailHandover,
 } from "../services/mail/handovers.js";
+import {
+  assistantRoster,
+  clearAssistantMessages,
+  listAssistantMessages,
+  markSuggestionExecuted,
+  runAssistantTurn,
+  serializeAssistantMessage,
+} from "../services/mail/assistant.js";
 import { columnToLabelIds } from "../services/mail/store.js";
 import { syncAccountNow } from "../services/mail/sync.js";
 
@@ -1060,6 +1068,114 @@ mailRouter.post("/mail/handovers/:hid/retry", async (req, res) => {
   await retryMailHandover(handover);
   res.json({ ok: true });
 });
+
+// ───────────────────────────── assistant ─────────────────────────────
+
+/** Panel bootstrap: the rolling conversation plus everyone tag-able on it. */
+mailRouter.get("/mail/accounts/:aid/assistant", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const account = await loadAccount(cid, req.params.aid as string);
+  if (!account) return res.status(404).json({ error: "Mail account not found" });
+  const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 100));
+  const [messages, roster] = await Promise.all([
+    listAssistantMessages(account, limit),
+    assistantRoster(cid, account.id),
+  ]);
+  res.json({
+    messages: messages.map(serializeAssistantMessage),
+    roster,
+  });
+});
+
+mailRouter.delete("/mail/accounts/:aid/assistant/messages", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const account = await loadAccount(cid, req.params.aid as string);
+  if (!account) return res.status(404).json({ error: "Mail account not found" });
+  await clearAssistantMessages(account);
+  res.json({ ok: true });
+});
+
+const assistantSendSchema = z.object({
+  message: z.string().min(1).max(8000),
+  threadId: z.string().uuid().optional(),
+  employeeId: z.string().uuid().optional(),
+});
+
+/**
+ * One assistant turn, streamed over SSE (same event grammar as employee
+ * chat): `user` → the persisted human turn, `target` → the resolved
+ * employee, `chunk` → reply text deltas, `assistant` → the persisted reply
+ * (with actions + suggestions), `done` → end marker. Errors also arrive as
+ * events so the client rendering stays uniform.
+ */
+mailRouter.post(
+  "/mail/accounts/:aid/assistant/messages",
+  validateBody(assistantSendSchema),
+  async (req, res, next) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const body = req.body as z.infer<typeof assistantSendSchema>;
+
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders?.();
+
+    const writeEvent = (event: string, data: unknown) => {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    try {
+      const account = await loadAccount(cid, req.params.aid as string);
+      if (!account) {
+        writeEvent("error", { message: "Mail account not found" });
+        writeEvent("done", {});
+        return res.end();
+      }
+      await runAssistantTurn({
+        account,
+        message: body.message,
+        threadId: body.threadId ?? null,
+        employeeId: body.employeeId,
+        userId: req.userId ?? null,
+        callbacks: {
+          onUser: (msg) => writeEvent("user", msg),
+          onTarget: (employee) => writeEvent("target", { employee }),
+          onChunk: (text) => writeEvent("chunk", { text }),
+          onAssistant: (msg) => writeEvent("assistant", msg),
+        },
+      });
+      writeEvent("done", {});
+      res.end();
+    } catch (e) {
+      if (!res.writableEnded) {
+        writeEvent("error", {
+          message: e instanceof Error ? e.message : String(e),
+        });
+        writeEvent("done", {});
+        res.end();
+      } else {
+        next(e);
+      }
+    }
+  },
+);
+
+/** Stamp a suggestion button as executed (idempotence guard after reload). */
+mailRouter.post(
+  "/mail/assistant/messages/:mid/suggestions/:sid/executed",
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const row = await markSuggestionExecuted(
+      cid,
+      req.params.mid as string,
+      req.params.sid as string,
+    );
+    if (!row) return res.status(404).json({ error: "Suggestion not found" });
+    res.json({ message: serializeAssistantMessage(row) });
+  },
+);
 
 // ───────────────────────────── grants ─────────────────────────────
 

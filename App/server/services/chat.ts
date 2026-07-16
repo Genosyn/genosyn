@@ -6,6 +6,7 @@ import { employeeDir, ensureDir } from "./paths.js";
 import { getActiveModel } from "./models.js";
 import {
   drainAttachmentsForToken,
+  drainSidecarsForToken,
   issueMcpToken,
   revokeMcpToken,
 } from "./mcpTokens.js";
@@ -44,16 +45,31 @@ export type ChatTurn = { role: "user" | "assistant"; content: string };
  * `attachmentIds` carries any files the AI uploaded mid-turn via the
  * `send_chat_attachment` genosyn tool. Empty for ordinary text replies. The
  * caller binds these to the persisted assistant message.
+ *
+ * `sidecars` carries any structured payloads tools staged for the calling
+ * surface during the turn, grouped by kind (see `stageSidecarForToken`) —
+ * e.g. the mail assistant reads `sidecars["mail.suggestions"]`. Surfaces
+ * that don't know a kind just ignore it.
  */
 export type ChatResult =
-  | { status: "ok"; reply: string; attachmentIds: string[] }
-  | { status: "skipped"; reply: string; attachmentIds: string[] }
-  | { status: "error"; reply: string; attachmentIds: string[] };
+  | { status: "ok"; reply: string; attachmentIds: string[]; sidecars: Record<string, unknown[]> }
+  | { status: "skipped"; reply: string; attachmentIds: string[]; sidecars: Record<string, unknown[]> }
+  | { status: "error"; reply: string; attachmentIds: string[]; sidecars: Record<string, unknown[]> };
 
 /** Hard ceiling on a whole chat turn. */
 const CHAT_HARD_TIMEOUT_MS = 60 * 60_000;
 /** Max model turns before the loop stops itself. */
 const CHAT_MAX_STEPS = 60;
+
+export type ChatOptions = {
+  conversationId?: string;
+  /**
+   * Extra system-prompt section appended after the Soul/Skills — lets a
+   * surface (e.g. the mail assistant) brief the employee on its context and
+   * surface-specific tools without touching the shared prompt.
+   */
+  extraSystem?: string;
+};
 
 /** Non-streaming wrapper. */
 export async function chatWithEmployee(
@@ -61,7 +77,7 @@ export async function chatWithEmployee(
   employeeId: string,
   message: string,
   history: ChatTurn[],
-  options: { conversationId?: string } = {},
+  options: ChatOptions = {},
 ): Promise<ChatResult> {
   return streamChatWithEmployee(companyId, employeeId, message, history, () => {}, options);
 }
@@ -77,16 +93,16 @@ export async function streamChatWithEmployee(
   message: string,
   history: ChatTurn[],
   onChunk: (chunk: string) => void,
-  options: { conversationId?: string } = {},
+  options: ChatOptions = {},
 ): Promise<ChatResult> {
   const empRepo = AppDataSource.getRepository(AIEmployee);
   const coRepo = AppDataSource.getRepository(Company);
   const skillRepo = AppDataSource.getRepository(Skill);
 
   const emp = await empRepo.findOneBy({ id: employeeId, companyId });
-  if (!emp) return { status: "error", reply: "Employee not found.", attachmentIds: [] };
+  if (!emp) return { status: "error", reply: "Employee not found.", attachmentIds: [], sidecars: {} };
   const co = await coRepo.findOneBy({ id: companyId });
-  if (!co) return { status: "error", reply: "Company not found.", attachmentIds: [] };
+  if (!co) return { status: "error", reply: "Company not found.", attachmentIds: [], sidecars: {} };
   const model = await getActiveModel(emp.id);
   const skills = await skillRepo.find({ where: { employeeId: emp.id } });
 
@@ -95,12 +111,14 @@ export async function streamChatWithEmployee(
       status: "skipped",
       reply: `${emp.name} has no AI Model connected. Open Settings on this employee to connect one.`,
       attachmentIds: [],
+      sidecars: {},
     };
   }
 
   const memoryContext = await composeMemoryContext(emp.id);
   const codeReposContext = await composeCodeReposContext(emp.id);
-  const system = composeSystemPrompt({ co, emp, skills, memoryContext, codeReposContext });
+  let system = composeSystemPrompt({ co, emp, skills, memoryContext, codeReposContext });
+  if (options.extraSystem) system += `\n${options.extraSystem}`;
   const messages = buildMessages(history, message);
 
   const cwd = employeeDir(co.slug, emp.slug);
@@ -152,11 +170,12 @@ export async function streamChatWithEmployee(
       },
     });
     const attachmentIds = drainAttachmentsForToken(mcpToken);
+    const sidecars = drainSidecarsForToken(mcpToken);
     if (result.status === "error") {
-      return { status: "error", reply: result.error, attachmentIds };
+      return { status: "error", reply: result.error, attachmentIds, sidecars };
     }
     const reply = buffered.trim() || result.finalText.trim() || "(no reply)";
-    return { status: "ok", reply, attachmentIds };
+    return { status: "ok", reply, attachmentIds, sidecars };
   } finally {
     clearTimeout(timer);
     revokeMcpToken(mcpToken);

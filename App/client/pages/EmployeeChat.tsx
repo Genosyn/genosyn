@@ -1,7 +1,5 @@
 import React from "react";
 import { Link, useOutletContext } from "react-router-dom";
-import { marked } from "marked";
-import DOMPurify from "dompurify";
 import {
   AlertCircle,
   Archive,
@@ -27,6 +25,7 @@ import {
   MessageAction,
 } from "../lib/api";
 import { useEmployeeSession } from "../lib/chatSessions";
+import { ChatMarkdown } from "../components/ChatMarkdown";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { BrowserLivePanel } from "../components/BrowserLivePanel";
@@ -1437,34 +1436,6 @@ function formatJsonish(raw: string): string {
 }
 
 // ───────────────────────────── Markdown ─────────────────────────────
-
-/**
- * Render an assistant's reply as HTML. Models emit markdown (bold, lists,
- * links, fenced code) and showing the raw `**` markers alongside the prose
- * was the reason this got flagged — the chat bubble should read like a
- * polished message, not a diff.
- *
- * `breaks: true` keeps single-line newlines as `<br>`, matching the
- * whitespace-pre-wrap feel people are used to from chat. DOMPurify strips
- * anything scripty before we hand it to `dangerouslySetInnerHTML` — the CLI
- * output is ultimately user-controlled text, so we don't trust it.
- */
-function ChatMarkdown({ content }: { content: string }) {
-  const html = React.useMemo(() => {
-    const raw = marked.parse(content ?? "", {
-      async: false,
-      gfm: true,
-      breaks: true,
-    }) as string;
-    return DOMPurify.sanitize(raw);
-  }, [content]);
-  return (
-    <div
-      className="chat-md break-words"
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
-  );
-}
 
 // ───────────────────────────── Helpers ─────────────────────────────
 

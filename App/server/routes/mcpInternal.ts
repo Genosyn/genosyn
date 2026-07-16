@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import { Router, Request, Response, NextFunction } from "express";
 import cron from "node-cron";
@@ -19,6 +20,7 @@ import { recordAudit } from "../services/audit.js";
 import {
   resolveMcpToken,
   stageAttachmentForToken,
+  stageSidecarForToken,
 } from "../services/mcpTokens.js";
 import { recordAttachmentBytes } from "../services/uploads.js";
 import { resolveAttachmentFile } from "../services/uploads.js";
@@ -5388,5 +5390,228 @@ mcpInternalRouter.post(
         .status(400)
         .json({ error: err instanceof Error ? err.message : "Send failed" });
     }
+  },
+);
+
+// ----- Email assistant: structured action suggestions -----
+//
+// `suggest_mail_actions` never mutates anything — it stages structured
+// suggestions on the turn's MCP token; the mail assistant drains them after
+// the turn and renders them as one-click buttons the human executes through
+// the ordinary mail routes (with the human's own authority). That is the
+// point: a draft-level employee can *propose* a send it isn't allowed to do.
+
+const suggestionLabelSchema = z.string().min(1).max(80);
+
+const suggestedRuleSchema = z
+  .object({
+    name: z.string().min(1).max(120),
+    conditions: z
+      .object({
+        from: z.string().max(200).optional(),
+        to: z.string().max(200).optional(),
+        subjectContains: z.string().max(200).optional(),
+        bodyContains: z.string().max(200).optional(),
+        hasAttachment: z.boolean().optional(),
+      })
+      .strict(),
+    actions: z
+      .array(
+        z.discriminatedUnion("type", [
+          z.object({ type: z.literal("applyLabel"), labelName: z.string().min(1).max(200) }).strict(),
+          z.object({ type: z.literal("markRead") }).strict(),
+          z.object({ type: z.literal("star") }).strict(),
+          z.object({ type: z.literal("archive") }).strict(),
+          z
+            .object({
+              type: z.literal("handToEmployee"),
+              employeeId: z.string().uuid(),
+              instruction: z.string().min(1).max(4000),
+              mode: z.enum(["draft", "reply", "triage"]),
+            })
+            .strict(),
+        ]),
+      )
+      .min(1)
+      .max(5),
+  })
+  .strict();
+
+const mailSuggestionSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("reply"),
+      label: suggestionLabelSchema,
+      threadId: z.string().uuid().optional(),
+      to: z.string().max(2000).optional(),
+      cc: z.string().max(2000).optional(),
+      subject: z.string().max(1000).optional(),
+      bodyText: z.string().max(200_000),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("send_draft"),
+      label: suggestionLabelSchema,
+      messageId: z.string().uuid(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("thread_action"),
+      label: suggestionLabelSchema,
+      threadId: z.string().uuid(),
+      action: z.enum([
+        "markRead",
+        "markUnread",
+        "star",
+        "unstar",
+        "archive",
+        "moveToInbox",
+        "trash",
+        "applyLabel",
+        "removeLabel",
+      ]),
+      labelName: z.string().min(1).max(200).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("open_thread"),
+      label: suggestionLabelSchema,
+      threadId: z.string().uuid(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("hand_over"),
+      label: suggestionLabelSchema,
+      threadId: z.string().uuid(),
+      employeeId: z.string().uuid(),
+      mode: z.enum(["draft", "reply", "triage"]),
+      instruction: z.string().min(1).max(4000),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("create_rule"),
+      label: suggestionLabelSchema,
+      rule: suggestedRuleSchema,
+    })
+    .strict(),
+]);
+
+const suggestMailActionsSchema = z
+  .object({
+    accountId: z.string().uuid().optional(),
+    suggestions: z.array(mailSuggestionSchema).min(1).max(6),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/suggest_mail_actions",
+  validateBody(suggestMailActionsSchema),
+  async (req: McpRequest, res: Response) => {
+    const co = req.mcpCompany!;
+    const token = req.mcpToken!;
+    const body = req.body as z.infer<typeof suggestMailActionsSchema>;
+
+    const account = await loadGrantedMailAccount(req, res, body.accountId, "read");
+    if (!account) return;
+
+    const threadRepo = AppDataSource.getRepository(MailThread);
+    const msgRepo = AppDataSource.getRepository(MailMessage);
+    const empRepo = AppDataSource.getRepository(AIEmployee);
+
+    // Validate every reference before staging anything, so the model either
+    // gets a clean success or a correctable error — never half a button row.
+    // While validating we also snapshot server-verified facts (recipient,
+    // subject) onto each suggestion: the client shows those next to the
+    // button, so what the human approves is what the server checked — not
+    // whatever the model chose to put in the label.
+    const requireThread = async (threadId: string): Promise<MailThread | null> => {
+      const t = await threadRepo.findOneBy({ id: threadId, accountId: account.id });
+      if (!t) {
+        res.status(400).json({
+          error: `Unknown threadId "${threadId}" on ${account.address} — use ids from search_mail / get_mail_thread.`,
+        });
+        return null;
+      }
+      return t;
+    };
+    const requireEmployee = async (employeeId: string): Promise<AIEmployee | null> => {
+      const e = await empRepo.findOneBy({ id: employeeId, companyId: co.id });
+      if (!e) {
+        res.status(400).json({
+          error: `Unknown employeeId "${employeeId}" — use ids from list_employees.`,
+        });
+        return null;
+      }
+      return e;
+    };
+
+    const staged: Array<Record<string, unknown>> = [];
+    for (const s of body.suggestions) {
+      const verified: Record<string, unknown> = {};
+      if (s.kind === "reply" && !s.threadId && !(s.to && s.subject)) {
+        return res.status(400).json({
+          error: "A `reply` suggestion needs a `threadId`, or `to` + `subject` for fresh mail.",
+        });
+      }
+      if (
+        s.kind === "thread_action" &&
+        (s.action === "applyLabel" || s.action === "removeLabel") &&
+        !s.labelName
+      ) {
+        return res
+          .status(400)
+          .json({ error: "`labelName` is required for applyLabel / removeLabel." });
+      }
+      if (s.kind === "send_draft") {
+        const draft = await msgRepo.findOneBy({
+          id: s.messageId,
+          accountId: account.id,
+        });
+        if (!draft || !draft.gmailDraftId) {
+          return res.status(400).json({
+            error: `messageId "${s.messageId}" is not a draft on ${account.address}.`,
+          });
+        }
+        verified.targetTo = draft.toEmails;
+        verified.targetSubject = draft.subject;
+      }
+      if ("threadId" in s && s.threadId) {
+        const thread = await requireThread(s.threadId);
+        if (!thread) return;
+        if (verified.targetSubject === undefined) {
+          verified.targetSubject = thread.subject;
+        }
+      }
+      if (s.kind === "hand_over") {
+        const emp = await requireEmployee(s.employeeId);
+        if (!emp) return;
+        verified.targetEmployeeName = emp.name;
+      }
+      if (s.kind === "create_rule") {
+        for (const a of s.rule.actions) {
+          if (a.type === "handToEmployee" && !(await requireEmployee(a.employeeId))) return;
+        }
+      }
+      staged.push({
+        id: crypto.randomUUID(),
+        accountId: account.id,
+        ...s,
+        ...verified,
+      });
+    }
+
+    for (const s of staged) {
+      stageSidecarForToken(token, "mail.suggestions", s);
+    }
+    res.json({
+      ok: true,
+      staged: body.suggestions.length,
+      note: "The buttons will render under your reply in the Email assistant — mention them briefly instead of repeating their contents.",
+    });
   },
 );

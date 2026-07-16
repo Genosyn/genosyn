@@ -1634,4 +1634,123 @@ export const STATIC_TOOLS: McpToolSpec[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "suggest_mail_actions",
+    description:
+      "Offer the teammate one-click action buttons in the Email assistant panel. Call this once at the end of a turn when there are concrete next steps for the human — the buttons render under your reply and execute with the human's own authority, so use it to propose things beyond your grant level (e.g. a draft-level employee suggesting a send). Kinds and their required fields: `reply` opens the composer pre-filled (`threadId` for a reply, or `to` + `subject` for fresh mail; always `bodyText`); `send_draft` sends an existing draft (`messageId` of the draft); `thread_action` triages (`threadId` + `action`: markRead | markUnread | star | unstar | archive | moveToInbox | trash | applyLabel | removeLabel, `labelName` for the label ones); `open_thread` jumps to a thread (`threadId`); `hand_over` starts a Mail Handover (`threadId` + `employeeId` + `mode` + `instruction`); `create_rule` proposes an inbox rule (`rule` object). Keep it to the 1–4 most useful buttons; `label` is the button text. Requires the `read` access level. Only has an effect inside the Email assistant — elsewhere the suggestions are dropped.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        accountId: {
+          type: "string",
+          description:
+            "Mail account id. Optional when you have exactly one granted mailbox.",
+        },
+        suggestions: {
+          type: "array",
+          minItems: 1,
+          maxItems: 6,
+          items: {
+            type: "object",
+            properties: {
+              kind: {
+                type: "string",
+                enum: [
+                  "reply",
+                  "send_draft",
+                  "thread_action",
+                  "open_thread",
+                  "hand_over",
+                  "create_rule",
+                ],
+              },
+              label: {
+                type: "string",
+                description: "Button text — short and imperative, e.g. 'Send the draft'.",
+              },
+              threadId: { type: "string", description: "Local thread id." },
+              messageId: {
+                type: "string",
+                description: "Local message id of a draft (send_draft).",
+              },
+              to: { type: "string", description: "Comma-separated recipients (reply, fresh compose)." },
+              cc: { type: "string" },
+              subject: { type: "string" },
+              bodyText: { type: "string", description: "Proposed body (reply)." },
+              action: {
+                type: "string",
+                enum: [
+                  "markRead",
+                  "markUnread",
+                  "star",
+                  "unstar",
+                  "archive",
+                  "moveToInbox",
+                  "trash",
+                  "applyLabel",
+                  "removeLabel",
+                ],
+                description: "Triage action (thread_action).",
+              },
+              labelName: {
+                type: "string",
+                description: "Label name for applyLabel / removeLabel.",
+              },
+              employeeId: { type: "string", description: "Employee to hand the thread to (hand_over)." },
+              mode: {
+                type: "string",
+                enum: ["draft", "reply", "triage"],
+                description: "Handover mode (hand_over).",
+              },
+              instruction: { type: "string", description: "Handover instruction (hand_over)." },
+              rule: {
+                type: "object",
+                description: "Proposed mail rule (create_rule).",
+                properties: {
+                  name: { type: "string" },
+                  conditions: {
+                    type: "object",
+                    properties: {
+                      from: { type: "string" },
+                      to: { type: "string" },
+                      subjectContains: { type: "string" },
+                      bodyContains: { type: "string" },
+                      hasAttachment: { type: "boolean" },
+                    },
+                    additionalProperties: false,
+                  },
+                  actions: {
+                    type: "array",
+                    minItems: 1,
+                    maxItems: 5,
+                    items: {
+                      type: "object",
+                      properties: {
+                        type: {
+                          type: "string",
+                          enum: ["applyLabel", "markRead", "star", "archive", "handToEmployee"],
+                        },
+                        labelName: { type: "string" },
+                        employeeId: { type: "string" },
+                        instruction: { type: "string" },
+                        mode: { type: "string", enum: ["draft", "reply", "triage"] },
+                      },
+                      required: ["type"],
+                      additionalProperties: false,
+                    },
+                  },
+                },
+                required: ["name", "conditions", "actions"],
+                additionalProperties: false,
+              },
+            },
+            required: ["kind", "label"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["suggestions"],
+      additionalProperties: false,
+    },
+  },
 ];

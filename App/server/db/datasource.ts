@@ -98,6 +98,7 @@ import { MailMessage } from "./entities/MailMessage.js";
 import { MailLabel } from "./entities/MailLabel.js";
 import { MailRule } from "./entities/MailRule.js";
 import { MailHandover } from "./entities/MailHandover.js";
+import { MailChatMessage } from "./entities/MailChatMessage.js";
 import { EmployeeMailAccountGrant } from "./entities/EmployeeMailAccountGrant.js";
 
 const entities = [
@@ -195,6 +196,7 @@ const entities = [
   MailLabel,
   MailRule,
   MailHandover,
+  MailChatMessage,
   EmployeeMailAccountGrant,
 ];
 

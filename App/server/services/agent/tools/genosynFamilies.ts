@@ -207,6 +207,7 @@ const FAMILIES: Record<string, FamilySpec> = {
       draft: "create_mail_draft",
       update: "update_mail_thread",
       send: "send_mail",
+      suggest: "suggest_mail_actions",
     },
   },
 };
