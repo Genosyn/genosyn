@@ -101,11 +101,18 @@ has shipped. Do not use "Task" for scheduled AI work, ever.
   Do **not** introduce Next.js, Remix, Redux, MUI, Chakra, shadcn-as-a-dep
   (copying a few primitives is fine), or CSS-in-JS.
 - **Auth:** bcrypt + `cookie-session`. No JWT libraries, no Auth0/Clerk.
-- **Email:** per-company `EmailProvider` rows pick the transport (SMTP via
-  `nodemailer`, or SendGrid / Mailgun / Resend / Postmark via REST). Falls
-  back to the global SMTP block in `config.ts` for system-level sends, then
-  to the console. Every send appends an `EmailLog` row visible at
-  Settings → Email Logs.
+- **Email (transactional):** per-company `EmailProvider` rows pick the
+  transport (SMTP via `nodemailer`, or SendGrid / Mailgun / Resend / Postmark
+  via REST). Falls back to the global SMTP block in `config.ts` for
+  system-level sends, then to the console. Every transactional send appends an
+  `EmailLog` row; company-scoped rows are visible at Settings → Email Logs
+  (system sends — welcome, password reset, global SMTP test — carry a null
+  `companyId` and are logged but not surfaced anywhere yet).
+- **Email (the company's inbox):** the `Mail*` subsystem is **separate** and
+  sends through the Gmail API on a `google` Connection. It does **not** write
+  `EmailLog` — there is no `gmail` transport, and adding one would drag the
+  OAuth mailbox into `EmailProviderConfig`. Sent mail is recorded as a
+  `MailMessage` on the thread instead. Keep the two apart — see ROADMAP M25.
 - **Cron:** `node-cron`.
 - **Validation:** `zod` at the API boundary.
 - **No Next.js.** Listed twice because agents keep reaching for it.
