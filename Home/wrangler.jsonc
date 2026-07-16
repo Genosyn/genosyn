@@ -4,6 +4,11 @@
   "compatibility_date": "2024-12-01",
   "assets": {
     "directory": "./dist/client",
-    "not_found_handling": "single-page-application"
+    // Prerendered routes are emitted as <route>/index.html with slash-free
+    // canonical URLs (see prerender.ts); drop-trailing-slash makes the asset
+    // host serve /products/email directly instead of 307-ing to the slashed
+    // variant. Unknown URLs get the prerendered 404.html with a 404 status.
+    "html_handling": "drop-trailing-slash",
+    "not_found_handling": "404-page"
   }
 }

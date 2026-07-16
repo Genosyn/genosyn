@@ -190,7 +190,7 @@ function DocsFooter() {
   return (
     <footer className="border-t border-zinc-100 bg-white">
       <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-6 py-8 text-xs text-zinc-500 sm:flex-row lg:px-8">
-        <div>© {new Date().getFullYear()} HackerBay, Inc. · Built in the open.</div>
+        <div>© {__BUILD_YEAR__} HackerBay, Inc. · Built in the open.</div>
         <nav className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
           <Link href="/" className="hover:text-zinc-900">
             Home

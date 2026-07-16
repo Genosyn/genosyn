@@ -1,7 +1,5 @@
-import { useEffect } from "react";
 import { usePathname } from "@/lib/router";
 import { DocsShell } from "@/docs/DocsShell";
-import { findPageMeta } from "@/docs/nav";
 import { Introduction } from "@/docs/pages/Introduction";
 import { Install } from "@/docs/pages/Install";
 import { MobileApp } from "@/docs/pages/MobileApp";
@@ -52,15 +50,11 @@ function normalizePath(pathname: string): string {
   return trimmed === "" ? "/docs" : trimmed;
 }
 
+// Head metadata (title, description, canonical, JSON-LD) is handled centrally
+// in App.tsx via lib/siteMeta.ts, which derives docs entries from nav.ts.
 export function DocsApp() {
   const path = normalizePath(usePathname());
   const Page = PAGES[path] ?? NotFound;
-  const meta = findPageMeta(path);
-
-  useEffect(() => {
-    const suffix = meta ? `${meta.title} · Genosyn Docs` : "Genosyn Docs";
-    document.title = suffix;
-  }, [meta]);
 
   return (
     <DocsShell pathname={path}>

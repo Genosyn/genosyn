@@ -4,12 +4,14 @@ import { GITHUB_URL } from "@/lib/constants";
 import { Logo } from "@/components/Logo";
 import { Link } from "@/lib/router";
 
+// Hash links are home-page anchors; the `/#…` form keeps them working from
+// nested routes like /products/* (they fall through to a full navigation).
 const LINKS = [
-  { href: "#primitives", label: "How it works" },
-  { href: "#platform", label: "Tools" },
-  { href: "#quickstart", label: "Install" },
+  { href: "/products", label: "Products" },
+  { href: "/#primitives", label: "How it works" },
+  { href: "/#quickstart", label: "Install" },
   { href: "/docs", label: "Docs" },
-  { href: "#cli", label: "CLI" },
+  { href: "/#cli", label: "CLI" },
   { href: "/enterprise", label: "Enterprise" },
 ];
 
@@ -61,7 +63,7 @@ export function Nav() {
             <span className="hidden lg:inline">Star on GitHub</span>
           </a>
           <a
-            href="#quickstart"
+            href="/#quickstart"
             className="hidden items-center gap-1.5 rounded-md bg-zinc-950 px-4 py-1.5 text-sm font-semibold text-white shadow-card transition hover:bg-zinc-800 sm:inline-flex"
           >
             Get started
@@ -100,7 +102,7 @@ export function Nav() {
               GitHub
             </a>
             <a
-              href="#quickstart"
+              href="/#quickstart"
               onClick={() => setOpen(false)}
               className="mt-1 inline-flex items-center justify-center rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white"
             >

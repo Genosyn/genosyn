@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import fs from "node:fs";
 import path from "node:path";
+import { prerenderPlugin } from "./prerender";
 
 // Bake the version into the client bundle so the hero badge stays in sync
 // with the repo-root VERSION file. Mirrors App/vite.config.ts: prefer the
@@ -25,17 +26,22 @@ function readVersion(): string {
   return "dev";
 }
 
+const define = {
+  __APP_VERSION__: JSON.stringify(readVersion()),
+  // Baked at build time so prerendered markup and client hydration agree by
+  // construction (a render-time `new Date()` would mismatch after New Year).
+  __BUILD_YEAR__: JSON.stringify(new Date().getFullYear()),
+};
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), prerenderPlugin(define)],
   root: "client",
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "client"),
     },
   },
-  define: {
-    __APP_VERSION__: JSON.stringify(readVersion()),
-  },
+  define,
   server: {
     port: 8472,
     host: true,

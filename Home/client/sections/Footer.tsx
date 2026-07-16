@@ -48,7 +48,7 @@ export function InstallCta() {
                 Star on GitHub
               </a>
               <a
-                href="#quickstart"
+                href="/#quickstart"
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/5 sm:w-auto"
               >
                 See quickstart
@@ -62,36 +62,109 @@ export function InstallCta() {
   );
 }
 
+type FooterLink = { href: string; label: string; external?: boolean };
+
+const PRODUCT_LINKS: FooterLink[] = [
+  { href: "/products/ai-employees", label: "AI Employees" },
+  { href: "/products/workspace", label: "Workspace" },
+  { href: "/products/tasks", label: "Tasks" },
+  { href: "/products/bases", label: "Bases" },
+  { href: "/products/notes", label: "Notes" },
+  { href: "/products/resources", label: "Resources" },
+  { href: "/products/pipelines", label: "Pipelines" },
+  { href: "/products/explore", label: "Explore" },
+  { href: "/products/email", label: "Email" },
+  { href: "/products/customers", label: "Customers" },
+  { href: "/products/finance", label: "Finance" },
+  { href: "/products/code", label: "Code Repositories" },
+];
+
+const FOOTER_COLUMNS: Array<{ label: string; links: FooterLink[] }> = [
+  {
+    label: "Resources",
+    links: [
+      { href: "/docs", label: "Docs" },
+      { href: "/docs/install", label: "Install" },
+      { href: "/docs/cli", label: "CLI reference" },
+      { href: "/docs/self-hosting", label: "Self-hosting" },
+      { href: "/enterprise", label: "Enterprise" },
+    ],
+  },
+  {
+    label: "Project",
+    links: [
+      { href: GITHUB_URL, label: "GitHub", external: true },
+      { href: ROADMAP_URL, label: "Roadmap", external: true },
+      { href: ISSUES_URL, label: "Issues", external: true },
+      { href: "/install.sh", label: "install.sh" },
+      { href: "/llms.txt", label: "llms.txt" },
+    ],
+  },
+];
+
+function FooterLinkItem({ link }: { link: FooterLink }) {
+  if (link.external) {
+    return (
+      <li>
+        <a
+          href={link.href}
+          target="_blank"
+          rel="noreferrer"
+          className="text-zinc-600 transition hover:text-zinc-950"
+        >
+          {link.label}
+        </a>
+      </li>
+    );
+  }
+  return (
+    <li>
+      <Link href={link.href} className="text-zinc-600 transition hover:text-zinc-950">
+        {link.label}
+      </Link>
+    </li>
+  );
+}
+
 export function Footer() {
   return (
     <footer className="relative bg-white">
       <div className="mx-auto max-w-7xl px-6 pt-14 pb-16">
-        <div className="flex flex-col items-center justify-between gap-6 border-t border-zinc-100 pt-8 text-xs text-zinc-500 sm:flex-row">
-          <div className="flex items-center gap-3 text-zinc-700">
-            <Logo className="h-5 w-auto" />
-            <span>© {new Date().getFullYear()} HackerBay, Inc. · Built in the open.</span>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-10 border-t border-zinc-100 pt-10 sm:grid-cols-4 lg:grid-cols-6">
+          <div className="col-span-2 pr-8">
+            <Logo className="h-6 w-auto text-zinc-800" />
+            <p className="mt-4 max-w-xs text-xs leading-relaxed text-zinc-500">
+              The open-source, self-hostable platform for running companies
+              with AI employees. One container, your keys, your data.
+            </p>
           </div>
-          <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
-            <Link href="/docs" className="hover:text-zinc-900">
-              Docs
-            </Link>
-            <Link href="/enterprise" className="hover:text-zinc-900">
-              Enterprise
-            </Link>
-            <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="hover:text-zinc-900">
-              GitHub
-            </a>
-            <a href={ROADMAP_URL} target="_blank" rel="noreferrer" className="hover:text-zinc-900">
-              Roadmap
-            </a>
-            <a href={ISSUES_URL} target="_blank" rel="noreferrer" className="hover:text-zinc-900">
-              Issues
-            </a>
-            <a href="/install.sh" className="hover:text-zinc-900">
-              install.sh
-            </a>
-            <span className="font-mono text-zinc-400">v{__APP_VERSION__}</span>
+          <nav aria-label="Products" className="col-span-2">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+              Products
+            </div>
+            <ul className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-[13px]">
+              {PRODUCT_LINKS.map((link) => (
+                <FooterLinkItem key={link.label} link={link} />
+              ))}
+            </ul>
           </nav>
+          {FOOTER_COLUMNS.map((col) => (
+            <nav key={col.label} aria-label={col.label}>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                {col.label}
+              </div>
+              <ul className="mt-3 space-y-2 text-[13px]">
+                {col.links.map((link) => (
+                  <FooterLinkItem key={link.label} link={link} />
+                ))}
+              </ul>
+            </nav>
+          ))}
+        </div>
+
+        <div className="mt-12 flex flex-col items-center justify-between gap-6 border-t border-zinc-100 pt-8 text-xs text-zinc-500 sm:flex-row">
+          <span>© {__BUILD_YEAR__} HackerBay, Inc. · Built in the open.</span>
+          <span className="font-mono text-zinc-400">v{__APP_VERSION__}</span>
         </div>
         <p className="mt-6 text-center text-[11px] leading-relaxed text-zinc-400 sm:text-left">
           Disclaimer: some parts of this software are AI generated. Use at your own risk. Open source and provided without warranty of any kind.

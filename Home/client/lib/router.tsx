@@ -3,9 +3,17 @@ import type { MouseEvent, ReactNode } from "react";
 
 const NAV_EVENT = "genosyn:navigate";
 
+// During build-time prerendering there is no window; the prerender entry
+// sets the path it wants rendered before calling renderToString.
+let ssrPath = "/";
+
+export function setSsrPath(path: string): void {
+  ssrPath = path;
+}
+
 export function usePathname(): string {
   const [path, setPath] = useState(() =>
-    typeof window === "undefined" ? "/" : window.location.pathname,
+    typeof window === "undefined" ? ssrPath : window.location.pathname,
   );
   useEffect(() => {
     const sync = () => setPath(window.location.pathname);
@@ -39,6 +47,7 @@ function isInternalRoute(href: string): boolean {
   if (href === "/") return true;
   if (href.startsWith("/docs")) return true;
   if (href.startsWith("/enterprise")) return true;
+  if (href.startsWith("/products")) return true;
   return false;
 }
 

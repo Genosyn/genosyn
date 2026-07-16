@@ -21,6 +21,9 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { SectionEyebrow } from "@/sections/Primitives";
+import { Link } from "@/lib/router";
+import { PRODUCTS } from "@/products/data";
+import { productIcon } from "@/products/productIcons";
 
 type Feature = {
   icon: LucideIcon;
@@ -29,6 +32,8 @@ type Feature = {
   tags: string[];
   /** Tailwind classes for the icon tile. */
   accent: string;
+  /** Product page this card links to. */
+  href: string;
   /** Grid span at the lg breakpoint. Defaults to 1. */
   span?: 1 | 2 | 3;
   /** Optional inline product preview rendered inside the card. */
@@ -50,9 +55,10 @@ const GROUPS: FeatureGroup[] = [
       {
         icon: MessageSquare,
         title: "Workspace",
-        body: "Channels, DMs, threads, and file uploads. @mention an employee and they show up like any other teammate.",
+        body: "Channels, DMs, and file uploads. @mention an employee and they show up like any other teammate.",
         tags: ["Channels", "DMs", "Files"],
         accent: "bg-indigo-50 text-indigo-700 ring-indigo-200",
+        href: "/products/workspace",
         span: 2,
         preview: <WorkspacePreview />,
       },
@@ -62,6 +68,7 @@ const GROUPS: FeatureGroup[] = [
         body: "Projects with a kanban board, statuses, assignees, due dates, and review queues. Routines drop work into the right column.",
         tags: ["Projects", "Kanban", "Reviews"],
         accent: "bg-rose-50 text-rose-700 ring-rose-200",
+        href: "/products/tasks",
       },
     ],
   },
@@ -73,18 +80,20 @@ const GROUPS: FeatureGroup[] = [
       {
         icon: Table2,
         title: "Bases",
-        body: "Airtable-style multi-table workspaces with views, formulas, comments, and attachments. Your employees query and update rows alongside you.",
+        body: "Airtable-style multi-table workspaces with views, comments, and attachments. Your employees query and update rows alongside you.",
         tags: ["Tables", "Views", "Records"],
         accent: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+        href: "/products/bases",
         span: 2,
         preview: <BasesPreview />,
       },
       {
         icon: StickyNote,
         title: "Notes",
-        body: "Notion-style hierarchical markdown pages for SOPs, briefs, and research. Your employees can read every page.",
+        body: "Notion-style hierarchical markdown pages for SOPs, briefs, and research. Your employees read and write the pages you grant them.",
         tags: ["Pages", "Search", "Hierarchy"],
         accent: "bg-amber-50 text-amber-700 ring-amber-200",
+        href: "/products/notes",
       },
       {
         icon: Library,
@@ -92,6 +101,7 @@ const GROUPS: FeatureGroup[] = [
         body: "URLs, ebooks, transcripts, and reference docs your AI employees can study and cite. Drop a link once, the workspace remembers it forever.",
         tags: ["Links", "Ebooks", "Transcripts"],
         accent: "bg-fuchsia-50 text-fuchsia-700 ring-fuchsia-200",
+        href: "/products/resources",
         span: 3,
         preview: <ResourcesPreview />,
       },
@@ -107,7 +117,8 @@ const GROUPS: FeatureGroup[] = [
         title: "Pipelines",
         body: "Visual DAG editor for triggers, branches, delays, and integration nodes. Schedule them on cron, fire them on events, or call them from a routine.",
         tags: ["Triggers", "Branches", "Nodes"],
-        accent: "bg-violet-50 text-violet-700 ring-violet-200",
+        accent: "bg-purple-50 text-purple-700 ring-purple-200",
+        href: "/products/pipelines",
         span: 3,
         preview: <PipelinesPreview />,
       },
@@ -140,6 +151,8 @@ export function Features() {
           ))}
         </div>
 
+        <OperationsStrip />
+
         <div className="mt-20">
           <div className="rounded-2xl border border-zinc-200 bg-zinc-50/60 p-3">
             <div className="flex items-center justify-between gap-3 px-2 pb-2.5 pt-1">
@@ -162,11 +175,67 @@ export function Features() {
         <div className="mt-8 flex flex-col items-center gap-2 text-center">
           <span className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-[11px] font-medium text-zinc-600 shadow-card">
             <LayoutGrid className="h-3.5 w-3.5" />
-            More on the way — Forms, Inbox sync, Knowledge graphs
+            More on the way — Forms, Knowledge graphs
           </span>
         </div>
       </div>
     </section>
+  );
+}
+
+const OPERATIONS_SLUGS = ["explore", "email", "customers", "finance", "code"];
+
+/**
+ * Compact row for the operational surfaces that don't get a full card here —
+ * each links to its dedicated product page.
+ */
+function OperationsStrip() {
+  const products = OPERATIONS_SLUGS.map((slug) =>
+    PRODUCTS.find((p) => p.slug === slug),
+  ).filter((p): p is NonNullable<typeof p> => Boolean(p));
+
+  return (
+    <div className="mt-16">
+      <div className="mb-7">
+        <div className="flex items-baseline gap-3">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-700">
+            Run the business
+          </span>
+          <span aria-hidden className="hidden h-px flex-1 bg-zinc-200/80 sm:block" />
+        </div>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-600">
+          Analytics, inbox, CRM, books, and code access — the operational
+          surfaces, each with its own page.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        {products.map((p) => {
+          const Icon = productIcon(p.icon);
+          return (
+            <Link
+              key={p.slug}
+              href={`/products/${p.slug}`}
+              className="group flex items-center gap-3 rounded-xl border border-zinc-200 bg-white px-4 py-3.5 shadow-card transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lift"
+            >
+              <span
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1 ${p.accent}`}
+              >
+                <Icon className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-semibold text-zinc-950">
+                  {p.name}
+                </span>
+                <span className="block truncate text-[11px] text-zinc-500">
+                  {p.category}
+                </span>
+              </span>
+              <ArrowRight className="ml-auto h-3.5 w-3.5 shrink-0 text-zinc-300 transition group-hover:translate-x-0.5 group-hover:text-zinc-600" />
+            </Link>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -223,6 +292,13 @@ function FeatureCard({ feature }: { feature: Feature }) {
           </li>
         ))}
       </ul>
+      <Link
+        href={feature.href}
+        className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-zinc-500 transition hover:text-zinc-900"
+      >
+        Explore {feature.title}
+        <ArrowRight className="h-3 w-3" />
+      </Link>
       {feature.preview && <div className="mt-6">{feature.preview}</div>}
     </article>
   );

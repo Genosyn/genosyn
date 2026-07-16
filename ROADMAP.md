@@ -178,6 +178,13 @@ export const config = {
 - [x] React + Vite + Tailwind client, dev proxy, build pipeline
 - [x] UI kit primitives (Button, Input, Card, Modal, Sidebar, …)
 - [x] Home landing page
+- [x] Home product pages — `/products` index plus a dedicated page per
+      product surface (AI Employees, Workspace, Tasks, Bases, Notes,
+      Resources, Pipelines, Explore, Email, Customers, Finance, Code),
+      prerendered to static HTML at build time with per-route titles,
+      descriptions, canonicals, Open Graph tags, and JSON-LD, plus
+      sitemap.xml, robots.txt, and llms.txt / llms-full.txt so search
+      engines and LLM crawlers index real content without executing JS
 
 ### M1 — Auth ✅
 - [x] Signup / Login / Logout (bcrypt + cookie-session)
