@@ -162,6 +162,47 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "update_routine",
+    description:
+      "Update an existing Routine's name, cron schedule, brief, or enabled state. Use this to edit or pause a routine in place — never create a duplicate routine to work around an outdated one. Pass the `routineId` UUID from `list_routines`; only the fields you pass change.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        routineId: { type: "string", description: "UUID from `list_routines`." },
+        name: { type: "string" },
+        cronExpr: {
+          type: "string",
+          description:
+            "5-field cron expression (minute hour day-of-month month day-of-week). Examples: '0 9 * * 1' = every Monday at 9:00, '*/15 * * * *' = every 15 minutes.",
+        },
+        brief: {
+          type: "string",
+          description: "Replacement markdown brief describing what the routine does on each run.",
+        },
+        enabled: {
+          type: "boolean",
+          description:
+            "false pauses the routine without deleting it (run history is kept); true resumes it.",
+        },
+      },
+      required: ["routineId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_routine",
+    description:
+      "Delete a Routine and its run history. Use sparingly — prefer `update_routine` with `enabled: false` to pause work that might come back. Pass the `routineId` UUID from `list_routines`.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        routineId: { type: "string", description: "UUID from `list_routines`." },
+      },
+      required: ["routineId"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_projects",
     description:
       "List every Project (task manager container) you have access to. Projects hold Todos. Most projects are open to everyone in the company, but a human can restrict one to a named list of people and AI employees — a project you were not given access to simply will not appear here.",

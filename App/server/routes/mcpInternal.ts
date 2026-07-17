@@ -8,6 +8,7 @@ import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Routine } from "../db/entities/Routine.js";
+import { Run } from "../db/entities/Run.js";
 import { Skill } from "../db/entities/Skill.js";
 import { Project } from "../db/entities/Project.js";
 import { Todo, TodoPriority, TodoRecurrence, TodoStatus } from "../db/entities/Todo.js";
@@ -594,6 +595,110 @@ mcpInternalRouter.post(
     );
 
     res.json({ routine: serializeRoutine(r) });
+  },
+);
+
+const updateRoutineSchema = z
+  .object({
+    routineId: z.string().uuid(),
+    name: z.string().min(1).max(80).optional(),
+    cronExpr: z
+      .string()
+      .refine((v) => cron.validate(v), "Invalid cron expression")
+      .optional(),
+    brief: z.string().max(20_000).optional(),
+    enabled: z.boolean().optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/update_routine",
+  validateBody(updateRoutineSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof updateRoutineSchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+
+    const repo = AppDataSource.getRepository(Routine);
+    const routine = await repo.findOneBy({ id: body.routineId });
+    if (!routine) return res.status(404).json({ error: "Routine not found" });
+    const owner = await AppDataSource.getRepository(AIEmployee).findOneBy({
+      id: routine.employeeId,
+      companyId: co.id,
+    });
+    if (!owner) return res.status(404).json({ error: "Routine not found" });
+
+    if (body.name !== undefined && body.name.trim() !== routine.name) {
+      const dup = await repo
+        .createQueryBuilder("r")
+        .where("r.employeeId = :eid", { eid: owner.id })
+        .andWhere("LOWER(r.name) = LOWER(:name)", { name: body.name.trim() })
+        .andWhere("r.id != :rid", { rid: routine.id })
+        .getOne();
+      if (dup) {
+        return res.status(409).json({
+          error: `A routine named "${body.name}" already exists for ${owner.name}`,
+        });
+      }
+      routine.name = body.name;
+    }
+    if (body.cronExpr !== undefined) routine.cronExpr = body.cronExpr;
+    if (body.brief !== undefined) routine.body = body.brief;
+    if (body.enabled !== undefined) routine.enabled = body.enabled;
+    registerRoutine(routine);
+    await repo.save(routine);
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "routine.update",
+      targetType: "routine",
+      targetId: routine.id,
+      targetLabel: routine.name,
+      metadata: { via: "mcp", employeeId: owner.id, changes: body },
+    });
+    res.json({ routine: serializeRoutine(routine) });
+  },
+);
+
+const deleteRoutineSchema = z.object({ routineId: z.string().uuid() }).strict();
+
+mcpInternalRouter.post(
+  "/tools/delete_routine",
+  validateBody(deleteRoutineSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof deleteRoutineSchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+
+    const repo = AppDataSource.getRepository(Routine);
+    const routine = await repo.findOneBy({ id: body.routineId });
+    if (!routine) return res.status(404).json({ error: "Routine not found" });
+    const owner = await AppDataSource.getRepository(AIEmployee).findOneBy({
+      id: routine.employeeId,
+      companyId: co.id,
+    });
+    if (!owner) return res.status(404).json({ error: "Routine not found" });
+
+    await AppDataSource.getRepository(Approval).delete({ routineId: routine.id });
+    await AppDataSource.getRepository(Run).delete({ routineId: routine.id });
+    await repo.delete({ id: routine.id });
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "routine.delete",
+      targetType: "routine",
+      targetId: routine.id,
+      targetLabel: routine.name,
+      metadata: { via: "mcp", employeeId: owner.id },
+    });
+    await journal(
+      owner.id,
+      `${self.name} removed the routine "${routine.name}"`,
+      "Deleted via the built-in MCP tool.",
+    );
+    res.json({ ok: true });
   },
 );
 

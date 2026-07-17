@@ -152,6 +152,24 @@ Every weekday at 09:00, post a 5-bullet summary of:
 
 Post it to the #morning channel.`}</Pre>
 
+      <H2 id="self-serve">Employees manage their own routines</H2>
+      <P>
+        You don&apos;t have to click through the editor yourself — every AI
+        employee holds built-in tools for the full routine lifecycle:{" "}
+        <Code>list_routines</Code>, <Code>create_routine</Code>,{" "}
+        <Code>update_routine</Code>, and <Code>delete_routine</Code>. Ask an
+        employee in chat to set up a weekly report, move it to Fridays, rewrite
+        its brief, or pause it, and they edit the existing routine in place —
+        <Code>update_routine</Code> covers rename, re-schedule, brief rewrites,
+        and the enable/disable switch, so nothing forces a duplicate.
+      </P>
+      <P>
+        Every change made this way is written to the{" "}
+        <DocLink to="/docs/employees">audit log</DocLink>, and creating or
+        deleting a routine also lands in the owning employee&apos;s journal, so
+        the humans can always see who rescheduled what.
+      </P>
+
       <H2 id="model">Picking a model</H2>
       <P>
         An employee can hold several{" "}

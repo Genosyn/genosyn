@@ -238,6 +238,10 @@ export const config = {
       own `AIModel` rows; null (default) inherits the employee's active
       model. Runner resolves via `resolveRoutineModel()`; deleting a model
       clears the pins naming it. Runs only — chat stays on the active model.
+- [x] **MCP surface** — `list_routines`, `create_routine`, `update_routine`
+      (rename, recron, rewrite brief, enable/disable in place), and
+      `delete_routine`, so an AI employee can manage routines end-to-end
+      instead of only creating them.
 
 ### M23 — Routines section ✅
 
