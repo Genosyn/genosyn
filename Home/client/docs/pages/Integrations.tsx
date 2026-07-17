@@ -30,6 +30,10 @@ const CATALOG: Array<{ name: string; kind: string }> = [
   { name: "Lightning (NWC + LND)", kind: "payments" },
   { name: "Nostr", kind: "social" },
   { name: "Reddit, X, LinkedIn", kind: "social" },
+  { name: "Google Ads", kind: "paid marketing" },
+  { name: "Meta Ads", kind: "paid marketing" },
+  { name: "Microsoft Advertising", kind: "paid marketing" },
+  { name: "Reddit Ads", kind: "paid marketing" },
 ];
 
 export function Integrations() {
@@ -327,6 +331,19 @@ export function Integrations() {
         read-only scope (<Code>analytics.readonly</Code> /{" "}
         <Code>webmasters.readonly</Code>), so employees can report on traffic
         and search performance but never change settings.
+      </P>
+
+      <H3 id="paid-marketing">Ad platforms (paid marketing)</H3>
+      <P>
+        Four ad-platform integrations — <Strong>Google Ads, Meta Ads,
+        Microsoft Advertising, Reddit Ads</Strong> — give AI employees
+        read-first campaign visibility plus a tiny, approval-gated mutation
+        surface (pause / enable / budget change) bounded by per-Connection
+        spending caps and a kill switch. Spend increases queue in the
+        Approvals inbox by default; pausing never does. Setup recipes, the
+        full safety model, and the browser-based fallback for LinkedIn / X /
+        TikTok live on the{" "}
+        <DocLink to="/docs/marketing">Paid Marketing</DocLink> page.
       </P>
     </>
   );

@@ -41,6 +41,7 @@ const PREVIEWS: Record<string, () => JSX.Element> = {
   resources: ResourcesPreview,
   pipelines: PipelinesPreview,
   explore: ExplorePreview,
+  marketing: MarketingPreview,
   email: EmailPreview,
   customers: CustomersPreview,
   finance: FinancePreview,
@@ -593,6 +594,99 @@ function PipelineConnector() {
 }
 
 // ───────────────────────────────── Explore ──────────────────────────────────
+
+function MarketingPreview() {
+  const rows = [
+    { name: "Brand — Search", spend: "$212.40", pace: "98%", ok: true },
+    { name: "Retargeting — Meta", spend: "$164.02", pace: "104%", ok: true },
+    { name: "Prospecting — PMax", spend: "$489.77", pace: "173%", ok: false },
+  ];
+  return (
+    <Window url="genosyn.com / approvals">
+      <div className="grid grid-cols-1 gap-3 p-5 sm:grid-cols-5">
+        <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-card sm:col-span-3">
+          <div className="flex items-baseline justify-between">
+            <div className="text-[11px] font-semibold text-zinc-700">
+              Daily pacing check · last 7 days
+            </div>
+            <span className="font-mono text-[10px] text-zinc-400">
+              google-ads + meta-ads · Reese (AI)
+            </span>
+          </div>
+          <div className="mt-3 flex flex-col gap-2">
+            {rows.map((r) => (
+              <div
+                key={r.name}
+                className="flex items-center justify-between rounded-lg border border-zinc-100 px-3 py-2"
+              >
+                <span className="text-[11px] font-medium text-zinc-800">{r.name}</span>
+                <span className="font-mono text-[10px] tabular-nums text-zinc-500">
+                  {r.spend}
+                </span>
+                <span
+                  className={`rounded-full px-2 py-0.5 font-mono text-[9px] ${
+                    r.ok ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
+                  }`}
+                >
+                  {r.pace} pace
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 rounded-lg bg-zinc-950 p-3 font-mono text-[10px] leading-4 text-zinc-400">
+            <div className="text-zinc-500">-- journal · 09:02</div>
+            <div>
+              Prospecting — PMax pacing 173% → <span className="text-amber-400">paused</span>{" "}
+              (never gated). Proposal filed for review.
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-col gap-3 sm:col-span-2">
+          <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 shadow-card">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+              Approval pending
+            </div>
+            <div className="mt-1 text-[11px] font-medium text-zinc-900">
+              Google Ads · budget increase · 45.00 USD
+            </div>
+            <div className="mt-0.5 text-[10px] text-zinc-600">
+              Brand — Search: 30.00 → 45.00/day. CPA $18 vs $25 target.
+            </div>
+            <div className="mt-3 flex gap-2">
+              <span className="rounded-md bg-zinc-900 px-2.5 py-1 text-[10px] font-medium text-white">
+                Approve
+              </span>
+              <span className="rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-[10px] font-medium text-zinc-600">
+                Reject
+              </span>
+            </div>
+          </div>
+          <div className="flex-1 rounded-xl border border-zinc-200 bg-white p-4 shadow-card">
+            <div className="text-[11px] font-semibold text-zinc-700">Connection caps</div>
+            <div className="mt-2 flex flex-col gap-1.5 font-mono text-[10px] text-zinc-500">
+              <div className="flex justify-between">
+                <span>max single increase</span>
+                <span className="text-zinc-800">$250</span>
+              </div>
+              <div className="flex justify-between">
+                <span>daily increases</span>
+                <span className="text-zinc-800">$120 / $500</span>
+              </div>
+              <div className="flex justify-between">
+                <span>30-day increases</span>
+                <span className="text-zinc-800">$980 / $5,000</span>
+              </div>
+              <div className="flex justify-between">
+                <span>kill switch</span>
+                <span className="text-emerald-600">off</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Window>
+  );
+}
 
 function ExplorePreview() {
   const bars = [34, 42, 38, 55, 61, 58, 72, 78];

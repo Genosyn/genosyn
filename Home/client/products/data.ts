@@ -905,6 +905,112 @@ export const PRODUCTS: ProductDef[] = [
     ],
   },
 
+  // ──────────────────────────────── Marketing ────────────────────────────────
+  {
+    slug: "marketing",
+    name: "Paid Marketing",
+    category: "Marketing",
+    icon: "megaphone",
+    accent: "bg-rose-50 text-rose-700 ring-rose-200",
+    tagline: "An AI employee on your ad accounts.",
+    taglineAccent: "With spending caps it cannot talk its way around.",
+    summary:
+      "Google, Meta, Microsoft, and Reddit ads watched daily and reported weekly — with pause/enable/budget levers gated behind per-Connection caps and human approvals.",
+    seoTitle: "Paid Marketing — AI ad management with spend caps · Genosyn",
+    description:
+      "AI employees that monitor Google, Meta, Microsoft, and Reddit ad campaigns, report pacing and ROAS, and change budgets only through hard caps and human approvals.",
+    intro:
+      "Paid Marketing gives an AI employee read-first access to your ad accounts — campaign spend, pacing, GAQL and Insights reports — and a deliberately tiny set of levers: pause, enable, change a budget. Every spend increase queues in the Approvals inbox by default; pausing a runaway campaign never waits for anyone. Every authorized change lands in a SQL ledger, so what the AI spent is a query, not a guess.",
+    checks: [
+      "Google, Meta, Microsoft, Reddit Ads",
+      "Every spend increase needs a human — by default",
+      "Pause is never gated",
+      "Per-change, daily & monthly hard caps",
+    ],
+    features: [
+      {
+        icon: "keyRound",
+        title: "Your credentials, no middleman",
+        body: "Each platform connects with credentials your company owns — a Google Ads developer token on your own MCC, a non-expiring Meta system-user token, a self-service Microsoft dev token, an instant Reddit app. No partner program, no vendor in your data path.",
+      },
+      {
+        icon: "shieldAlert",
+        title: "Caps above approvals",
+        body: "Per-change, rolling 24-hour, and rolling 30-day limits on authorized budget increases, plus a kill switch — enforced on every path, so even a human approval cannot exceed a hard cap.",
+      },
+      {
+        icon: "bell",
+        title: "Approvals that reach you",
+        body: "A budget raise or campaign enable queues an Approval with a before→after snapshot; owners and admins get bell, websocket, and web-push. If the campaign changed by the time you approve, the replay aborts instead of firing stale.",
+      },
+      {
+        icon: "zap",
+        title: "The emergency lever stays fast",
+        body: "Spend-decreasing actions — pause a campaign, lower a budget — never wait in a queue. A runaway campaign at 2am gets paused first and explained after.",
+      },
+      {
+        icon: "table2",
+        title: "A ledger, not a log line",
+        body: "Every authorized delta is a row in the AdSpendEvent table: connection, employee, campaign, signed amount, approval id. “How much did this employee authorize this month?” is SQL.",
+      },
+      {
+        icon: "globe",
+        title: "A path for the gatekept platforms",
+        body: "LinkedIn, X, and TikTok gate their ads APIs behind months-long reviews — so the documented path is the built-in browser with pinned hosts, approval-gated form submits, and human take-over for logins and 2FA.",
+      },
+    ],
+    employees: {
+      heading: "A performance marketer on the roster",
+      body: "The Performance Marketer template ships a Soul that treats budget discipline as the job: cite spend data for every claim, escalate anomalies instead of quietly fixing them, and never raise a budget without an approval.",
+      bullets: [
+        {
+          title: "Daily pacing check",
+          body: "A Routine reads every granted ad account each morning, judges pacing over a 7-day window (platforms legally overdeliver on single days), flags zero-delivery campaigns, and treats “couldn’t read the account” as itself an alert.",
+        },
+        {
+          title: "ROAS against real revenue",
+          body: "The weekly report joins ad spend to GA4 conversions by UTM campaign — and where you run Finance in Genosyn, to actual invoiced revenue, not the platform’s self-graded attribution.",
+        },
+        {
+          title: "Proposals a CFO can approve",
+          body: "Budget changes arrive in the Approvals inbox with current budget, proposed budget, evidence, and worst-case daily blast radius — a ten-second decision.",
+        },
+      ],
+    },
+    faqs: [
+      {
+        q: "Which ad platforms are supported?",
+        a: "Native Integrations for Google Ads, Meta (Facebook/Instagram) Ads, Microsoft Advertising, and Reddit Ads — the four whose APIs let a self-hosting company bring its own credentials without a partner-program review. LinkedIn, X, and TikTok are served by the built-in browser tools with human-approved submits until their API access programs become tractable.",
+      },
+      {
+        q: "Can the AI create campaigns or ads?",
+        a: "Not in v1 — deliberately. The mutation surface stops at pause, enable, and budget changes, all recorded to a ledger and gated by caps and approvals. Campaign authoring earns its way in once the read-and-lever loop has proven itself on your account.",
+      },
+      {
+        q: "What stops it from burning my budget?",
+        a: "Five layers: every spend increase queues a human Approval by default; per-change, daily, and monthly hard caps run even on approved replays; a kill switch blocks all mutations per Connection; approvals snapshot before-state and abort on drift; and everything lands in the AdSpendEvent ledger. Also set the platform’s own account spending limit — the docs insist on that backstop.",
+      },
+      {
+        q: "Do I need my own API access on each platform?",
+        a: "Yes — that’s the point. Google’s auto-granted Explorer developer-token tier, Meta’s system-user tokens, Microsoft’s self-service dev token, and Reddit’s instant OAuth apps all work for a company managing its own accounts, with no human review. The docs walk through each, including the Google consent-screen trap that silently expires refresh tokens every 7 days in Testing status.",
+      },
+      {
+        q: "What does it cost?",
+        a: "Nothing beyond your model usage — the platform APIs are free, and Genosyn is open source and self-hosted. There is no per-seat ads-tool subscription and no aggregator in the middle.",
+      },
+    ],
+    docsPath: "/docs/marketing",
+    keywords: [
+      "AI ads management",
+      "AI marketing agent",
+      "Google Ads automation",
+      "Meta Ads API tool",
+      "ad spend guardrails",
+      "AI budget approval",
+      "self-hosted ads tool",
+    ],
+  },
+
   // ────────────────────────────────── Email ──────────────────────────────────
   {
     slug: "email",

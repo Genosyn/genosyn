@@ -48,6 +48,12 @@ export const DOCS_NAV: DocsSection[] = [
     ],
   },
   {
+    label: "Marketing",
+    pages: [
+      { path: "/docs/marketing", title: "Paid Marketing", blurb: "Ad-platform Integrations with spending caps, approval-gated budget levers, and a Performance Marketer template." },
+    ],
+  },
+  {
     label: "Operations",
     pages: [
       { path: "/docs/email", title: "Email", blurb: "Connect Gmail, work your inbox, hand threads to AI employees, and triage new mail with rules." },
