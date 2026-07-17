@@ -11,6 +11,7 @@ import { useToast } from "../components/ui/Toast";
 import { RunLiveModal, RunStatusChip, timeAgo, timeUntil } from "../components/routines/RunViews";
 import { cronHuman } from "../lib/cron";
 import { RoutinesContext } from "./RoutinesLayout";
+import { TagChips, TagFilterBar } from "../components/TagPicker";
 
 /**
  * Every routine in the company. Filterable by the employee it's assigned to
@@ -49,6 +50,7 @@ export default function RoutinesIndex({ company }: { company: Company }) {
   const handledDeepLinkRef = React.useRef(false);
 
   const employeeSlug = searchParams.get("employee");
+  const selectedTagId = searchParams.get("tag");
   const employee = routines.find((r) => r.employee?.slug === employeeSlug)?.employee ?? null;
 
   // Deep link from Home / Journal: `?routine=<id>&run=<id>`. Resolve the id to
@@ -94,6 +96,12 @@ export default function RoutinesIndex({ company }: { company: Company }) {
   const scoped = employeeSlug
     ? routines.filter((r) => r.employee?.slug === employeeSlug)
     : routines;
+  const availableTags = React.useMemo(() => {
+    const byId = new Map(
+      routines.flatMap((routine) => routine.tags ?? []).map((tag) => [tag.id, tag]),
+    );
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [routines]);
 
   const counts = {
     all: scoped.length,
@@ -103,6 +111,7 @@ export default function RoutinesIndex({ company }: { company: Company }) {
   };
 
   const shown = scoped.filter((r) => {
+    if (selectedTagId && !(r.tags ?? []).some((tag) => tag.id === selectedTagId)) return false;
     if (health === "active") return r.enabled;
     if (health === "paused") return !r.enabled;
     if (health === "attention") return needsAttention(r);
@@ -169,6 +178,19 @@ export default function RoutinesIndex({ company }: { company: Company }) {
               </button>
             ))}
           </div>
+
+          <TagFilterBar
+            tags={availableTags}
+            selectedId={selectedTagId}
+            onSelect={(tagId) =>
+              setSearchParams((previous) => {
+                const next = new URLSearchParams(previous);
+                if (tagId) next.set("tag", tagId);
+                else next.delete("tag");
+                return next;
+              })
+            }
+          />
 
           {shown.length === 0 ? (
             <EmptyState
@@ -259,6 +281,11 @@ function RoutineRow({
             </span>
           )}
         </div>
+        {(r.tags ?? []).length > 0 && (
+          <div className="mt-1">
+            <TagChips tags={r.tags} limit={3} />
+          </div>
+        )}
         <div className="mt-0.5 truncate text-xs text-slate-400 md:hidden dark:text-slate-500">
           {cronHuman(r.cronExpr)}
         </div>

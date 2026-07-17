@@ -68,12 +68,15 @@ import { pushRouter } from "./routes/push.js";
 import { browserSessionsRouter } from "./routes/browserSessions.js";
 import { browserRpcRouter } from "./routes/browserRpc.js";
 import { bootBrowserSessionSweeper } from "./services/browserSessions.js";
+import { tagsRouter } from "./routes/tags.js";
+import { backfillLegacyResourceTags } from "./services/tags.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function main() {
   await initDb();
+  await backfillLegacyResourceTags();
   // Never leave the install without an operator: if the master-admin column
   // was just added on an existing DB, promote the earliest user so the Admin
   // dashboard stays reachable. No-op once any master admin exists.
@@ -165,6 +168,8 @@ async function main() {
   // Org chart + Handoffs (Phase B). Teams group employees; Handoffs are
   // formal AI→AI delegation with status workflow.
   app.use("/api/companies/:cid", teamsRouter);
+  // Reusable company tags + polymorphic resource assignments.
+  app.use("/api/companies/:cid", tagsRouter);
   app.use("/api/companies/:cid", handoffsRouter);
   // Company-wide daily digest (Phase C). Rolls up today's journal entries
   // across all employees so humans get a single feed.

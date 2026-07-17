@@ -44,6 +44,7 @@ import {
 } from "../components/routines/RunViews";
 import { cronHuman, cronIsReadable } from "../lib/cron";
 import { RoutinesContext } from "./RoutinesLayout";
+import { ResourceTagPicker } from "../components/TagPicker";
 
 /**
  * One routine, in full: who runs it, when, on what brain, and how every past
@@ -186,6 +187,15 @@ export default function RoutineDetail({ company }: { company: Company }) {
                 </span>
               </>
             )}
+          </div>
+          <div className="mt-3 max-w-lg">
+            <ResourceTagPicker
+              companyId={company.id}
+              resourceType="routine"
+              resourceId={routine.id}
+              value={routine.tags ?? []}
+              onSaved={refresh}
+            />
           </div>
         </div>
         <Button onClick={triggerRun}>

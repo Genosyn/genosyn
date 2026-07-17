@@ -103,6 +103,8 @@ import { MailHandover } from "./entities/MailHandover.js";
 import { MailChatMessage } from "./entities/MailChatMessage.js";
 import { EmployeeMailAccountGrant } from "./entities/EmployeeMailAccountGrant.js";
 import { AdSpendEvent } from "./entities/AdSpendEvent.js";
+import { Tag } from "./entities/Tag.js";
+import { TagAssignment } from "./entities/TagAssignment.js";
 
 const entities = [
   User,
@@ -124,6 +126,8 @@ const entities = [
   Approval,
   McpServer,
   AdSpendEvent,
+  Tag,
+  TagAssignment,
   Secret,
   AuditEvent,
   Base,

@@ -39,6 +39,7 @@ import {
   uniqueViewSlug,
 } from "../services/bases.js";
 import { findBaseTemplate } from "../services/baseTemplates.js";
+import { deleteTagAssignments } from "../services/tags.js";
 import {
   ALL_RESOURCE_FIELD_TYPES,
   buildResourceOptionsFor,
@@ -245,6 +246,7 @@ basesRouter.delete("/bases/:baseSlug", async (req, res) => {
     await AppDataSource.getRepository(BaseTable).delete({ id: In(tableIds) });
   }
   await deleteGrantsForBase(b.id);
+  await deleteTagAssignments("base", b.id);
   await AppDataSource.getRepository(Base).delete({ id: b.id });
   res.json({ ok: true });
 });

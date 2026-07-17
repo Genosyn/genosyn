@@ -139,6 +139,8 @@ genosyn/
   `EmployeeMailAccountGrant`
 - **Backups:** `Backup`, `BackupSchedule`, `BackupDestination`
 - **Secrets:** `Secret`
+- **Organization:** `Tag`, `TagAssignment` (company-scoped labels attached to
+  taggable resources)
 
 ### Stack
 
@@ -283,6 +285,27 @@ own, alongside Routines — same shape, same reasoning.
       Settings tabs. ⌘S saves the playbook, as the docs always claimed.
 - [x] The employee Skills tab redirects to the company list filtered to
       that employee
+
+### M27 — Company resource tags ✅
+
+Reusable company labels for grouping resources without forcing a folder
+hierarchy. Tags are case-insensitive within one company, free-form, and many
+can be attached to the same resource.
+
+- [x] `Tag` catalog plus polymorphic `TagAssignment` rows, with company
+      ownership checks for Routines, Skills, Resources, Projects, Bases,
+      Notebooks, Notes, Pipelines, Code Repositories, Charts, and Dashboards
+- [x] Member-facing tag CRUD at **Settings → Tags**, including usage counts;
+      renames update attached Resources and deletes detach without deleting
+      the underlying resource
+- [x] Multi-tag picker on all supported resource detail flows, plus create
+      flows for Routines, Skills, and Resources, with inline creation of any
+      new company tag
+- [x] Tag chips and filters on the company-wide Routines, Skills, and
+      Resources lists
+- [x] Existing comma-separated M18 Resource tags import into the company
+      catalog on boot; the legacy string stays synchronized for MCP search and
+      backwards-compatible Resource tools
 
 ### M25 — Email (agentic Gmail client) ✅
 
@@ -659,13 +682,8 @@ not write**, ingested once, queried on demand via the MCP surface.
       escalating capabilities `read` < `edit` < `delete` (richer than
       notes' `read` / `write` because the team often wants employees
       that can keep a page tidy without authority to remove it).
-- [x] Ingestion service `services/resources.ts`:
-      * URL → `fetch` + minimal HTML→text (no jsdom/readability dep)
-      * Plain text / `.txt` / `.md` / `.html` upload → store + index
-      * PDF upload → text via `pdf-parse` (new dep, flagged below)
-      * EPUB upload → unzip + collect XHTML body text via existing `unzipper`
-      * Video → accepted but flagged `failed` with a "transcripts coming
-        soon" note (no ASR dep)
+- [x] Ingestion service `services/resources.ts`: * URL → `fetch` + minimal HTML→text (no jsdom/readability dep) * Plain text / `.txt` / `.md` / `.html` upload → store + index * PDF upload → text via `pdf-parse` (new dep, flagged below) * EPUB upload → unzip + collect XHTML body text via existing `unzipper` * Video → accepted but flagged `failed` with a "transcripts coming
+      soon" note (no ASR dep)
 - [x] HTTP routes under `/api/companies/:cid/resources`: list, create
       (URL / paste / upload via multer, 25 MB cap), detail, patch
       (rename + retag + body for `text`-kind), delete, plus grant CRUD.
@@ -821,26 +839,25 @@ Phased so each phase ships behind its own PR:
       layer — the entity is named `LedgerEntry` rather than the
       accountant-natural "JournalEntry" because the codebase already had
       a `JournalEntry` for per-employee diary feeds; product copy still
-      says "journal"). Auto-post from invoice issued (DR AR / CR Revenue
-      + Tax Payable), invoice paid (DR Bank / CR AR), invoice voided
+      says "journal"). Auto-post from invoice issued (DR AR / CR Revenue + Tax Payable), invoice paid (DR Bank / CR AR), invoice voided
       (reverses every entry tied to the invoice). Manual journal entry
       UI for accountants. Trial balance view.
 - [x] **Phase C — Reports.** Income Statement (P&L), Balance Sheet,
-  Cash Flow Statement. Period filters (this month / quarter / YTD /
-  custom). Comparison columns (vs. prior period). Drill-through from
-  any account row to a running-balance ledger of its source entries.
+      Cash Flow Statement. Period filters (this month / quarter / YTD /
+      custom). Comparison columns (vs. prior period). Drill-through from
+      any account row to a running-balance ledger of its source entries.
 - [x] **Phase D — Reconciliation.** `BankFeed` (Stripe payouts and
-  native Brex Cash sync; CSV import as the universal fallback),
-  `BankTransaction` ingestion with auto-match heuristics (amount +
-  date proximity), manual matching UI with ranked candidates, unmatch
-  escape on reconciled rows. Re-uses the existing
-  `IntegrationConnection` framework for credentials.
+      native Brex Cash sync; CSV import as the universal fallback),
+      `BankTransaction` ingestion with auto-match heuristics (amount +
+      date proximity), manual matching UI with ranked candidates, unmatch
+      escape on reconciled rows. Re-uses the existing
+      `IntegrationConnection` framework for credentials.
 - [x] **Corporate card accounting.** `CardFeed` and `CardTransaction`
-  ingest the complete settled Brex primary-card history. Purchases auto-post
-  DR Expense / CR Corporate Card Payable, refunds reverse those legs, and
-  statement collections post DR Card Payable / CR Bank. Expense-category
-  changes create append-only reclassification entries; failed postings stay
-  visible and retryable.
+      ingest the complete settled Brex primary-card history. Purchases auto-post
+      DR Expense / CR Corporate Card Payable, refunds reverse those legs, and
+      statement collections post DR Card Payable / CR Bank. Expense-category
+      changes create append-only reclassification entries; failed postings stay
+      visible and retryable.
 - **Phase E — Multi-currency.** `Currency`, `ExchangeRate`, and
   `CompanyFinanceSettings` (home currency). Per-invoice currency with
   FX gain/loss auto-posted on payment when the rate at payment differs
@@ -1140,7 +1157,7 @@ of the original V1 backlog has shipped — what remains is mostly
         (`Page.startScreencast`, JPEG q60) and pushes frames over a
         WebSocket up to the App, which fans them out to viewers
         connected at `/api/companies/:cid/employees/:eid/browser-sessions/
-        :id/view`. The viewer page is a plain HTML+canvas iframe that
+    :id/view`. The viewer page is a plain HTML+canvas iframe that
         also forwards mouse / keyboard events back via CDP
         `Input.dispatchMouseEvent` / `dispatchKeyEvent` when the human
         flips into "Take over" mode. Solves captcha / 2FA without an

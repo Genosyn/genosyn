@@ -41,6 +41,14 @@ import {
   isExportFormat,
 } from "../services/resourceExport.js";
 import fs from "node:fs";
+import { Tag } from "../db/entities/Tag.js";
+import {
+  deleteTagAssignments,
+  replaceResourceTagNames,
+  replaceResourceTags,
+  tagsByResourceIds,
+  validateCompanyTagIds,
+} from "../services/tags.js";
 
 /**
  * Resources — knowledge ingestion. Humans create rows by pasting a URL,
@@ -67,9 +75,10 @@ type AuthorRef =
   | { kind: "ai"; id: string; name: string; slug: string; role: string }
   | null;
 
-type HydratedResource = Omit<Resource, "bodyText"> & {
+type HydratedResource = Omit<Resource, "bodyText" | "tags"> & {
   bodyText?: string;
   bodyLength: number;
+  tags: Tag[];
   tagList: string[];
   createdBy: AuthorRef;
 };
@@ -106,6 +115,11 @@ async function hydrate(
   ]);
   const userById = new Map(users.map((u) => [u.id, u]));
   const empById = new Map(emps.map((e) => [e.id, e]));
+  const resourceTags = await tagsByResourceIds(
+    companyId,
+    "resource",
+    rows.map((row) => row.id),
+  );
   return rows.map((r) => {
     let createdBy: AuthorRef = null;
     if (r.createdById) {
@@ -131,15 +145,13 @@ async function hydrate(
       }
     }
     const bodyLength = r.bodyText?.length ?? 0;
-    const tagList = r.tags
-      ? r.tags
-          .split(",")
-          .map((t) => t.trim())
-          .filter((t) => t.length > 0)
-      : [];
+    const tags = resourceTags.get(r.id) ?? [];
+    const tagList = tags.map((tag) => tag.name);
+    const { tags: _legacyTags, ...resource } = r;
     const out: HydratedResource = {
-      ...r,
+      ...resource,
       bodyLength,
+      tags,
       tagList,
       createdBy,
     };
@@ -167,6 +179,7 @@ const createUrlSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   summary: z.string().max(2000).optional(),
   tags: z.string().max(500).optional(),
+  tagIds: z.array(z.string().uuid()).max(20).optional(),
 });
 
 const createTextSchema = z.object({
@@ -175,91 +188,99 @@ const createTextSchema = z.object({
   body: z.string().min(1),
   summary: z.string().max(2000).optional(),
   tags: z.string().max(500).optional(),
+  tagIds: z.array(z.string().uuid()).max(20).optional(),
 });
 
-const createBodySchema = z.discriminatedUnion("sourceKind", [
-  createUrlSchema,
-  createTextSchema,
-]);
+const createBodySchema = z.discriminatedUnion("sourceKind", [createUrlSchema, createTextSchema]);
 
-resourcesRouter.post(
-  "/resources",
-  validateBody(createBodySchema),
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const body = req.body as z.infer<typeof createBodySchema>;
-    const repo = AppDataSource.getRepository(Resource);
+resourcesRouter.post("/resources", validateBody(createBodySchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const body = req.body as z.infer<typeof createBodySchema>;
+  const repo = AppDataSource.getRepository(Resource);
 
-    let title = "";
-    let summary = "";
-    let bodyText = "";
-    let status: "ready" | "failed" = "ready";
-    let errorMessage = "";
-    let bytes = 0;
-    let sourceUrl: string | null = null;
+  if (body.tagIds) {
+    try {
+      await validateCompanyTagIds(cid, body.tagIds);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return res.status(400).json({ error: message });
+    }
+  }
 
-    if (body.sourceKind === "url") {
-      sourceUrl = body.url;
-      try {
-        const fetched = await fetchUrlAsText(body.url);
-        title = (body.title ?? fetched.title ?? body.url).slice(0, 200);
-        bodyText = trimBodyText(fetched.text);
-        bytes = bodyText.length;
-        summary = summarize(bodyText, body.summary);
-      } catch (err) {
-        title = (body.title ?? body.url).slice(0, 200);
-        status = "failed";
-        errorMessage = err instanceof Error ? err.message : String(err);
-        summary = body.summary?.trim() ?? "";
-      }
-    } else {
-      title = body.title;
-      bodyText = trimBodyText(body.body);
+  let title = "";
+  let summary = "";
+  let bodyText = "";
+  let status: "ready" | "failed" = "ready";
+  let errorMessage = "";
+  let bytes = 0;
+  let sourceUrl: string | null = null;
+
+  if (body.sourceKind === "url") {
+    sourceUrl = body.url;
+    try {
+      const fetched = await fetchUrlAsText(body.url);
+      title = (body.title ?? fetched.title ?? body.url).slice(0, 200);
+      bodyText = trimBodyText(fetched.text);
       bytes = bodyText.length;
       summary = summarize(bodyText, body.summary);
+    } catch (err) {
+      title = (body.title ?? body.url).slice(0, 200);
+      status = "failed";
+      errorMessage = err instanceof Error ? err.message : String(err);
+      summary = body.summary?.trim() ?? "";
     }
+  } else {
+    title = body.title;
+    bodyText = trimBodyText(body.body);
+    bytes = bodyText.length;
+    summary = summarize(bodyText, body.summary);
+  }
 
-    const slug = await uniqueResourceSlug(cid, toSlug(title) || "resource");
-    const row = repo.create({
-      companyId: cid,
-      title,
-      slug,
-      sourceKind: body.sourceKind,
-      sourceUrl,
-      sourceFilename: null,
-      storageKey: null,
-      summary,
-      bodyText,
-      tags: (body.tags ?? "").trim(),
-      bytes,
-      status,
-      errorMessage,
-      createdById: req.userId ?? null,
-      createdByEmployeeId: null,
-    });
-    await repo.save(row);
+  const slug = await uniqueResourceSlug(cid, toSlug(title) || "resource");
+  const row = repo.create({
+    companyId: cid,
+    title,
+    slug,
+    sourceKind: body.sourceKind,
+    sourceUrl,
+    sourceFilename: null,
+    storageKey: null,
+    summary,
+    bodyText,
+    tags: (body.tags ?? "").trim(),
+    bytes,
+    status,
+    errorMessage,
+    createdById: req.userId ?? null,
+    createdByEmployeeId: null,
+  });
+  await repo.save(row);
+  if (body.tagIds) {
+    await replaceResourceTags(cid, "resource", row.id, body.tagIds);
+  } else if (body.tags) {
+    await replaceResourceTagNames(cid, "resource", row.id, body.tags);
+  }
 
-    const grantedCount = await grantResourceToAllEmployees(cid, row.id);
+  const grantedCount = await grantResourceToAllEmployees(cid, row.id);
 
-    await recordAudit({
-      companyId: cid,
-      actorUserId: req.userId ?? null,
-      action: "resource.create",
-      targetType: "resource",
-      targetId: row.id,
-      targetLabel: row.title,
-      metadata: {
-        sourceKind: row.sourceKind,
-        bytes: Number(row.bytes),
-        status: row.status,
-        grantedToEmployees: grantedCount,
-      },
-    });
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "resource.create",
+    targetType: "resource",
+    targetId: row.id,
+    targetLabel: row.title,
+    metadata: {
+      sourceKind: row.sourceKind,
+      bytes: Number(row.bytes),
+      status: row.status,
+      grantedToEmployees: grantedCount,
+    },
+  });
 
-    const [hydrated] = await hydrate(cid, [row], { includeBody: false });
-    res.status(201).json(hydrated);
-  },
-);
+  const [hydrated] = await hydrate(cid, [row], { includeBody: false });
+  res.status(201).json(hydrated);
+});
 
 // ----- CREATE: file upload -----
 
@@ -329,6 +350,25 @@ resourcesRouter.post(
 
     const summary = (req.body as Record<string, string>)?.summary;
     const tags = (req.body as Record<string, string>)?.tags ?? "";
+    const tagIdsInput = (req.body as Record<string, string>)?.tagIds;
+    let tagIdsToAssign: string[] | null = null;
+    if (tagIdsInput) {
+      let rawTagIds: unknown;
+      try {
+        rawTagIds = JSON.parse(tagIdsInput);
+      } catch {
+        return res.status(400).json({ error: "Invalid tag ids" });
+      }
+      const parsed = z.array(z.string().uuid()).max(20).safeParse(rawTagIds);
+      if (!parsed.success) return res.status(400).json({ error: "Invalid tag ids" });
+      tagIdsToAssign = parsed.data;
+      try {
+        await validateCompanyTagIds(cid, tagIdsToAssign);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return res.status(400).json({ error: message });
+      }
+    }
     const slug = await uniqueResourceSlug(cid, toSlug(title) || "resource");
 
     const row = AppDataSource.getRepository(Resource).create({
@@ -349,6 +389,11 @@ resourcesRouter.post(
       createdByEmployeeId: null,
     });
     await AppDataSource.getRepository(Resource).save(row);
+    if (tagIdsToAssign) {
+      await replaceResourceTags(cid, "resource", row.id, tagIdsToAssign);
+    } else if (tags) {
+      await replaceResourceTagNames(cid, "resource", row.id, tags);
+    }
 
     const grantedCount = await grantResourceToAllEmployees(cid, row.id);
 
@@ -471,44 +516,41 @@ const patchSchema = z.object({
   body: z.string().max(RESOURCE_BODY_TEXT_CAP).optional(),
 });
 
-resourcesRouter.patch(
-  "/resources/:slug",
-  validateBody(patchSchema),
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const row = await loadResource(cid, req.params.slug);
-    if (!row) return res.status(404).json({ error: "Resource not found" });
-    const body = req.body as z.infer<typeof patchSchema>;
-    if (body.title !== undefined) row.title = body.title;
-    if (body.summary !== undefined) row.summary = body.summary.trim();
-    if (body.tags !== undefined) row.tags = body.tags.trim();
-    if (body.body !== undefined) {
-      // Only `text` resources are editable — for PDF/EPUB/URL the body is
-      // an extracted preview that should match the original source, so
-      // letting humans drift it would silently break search results.
-      if (row.sourceKind !== "text") {
-        return res
-          .status(400)
-          .json({ error: "Only text resources can have their body edited" });
-      }
-      const trimmed = trimBodyText(body.body);
-      row.bodyText = trimmed;
-      row.bytes = trimmed.length;
-      // Auto-regenerate the summary when the caller didn't pass one — the
-      // detail page no longer surfaces the summary, but the index list
-      // still uses it as preview text and a stale summary would be
-      // misleading.
-      if (body.summary === undefined) {
-        row.summary = summarize(trimmed);
-      }
-      row.status = "ready";
-      row.errorMessage = "";
+resourcesRouter.patch("/resources/:slug", validateBody(patchSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const row = await loadResource(cid, req.params.slug);
+  if (!row) return res.status(404).json({ error: "Resource not found" });
+  const body = req.body as z.infer<typeof patchSchema>;
+  if (body.title !== undefined) row.title = body.title;
+  if (body.summary !== undefined) row.summary = body.summary.trim();
+  if (body.tags !== undefined) row.tags = body.tags.trim();
+  if (body.body !== undefined) {
+    // Only `text` resources are editable — for PDF/EPUB/URL the body is
+    // an extracted preview that should match the original source, so
+    // letting humans drift it would silently break search results.
+    if (row.sourceKind !== "text") {
+      return res.status(400).json({ error: "Only text resources can have their body edited" });
     }
-    await AppDataSource.getRepository(Resource).save(row);
-    const [hydrated] = await hydrate(cid, [row], { includeBody: true });
-    res.json(hydrated);
-  },
-);
+    const trimmed = trimBodyText(body.body);
+    row.bodyText = trimmed;
+    row.bytes = trimmed.length;
+    // Auto-regenerate the summary when the caller didn't pass one — the
+    // detail page no longer surfaces the summary, but the index list
+    // still uses it as preview text and a stale summary would be
+    // misleading.
+    if (body.summary === undefined) {
+      row.summary = summarize(trimmed);
+    }
+    row.status = "ready";
+    row.errorMessage = "";
+  }
+  await AppDataSource.getRepository(Resource).save(row);
+  if (body.tags !== undefined) {
+    await replaceResourceTagNames(cid, "resource", row.id, body.tags);
+  }
+  const [hydrated] = await hydrate(cid, [row], { includeBody: true });
+  res.json(hydrated);
+});
 
 // ----- DELETE -----
 
@@ -523,6 +565,7 @@ resourcesRouter.delete("/resources/:slug", async (req, res) => {
   if (row.storageKey) {
     await deleteResourceBytes(row.storageKey, co.slug);
   }
+  await deleteTagAssignments("resource", row.id);
   await AppDataSource.getRepository(Resource).delete({ id: row.id });
   await recordAudit({
     companyId: cid,

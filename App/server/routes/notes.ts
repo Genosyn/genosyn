@@ -21,6 +21,7 @@ import {
   listNotebookInheritedGrants,
   upsertNoteGrant,
 } from "../services/notes.js";
+import { deleteTagAssignments } from "../services/tags.js";
 
 export const notesRouter = Router({ mergeParams: true });
 notesRouter.use(requireAuth);
@@ -402,6 +403,7 @@ notesRouter.delete("/notes/:noteSlug", async (req, res) => {
   // Re-parent direct children up one level rather than orphaning them.
   await repo.update({ companyId: cid, parentId: note.id }, { parentId: note.parentId });
   await deleteGrantsForNote(note.id);
+  await deleteTagAssignments("note", note.id);
   await repo.delete({ id: note.id });
   res.json({ ok: true });
 });

@@ -34,6 +34,7 @@ import { useDialog } from "../components/ui/Dialog";
 import { BlockEditor } from "../components/notes/BlockEditor";
 import { NotesContext } from "./NotesLayout";
 import { clsx } from "../components/ui/clsx";
+import { AsyncResourceTagPicker } from "../components/TagPicker";
 
 const EMOJI_PALETTE = [
   "📄",
@@ -427,6 +428,14 @@ export default function NoteDetail({ company }: { company: Company }) {
             placeholder="Untitled"
             className="w-full border-0 bg-transparent p-0 text-[2.5rem] font-bold leading-[1.2] tracking-tight text-slate-900 placeholder:text-slate-300 focus:outline-none focus:ring-0 dark:text-slate-50 dark:placeholder:text-slate-700"
           />
+
+          <div className="mt-4 mb-6">
+            <AsyncResourceTagPicker
+              companyId={company.id}
+              resourceType="note"
+              resourceId={note.id}
+            />
+          </div>
 
           {note.lastEditedBy?.name && (
             <div className="mt-1 mb-10 flex flex-wrap items-center gap-1.5 text-[13px] text-slate-400 dark:text-slate-500">

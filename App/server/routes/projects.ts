@@ -33,6 +33,7 @@ import {
   restrictProject,
   upsertProjectMember,
 } from "../services/projects.js";
+import { deleteTagAssignments } from "../services/tags.js";
 
 export const projectsRouter = Router({ mergeParams: true });
 projectsRouter.use(requireAuth);
@@ -323,6 +324,7 @@ projectsRouter.delete("/projects/:pSlug", async (req, res) => {
   }
   await deleteMembersForProject(p.id);
   await AppDataSource.getRepository(Todo).delete({ projectId: p.id });
+  await deleteTagAssignments("project", p.id);
   await AppDataSource.getRepository(Project).delete({ id: p.id });
   res.json({ ok: true });
 });

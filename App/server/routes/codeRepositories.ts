@@ -21,6 +21,7 @@ import {
   uniqueCodeRepoSlug,
   upsertCodeRepoGrant,
 } from "../services/codeRepos.js";
+import { deleteTagAssignments } from "../services/tags.js";
 
 /**
  * Code Repositories — provider-agnostic git repos the company adds so its AI
@@ -273,6 +274,7 @@ codeRepositoriesRouter.delete("/code-repositories/:slug", async (req, res) => {
   if (!row) return res.status(404).json({ error: "Repository not found" });
 
   await deleteGrantsForCodeRepo(row.id);
+  await deleteTagAssignments("code_repository", row.id);
   await AppDataSource.getRepository(CodeRepository).delete({ id: row.id });
   await recordAudit({
     companyId: cid,

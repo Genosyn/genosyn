@@ -7,6 +7,7 @@ import { Employees } from "@/docs/pages/Employees";
 import { Soul } from "@/docs/pages/Soul";
 import { Skills } from "@/docs/pages/Skills";
 import { Routines } from "@/docs/pages/Routines";
+import { Tags } from "@/docs/pages/Tags";
 import { Models } from "@/docs/pages/Models";
 import { OpenSourceModels } from "@/docs/pages/OpenSourceModels";
 import { Integrations } from "@/docs/pages/Integrations";
@@ -34,6 +35,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/soul": Soul,
   "/docs/skills": Skills,
   "/docs/routines": Routines,
+  "/docs/tags": Tags,
   "/docs/models": Models,
   "/docs/open-source-models": OpenSourceModels,
   "/docs/integrations": Integrations,

@@ -25,7 +25,6 @@ import {
   Plus,
   Printer,
   Save,
-  Tag,
   Trash2,
   Users,
   X,
@@ -46,6 +45,7 @@ import {
   ResourceGrantCandidate,
   ResourceGrantsResponse,
 } from "../lib/api";
+import { ResourceTagPicker } from "../components/TagPicker";
 import { SourceKindIcon, formatBodyLength } from "./ResourcesIndex";
 
 /**
@@ -71,24 +71,17 @@ export default function ResourceDetail({ company }: { company: Company }) {
 
   const [title, setTitle] = React.useState("");
   const [body, setBody] = React.useState("");
-  const [tags, setTags] = React.useState("");
 
   const reload = React.useCallback(async () => {
     if (!slug) return;
     setLoading(true);
     try {
-      const r = await api.get<Resource>(
-        `/api/companies/${company.id}/resources/${slug}`,
-      );
+      const r = await api.get<Resource>(`/api/companies/${company.id}/resources/${slug}`);
       setRow(r);
       setTitle(r.title);
       setBody(r.bodyText ?? "");
-      setTags(r.tags);
     } catch (err) {
-      toast(
-        err instanceof Error ? err.message : "Could not load resource",
-        "error",
-      );
+      toast(err instanceof Error ? err.message : "Could not load resource", "error");
     } finally {
       setLoading(false);
     }
@@ -103,7 +96,6 @@ export default function ResourceDetail({ company }: { company: Company }) {
     try {
       const payload: Record<string, string> = {
         title: title.trim(),
-        tags,
       };
       if (row.sourceKind === "text") payload.body = body;
       const updated = await api.patch<Resource>(
@@ -123,7 +115,6 @@ export default function ResourceDetail({ company }: { company: Company }) {
     if (!row) return;
     setTitle(row.title);
     setBody(row.bodyText ?? "");
-    setTags(row.tags);
     setEditing(false);
   }
 
@@ -171,10 +162,6 @@ export default function ResourceDetail({ company }: { company: Company }) {
 
   const fileUrl = `/api/companies/${company.id}/resources/${row.slug}/file`;
   const downloadUrl = `${fileUrl}?disposition=attachment`;
-  const tagList = tags
-    .split(",")
-    .map((t) => t.trim())
-    .filter((t) => t.length > 0);
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col bg-slate-50 dark:bg-slate-900">
@@ -296,13 +283,19 @@ export default function ResourceDetail({ company }: { company: Company }) {
             )}
           </div>
 
-          {/* Tags */}
-          <TagsSection
-            editing={editing}
-            tags={tags}
-            tagList={tagList}
-            onChange={setTags}
-          />
+          <div className="mb-6 max-w-xl">
+            <ResourceTagPicker
+              companyId={company.id}
+              resourceType="resource"
+              resourceId={row.id}
+              value={row.tags}
+              onSaved={(tags) =>
+                setRow((current) =>
+                  current ? { ...current, tags, tagList: tags.map((tag) => tag.name) } : current,
+                )
+              }
+            />
+          </div>
 
           {/* Failed-ingest banner */}
           {row.status === "failed" && row.errorMessage && (
@@ -900,48 +893,6 @@ function Markdown({ body }: { body: string }) {
     return DOMPurify.sanitize(raw);
   }, [body]);
   return <div className="doc-md" dangerouslySetInnerHTML={{ __html: html }} />;
-}
-
-// ─────────────────────────── Tags section ──────────────────────────────
-
-function TagsSection({
-  editing,
-  tags,
-  tagList,
-  onChange,
-}: {
-  editing: boolean;
-  tags: string;
-  tagList: string[];
-  onChange: (v: string) => void;
-}) {
-  if (editing) {
-    return (
-      <div className="mb-6 flex items-center gap-2">
-        <Tag size={14} className="text-slate-400 dark:text-slate-500" />
-        <input
-          value={tags}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="pricing, b2b, growth"
-          className="flex-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500 dark:focus:border-indigo-700 dark:focus:ring-indigo-900/30"
-        />
-      </div>
-    );
-  }
-  if (tagList.length === 0) return null;
-  return (
-    <div className="mb-6 flex flex-wrap items-center gap-1.5">
-      <Tag size={12} className="text-slate-400 dark:text-slate-500" />
-      {tagList.map((t) => (
-        <span
-          key={t}
-          className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200"
-        >
-          {t}
-        </span>
-      ))}
-    </div>
-  );
 }
 
 // ─────────────────────────── Status badge ──────────────────────────────

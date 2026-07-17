@@ -23,12 +23,8 @@ import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
 import { useToast } from "../components/ui/Toast";
 import { Spinner } from "../components/ui/Spinner";
-import {
-  api,
-  Company,
-  Resource,
-  ResourceSourceKind,
-} from "../lib/api";
+import { api, Company, CompanyTag, Resource, ResourceSourceKind } from "../lib/api";
+import { TagFilterBar, TagPicker } from "../components/TagPicker";
 
 /**
  * Resources — knowledge ingestion. Humans paste a URL, paste raw text,
@@ -47,6 +43,7 @@ export default function ResourcesIndex({ company }: { company: Company }) {
   const [showNew, setShowNew] = React.useState(false);
   const [tab, setTab] = React.useState<NewResourceTab>("url");
   const [query, setQuery] = React.useState("");
+  const [selectedTagId, setSelectedTagId] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     try {
@@ -75,17 +72,26 @@ export default function ResourcesIndex({ company }: { company: Company }) {
   const filtered = React.useMemo(() => {
     if (!items) return null;
     const q = query.trim().toLowerCase();
-    if (!q) return items;
     return items.filter((r) => {
+      if (selectedTagId && !r.tags.some((tag) => tag.id === selectedTagId)) return false;
+      if (!q) return true;
       const hay =
         r.title.toLowerCase() +
         " " +
         (r.summary ?? "").toLowerCase() +
         " " +
-        (r.tags ?? "").toLowerCase();
+        r.tags
+          .map((tag) => tag.name)
+          .join(" ")
+          .toLowerCase();
       return hay.includes(q);
     });
-  }, [items, query]);
+  }, [items, query, selectedTagId]);
+
+  const availableTags = React.useMemo(() => {
+    const byId = new Map((items ?? []).flatMap((item) => item.tags).map((tag) => [tag.id, tag]));
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [items]);
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col bg-slate-50 dark:bg-slate-900">
@@ -127,6 +133,12 @@ export default function ResourcesIndex({ company }: { company: Company }) {
               className="w-full rounded-lg border border-slate-200 bg-white py-3 pl-11 pr-4 text-base text-slate-700 placeholder:text-slate-400 hover:border-slate-300 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500 dark:hover:border-slate-600 dark:focus:border-indigo-700 dark:focus:ring-indigo-900/30"
             />
           </div>
+
+          <TagFilterBar
+            tags={availableTags}
+            selectedId={selectedTagId}
+            onSelect={setSelectedTagId}
+          />
 
           <QuickAddRow onPick={openNew} />
 
@@ -403,7 +415,7 @@ function NewResourceModal({
 
   // Shared fields
   const [title, setTitle] = React.useState("");
-  const [tags, setTags] = React.useState("");
+  const [tags, setTags] = React.useState<CompanyTag[]>([]);
 
   // URL tab
   const [url, setUrl] = React.useState("");
@@ -418,7 +430,7 @@ function NewResourceModal({
     if (!open) {
       setBusy(false);
       setTitle("");
-      setTags("");
+      setTags([]);
       setUrl("");
       setBody("");
       setFile(null);
@@ -433,55 +445,41 @@ function NewResourceModal({
       let row: Resource;
       if (tab === "url") {
         if (!url.trim()) throw new Error("Paste a URL first.");
-        row = await api.post<Resource>(
-          `/api/companies/${company.id}/resources`,
-          {
-            sourceKind: "url",
-            url: url.trim(),
-            title: title.trim() || undefined,
-            tags: tags.trim() || undefined,
-          },
-        );
+        row = await api.post<Resource>(`/api/companies/${company.id}/resources`, {
+          sourceKind: "url",
+          url: url.trim(),
+          title: title.trim() || undefined,
+          tagIds: tags.map((tag) => tag.id),
+        });
       } else if (tab === "text") {
         if (!title.trim()) throw new Error("Give it a title.");
         if (!body.trim()) throw new Error("Paste the text first.");
-        row = await api.post<Resource>(
-          `/api/companies/${company.id}/resources`,
-          {
-            sourceKind: "text",
-            title: title.trim(),
-            body,
-            tags: tags.trim() || undefined,
-          },
-        );
+        row = await api.post<Resource>(`/api/companies/${company.id}/resources`, {
+          sourceKind: "text",
+          title: title.trim(),
+          body,
+          tagIds: tags.map((tag) => tag.id),
+        });
       } else {
         if (!file) throw new Error("Choose a file first.");
         const fd = new FormData();
         fd.append("file", file);
         if (title.trim()) fd.append("title", title.trim());
-        if (tags.trim()) fd.append("tags", tags.trim());
-        const res = await fetch(
-          `/api/companies/${company.id}/resources/upload`,
-          {
-            method: "POST",
-            credentials: "same-origin",
-            body: fd,
-          },
-        );
+        if (tags.length) fd.append("tagIds", JSON.stringify(tags.map((tag) => tag.id)));
+        const res = await fetch(`/api/companies/${company.id}/resources/upload`, {
+          method: "POST",
+          credentials: "same-origin",
+          body: fd,
+        });
         const text = await res.text();
         const data = text ? JSON.parse(text) : null;
         if (!res.ok) {
-          throw new Error(
-            (data && (data.error ?? data.message)) || res.statusText,
-          );
+          throw new Error((data && (data.error ?? data.message)) || res.statusText);
         }
         row = data as Resource;
       }
       if (row.status === "failed") {
-        toast(
-          `Saved, but ingestion failed: ${row.errorMessage}`,
-          "error",
-        );
+        toast(`Saved, but ingestion failed: ${row.errorMessage}`, "error");
       } else {
         toast("Resource ingested", "success");
       }
@@ -570,12 +568,7 @@ function NewResourceModal({
           </>
         )}
 
-        <Input
-          label="Tags (optional, comma-separated)"
-          value={tags}
-          onChange={(e) => setTags(e.target.value)}
-          placeholder="pricing, b2b, growth"
-        />
+        <TagPicker companyId={company.id} value={tags} onChange={setTags} />
 
         <div className="mt-2 flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose} disabled={busy}>

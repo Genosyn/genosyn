@@ -19,6 +19,7 @@ import {
   listDirectNotebookGrants,
   upsertNotebookGrant,
 } from "../services/notes.js";
+import { deleteTagAssignments } from "../services/tags.js";
 
 /**
  * Notebooks — the top-level grouping shown in the Notes sidebar. Every
@@ -169,9 +170,13 @@ notebooksRouter.delete("/notebooks/:nbSlug", async (req, res) => {
     where: { notebookId: nb.id },
     select: ["id"],
   });
-  for (const n of notes) await deleteGrantsForNote(n.id);
+  for (const n of notes) {
+    await deleteGrantsForNote(n.id);
+    await deleteTagAssignments("note", n.id);
+  }
   if (notes.length > 0) await notesRepo.delete({ notebookId: nb.id });
   await deleteGrantsForNotebook(nb.id);
+  await deleteTagAssignments("notebook", nb.id);
   await AppDataSource.getRepository(Notebook).delete({ id: nb.id });
   res.json({ ok: true });
 });

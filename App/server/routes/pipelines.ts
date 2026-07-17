@@ -19,6 +19,7 @@ import { recordAudit } from "../services/audit.js";
 import { PIPELINE_LOG_MAX_BYTES } from "../services/pipelines/log.js";
 import { graphForStarter } from "../services/pipelines/starters.js";
 import { getProvider, listProviderIds } from "../integrations/index.js";
+import { deleteTagAssignments } from "../services/tags.js";
 
 export const pipelinesRouter = Router({ mergeParams: true });
 pipelinesRouter.use(requireAuth);
@@ -236,6 +237,7 @@ pipelinesRouter.delete("/pipelines/:idOrSlug", async (req, res) => {
   const p = await loadPipeline(cid, req.params.idOrSlug);
   if (!p) return res.status(404).json({ error: "Not found" });
   await AppDataSource.getRepository(PipelineRun).delete({ pipelineId: p.id });
+  await deleteTagAssignments("pipeline", p.id);
   await AppDataSource.getRepository(Pipeline).delete({ id: p.id });
   await recordAudit({
     companyId: cid,

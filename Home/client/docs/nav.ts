@@ -45,6 +45,11 @@ export const DOCS_NAV: DocsSection[] = [
         title: "Routines & Runs",
         blurb: "Scheduled, cron-triggered AI work.",
       },
+      {
+        path: "/docs/tags",
+        title: "Tags",
+        blurb: "Reusable company labels for organizing resources.",
+      },
     ],
   },
   {
@@ -65,6 +70,11 @@ export const DOCS_NAV: DocsSection[] = [
         title: "Integrations",
         blurb: "Connections, Grants, and the MCP surface.",
       },
+      {
+        path: "/docs/browser",
+        title: "Browser",
+        blurb: "A persistent headless Chromium per employee — watch live, take over anytime.",
+      },
     ],
   },
   {
@@ -74,11 +84,6 @@ export const DOCS_NAV: DocsSection[] = [
         path: "/docs/code",
         title: "Code Repositories",
         blurb: "Add any git repo; let granted AI employees commit and push.",
-      },
-      {
-        path: "/docs/browser",
-        title: "Browser",
-        blurb: "A persistent headless Chromium per employee — watch live, take over anytime.",
       },
     ],
   },

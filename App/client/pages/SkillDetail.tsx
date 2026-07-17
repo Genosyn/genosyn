@@ -13,6 +13,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
 import { useToast } from "../components/ui/Toast";
 import { SkillsContext } from "./SkillsLayout";
+import { ResourceTagPicker } from "../components/TagPicker";
 
 /**
  * One skill, in full: the playbook itself, and who knows it.
@@ -114,6 +115,15 @@ export default function SkillDetail({ company }: { company: Company }) {
                 </Link>
               </>
             )}
+          </div>
+          <div className="mt-3 max-w-lg">
+            <ResourceTagPicker
+              companyId={company.id}
+              resourceType="skill"
+              resourceId={skill.id}
+              value={skill.tags ?? []}
+              onSaved={refresh}
+            />
           </div>
         </div>
       </div>

@@ -135,11 +135,8 @@ import {
   uniqueResourceSlug,
   upsertResourceGrant,
 } from "../services/resources.js";
-import {
-  EXPORT_FORMATS,
-  exportResource,
-  isExportFormat,
-} from "../services/resourceExport.js";
+import { EXPORT_FORMATS, exportResource, isExportFormat } from "../services/resourceExport.js";
+import { deleteTagAssignments, replaceResourceTagNames } from "../services/tags.js";
 import { Chart } from "../db/entities/Chart.js";
 import { Dashboard } from "../db/entities/Dashboard.js";
 import { DashboardCard } from "../db/entities/DashboardCard.js";
@@ -4038,6 +4035,10 @@ mcpInternalRouter.post(
       createdByEmployeeId: self.id,
     });
     await repo.save(row);
+    if (body.tags) {
+      await replaceResourceTagNames(co.id, "resource", row.id, body.tags);
+      row.tags = body.tags.trim();
+    }
 
     // The author always gets `delete` (full control) so it can keep
     // curating its own page without a human round-trip — including
@@ -4121,6 +4122,10 @@ mcpInternalRouter.post(
       row.errorMessage = "";
     }
     await repo.save(row);
+    if (body.tags !== undefined) {
+      await replaceResourceTagNames(co.id, "resource", row.id, body.tags);
+      row.tags = body.tags.trim();
+    }
 
     await recordAudit({
       companyId: co.id,
@@ -4172,6 +4177,7 @@ mcpInternalRouter.post(
       // route's cleanup so we don't orphan bytes on disk.
       await deleteResourceBytes(row.storageKey, co.slug);
     }
+    await deleteTagAssignments("resource", row.id);
     await repo.delete({ id: row.id });
 
     await recordAudit({

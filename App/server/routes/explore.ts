@@ -36,6 +36,7 @@ import {
   upsertDashboardGrant,
   VIZ_TYPES,
 } from "../services/explore.js";
+import { deleteTagAssignments } from "../services/tags.js";
 
 /**
  * Explore — Metabase-style analytics over the company's existing database
@@ -254,6 +255,7 @@ exploreRouter.delete("/explore/charts/:slug", async (req, res) => {
   // visible — Charts and Cards don't have a FK constraint.
   await AppDataSource.getRepository(DashboardCard).delete({ chartId: row.id });
   await deleteGrantsForChart(row.id);
+  await deleteTagAssignments("chart", row.id);
   await AppDataSource.getRepository(Chart).delete({ id: row.id });
   await recordAudit({
     companyId: cid,
@@ -423,6 +425,7 @@ exploreRouter.delete("/explore/dashboards/:slug", async (req, res) => {
   if (!row) return res.status(404).json({ error: "Dashboard not found" });
   await AppDataSource.getRepository(DashboardCard).delete({ dashboardId: row.id });
   await deleteGrantsForDashboard(row.id);
+  await deleteTagAssignments("dashboard", row.id);
   await AppDataSource.getRepository(Dashboard).delete({ id: row.id });
   await recordAudit({
     companyId: cid,

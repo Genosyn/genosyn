@@ -9,6 +9,12 @@ import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { skillTemplate } from "../services/files.js";
+import {
+  deleteTagAssignments,
+  replaceResourceTags,
+  tagsByResourceIds,
+  validateCompanyTagIds,
+} from "../services/tags.js";
 
 export const skillsRouter = Router({ mergeParams: true });
 skillsRouter.use(requireAuth);
@@ -75,10 +81,19 @@ skillsRouter.get("/skills", async (req, res) => {
   const skills = await AppDataSource.getRepository(Skill).find({
     where: { employeeId: In([...byId.keys()]) },
   });
+  const tags = await tagsByResourceIds(
+    cid,
+    "skill",
+    skills.map((skill) => skill.id),
+  );
 
   const rows = skills.map(({ body: _body, ...skill }) => {
     const emp = byId.get(skill.employeeId);
-    return { ...skill, employee: emp ? employeeSummary(emp) : null };
+    return {
+      ...skill,
+      employee: emp ? employeeSummary(emp) : null,
+      tags: tags.get(skill.id) ?? [],
+    };
   });
   // Group by employee, then by name, so the list reads like a roster rather
   // than insertion order.
@@ -96,37 +111,46 @@ skillsRouter.get("/employees/:eid/skills", async (req, res) => {
   const skills = await AppDataSource.getRepository(Skill).find({
     where: { employeeId: emp.id },
   });
-  res.json(skills);
+  const tags = await tagsByResourceIds(
+    (req.params as Record<string, string>).cid,
+    "skill",
+    skills.map((skill) => skill.id),
+  );
+  res.json(skills.map((skill) => ({ ...skill, tags: tags.get(skill.id) ?? [] })));
 });
 
-const createSchema = z.object({ name: z.string().min(1).max(80) });
+const createSchema = z.object({
+  name: z.string().min(1).max(80),
+  tagIds: z.array(z.string().uuid()).max(20).optional(),
+});
 
-skillsRouter.post(
-  "/employees/:eid/skills",
-  validateBody(createSchema),
-  async (req, res) => {
-    const emp = await loadEmp((req.params as Record<string, string>).cid, req.params.eid);
-    if (!emp) return res.status(404).json({ error: "Employee not found" });
-    const co = await loadCo((req.params as Record<string, string>).cid);
-    if (!co) return res.status(404).json({ error: "Company not found" });
-    const { name } = req.body as z.infer<typeof createSchema>;
-    if (await findSkillByName(emp.id, name)) {
-      return res
-        .status(409)
-        .json({ error: "A skill with that name already exists" });
-    }
-    const slug = await uniqueSlug(emp.id, toSlug(name));
-    const repo = AppDataSource.getRepository(Skill);
-    const s = repo.create({
-      employeeId: emp.id,
-      name,
-      slug,
-      body: skillTemplate(name),
-    });
-    await repo.save(s);
-    res.json(s);
-  },
-);
+skillsRouter.post("/employees/:eid/skills", validateBody(createSchema), async (req, res) => {
+  const emp = await loadEmp((req.params as Record<string, string>).cid, req.params.eid);
+  if (!emp) return res.status(404).json({ error: "Employee not found" });
+  const co = await loadCo((req.params as Record<string, string>).cid);
+  if (!co) return res.status(404).json({ error: "Company not found" });
+  const { name, tagIds } = req.body as z.infer<typeof createSchema>;
+  if (await findSkillByName(emp.id, name)) {
+    return res.status(409).json({ error: "A skill with that name already exists" });
+  }
+  try {
+    await validateCompanyTagIds(co.id, tagIds ?? []);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(400).json({ error: message });
+  }
+  const slug = await uniqueSlug(emp.id, toSlug(name));
+  const repo = AppDataSource.getRepository(Skill);
+  const s = repo.create({
+    employeeId: emp.id,
+    name,
+    slug,
+    body: skillTemplate(name),
+  });
+  await repo.save(s);
+  const tags = await replaceResourceTags(co.id, "skill", s.id, tagIds ?? []);
+  res.json({ ...s, tags });
+});
 
 async function loadSkill(cid: string, sid: string) {
   const skill = await AppDataSource.getRepository(Skill).findOneBy({ id: sid });
@@ -187,6 +211,7 @@ skillsRouter.patch("/skills/:sid", validateBody(patchSchema), async (req, res) =
 skillsRouter.delete("/skills/:sid", async (req, res) => {
   const found = await loadSkill((req.params as Record<string, string>).cid, req.params.sid);
   if (!found) return res.status(404).json({ error: "Not found" });
+  await deleteTagAssignments("skill", found.skill.id);
   await AppDataSource.getRepository(Skill).delete({ id: found.skill.id });
   res.json({ ok: true });
 });

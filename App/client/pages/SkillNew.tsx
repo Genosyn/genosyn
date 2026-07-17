@@ -1,6 +1,6 @@
 import React from "react";
 import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
-import { api, Company, Skill } from "../lib/api";
+import { api, Company, CompanyTag, Skill } from "../lib/api";
 import { Breadcrumbs, TopBar } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
@@ -9,6 +9,7 @@ import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
 import { SkillsContext } from "./SkillsLayout";
+import { TagPicker } from "../components/TagPicker";
 
 /**
  * Create a skill from the company-level section. The employee-scoped modal
@@ -24,6 +25,7 @@ export default function SkillNew({ company }: { company: Company }) {
   const preset = searchParams.get("employee");
   const [employeeId, setEmployeeId] = React.useState("");
   const [name, setName] = React.useState("");
+  const [tags, setTags] = React.useState<CompanyTag[]>([]);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -42,7 +44,7 @@ export default function SkillNew({ company }: { company: Company }) {
     try {
       const created = await api.post<Skill>(
         `/api/companies/${company.id}/employees/${employeeId}/skills`,
-        { name: name.trim() },
+        { name: name.trim(), tagIds: tags.map((tag) => tag.id) },
       );
       await refresh();
       const emp = employees.find((x) => x.id === employeeId);
@@ -109,6 +111,8 @@ export default function SkillNew({ company }: { company: Company }) {
                 </option>
               ))}
             </Select>
+
+            <TagPicker companyId={company.id} value={tags} onChange={setTags} />
 
             <p className="text-xs text-slate-500 dark:text-slate-400">
               You&apos;ll write the playbook — the procedure the employee actually

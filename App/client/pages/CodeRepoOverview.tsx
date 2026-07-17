@@ -18,6 +18,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { api, CodeRepoGrant, CodeRepoGrantsResponse, CodeRepoTestResult } from "../lib/api";
 import { SyncBadge } from "./CodeReposIndex";
 import { useCodeReposContext } from "./CodeReposLayout";
+import { AsyncResourceTagPicker } from "../components/TagPicker";
 
 export default function CodeRepoOverview() {
   const { company, repo, reload } = useCodeReposContext();
@@ -98,6 +99,14 @@ export default function CodeRepoOverview() {
             <Users size={15} /> Manage AI access
           </Button>
         </Link>
+      </div>
+
+      <div className="mt-5 max-w-2xl">
+        <AsyncResourceTagPicker
+          companyId={company.id}
+          resourceType="code_repository"
+          resourceId={currentRepo.id}
+        />
       </div>
 
       <div className="mt-7 grid gap-3 sm:grid-cols-3">

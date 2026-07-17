@@ -187,6 +187,29 @@ export type Team = {
   updatedAt: string;
 };
 
+export type CompanyTag = {
+  id: string;
+  companyId: string;
+  name: string;
+  normalizedName: string;
+  usageCount?: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TaggableResourceType =
+  | "routine"
+  | "skill"
+  | "resource"
+  | "project"
+  | "base"
+  | "notebook"
+  | "note"
+  | "pipeline"
+  | "code_repository"
+  | "chart"
+  | "dashboard";
+
 export type HandoffStatus = "pending" | "completed" | "declined" | "cancelled";
 
 export type HandoffParty = {
@@ -218,6 +241,7 @@ export type Skill = {
   name: string;
   slug: string;
   createdAt: string;
+  tags: CompanyTag[];
 };
 export type Routine = {
   id: string;
@@ -251,6 +275,7 @@ export type Routine = {
    *   * `false` — force-disable browser access for this routine only.
    */
   browserEnabledOverride?: boolean | null;
+  tags: CompanyTag[];
 };
 
 /**
@@ -1445,7 +1470,7 @@ export type Resource = {
   bodyText?: string;
   /** Length of the extracted text in characters; cheap to surface in lists. */
   bodyLength: number;
-  tags: string;
+  tags: CompanyTag[];
   tagList: string[];
   bytes: number;
   status: ResourceStatus;

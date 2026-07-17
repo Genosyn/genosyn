@@ -56,6 +56,7 @@ import { AdminUsers } from "./pages/AdminUsers";
 import { AdminCompanies } from "./pages/AdminCompanies";
 import { SettingsIntegrations } from "./pages/SettingsIntegrations";
 import { SettingsTeams } from "./pages/SettingsTeams";
+import { SettingsTags } from "./pages/SettingsTags";
 import { SettingsApiKeys } from "./pages/SettingsApiKeys";
 import { SettingsEmail, SettingsEmailProviders } from "./pages/SettingsEmail";
 import { SettingsEmailLogs } from "./pages/SettingsEmailLogs";
@@ -482,6 +483,7 @@ function CompanyRoutes({
           <Route path="company" element={<SettingsCompany />} />
           <Route path="members" element={<SettingsMembers />} />
           <Route path="teams" element={<SettingsTeams />} />
+          <Route path="tags" element={<SettingsTags />} />
           <Route path="integrations" element={<SettingsIntegrations />} />
           <Route path="email" element={<SettingsEmail />}>
             <Route index element={<Navigate to="providers" replace />} />

@@ -39,6 +39,7 @@ import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { NotesContext } from "./NotesLayout";
 import { clsx } from "../components/ui/clsx";
+import { AsyncResourceTagPicker } from "../components/TagPicker";
 
 const EMOJI_PALETTE = [
   "📚",
@@ -333,6 +334,14 @@ export default function NotebookDetail({ company }: { company: Company }) {
                   : `${notebook.noteCount} page${notebook.noteCount === 1 ? "" : "s"}`}
               </div>
             </div>
+          </div>
+
+          <div className="mb-6">
+            <AsyncResourceTagPicker
+              companyId={company.id}
+              resourceType="notebook"
+              resourceId={notebook.id}
+            />
           </div>
 
           <div className="relative mb-6">

@@ -25,6 +25,7 @@ import {
   type VizType,
 } from "../components/charts/ChartRenderer";
 import { useExplore } from "./ExploreLayout";
+import { AsyncResourceTagPicker } from "../components/TagPicker";
 
 /**
  * Dashboard detail. Renders the saved cards in a 12-column CSS grid and
@@ -283,6 +284,14 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
           </Button>
         )}
       </header>
+
+      <div className="border-b border-slate-200 bg-white px-6 py-2 dark:border-slate-700 dark:bg-slate-950">
+        <AsyncResourceTagPicker
+          companyId={company.id}
+          resourceType="dashboard"
+          resourceId={data.id}
+        />
+      </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {data.cards.length === 0 ? (

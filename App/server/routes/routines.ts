@@ -17,6 +17,13 @@ import { routineTemplate } from "../services/files.js";
 import { registerRoutine } from "../services/cron.js";
 import { startRoutineRun, getLiveRunSnapshot, RUN_LOG_MAX_BYTES } from "../services/runner.js";
 import { recordAudit } from "../services/audit.js";
+import {
+  deleteTagAssignments,
+  replaceResourceTags,
+  tagsByResourceIds,
+  tagsForResource,
+  validateCompanyTagIds,
+} from "../services/tags.js";
 
 export const routinesRouter = Router({ mergeParams: true });
 routinesRouter.use(requireAuth);
@@ -121,6 +128,11 @@ routinesRouter.get("/routines", async (req, res) => {
     where: { employeeId: In([...byId.keys()]) },
   });
   const lastRuns = await lastRunByRoutine(routines.map((r) => r.id));
+  const tags = await tagsByResourceIds(
+    cid,
+    "routine",
+    routines.map((r) => r.id),
+  );
 
   // Group by employee, then by name, so the list reads like a roster rather
   // than insertion order.
@@ -130,6 +142,7 @@ routinesRouter.get("/routines", async (req, res) => {
       ...routine,
       employee: emp ? employeeSummary(emp) : null,
       lastRun: lastRuns.get(routine.id) ?? null,
+      tags: tags.get(routine.id) ?? [],
     };
   });
   rows.sort(
@@ -146,53 +159,62 @@ routinesRouter.get("/employees/:eid/routines", async (req, res) => {
   const routines = await AppDataSource.getRepository(Routine).find({
     where: { employeeId: emp.id },
   });
-  res.json(routines);
+  const tags = await tagsByResourceIds(
+    (req.params as Record<string, string>).cid,
+    "routine",
+    routines.map((r) => r.id),
+  );
+  res.json(routines.map((routine) => ({ ...routine, tags: tags.get(routine.id) ?? [] })));
 });
 
 const createSchema = z.object({
   name: z.string().min(1).max(80),
   cronExpr: z.string().refine((v) => cron.validate(v), "Invalid cron expression"),
+  tagIds: z.array(z.string().uuid()).max(20).optional(),
 });
 
-routinesRouter.post(
-  "/employees/:eid/routines",
-  validateBody(createSchema),
-  async (req, res) => {
-    const emp = await loadEmp((req.params as Record<string, string>).cid, req.params.eid);
-    if (!emp) return res.status(404).json({ error: "Employee not found" });
-    const co = await loadCo((req.params as Record<string, string>).cid);
-    if (!co) return res.status(404).json({ error: "Company not found" });
-    const body = req.body as z.infer<typeof createSchema>;
-    if (await findRoutineByName(emp.id, body.name)) {
-      return res
-        .status(409)
-        .json({ error: "A routine with that name already exists for this employee" });
-    }
-    const slug = await uniqueSlug(emp.id, toSlug(body.name));
-    const repo = AppDataSource.getRepository(Routine);
-    const r = repo.create({
-      employeeId: emp.id,
-      name: body.name,
-      slug,
-      cronExpr: body.cronExpr,
-      enabled: true,
-      lastRunAt: null,
-      body: routineTemplate(body.name, body.cronExpr),
-    });
-    registerRoutine(r);
-    await repo.save(r);
-    await recordAudit({
-      companyId: co.id,
-      actorUserId: req.userId ?? null,
-      action: "routine.create",
-      targetType: "routine",
-      targetId: r.id,
-      targetLabel: r.name,
-      metadata: { employeeId: emp.id, cronExpr: r.cronExpr },
-    });
-    res.json(r);
-  },
-);
+routinesRouter.post("/employees/:eid/routines", validateBody(createSchema), async (req, res) => {
+  const emp = await loadEmp((req.params as Record<string, string>).cid, req.params.eid);
+  if (!emp) return res.status(404).json({ error: "Employee not found" });
+  const co = await loadCo((req.params as Record<string, string>).cid);
+  if (!co) return res.status(404).json({ error: "Company not found" });
+  const body = req.body as z.infer<typeof createSchema>;
+  if (await findRoutineByName(emp.id, body.name)) {
+    return res
+      .status(409)
+      .json({ error: "A routine with that name already exists for this employee" });
+  }
+  try {
+    await validateCompanyTagIds(co.id, body.tagIds ?? []);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return res.status(400).json({ error: message });
+  }
+  const slug = await uniqueSlug(emp.id, toSlug(body.name));
+  const repo = AppDataSource.getRepository(Routine);
+  const r = repo.create({
+    employeeId: emp.id,
+    name: body.name,
+    slug,
+    cronExpr: body.cronExpr,
+    enabled: true,
+    lastRunAt: null,
+    body: routineTemplate(body.name, body.cronExpr),
+  });
+  registerRoutine(r);
+  await repo.save(r);
+  const tags = await replaceResourceTags(co.id, "routine", r.id, body.tagIds ?? []);
+  await recordAudit({
+    companyId: co.id,
+    actorUserId: req.userId ?? null,
+    action: "routine.create",
+    targetType: "routine",
+    targetId: r.id,
+    targetLabel: r.name,
+    metadata: { employeeId: emp.id, cronExpr: r.cronExpr },
+  });
+  res.json({ ...r, tags });
+});
 
 async function loadRoutine(cid: string, rid: string) {
   const r = await AppDataSource.getRepository(Routine).findOneBy({ id: rid });
@@ -275,6 +297,7 @@ routinesRouter.delete("/routines/:rid", async (req, res) => {
   if (!found) return res.status(404).json({ error: "Not found" });
   await AppDataSource.getRepository(Approval).delete({ routineId: found.routine.id });
   await AppDataSource.getRepository(Run).delete({ routineId: found.routine.id });
+  await deleteTagAssignments("routine", found.routine.id);
   await AppDataSource.getRepository(Routine).delete({ id: found.routine.id });
   await recordAudit({
     companyId: found.co.id,
@@ -298,10 +321,12 @@ routinesRouter.get("/routines/:rid", async (req, res) => {
   const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
   if (!found) return res.status(404).json({ error: "Not found" });
   const lastRuns = await lastRunByRoutine([found.routine.id]);
+  const tags = await tagsForResource(found.co.id, "routine", found.routine.id);
   res.json({
     ...found.routine,
     employee: employeeSummary(found.emp),
     lastRun: lastRuns.get(found.routine.id) ?? null,
+    tags,
   });
 });
 

@@ -63,6 +63,7 @@ import {
   baseAccent,
 } from "../components/BaseIcons";
 import { clsx } from "../components/ui/clsx";
+import { AsyncResourceTagPicker } from "../components/TagPicker";
 import {
   applyFilters,
   applySorts,
@@ -395,6 +396,10 @@ export default function BaseDetail({ company }: { company: Company }) {
           >
             <SettingsIcon size={16} />
           </button>
+        </div>
+
+        <div className="border-b border-slate-200 bg-white px-6 py-2 dark:border-slate-700 dark:bg-slate-900">
+          <AsyncResourceTagPicker companyId={company.id} resourceType="base" resourceId={base.id} />
         </div>
 
         {/* Grid */}

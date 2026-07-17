@@ -65,6 +65,7 @@ import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { useTasks } from "./TasksLayout";
 import { clsx } from "../components/ui/clsx";
+import { AsyncResourceTagPicker } from "../components/TagPicker";
 
 type ProjectTodos = { project: Project; todos: Todo[] };
 
@@ -956,6 +957,14 @@ export default function ProjectDetail({
           >
             <SettingsIcon size={16} />
           </button>
+        </div>
+
+        <div className="border-b border-slate-200 bg-white px-6 py-2 dark:border-slate-700 dark:bg-slate-900">
+          <AsyncResourceTagPicker
+            companyId={company.id}
+            resourceType="project"
+            resourceId={project.id}
+          />
         </div>
 
         {/* Filter bar */}

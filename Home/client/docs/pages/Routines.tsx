@@ -21,35 +21,32 @@ export function Routines() {
         title="Routines & Runs"
         lead={
           <>
-            A <Strong>Routine</Strong> is a scheduled, recurring piece of AI
-            work. Cron expression, markdown brief, on/off switch. Every
-            execution becomes a <Strong>Run</Strong> with captured logs you
-            can read line by line.
+            A <Strong>Routine</Strong> is a scheduled, recurring piece of AI work. Cron expression,
+            markdown brief, on/off switch. Every execution becomes a <Strong>Run</Strong> with
+            captured logs you can read line by line.
           </>
         }
       />
 
       <Callout kind="info" title='"Routine" is the word.'>
-        Genosyn never calls these &quot;tasks,&quot; &quot;jobs,&quot; or
-        &quot;workflows.&quot; <Strong>Task</Strong> is reserved for the
-        human-style project/todo manager — different feature, different
-        surface.
+        Genosyn never calls these &quot;tasks,&quot; &quot;jobs,&quot; or &quot;workflows.&quot;{" "}
+        <Strong>Task</Strong> is reserved for the human-style project/todo manager — different
+        feature, different surface.
       </Callout>
 
       <H2 id="where-they-live">Where they live</H2>
       <P>
-        Routines have their own section in the nav, under{" "}
-        <Strong>AI → Routines</Strong>. That list is company-wide: every
-        routine, every employee, one page. Filter it by the{" "}
-        <DocLink to="/docs/employees">AI Employee</DocLink> a routine is
-        assigned to, or by health — <Strong>Active</Strong>,{" "}
-        <Strong>Paused</Strong>, <Strong>Needs attention</Strong>.
+        Routines have their own section in the nav, under <Strong>AI → Routines</Strong>. That list
+        is company-wide: every routine, every employee, one page. Filter it by the{" "}
+        <DocLink to="/docs/employees">AI Employee</DocLink> a routine is assigned to, or by health —{" "}
+        <Strong>Active</Strong>, <Strong>Paused</Strong>, <Strong>Needs attention</Strong>. Company{" "}
+        <DocLink to="/docs/tags">Tags</DocLink> give you another filter for grouping related
+        routines across employees.
       </P>
       <P>
-        Clicking a routine opens its detail page: <Strong>Overview</Strong>,{" "}
-        <Strong>Brief</Strong>, <Strong>Runs</Strong>, and{" "}
-        <Strong>Settings</Strong>. Each AI employee still links to their own
-        slice of that list — same page, filtered to them.
+        Clicking a routine opens its detail page: <Strong>Overview</Strong>, <Strong>Brief</Strong>,{" "}
+        <Strong>Runs</Strong>, and <Strong>Settings</Strong>. Each AI employee still links to their
+        own slice of that list — same page, filtered to them.
       </P>
 
       <H2 id="anatomy">Anatomy</H2>

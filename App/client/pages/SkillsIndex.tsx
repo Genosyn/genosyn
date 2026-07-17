@@ -8,6 +8,7 @@ import { Button } from "../components/ui/Button";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Spinner } from "../components/ui/Spinner";
 import { SkillsContext } from "./SkillsLayout";
+import { TagChips, TagFilterBar } from "../components/TagPicker";
 
 /**
  * Every skill in the company. Filterable by the employee that knows it
@@ -17,23 +18,31 @@ import { SkillsContext } from "./SkillsLayout";
  */
 export default function SkillsIndex({ company }: { company: Company }) {
   const { skills, loading } = useOutletContext<SkillsContext>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = React.useState("");
   const navigate = useNavigate();
 
   const employeeSlug = searchParams.get("employee");
+  const selectedTagId = searchParams.get("tag");
   const employee = skills.find((s) => s.employee?.slug === employeeSlug)?.employee ?? null;
 
-  const scoped = employeeSlug
-    ? skills.filter((s) => s.employee?.slug === employeeSlug)
-    : skills;
+  const scoped = employeeSlug ? skills.filter((s) => s.employee?.slug === employeeSlug) : skills;
+  const availableTags = React.useMemo(() => {
+    const byId = new Map(skills.flatMap((skill) => skill.tags ?? []).map((tag) => [tag.id, tag]));
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [skills]);
+  const tagged = selectedTagId
+    ? scoped.filter((skill) => (skill.tags ?? []).some((tag) => tag.id === selectedTagId))
+    : scoped;
 
   const q = query.trim().toLowerCase();
   const shown = q
-    ? scoped.filter((s) =>
-        [s.name, s.slug, s.employee?.name ?? ""].some((f) => f.toLowerCase().includes(q)),
+    ? tagged.filter((s) =>
+        [s.name, s.slug, s.employee?.name ?? "", ...(s.tags ?? []).map((tag) => tag.name)].some(
+          (f) => f.toLowerCase().includes(q),
+        ),
       )
-    : scoped;
+    : tagged;
 
   return (
     <div className="mx-auto max-w-6xl p-6">
@@ -74,6 +83,19 @@ export default function SkillsIndex({ company }: { company: Company }) {
               className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-4 text-sm text-slate-700 placeholder:text-slate-400 hover:border-slate-300 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500 dark:hover:border-slate-600 dark:focus:border-indigo-700 dark:focus:ring-indigo-900/30"
             />
           </div>
+
+          <TagFilterBar
+            tags={availableTags}
+            selectedId={selectedTagId}
+            onSelect={(tagId) =>
+              setSearchParams((previous) => {
+                const next = new URLSearchParams(previous);
+                if (tagId) next.set("tag", tagId);
+                else next.delete("tag");
+                return next;
+              })
+            }
+          />
 
           {shown.length === 0 ? (
             <EmptyState title="Nothing here" description="No skills match this search." />
@@ -119,6 +141,11 @@ function SkillRow({ company, skill: s }: { company: Company; skill: SkillWithMet
           </span>
         )}
         <div className="mt-0.5 truncate text-xs text-slate-400 dark:text-slate-500">@{s.slug}</div>
+        {(s.tags ?? []).length > 0 && (
+          <div className="mt-1">
+            <TagChips tags={s.tags} limit={3} />
+          </div>
+        )}
       </div>
 
       <div className="min-w-0">
