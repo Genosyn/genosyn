@@ -13,6 +13,19 @@ import type {
   IntegrationConfig,
   IntegrationRuntimeContext,
 } from "../integrations/types.js";
+import { notifyApprovalPending } from "./notifications.js";
+
+/**
+ * Fire-and-forget notification fan-out for a freshly-created approval.
+ * Owners/admins get a bell + websocket + web-push row; a notify failure
+ * must never fail the tool call that queued the approval.
+ */
+function notifyPending(approval: Approval): void {
+  void notifyApprovalPending(approval).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[approvals] notify pending failed:", err);
+  });
+}
 
 /**
  * Approval dispatch. Each `ApprovalKind` has its own create-helper and
@@ -110,7 +123,9 @@ export async function createBrowserActionApproval(args: {
       pageUrl: args.pageUrl,
     } satisfies BrowserActionPayload),
   });
-  return repo.save(approval);
+  const saved = await repo.save(approval);
+  notifyPending(saved);
+  return saved;
 }
 
 export async function createPaymentApproval(args: {
@@ -140,7 +155,9 @@ export async function createPaymentApproval(args: {
       description: args.summary ?? undefined,
     } satisfies LightningPaymentPayload),
   });
-  return repo.save(approval);
+  const saved = await repo.save(approval);
+  notifyPending(saved);
+  return saved;
 }
 
 // --------------------------------------------------------------------------

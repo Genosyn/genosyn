@@ -242,13 +242,18 @@ export async function deleteForEntity(params: {
 /**
  * Bell-notify everyone who can sign off on a pending approval — owners and
  * admins of the company. Members can't approve, so they're not paged.
- * Caller saves the Approval row first; we look up the routine/employee
- * names from it for the title.
+ * Caller saves the Approval row first. Kind-agnostic: routine approvals
+ * derive their copy from the joined Routine row, every other kind (payment,
+ * browser action, ad spend, guarded MCP tool, …) from the Approval's own
+ * `title`/`summary` — so a new kind gets notifications without touching
+ * this function.
  */
 export async function notifyApprovalPending(approval: Approval): Promise<void> {
   const [company, routine, employee, memberships] = await Promise.all([
     AppDataSource.getRepository(Company).findOneBy({ id: approval.companyId }),
-    AppDataSource.getRepository(Routine).findOneBy({ id: approval.routineId }),
+    approval.routineId
+      ? AppDataSource.getRepository(Routine).findOneBy({ id: approval.routineId })
+      : Promise.resolve(null),
     AppDataSource.getRepository(AIEmployee).findOneBy({
       id: approval.employeeId,
     }),
@@ -256,14 +261,28 @@ export async function notifyApprovalPending(approval: Approval): Promise<void> {
       where: { companyId: approval.companyId, role: In(["owner", "admin"]) },
     }),
   ]);
-  if (!company || !routine || !employee || memberships.length === 0) return;
+  if (!company || !employee || memberships.length === 0) return;
+  if (approval.kind === "routine" && !routine) return;
+
+  const copy =
+    approval.kind === "routine" && routine
+      ? {
+          title: `${employee.name} requested approval to run "${routine.name}"`,
+          body: "Cron tick is gated; an admin needs to approve or reject.",
+        }
+      : {
+          title: `${employee.name} requested approval: ${approval.title ?? "an action"}`,
+          body:
+            approval.summary ??
+            "An action is waiting for a human to approve or reject.",
+        };
 
   const inputs = memberships.map((m) => ({
     companyId: approval.companyId,
     userId: m.userId,
     kind: "approval_pending" as const,
-    title: `${employee.name} requested approval to run "${routine.name}"`,
-    body: "Cron tick is gated; an admin needs to approve or reject.",
+    title: copy.title,
+    body: copy.body,
     link: `/c/${company.slug}/approvals`,
     actorKind: "ai" as const,
     actorId: employee.id,

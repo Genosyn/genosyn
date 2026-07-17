@@ -822,6 +822,80 @@ MCP surface (added phase by phase): `list_invoices`, `get_invoice`,
 `post_journal_entry`, etc. Read-only tools land first; mutating tools
 gate behind the existing approval-by-amount pattern Lightning uses.
 
+### M26 — Paid Marketing (ad-platform Integrations + spend guardrails)
+
+AI employees run, monitor, and optimize paid ad campaigns — safely. Native
+Integrations for the platforms whose credential model fits self-hosting
+(each company brings its own developer credentials; no central partner
+app), read-first tools for pacing/reporting, and a deliberately tiny
+mutation surface (pause / enable / budget change) where **every
+spend-increasing write defaults to a human Approval**, generalizing the
+Lightning spending-controls pattern. Platforms whose APIs are gated behind
+slow human reviews (LinkedIn, X, TikTok) are served by the existing
+browser tools + live take-over instead of native providers.
+
+- [ ] **Approval notifications for every kind.** `notifyApprovalPending`
+      was routine-only; Lightning and browser approvals raised from chat
+      never paged anyone. Now every pending Approval fans out bell +
+      websocket + web-push to owners/admins, and the create-helpers in
+      `services/approvals.ts` notify automatically.
+- [ ] **Guarded MCP tools.** Company-configured MCP servers can name
+      guarded tool patterns (`ads_create_*`); matching calls queue an
+      Approval (kind `mcp_tool`) with the verbatim call snapshotted and
+      replay server-side on approve. Closes the hole where a write-capable
+      external MCP server bypassed every Genosyn guardrail.
+- [ ] **Ads approval plumbing.** `ApprovalRequiredError` generalized
+      beyond sats (kind + typed request payload, Lightning back-compat);
+      new Approval kind `ad_spend` with create/execute/reject dispatch,
+      before→after snapshot in the payload, and a drift check on replay
+      (re-read the live object, abort if it changed since queueing).
+- [ ] **AdSpendEvent ledger.** Append-only, SQL-queryable record of every
+      authorized budget delta (connection, employee, platform refs, signed
+      minor-unit delta, approval id) — answers "how much did this employee
+      authorize this month?" from the database. Rolling daily/monthly caps
+      compute from it; caps re-run even on approved replay.
+- [ ] **Spend safety knobs per Connection** (`ads-shared.ts`, mirrors
+      `lightning-shared.ts`): max single budget increase, rolling 24 h and
+      30-day authorized-increase caps, `requireApprovalAbove` defaulting
+      to 0 (every increase gated out of the box), and a kill switch that
+      blocks all mutations. Spend-*decreasing* actions (pause,
+      budget-down) are fast-pathed — never blocked behind an approval —
+      because pausing a runaway campaign is the emergency action.
+- [ ] **google-ads provider.** Rides the shared `google` OAuth app with an
+      `adwords` scope group (the google-analytics precedent) + extra
+      connect fields (developer token, login customer id). REST + GAQL:
+      accounts, campaigns, reports, spend summary; gated pause/enable +
+      budget mutations. API version pinned as a config constant.
+- [ ] **meta-ads provider.** API-key style: pasted Business Manager
+      system-user token + ad account ids (no app review for a company's
+      own accounts). Graph Marketing API insights + campaign reads, gated
+      mutations, token-health `checkStatus`.
+- [ ] **microsoft-ads provider.** New `microsoft` OAuth app case
+      (`msads.manage` + `offline_access`, rotating refresh tokens
+      persisted via `ctx.setConfig`); Bing Ads REST v13 reads + gated
+      mutations; developer token / customer id / account id connect fields.
+- [ ] **reddit-ads provider.** Rides the existing `reddit` OAuth app with
+      ads scopes against `ads-api.reddit.com/api/v3`; hourly token refresh;
+      reads + gated mutations.
+- [ ] **OAuth extra connect fields.** OAuth catalog entries can declare
+      extra create-time fields (developer tokens, account ids) rendered in
+      the connect modal and persisted into the encrypted config.
+- [ ] **Paid Marketing employee template** ("Sales & Marketing"): Soul
+      encoding budget discipline (cite spend data, escalate anomalies,
+      never raise budgets without approval), Skills for pacing checks and
+      ROAS readouts joining ad spend against GA4 conversions and Finance
+      invoices, Routines for a daily pacing check and weekly report.
+- [ ] **Docs + product surface.** Integrations docs sections per platform
+      (incl. the Google OAuth consent-screen 7-day refresh-token trap and
+      platform-side spending-limit backstops), browser-fallback recipe for
+      LinkedIn / X / TikTok, Marketing product page on Home.
+
+Deferred deliberately: campaign/creative creation (until the read+lever
+loop proves out), audience/PII uploads, a campaign-mirror workspace
+section, LinkedIn/X/TikTok native providers (review-gated; browser
+fallback documented), FX conversion for caps (caps are denominated in the
+ad account's currency).
+
 ---
 
 ## V1 backlog (post-MVP)
