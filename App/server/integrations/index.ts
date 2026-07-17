@@ -24,6 +24,7 @@ import { lightningLndProvider } from "./providers/lightning-lnd.js";
 import { redditProvider } from "./providers/reddit.js";
 import { linkedinProvider } from "./providers/linkedin.js";
 import { googleAdsProvider } from "./providers/google-ads.js";
+import { metaAdsProvider } from "./providers/meta-ads.js";
 
 /**
  * Provider registry. Adding a new integration means:
@@ -54,6 +55,7 @@ const PROVIDERS: Record<string, IntegrationProvider> = {
   [redditProvider.catalog.provider]: redditProvider,
   [linkedinProvider.catalog.provider]: linkedinProvider,
   [googleAdsProvider.catalog.provider]: googleAdsProvider,
+  [metaAdsProvider.catalog.provider]: metaAdsProvider,
 };
 
 export function getProvider(id: string): IntegrationProvider | null {
