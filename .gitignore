@@ -37,3 +37,7 @@ coverage/
 # Misc
 .cache/
 .tmp/
+
+# Browser-check artifacts (screenshots, page snapshots from verification runs)
+output/
+.playwright-cli/

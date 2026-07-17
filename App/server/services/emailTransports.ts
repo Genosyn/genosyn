@@ -512,7 +512,9 @@ async function sendSendGrid(
   const body: Record<string, unknown> = {
     personalizations: [{ to: [{ email: msg.to }] }],
     from: name ? { email, name } : { email },
-    reply_to: msg.replyTo ? { email: parseAddress(msg.replyTo).email } : undefined,
+    reply_to: msg.replyTo
+      ? { email: parseAddress(msg.replyTo).email }
+      : undefined,
     subject: msg.subject,
     content: [
       { type: "text/plain", value: msg.text },
@@ -600,7 +602,8 @@ async function sendMailgun(
     let msgText = text || res.statusText;
     try {
       const parsed = JSON.parse(text);
-      if (parsed && typeof parsed.message === "string") msgText = parsed.message;
+      if (parsed && typeof parsed.message === "string")
+        msgText = parsed.message;
     } catch {
       // not JSON — keep raw text
     }
@@ -652,15 +655,20 @@ async function sendResend(
   if (!res.ok) {
     const errMsg =
       (parsed &&
-        typeof parsed === "object" &&
-        "message" in parsed &&
-        typeof (parsed as { message?: unknown }).message === "string"
+      typeof parsed === "object" &&
+      "message" in parsed &&
+      typeof (parsed as { message?: unknown }).message === "string"
         ? (parsed as { message: string }).message
-        : null) ?? text ?? res.statusText;
+        : null) ??
+      text ??
+      res.statusText;
     throw new Error(`Resend ${res.status}: ${errMsg}`);
   }
   const messageId =
-    parsed && typeof parsed === "object" && "id" in parsed && typeof (parsed as { id?: unknown }).id === "string"
+    parsed &&
+    typeof parsed === "object" &&
+    "id" in parsed &&
+    typeof (parsed as { id?: unknown }).id === "string"
       ? (parsed as { id: string }).id
       : "";
   return { messageId };
@@ -705,15 +713,20 @@ async function sendPostmark(
   if (!res.ok) {
     const errMsg =
       (parsed &&
-        typeof parsed === "object" &&
-        "Message" in parsed &&
-        typeof (parsed as { Message?: unknown }).Message === "string"
+      typeof parsed === "object" &&
+      "Message" in parsed &&
+      typeof (parsed as { Message?: unknown }).Message === "string"
         ? (parsed as { Message: string }).Message
-        : null) ?? text ?? res.statusText;
+        : null) ??
+      text ??
+      res.statusText;
     throw new Error(`Postmark ${res.status}: ${errMsg}`);
   }
   const messageId =
-    parsed && typeof parsed === "object" && "MessageID" in parsed && typeof (parsed as { MessageID?: unknown }).MessageID === "string"
+    parsed &&
+    typeof parsed === "object" &&
+    "MessageID" in parsed &&
+    typeof (parsed as { MessageID?: unknown }).MessageID === "string"
       ? (parsed as { MessageID: string }).MessageID
       : "";
   return { messageId };
@@ -740,7 +753,9 @@ export async function sendViaProvider(
       return sendPostmark(provider.config, msg);
     default: {
       const exhaustive: never = provider;
-      throw new Error(`Unknown provider: ${(exhaustive as { kind: string }).kind}`);
+      throw new Error(
+        `Unknown provider: ${(exhaustive as { kind: string }).kind}`,
+      );
     }
   }
 }
@@ -750,7 +765,10 @@ export function parseAddress(addr: string): { name: string; email: string } {
   const trimmed = addr.trim();
   const match = /^(.*)<([^>]+)>\s*$/.exec(trimmed);
   if (match) {
-    return { name: match[1].trim().replace(/^"|"$/g, ""), email: match[2].trim() };
+    return {
+      name: match[1].trim().replace(/^"|"$/g, ""),
+      email: match[2].trim(),
+    };
   }
   return { name: "", email: trimmed };
 }

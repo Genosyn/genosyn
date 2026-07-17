@@ -35,9 +35,7 @@ export function SelfHosting() {
       </Callout>
 
       <H2 id="config-ts">config.ts</H2>
-      <P>
-        The shape, with the same comments you&apos;ll see in the file:
-      </P>
+      <P>The shape, with the same comments you&apos;ll see in the file:</P>
       <Pre lang="ts">{`export const config = {
   // Where all user-generated data lives.
   dataDir: "./data",
@@ -89,9 +87,8 @@ export function SelfHosting() {
 
       <H2 id="data-dir">The data directory</H2>
       <P>
-        Everything user-generated — the SQLite file, materialized git
-        checkouts, MCP configs, uploaded attachments — lives under{" "}
-        <Code>dataDir</Code>:
+        Everything user-generated — the SQLite file, materialized git checkouts,
+        MCP configs, uploaded attachments — lives under <Code>dataDir</Code>:
       </P>
       <pre className="mt-4 overflow-x-auto rounded-xl border border-zinc-200 bg-zinc-50 px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-zinc-700">
         {`data/
@@ -118,8 +115,8 @@ export function SelfHosting() {
         </LI>
         <LI>
           <Strong>SendGrid</Strong>, <Strong>Mailgun</Strong>,{" "}
-          <Strong>Resend</Strong>, <Strong>Postmark</Strong> — REST-based,
-          paste an API key.
+          <Strong>Resend</Strong>, <Strong>Postmark</Strong> — REST-based, paste
+          an API key.
         </LI>
       </UL>
       <P>
@@ -148,9 +145,7 @@ export function SelfHosting() {
       </P>
 
       <H2 id="secrets">Secrets</H2>
-      <P>
-        Three places store secrets, each for a different lifecycle:
-      </P>
+      <P>Three places store secrets, each for a different lifecycle:</P>
       <KeyList
         rows={[
           {
@@ -194,12 +189,12 @@ export function SelfHosting() {
         instance-level operators, a global flag on the user account that&apos;s
         distinct from the per-company <Code>owner</Code> / <Code>admin</Code> /{" "}
         <Code>member</Code> roles. The first account to sign up on a fresh
-        install is bootstrapped as the master admin; from <Code>Admin → Users</Code>{" "}
-        an existing master admin can grant or revoke the flag on anyone else
-        (you just can&apos;t revoke your own, so the install always keeps at
-        least one operator). Since it&apos;s operator-only, <Code>Admin</Code>{" "}
-        isn&apos;t advertised in the products section menu — reach it from your
-        avatar menu.
+        install is bootstrapped as the master admin; from{" "}
+        <Code>Admin → Users</Code> an existing master admin can grant or revoke
+        the flag on anyone else (you just can&apos;t revoke your own, so the
+        install always keeps at least one operator). Since it&apos;s
+        operator-only, <Code>Admin</Code> isn&apos;t advertised in the products
+        section menu — reach it from your avatar menu.
       </P>
       <UL>
         <LI>
@@ -211,9 +206,9 @@ export function SelfHosting() {
           <Strong>Instance Health</Strong> — live probes of the deployment
           substrate: database connectivity and round-trip latency, pending
           schema migrations, a writable data directory, the backup story, and
-          the email + Web Push transports. This is distinct from a company&apos;s{" "}
-          <Code>Settings → System Health</Code>, which watches that
-          company&apos;s routines, models, and integrations.
+          the email + Web Push transports. This is distinct from a
+          company&apos;s <Code>Settings → System Health</Code>, which watches
+          that company&apos;s routines, models, and integrations.
         </LI>
         <LI>
           <Strong>Migrations</Strong> — expands the Instance Health migrations
@@ -269,27 +264,26 @@ export function SelfHosting() {
         self-service registration. Flip <Strong>Disable sign-ups</Strong> on and
         the public sign-up page stops accepting new accounts — anyone who lands
         on it sees a &ldquo;sign-ups are closed&rdquo; notice instead of the
-        form, and the API refuses a registration attempt with a{" "}
-        <Code>403</Code>. Existing members keep their accounts and can still sign
-        in; this only stops <em>new</em> people from registering themselves.
+        form, and the API refuses a registration attempt with a <Code>403</Code>
+        . Existing members keep their accounts and can still sign in; this only
+        stops <em>new</em> people from registering themselves.
       </P>
       <P>
         One account is always exempt: the very first account on a fresh install,
         so a box with no users yet can never lock itself out before an operator
         exists. With sign-ups disabled, add people by promoting an existing
-        account to <Strong>master admin</Strong> from <Code>Admin → Users</Code>,
-        or by inviting them into a company from that company&apos;s{" "}
+        account to <Strong>master admin</Strong> from <Code>Admin → Users</Code>
+        , or by inviting them into a company from that company&apos;s{" "}
         <Code>Settings → Members</Code>.
       </P>
 
       <H3 id="sso">SSO</H3>
       <P>
         <Code>Admin → SSO</Code> adds single sign-on to the login page —{" "}
-        <Strong>disabled by default</Strong>; a fresh install only offers
-        email + password until a master admin turns it on. Pick{" "}
-        <Strong>Google</Strong> or <Strong>Custom OpenID Connect</Strong>{" "}
-        (Okta, Keycloak, Microsoft Entra ID, Auth0, or anything
-        OIDC-compliant), then:
+        <Strong>disabled by default</Strong>; a fresh install only offers email
+        + password until a master admin turns it on. Pick{" "}
+        <Strong>Google</Strong> or <Strong>Custom OpenID Connect</Strong> (Okta,
+        Keycloak, Microsoft Entra ID, Auth0, or anything OIDC-compliant), then:
       </P>
       <UL>
         <LI>
@@ -301,9 +295,9 @@ export function SelfHosting() {
         <LI>
           Paste the <Strong>Client ID</Strong> and{" "}
           <Strong>Client secret</Strong> into the form — the secret is stored
-          encrypted and never shown again. For a custom provider, also enter
-          the <Strong>Issuer URL</Strong>; <Code>Check issuer</Code> verifies
-          the provider&apos;s discovery document before you commit.
+          encrypted and never shown again. For a custom provider, also enter the{" "}
+          <Strong>Issuer URL</Strong>; <Code>Check issuer</Code> verifies the
+          provider&apos;s discovery document before you commit.
         </LI>
         <LI>
           Flip <Strong>Enable SSO sign-in</Strong> and save. The login page
@@ -312,23 +306,23 @@ export function SelfHosting() {
         </LI>
       </UL>
       <P>
-        On first SSO sign-in an existing account with the same verified email
-        is linked automatically; after that the identity provider&apos;s stable
-        subject is what identifies the account, so an email change at either
-        end won&apos;t orphan it. With{" "}
+        On first SSO sign-in an existing account with the same verified email is
+        linked automatically; after that the identity provider&apos;s stable
+        subject is what identifies the account, so an email change at either end
+        won&apos;t orphan it. With{" "}
         <Strong>Create accounts on first sign-in</Strong> on (the default),
-        people your identity provider admits get a Genosyn account
-        automatically — turn it off to admit only people who already have an
-        account or an invitation. Password login keeps working either way, so
-        enabling (or later resetting) SSO can never lock an operator out.
+        people your identity provider admits get a Genosyn account automatically
+        — turn it off to admit only people who already have an account or an
+        invitation. Password login keeps working either way, so enabling (or
+        later resetting) SSO can never lock an operator out.
       </P>
 
       <H3 id="db-console">Database console</H3>
       <P>
         <Code>Admin → Database</Code> is a raw SQL console wired directly to
         Genosyn&apos;s own application database — the same SQLite or Postgres
-        the app itself runs on. It is meant for operators who need to inspect
-        or repair an install directly: check a row the UI doesn&apos;t surface,
+        the app itself runs on. It is meant for operators who need to inspect or
+        repair an install directly: check a row the UI doesn&apos;t surface,
         audit what an AI employee wrote, or fix up data after a botched import.
         Distinct from <DocLink to="/docs/explore">Explore</DocLink>, which runs
         SQL against a company&apos;s <em>external</em> database integrations.
@@ -341,14 +335,14 @@ export function SelfHosting() {
           drop its name into the editor.
         </LI>
         <LI>
-          <Strong>Read-only by default</Strong> — the console runs one
-          statement at a time and refuses anything that isn&apos;t plainly a
-          read. To run an <Code>INSERT</Code> / <Code>UPDATE</Code> /{" "}
-          <Code>DELETE</Code> or DDL you must first flip{" "}
-          <Strong>Allow writes</Strong>, which surfaces a standing warning —
-          these statements change the live database permanently, so take a{" "}
-          <DocLink to="/docs/self-hosting#backups">backup</DocLink> first if
-          you are unsure.
+          <Strong>Read-only by default</Strong> — the console runs one statement
+          at a time and refuses anything that isn&apos;t plainly a read. To run
+          an <Code>INSERT</Code> / <Code>UPDATE</Code> / <Code>DELETE</Code> or
+          DDL you must first flip <Strong>Allow writes</Strong>, which surfaces
+          a standing warning — these statements change the live database
+          permanently, so take a{" "}
+          <DocLink to="/docs/self-hosting#backups">backup</DocLink> first if you
+          are unsure.
         </LI>
         <LI>
           <Strong>Results</Strong> — a scrollable grid with the row count and
@@ -416,12 +410,15 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
         front rather than part-way through replacing your data.
       </P>
 
-      <H3 id="off-box-destinations">Off-box destinations (NAS / remote volumes)</H3>
+      <H3 id="off-box-destinations">
+        Off-box destinations (NAS / remote volumes)
+      </H3>
       <P>
         Backups live in <Code>data/Backup/</Code> by default — on the same disk
-        as everything else. Add one or more <Strong>off-box destinations</Strong>{" "}
-        under <Code>Admin → Backups → Off-box destinations</Code> and every
-        completed backup is mirrored there automatically. Three kinds:
+        as everything else. Add one or more{" "}
+        <Strong>off-box destinations</Strong> under{" "}
+        <Code>Admin → Backups → Off-box destinations</Code> and every completed
+        backup is mirrored there automatically. Three kinds:
       </P>
       <UL>
         <LI>

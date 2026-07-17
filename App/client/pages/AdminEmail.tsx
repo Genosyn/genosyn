@@ -74,7 +74,9 @@ export function AdminEmail() {
 
   const reload = React.useCallback(async () => {
     try {
-      const d = await api.get<GlobalEmailTransport>("/api/admin/email-transport");
+      const d = await api.get<GlobalEmailTransport>(
+        "/api/admin/email-transport",
+      );
       setData(d);
       setDraft(seedDraft(d));
     } catch (err) {
@@ -216,8 +218,8 @@ export function AdminEmail() {
                 <h2 className="text-sm font-semibold">Global SMTP</h2>
                 <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                   Used for system emails — password resets, invites, welcomes —
-                  when a company has no email provider of its own. Saved here, it
-                  overrides the{" "}
+                  when a company has no email provider of its own. Saved here,
+                  it overrides the{" "}
                   <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
                     config.ts
                   </code>{" "}
@@ -318,7 +320,9 @@ export function AdminEmail() {
                     type="password"
                     className={FIELD_CLASS}
                     placeholder={
-                      data.hasPassword ? "•••••••• (stored)" : "Leave blank for none"
+                      data.hasPassword
+                        ? "•••••••• (stored)"
+                        : "Leave blank for none"
                     }
                     autoComplete="new-password"
                     value={draft.pass}

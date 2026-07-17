@@ -21,20 +21,21 @@ export function Kubernetes() {
         title="Kubernetes"
         lead={
           <>
-            The same image that powers <Code>genosyn install</Code> runs fine
-            on Kubernetes. You trade the one-line installer for raw
-            manifests — and you give up the <Code>genosyn upgrade</Code>{" "}
-            and <Code>genosyn backup</Code> commands, which only know how to
-            drive Docker on a single host.
+            The same image that powers <Code>genosyn install</Code> runs fine on
+            Kubernetes. You trade the one-line installer for raw manifests — and
+            you give up the <Code>genosyn upgrade</Code> and{" "}
+            <Code>genosyn backup</Code> commands, which only know how to drive
+            Docker on a single host.
           </>
         }
       />
 
       <Callout kind="warn" title="Not the recommended path.">
-        For most self-hosters, single-host Docker is the right answer — it&apos;s
-        what the installer, the CLI, and the docs are built around. Reach for
-        Kubernetes when you already operate one and want Genosyn to live next
-        to your other workloads. Don&apos;t stand up a cluster for this app.
+        For most self-hosters, single-host Docker is the right answer —
+        it&apos;s what the installer, the CLI, and the docs are built around.
+        Reach for Kubernetes when you already operate one and want Genosyn to
+        live next to your other workloads. Don&apos;t stand up a cluster for
+        this app.
       </Callout>
 
       <H2 id="architecture">Architecture</H2>
@@ -47,8 +48,8 @@ export function Kubernetes() {
           <Strong>Deployment, 1 replica.</Strong> Per-employee credential
           directories and CLI working trees under <Code>/app/data</Code> are
           filesystem state that the running process mutates. Scaling out
-          horizontally would need a coordination layer Genosyn doesn&apos;t
-          have today — keep <Code>replicas: 1</Code>.
+          horizontally would need a coordination layer Genosyn doesn&apos;t have
+          today — keep <Code>replicas: 1</Code>.
         </LI>
         <LI>
           <Strong>PersistentVolumeClaim</Strong> at <Code>/app/data</Code>{" "}
@@ -56,8 +57,8 @@ export function Kubernetes() {
           checkouts, <Code>.mcp.json</Code> files, and uploaded attachments.
         </LI>
         <LI>
-          <Strong>External Postgres.</Strong> SQLite works inside a pod but
-          dies with the pod. Run Postgres in-cluster (a separate Helm chart,
+          <Strong>External Postgres.</Strong> SQLite works inside a pod but dies
+          with the pod. Run Postgres in-cluster (a separate Helm chart,
           CloudNativePG, Zalando, …) or point at a managed instance.
         </LI>
         <LI>
@@ -92,8 +93,8 @@ export function Kubernetes() {
             term: "StorageClass",
             def: (
               <>
-                One that supports <Code>ReadWriteOnce</Code>. The default
-                class on every managed cluster qualifies.
+                One that supports <Code>ReadWriteOnce</Code>. The default class
+                on every managed cluster qualifies.
               </>
             ),
           },
@@ -142,8 +143,8 @@ data:
         Genosyn doesn&apos;t use <Code>dotenv</Code> or per-environment files,
         but the config object is plain JavaScript at runtime — referencing{" "}
         <Code>process.env</Code> inside it is just JavaScript reading a
-        variable. Keep credentials in a <Code>Secret</Code> and inject them
-        with <Code>env:</Code> or <Code>envFrom:</Code> on the pod.
+        variable. Keep credentials in a <Code>Secret</Code> and inject them with{" "}
+        <Code>env:</Code> or <Code>envFrom:</Code> on the pod.
       </Callout>
       <P>
         Sensitive values go in a separate <Code>Secret</Code>:
@@ -160,7 +161,9 @@ stringData:
   GENOSYN_SMTP_PASS: "<smtp password or api key>"`}</Pre>
 
       <H2 id="manifests">PVC, Deployment, Service, Ingress</H2>
-      <P>One file, four objects. Apply with <Code>kubectl apply -f</Code>:</P>
+      <P>
+        One file, four objects. Apply with <Code>kubectl apply -f</Code>:
+      </P>
       <Pre lang="yaml">{`---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -246,8 +249,8 @@ spec:
                 name: genosyn
                 port: { number: 80 }`}</Pre>
       <P>
-        <Strong>Recreate</Strong> over <Strong>RollingUpdate</Strong> because
-        an RWO volume can only attach to one pod at a time. The old pod must
+        <Strong>Recreate</Strong> over <Strong>RollingUpdate</Strong> because an
+        RWO volume can only attach to one pod at a time. The old pod must
         terminate before the new one schedules.
       </P>
 
@@ -259,9 +262,9 @@ spec:
       <Pre lang="bash">{`kubectl -n genosyn set image deploy/genosyn app=ghcr.io/genosyn/app:0.3.47
 kubectl -n genosyn rollout status deploy/genosyn`}</Pre>
       <P>
-        Pin a tag rather than tracking <Code>latest</Code> — that&apos;s how
-        you get repeatable rollbacks. Image tags carry no <Code>v</Code>{" "}
-        prefix, even though the matching GitHub release does: the release is{" "}
+        Pin a tag rather than tracking <Code>latest</Code> — that&apos;s how you
+        get repeatable rollbacks. Image tags carry no <Code>v</Code> prefix,
+        even though the matching GitHub release does: the release is{" "}
         <Code>v0.3.47</Code>, the image is <Code>app:0.3.47</Code>.
       </P>
 
@@ -277,35 +280,37 @@ kubectl -n genosyn rollout status deploy/genosyn`}</Pre>
           <Code>pg_dump</Code> on a CronJob is the cheapest option.
         </LI>
         <LI>
-          <Strong>The <Code>genosyn-data</Code> PVC.</Strong> Use a
-          VolumeSnapshot if your StorageClass supports it, or a CronJob that{" "}
-          <Code>tar</Code>s the volume to object storage.
+          <Strong>
+            The <Code>genosyn-data</Code> PVC.
+          </Strong>{" "}
+          Use a VolumeSnapshot if your StorageClass supports it, or a CronJob
+          that <Code>tar</Code>s the volume to object storage.
         </LI>
       </UL>
       <P>
-        Restore is symmetric: load Postgres first, then rehydrate the PVC,
-        then start the Deployment.
+        Restore is symmetric: load Postgres first, then rehydrate the PVC, then
+        start the Deployment.
       </P>
 
       <H2 id="helm">A Helm chart?</H2>
       <P>
         Not officially shipped. The manifests above are short enough that
-        templating them adds more friction than it removes for most teams —
-        and a chart we&apos;d have to lint, publish, and version across
-        Genosyn releases is a real maintenance surface.
+        templating them adds more friction than it removes for most teams — and
+        a chart we&apos;d have to lint, publish, and version across Genosyn
+        releases is a real maintenance surface.
       </P>
       <P>
         If you build one internally, the values worth parameterising are{" "}
         <Code>image.tag</Code>, <Code>ingress.host</Code>,{" "}
         <Code>persistence.size</Code>, and the contents of the config{" "}
-        <Code>ConfigMap</Code>. Open an issue if you&apos;d like to upstream
-        it — community charts are welcome.
+        <Code>ConfigMap</Code>. Open an issue if you&apos;d like to upstream it
+        — community charts are welcome.
       </P>
 
       <H3 id="next">Next steps</H3>
       <P>
-        Once the pod is healthy, open your Ingress host, create the first
-        owner account, and follow the post-install path: pick a{" "}
+        Once the pod is healthy, open your Ingress host, create the first owner
+        account, and follow the post-install path: pick a{" "}
         <DocLink to="/docs/models">model</DocLink>, create an{" "}
         <DocLink to="/docs/employees">AI Employee</DocLink>, schedule a{" "}
         <DocLink to="/docs/routines">Routine</DocLink>.

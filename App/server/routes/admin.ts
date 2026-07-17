@@ -13,7 +13,10 @@ import {
   getDbSchema,
   runAdminQuery,
 } from "../services/adminDbConsole.js";
-import { listAdminCompanies, listAdminUsers } from "../services/adminDirectory.js";
+import {
+  listAdminCompanies,
+  listAdminUsers,
+} from "../services/adminDirectory.js";
 import {
   getSignupSettings,
   setSignupsDisabled,
@@ -24,9 +27,16 @@ import {
   updateSsoSettings,
 } from "../services/ssoSettings.js";
 import { discoverOidcEndpoints, SsoLoginError } from "../services/ssoLogin.js";
-import { deleteUserCascade, UserOwnsCompaniesError } from "../services/userDelete.js";
+import {
+  deleteUserCascade,
+  UserOwnsCompaniesError,
+} from "../services/userDelete.js";
 import { deleteCompanyCascade } from "../services/companyDelete.js";
-import { avatarAbsPath, mimeFromKey, removeAvatarFile } from "../services/avatars.js";
+import {
+  avatarAbsPath,
+  mimeFromKey,
+  removeAvatarFile,
+} from "../services/avatars.js";
 import { sendGlobalSmtpTest } from "../services/email.js";
 import {
   clearGlobalSmtpOverride,
@@ -183,7 +193,9 @@ adminRouter.post(
     try {
       const settings = await resolveGlobalSmtpDraft(body);
       if (!settings.host) {
-        return res.status(400).json({ ok: false, error: "SMTP host is required" });
+        return res
+          .status(400)
+          .json({ ok: false, error: "SMTP host is required" });
       }
       const result = await sendGlobalSmtpTest({
         settings,
@@ -191,7 +203,11 @@ adminRouter.post(
         triggeredByUserId: req.userId ?? null,
       });
       if (result.status === "sent") {
-        res.json({ ok: true, logId: result.logId, messageId: result.messageId });
+        res.json({
+          ok: true,
+          logId: result.logId,
+          messageId: result.messageId,
+        });
       } else {
         res
           .status(400)
@@ -227,7 +243,9 @@ adminRouter.put(
   validateBody(signupSettingsSchema),
   async (req, res, next) => {
     try {
-      const { signupsDisabled } = req.body as z.infer<typeof signupSettingsSchema>;
+      const { signupsDisabled } = req.body as z.infer<
+        typeof signupSettingsSchema
+      >;
       res.json(await setSignupsDisabled(signupsDisabled));
     } catch (err) {
       next(err);
@@ -329,11 +347,16 @@ adminRouter.get("/users", async (_req, res, next) => {
 adminRouter.get("/users/:id/avatar", async (req, res, next) => {
   try {
     const parsed = idParam.safeParse(req.params);
-    if (!parsed.success) return res.status(400).json({ error: "Invalid user id" });
-    const user = await AppDataSource.getRepository(User).findOneBy({ id: parsed.data.id });
-    if (!user || !user.avatarKey) return res.status(404).json({ error: "Not found" });
+    if (!parsed.success)
+      return res.status(400).json({ error: "Invalid user id" });
+    const user = await AppDataSource.getRepository(User).findOneBy({
+      id: parsed.data.id,
+    });
+    if (!user || !user.avatarKey)
+      return res.status(404).json({ error: "Not found" });
     const abs = avatarAbsPath(user.avatarKey);
-    if (!abs || !fs.existsSync(abs)) return res.status(404).json({ error: "Not found" });
+    if (!abs || !fs.existsSync(abs))
+      return res.status(404).json({ error: "Not found" });
     res.setHeader("Content-Type", mimeFromKey(user.avatarKey));
     res.setHeader("Cache-Control", "private, max-age=60");
     res.sendFile(abs);
@@ -353,14 +376,17 @@ adminRouter.get("/users/:id/avatar", async (req, res, next) => {
 adminRouter.delete("/users/:id", async (req, res, next) => {
   try {
     const parsed = idParam.safeParse(req.params);
-    if (!parsed.success) return res.status(400).json({ error: "Invalid user id" });
+    if (!parsed.success)
+      return res.status(400).json({ error: "Invalid user id" });
     const { id } = parsed.data;
 
     // Compare case-insensitively: zod's uuid() accepts an uppercased id, and on
     // Postgres a uuid comparison is case-insensitive, so a naive `===` could let
     // a caller slip past this guard and delete their own account.
     if (req.userId && id.toLowerCase() === req.userId.toLowerCase()) {
-      return res.status(400).json({ error: "You can't delete your own account here." });
+      return res
+        .status(400)
+        .json({ error: "You can't delete your own account here." });
     }
 
     const user = await AppDataSource.getRepository(User).findOneBy({ id });
@@ -375,7 +401,8 @@ adminRouter.delete("/users/:id", async (req, res, next) => {
   } catch (err) {
     if (err instanceof UserOwnsCompaniesError) {
       return res.status(409).json({
-        error: "This user owns one or more companies. Reassign or delete them first.",
+        error:
+          "This user owns one or more companies. Reassign or delete them first.",
         companies: err.companies,
       });
     }
@@ -398,7 +425,8 @@ adminRouter.patch(
   async (req, res, next) => {
     try {
       const parsed = idParam.safeParse(req.params);
-      if (!parsed.success) return res.status(400).json({ error: "Invalid user id" });
+      if (!parsed.success)
+        return res.status(400).json({ error: "Invalid user id" });
       const { id } = parsed.data;
       const { isMasterAdmin } = req.body as z.infer<typeof masterAdminSchema>;
 
@@ -446,8 +474,11 @@ adminRouter.get("/companies", async (_req, res, next) => {
 adminRouter.delete("/companies/:id", async (req, res, next) => {
   try {
     const parsed = idParam.safeParse(req.params);
-    if (!parsed.success) return res.status(400).json({ error: "Invalid company id" });
-    const co = await AppDataSource.getRepository(Company).findOneBy({ id: parsed.data.id });
+    if (!parsed.success)
+      return res.status(400).json({ error: "Invalid company id" });
+    const co = await AppDataSource.getRepository(Company).findOneBy({
+      id: parsed.data.id,
+    });
     if (!co) return res.status(404).json({ error: "Not found" });
     await deleteCompanyCascade({ companyId: co.id, companySlug: co.slug });
     res.json({ ok: true });
