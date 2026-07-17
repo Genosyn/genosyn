@@ -4251,8 +4251,10 @@ const queueBrowserApprovalSchema = z.object({
   summary: z.string().trim().min(1).max(1000),
   /** Page URL captured at queue time (best-effort; may be empty). */
   pageUrl: z.string().max(2048).optional(),
-  /** Selector the MCP intends to act on. */
-  selector: z.string().min(1).max(1000),
+  /** Selector the MCP intends to act on. Capped at 500 to match the
+   *  click/press routes that `browser_resume` re-fires through — a longer
+   *  selector would queue fine but strand on execute. */
+  selector: z.string().min(1).max(500),
   /** Optional key press (e.g. `Enter`) — null/undefined for a click. */
   key: z.string().max(60).nullish(),
 });
@@ -4298,10 +4300,13 @@ mcpInternalRouter.get(
     }
     // Return the held action alongside the status so `browser_resume` can
     // re-fire it even when the MCP child that queued it is long gone — the
-    // child is spawned per chat turn, and approvals usually land later.
-    let payload: { selector?: unknown; key?: unknown } = {};
+    // child is spawned per chat turn, and approvals usually land later. The
+    // `pageUrl` lets the child refuse to fire if the page has since changed
+    // (the approval is bound to what the human actually saw), and `executed`
+    // makes the approval one-shot so it can't be replayed indefinitely.
+    let payload: { selector?: unknown; key?: unknown; pageUrl?: unknown; executedAt?: unknown } = {};
     try {
-      payload = JSON.parse(approval.payloadJson || "{}") as { selector?: unknown; key?: unknown };
+      payload = JSON.parse(approval.payloadJson || "{}") as typeof payload;
     } catch {
       // legacy/malformed payload — status alone still helps
     }
@@ -4309,7 +4314,42 @@ mcpInternalRouter.get(
       status: approval.status,
       selector: typeof payload.selector === "string" ? payload.selector : null,
       key: typeof payload.key === "string" ? payload.key : null,
+      pageUrl: typeof payload.pageUrl === "string" ? payload.pageUrl : null,
+      executed: typeof payload.executedAt === "string",
     });
+  },
+);
+
+/**
+ * Mark a browser_action approval as fired, so it can't be replayed. Called
+ * by the MCP child right after a successful `browser_resume`. Idempotent —
+ * a second call is a no-op — and scoped to the resolving employee.
+ */
+mcpInternalRouter.post(
+  "/tools/mark_browser_approval_executed/:id",
+  async (req: McpRequest, res) => {
+    const id = req.params.id;
+    const emp = req.mcpEmployee!;
+    const repo = AppDataSource.getRepository(Approval);
+    const approval = await repo.findOneBy({ id });
+    if (!approval || approval.kind !== "browser_action") {
+      return res.status(404).json({ error: "Approval not found" });
+    }
+    if (approval.employeeId !== emp.id) {
+      return res.status(403).json({ error: "Approval belongs to another employee" });
+    }
+    let payload: Record<string, unknown> = {};
+    try {
+      payload = JSON.parse(approval.payloadJson || "{}") as Record<string, unknown>;
+    } catch {
+      // overwrite an unreadable payload rather than fail the mark
+    }
+    if (typeof payload.executedAt !== "string") {
+      payload.executedAt = new Date().toISOString();
+      approval.payloadJson = JSON.stringify(payload);
+      await repo.save(approval);
+    }
+    res.json({ ok: true });
   },
 );
 

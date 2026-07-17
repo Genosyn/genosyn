@@ -1145,13 +1145,15 @@ of the original V1 backlog has shipped — what remains is mostly
         `page.accessibility.snapshot()` API that had left the tree
         permanently empty. Added `browser_select`, `browser_hover`,
         `browser_scroll`, `browser_back`, and `browser_wait`; popups are
-        auto-adopted, JS dialogs auto-handled and surfaced as snapshot
+        auto-adopted (the triggering action waits for the swap before it
+        snapshots), JS dialogs auto-handled and surfaced as snapshot
         notes, wrong selectors fail in 5s with a snapshot in the error,
         the post-action settle is DOM-quiescence based (~0.3s typical vs
-        a flat 3s `networkidle` wait), screenshots are JPEG, approvals
-        resume across turns off the Approval row, browser sessions
-        survive App restarts via a DB token fallback, and allow-list
-        apex patterns now cover subdomains. Docs at `/docs/browser`.
+        a flat 3s `networkidle` wait) with a hard Node-side cap, and
+        screenshots are JPEG. Approval-gated submits resume across turns
+        off the Approval row but are bound to the approved page and fire
+        exactly once; browser sessions survive App restarts via a DB
+        token fallback. Docs at `/docs/browser`.
   - [x] **Live view + take-over.** Every browser-enabled spawn mints a
         `BrowserSession` row; the MCP child opens a CDP screencast
         (`Page.startScreencast`, JPEG q60) and pushes frames over a

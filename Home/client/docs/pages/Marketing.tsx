@@ -229,8 +229,9 @@ export function Marketing() {
         <LI>
           Enable the browser for the employee and pin{" "}
           <Code>browserAllowedHosts</Code> to the ads UI, e.g.{" "}
-          <Code>linkedin.com</Code>, <Code>ads.x.com</Code>, or{" "}
-          <Code>ads.tiktok.com</Code>.
+          <Code>*.linkedin.com</Code>, <Code>ads.x.com</Code>, or{" "}
+          <Code>ads.tiktok.com</Code> (use the <Code>*.</Code> form to allow
+          subdomains; a bare host matches exactly).
         </LI>
         <LI>
           Turn on <Strong>Require approval for form submits</Strong> — every

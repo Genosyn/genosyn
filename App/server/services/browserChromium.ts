@@ -77,6 +77,12 @@ type SessionRuntime = {
   /** True while acquirePage itself opens a page, so the context-level
    *  `page` listener doesn't mistake it for a popup to adopt. */
   selfCreating: boolean;
+  /**
+   * In-flight popup adoption, if any. An action that opens a new tab needs
+   * to wait for the adoption to finish before it snapshots, or it would
+   * return the old page and hand the model stale refs — see `awaitAdoption`.
+   */
+  pendingAdoption: Promise<void> | null;
   /** Trailing-debounce timer for the nav mirror (DB write + viewer fanout). */
   navTimer: NodeJS.Timeout | null;
   /** Last URL/title actually mirrored, to skip redundant writes. */
@@ -124,8 +130,13 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
     } finally {
       existing.selfCreating = false;
     }
+    const oldCdp = existing.cdp;
     existing.cdp = await attachCdp(existing.page);
     wirePage(existing, existing.page);
+    // The old page's screencast (if a viewer was watching) died with it;
+    // restart the cast on the new CDP session so the live view doesn't
+    // freeze for the rest of the session.
+    await detachAndRewireCast(existing.id, oldCdp);
     return existing.page;
   }
 
@@ -184,6 +195,7 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
     activeHolders: 0,
     notices: [],
     selfCreating: false,
+    pendingAdoption: null,
     navTimer: null,
     lastNavUrl: "",
     lastNavTitle: "",
@@ -194,17 +206,46 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
 
   // Adopt popups: a click on a target=_blank link opens a page the agent's
   // tools would otherwise never see — it would keep driving the old tab
-  // forever. Follow the newest page instead, like a human would.
+  // forever. Follow the newest page instead, like a human would. The action
+  // that triggered the popup waits on `pendingAdoption` before snapshotting.
   (context as { on: (ev: string, cb: (p: unknown) => void) => void }).on(
     "page",
     (newPage) => {
-      void adoptPage(sessionId, newPage).catch(() => {
-        // best-effort — worst case the agent stays on the old tab
-      });
+      const r = runtimes.get(sessionId);
+      if (!r) return;
+      const prev = r.pendingAdoption ?? Promise.resolve();
+      r.pendingAdoption = prev
+        .then(() => adoptPage(sessionId, newPage))
+        .catch(() => {
+          // best-effort — worst case the agent stays on the old tab
+        })
+        .finally(() => {
+          const cur = runtimes.get(sessionId);
+          if (cur && cur.pendingAdoption === r.pendingAdoption) cur.pendingAdoption = null;
+        });
     },
   );
 
   return page;
+}
+
+/**
+ * Await any in-flight popup adoption for this session so the caller
+ * snapshots the tab the model will actually act on next. Bounded — a popup
+ * that never finishes loading must not hang the tool call.
+ */
+export async function awaitAdoption(sessionId: string, capMs: number): Promise<void> {
+  const r = runtimes.get(sessionId);
+  if (!r || !r.pendingAdoption) return;
+  let timer: NodeJS.Timeout | null = null;
+  const cap = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, capMs);
+  });
+  try {
+    await Promise.race([r.pendingAdoption, cap]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 /** Pages already wired with nav/dialog listeners — guards double-wiring. */
@@ -272,6 +313,8 @@ async function adoptPage(sessionId: string, newPage: unknown): Promise<void> {
     // adopt anyway — the URL is still useful
   }
   if (!runtimes.has(sessionId) || np.isClosed()) return;
+  const previousUrl = (r.page as { url?: () => string } | null)?.url?.() ?? "";
+  const oldCdp = r.cdp;
   r.page = newPage;
   try {
     r.cdp = await attachCdp(newPage);
@@ -279,8 +322,41 @@ async function adoptPage(sessionId: string, newPage: unknown): Promise<void> {
     r.cdp = null;
   }
   wirePage(r, newPage);
-  pushSessionNotice(sessionId, `A new tab opened and is now the active page: ${np.url()}`);
+  pushSessionNotice(
+    sessionId,
+    `A new tab opened and is now the active page: ${np.url()}. ` +
+      (previousUrl
+        ? `To return to the previous page, call browser_open with ${previousUrl}.`
+        : ""),
+  );
   scheduleNavMirror(r);
+  // Stop the dead page's screencast and move the live view to the new tab.
+  await detachAndRewireCast(sessionId, oldCdp);
+}
+
+/**
+ * A page swap (popup adoption or a self-closed page being reopened) leaves
+ * the previous CDP session — and any screencast on it — orphaned. Stop that
+ * cast, detach the old session, and restart the cast on the new one so the
+ * live viewer follows the swap instead of freezing or replaying dead frames.
+ */
+async function detachAndRewireCast(sessionId: string, oldCdp: unknown): Promise<void> {
+  const cdp = oldCdp as {
+    send: (m: string, p?: unknown) => Promise<unknown>;
+    detach?: () => Promise<void>;
+  } | null;
+  if (cdp) {
+    try {
+      await cdp.send("Page.stopScreencast");
+    } catch {
+      // session may already be gone
+    }
+    try {
+      await cdp.detach?.();
+    } catch {
+      // best-effort
+    }
+  }
   const { notifyPageSwapped } = await import("./browserSessions.js");
   await notifyPageSwapped(sessionId);
 }

@@ -56,7 +56,7 @@ export function Browser() {
           { term: "browser_select", def: "Choose an option in a native dropdown by value or visible label." },
           { term: "browser_press", def: "Press a key — Enter, Tab, Escape, arrows." },
           { term: "browser_hover", def: "Hover to reveal menus or tooltips; the hover holds so a follow-up click works." },
-          { term: "browser_scroll", def: "Scroll by a viewport (fires real wheel events, so infinite-scroll pages load more) or bring a specific element into view." },
+          { term: "browser_scroll", def: "Scroll by a viewport (fires real wheel events, so lazy-loaded and infinite-scroll pages load more content) or bring a specific element into view." },
           { term: "browser_back", def: "Go back one page in history — the recovery move after a misclick." },
           { term: "browser_wait", def: "Wait for a selector to appear (up to 15s) or pause a fixed time, instead of polling with snapshots." },
           { term: "browser_screenshot", def: "A JPEG of the viewport, for when layout or imagery matters." },
@@ -72,9 +72,11 @@ export function Browser() {
         element carries a stable marker like <Code>[ref=e12]</Code> — including
         elements inside iframes. The employee acts on a ref directly by passing{" "}
         <Code>aria-ref=e12</Code> as the selector, which resolves instantly and
-        unambiguously; CSS and text selectors work too as fallbacks. Very long
-        pages are truncated with an honest note saying how much was cut —{" "}
-        <Code>browser_scroll</Code> reaches the rest.
+        unambiguously; CSS and text selectors work too as fallbacks. The
+        outline covers the whole page, not just the viewport; on very large
+        pages it is capped with a note saying how many elements were omitted,
+        and the employee narrows down by interacting with a section or
+        navigating to a more specific URL.
       </P>
       <P>
         Events the employee could not otherwise see — a JavaScript dialog that
@@ -90,16 +92,17 @@ export function Browser() {
       </P>
       <UL>
         <LI>
-          <Code>github.com</Code> — the domain and every subdomain (
-          <Code>www.github.com</Code>, <Code>gist.github.com</Code>, …).
+          <Code>mail.google.com</Code> — that exact host, and nothing else.
+          Use this to pin a single host.
         </LI>
         <LI>
-          <Code>mail.google.com</Code> — that host and its subdomains, but not
-          the rest of <Code>google.com</Code>.
+          <Code>*.github.com</Code> — the apex <Code>github.com</Code> and
+          every subdomain (<Code>www.github.com</Code>,{" "}
+          <Code>gist.github.com</Code>, …).
         </LI>
         <LI>
-          <Code>*.example.com</Code> — same as the bare domain; kept for
-          compatibility.
+          <Code>app.*.example.com</Code> — a glob; each <Code>*</Code> spans a
+          single label and never crosses a dot.
         </LI>
       </UL>
       <P>
@@ -114,10 +117,12 @@ export function Browser() {
         visible in the company Approvals inbox with the page URL and a
         one-line summary of what the employee is trying to do — and the
         employee is told the submission is pending. Once you approve, the
-        employee re-fires it with <Code>browser_resume</Code>; the held action
-        survives on the Approval row, so this works even if the approval lands
-        hours later in a different conversation turn. Rejecting writes the
-        decision to the employee&apos;s journal.
+        employee re-fires it with <Code>browser_resume</Code>, in the same turn
+        or a later one. The approval is <Strong>bound to the page it was
+        raised on and fires exactly once</Strong>: if the browser has moved to
+        a different page (or was reclaimed while idle) the employee is asked to
+        submit again rather than firing blindly against whatever is now
+        loaded. Rejecting writes the decision to the employee&apos;s journal.
       </P>
 
       <H2 id="live-view">Live view and takeover</H2>

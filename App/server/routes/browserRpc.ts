@@ -12,6 +12,7 @@ import {
   markActivity,
   pushSessionNotice,
   takeSessionNotices,
+  awaitAdoption,
 } from "../services/browserChromium.js";
 
 /**
@@ -61,6 +62,13 @@ const LOCATE_TIMEOUT_MS = 5_000;
 const ACTION_TIMEOUT_MS = 10_000;
 const ARIA_SNAPSHOT_TIMEOUT_MS = 5_000;
 const WAIT_MAX_MS = 15_000;
+/** Hard ceiling on the post-action settle, enforced Node-side (page.evaluate
+ *  itself is ungoverned by any Playwright timeout — a page that blocks its
+ *  main thread would otherwise wedge the tool call forever). */
+const SETTLE_CAP_MS = 2_000;
+/** How long an action waits for a popup it opened to be adopted. Slightly
+ *  above adoptPage's own 5s load wait so a just-loaded popup is reflected. */
+const ADOPTION_WAIT_MS = 5_500;
 
 async function requireBrowserSession(req: BrowserRpcReq, res: Response, next: NextFunction) {
   const header = req.headers.authorization ?? "";
@@ -132,20 +140,18 @@ function parseAllowList(raw: string | null): string[] {
 
 /**
  * Allow-list matching rules (documented in the UI hint and the Browser docs
- * page — keep all three in sync):
- *   - `example.com`   → the apex and every subdomain (what every written
- *                       example assumes; an exact-only apex match stranded
- *                       agents on `www.` redirects)
- *   - `*.example.com` → the apex and every subdomain (same as above, kept
- *                       for backwards compatibility)
- *   - `app.example.com` → that exact host and its subdomains
- *   - patterns with `*` elsewhere are general globs matched against the host
+ * page — keep all three in sync). A bare host is an EXACT match so an
+ * operator can pin one host precisely; use the `*.` form for subdomains:
+ *   - `mail.google.com` → that exact host, and nothing else
+ *   - `*.example.com`   → the apex `example.com` and every subdomain
+ *   - `app.*.example.com` → a general glob, matched label-safely (each `*`
+ *                           spans one label, never a dot)
  */
 function hostMatches(hostname: string, pattern: string): boolean {
   const h = hostname.toLowerCase();
   const p = pattern.toLowerCase();
   if (!p.includes("*")) {
-    return h === p || h.endsWith("." + p);
+    return h === p;
   }
   if (p.startsWith("*.")) {
     const suffix = p.slice(2);
@@ -153,7 +159,10 @@ function hostMatches(hostname: string, pattern: string): boolean {
     if (h.endsWith("." + suffix)) return true;
     return false;
   }
-  const escaped = p.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  // General glob. `*` matches within a single DNS label only — it must not
+  // cross a dot, or `example.*` would admit `example.attacker.com`. Escaping
+  // every metachar first also keeps the pattern ReDoS-free.
+  const escaped = p.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^.]*");
   return new RegExp(`^${escaped}$`).test(h);
 }
 
@@ -209,7 +218,7 @@ async function pageSnapshot(p: Page, sessionId: string): Promise<string> {
     );
     if (truncated) {
       sections.push(
-        `(truncated: showing lines 1-${SNAPSHOT_MAX_LINES} of ${total} — the page continues; use browser_scroll or a more specific action to reach content further down)`,
+        `(outline capped at ${SNAPSHOT_MAX_LINES} of ${total} elements — deeper elements are omitted from this snapshot. This is a full-page outline, so scrolling will not reveal more; narrow down by interacting with a container here, or navigate to a more specific page/URL.)`,
       );
     }
     return sections.join("\n");
@@ -290,8 +299,12 @@ async function locate(p: Page, sessionId: string, selector: string): Promise<Loc
  * instantly when no navigation happened).
  */
 async function settle(p: Page): Promise<void> {
-  try {
-    await p.evaluate(
+  // The in-page CAP_MS timer only fires if the page's event loop runs — a
+  // page that blocks its main thread would never resolve the evaluate, and
+  // page.evaluate is not bound by any Playwright timeout. Race a Node-side
+  // deadline so a busy page can't wedge the tool call.
+  const quiesce = p
+    .evaluate(
       () =>
         new Promise<void>((resolve) => {
           const QUIET_MS = 250;
@@ -315,9 +328,18 @@ async function settle(p: Page): Promise<void> {
             characterData: true,
           });
         }),
-    );
-  } catch {
-    // navigation destroyed the evaluation context — fall through
+    )
+    .catch(() => {
+      // navigation destroyed the evaluation context — fall through
+    });
+  let capTimer: NodeJS.Timeout | null = null;
+  const deadline = new Promise<void>((resolve) => {
+    capTimer = setTimeout(resolve, SETTLE_CAP_MS);
+  });
+  try {
+    await Promise.race([quiesce, deadline]);
+  } finally {
+    if (capTimer) clearTimeout(capTimer);
   }
   try {
     await p.waitForLoadState("domcontentloaded", { timeout: 5_000 });
@@ -407,6 +429,9 @@ browserRpcRouter.post("/click", validateBody(clickSchema), async (req: BrowserRp
     const loc = await locate(page, sessionId, body.selector);
     await loc.click({ timeout: ACTION_TIMEOUT_MS });
     await settle(page);
+    // A click can open a new tab; wait for it to be adopted so we snapshot
+    // the page the model will act on next, not the one it just left.
+    await awaitAdoption(sessionId, ADOPTION_WAIT_MS);
     const p = currentPage(sessionId, page);
     res.json({ snapshot: await pageSnapshot(p, sessionId) });
   } catch (err) {
@@ -447,6 +472,7 @@ browserRpcRouter.post("/press", validateBody(pressSchema), async (req: BrowserRp
       await page.keyboard.press(body.key);
     }
     await settle(page);
+    await awaitAdoption(sessionId, ADOPTION_WAIT_MS);
     const p = currentPage(sessionId, page);
     res.json({ snapshot: await pageSnapshot(p, sessionId) });
   } catch (err) {
@@ -465,11 +491,19 @@ browserRpcRouter.post("/select", validateBody(selectSchema), async (req: Browser
     const page = await bumpAndAcquire(req);
     const loc = await locate(page, sessionId, body.selector);
     // Try the option's `value` attribute first, then its visible label —
-    // the model usually quotes whichever it saw in the snapshot.
+    // the model usually quotes whichever it saw in the snapshot. Both share
+    // one ACTION_TIMEOUT_MS budget so a genuinely stuck element can't cost
+    // 2×, and the first error is surfaced if the label retry also misses.
+    const started = Date.now();
     try {
       await loc.selectOption(body.value, { timeout: ACTION_TIMEOUT_MS });
-    } catch {
-      await loc.selectOption({ label: body.value }, { timeout: ACTION_TIMEOUT_MS });
+    } catch (firstErr) {
+      const remaining = Math.max(500, ACTION_TIMEOUT_MS - (Date.now() - started));
+      try {
+        await loc.selectOption({ label: body.value }, { timeout: remaining });
+      } catch {
+        throw firstErr;
+      }
     }
     await settle(page);
     res.json({ snapshot: await pageSnapshot(page, sessionId) });

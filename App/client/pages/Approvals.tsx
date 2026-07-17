@@ -52,9 +52,10 @@ function copyFor(a: Approval): ApprovalCopy {
         subtitle: a.summary ?? "AI employee wants to submit a form",
         Icon: Globe,
         iconClass: "text-indigo-500",
-        // Browser actions don't run server-side — the model retries via
-        // browser_resume once it sees the row flip to approved.
-        approvedToast: "Approved — the AI will retry the submission",
+        // Browser actions don't run server-side — the model re-fires via
+        // browser_resume once the row flips to approved. The re-fire is
+        // bound to the approved page and runs once.
+        approvedToast: "Approved — the AI will submit it on that page",
       };
     case "mcp_tool":
       return {

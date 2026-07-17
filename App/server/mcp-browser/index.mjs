@@ -187,11 +187,12 @@ async function browserWait(args) {
   if (typeof args?.selector === "string" && args.selector.length > 0) {
     body.selector = args.selector;
   }
-  if (typeof args?.ms === "number" && args.ms > 0) {
-    body.ms = Math.min(Math.floor(args.ms), 15_000);
+  if (typeof args?.ms === "number" && Number.isFinite(args.ms)) {
+    const ms = Math.round(Math.min(args.ms, 15_000));
+    if (ms >= 1) body.ms = ms;
   }
   if (!body.selector && !body.ms) {
-    throw new Error("Pass `selector` (wait until it is visible), `ms`, or both");
+    throw new Error("Pass `selector` (wait until it is visible), `ms` (≥ 1), or both");
   }
   const reply = await callBrowser("/wait", body);
   return textResult(reply.snapshot ?? "");
@@ -289,6 +290,18 @@ async function executeSubmit(selector, key) {
   return textResult(reply.snapshot ?? "");
 }
 
+/** Same page the human approved? Compare origin + path, ignoring query/hash. */
+function sameApprovedPage(approvedUrl, currentUrl) {
+  if (!approvedUrl || !currentUrl) return false;
+  try {
+    const a = new URL(approvedUrl);
+    const b = new URL(currentUrl);
+    return a.origin === b.origin && a.pathname === b.pathname;
+  } catch {
+    return false;
+  }
+}
+
 async function browserResume(args) {
   const approvalId = String(args?.approvalId ?? "").trim();
   if (!approvalId) throw new Error("`approvalId` is required");
@@ -304,6 +317,13 @@ async function browserResume(args) {
   }
   const status = reply?.status;
   if (status === "approved") {
+    // One-shot: an approval fires exactly once. The server records the
+    // execution, so a replay from any later turn is refused here.
+    if (reply?.executed) {
+      throw new Error(
+        `Approval ${approvalId} was already submitted — an approval fires once. Start a new browser_submit if you need to act again.`,
+      );
+    }
     // Prefer the locally held action; fall back to the copy the server
     // stored on the Approval row. The fallback is what makes resume work
     // across chat turns — this MCP child is spawned per turn, and the
@@ -311,13 +331,41 @@ async function browserResume(args) {
     const action = pendingActions.get(approvalId);
     const selector = action?.selector ?? (typeof reply?.selector === "string" ? reply.selector : "");
     const key = action?.key ?? (typeof reply?.key === "string" ? reply.key : undefined);
-    pendingActions.delete(approvalId);
     if (!selector) {
       throw new Error(
         `Approval ${approvalId} is approved but its held action is missing. Call browser_submit again.`,
       );
     }
-    return executeSubmit(selector, key);
+    // Bind to the page the human actually saw. If the browser has since
+    // navigated (or was torn down and reopened on a blank page), the stored
+    // selector could fire against a completely different page — refuse and
+    // make the model re-submit from the current page.
+    const approvedUrl = typeof reply?.pageUrl === "string" ? reply.pageUrl : "";
+    let currentUrl = "";
+    try {
+      const u = await callBrowser("/url", {});
+      if (typeof u?.url === "string") currentUrl = u.url;
+    } catch {
+      // fall through — treated as a mismatch below
+    }
+    if (!sameApprovedPage(approvedUrl, currentUrl)) {
+      pendingActions.delete(approvalId);
+      throw new Error(
+        `The page changed since this action was approved (approved on ${approvedUrl || "an unknown page"}, now on ${currentUrl || "an unknown page"}). ` +
+          `The approval is bound to the page you approved, so it will not fire here. Navigate back and call browser_submit again if you still want to submit.`,
+      );
+    }
+    pendingActions.delete(approvalId);
+    const result = await executeSubmit(selector, key);
+    // Record the firing so it can't be replayed. Best-effort — the action
+    // already happened; a failed mark just means a later replay is caught
+    // by the page-binding check instead.
+    try {
+      await callGenosyn(`/tools/mark_browser_approval_executed/${encodeURIComponent(approvalId)}`, {});
+    } catch {
+      // best-effort
+    }
+    return result;
   }
   if (status === "rejected") {
     pendingActions.delete(approvalId);
@@ -328,7 +376,7 @@ async function browserResume(args) {
     throw new Error(`Approval ${approvalId} expired before a human responded.`);
   }
   return textResult(
-    `Approval ${approvalId} is still pending. Call browser_resume("${approvalId}") again later — including in a future conversation turn; the approval survives this session.`,
+    `Approval ${approvalId} is still pending. Call browser_resume("${approvalId}") again once a human approves it — keep the browser on the same page so the approved action can fire.`,
   );
 }
 
@@ -489,7 +537,7 @@ const TOOLS = [
   {
     name: "browser_submit",
     description:
-      "Submit a form. Use this whenever your action sends data somewhere — clicking a 'Sign in' / 'Save' / 'Send' button, or pressing Enter inside a search/input. When the employee has approval-mode enabled, this queues an Approval row and returns `pending_approval` with an approvalId; call browser_resume(approvalId) once a human approves — in this turn or any later one. When approval mode is off, browser_submit fires immediately like a click. `summary` is a short, human-readable description shown to the approver.",
+      "Submit a form. Use this whenever your action sends data somewhere — clicking a 'Sign in' / 'Save' / 'Send' button, or pressing Enter inside a search/input. When the employee has approval-mode enabled, this queues an Approval row and returns `pending_approval` with an approvalId; call browser_resume(approvalId) once a human approves — in this turn or a later one. The approval is bound to the current page and fires exactly once, so keep the browser on the same page while it is pending. When approval mode is off, browser_submit fires immediately like a click. `summary` is a short, human-readable description shown to the approver.",
     inputSchema: {
       type: "object",
       properties: {
@@ -516,7 +564,7 @@ const TOOLS = [
   {
     name: "browser_resume",
     description:
-      "Re-fire a previously queued browser_submit once a human has approved it. Works in any later turn — the held action survives on the Approval row. Returns `pending_approval` if the approval is still open; fails with an error if it was rejected or expired.",
+      "Re-fire a previously queued browser_submit once a human has approved it — in this turn or a later one. The approval fires exactly once and only while the browser is still on the page it was approved for; if the page has changed you'll be asked to submit again. Returns still-pending if the human hasn't decided yet; errors if it was rejected, already fired, or the page moved on.",
     inputSchema: {
       type: "object",
       properties: {
