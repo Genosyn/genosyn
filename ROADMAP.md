@@ -161,7 +161,7 @@ export const config = {
   publicUrl: "http://localhost:8471",
   sessionSecret: "change-me-in-production",
   smtp: { host: "", port: 587, secure: false, user: "", pass: "",
-          from: "Genosyn <no-reply@genosyn.local>" },
+          fromName: "Genosyn", from: "no-reply@genosyn.local" },
   integrations: { google: { clientId: "", clientSecret: "" }, /* … */ },
 } as const;
 ```

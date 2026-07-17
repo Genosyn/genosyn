@@ -36,6 +36,7 @@ export type ResolvedGlobalSmtp = {
   secure: boolean;
   user: string;
   pass: string;
+  fromName: string;
   from: string;
 };
 
@@ -56,11 +57,17 @@ export type GlobalSmtpDescriptor = {
   port: number;
   secure: boolean;
   user: string;
+  fromName: string;
   from: string;
   /** Whether a password is currently in effect (never the value itself). */
   hasPassword: boolean;
   /** What the `config.ts` fallback provides, so the UI can describe a reset. */
-  configFallback: { configured: boolean; host: string; from: string };
+  configFallback: {
+    configured: boolean;
+    host: string;
+    fromName: string;
+    from: string;
+  };
 };
 
 /** Payload the admin form submits for save / test. */
@@ -71,6 +78,8 @@ export type GlobalSmtpInput = {
   user: string;
   /** Blank means "keep the password currently in effect". */
   pass: string;
+  /** Omitted by older API clients; blank explicitly sends without a name. */
+  fromName?: string;
   from: string;
 };
 
@@ -82,6 +91,7 @@ type StoredGlobalSmtp = {
   user: string;
   /** Encrypted; empty string when no password is set. */
   encryptedPass: string;
+  fromName: string;
   from: string;
 };
 
@@ -92,6 +102,35 @@ let effectiveCache: EffectiveGlobalSmtp | null = null;
 
 function invalidateCache(): void {
   effectiveCache = null;
+}
+
+/**
+ * Older installs stored the display name and address together in `from`.
+ * Split that shape on read so adding the dedicated From name field is a
+ * backwards-compatible settings change rather than a migration.
+ */
+function splitSender(
+  rawFrom: string,
+  explicitName = "",
+): { fromName: string; from: string } {
+  const trimmed = rawFrom.trim();
+  const match = /^(.*)<([^>]+)>\s*$/.exec(trimmed);
+  if (!match) return { fromName: explicitName.trim(), from: trimmed };
+  return {
+    fromName: explicitName.trim() || match[1].trim().replace(/^"|"$/g, ""),
+    from: match[2].trim(),
+  };
+}
+
+function configSender(): { fromName: string; from: string } {
+  return splitSender(config.smtp.from, config.smtp.fromName);
+}
+
+/** Human-readable RFC-style sender used in Email Logs. */
+export function formatGlobalSmtpSender(settings: ResolvedGlobalSmtp): string {
+  return settings.fromName
+    ? `${settings.fromName} <${settings.from}>`
+    : settings.from;
 }
 
 async function readStoredOverride(): Promise<StoredGlobalSmtp | null> {
@@ -109,13 +148,18 @@ async function readStoredOverride(): Promise<StoredGlobalSmtp | null> {
   }
   if (!parsed || typeof parsed !== "object") return null;
   const o = parsed as Record<string, unknown>;
+  const sender = splitSender(
+    typeof o.from === "string" ? o.from : "",
+    typeof o.fromName === "string" ? o.fromName : "",
+  );
   return {
     host: typeof o.host === "string" ? o.host : "",
     port: typeof o.port === "number" ? o.port : Number(o.port) || 587,
     secure: Boolean(o.secure),
     user: typeof o.user === "string" ? o.user : "",
     encryptedPass: typeof o.encryptedPass === "string" ? o.encryptedPass : "",
-    from: typeof o.from === "string" ? o.from : "",
+    fromName: sender.fromName,
+    from: sender.from,
   };
 }
 
@@ -142,6 +186,7 @@ export async function getEffectiveGlobalSmtp(): Promise<EffectiveGlobalSmtp> {
   if (effectiveCache) return effectiveCache;
 
   const override = await readStoredOverride();
+  const fallbackSender = configSender();
   if (override && override.host) {
     effectiveCache = {
       configured: true,
@@ -152,7 +197,8 @@ export async function getEffectiveGlobalSmtp(): Promise<EffectiveGlobalSmtp> {
         secure: override.secure,
         user: override.user,
         pass: decryptStoredPass(override.encryptedPass),
-        from: override.from || config.smtp.from,
+        fromName: override.fromName,
+        from: override.from || fallbackSender.from,
       },
     };
     return effectiveCache;
@@ -168,7 +214,8 @@ export async function getEffectiveGlobalSmtp(): Promise<EffectiveGlobalSmtp> {
         secure: config.smtp.secure,
         user: config.smtp.user,
         pass: config.smtp.pass,
-        from: config.smtp.from,
+        fromName: fallbackSender.fromName,
+        from: fallbackSender.from,
       },
     };
     return effectiveCache;
@@ -183,7 +230,8 @@ export async function getEffectiveGlobalSmtp(): Promise<EffectiveGlobalSmtp> {
       secure: config.smtp.secure,
       user: "",
       pass: "",
-      from: config.smtp.from,
+      fromName: fallbackSender.fromName,
+      from: fallbackSender.from,
     },
   };
   return effectiveCache;
@@ -203,12 +251,14 @@ export async function describeGlobalSmtp(): Promise<GlobalSmtpDescriptor> {
     port: eff.settings.port,
     secure: eff.settings.secure,
     user: eff.settings.user,
+    fromName: eff.settings.fromName,
     from: eff.settings.from,
     hasPassword: Boolean(eff.settings.pass),
     configFallback: {
       configured: Boolean(config.smtp.host),
       host: config.smtp.host,
-      from: config.smtp.from,
+      fromName: configSender().fromName,
+      from: configSender().from,
     },
   };
 }
@@ -224,13 +274,19 @@ export async function resolveGlobalSmtpDraft(
 ): Promise<ResolvedGlobalSmtp> {
   const current = await getEffectiveGlobalSmtp();
   const pass = input.pass !== "" ? input.pass : current.settings.pass;
+  const fallbackSender = configSender();
+  const sender = splitSender(
+    input.from,
+    input.fromName === undefined ? current.settings.fromName : input.fromName,
+  );
   return {
     host: input.host.trim(),
     port: input.port,
     secure: input.secure,
     user: input.user.trim(),
     pass,
-    from: input.from.trim() || config.smtp.from,
+    fromName: sender.fromName,
+    from: sender.from || fallbackSender.from,
   };
 }
 
@@ -248,6 +304,7 @@ export async function updateGlobalSmtpOverride(
     secure: resolved.secure,
     user: resolved.user,
     encryptedPass: resolved.pass ? encryptSecret(resolved.pass) : "",
+    fromName: resolved.fromName,
     from: input.from.trim(),
   };
   const repo = AppDataSource.getRepository(AppSetting);

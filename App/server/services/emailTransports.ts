@@ -1,6 +1,9 @@
 import nodemailer from "nodemailer";
 import type { EmailProviderKind } from "../db/entities/EmailProvider.js";
-import { getEffectiveGlobalSmtp } from "./globalEmailTransport.js";
+import {
+  formatGlobalSmtpSender,
+  getEffectiveGlobalSmtp,
+} from "./globalEmailTransport.js";
 
 /**
  * Transport adapters for every supported email provider kind. Each adapter
@@ -274,7 +277,10 @@ export async function buildProviderCatalog(): Promise<
   if (s.user) fields.user = s.user;
   return PROVIDER_CATALOG.map((entry) =>
     entry.kind === "smtp"
-      ? { ...entry, prefill: { from: s.from || undefined, fields } }
+      ? {
+          ...entry,
+          prefill: { from: formatGlobalSmtpSender(s) || undefined, fields },
+        }
       : entry,
   );
 }

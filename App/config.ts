@@ -24,7 +24,8 @@ export const config = {
     secure: false,
     user: "",
     pass: "",
-    from: "Genosyn <no-reply@genosyn.local>",
+    fromName: "Genosyn",
+    from: "no-reply@genosyn.local",
   },
 
   // Third-party Integrations.

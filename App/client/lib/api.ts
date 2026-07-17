@@ -1709,9 +1709,15 @@ export type GlobalEmailTransport = {
   port: number;
   secure: boolean;
   user: string;
+  fromName: string;
   from: string;
   hasPassword: boolean;
-  configFallback: { configured: boolean; host: string; from: string };
+  configFallback: {
+    configured: boolean;
+    host: string;
+    fromName: string;
+    from: string;
+  };
 };
 
 // ───────────────────────── Admin sign-up policy ─────────────────────────────

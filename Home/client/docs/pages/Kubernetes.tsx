@@ -132,7 +132,7 @@ data:
       smtp: {
         host: "smtp.example.com", port: 587, secure: false,
         user: "apikey", pass: process.env.GENOSYN_SMTP_PASS,
-        from: "Genosyn <no-reply@example.com>",
+        fromName: "Genosyn", from: "no-reply@example.com",
       },
       integrations: {
         google: { clientId: "", clientSecret: "" },

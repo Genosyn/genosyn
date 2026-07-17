@@ -43,6 +43,7 @@ type Draft = {
   secure: boolean;
   user: string;
   pass: string;
+  fromName: string;
   from: string;
 };
 
@@ -55,6 +56,7 @@ function seedDraft(d: GlobalEmailTransport): Draft {
     // placeholder communicate whether one is stored.
     pass: "",
     user: d.user,
+    fromName: d.fromName,
     from: d.from,
   };
 }
@@ -102,6 +104,7 @@ export function AdminEmail() {
     draft.port !== String(data.port) ||
     draft.secure !== data.secure ||
     draft.user !== data.user ||
+    draft.fromName !== data.fromName ||
     draft.from !== data.from ||
     draft.pass !== "";
 
@@ -121,6 +124,7 @@ export function AdminEmail() {
       secure: draft.secure,
       user: draft.user.trim(),
       pass: draft.pass,
+      fromName: draft.fromName.trim(),
       from: draft.from.trim(),
     };
   };
@@ -330,17 +334,36 @@ export function AdminEmail() {
                 </div>
               </div>
 
-              <div>
-                <label className={LABEL_CLASS} htmlFor="smtp-from">
-                  From address
-                </label>
-                <input
-                  id="smtp-from"
-                  className={clsx(FIELD_CLASS, "font-mono")}
-                  placeholder="Genosyn <no-reply@example.com>"
-                  value={draft.from}
-                  onChange={(e) => setDraft({ ...draft, from: e.target.value })}
-                />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className={LABEL_CLASS} htmlFor="smtp-from-name">
+                    From name
+                  </label>
+                  <input
+                    id="smtp-from-name"
+                    className={FIELD_CLASS}
+                    placeholder="Genosyn"
+                    value={draft.fromName}
+                    onChange={(e) =>
+                      setDraft({ ...draft, fromName: e.target.value })
+                    }
+                  />
+                </div>
+                <div>
+                  <label className={LABEL_CLASS} htmlFor="smtp-from">
+                    From address
+                  </label>
+                  <input
+                    id="smtp-from"
+                    type="email"
+                    className={clsx(FIELD_CLASS, "font-mono")}
+                    placeholder="no-reply@example.com"
+                    value={draft.from}
+                    onChange={(e) =>
+                      setDraft({ ...draft, from: e.target.value })
+                    }
+                  />
+                </div>
               </div>
 
               <div className="flex items-center justify-between pt-1">
@@ -421,7 +444,9 @@ function StatusBanner({ data }: { data: GlobalEmailTransport }) {
           </div>
           <div className="text-xs text-slate-500 dark:text-slate-400">
             {ok
-              ? `Sending through ${data.host} · from ${data.from}`
+              ? `Sending through ${data.host} · from ${
+                  data.fromName ? `${data.fromName} <${data.from}>` : data.from
+                }`
               : "No global SMTP is configured, so password resets and invites only log to the server console. Fill in the form below to start delivering them."}
           </div>
         </div>

@@ -133,6 +133,8 @@ const smtpFields = {
   user: z.string().max(255),
   // Blank means "keep the password currently in effect".
   pass: z.string().max(1024),
+  // Optional keeps older API clients compatible with the new form field.
+  fromName: z.string().max(255).optional(),
   from: z.string().max(255),
 };
 

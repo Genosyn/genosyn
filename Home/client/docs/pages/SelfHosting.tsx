@@ -60,7 +60,8 @@ export function SelfHosting() {
   smtp: {
     host: "", port: 587, secure: false,
     user: "", pass: "",
-    from: "Genosyn <no-reply@genosyn.local>",
+    fromName: "Genosyn",
+    from: "no-reply@genosyn.local",
   },
 
   // OAuth client credentials for integrations that need them.
@@ -125,11 +126,11 @@ export function SelfHosting() {
         System-level sends (password resets, invites, welcomes) and any company
         without its own provider fall back to a single{" "}
         <Strong>global SMTP transport</Strong>. Configure it in the app at{" "}
-        <Code>Admin → Email transport</Code>: fill in the host, port, encryption,
-        username, password, and from-address, then use{" "}
-        <Code>Send test</Code> to confirm deliverability. The settings are stored
-        in the database and take effect immediately — no restart. Until it&apos;s
-        configured, the <Code>Admin → Overview</Code> and{" "}
+        <Code>Admin → Email transport</Code>: fill in the host, port,
+        encryption, username, password, from name, and from address, then use{" "}
+        <Code>Send test</Code> to confirm deliverability. The settings are
+        stored in the database and take effect immediately — no restart. Until
+        it&apos;s configured, the <Code>Admin → Overview</Code> and{" "}
         <Code>Instance Health</Code> dashboards flag Email transport with a
         warning, because those system emails only log to the server console and
         never reach a mailbox.
@@ -137,13 +138,13 @@ export function SelfHosting() {
       <P>
         A file-based default also exists: the <Code>smtp</Code> block in{" "}
         <Code>config.ts</Code>. The dashboard override takes precedence over it;
-        clearing the override (the <Code>Reset</Code> button) reverts to whatever{" "}
-        <Code>config.ts</Code> provides, and if that&apos;s blank too, to the
-        console. When a global transport is configured either way, adding a
-        company SMTP provider at <Code>Settings → Email</Code> pre-fills the host,
-        port, encryption, username, and from-address from it — you only enter the
-        password. Every send appends an <Code>EmailLog</Code> row you can read at{" "}
-        <Code>Settings → Email Logs</Code>.
+        clearing the override (the <Code>Reset</Code> button) reverts to
+        whatever <Code>config.ts</Code> provides, and if that&apos;s blank too,
+        to the console. When a global transport is configured either way, adding
+        a company SMTP provider at <Code>Settings → Email</Code> pre-fills the
+        host, port, encryption, username, and sender address from it — you only
+        enter the password. Every send appends an <Code>EmailLog</Code> row you
+        can read at <Code>Settings → Email Logs</Code>.
       </P>
 
       <H2 id="secrets">Secrets</H2>
