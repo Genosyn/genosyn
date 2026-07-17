@@ -200,6 +200,9 @@ export function startOauth(args: {
       const scopes = resolveRedditScopes({
         scopeGroups: args.scopeGroups,
         baseline: oauth.scopes,
+        // Resolve against the requesting provider's own catalog so
+        // reddit-ads (sharing the "reddit" OAuth app) gets its ads scopes.
+        groups: oauth.scopeGroups ?? [],
       });
       authorizeUrl = buildRedditAuthorizeUrl({
         state,

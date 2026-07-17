@@ -79,9 +79,16 @@ export const REDDIT_SCOPE_GROUPS: IntegrationScopeGroup[] = [
 export function resolveRedditScopes(args: {
   scopeGroups: string[];
   baseline: string[];
+  /** Scope-group catalog to resolve keys against. Defaults to this
+   * provider's groups; reddit-ads passes its own so both integrations can
+   * share the single "reddit" OAuth app — the same pattern the google
+   * OAuth app uses for Analytics / Search Console / Ads. */
+  groups?: IntegrationScopeGroup[];
 }): string[] {
   const out = new Set(args.baseline);
-  const byKey = new Map(REDDIT_SCOPE_GROUPS.map((g) => [g.key, g] as const));
+  const byKey = new Map(
+    (args.groups ?? REDDIT_SCOPE_GROUPS).map((g) => [g.key, g] as const),
+  );
   for (const key of args.scopeGroups) {
     const group = byKey.get(key);
     if (!group) continue;
