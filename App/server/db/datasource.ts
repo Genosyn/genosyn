@@ -100,6 +100,7 @@ import { MailRule } from "./entities/MailRule.js";
 import { MailHandover } from "./entities/MailHandover.js";
 import { MailChatMessage } from "./entities/MailChatMessage.js";
 import { EmployeeMailAccountGrant } from "./entities/EmployeeMailAccountGrant.js";
+import { AdSpendEvent } from "./entities/AdSpendEvent.js";
 
 const entities = [
   User,
@@ -120,6 +121,7 @@ const entities = [
   JournalEntry,
   Approval,
   McpServer,
+  AdSpendEvent,
   Secret,
   AuditEvent,
   Base,

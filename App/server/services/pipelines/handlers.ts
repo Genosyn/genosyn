@@ -20,6 +20,7 @@ import {
 } from "../integrations.js";
 import { getProvider } from "../../integrations/index.js";
 import { unrestrictedCapabilityGate } from "../connectionCapabilities.js";
+import { makeAdSpendLedger } from "../adSpend.js";
 import type {
   IntegrationConfig,
   IntegrationRuntimeContext,
@@ -383,6 +384,11 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
       // which is what stops a future context builder un-gating a tool by
       // simply forgetting about it.
       assertCapability: unrestrictedCapabilityGate(),
+      // Bind the ads ledger so deterministic no-AI budget rules ("pause
+      // everything at the monthly cap") can run through a pipeline. Hard
+      // caps and the approval gate inside the ads providers still apply —
+      // this is the same ledger the employee path uses, with no employee.
+      adSpend: makeAdSpendLedger({ connection: conn }),
     };
     const args = parseObject(ctx.config.args, "args");
     ctx.log(`integration ${conn.provider}.${toolName} ${JSON.stringify(args).slice(0, 200)}`);

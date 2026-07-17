@@ -11,9 +11,10 @@ import {
   type IntegrationRuntimeContext,
 } from "../integrations/types.js";
 import { refreshTelegramListener } from "./telegramListener.js";
-import { createPaymentApproval } from "./approvals.js";
+import { createAdSpendApproval, createPaymentApproval } from "./approvals.js";
 import { makeResourceAttachmentResolver } from "./resourceAttachments.js";
 import { makeConnectionCapabilityGate } from "./connectionCapabilities.js";
+import { makeAdSpendLedger } from "./adSpend.js";
 
 /**
  * Service layer for Integration Connections + Grants.
@@ -759,6 +760,10 @@ export async function invokeConnectionTool(args: {
       connection: pair.connection,
       employeeId: args.employee.id,
     }),
+    adSpend: makeAdSpendLedger({
+      connection: pair.connection,
+      employeeId: args.employee.id,
+    }),
   };
 
   let result: unknown;
@@ -766,18 +771,30 @@ export async function invokeConnectionTool(args: {
     result = await provider.invokeTool(args.toolName, args.toolArgs, ctx);
   } catch (err) {
     if (err instanceof ApprovalRequiredError) {
-      const approval = await createPaymentApproval({
-        companyId: pair.connection.companyId,
-        employeeId: args.employee.id,
-        connectionId: pair.connection.id,
-        toolName: args.toolName,
-        toolArgs: (args.toolArgs as Record<string, unknown>) ?? {},
-        amountSats: err.amountSats,
-        title: err.title,
-        summary: err.summary,
-      });
+      const approval =
+        err.request?.kind === "ad_spend"
+          ? await createAdSpendApproval({
+              companyId: pair.connection.companyId,
+              employeeId: args.employee.id,
+              connectionId: pair.connection.id,
+              toolName: args.toolName,
+              toolArgs: (args.toolArgs as Record<string, unknown>) ?? {},
+              title: err.title,
+              summary: err.summary,
+              request: err.request,
+            })
+          : await createPaymentApproval({
+              companyId: pair.connection.companyId,
+              employeeId: args.employee.id,
+              connectionId: pair.connection.id,
+              toolName: args.toolName,
+              toolArgs: (args.toolArgs as Record<string, unknown>) ?? {},
+              amountSats: err.amountSats,
+              title: err.title,
+              summary: err.summary,
+            });
       throw new Error(
-        `Approval pending — a human must approve before this is sent. Approval id: ${approval.id}.`,
+        `Approval pending — a human must approve before this runs. Approval id: ${approval.id}. Do not retry the call yourself; it executes automatically once approved.`,
       );
     }
     throw err;

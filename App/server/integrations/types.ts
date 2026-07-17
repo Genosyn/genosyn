@@ -229,20 +229,83 @@ export type IntegrationRuntimeContext = {
    *  The approval-execution path sets this when replaying a payment a
    *  human just approved. */
   bypassApprovalGate?: boolean;
+  /**
+   * Ads authorized-spend ledger — a host-bound closure pair, same contract
+   * as `assertCapability`: the provider names amounts, the host owns the
+   * table (`AdSpendEvent`) and the identity bound into the closure. Ads
+   * providers use it to enforce rolling daily/monthly caps and to record
+   * every successful spend-affecting mutation.
+   *
+   * Providers MUST treat this being undefined as a denial for
+   * spend-affecting mutations, never as a pass — a context builder that
+   * forgets to bind it fails loudly instead of un-capping ad spend.
+   */
+  adSpend?: {
+    /** Sum of positive authorized budget deltas (minor currency units)
+     *  recorded on this Connection within the trailing window. */
+    authorizedInWindow(windowMs: number): Promise<number>;
+    /** Append one authorized delta to the ledger after a successful
+     *  mutation. `amountMinor` is signed: increases positive, decreases
+     *  negative. */
+    record(event: {
+      toolName: string;
+      mutationKind: string;
+      amountMinor: number;
+      currency: string;
+      adAccountRef?: string;
+      campaignRef?: string;
+      summary?: string;
+    }): Promise<void>;
+  };
+  /**
+   * Set only by the ad-spend approval replay path: the `beforeState`
+   * snapshot captured when the approval was queued. Providers re-read the
+   * live object and abort the mutation when it no longer matches, so a
+   * days-old approval can't fire against changed campaign state.
+   */
+  approvalSnapshot?: Record<string, unknown>;
+};
+
+/**
+ * Structured request an ads provider attaches to an ApprovalRequiredError.
+ * Tells the central dispatcher to queue an `ad_spend` Approval (budget
+ * caps, drift snapshot) instead of a Lightning payment.
+ */
+export type AdSpendApprovalRequest = {
+  kind: "ad_spend";
+  /** Authorized budget delta in the ad account's minor currency units. */
+  amountMinor: number;
+  /** ISO currency code of the ad account, best-effort ("USD"). */
+  currency: string;
+  /** Provider id, e.g. "google-ads". */
+  platform: string;
+  /** What kind of mutation: budget_increase, campaign_enable, … */
+  mutationKind: string;
+  adAccountRef?: string;
+  campaignRef?: string;
+  /** Live-object snapshot at queue time — replayed approvals re-read and
+   *  abort when the object drifted. */
+  beforeState?: Record<string, unknown>;
 };
 
 /**
  * Throw from inside `invokeTool` when a tool call needs human approval
  * before it can proceed (e.g. a Lightning payment over the configured
- * threshold). The central dispatcher catches this, creates a pending
- * Approval row, and surfaces a friendly "approval pending" error to the
- * caller. Providers stay free of DB dependencies this way.
+ * threshold, or an ad-budget increase). The central dispatcher catches
+ * this, creates a pending Approval row, and surfaces a friendly "approval
+ * pending" error to the caller. Providers stay free of DB dependencies
+ * this way.
+ *
+ * Lightning callers keep the original three-arg shape (`amountSats`); ads
+ * callers pass an {@link AdSpendApprovalRequest} as the fourth argument and
+ * the dispatcher queues an `ad_spend` Approval instead.
  */
 export class ApprovalRequiredError extends Error {
   constructor(
     public readonly title: string,
     public readonly summary: string | null,
     public readonly amountSats: number,
+    public readonly request?: AdSpendApprovalRequest,
   ) {
     super(`Human approval required: ${title}`);
     this.name = "ApprovalRequiredError";

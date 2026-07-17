@@ -21,6 +21,8 @@ import {
   nativeToolName,
 } from "./agent/tools/mcpBridge.js";
 import { specForMcpServerRow } from "./agent/tools/mcpSources.js";
+import { makeAdSpendLedger } from "./adSpend.js";
+import type { AdSpendApprovalRequest } from "../integrations/types.js";
 
 /**
  * Fire-and-forget notification fan-out for a freshly-created approval.
@@ -103,6 +105,52 @@ export type BrowserActionPayload = {
 };
 
 // --------------------------------------------------------------------------
+// Ad-spend payload
+// --------------------------------------------------------------------------
+
+/**
+ * Captured when an ads provider throws `ApprovalRequiredError` with an
+ * `ad_spend` request — a budget increase or campaign enable above the
+ * Connection's approval threshold. The original tool call is replayed
+ * verbatim on approve with `bypassApprovalGate` set; hard caps still run,
+ * and `beforeState` rides along as `ctx.approvalSnapshot` so the provider
+ * can re-read the live object and abort when it drifted since queueing.
+ */
+export type AdSpendPayload = {
+  connectionId: string;
+  toolName: string;
+  /** Original args, replayed verbatim. */
+  args: Record<string, unknown>;
+  amountMinor: number;
+  currency: string;
+  platform: string;
+  mutationKind: string;
+  adAccountRef?: string;
+  campaignRef?: string;
+  beforeState?: Record<string, unknown>;
+  description?: string;
+};
+
+function parseAdSpendPayload(json: string | null): AdSpendPayload {
+  if (!json) throw new Error("Approval payload is empty");
+  let obj: unknown;
+  try {
+    obj = JSON.parse(json);
+  } catch {
+    throw new Error("Approval payload is not valid JSON");
+  }
+  if (
+    !obj ||
+    typeof obj !== "object" ||
+    typeof (obj as AdSpendPayload).connectionId !== "string" ||
+    typeof (obj as AdSpendPayload).toolName !== "string"
+  ) {
+    throw new Error("Invalid ad-spend payload");
+  }
+  return obj as AdSpendPayload;
+}
+
+// --------------------------------------------------------------------------
 // Guarded MCP tool payload
 // --------------------------------------------------------------------------
 
@@ -143,6 +191,44 @@ function parseMcpToolPayload(json: string | null): McpToolPayload {
 // --------------------------------------------------------------------------
 // Create helpers
 // --------------------------------------------------------------------------
+
+export async function createAdSpendApproval(args: {
+  companyId: string;
+  employeeId: string;
+  connectionId: string;
+  toolName: string;
+  toolArgs: Record<string, unknown>;
+  title: string;
+  summary?: string | null;
+  request: AdSpendApprovalRequest;
+}): Promise<Approval> {
+  const repo = AppDataSource.getRepository(Approval);
+  const approval = repo.create({
+    companyId: args.companyId,
+    kind: "ad_spend",
+    routineId: "",
+    employeeId: args.employeeId,
+    status: "pending",
+    title: args.title,
+    summary: args.summary ?? null,
+    payloadJson: JSON.stringify({
+      connectionId: args.connectionId,
+      toolName: args.toolName,
+      args: args.toolArgs,
+      amountMinor: args.request.amountMinor,
+      currency: args.request.currency,
+      platform: args.request.platform,
+      mutationKind: args.request.mutationKind,
+      adAccountRef: args.request.adAccountRef,
+      campaignRef: args.request.campaignRef,
+      beforeState: args.request.beforeState,
+      description: args.summary ?? undefined,
+    } satisfies AdSpendPayload),
+  });
+  const saved = await repo.save(approval);
+  notifyPending(saved);
+  return saved;
+}
 
 export async function createMcpToolApproval(args: {
   companyId: string;
@@ -259,9 +345,65 @@ export async function executeApproval(approval: Approval): Promise<void> {
     case "mcp_tool":
       await executeMcpToolApproval(approval);
       return;
+    case "ad_spend":
+      await executeAdSpendApproval(approval);
+      return;
     default:
       throw new Error(`Unknown approval kind: ${approval.kind}`);
   }
+}
+
+/**
+ * Replay an approved ad-spend mutation. Mirrors the Lightning contract:
+ * `bypassApprovalGate` skips only the approval gate — the provider's hard
+ * caps (per-change, rolling daily/monthly, kill switch) run again on this
+ * path, and the queued `beforeState` snapshot rides along as
+ * `ctx.approvalSnapshot` so the provider aborts when the live object no
+ * longer matches what the human looked at.
+ */
+async function executeAdSpendApproval(approval: Approval): Promise<void> {
+  const payload = parseAdSpendPayload(approval.payloadJson);
+  const conn = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
+    id: payload.connectionId,
+  });
+  if (!conn) throw new Error("Ads connection no longer exists");
+  if (conn.companyId !== approval.companyId) {
+    throw new Error("Connection belongs to a different company");
+  }
+
+  const provider = getProvider(conn.provider);
+  if (!provider) throw new Error(`Unknown provider: ${conn.provider}`);
+
+  const cfg = decryptConnectionConfig(conn);
+  let refreshed: IntegrationConfig | null = null;
+  const ctx: IntegrationRuntimeContext = {
+    authMode: conn.authMode,
+    config: cfg,
+    setConfig(next) {
+      refreshed = next;
+    },
+    connectionId: conn.id,
+    companyId: conn.companyId,
+    employeeId: approval.employeeId || undefined,
+    bypassApprovalGate: true,
+    approvalSnapshot: payload.beforeState,
+    adSpend: makeAdSpendLedger({
+      connection: conn,
+      employeeId: approval.employeeId || undefined,
+      approvalId: approval.id,
+    }),
+  };
+
+  const result = await provider.invokeTool(payload.toolName, payload.args, ctx);
+  if (refreshed) {
+    conn.encryptedConfig = encryptConnectionConfig(refreshed);
+    conn.lastCheckedAt = new Date();
+    conn.status = "connected";
+    conn.statusMessage = "";
+    await AppDataSource.getRepository(IntegrationConnection).save(conn);
+  }
+  approval.resultJson = JSON.stringify(result);
+  await AppDataSource.getRepository(Approval).save(approval);
 }
 
 /**
@@ -429,6 +571,23 @@ export async function recordApprovalRejection(
           kind: "system",
           title: approval.title ?? "Guarded MCP tool call rejected",
           body: "The guarded tool call was rejected by a human. It was not executed.",
+          routineId: null,
+          runId: null,
+          authorUserId: approval.decidedByUserId,
+        }),
+      );
+      return;
+    }
+    case "ad_spend": {
+      const summary = approval.summary
+        ? `Ad spend change rejected: ${approval.summary}`
+        : "Ad spend change rejected. No mutation was applied.";
+      await AppDataSource.getRepository(JournalEntry).save(
+        AppDataSource.getRepository(JournalEntry).create({
+          employeeId: approval.employeeId,
+          kind: "system",
+          title: approval.title ?? "Ad spend change rejected",
+          body: summary,
           routineId: null,
           runId: null,
           authorUserId: approval.decidedByUserId,
