@@ -234,6 +234,11 @@ export function SelfHosting() {
           registration. See <Code>Sign-ups</Code> below.
         </LI>
         <LI>
+          <Strong>SSO</Strong> — instance-wide single sign-on via Google or any
+          OpenID Connect provider. Disabled by default. See <Code>SSO</Code>{" "}
+          below.
+        </LI>
+        <LI>
           <Strong>Users</Strong> — every human member across every company, with
           their handle, how many companies they belong to, and which companies
           they own. Grant or revoke <Strong>master admin</Strong> on any user
@@ -274,6 +279,47 @@ export function SelfHosting() {
         account to <Strong>master admin</Strong> from <Code>Admin → Users</Code>,
         or by inviting them into a company from that company&apos;s{" "}
         <Code>Settings → Members</Code>.
+      </P>
+
+      <H3 id="sso">SSO</H3>
+      <P>
+        <Code>Admin → SSO</Code> adds single sign-on to the login page —{" "}
+        <Strong>disabled by default</Strong>; a fresh install only offers
+        email + password until a master admin turns it on. Pick{" "}
+        <Strong>Google</Strong> or <Strong>Custom OpenID Connect</Strong>{" "}
+        (Okta, Keycloak, Microsoft Entra ID, Auth0, or anything
+        OIDC-compliant), then:
+      </P>
+      <UL>
+        <LI>
+          Register an OAuth client at your identity provider and set its
+          authorized redirect URI to the <Strong>Callback URL</Strong> shown on
+          the page (it follows <Code>publicUrl</Code> from{" "}
+          <Code>config.ts</Code>).
+        </LI>
+        <LI>
+          Paste the <Strong>Client ID</Strong> and{" "}
+          <Strong>Client secret</Strong> into the form — the secret is stored
+          encrypted and never shown again. For a custom provider, also enter
+          the <Strong>Issuer URL</Strong>; <Code>Check issuer</Code> verifies
+          the provider&apos;s discovery document before you commit.
+        </LI>
+        <LI>
+          Flip <Strong>Enable SSO sign-in</Strong> and save. The login page
+          grows a &ldquo;Continue with …&rdquo; button (the label is yours to
+          override).
+        </LI>
+      </UL>
+      <P>
+        On first SSO sign-in an existing account with the same verified email
+        is linked automatically; after that the identity provider&apos;s stable
+        subject is what identifies the account, so an email change at either
+        end won&apos;t orphan it. With{" "}
+        <Strong>Create accounts on first sign-in</Strong> on (the default),
+        people your identity provider admits get a Genosyn account
+        automatically — turn it off to admit only people who already have an
+        account or an invitation. Password login keeps working either way, so
+        enabling (or later resetting) SSO can never lock an operator out.
       </P>
 
       <H3 id="db-console">Database console</H3>

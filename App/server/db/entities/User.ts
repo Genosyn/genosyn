@@ -1,6 +1,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 @Entity("users")
+@Index(["ssoIssuer", "ssoSubject"], { unique: true, where: '"ssoSubject" IS NOT NULL' })
 export class User {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -48,6 +49,20 @@ export class User {
    */
   @Column({ type: "boolean", default: false })
   isMasterAdmin!: boolean;
+
+  /**
+   * OpenID Connect identity this account is linked to, written on first SSO
+   * sign-in (Admin → SSO): the provider's issuer URL plus its stable `sub`
+   * claim. Login matches on the pair, so a subject minted by a
+   * previously-configured issuer can never resolve to someone else's account.
+   * Null until the user signs in via SSO; password login keeps working
+   * either way.
+   */
+  @Column({ type: "varchar", nullable: true })
+  ssoIssuer!: string | null;
+
+  @Column({ type: "varchar", nullable: true })
+  ssoSubject!: string | null;
 
   @CreateDateColumn()
   createdAt!: Date;

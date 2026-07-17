@@ -5,6 +5,7 @@ import {
   Archive,
   Building2,
   Database,
+  KeyRound,
   Layers,
   LayoutDashboard,
   Mail,
@@ -39,6 +40,7 @@ const ADMIN_TAB_LABEL: Record<string, string> = {
   migrations: "Migrations",
   email: "Email transport",
   signups: "Sign-ups",
+  sso: "SSO",
   backup: "Backups",
   users: "Users",
   companies: "Companies",
@@ -97,6 +99,7 @@ export default function AdminLayout({
           icon={<UserPlus size={14} />}
           label="Sign-ups"
         />
+        <SidebarLink to={`${base}/sso`} icon={<KeyRound size={14} />} label="SSO" />
         <SidebarLink to={`${base}/backup`} icon={<Archive size={14} />} label="Backups" />
 
         <div className="px-2 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">

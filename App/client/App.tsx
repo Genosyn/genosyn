@@ -50,6 +50,7 @@ import { AdminDbConsole } from "./pages/AdminDbConsole";
 import { AdminMigrations } from "./pages/AdminMigrations";
 import { AdminEmail } from "./pages/AdminEmail";
 import { AdminSignups } from "./pages/AdminSignups";
+import { AdminSSO } from "./pages/AdminSSO";
 import { AdminBackup } from "./pages/AdminBackup";
 import { AdminUsers } from "./pages/AdminUsers";
 import { AdminCompanies } from "./pages/AdminCompanies";
@@ -515,6 +516,7 @@ function CompanyRoutes({
           <Route path="migrations" element={<AdminMigrations />} />
           <Route path="email" element={<AdminEmail />} />
           <Route path="signups" element={<AdminSignups />} />
+          <Route path="sso" element={<AdminSSO />} />
           <Route path="backup" element={<AdminBackup />} />
           <Route path="users" element={<AdminUsers />} />
           <Route path="companies" element={<AdminCompanies />} />

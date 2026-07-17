@@ -1710,6 +1710,29 @@ export type GlobalEmailTransport = {
 export type SignupSettings = { signupsDisabled: boolean };
 export type SignupStatus = { open: boolean };
 
+// ───────────────────────────── Admin SSO ────────────────────────────────────
+// Instance-wide single sign-on, served by /api/admin/sso. Disabled by default.
+// The login page reads the public probe at /api/auth/sso/status.
+export type SsoProvider = "google" | "oidc";
+export type SsoSettings = {
+  enabled: boolean;
+  provider: SsoProvider;
+  displayName: string;
+  issuer: string;
+  clientId: string;
+  hasClientSecret: boolean;
+  autoProvision: boolean;
+  configured: boolean;
+  callbackUrl: string;
+};
+export type SsoPublicStatus = { enabled: boolean; buttonLabel: string | null };
+export type SsoIssuerCheck = {
+  ok: boolean;
+  authorizationEndpoint?: string;
+  tokenEndpoint?: string;
+  userinfoEndpoint?: string;
+};
+
 // ───────────────────── Admin directory (Users + Companies) ───────────────────
 // Instance-wide management surfaces served by /api/admin/users and
 // /api/admin/companies. Not company-scoped — see routes/admin.ts.

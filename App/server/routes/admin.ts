@@ -18,6 +18,12 @@ import {
   getSignupSettings,
   setSignupsDisabled,
 } from "../services/signupSettings.js";
+import {
+  clearSsoSettings,
+  describeSso,
+  updateSsoSettings,
+} from "../services/ssoSettings.js";
+import { discoverOidcEndpoints, SsoLoginError } from "../services/ssoLogin.js";
 import { deleteUserCascade, UserOwnsCompaniesError } from "../services/userDelete.js";
 import { deleteCompanyCascade } from "../services/companyDelete.js";
 import { avatarAbsPath, mimeFromKey, removeAvatarFile } from "../services/avatars.js";
@@ -222,6 +228,78 @@ adminRouter.put(
       const { signupsDisabled } = req.body as z.infer<typeof signupSettingsSchema>;
       res.json(await setSignupsDisabled(signupsDisabled));
     } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ───────────────────────────── SSO sign-in ─────────────────────────────────
+//
+// Instance-wide single sign-on. Disabled by default; operators configure a
+// Google or OpenID Connect client here and the login page grows a
+// "Continue with …" button. The client secret is stored encrypted and never
+// echoed back — see services/ssoSettings.ts.
+
+adminRouter.get("/sso", async (_req, res, next) => {
+  try {
+    res.json(await describeSso());
+  } catch (err) {
+    next(err);
+  }
+});
+
+const ssoSchema = z.object({
+  enabled: z.boolean(),
+  provider: z.enum(["google", "oidc"]),
+  displayName: z.string().max(60),
+  issuer: z.string().max(500),
+  clientId: z.string().max(500),
+  // Blank means "keep the client secret currently stored".
+  clientSecret: z.string().max(2000),
+  autoProvision: z.boolean(),
+});
+
+adminRouter.put("/sso", validateBody(ssoSchema), async (req, res, next) => {
+  const body = req.body as z.infer<typeof ssoSchema>;
+  // The write is the only fallible-by-user step: an incomplete config that
+  // tries to enable SSO comes back as a 400 the form renders inline.
+  try {
+    res.json(await updateSsoSettings(body));
+  } catch (err) {
+    if (err instanceof Error && !(err instanceof TypeError)) {
+      return res.status(400).json({ error: err.message });
+    }
+    next(err);
+  }
+});
+
+adminRouter.delete("/sso", async (_req, res, next) => {
+  try {
+    res.json(await clearSsoSettings());
+  } catch (err) {
+    next(err);
+  }
+});
+
+const ssoTestSchema = z.object({ issuer: z.string().min(1).max(500) });
+
+/**
+ * Probe an issuer's OIDC discovery document before the operator commits to
+ * it — reports the endpoints found, or the reason the issuer can't be used.
+ * No credentials are involved, so this is safe to run against a draft.
+ */
+adminRouter.post(
+  "/sso/test",
+  validateBody(ssoTestSchema),
+  async (req, res, next) => {
+    const { issuer } = req.body as z.infer<typeof ssoTestSchema>;
+    try {
+      const endpoints = await discoverOidcEndpoints(issuer);
+      res.json({ ok: true, ...endpoints });
+    } catch (err) {
+      if (err instanceof SsoLoginError) {
+        return res.status(400).json({ ok: false, error: err.message });
+      }
       next(err);
     }
   },

@@ -691,10 +691,27 @@ Phase B+ (deferred — out of this PR)
 - [ ] Verify on login when enabled; recovery-code path
 - [ ] Per-company "require 2FA" admin policy (later)
 
-### M16 — Google login / SSO (planned)
-- [ ] Reuse existing `integrations.google` OAuth client for sign-in
-- [ ] `User.googleSub` (unique, nullable); link existing accounts by email
-- [ ] Owner can require Google login for their company
+### M16 — SSO login (Google / OIDC) (shipped)
+
+Instance-wide single sign-on, configured from Admin → SSO and **disabled by
+default**. Rather than reusing a company's `integrations.google` Connection
+(login is instance-scoped, not company-scoped), the operator registers a
+dedicated OAuth client and Genosyn runs a spec-minimal OIDC
+authorization-code flow in-process — discovery document + `userinfo`, no JWT
+libraries. Google is just a preset issuer; Okta / Keycloak / Entra ID / Auth0
+work the same way.
+
+- [x] Admin → SSO: enable toggle (off by default), Google or custom-OIDC
+      issuer, client id + secret (encrypted at rest via `lib/secret.ts`),
+      button-label override, "check issuer" discovery probe, callback URL
+      readout
+- [x] `User.ssoIssuer` + `User.ssoSubject` (unique pair, nullable); existing
+      accounts link by verified email on first SSO sign-in
+- [x] Login page grows a "Continue with …" button when enabled; SSO failures
+      round-trip back to `/login?ssoError=…`
+- [x] Auto-provision toggle — create accounts on first sign-in, or admit
+      only existing/invited users
+- [ ] Owner can require SSO for their company (deferred)
 
 ### M17 — Marketplace (planned)
 - [ ] Export an employee as `{ soul, skills[], routines[], grants[] }`
@@ -897,7 +914,8 @@ of the original V1 backlog has shipped — what remains is mostly
       unread notifications, my todos, reviews waiting on me, pending
       approvals, unread channels/DMs, today's journal digest, section
       directory (Employees roster moved to `/employees`)
-- [ ] **SSO / Google login** — see M16
+- [x] **SSO / Google login** — instance-wide, Admin → SSO, disabled by
+      default; see M16
 - [ ] **2FA (TOTP)** — see M15
 - [x] **Dark mode** — fully covered (1,500+ `dark:` classes)
 - [x] **CLI** — `CLI/genosyn` bash wrapper around Docker, installed via

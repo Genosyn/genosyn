@@ -18,6 +18,7 @@ import { bootMailHandovers } from "./services/mail/handovers.js";
 import { attachRealtime } from "./services/realtime.js";
 import { errorHandler } from "./middleware/error.js";
 import { authRouter } from "./routes/auth.js";
+import { ssoRouter } from "./routes/sso.js";
 import { companiesRouter } from "./routes/companies.js";
 import { invitationsRouter } from "./routes/invitations.js";
 import { employeesRouter } from "./routes/employees.js";
@@ -134,6 +135,11 @@ async function main() {
   // shapes, not data, and any documented endpoint still enforces its own auth.
   app.use("/api", openapiRouter);
 
+  // SSO sign-in (status probe, IdP redirect, callback). Mounted before the
+  // main auth router so its more-specific `/api/auth/sso/*` paths win; the
+  // callback authenticates via the single-use state token, then writes the
+  // session cookie itself.
+  app.use("/api/auth/sso", ssoRouter);
   app.use("/api/auth", authRouter);
   // Web Push subscriptions for the PWA — user-scoped, so mounted outside
   // the per-company tree.
