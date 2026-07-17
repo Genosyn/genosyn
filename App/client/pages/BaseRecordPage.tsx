@@ -42,7 +42,12 @@ export default function BaseRecordPage({ company }: { company: Company }) {
 
   const loadContent = React.useCallback(
     async (silent = false) => {
-      if (!detail || !table) return;
+      if (!detail || !table) {
+        // Base resolved but the table slug doesn't exist — stop loading so
+        // the not-found state below renders instead of an endless spinner.
+        if (detail) setLoading(false);
+        return;
+      }
       if (!silent) setLoading(true);
       try {
         const d = await api.get<BaseTableContent>(
