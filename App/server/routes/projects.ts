@@ -20,6 +20,7 @@ import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { ChatTurn, chatWithEmployee } from "../services/chat.js";
 import { createNotification } from "../services/notifications.js";
+import { kickoffAssignedTodo } from "../services/todoKickoff.js";
 import {
   ProjectActor,
   countWriteHumans,
@@ -735,6 +736,21 @@ projectsRouter.post(
       parentTodoId: body.parentTodoId ?? null,
     });
     await AppDataSource.getRepository(Todo).save(t);
+
+    // Assigning to an AI employee is the "go" signal — start a work session
+    // in the background instead of letting the todo sit until a routine or a
+    // chat happens to look at it. Fire-and-forget; all guards live in the
+    // service.
+    if (t.assigneeEmployeeId) {
+      void kickoffAssignedTodo({
+        companyId: cid,
+        todoId: t.id,
+        employeeId: t.assigneeEmployeeId,
+      }).catch((err) => {
+        console.error("[todos] kickoff failed", err);
+      });
+    }
+
     const [hydrated] = await hydrateTodos(cid, [t]);
     res.json(hydrated);
   },
@@ -775,6 +791,7 @@ projectsRouter.patch("/todos/:tid", validateBody(patchTodoSchema), async (req, r
   }
   const body = req.body as z.infer<typeof patchTodoSchema>;
   const t = found.todo;
+  const prevAssigneeEmployeeId = t.assigneeEmployeeId;
 
   // Apply assignee + reviewer changes together so we can validate "only one
   // kind at a time" against the resulting state, and clear the other side
@@ -882,6 +899,19 @@ projectsRouter.patch("/todos/:tid", validateBody(patchTodoSchema), async (req, r
   // was due Monday stays due on Mondays; otherwise anchor to now.
   if (justCompleted && t.recurrence !== "none") {
     await spawnNextRecurrence(found.project, t);
+  }
+
+  // Handing the todo to an AI employee (fresh assignment or reassignment) is
+  // the "go" signal — start a work session in the background. Same seam as
+  // todo creation; all eligibility guards live in the service.
+  if (t.assigneeEmployeeId && t.assigneeEmployeeId !== prevAssigneeEmployeeId) {
+    void kickoffAssignedTodo({
+      companyId: cid,
+      todoId: t.id,
+      employeeId: t.assigneeEmployeeId,
+    }).catch((err) => {
+      console.error("[todos] kickoff failed", err);
+    });
   }
 
   const [hydrated] = await hydrateTodos(cid, [t]);

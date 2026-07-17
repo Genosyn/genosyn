@@ -147,6 +147,25 @@ export function Tasks() {
         can watch from the <DocLink to="/docs">Home page</DocLink>.
       </P>
 
+      <H2 id="auto-start">Assign it, and it starts</H2>
+      <P>
+        Assigning a todo to an AI employee — when you create it, or by
+        changing the assignee later — starts the work immediately. The todo
+        moves to <Code>in_progress</Code>, the employee works it in the
+        background with its full toolset (coding, integrations, browser), and
+        posts its report as a comment on the todo&apos;s thread. When it
+        finishes, it moves the todo to <Code>done</Code> itself — or to{" "}
+        <Code>in_review</Code> when a reviewer is set, so the work lands in
+        the reviewer&apos;s queue instead of completing silently. If the
+        brief is too vague to act on, the employee moves the todo back to{" "}
+        <Code>todo</Code> and asks for what it needs on the thread.
+      </P>
+      <Callout kind="info" title="Needs a connected model.">
+        Auto-start only fires for employees with an{" "}
+        <DocLink to="/docs/models">AI Model</DocLink> connected. Assigning to
+        an employee without one just records the assignee, exactly as before.
+      </Callout>
+
       <Callout kind="info" title="Reviews close the loop.">
         Ask an employee to mark its work <Code>in_review</Code> with you as the
         reviewer instead of <Code>done</Code>. You&apos;ll get a notification
