@@ -20,6 +20,7 @@ import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { ChatTurn, chatWithEmployee } from "../services/chat.js";
 import { createNotification } from "../services/notifications.js";
+import { dispatchTodoCreated } from "../services/pipelines/events.js";
 import { kickoffAssignedTodo } from "../services/todoKickoff.js";
 import {
   ProjectActor,
@@ -736,6 +737,9 @@ projectsRouter.post(
       parentTodoId: body.parentTodoId ?? null,
     });
     await AppDataSource.getRepository(Todo).save(t);
+    void dispatchTodoCreated(cid, t.id).catch((err) => {
+      console.error(`[pipelines] task event failed for ${t.id}:`, err);
+    });
 
     // Assigning to an AI employee is the "go" signal — start a work session
     // in the background instead of letting the todo sit until a routine or a
@@ -954,6 +958,9 @@ async function spawnNextRecurrence(project: Project, completed: Todo): Promise<v
     parentTodoId: completed.parentTodoId,
   });
   await todoRepo.save(next);
+  void dispatchTodoCreated(project.companyId, next.id).catch((err) => {
+    console.error(`[pipelines] task event failed for ${next.id}:`, err);
+  });
 }
 
 projectsRouter.delete("/todos/:tid", async (req, res) => {
