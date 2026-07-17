@@ -22,8 +22,23 @@ export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
  *                            once status flips to `approved`. Server does
  *                            not re-fire — only the MCP child can drive
  *                            the live browser session.
+ *   - `mcp_tool`          — a guarded tool on a company-configured MCP
+ *                            server (`McpServer.guardedToolsJson` glob
+ *                            match). The verbatim call is snapshotted on
+ *                            `payloadJson` and replayed server-side on
+ *                            approve by reconnecting to the same server.
+ *   - `ad_spend`          — a spend-increasing ad-platform mutation
+ *                            (budget raise, campaign enable) above the
+ *                            Connection's approval threshold. Replayed on
+ *                            approve with hard caps still enforced and a
+ *                            drift check against the queued snapshot.
  */
-export type ApprovalKind = "routine" | "lightning_payment" | "browser_action";
+export type ApprovalKind =
+  | "routine"
+  | "lightning_payment"
+  | "browser_action"
+  | "mcp_tool"
+  | "ad_spend";
 
 /**
  * Human-in-the-loop gate. Two flavors today (see `ApprovalKind`):

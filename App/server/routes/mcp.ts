@@ -32,6 +32,7 @@ function serialize(s: McpServer) {
     args: s.argsJson ? safeParseArray(s.argsJson) : [],
     env: s.envJson ? safeParseRecord(s.envJson) : {},
     url: s.url,
+    guardedTools: s.guardedToolsJson ? safeParseArray(s.guardedToolsJson) : [],
     enabled: s.enabled,
     createdAt: s.createdAt,
   };
@@ -82,6 +83,9 @@ const createSchema = z
     args: z.array(z.string().max(500)).max(50).optional(),
     env: z.record(z.string().max(4000)).optional(),
     url: z.string().url().max(2000).optional(),
+    /** Glob patterns (`*` wildcard) of tool names that must pass the
+     *  Approvals inbox before running (e.g. `ads_update_*`). */
+    guardedTools: z.array(z.string().min(1).max(200)).max(100).optional(),
     enabled: z.boolean().optional(),
   })
   .refine(
@@ -107,6 +111,10 @@ mcpRouter.post("/", validateBody(createSchema), async (req, res) => {
     argsJson: body.transport === "stdio" && body.args ? JSON.stringify(body.args) : null,
     envJson: body.env ? JSON.stringify(body.env) : null,
     url: body.transport === "http" ? body.url ?? null : null,
+    guardedToolsJson:
+      body.guardedTools && body.guardedTools.length > 0
+        ? JSON.stringify(body.guardedTools)
+        : null,
     enabled: body.enabled ?? true,
   });
   await repo.save(s);

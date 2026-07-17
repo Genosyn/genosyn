@@ -2130,6 +2130,14 @@ export function McpPage() {
                       <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-600 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300">
                         {s.transport}
                       </span>
+                      {s.guardedTools.length > 0 && (
+                        <span
+                          className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
+                          title={`Guarded: ${s.guardedTools.join(", ")}`}
+                        >
+                          {s.guardedTools.length} guarded
+                        </span>
+                      )}
                     </div>
                     <div className="mt-1 truncate font-mono text-xs text-slate-500 dark:text-slate-400">
                       {s.transport === "stdio"
@@ -2240,6 +2248,7 @@ function NewMcpModal({
   const [argsLine, setArgsLine] = React.useState("");
   const [url, setUrl] = React.useState("");
   const [envLines, setEnvLines] = React.useState("");
+  const [guardedLine, setGuardedLine] = React.useState("");
   const [saving, setSaving] = React.useState(false);
   const { toast } = useToast();
 
@@ -2267,6 +2276,11 @@ function NewMcpModal({
         body.url = url.trim();
       }
       if (Object.keys(env).length) body.env = env;
+      const guardedTools = guardedLine
+        .split(/[,\n]/)
+        .map((p) => p.trim())
+        .filter(Boolean);
+      if (guardedTools.length) body.guardedTools = guardedTools;
       await api.post(
         `/api/companies/${company.id}/employees/${emp.id}/mcp`,
         body,
@@ -2340,6 +2354,21 @@ function NewMcpModal({
             className="resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-xs placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
             placeholder="GITHUB_TOKEN=ghp_…"
           />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
+            Guarded tools (optional, comma-separated)
+          </label>
+          <Input
+            value={guardedLine}
+            onChange={(e) => setGuardedLine(e.target.value)}
+            placeholder="e.g. ads_create_*, ads_update_*"
+          />
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Tool names matching these patterns (<code>*</code> wildcard) queue a
+            human Approval instead of running. Guard anything that mutates —
+            budget changes, sends, deletes.
+          </p>
         </div>
         <div className="flex gap-2">
           <Button type="submit" disabled={saving || !name.trim()}>

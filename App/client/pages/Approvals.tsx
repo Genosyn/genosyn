@@ -1,5 +1,5 @@
 import React from "react";
-import { Check, Globe, ShieldCheck, X, Zap } from "lucide-react";
+import { Check, Globe, Megaphone, Plug, ShieldCheck, X, Zap } from "lucide-react";
 import { api, Approval, ApprovalKind, ApprovalStatus, Company } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
@@ -57,6 +57,22 @@ function copyFor(a: Approval): ApprovalCopy {
         // Browser actions don't run server-side — the model retries via
         // browser_resume once it sees the row flip to approved.
         approvedToast: "Approved — the AI will retry the submission",
+      };
+    case "mcp_tool":
+      return {
+        title: a.title ?? "Guarded MCP tool call",
+        subtitle: a.summary ?? "AI employee wants to run a guarded tool",
+        Icon: Plug,
+        iconClass: "text-sky-600",
+        approvedToast: "Approved — running the tool call",
+      };
+    case "ad_spend":
+      return {
+        title: a.title ?? "Ad spend change",
+        subtitle: a.summary ?? "AI employee wants to change ad spend",
+        Icon: Megaphone,
+        iconClass: "text-rose-500",
+        approvedToast: "Approved — applying the change",
       };
     case "routine":
     default:

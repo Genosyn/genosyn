@@ -50,6 +50,16 @@ export class McpServer {
   @Column({ type: "varchar", nullable: true })
   url!: string | null;
 
+  /**
+   * JSON-encoded string[] of glob patterns (`*` wildcard) naming tools that
+   * must go through the Approvals inbox before they run — e.g.
+   * `["ads_create_*", "ads_update_*"]`. Matching calls queue an Approval
+   * (kind `mcp_tool`) instead of executing; a human approve replays the
+   * call server-side. Null/empty = nothing guarded.
+   */
+  @Column({ type: "text", nullable: true })
+  guardedToolsJson!: string | null;
+
   @Column({ type: "boolean", default: true })
   enabled!: boolean;
 

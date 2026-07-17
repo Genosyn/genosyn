@@ -41,6 +41,46 @@ export type BridgedServer = {
 };
 
 /**
+ * Human-approval guard for a server's tools. When a tool's *native* name
+ * matches one of `patterns` (glob, `*` wildcard), the bridge calls
+ * `onGuarded` instead of the server — the host queues an Approval and hands
+ * the model a "pending" result. The approved call is replayed server-side
+ * by `services/approvals.ts`, which connects to the same server directly.
+ */
+export type McpToolGuard = {
+  patterns: string[];
+  onGuarded: (
+    toolName: string,
+    input: Record<string, unknown>,
+  ) => Promise<ToolResult>;
+};
+
+/** Does a native tool name match any of the guard's glob patterns? */
+export function matchesGuardPattern(name: string, patterns: string[]): boolean {
+  for (const pattern of patterns) {
+    const p = pattern.trim();
+    if (!p) continue;
+    const re = new RegExp(
+      "^" + p.split("*").map(escapeRegex).join(".*") + "$",
+    );
+    if (re.test(name)) return true;
+  }
+  return false;
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * The name a tool is exposed under when bridged with an empty prefix — the
+ * approval replay path uses this to find the held tool again.
+ */
+export function nativeToolName(toolName: string): string {
+  return sanitizeChars(toolName).slice(0, 64) || "tool";
+}
+
+/**
  * Connect to one MCP server and expose its tools. `namePrefix` is prepended to
  * every tool name (with `__`) to avoid collisions between servers; pass an empty
  * string to keep native names (used for the browser server, whose `browser_*`
@@ -54,6 +94,7 @@ export async function connectMcpServer(
   spec: McpServerSpec,
   namePrefix: string,
   signal?: AbortSignal,
+  guard?: McpToolGuard,
 ): Promise<BridgedServer> {
   const client = new Client({ name: "genosyn", version: appVersion() });
 
@@ -98,14 +139,19 @@ export async function connectMcpServer(
   }
 
   const tools: AgentTool[] = (listed.tools ?? []).map((t) => {
+    const guarded = guard ? matchesGuardPattern(t.name, guard.patterns) : false;
     return {
       name: exposedToolName(namePrefix, t.name),
-      description: t.description ?? `${label} tool`,
+      description: guarded
+        ? `${t.description ?? `${label} tool`} (Guarded: this call queues a human Approval and runs after approve.)`
+        : t.description ?? `${label} tool`,
       inputSchema: (t.inputSchema as Record<string, unknown>) ?? {
         type: "object",
         properties: {},
       },
-      run: (input) => callBridged(client, t.name, input, signal),
+      run: guarded
+        ? (input) => guard!.onGuarded(t.name, input)
+        : (input) => callBridged(client, t.name, input, signal),
     };
   });
 

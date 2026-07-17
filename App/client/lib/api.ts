@@ -287,7 +287,12 @@ export type SkillWithMeta = Skill & {
 };
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
-export type ApprovalKind = "routine" | "lightning_payment" | "browser_action";
+export type ApprovalKind =
+  | "routine"
+  | "lightning_payment"
+  | "browser_action"
+  | "mcp_tool"
+  | "ad_spend";
 export type Approval = {
   id: string;
   companyId: string;
@@ -439,6 +444,8 @@ export type McpServer = {
   args: string[];
   env: Record<string, string>;
   url: string | null;
+  /** Glob patterns of tool names that queue an Approval instead of running. */
+  guardedTools: string[];
   enabled: boolean;
   createdAt: string;
 };

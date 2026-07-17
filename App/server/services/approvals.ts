@@ -14,6 +14,13 @@ import type {
   IntegrationRuntimeContext,
 } from "../integrations/types.js";
 import { notifyApprovalPending } from "./notifications.js";
+import { McpServer } from "../db/entities/McpServer.js";
+import { AIEmployee } from "../db/entities/AIEmployee.js";
+import {
+  connectMcpServer,
+  nativeToolName,
+} from "./agent/tools/mcpBridge.js";
+import { specForMcpServerRow } from "./agent/tools/mcpSources.js";
 
 /**
  * Fire-and-forget notification fan-out for a freshly-created approval.
@@ -96,8 +103,77 @@ export type BrowserActionPayload = {
 };
 
 // --------------------------------------------------------------------------
+// Guarded MCP tool payload
+// --------------------------------------------------------------------------
+
+/**
+ * Captured when an AI employee calls a tool matched by its MCP server's
+ * `guardedToolsJson` patterns. Unlike `browser_action`, the server CAN
+ * replay this: on approve we reconnect to the same MCP server (stdio spawn
+ * or HTTP) and fire the verbatim call.
+ */
+export type McpToolPayload = {
+  mcpServerId: string;
+  serverName: string;
+  /** Native tool name as the MCP server exposes it. */
+  toolName: string;
+  /** Original args, replayed verbatim. */
+  args: Record<string, unknown>;
+};
+
+function parseMcpToolPayload(json: string | null): McpToolPayload {
+  if (!json) throw new Error("Approval payload is empty");
+  let obj: unknown;
+  try {
+    obj = JSON.parse(json);
+  } catch {
+    throw new Error("Approval payload is not valid JSON");
+  }
+  if (
+    !obj ||
+    typeof obj !== "object" ||
+    typeof (obj as McpToolPayload).mcpServerId !== "string" ||
+    typeof (obj as McpToolPayload).toolName !== "string"
+  ) {
+    throw new Error("Invalid MCP tool payload");
+  }
+  return obj as McpToolPayload;
+}
+
+// --------------------------------------------------------------------------
 // Create helpers
 // --------------------------------------------------------------------------
+
+export async function createMcpToolApproval(args: {
+  companyId: string;
+  employeeId: string;
+  mcpServerId: string;
+  serverName: string;
+  toolName: string;
+  toolArgs: Record<string, unknown>;
+}): Promise<Approval> {
+  const repo = AppDataSource.getRepository(Approval);
+  const argsPreview = JSON.stringify(args.toolArgs);
+  const approval = repo.create({
+    companyId: args.companyId,
+    kind: "mcp_tool",
+    routineId: "",
+    employeeId: args.employeeId,
+    status: "pending",
+    title: `MCP tool · ${args.serverName} · ${args.toolName}`,
+    summary:
+      argsPreview.length > 400 ? argsPreview.slice(0, 397) + "..." : argsPreview,
+    payloadJson: JSON.stringify({
+      mcpServerId: args.mcpServerId,
+      serverName: args.serverName,
+      toolName: args.toolName,
+      args: args.toolArgs,
+    } satisfies McpToolPayload),
+  });
+  const saved = await repo.save(approval);
+  notifyPending(saved);
+  return saved;
+}
 
 export async function createBrowserActionApproval(args: {
   companyId: string;
@@ -180,8 +256,52 @@ export async function executeApproval(approval: Approval): Promise<void> {
       // Server side has no browser. The model re-fires the held action
       // via `browser_resume(approvalId)` once the row flips to approved.
       return;
+    case "mcp_tool":
+      await executeMcpToolApproval(approval);
+      return;
     default:
       throw new Error(`Unknown approval kind: ${approval.kind}`);
+  }
+}
+
+/**
+ * Replay an approved guarded MCP tool call: reconnect to the server the
+ * call was queued against and fire the verbatim tool + args. The tool's
+ * text result lands on `resultJson`; an isError result throws so the route
+ * captures it on `errorMessage`.
+ */
+async function executeMcpToolApproval(approval: Approval): Promise<void> {
+  const payload = parseMcpToolPayload(approval.payloadJson);
+  const row = await AppDataSource.getRepository(McpServer).findOneBy({
+    id: payload.mcpServerId,
+  });
+  if (!row) throw new Error("MCP server no longer exists");
+  const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
+    id: row.employeeId,
+  });
+  if (!employee || employee.companyId !== approval.companyId) {
+    throw new Error("MCP server belongs to a different company");
+  }
+  const spec = specForMcpServerRow(row);
+  if (!spec) throw new Error("MCP server has no runnable transport config");
+
+  const bridged = await connectMcpServer(row.name, spec, "");
+  try {
+    const wanted = nativeToolName(payload.toolName);
+    const tool = bridged.tools.find((t) => t.name === wanted);
+    if (!tool) {
+      throw new Error(
+        `Tool "${payload.toolName}" no longer exists on MCP server "${row.name}"`,
+      );
+    }
+    const result = await tool.run(payload.args);
+    if (result.isError) {
+      throw new Error(result.content || "Tool call failed");
+    }
+    approval.resultJson = JSON.stringify({ content: result.content });
+    await AppDataSource.getRepository(Approval).save(approval);
+  } finally {
+    await bridged.close();
   }
 }
 
@@ -295,6 +415,20 @@ export async function recordApprovalRejection(
           kind: "system",
           title: approval.title ?? "Browser action rejected",
           body: summary,
+          routineId: null,
+          runId: null,
+          authorUserId: approval.decidedByUserId,
+        }),
+      );
+      return;
+    }
+    case "mcp_tool": {
+      await AppDataSource.getRepository(JournalEntry).save(
+        AppDataSource.getRepository(JournalEntry).create({
+          employeeId: approval.employeeId,
+          kind: "system",
+          title: approval.title ?? "Guarded MCP tool call rejected",
+          body: "The guarded tool call was rejected by a human. It was not executed.",
           routineId: null,
           runId: null,
           authorUserId: approval.decidedByUserId,

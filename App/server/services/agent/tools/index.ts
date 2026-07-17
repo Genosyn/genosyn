@@ -68,8 +68,13 @@ export async function gatherEmployeeTools(params: {
   }
 
   // 4: company-configured MCP servers, each namespaced by server name.
+  // A server's guarded tools (McpServer.guardedToolsJson patterns) queue an
+  // Approval instead of executing — the guard closure was bound in
+  // loadUserServerSpecs.
   const connections = await Promise.all(
-    userServers.map((s) => connectMcpServer(s.name, s.spec, s.name, params.signal)),
+    userServers.map((s) =>
+      connectMcpServer(s.name, s.spec, s.name, params.signal, s.guard),
+    ),
   );
   for (const c of connections) {
     bridged.push(c);

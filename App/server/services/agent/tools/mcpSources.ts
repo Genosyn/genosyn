@@ -7,7 +7,7 @@ import { Routine } from "../../../db/entities/Routine.js";
 import { BrowserSession } from "../../../db/entities/BrowserSession.js";
 import { config } from "../../../../config.js";
 import { createBrowserSession } from "../../browserSessions.js";
-import type { McpServerSpec } from "./mcpBridge.js";
+import type { McpServerSpec, McpToolGuard } from "./mcpBridge.js";
 
 /**
  * Resolves the *out-of-process* MCP tool sources for an employee: the built-in
@@ -151,28 +151,70 @@ export function browserServerSpec(
 
 // ---------- user-configured servers ----------
 
+/**
+ * Runnable transport spec for one McpServer row, or null when the row's
+ * transport config is incomplete. Shared by the per-turn tool assembly and
+ * the approval replay path (`services/approvals.ts`), which reconnects to
+ * the same server to execute an approved guarded call.
+ */
+export function specForMcpServerRow(s: McpServer): McpServerSpec | null {
+  if (s.transport === "http" && s.url) {
+    return { transport: "http", url: s.url };
+  }
+  if (s.transport === "stdio" && s.command) {
+    return {
+      transport: "stdio",
+      command: s.command,
+      args: parseJsonArray(s.argsJson) ?? [],
+      env: parseJsonRecord(s.envJson) ?? {},
+    };
+  }
+  return null;
+}
+
 export async function loadUserServerSpecs(
   employeeId: string,
-): Promise<Array<{ name: string; spec: McpServerSpec }>> {
-  const rows = await AppDataSource.getRepository(McpServer).find({
-    where: { employeeId, enabled: true },
-  });
-  const out: Array<{ name: string; spec: McpServerSpec }> = [];
+): Promise<Array<{ name: string; spec: McpServerSpec; guard?: McpToolGuard }>> {
+  const [rows, employee] = await Promise.all([
+    AppDataSource.getRepository(McpServer).find({
+      where: { employeeId, enabled: true },
+    }),
+    AppDataSource.getRepository(AIEmployee).findOneBy({ id: employeeId }),
+  ]);
+  const companyId = employee?.companyId;
+  const out: Array<{ name: string; spec: McpServerSpec; guard?: McpToolGuard }> = [];
   for (const s of rows) {
     if (RESERVED_SERVER_NAMES.has(s.name)) continue;
-    if (s.transport === "http" && s.url) {
-      out.push({ name: s.name, spec: { transport: "http", url: s.url } });
-    } else if (s.transport === "stdio" && s.command) {
-      out.push({
-        name: s.name,
-        spec: {
-          transport: "stdio",
-          command: s.command,
-          args: parseJsonArray(s.argsJson) ?? [],
-          env: parseJsonRecord(s.envJson) ?? {},
-        },
-      });
-    }
+    const spec = specForMcpServerRow(s);
+    if (!spec) continue;
+    const patterns = (parseJsonArray(s.guardedToolsJson) ?? []).filter(
+      (p) => p.trim().length > 0,
+    );
+    // Guarded tools queue an Approval instead of executing. The import is
+    // dynamic because approvals.ts reaches (via the runner) back into this
+    // module — a static import would close the cycle at module-init time.
+    const guard: McpToolGuard | undefined =
+      patterns.length > 0 && companyId
+        ? {
+            patterns,
+            onGuarded: async (toolName, input) => {
+              const { createMcpToolApproval } = await import("../../approvals.js");
+              const approval = await createMcpToolApproval({
+                companyId,
+                employeeId,
+                mcpServerId: s.id,
+                serverName: s.name,
+                toolName,
+                toolArgs: input,
+              });
+              return {
+                content: `Approval pending — "${toolName}" on MCP server "${s.name}" is guarded, so a human must approve it first. Approval id: ${approval.id}. The call runs automatically once approved; do not retry it yourself.`,
+                isError: true,
+              };
+            },
+          }
+        : undefined;
+    out.push({ name: s.name, spec, guard });
   }
   return out;
 }
