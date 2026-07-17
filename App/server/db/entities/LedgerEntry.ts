@@ -30,7 +30,11 @@ export type LedgerEntrySource =
   | "manual"
   | "invoice_issue"
   | "invoice_payment"
-  | "invoice_void";
+  | "invoice_void"
+  | "brex_card_expense"
+  | "brex_card_refund"
+  | "brex_card_payment"
+  | "brex_card_reclass";
 
 /**
  * A balanced double-entry transaction. Phase B of the Finance milestone

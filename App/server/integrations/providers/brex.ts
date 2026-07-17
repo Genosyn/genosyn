@@ -33,6 +33,17 @@ export type BrexCashTransaction = {
   transfer_id?: string | null;
 };
 
+export type BrexCardTransaction = {
+  id: string;
+  card_id?: string | null;
+  description: string;
+  amount: BrexMoney | null;
+  initiated_at_date?: string | null;
+  posted_at_date: string;
+  type?: string | null;
+  card_transaction_operation_reference_id?: string | null;
+};
+
 type BrexPage<T> = {
   next_cursor?: string | null;
   items: T[];
@@ -136,6 +147,23 @@ export async function getBrexCashTransactionsPage(
   );
 }
 
+export async function getBrexCardTransactionsPage(
+  userToken: string,
+  options: {
+    cursor?: string;
+    limit?: number;
+  } = {},
+): Promise<BrexPage<BrexCardTransaction>> {
+  return brexGet<BrexPage<BrexCardTransaction>>(
+    userToken,
+    "/v2/transactions/card/primary",
+    {
+      cursor: options.cursor,
+      limit: options.limit ?? 100,
+    },
+  );
+}
+
 function clampInt(value: unknown, min: number, max: number, fallback: number): number {
   const n = typeof value === "number" ? Math.trunc(value) : fallback;
   return Math.min(max, Math.max(min, n));
@@ -146,9 +174,9 @@ export const brexProvider: IntegrationProvider = {
     provider: "brex",
     name: "Brex",
     category: "Payments",
-    tagline: "Cash accounts, balances, and settled transactions.",
+    tagline: "Cash accounts, corporate cards, and settled transactions.",
     description:
-      "Connect your Brex account with a user token from Brex Developer → Settings. Grant accounts.cash.readonly and transactions.cash.readonly so Genosyn can sync settled Brex Cash transactions into Finance.",
+      "Connect your Brex account with a user token from Brex Developer → Settings. Cash reconciliation uses accounts.cash.readonly and transactions.cash.readonly; corporate card accounting also needs transactions.card.readonly.",
     icon: "CreditCard",
     authMode: "apikey",
     fields: [
@@ -158,7 +186,7 @@ export const brexProvider: IntegrationProvider = {
         type: "password",
         placeholder: "bxt_…",
         required: true,
-        hint: "Use a read-only token with Cash Accounts and Cash Transactions access.",
+        hint: "Use a read-only token with Cash Accounts, Cash Transactions, and Card Transactions access.",
       },
     ],
     enabled: true,
@@ -190,6 +218,19 @@ export const brexProvider: IntegrationProvider = {
           },
         },
         required: ["accountId"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "list_card_transactions",
+      description:
+        "List one page of settled transactions for the primary Brex card account.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          limit: { type: "integer", minimum: 1, maximum: 100 },
+          cursor: { type: "string", description: "Pagination cursor from the prior page." },
+        },
         additionalProperties: false,
       },
     },
@@ -250,6 +291,12 @@ export const brexProvider: IntegrationProvider = {
         limit: clampInt(input.limit, 1, 100, 50),
         cursor: typeof input.cursor === "string" ? input.cursor : undefined,
         postedAtStart,
+      });
+    }
+    if (name === "list_card_transactions") {
+      return getBrexCardTransactionsPage(cfg.userToken, {
+        limit: clampInt(input.limit, 1, 100, 50),
+        cursor: typeof input.cursor === "string" ? input.cursor : undefined,
       });
     }
     throw new Error(`Unknown Brex tool: ${name}`);

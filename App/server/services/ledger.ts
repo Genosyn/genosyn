@@ -47,6 +47,7 @@ export const SYSTEM_ACCOUNTS: ReadonlyArray<{
   { code: "1200", name: "Accounts Receivable", type: "asset" },
   { code: "2100", name: "Tax Payable", type: "liability" },
   { code: "2200", name: "Accounts Payable", type: "liability" },
+  { code: "2300", name: "Corporate Card Payable", type: "liability" },
   { code: "3000", name: "Owner's Equity", type: "equity" },
   { code: "3100", name: "Retained Earnings", type: "equity" },
   { code: "4000", name: "Sales Revenue", type: "revenue" },

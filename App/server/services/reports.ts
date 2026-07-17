@@ -250,6 +250,7 @@ const OPERATING: ReadonlySet<LedgerEntrySource> = new Set([
   "invoice_payment",
   "invoice_void",
   "manual",
+  "brex_card_payment",
 ]);
 
 export async function cashFlow(

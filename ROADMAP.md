@@ -782,7 +782,8 @@ invoices with HTML render → browser-print to PDF and "Send" via the
 existing per-company `EmailProvider`; payments tracked against invoices;
 double-entry general ledger that auto-posts from the invoice lifecycle;
 financial reports (P&L, Balance Sheet, Cash Flow); reconciliation against
-Stripe payouts and Brex Cash transactions; multi-currency with FX gain/loss;
+Stripe payouts and Brex Cash transactions; Brex corporate card expense and
+liability accounting; multi-currency with FX gain/loss;
 period-close workflow;
 accountant exports; vendor/bills mirror of the invoice flow. Distinct
 from the Stripe **integration** (read-only catalog of customers /
@@ -825,6 +826,12 @@ Phased so each phase ships behind its own PR:
   date proximity), manual matching UI with ranked candidates, unmatch
   escape on reconciled rows. Re-uses the existing
   `IntegrationConnection` framework for credentials.
+- [x] **Corporate card accounting.** `CardFeed` and `CardTransaction`
+  ingest the complete settled Brex primary-card history. Purchases auto-post
+  DR Expense / CR Corporate Card Payable, refunds reverse those legs, and
+  statement collections post DR Card Payable / CR Bank. Expense-category
+  changes create append-only reclassification entries; failed postings stay
+  visible and retryable.
 - **Phase E — Multi-currency.** `Currency`, `ExchangeRate`, and
   `CompanyFinanceSettings` (home currency). Per-invoice currency with
   FX gain/loss auto-posted on payment when the rate at payment differs

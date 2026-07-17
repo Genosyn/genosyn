@@ -13,6 +13,8 @@ import { Attachment } from "../db/entities/Attachment.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { BankFeed } from "../db/entities/BankFeed.js";
 import { BankTransaction } from "../db/entities/BankTransaction.js";
+import { CardFeed } from "../db/entities/CardFeed.js";
+import { CardTransaction } from "../db/entities/CardTransaction.js";
 import { Base } from "../db/entities/Base.js";
 import { BaseField } from "../db/entities/BaseField.js";
 import { BaseRecord } from "../db/entities/BaseRecord.js";
@@ -276,6 +278,8 @@ export async function deleteCompanyCascade(args: {
     // ── 3. Direct companyId rows (order is mostly free now) ────────────
     await m.delete(LedgerLine, { companyId });
     await m.delete(LedgerEntry, { companyId });
+    await m.delete(CardTransaction, { companyId });
+    await m.delete(CardFeed, { companyId });
     await m.delete(BaseRecordAttachment, { companyId });
     await m.delete(Attachment, { companyId });
     await m.delete(Note, { companyId });

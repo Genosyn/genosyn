@@ -2562,6 +2562,50 @@ export type BrexCashAccount = {
   availableBalance: { amount: number; currency: string | null };
 };
 
+export type CardFeed = {
+  id: string;
+  companyId: string;
+  name: string;
+  kind: "brex_card";
+  connectionId: string;
+  liabilityAccountId: string;
+  defaultExpenseAccountId: string;
+  paymentAccountId: string;
+  lastSyncAt: string | null;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CardAccountingKind = "expense" | "refund" | "payment";
+
+export type CardTransaction = {
+  id: string;
+  companyId: string;
+  feedId: string;
+  externalId: string;
+  cardId: string | null;
+  postedAt: string;
+  amountCents: number;
+  currency: string;
+  description: string;
+  providerType: string;
+  accountingKind: CardAccountingKind;
+  expenseAccountId: string | null;
+  ledgerEntryId: string | null;
+  postingError: string;
+  raw: string;
+  reclassifiedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CardSyncResult = {
+  inserted: number;
+  posted: number;
+  failed: number;
+};
+
 export type BankTransactionMatch =
   | {
       kind: "payment";

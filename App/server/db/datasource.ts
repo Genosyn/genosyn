@@ -76,6 +76,8 @@ import { LedgerEntry } from "./entities/LedgerEntry.js";
 import { LedgerLine } from "./entities/LedgerLine.js";
 import { BankFeed } from "./entities/BankFeed.js";
 import { BankTransaction } from "./entities/BankTransaction.js";
+import { CardFeed } from "./entities/CardFeed.js";
+import { CardTransaction } from "./entities/CardTransaction.js";
 import { Currency } from "./entities/Currency.js";
 import { ExchangeRate } from "./entities/ExchangeRate.js";
 import { CompanyFinanceSettings } from "./entities/CompanyFinanceSettings.js";
@@ -176,6 +178,8 @@ const entities = [
   LedgerLine,
   BankFeed,
   BankTransaction,
+  CardFeed,
+  CardTransaction,
   Currency,
   ExchangeRate,
   CompanyFinanceSettings,

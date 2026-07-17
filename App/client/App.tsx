@@ -122,6 +122,7 @@ import FinanceJournal from "./pages/FinanceJournal";
 import FinanceTrialBalance from "./pages/FinanceTrialBalance";
 import FinanceReports from "./pages/FinanceReports";
 import FinanceReconcile from "./pages/FinanceReconcile";
+import FinanceCardExpenses from "./pages/FinanceCardExpenses";
 import FinanceCurrencies from "./pages/FinanceCurrencies";
 import FinancePeriods from "./pages/FinancePeriods";
 import FinanceVendors from "./pages/FinanceVendors";
@@ -430,6 +431,7 @@ function CompanyRoutes({
           <Route path="trial-balance" element={<FinanceTrialBalance />} />
           <Route path="reports" element={<FinanceReports />} />
           <Route path="reconcile" element={<FinanceReconcile />} />
+          <Route path="card-expenses" element={<FinanceCardExpenses />} />
           <Route path="currencies" element={<FinanceCurrencies />} />
           <Route path="templates" element={<FinanceTemplates />} />
           <Route path="periods" element={<FinancePeriods />} />

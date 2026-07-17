@@ -51,6 +51,7 @@ import { notesRouter } from "./routes/notes.js";
 import { resourcesRouter } from "./routes/resources.js";
 import { codeRepositoriesRouter } from "./routes/codeRepositories.js";
 import { financeRouter } from "./routes/finance.js";
+import { cardExpensesRouter } from "./routes/cardExpenses.js";
 import { contractsRouter } from "./routes/contracts.js";
 import { exploreRouter } from "./routes/explore.js";
 import { notificationsRouter } from "./routes/notifications.js";
@@ -233,6 +234,7 @@ async function main() {
   // Native invoicing with HTML render + email send via the company's
   // EmailProvider. Ledger / reports / reconciliation come in later phases.
   app.use("/api/companies/:cid", financeRouter);
+  app.use("/api/companies/:cid", cardExpensesRouter);
 
   // Customer contracts — uploaded agreements for the Customers section.
   // Separate router from finance so the Customers section owns its own

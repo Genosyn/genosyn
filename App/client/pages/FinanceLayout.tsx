@@ -6,6 +6,7 @@ import {
   Building2,
   Calendar,
   Coins,
+  CreditCard,
   FileSignature,
   FileText,
   Inbox,
@@ -99,6 +100,11 @@ export default function FinanceLayout({ company }: { company: Company }) {
           to={`${base}/reconcile`}
           icon={<Link2 size={14} />}
           label="Reconcile"
+        />
+        <SidebarLink
+          to={`${base}/card-expenses`}
+          icon={<CreditCard size={14} />}
+          label="Card expenses"
         />
         <SidebarLink
           to={`${base}/periods`}

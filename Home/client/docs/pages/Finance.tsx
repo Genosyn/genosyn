@@ -254,13 +254,30 @@ export function Finance() {
         rows by Brex transaction id.
       </P>
 
+      <H2 id="card-expenses">Corporate card expenses</H2>
+      <P>
+        Open <Code>Finance → Card expenses</Code> to connect the primary Brex
+        corporate card account. Choose the <Code>2300 Corporate Card Payable</Code>{" "}
+        liability, a default expense category, and the bank asset used to pay
+        the statement. The Brex user token needs{" "}
+        <Code>transactions.card.readonly</Code>.
+      </P>
+      <P>
+        Sync imports the complete settled card history and posts balanced
+        entries automatically: purchases debit the expense category and credit
+        the card liability; refunds reverse those legs; statement payments debit
+        the liability and credit the selected bank account. Changing a purchase
+        category writes a separate reclassification entry, preserving the audit
+        trail. Failed postings remain visible with a retry action.
+      </P>
+
       <H2 id="ledger">Ledger and reports</H2>
       <P>
         Every state change on an invoice or bill emits a journal entry
         into the same ledger you can write to by hand from{" "}
         <Code>Finance → Journal</Code>. The chart of accounts seeds
         sensible defaults on first visit (1100 Bank, 1200 Accounts
-        Receivable, 2100 Tax Payable, 4000 Sales Revenue,
+        Receivable, 2100 Tax Payable, 2300 Corporate Card Payable, 4000 Sales Revenue,
         4910 FX Gain, 6900 FX Loss), but you can rename, reparent, or
         add accounts freely as long as you don&apos;t touch the system
         codes the auto-posting depends on. From there, the{" "}
