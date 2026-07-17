@@ -74,45 +74,6 @@ export type SectionGroup = { label: string; items: SectionItem[] };
 
 export const SECTION_GROUPS: SectionGroup[] = [
   {
-    // The three parts of an AI employee's working life: who they are, what
-    // they know, and what they do on a schedule. Skills and Routines used to
-    // be reachable only by opening an employee first, which made the
-    // company's playbook library and its schedule invisible.
-    label: "AI",
-    items: [
-      {
-        key: "employees",
-        label: "AI Employees",
-        description: "AI teammates and their souls.",
-        icon: Users,
-        path: "/employees",
-        iconBg:
-          "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
-        keywords: ["team", "roster", "staff", "people", "hire", "agent", "bot"],
-      },
-      {
-        key: "skills",
-        label: "Skills",
-        description: "Playbooks your AI employees follow.",
-        icon: Wrench,
-        path: "/skills",
-        iconBg:
-          "bg-green-100 text-green-600 dark:bg-green-500/15 dark:text-green-300",
-        keywords: ["playbook", "capability", "instructions"],
-      },
-      {
-        key: "routines",
-        label: "Routines",
-        description: "Scheduled work, and how every run went.",
-        icon: CalendarClock,
-        path: "/routines",
-        iconBg:
-          "bg-purple-100 text-purple-600 dark:bg-purple-500/15 dark:text-purple-300",
-        keywords: ["schedule", "cron", "job", "recurring", "runs", "logs"],
-      },
-    ],
-  },
-  {
     label: "Essentials",
     items: [
       {
@@ -153,6 +114,45 @@ export const SECTION_GROUPS: SectionGroup[] = [
         iconBg:
           "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300",
         keywords: ["projects", "todos", "kanban", "backlog", "issues"],
+      },
+    ],
+  },
+  {
+    // The three parts of an AI employee's working life: who they are, what
+    // they know, and what they do on a schedule. Skills and Routines used to
+    // be reachable only by opening an employee first, which made the
+    // company's playbook library and its schedule invisible.
+    label: "AI",
+    items: [
+      {
+        key: "employees",
+        label: "AI Employees",
+        description: "AI teammates and their souls.",
+        icon: Users,
+        path: "/employees",
+        iconBg:
+          "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
+        keywords: ["team", "roster", "staff", "people", "hire", "agent", "bot"],
+      },
+      {
+        key: "skills",
+        label: "Skills",
+        description: "Playbooks your AI employees follow.",
+        icon: Wrench,
+        path: "/skills",
+        iconBg:
+          "bg-green-100 text-green-600 dark:bg-green-500/15 dark:text-green-300",
+        keywords: ["playbook", "capability", "instructions"],
+      },
+      {
+        key: "routines",
+        label: "Routines",
+        description: "Scheduled work, and how every run went.",
+        icon: CalendarClock,
+        path: "/routines",
+        iconBg:
+          "bg-purple-100 text-purple-600 dark:bg-purple-500/15 dark:text-purple-300",
+        keywords: ["schedule", "cron", "job", "recurring", "runs", "logs"],
       },
     ],
   },
