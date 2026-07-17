@@ -9,15 +9,13 @@ import { TopBar } from "../components/AppShell";
 import { useToast } from "../components/ui/Toast";
 
 /**
- * Company-wide approvals inbox. Today the inbox holds two flavors:
- *
- *   - **Routine approvals** — cron tick for a routine marked
- *     `requiresApproval`. Approve runs the routine; reject writes a
- *     system journal entry.
- *   - **Payment approvals** — Lightning payments above a Connection's
- *     `requireApprovalAboveSats` threshold. Approve replays the original
- *     `pay_invoice` / `pay_keysend` call against the same Connection;
- *     reject writes a journal entry on the requesting employee's diary.
+ * Company-wide approvals inbox. One row per gated action, across every
+ * kind the server queues: routine ticks (`requiresApproval`), Lightning
+ * payments over a Connection's threshold, browser form submits
+ * (`browserApprovalRequired` — the AI re-fires via `browser_resume` after
+ * approval, in the same turn or any later one), guarded MCP tool calls,
+ * and ad-spend mutations. The `copyFor` switch below is the per-kind
+ * rendering contract.
  *
  * Decided rows stick around so the inbox doubles as a recent history of
  * what was gated and what the human decided.

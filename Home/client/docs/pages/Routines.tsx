@@ -113,6 +113,18 @@ export function Routines() {
               </>
             ),
           },
+          {
+            term: "browserEnabledOverride",
+            def: (
+              <>
+                Optional per-routine override of the employee&apos;s{" "}
+                <DocLink to="/docs/browser">browser</DocLink> toggle — force it
+                on for a research routine, or off for one that must never
+                touch the web. Unset means &quot;inherit from the
+                employee&quot;.
+              </>
+            ),
+          },
         ]}
       />
 

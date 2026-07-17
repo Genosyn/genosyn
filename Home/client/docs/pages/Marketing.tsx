@@ -221,8 +221,9 @@ export function Marketing() {
       <P>
         Those three gate their ads APIs behind slow, per-company human
         reviews (weeks to months, opaque rejections), so Genosyn ships no
-        native Integration for them yet. The supported path is the built-in
-        browser with a human in the loop:
+        native Integration for them yet. The supported path is the{" "}
+        <DocLink to="/docs/browser">built-in browser</DocLink> with a human in
+        the loop:
       </P>
       <OL>
         <LI>

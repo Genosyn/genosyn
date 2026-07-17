@@ -68,6 +68,20 @@ type SessionRuntime = {
   idleTimer: NodeJS.Timeout | null;
   /** Counted by `markActivity`. When > 0 the idle watchdog is suspended. */
   activeHolders: number;
+  /**
+   * One-shot notices surfaced to the model at the top of the next snapshot
+   * ("a dialog was dismissed", "a new tab opened", …). Drained by
+   * `takeSessionNotices`.
+   */
+  notices: string[];
+  /** True while acquirePage itself opens a page, so the context-level
+   *  `page` listener doesn't mistake it for a popup to adopt. */
+  selfCreating: boolean;
+  /** Trailing-debounce timer for the nav mirror (DB write + viewer fanout). */
+  navTimer: NodeJS.Timeout | null;
+  /** Last URL/title actually mirrored, to skip redundant writes. */
+  lastNavUrl: string;
+  lastNavTitle: string;
 };
 
 const runtimes = new Map<string, SessionRuntime>();
@@ -104,8 +118,14 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
     // Page was closed (e.g. agent called browser_close mid-turn). Reopen
     // on the same context so cookies / storage state survive.
     const ctx = existing.context as { newPage: () => Promise<unknown> };
-    existing.page = await ctx.newPage();
+    existing.selfCreating = true;
+    try {
+      existing.page = await ctx.newPage();
+    } finally {
+      existing.selfCreating = false;
+    }
     existing.cdp = await attachCdp(existing.page);
+    wirePage(existing, existing.page);
     return existing.page;
   }
 
@@ -162,20 +182,24 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
     cdp,
     idleTimer: null,
     activeHolders: 0,
+    notices: [],
+    selfCreating: false,
+    navTimer: null,
+    lastNavUrl: "",
+    lastNavTitle: "",
   };
   runtimes.set(sessionId, runtime);
   resetIdleTimer(runtime);
+  wirePage(runtime, page);
 
-  // Mirror navigation events onto the BrowserSession row + fan-out hub so
-  // viewers and the live-panel poll see the URL update without waiting
-  // for the next tool call.
-  (page as { on: (ev: string, cb: (frame: unknown) => void) => void }).on(
-    "framenavigated",
-    (frame) => {
-      const f = frame as { url: () => string; parentFrame: () => unknown };
-      if (f.parentFrame()) return;
-      void onNavigated(sessionId, page).catch(() => {
-        // best-effort
+  // Adopt popups: a click on a target=_blank link opens a page the agent's
+  // tools would otherwise never see — it would keep driving the old tab
+  // forever. Follow the newest page instead, like a human would.
+  (context as { on: (ev: string, cb: (p: unknown) => void) => void }).on(
+    "page",
+    (newPage) => {
+      void adoptPage(sessionId, newPage).catch(() => {
+        // best-effort — worst case the agent stays on the old tab
       });
     },
   );
@@ -183,13 +207,109 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
   return page;
 }
 
+/** Pages already wired with nav/dialog listeners — guards double-wiring. */
+const wiredPages = new WeakSet<object>();
+
+/**
+ * Attach the per-page listeners: the nav mirror (BrowserSession row +
+ * viewer fanout) and the dialog handler. Registering a dialog listener
+ * switches Playwright from silent auto-dismiss to our control, letting us
+ * tell the model a dialog appeared — otherwise a confirm() silently
+ * cancels and the model never learns why nothing happened.
+ */
+function wirePage(runtime: SessionRuntime, page: unknown): void {
+  if (wiredPages.has(page as object)) return;
+  wiredPages.add(page as object);
+  const p = page as { on: (ev: string, cb: (arg: unknown) => void) => void };
+  p.on("framenavigated", (frame) => {
+    const f = frame as { parentFrame: () => unknown };
+    if (f.parentFrame()) return;
+    // Only mirror while this page is still the active one — a background
+    // tab's redirects shouldn't clobber the viewer's URL bar.
+    if (runtime.page !== page) return;
+    scheduleNavMirror(runtime);
+  });
+  p.on("dialog", (dialog) => {
+    const d = dialog as {
+      type: () => string;
+      message: () => string;
+      accept: () => Promise<void>;
+      dismiss: () => Promise<void>;
+    };
+    const kind = d.type();
+    // beforeunload must be accepted or navigation deadlocks; everything
+    // else is dismissed (the safe default for confirm/prompt) with the
+    // message surfaced so the model knows what it missed.
+    const verdict = kind === "beforeunload" ? "accepted" : "dismissed";
+    pushSessionNotice(
+      runtime.id,
+      `A JavaScript ${kind} dialog appeared${
+        d.message() ? ` — "${d.message().slice(0, 300)}"` : ""
+      } — and was auto-${verdict}.`,
+    );
+    void (kind === "beforeunload" ? d.accept() : d.dismiss()).catch(() => {
+      // dialog may already be gone
+    });
+  });
+}
+
+/**
+ * Make a newly opened popup/tab the active page: repoint the runtime, move
+ * the CDP session (so the live viewer follows), and tell the model via a
+ * snapshot notice. Skips pages acquirePage opened itself.
+ */
+async function adoptPage(sessionId: string, newPage: unknown): Promise<void> {
+  const r = runtimes.get(sessionId);
+  if (!r || r.selfCreating || r.page === newPage) return;
+  const np = newPage as {
+    isClosed: () => boolean;
+    url: () => string;
+    waitForLoadState: (state: string, opts: unknown) => Promise<void>;
+  };
+  try {
+    await np.waitForLoadState("domcontentloaded", { timeout: 5_000 });
+  } catch {
+    // adopt anyway — the URL is still useful
+  }
+  if (!runtimes.has(sessionId) || np.isClosed()) return;
+  r.page = newPage;
+  try {
+    r.cdp = await attachCdp(newPage);
+  } catch {
+    r.cdp = null;
+  }
+  wirePage(r, newPage);
+  pushSessionNotice(sessionId, `A new tab opened and is now the active page: ${np.url()}`);
+  scheduleNavMirror(r);
+  const { notifyPageSwapped } = await import("./browserSessions.js");
+  await notifyPageSwapped(sessionId);
+}
+
 async function attachCdp(page: unknown): Promise<unknown> {
   const ctx = (page as { context: () => { newCDPSession: (p: unknown) => Promise<unknown> } }).context();
   return ctx.newCDPSession(page);
 }
 
-async function onNavigated(sessionId: string, page: unknown): Promise<void> {
-  const p = page as { url: () => string; title: () => Promise<string> };
+/**
+ * Trailing-debounce the nav mirror so a redirect chain collapses into one
+ * DB write + one viewer broadcast instead of one per hop.
+ */
+function scheduleNavMirror(r: SessionRuntime): void {
+  if (r.navTimer) clearTimeout(r.navTimer);
+  r.navTimer = setTimeout(() => {
+    r.navTimer = null;
+    void mirrorNav(r).catch(() => {
+      // best-effort
+    });
+  }, 300);
+}
+
+async function mirrorNav(r: SessionRuntime): Promise<void> {
+  // The runtime may have been torn down while the debounce was pending —
+  // a stale write here would resurrect hub state for a closed session.
+  if (runtimes.get(r.id) !== r) return;
+  const p = r.page as { url: () => string; title: () => Promise<string>; isClosed: () => boolean };
+  if (p.isClosed()) return;
   const url = p.url();
   let title = "";
   try {
@@ -197,18 +317,40 @@ async function onNavigated(sessionId: string, page: unknown): Promise<void> {
   } catch {
     // best-effort
   }
-  const repo = AppDataSource.getRepository(BrowserSession);
-  const row = await repo.findOneBy({ id: sessionId });
-  if (row) {
-    row.pageUrl = url;
-    row.pageTitle = title || null;
-    await repo.save(row);
-  }
+  if (url === r.lastNavUrl && title === r.lastNavTitle) return;
+  r.lastNavUrl = url;
+  r.lastNavTitle = title;
+  await AppDataSource.getRepository(BrowserSession).update(
+    { id: r.id },
+    { pageUrl: url, pageTitle: title || null },
+  );
   // The fanout hub picks up nav events via the screencast loop's snapshot,
   // but pushing one explicitly keeps the viewer URL-bar in sync between
   // frames.
   const { broadcastNav } = await import("./browserSessions.js");
-  broadcastNav(sessionId, url, title || null);
+  broadcastNav(r.id, url, title || null);
+}
+
+/**
+ * Queue a one-shot notice for the model — surfaced at the top of the next
+ * snapshot, then dropped. Used for events the model can't otherwise see:
+ * auto-handled dialogs, adopted popups, ambiguous selectors.
+ */
+export function pushSessionNotice(sessionId: string, notice: string): void {
+  const r = runtimes.get(sessionId);
+  if (!r) return;
+  // Cap so a dialog loop can't grow the array (and the snapshot) unboundedly.
+  if (r.notices.length >= 10) r.notices.shift();
+  r.notices.push(notice);
+}
+
+/** Drain the pending notices for a session (oldest first). */
+export function takeSessionNotices(sessionId: string): string[] {
+  const r = runtimes.get(sessionId);
+  if (!r || r.notices.length === 0) return [];
+  const out = r.notices;
+  r.notices = [];
+  return out;
 }
 
 /**
@@ -255,6 +397,7 @@ export async function releasePage(
   if (!r) return;
   runtimes.delete(sessionId);
   if (r.idleTimer) clearTimeout(r.idleTimer);
+  if (r.navTimer) clearTimeout(r.navTimer);
   // Snapshot cookies + localStorage before the context is torn down so the
   // next session for this employee picks up where we left off. Skip on
   // `error` — a context that crashed mid-flight may have a corrupted

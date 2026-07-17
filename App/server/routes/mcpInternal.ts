@@ -4290,7 +4290,20 @@ mcpInternalRouter.get(
       // a different employee's pending approvals.
       return res.status(403).json({ error: "Approval belongs to another employee" });
     }
-    res.json({ status: approval.status });
+    // Return the held action alongside the status so `browser_resume` can
+    // re-fire it even when the MCP child that queued it is long gone — the
+    // child is spawned per chat turn, and approvals usually land later.
+    let payload: { selector?: unknown; key?: unknown } = {};
+    try {
+      payload = JSON.parse(approval.payloadJson || "{}") as { selector?: unknown; key?: unknown };
+    } catch {
+      // legacy/malformed payload — status alone still helps
+    }
+    res.json({
+      status: approval.status,
+      selector: typeof payload.selector === "string" ? payload.selector : null,
+      key: typeof payload.key === "string" ? payload.key : null,
+    });
   },
 );
 

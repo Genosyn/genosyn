@@ -90,7 +90,28 @@ export function Employees() {
             def: (
               <>
                 Flips on the built-in <Code>browser</Code> MCP server that
-                drives a headless Chromium. Off by default.
+                drives a headless Chromium. Off by default. See{" "}
+                <DocLink to="/docs/browser">Browser</DocLink>.
+              </>
+            ),
+          },
+          {
+            term: "browserAllowedHosts",
+            def: (
+              <>
+                Newline-separated host patterns limiting where the browser may
+                navigate — <Code>github.com</Code> covers the domain and its
+                subdomains. Blank means unrestricted.
+              </>
+            ),
+          },
+          {
+            term: "browserApprovalRequired",
+            def: (
+              <>
+                When on, form submits queue an Approval a human must grant
+                before the browser fires them. See{" "}
+                <DocLink to="/docs/browser">Browser</DocLink>.
               </>
             ),
           },

@@ -4,7 +4,6 @@ import { AppDataSource } from "../../../db/datasource.js";
 import { McpServer } from "../../../db/entities/McpServer.js";
 import { AIEmployee } from "../../../db/entities/AIEmployee.js";
 import { Routine } from "../../../db/entities/Routine.js";
-import { BrowserSession } from "../../../db/entities/BrowserSession.js";
 import { config } from "../../../../config.js";
 import { createBrowserSession } from "../../browserSessions.js";
 import type { McpServerSpec, McpToolGuard } from "./mcpBridge.js";
@@ -85,17 +84,8 @@ export async function loadBrowserConfig(
     companyId: employee.companyId,
     employeeId: employee.id,
     conversationId: options.conversationId ?? null,
-    runId: null,
+    runId: options.runId ?? null,
   });
-
-  if (options.runId) {
-    const repo = AppDataSource.getRepository(BrowserSession);
-    const row = await repo.findOneBy({ id: session.id });
-    if (row) {
-      row.runId = options.runId;
-      await repo.save(row);
-    }
-  }
 
   return {
     enabled: true,
@@ -131,8 +121,8 @@ export function browserEnvFor(
     env.GENOSYN_BROWSER_API = `${internalHttpBase()}/api/internal/browser/sessions/${cfg.sessionId}`;
     env.GENOSYN_BROWSER_SESSION_TOKEN = cfg.sessionToken;
   }
-  const allowed = cfg.allowedHosts.trim();
-  if (allowed) env.GENOSYN_BROWSER_ALLOWED_HOSTS = allowed;
+  // The allow list is enforced server-side in browserRpc on every /open —
+  // the child never needs it.
   return env;
 }
 

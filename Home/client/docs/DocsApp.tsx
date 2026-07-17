@@ -10,6 +10,7 @@ import { Routines } from "@/docs/pages/Routines";
 import { Models } from "@/docs/pages/Models";
 import { OpenSourceModels } from "@/docs/pages/OpenSourceModels";
 import { Integrations } from "@/docs/pages/Integrations";
+import { Browser } from "@/docs/pages/Browser";
 import { CodeRepositories } from "@/docs/pages/Code";
 import { Explore } from "@/docs/pages/Explore";
 import { Marketing } from "@/docs/pages/Marketing";
@@ -36,6 +37,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/models": Models,
   "/docs/open-source-models": OpenSourceModels,
   "/docs/integrations": Integrations,
+  "/docs/browser": Browser,
   "/docs/code": CodeRepositories,
   "/docs/explore": Explore,
   "/docs/marketing": Marketing,

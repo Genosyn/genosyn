@@ -150,6 +150,53 @@ async function browserClick(args) {
   return textResult(reply.snapshot ?? "");
 }
 
+async function browserSelect(args) {
+  const selector = String(args?.selector ?? "").trim();
+  if (!selector) throw new Error("`selector` is required");
+  const value = String(args?.value ?? "").trim();
+  if (!value) throw new Error("`value` is required");
+  const reply = await callBrowser("/select", { selector, value });
+  return textResult(reply.snapshot ?? "");
+}
+
+async function browserHover(args) {
+  const selector = String(args?.selector ?? "").trim();
+  if (!selector) throw new Error("`selector` is required");
+  const reply = await callBrowser("/hover", { selector });
+  return textResult(reply.snapshot ?? "");
+}
+
+async function browserScroll(args) {
+  const body = {};
+  if (typeof args?.selector === "string" && args.selector.length > 0) {
+    body.selector = args.selector;
+  } else {
+    body.direction = args?.direction === "up" ? "up" : "down";
+  }
+  const reply = await callBrowser("/scroll", body);
+  return textResult(reply.snapshot ?? "");
+}
+
+async function browserBack() {
+  const reply = await callBrowser("/back", {});
+  return textResult(reply.snapshot ?? "");
+}
+
+async function browserWait(args) {
+  const body = {};
+  if (typeof args?.selector === "string" && args.selector.length > 0) {
+    body.selector = args.selector;
+  }
+  if (typeof args?.ms === "number" && args.ms > 0) {
+    body.ms = Math.min(Math.floor(args.ms), 15_000);
+  }
+  if (!body.selector && !body.ms) {
+    throw new Error("Pass `selector` (wait until it is visible), `ms`, or both");
+  }
+  const reply = await callBrowser("/wait", body);
+  return textResult(reply.snapshot ?? "");
+}
+
 async function browserFill(args) {
   const selector = String(args?.selector ?? "").trim();
   if (!selector) throw new Error("`selector` is required");
@@ -176,7 +223,7 @@ async function browserScreenshot() {
       {
         type: "image",
         data: reply.data ?? "",
-        mimeType: reply.mimeType ?? "image/png",
+        mimeType: reply.mimeType ?? "image/jpeg",
       },
     ],
   };
@@ -198,12 +245,13 @@ async function browserSubmit(args) {
     return executeSubmit(selector, key);
   }
 
-  // Get the current URL so the approver has context. Cheap snapshot call.
+  // Get the current URL so the approver has context. /url is a cheap
+  // read of already-known state — it never launches Chromium or builds
+  // a snapshot.
   let pageUrl = "";
   try {
-    const snap = await callBrowser("/snapshot", {});
-    const m = /^URL:\s*(.+)$/m.exec(snap.snapshot ?? "");
-    if (m) pageUrl = m[1].trim();
+    const reply = await callBrowser("/url", {});
+    if (typeof reply?.url === "string") pageUrl = reply.url;
   } catch {
     // best-effort
   }
@@ -244,12 +292,6 @@ async function executeSubmit(selector, key) {
 async function browserResume(args) {
   const approvalId = String(args?.approvalId ?? "").trim();
   if (!approvalId) throw new Error("`approvalId` is required");
-  const action = pendingActions.get(approvalId);
-  if (!action) {
-    throw new Error(
-      `No pending action for approvalId ${approvalId} in this MCP session. The browser session may have restarted; call browser_submit again.`,
-    );
-  }
   let reply;
   try {
     reply = await getGenosyn(
@@ -262,8 +304,20 @@ async function browserResume(args) {
   }
   const status = reply?.status;
   if (status === "approved") {
+    // Prefer the locally held action; fall back to the copy the server
+    // stored on the Approval row. The fallback is what makes resume work
+    // across chat turns — this MCP child is spawned per turn, and the
+    // human usually approves after the turn that queued it has ended.
+    const action = pendingActions.get(approvalId);
+    const selector = action?.selector ?? (typeof reply?.selector === "string" ? reply.selector : "");
+    const key = action?.key ?? (typeof reply?.key === "string" ? reply.key : undefined);
     pendingActions.delete(approvalId);
-    return executeSubmit(action.selector, action.key);
+    if (!selector) {
+      throw new Error(
+        `Approval ${approvalId} is approved but its held action is missing. Call browser_submit again.`,
+      );
+    }
+    return executeSubmit(selector, key);
   }
   if (status === "rejected") {
     pendingActions.delete(approvalId);
@@ -274,17 +328,25 @@ async function browserResume(args) {
     throw new Error(`Approval ${approvalId} expired before a human responded.`);
   }
   return textResult(
-    `Approval ${approvalId} is still pending. Call browser_resume("${approvalId}") again later.`,
+    `Approval ${approvalId} is still pending. Call browser_resume("${approvalId}") again later — including in a future conversation turn; the approval survives this session.`,
   );
 }
 
 // ---------- tool registry ----------
 
+// Every snapshot-returning tool shares the same selector contract, spelled
+// out once here and referenced from each description. Renames ripple: these
+// names also appear in App/client/pages/employeeTabs.tsx (settings card),
+// App/client/pages/Approvals.tsx (browser_action rendering), and the docs
+// at Home/client/docs/pages/Browser.tsx.
+const SELECTOR_HINT =
+  "`selector` should be an `aria-ref=eN` ref from the latest snapshot (each interactive element is marked [ref=eN] — refs resolve instantly and unambiguously, including inside iframes). CSS selectors ('button.primary'), text= ('text=Sign in'), and role= ('role=button[name=\"Save\"]') also work as fallbacks; the first visible match is used.";
+
 const TOOLS = [
   {
     name: "browser_open",
     description:
-      "Navigate to an absolute http(s) URL in the headless browser and return a snapshot of the loaded page (URL, title, accessibility tree, visible text). Use this first to land on a page. The browser persists across chat turns — humans can watch it live in the chat panel and take over to type things in (e.g. solve a captcha or 2FA), and the page state survives until the conversation moves on.",
+      "Navigate to an absolute http(s) URL in the headless browser and return a snapshot of the loaded page: URL, title, and an outline of the page in which every interactive element carries a [ref=eN] marker you can act on via `aria-ref=eN` selectors. Use this first to land on a page. The browser persists across chat turns — humans can watch it live in the chat panel and take over to type things in (e.g. solve a captcha or 2FA), and the page state survives until the conversation moves on.",
     inputSchema: {
       type: "object",
       properties: {
@@ -298,18 +360,18 @@ const TOOLS = [
   {
     name: "browser_snapshot",
     description:
-      "Return a fresh snapshot of the current page (URL, title, accessibility tree, visible text). Use after a click/fill/press to see what changed, or to recover state at the start of a new turn — the browser persists, so the page the human was just looking at is still loaded.",
+      "Return a fresh snapshot of the current page (URL, title, ref-annotated page outline). Use to recover state at the start of a new turn — the browser persists, so the page the human was just looking at is still loaded. Actions already return a snapshot, so you rarely need this right after one.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     handler: browserSnapshot,
   },
   {
     name: "browser_click",
     description:
-      "Click an element. `selector` is any Playwright locator: a CSS selector ('button.primary', 'a[href*=login]'), a text= prefix ('text=Sign in'), or a role= prefix ('role=button[name=\"Save\"]'). The first matching visible element is clicked. For form submissions, prefer browser_submit so a human-in-the-loop approval can gate it.",
+      `Click an element and return a fresh snapshot. ${SELECTOR_HINT} If the click opens a new tab, the browser follows it automatically. For form submissions, prefer browser_submit so a human-in-the-loop approval can gate it.`,
     inputSchema: {
       type: "object",
       properties: {
-        selector: { type: "string", description: "Playwright locator (CSS / text= / role=)." },
+        selector: { type: "string", description: "aria-ref=eN from the snapshot, or CSS / text= / role=." },
       },
       required: ["selector"],
       additionalProperties: false,
@@ -319,17 +381,32 @@ const TOOLS = [
   {
     name: "browser_fill",
     description:
-      "Type a value into an input or textarea, replacing whatever was there. `selector` is the same form as browser_click.",
+      `Type a value into an input or textarea, replacing whatever was there. ${SELECTOR_HINT} For native <select> dropdowns use browser_select instead.`,
     inputSchema: {
       type: "object",
       properties: {
-        selector: { type: "string", description: "Playwright locator (CSS / text= / role=)." },
+        selector: { type: "string", description: "aria-ref=eN from the snapshot, or CSS / text= / role=." },
         value: { type: "string", description: "The text to type. Empty string clears the field." },
       },
       required: ["selector", "value"],
       additionalProperties: false,
     },
     handler: browserFill,
+  },
+  {
+    name: "browser_select",
+    description:
+      `Choose an option in a native <select> dropdown by its value or visible label (browser_fill cannot set selects). ${SELECTOR_HINT}`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        selector: { type: "string", description: "The <select> element — aria-ref=eN or CSS." },
+        value: { type: "string", description: "Option value or visible label to choose." },
+      },
+      required: ["selector", "value"],
+      additionalProperties: false,
+    },
+    handler: browserSelect,
   },
   {
     name: "browser_press",
@@ -347,9 +424,58 @@ const TOOLS = [
     handler: browserPress,
   },
   {
+    name: "browser_hover",
+    description:
+      `Hover the mouse over an element to reveal hover-only UI (dropdown menus, tooltips), then return a snapshot showing what appeared. The hover holds until the next action, so a follow-up browser_click on a revealed item works. ${SELECTOR_HINT}`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        selector: { type: "string", description: "aria-ref=eN from the snapshot, or CSS / text= / role=." },
+      },
+      required: ["selector"],
+      additionalProperties: false,
+    },
+    handler: browserHover,
+  },
+  {
+    name: "browser_scroll",
+    description:
+      "Scroll the page and return a fresh snapshot. Pass `direction` ('down'/'up') to scroll by most of a viewport — this fires real wheel events, so infinite-scroll pages load more content. Or pass `selector` to scroll a specific element into view. Use when a snapshot says it was truncated or when content loads on scroll.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        direction: { type: "string", enum: ["up", "down"], description: "Scroll direction. Default: down." },
+        selector: { type: "string", description: "Optional element to scroll into view instead." },
+      },
+      additionalProperties: false,
+    },
+    handler: browserScroll,
+  },
+  {
+    name: "browser_back",
+    description:
+      "Go back one page in this tab's history (like the browser Back button) and return a snapshot. Use to recover from a misclick or return to search results.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    handler: browserBack,
+  },
+  {
+    name: "browser_wait",
+    description:
+      "Wait for slow content instead of polling with snapshots: pass `selector` to wait until it is visible (up to 15s), and/or `ms` to pause a fixed time. Returns a snapshot once the condition holds.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        selector: { type: "string", description: "Wait until this selector is visible." },
+        ms: { type: "number", description: "Milliseconds to pause (max 15000)." },
+      },
+      additionalProperties: false,
+    },
+    handler: browserWait,
+  },
+  {
     name: "browser_screenshot",
     description:
-      "Capture a PNG screenshot of the current viewport and return it as image content. Use sparingly — screenshots are heavy in the context window. Prefer browser_snapshot when you only need text. Humans can also watch the page live in the chat panel.",
+      "Capture a JPEG screenshot of the current viewport and return it as image content. Use sparingly — screenshots are heavy in the context window. Prefer browser_snapshot when you only need structure/text; screenshot when layout or imagery matters. Humans can also watch the page live in the chat panel.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     handler: browserScreenshot,
   },
@@ -363,14 +489,14 @@ const TOOLS = [
   {
     name: "browser_submit",
     description:
-      "Submit a form. Use this whenever your action sends data somewhere — clicking a 'Sign in' / 'Save' / 'Send' button, or pressing Enter inside a search/input. When the employee has approval-mode enabled, this queues an Approval row and returns `pending_approval` with an approvalId; call browser_resume(approvalId) once a human approves. When approval mode is off, browser_submit fires immediately like a click. `summary` is a short, human-readable description shown to the approver.",
+      "Submit a form. Use this whenever your action sends data somewhere — clicking a 'Sign in' / 'Save' / 'Send' button, or pressing Enter inside a search/input. When the employee has approval-mode enabled, this queues an Approval row and returns `pending_approval` with an approvalId; call browser_resume(approvalId) once a human approves — in this turn or any later one. When approval mode is off, browser_submit fires immediately like a click. `summary` is a short, human-readable description shown to the approver.",
     inputSchema: {
       type: "object",
       properties: {
         selector: {
           type: "string",
           description:
-            "The element to act on — usually a submit button. With `key`, this is the input that should receive the key press.",
+            "The element to act on — usually a submit button (aria-ref=eN or CSS). With `key`, this is the input that should receive the key press.",
         },
         key: {
           type: "string",
@@ -390,7 +516,7 @@ const TOOLS = [
   {
     name: "browser_resume",
     description:
-      "Re-fire a previously queued browser_submit once a human has approved it. Returns `pending_approval` if the approval is still open, fails with an error if rejected/expired or if this MCP session no longer remembers the action.",
+      "Re-fire a previously queued browser_submit once a human has approved it. Works in any later turn — the held action survives on the Approval row. Returns `pending_approval` if the approval is still open; fails with an error if it was rejected or expired.",
     inputSchema: {
       type: "object",
       properties: {
@@ -418,7 +544,7 @@ function toolError(message) {
 
 // ---------- protocol handler ----------
 
-const SERVER_INFO = { name: "genosyn-browser", version: "0.4.0" };
+const SERVER_INFO = { name: "genosyn-browser", version: "0.5.0" };
 const CAPABILITIES = { tools: {} };
 
 async function handle(msg, send) {

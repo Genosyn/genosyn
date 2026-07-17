@@ -120,6 +120,10 @@ export async function createBrowserSession(args: {
       .orderBy("s.createdAt", "DESC")
       .getOne();
     if (existing && existing.mcpTokenExpiresAt.getTime() > Date.now()) {
+      // Re-register the token → session mapping: after an App restart the
+      // in-memory map is empty, and without this line every tool call in a
+      // resumed conversation 401s until the token's 7h TTL lapses.
+      tokenToSessionId.set(existing.mcpToken, existing.id);
       return existing;
     }
   }
@@ -143,9 +147,21 @@ export async function createBrowserSession(args: {
   return row;
 }
 
-/** Resolve the MCP-side bearer token to its session id, or null. */
-export function resolveBrowserSessionToken(token: string): string | null {
-  return tokenToSessionId.get(token) ?? null;
+/**
+ * Resolve the MCP-side bearer token to its session id, or null. The
+ * in-memory map is a cache; on a miss (an App restart mid-conversation)
+ * fall back to the DB — `mcpToken` is uniquely indexed — so an in-flight
+ * browser session survives the restart instead of 401ing for the rest of
+ * its 7h token TTL.
+ */
+export async function resolveBrowserSessionToken(token: string): Promise<string | null> {
+  const cached = tokenToSessionId.get(token);
+  if (cached) return cached;
+  const row = await AppDataSource.getRepository(BrowserSession).findOneBy({ mcpToken: token });
+  if (!row) return null;
+  if (row.status === "closed" || row.status === "expired") return null;
+  tokenToSessionId.set(row.mcpToken, row.id);
+  return row.id;
 }
 
 /**
@@ -238,6 +254,24 @@ export function broadcastNav(sessionId: string, url: string, title: string | nul
   state.pageUrl = url;
   state.pageTitle = title;
   broadcastToViewers(state, { type: "nav", url, title });
+}
+
+/**
+ * The runtime swapped its active page (a popup was adopted). The old CDP
+ * session — and the screencast riding on it — died with the old page, so
+ * rewire: drop the stale frame-listener bookkeeping and restart the cast
+ * on the new page if anyone is watching.
+ */
+export async function notifyPageSwapped(sessionId: string): Promise<void> {
+  const state = sessions.get(sessionId);
+  if (!state) return;
+  const wasCasting = state.screencasting;
+  state.screencasting = false;
+  state.pendingCdpAcks.clear();
+  cdpListenerAttached.delete(sessionId);
+  if (wasCasting && state.viewers.size > 0) {
+    await startScreencast(state);
+  }
 }
 
 // ---------- screencast control (called when viewers come and go) ----------

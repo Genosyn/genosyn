@@ -75,6 +75,11 @@ export const DOCS_NAV: DocsSection[] = [
         title: "Code Repositories",
         blurb: "Add any git repo; let granted AI employees commit and push.",
       },
+      {
+        path: "/docs/browser",
+        title: "Browser",
+        blurb: "A persistent headless Chromium per employee — watch live, take over anytime.",
+      },
     ],
   },
   {

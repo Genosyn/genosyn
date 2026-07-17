@@ -701,15 +701,15 @@ function EmployeeBrowserAccessCard({
                 Allow list
               </label>
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                Newline-separated host globs (e.g.{" "}
+                One host pattern per line.{" "}
                 <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
-                  *.gmail.com
-                </code>
-                ,{" "}
+                  github.com
+                </code>{" "}
+                allows the domain and every subdomain;{" "}
                 <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
-                  notion.so
-                </code>
-                ). Lines starting with{" "}
+                  mail.google.com
+                </code>{" "}
+                pins one host (and its subdomains). Lines starting with{" "}
                 <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
                   #
                 </code>{" "}
@@ -719,7 +719,7 @@ function EmployeeBrowserAccessCard({
                 rows={4}
                 value={allowedHosts}
                 onChange={(e) => setAllowedHosts(e.target.value)}
-                placeholder="# Examples:&#10;*.gmail.com&#10;github.com"
+                placeholder="# Examples:&#10;mail.google.com&#10;github.com"
                 className="mt-2 w-full rounded-md border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-900 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               />
               <div className="mt-2 flex justify-end">
