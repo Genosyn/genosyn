@@ -133,7 +133,7 @@ export default function Approvals({ company }: { company: Company }) {
       ) : rows.length === 0 ? (
         <EmptyState
           title="No approvals yet"
-          description="Routines that require approval and Lightning payments above their Connection's safety threshold show up here for a human to decide."
+          description="Routines that require approval, Lightning payments and ad-spend changes above their Connection's safety threshold, and guarded MCP tool calls show up here for a human to decide."
         />
       ) : (
         <div className="flex flex-col gap-6">
