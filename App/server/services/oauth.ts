@@ -74,6 +74,10 @@ export type OauthState = {
   /** Scope-group keys the user picked at start time. Stashed so the
    * callback can persist them on the new/updated connection. */
   scopeGroups: string[];
+  /** Values for the catalog's `oauth.extraFields` (developer tokens,
+   * account ids, safety caps) typed on the connect form. Carried through
+   * the handshake so `buildOauthConfig` can persist them. */
+  extraFields?: Record<string, string>;
   expiresAt: number;
   /** When set, the callback updates this connection's tokens instead of
    * creating a new one — preserves the row id, label, and grants. */
@@ -102,6 +106,7 @@ export function startOauth(args: {
   clientId: string;
   clientSecret: string;
   scopeGroups: string[];
+  extraFields?: Record<string, string>;
   existingConnectionId?: string;
 }): { authorizeUrl: string } {
   sweep();
@@ -118,6 +123,17 @@ export function startOauth(args: {
   // Google's and GitHub's plain auth-code flows this is undefined and the
   // callback skips passing it.
   const codeVerifier = oauth.app === "x" ? generatePkceVerifier() : undefined;
+  // Validate declared extra fields up front so a missing developer token
+  // fails before the user round-trips through the consent screen.
+  const extraFields: Record<string, string> = {};
+  for (const field of oauth.extraFields ?? []) {
+    const value = (args.extraFields?.[field.key] ?? "").trim();
+    if (!value && field.required) {
+      throw new Error(`${field.label} is required`);
+    }
+    if (value) extraFields[field.key] = value;
+  }
+
   states.set(state, {
     state,
     userId: args.userId,
@@ -127,6 +143,7 @@ export function startOauth(args: {
     clientId: args.clientId,
     clientSecret: args.clientSecret,
     scopeGroups: args.scopeGroups,
+    extraFields,
     expiresAt: Date.now() + STATE_TTL_MS,
     existingConnectionId: args.existingConnectionId,
     codeVerifier,
@@ -255,6 +272,14 @@ export async function startOauthReconnect(args: {
       "Stored OAuth client credentials are missing — disconnect and create a new connection.",
     );
   }
+  // Carry any declared extra fields (developer token, account ids, caps)
+  // forward from the stored config so a reconnect doesn't wipe them.
+  const extraFields: Record<string, string> = {};
+  for (const field of provider.catalog.oauth.extraFields ?? []) {
+    const value = (cfg as Record<string, unknown>)[field.key];
+    if (typeof value === "string" && value) extraFields[field.key] = value;
+    else if (typeof value === "number") extraFields[field.key] = String(value);
+  }
   return startOauth({
     companyId: args.companyId,
     userId: args.userId,
@@ -263,6 +288,7 @@ export async function startOauthReconnect(args: {
     clientId: cfg.clientId,
     clientSecret: cfg.clientSecret,
     scopeGroups: args.scopeGroups ?? cfg.scopeGroups ?? [],
+    extraFields,
     existingConnectionId: conn.id,
   });
 }
@@ -371,6 +397,7 @@ export async function finishOauth(args: {
     clientId: args.state.clientId,
     clientSecret: args.state.clientSecret,
     scopeGroups: args.state.scopeGroups,
+    extraFields: args.state.extraFields,
   });
   return {
     provider: args.state.provider,

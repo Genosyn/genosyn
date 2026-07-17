@@ -171,6 +171,9 @@ const oauthStartSchema = z.object({
   clientId: z.string().min(1).max(512),
   clientSecret: z.string().min(1).max(512),
   scopeGroups: z.array(z.string().min(1).max(64)).max(64).default([]),
+  /** Values for the catalog's `oauth.extraFields` (developer tokens,
+   *  account ids, safety caps). Validated against the catalog server-side. */
+  extraFields: z.record(z.string().max(512)).optional(),
 });
 
 integrationsRouter.post(
@@ -188,6 +191,7 @@ integrationsRouter.post(
         clientId: body.clientId.trim(),
         clientSecret: body.clientSecret.trim(),
         scopeGroups: body.scopeGroups,
+        extraFields: body.extraFields,
       });
       res.json(out);
     } catch (err) {

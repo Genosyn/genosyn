@@ -1010,6 +1010,7 @@ function OauthOrServiceAccountModal({
   const [discovering, setDiscovering] = React.useState(false);
   const [selectedScopeGroups, setSelectedScopeGroups] = React.useState<string[]>([]);
   const [browserFields, setBrowserFields] = React.useState<Record<string, string>>({});
+  const [oauthExtraFields, setOauthExtraFields] = React.useState<Record<string, string>>({});
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
@@ -1045,6 +1046,7 @@ function OauthOrServiceAccountModal({
       setAppDiscovery(null);
       setSelectedInstallationId("");
       setBrowserFields({});
+      setOauthExtraFields({});
       // Default to all available scope groups checked. For reconnect with a
       // non-empty stored selection, prefill from that. Legacy connections
       // (empty stored array) fall back to "all" so the user sees the
@@ -1080,6 +1082,9 @@ function OauthOrServiceAccountModal({
               clientId: clientId.trim(),
               clientSecret: clientSecret.trim(),
               scopeGroups: selectedScopeGroups,
+              ...(entry.oauth?.extraFields?.length
+                ? { extraFields: oauthExtraFields }
+                : {}),
             },
           );
       const popup = window.open(authorizeUrl, "genosyn-oauth", "width=520,height=700");
@@ -1424,6 +1429,32 @@ function OauthOrServiceAccountModal({
                     Encrypted at rest with the app&apos;s session secret. Used to refresh access tokens.
                   </p>
                 </div>
+                {(entry.oauth?.extraFields ?? []).map((f) => (
+                  <div key={f.key}>
+                    <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                      {f.label}
+                      {f.required && <span className="ml-1 text-red-500">*</span>}
+                    </label>
+                    <input
+                      type={f.type === "password" ? "password" : "text"}
+                      required={f.required}
+                      value={oauthExtraFields[f.key] ?? ""}
+                      onChange={(e) =>
+                        setOauthExtraFields((prev) => ({
+                          ...prev,
+                          [f.key]: e.target.value,
+                        }))
+                      }
+                      placeholder={f.placeholder}
+                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
+                    />
+                    {f.hint && (
+                      <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                        {f.hint}
+                      </p>
+                    )}
+                  </div>
+                ))}
               </>
             )}
             <ScopeGroupPicker

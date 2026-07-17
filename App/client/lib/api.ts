@@ -580,9 +580,12 @@ export type IntegrationCatalogEntry = {
   authMode: IntegrationAuthMode;
   fields?: IntegrationCatalogField[];
   oauth?: {
-    app: "google" | "x" | "github";
+    app: "google" | "x" | "github" | "reddit" | "linkedin" | "microsoft";
     scopes: string[];
     scopeGroups?: IntegrationScopeGroup[];
+    /** Extra create-time inputs (developer tokens, account ids, safety
+     *  caps) rendered on the connect form after client id/secret. */
+    extraFields?: IntegrationCatalogField[];
     setupDocs?: string;
   };
   serviceAccount?: {

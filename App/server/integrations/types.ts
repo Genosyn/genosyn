@@ -99,7 +99,7 @@ export type IntegrationCatalogEntry = {
    * supplies its own `clientId` + `clientSecret` at create-time, so this
    * block is purely metadata for the connect form. */
   oauth?: {
-    app: "google" | "x" | "github" | "reddit" | "linkedin";
+    app: "google" | "x" | "github" | "reddit" | "linkedin" | "microsoft";
     /** Always-included baseline scopes (e.g. `userinfo.email` + `openid`
      * for OpenID Connect identity). Cannot be unchecked. */
     scopes: string[];
@@ -107,6 +107,12 @@ export type IntegrationCatalogEntry = {
      * checkboxes; the resolved scope URLs are added to `scopes` at
      * authorise time. */
     scopeGroups?: IntegrationScopeGroup[];
+    /** Extra create-time inputs the OAuth handshake alone can't supply —
+     * developer tokens, manager-account ids, spending caps. Rendered on
+     * the connect form after client id/secret, carried through the state
+     * map, and handed to `buildOauthConfig` for persistence into the
+     * encrypted config. Reconnect keeps the stored values. */
+    extraFields?: IntegrationCatalogField[];
     /** Link to docs explaining how to register the app. */
     setupDocs?: string;
   };
@@ -350,6 +356,8 @@ export type IntegrationProvider = {
     clientId: string;
     clientSecret: string;
     scopeGroups: string[];
+    /** Values for the catalog's `oauth.extraFields`, when declared. */
+    extraFields?: Record<string, string>;
   }): { config: IntegrationConfig; accountHint: string };
 
   /**
