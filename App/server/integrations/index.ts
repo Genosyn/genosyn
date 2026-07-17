@@ -1,8 +1,6 @@
-import type {
-  IntegrationCatalogEntry,
-  IntegrationProvider,
-} from "./types.js";
+import type { IntegrationCatalogEntry, IntegrationProvider } from "./types.js";
 import { stripeProvider } from "./providers/stripe.js";
+import { brexProvider } from "./providers/brex.js";
 import { googleProvider } from "./providers/google.js";
 import { googleAnalyticsProvider } from "./providers/google-analytics.js";
 import { googleSearchConsoleProvider } from "./providers/google-search-console.js";
@@ -36,6 +34,7 @@ import { redditAdsProvider } from "./providers/reddit-ads.js";
  */
 const PROVIDERS: Record<string, IntegrationProvider> = {
   [stripeProvider.catalog.provider]: stripeProvider,
+  [brexProvider.catalog.provider]: brexProvider,
   [googleProvider.catalog.provider]: googleProvider,
   [googleAnalyticsProvider.catalog.provider]: googleAnalyticsProvider,
   [googleSearchConsoleProvider.catalog.provider]: googleSearchConsoleProvider,

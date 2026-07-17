@@ -14,13 +14,16 @@ import {
  *   - `stripe_payouts`: pulled from a Stripe `IntegrationConnection` via
  *     /v1/payouts. We dedupe by Stripe id (stored on
  *     `BankTransaction.externalId`).
+ *   - `brex_cash`: pulled from a Brex `IntegrationConnection` via the
+ *     Transactions API. `externalAccountId` identifies the selected Cash
+ *     account.
  *   - `csv`: humans upload a CSV from their bank. We parse on the server
  *     and stash the raw row under `BankTransaction.raw`.
  *
  * Phase E (multi-currency) will add `currency` to `BankFeed`; for Phase
  * D every feed is in the company's home currency (USD).
  */
-export type BankFeedKind = "stripe_payouts" | "csv";
+export type BankFeedKind = "stripe_payouts" | "brex_cash" | "csv";
 
 @Entity("bank_feeds")
 @Index(["companyId"])
@@ -39,9 +42,14 @@ export class BankFeed {
   kind!: BankFeedKind;
 
   /** Optional pointer to the `IntegrationConnection` we pull from for
-   *  `stripe_payouts`. Null for CSV feeds. */
+   *  native feeds. Null for CSV feeds. */
   @Column({ type: "varchar", nullable: true })
   connectionId!: string | null;
+
+  /** Provider-side account identifier when one Connection can expose more
+   *  than one account. Set for Brex Cash feeds; null for Stripe and CSV. */
+  @Column({ type: "varchar", nullable: true })
+  externalAccountId!: string | null;
 
   /** The ledger account this feed reconciles against — typically 1100
    *  Bank, but a company with multiple bank accounts will create one

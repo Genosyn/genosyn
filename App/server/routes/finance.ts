@@ -80,11 +80,13 @@ import {
   incomeStatement,
 } from "../services/reports.js";
 import {
+  assertBrexCashAccountConnection,
   autoMatchFeed,
   findMatchCandidates,
   importBankCsv,
+  listBrexCashAccountsForConnection,
   manualMatch,
-  syncStripePayouts,
+  syncBankFeed,
   unmatch,
 } from "../services/reconcile.js";
 import {
@@ -1816,7 +1818,11 @@ financeRouter.get("/reports/account-activity", async (req, res) => {
 
 // ─────────────────────── Bank feeds (Phase D) ──────────────────────────
 
-const FEED_KINDS: [BankFeedKind, ...BankFeedKind[]] = ["stripe_payouts", "csv"];
+const FEED_KINDS: [BankFeedKind, ...BankFeedKind[]] = [
+  "stripe_payouts",
+  "brex_cash",
+  "csv",
+];
 
 const csvUpload = multer({
   storage: multer.memoryStorage(),
@@ -1832,11 +1838,29 @@ financeRouter.get("/bank-feeds", async (req, res) => {
   res.json(feeds);
 });
 
+const brexAccountsQuerySchema = z.object({
+  connectionId: z.string().uuid(),
+});
+
+financeRouter.get("/bank-feeds/brex-accounts", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const parsed = brexAccountsQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "A valid Brex connectionId is required" });
+  }
+  try {
+    res.json(await listBrexCashAccountsForConnection(cid, parsed.data.connectionId));
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
 const feedCreateSchema = z.object({
   name: z.string().min(1).max(120),
   kind: z.enum(FEED_KINDS),
   accountId: z.string().uuid(),
   connectionId: z.string().uuid().nullable().optional(),
+  externalAccountId: z.string().min(1).max(255).nullable().optional(),
 });
 
 financeRouter.post(
@@ -1868,6 +1892,22 @@ financeRouter.post(
       if (!conn || conn.provider !== "stripe") {
         return res.status(400).json({ error: "Connection is not Stripe" });
       }
+    } else if (body.kind === "brex_cash") {
+      if (!body.connectionId) {
+        return res.status(400).json({ error: "Brex feeds need a connectionId" });
+      }
+      if (!body.externalAccountId) {
+        return res.status(400).json({ error: "Brex feeds need a Cash account" });
+      }
+      try {
+        await assertBrexCashAccountConnection(
+          cid,
+          body.connectionId,
+          body.externalAccountId,
+        );
+      } catch (err) {
+        return res.status(400).json({ error: (err as Error).message });
+      }
     }
     const repo = AppDataSource.getRepository(BankFeed);
     const f = repo.create({
@@ -1875,7 +1915,9 @@ financeRouter.post(
       name: body.name,
       kind: body.kind,
       accountId: body.accountId,
-      connectionId: body.connectionId ?? null,
+      connectionId: body.kind === "csv" ? null : body.connectionId ?? null,
+      externalAccountId:
+        body.kind === "brex_cash" ? body.externalAccountId ?? null : null,
     });
     await repo.save(f);
     res.json(f);
@@ -1897,11 +1939,8 @@ financeRouter.post("/bank-feeds/:id/sync", async (req, res) => {
   const repo = AppDataSource.getRepository(BankFeed);
   const f = await repo.findOneBy({ id: req.params.id, companyId: cid });
   if (!f) return res.status(404).json({ error: "Feed not found" });
-  if (f.kind !== "stripe_payouts") {
-    return res.status(400).json({ error: "This feed type can only be imported via CSV" });
-  }
   try {
-    const inserted = await syncStripePayouts(f);
+    const inserted = await syncBankFeed(f);
     const matched = await autoMatchFeed(f);
     res.json({ inserted, matched });
   } catch (err) {

@@ -1,21 +1,13 @@
 import React from "react";
 import { useOutletContext } from "react-router-dom";
-import {
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Plus,
-  RefreshCw,
-  Trash2,
-  Upload,
-  X,
-} from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Plus, RefreshCw, Trash2, Upload, X } from "lucide-react";
 import {
   Account,
   api,
   BankFeed,
   BankFeedKind,
   BankTransaction,
+  BrexCashAccount,
   formatMoney,
   IntegrationConnection,
   MatchCandidate,
@@ -29,6 +21,12 @@ import { Select } from "../components/ui/Select";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { FinanceOutletCtx } from "./FinanceLayout";
+
+function bankFeedSourceLabel(kind: BankFeedKind): string {
+  if (kind === "stripe_payouts") return "Stripe";
+  if (kind === "brex_cash") return "Brex Cash";
+  return "CSV";
+}
 
 /**
  * Bank reconciliation. Phase D of the Finance milestone (M19).
@@ -85,10 +83,7 @@ export default function FinanceReconcile() {
     () => feeds?.find((f) => f.id === activeFeedId) ?? null,
     [feeds, activeFeedId],
   );
-  const accountById = React.useMemo(
-    () => new Map(accounts.map((a) => [a.id, a])),
-    [accounts],
-  );
+  const accountById = React.useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
 
   const filteredTxns = React.useMemo(() => {
     if (!txns) return null;
@@ -151,9 +146,8 @@ export default function FinanceReconcile() {
             Reconciliation
           </h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Match bank lines to recorded invoice payments. Auto-matches
-            anything where the amount and date line up; you confirm the
-            rest.
+            Match bank lines to recorded invoice payments. Auto-matches anything where the amount
+            and date line up; you confirm the rest.
           </p>
         </div>
         <Button onClick={() => setShowNewFeed(true)}>
@@ -171,8 +165,7 @@ export default function FinanceReconcile() {
             No bank feeds yet
           </h3>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Connect Stripe payouts or upload a bank CSV to start
-            reconciling.
+            Connect Brex Cash, connect Stripe payouts, or upload a bank CSV to start reconciling.
           </p>
           <div className="mt-4">
             <Button onClick={() => setShowNewFeed(true)}>
@@ -192,13 +185,12 @@ export default function FinanceReconcile() {
                 const a = accountById.get(f.accountId);
                 return (
                   <option key={f.id} value={f.id}>
-                    {f.name} · {f.kind === "stripe_payouts" ? "Stripe" : "CSV"} ·{" "}
-                    {a?.code ?? "—"} {a?.name ?? ""}
+                    {f.name} · {bankFeedSourceLabel(f.kind)} · {a?.code ?? "—"} {a?.name ?? ""}
                   </option>
                 );
               })}
             </Select>
-            {activeFeed?.kind === "stripe_payouts" && (
+            {activeFeed && activeFeed.kind !== "csv" && (
               <Button variant="secondary" onClick={syncFeed} disabled={busy}>
                 <RefreshCw size={14} className={busy ? "animate-spin" : ""} /> Sync
               </Button>
@@ -224,7 +216,7 @@ export default function FinanceReconcile() {
             {(["unmatched", "matched", "all"] as const).map((f) => {
               const count =
                 f === "all"
-                  ? txns?.length ?? 0
+                  ? (txns?.length ?? 0)
                   : f === "unmatched"
                     ? (txns ?? []).filter((t) => !t.reconciledAt).length
                     : (txns ?? []).filter((t) => !!t.reconciledAt).length;
@@ -253,9 +245,7 @@ export default function FinanceReconcile() {
           ) : filteredTxns.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-200 bg-white p-12 text-center dark:border-slate-700 dark:bg-slate-900">
               <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                {filter === "unmatched"
-                  ? "Nothing to reconcile"
-                  : "No transactions"}
+                {filter === "unmatched" ? "Nothing to reconcile" : "No transactions"}
               </h3>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                 {filter === "unmatched"
@@ -457,8 +447,8 @@ function TxnRow({
             </div>
           ) : candidates.length === 0 ? (
             <div className="text-sm text-slate-500 dark:text-slate-400">
-              No payment candidates within the matching window. Record the
-              corresponding invoice payment first, then come back.
+              No payment candidates within the matching window. Record the corresponding invoice
+              payment first, then come back.
             </div>
           ) : (
             <ul className="space-y-1.5">
@@ -477,8 +467,7 @@ function TxnRow({
                       </span>
                     </div>
                     <div className="text-xs text-slate-500 dark:text-slate-400">
-                      {c.paidAt.slice(0, 10)} · {c.method} · score{" "}
-                      {(c.score * 100).toFixed(0)}%
+                      {c.paidAt.slice(0, 10)} · {c.method} · score {(c.score * 100).toFixed(0)}%
                     </div>
                   </div>
                   <div className="tabular-nums text-sm text-slate-900 dark:text-slate-100">
@@ -517,15 +506,53 @@ function NewFeedModal({
     accounts.find((a) => a.code === "1100")?.id ?? "",
   );
   const [connectionId, setConnectionId] = React.useState("");
-  const [stripeConns, setStripeConns] = React.useState<IntegrationConnection[]>([]);
+  const [connections, setConnections] = React.useState<IntegrationConnection[]>([]);
+  const [externalAccountId, setExternalAccountId] = React.useState("");
+  const [brexAccounts, setBrexAccounts] = React.useState<BrexCashAccount[] | null>([]);
+  const [brexAccountsError, setBrexAccountsError] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+
+  const stripeConns = connections.filter((connection) => connection.provider === "stripe");
+  const brexConns = connections.filter((connection) => connection.provider === "brex");
 
   React.useEffect(() => {
     api
       .get<IntegrationConnection[]>(`/api/companies/${companyId}/integrations/connections`)
-      .then((cs) => setStripeConns(cs.filter((c) => c.provider === "stripe")))
-      .catch(() => setStripeConns([]));
+      .then(setConnections)
+      .catch(() => setConnections([]));
   }, [companyId]);
+
+  React.useEffect(() => {
+    if (kind !== "brex_cash" || !connectionId) {
+      setBrexAccounts([]);
+      setBrexAccountsError("");
+      setExternalAccountId("");
+      return;
+    }
+    let cancelled = false;
+    setBrexAccounts(null);
+    setBrexAccountsError("");
+    api
+      .get<BrexCashAccount[]>(
+        `/api/companies/${companyId}/bank-feeds/brex-accounts?connectionId=${encodeURIComponent(connectionId)}`,
+      )
+      .then((cashAccounts) => {
+        if (cancelled) return;
+        setBrexAccounts(cashAccounts);
+        const preferred =
+          cashAccounts.find((cashAccount) => cashAccount.primary) ?? cashAccounts[0];
+        setExternalAccountId(preferred?.id ?? "");
+      })
+      .catch((err: Error) => {
+        if (cancelled) return;
+        setBrexAccounts([]);
+        setExternalAccountId("");
+        setBrexAccountsError(err.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId, connectionId, kind]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -535,7 +562,8 @@ function NewFeedModal({
         name: name.trim(),
         kind,
         accountId,
-        connectionId: kind === "stripe_payouts" ? connectionId || null : null,
+        connectionId: kind === "csv" ? null : connectionId || null,
+        externalAccountId: kind === "brex_cash" ? externalAccountId || null : null,
       });
       onSaved();
     } catch (err) {
@@ -555,8 +583,17 @@ function NewFeedModal({
           placeholder="e.g. Chase #4567 or Stripe payouts"
           required
         />
-        <Select label="Source" value={kind} onChange={(e) => setKind(e.target.value as BankFeedKind)}>
+        <Select
+          label="Source"
+          value={kind}
+          onChange={(e) => {
+            setKind(e.target.value as BankFeedKind);
+            setConnectionId("");
+            setExternalAccountId("");
+          }}
+        >
           <option value="csv">CSV upload</option>
+          <option value="brex_cash">Brex Cash</option>
           <option value="stripe_payouts">Stripe payouts</option>
         </Select>
         <Select
@@ -591,15 +628,73 @@ function NewFeedModal({
         )}
         {kind === "stripe_payouts" && stripeConns.length === 0 && (
           <p className="rounded-md bg-amber-50 p-3 text-xs text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
-            No Stripe connection found. Add one under Settings → Integrations
-            first.
+            No Stripe connection found. Add one under Settings → Integrations first.
+          </p>
+        )}
+        {kind === "brex_cash" && (
+          <Select
+            label="Brex connection"
+            value={connectionId}
+            onChange={(e) => setConnectionId(e.target.value)}
+            required
+          >
+            <option value="">— Pick a Brex connection —</option>
+            {brexConns.map((connection) => (
+              <option key={connection.id} value={connection.id}>
+                {connection.label}
+              </option>
+            ))}
+          </Select>
+        )}
+        {kind === "brex_cash" && brexConns.length === 0 && (
+          <p className="rounded-md bg-amber-50 p-3 text-xs text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+            No Brex Connection found. Add one under Settings → Integrations first.
+          </p>
+        )}
+        {kind === "brex_cash" && connectionId && brexAccounts === null && (
+          <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+            <Spinner size={14} /> Loading Brex Cash accounts…
+          </div>
+        )}
+        {kind === "brex_cash" && connectionId && brexAccounts !== null && (
+          <Select
+            label="Brex Cash account"
+            value={externalAccountId}
+            onChange={(e) => setExternalAccountId(e.target.value)}
+            required
+          >
+            <option value="">— Pick a Cash account —</option>
+            {brexAccounts.map((cashAccount) => (
+              <option key={cashAccount.id} value={cashAccount.id}>
+                {cashAccount.name} · •••• {cashAccount.accountNumberLast4} ·{" "}
+                {formatMoney(
+                  cashAccount.currentBalance.amount,
+                  cashAccount.currentBalance.currency ?? "USD",
+                )}
+                {cashAccount.primary ? " · Primary" : ""}
+              </option>
+            ))}
+          </Select>
+        )}
+        {kind === "brex_cash" && brexAccountsError && (
+          <p className="rounded-md bg-rose-50 p-3 text-xs text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
+            {brexAccountsError}
           </p>
         )}
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy || !name.trim() || !accountId}>
+          <Button
+            type="submit"
+            disabled={
+              busy ||
+              !name.trim() ||
+              !accountId ||
+              (kind === "stripe_payouts" && !connectionId) ||
+              (kind === "brex_cash" && (!connectionId || !externalAccountId))
+            }
+          >
             Create feed
           </Button>
         </div>
@@ -632,10 +727,11 @@ function ImportCsvModal({
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const res = await fetch(
-        `/api/companies/${companyId}/bank-feeds/${feed.id}/import`,
-        { method: "POST", credentials: "same-origin", body: fd },
-      );
+      const res = await fetch(`/api/companies/${companyId}/bank-feeds/${feed.id}/import`, {
+        method: "POST",
+        credentials: "same-origin",
+        body: fd,
+      });
       const text = await res.text();
       const data = text ? JSON.parse(text) : null;
       if (!res.ok) throw new Error((data && data.error) || res.statusText);
@@ -651,9 +747,8 @@ function ImportCsvModal({
     <Modal open onClose={onClose} title={`Import CSV — ${feed.name}`}>
       <form onSubmit={upload} className="space-y-4">
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          Pick a CSV exported from your bank. Common header names work
-          (Date, Amount, Description, Reference). Duplicates are skipped
-          on the (date, amount, description) triple.
+          Pick a CSV exported from your bank. Common header names work (Date, Amount, Description,
+          Reference). Duplicates are skipped on the (date, amount, description) triple.
         </p>
         <input
           type="file"
@@ -673,4 +768,3 @@ function ImportCsvModal({
     </Modal>
   );
 }
-

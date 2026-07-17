@@ -2477,7 +2477,7 @@ export function priorRangeOf(range: PeriodRange): PeriodRange {
 
 // ─────────────────────── Reconciliation (M19 Phase D) ──────────────────
 
-export type BankFeedKind = "stripe_payouts" | "csv";
+export type BankFeedKind = "stripe_payouts" | "brex_cash" | "csv";
 
 export type BankFeed = {
   id: string;
@@ -2485,11 +2485,22 @@ export type BankFeed = {
   name: string;
   kind: BankFeedKind;
   connectionId: string | null;
+  externalAccountId: string | null;
   accountId: string;
   lastSyncAt: string | null;
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type BrexCashAccount = {
+  id: string;
+  name: string;
+  status: string | null;
+  primary: boolean;
+  accountNumberLast4: string;
+  currentBalance: { amount: number; currency: string | null };
+  availableBalance: { amount: number; currency: string | null };
 };
 
 export type BankTransactionMatch =
