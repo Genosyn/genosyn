@@ -157,7 +157,7 @@ export default function MailThreadList() {
   );
 
   return (
-    <div className="mx-auto flex h-full max-w-5xl flex-col px-4 py-4 sm:px-6">
+    <div className="mx-auto flex min-h-full max-w-5xl flex-col px-4 py-4 sm:px-6">
       <div className="mb-3 flex items-center gap-3">
         <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
           {title}

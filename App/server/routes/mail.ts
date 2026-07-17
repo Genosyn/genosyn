@@ -348,10 +348,15 @@ mailRouter.get("/mail/accounts/:aid/labels", async (req, res) => {
     order: { name: "ASC" },
   });
   // One in-memory pass over (labelIds, unread) computes every sidebar count.
-  const threads = await AppDataSource.getRepository(MailThread).find({
-    select: ["labelIds", "unread"],
-    where: { accountId: account.id },
-  });
+  // Raw rows avoid hydrating a MailThread entity for every conversation in a
+  // potentially very large mailbox. This endpoint only needs two scalar
+  // columns, and it runs repeatedly while the sidebar follows sync updates.
+  const threads = await AppDataSource.getRepository(MailThread)
+    .createQueryBuilder("t")
+    .select("t.labelIds", "labelIds")
+    .addSelect("t.unread", "unread")
+    .where("t.accountId = :accountId", { accountId: account.id })
+    .getRawMany<{ labelIds: string; unread: boolean | number }>();
   let inboxUnread = 0;
   let drafts = 0;
   let starred = 0;

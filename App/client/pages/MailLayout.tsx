@@ -89,6 +89,8 @@ export default function MailLayout({ company }: { company: Company }) {
     drafts: 0,
     starred: 0,
   });
+  const labelRequestSeq = React.useRef(0);
+  const lastLabelRefreshAt = React.useRef(0);
   const [changeTick, setChangeTick] = React.useState(0);
   const [composeOpen, setComposeOpen] = React.useState(false);
   const [composeInit, setComposeInit] = React.useState<Partial<ComposeInput>>({});
@@ -120,7 +122,10 @@ export default function MailLayout({ company }: { company: Company }) {
 
   const refreshLabels = React.useCallback(
     async (accountId: string) => {
+      const requestSeq = ++labelRequestSeq.current;
+      lastLabelRefreshAt.current = Date.now();
       const res = await mailApi.labels(company.id, accountId);
+      if (requestSeq !== labelRequestSeq.current) return;
       setLabels(res.labels);
       setCounts(res.counts);
     },
@@ -137,10 +142,24 @@ export default function MailLayout({ company }: { company: Company }) {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setLabels([]);
+      setCounts({ inboxUnread: 0, drafts: 0, starred: 0 });
+      lastLabelRefreshAt.current = 0;
       try {
         const list = await refreshAccounts();
         const current = list.find((a) => a.id === activeId) ?? list[0];
-        if (current && !cancelled) await refreshLabels(current.id);
+        if (cancelled) return;
+
+        // Account discovery is enough to paint the mailbox and start the
+        // indexed thread query. Sidebar statistics can be expensive on a
+        // large local mirror, so load them alongside the page instead of
+        // holding the entire Email section behind its spinner.
+        setLoading(false);
+        if (current) {
+          void refreshLabels(current.id).catch((err) => {
+            if (!cancelled) toast((err as Error).message, "error");
+          });
+        }
       } catch (err) {
         if (!cancelled) toast((err as Error).message, "error");
       } finally {
@@ -160,13 +179,24 @@ export default function MailLayout({ company }: { company: Company }) {
     const accountId = (ev as { accountId?: string }).accountId;
     if (!account || accountId !== account.id) return;
     setChangeTick((t) => t + 1);
-    void refreshLabels(account.id).catch(() => {});
+
+    // A first mailbox import can emit progress after every Gmail page. Each
+    // sidebar refresh scans the mirrored thread labels, so cap those scans
+    // while the import is growing; the thread list and progress counter stay
+    // live on every event, and a completed mailbox still refreshes at once.
+    const labelsAreStale = Date.now() - lastLabelRefreshAt.current >= 30_000;
+    if (account.backfilledAt || labelsAreStale) {
+      void refreshLabels(account.id).catch(() => {});
+    }
     void refreshAccounts().catch(() => {});
   });
 
   const selectAccount = (id: string) => {
     setActiveId(id);
     localStorage.setItem(activeAccountKey(company.id), id);
+    setLabels([]);
+    setCounts({ inboxUnread: 0, drafts: 0, starred: 0 });
+    lastLabelRefreshAt.current = 0;
     void refreshLabels(id).catch(() => {});
     setChangeTick((t) => t + 1);
   };
@@ -319,8 +349,8 @@ export default function MailLayout({ company }: { company: Company }) {
 
   return (
     <ContextualLayout sidebar={sidebar}>
-      <div className="flex h-full min-h-0">
-        <div className="min-w-0 flex-1 overflow-y-auto">
+      <div className="flex h-full min-h-0 overflow-hidden">
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           <Outlet context={ctx} />
         </div>
         {assistantOpen && (
