@@ -13,6 +13,7 @@ import {
   Layers,
   Linkedin,
   Mail,
+  Megaphone,
   MessageCircle,
   Pencil,
   Plug,
@@ -74,6 +75,7 @@ const ICONS: Record<string, LucideIcon> = {
   Layers,
   Linkedin,
   Mail,
+  Megaphone,
   MessageCircle,
   Plug,
   Search,
@@ -1276,13 +1278,21 @@ function OauthOrServiceAccountModal({
             clientSecretPlaceholder: "GitHub OAuth client secret",
             consentTitle: "GitHub",
           }
-        : {
-            consoleStep:
-              "Google Cloud Console → APIs & Services → Credentials → Create OAuth Client ID (Web application).",
-            clientIdPlaceholder: "123456789-abcdef.apps.googleusercontent.com",
-            clientSecretPlaceholder: "GOCSPX-…",
-            consentTitle: "Google",
-          };
+        : oauthApp === "microsoft"
+          ? {
+              consoleStep:
+                "Azure portal → Microsoft Entra ID → App registrations → New registration (Web platform). Add a client secret under Certificates & secrets, and paste the redirect URI below.",
+              clientIdPlaceholder: "00000000-0000-0000-0000-000000000000",
+              clientSecretPlaceholder: "Entra app client secret value",
+              consentTitle: "Microsoft",
+            }
+          : {
+              consoleStep:
+                "Google Cloud Console → APIs & Services → Credentials → Create OAuth Client ID (Web application).",
+              clientIdPlaceholder: "123456789-abcdef.apps.googleusercontent.com",
+              clientSecretPlaceholder: "GOCSPX-…",
+              consentTitle: "Google",
+            };
 
   return (
     <Modal

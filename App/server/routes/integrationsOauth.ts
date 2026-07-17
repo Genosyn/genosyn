@@ -12,6 +12,7 @@ const OAUTH_APPS: ReadonlySet<OauthApp> = new Set<OauthApp>([
   "github",
   "reddit",
   "linkedin",
+  "microsoft",
 ]);
 
 function isOauthApp(s: string): s is OauthApp {

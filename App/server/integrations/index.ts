@@ -25,6 +25,8 @@ import { redditProvider } from "./providers/reddit.js";
 import { linkedinProvider } from "./providers/linkedin.js";
 import { googleAdsProvider } from "./providers/google-ads.js";
 import { metaAdsProvider } from "./providers/meta-ads.js";
+import { microsoftAdsProvider } from "./providers/microsoft-ads.js";
+import { redditAdsProvider } from "./providers/reddit-ads.js";
 
 /**
  * Provider registry. Adding a new integration means:
@@ -56,6 +58,8 @@ const PROVIDERS: Record<string, IntegrationProvider> = {
   [linkedinProvider.catalog.provider]: linkedinProvider,
   [googleAdsProvider.catalog.provider]: googleAdsProvider,
   [metaAdsProvider.catalog.provider]: metaAdsProvider,
+  [microsoftAdsProvider.catalog.provider]: microsoftAdsProvider,
+  [redditAdsProvider.catalog.provider]: redditAdsProvider,
 };
 
 export function getProvider(id: string): IntegrationProvider | null {

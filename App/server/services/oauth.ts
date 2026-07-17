@@ -37,6 +37,13 @@ import {
   resolveLinkedinScopes,
   type LinkedinOauthConfig,
 } from "../integrations/providers/linkedin.js";
+import {
+  buildMicrosoftAuthorizeUrl,
+  exchangeMicrosoftCode,
+  microsoftRedirectUri,
+  resolveMicrosoftScopes,
+  type MicrosoftOauthConfig,
+} from "../integrations/providers/microsoft-ads.js";
 import { decryptConnectionConfig, getConnection } from "./integrations.js";
 
 /**
@@ -225,6 +232,19 @@ export function startOauth(args: {
       });
       break;
     }
+    case "microsoft": {
+      const scopes = resolveMicrosoftScopes({
+        scopeGroups: args.scopeGroups,
+        baseline: oauth.scopes,
+      });
+      authorizeUrl = buildMicrosoftAuthorizeUrl({
+        state,
+        scopes,
+        clientId: args.clientId,
+        redirectUri: microsoftRedirectUri(),
+      });
+      break;
+    }
     default:
       throw new Error(`Unsupported OAuth app: ${oauth.app}`);
   }
@@ -267,7 +287,8 @@ export async function startOauthReconnect(args: {
       XOauthConfig &
       GithubOauthConfig &
       RedditOauthConfig &
-      LinkedinOauthConfig,
+      LinkedinOauthConfig &
+      MicrosoftOauthConfig,
     "clientId" | "clientSecret" | "scopeGroups"
   >;
   if (!cfg.clientId || !cfg.clientSecret) {
@@ -306,7 +327,7 @@ export function resolveOauthState(state: string): OauthState | null {
   return info;
 }
 
-export type OauthApp = "google" | "x" | "github" | "reddit" | "linkedin";
+export type OauthApp = "google" | "x" | "github" | "reddit" | "linkedin" | "microsoft";
 
 /**
  * Dispatch a finished OAuth handshake to the right provider helper. Called
@@ -386,6 +407,17 @@ export async function finishOauth(args: {
         clientId: args.state.clientId,
         clientSecret: args.state.clientSecret,
         redirectUri: linkedinRedirectUri(),
+      });
+      tokens = exchanged.tokens;
+      userInfo = exchanged.userInfo;
+      break;
+    }
+    case "microsoft": {
+      const exchanged = await exchangeMicrosoftCode({
+        code: args.code,
+        clientId: args.state.clientId,
+        clientSecret: args.state.clientSecret,
+        redirectUri: microsoftRedirectUri(),
       });
       tokens = exchanged.tokens;
       userInfo = exchanged.userInfo;
