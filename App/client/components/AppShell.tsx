@@ -79,7 +79,11 @@ export function AppShell({ me, companies, current, onCompaniesChanged, children 
 
   return (
     <CompanySocketProvider companyId={current.id}>
-      <CommandPaletteProvider me={me} companySlug={current.slug}>
+      <CommandPaletteProvider
+        me={me}
+        companyId={current.id}
+        companySlug={current.slug}
+      >
         <ContextualSidebarContext.Provider value={sidebarState}>
           <div className="flex h-full flex-col">
             <TopNav

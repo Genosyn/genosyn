@@ -135,6 +135,19 @@ export function Introduction() {
         &ldquo;slack&rdquo; finds Workspace. The section pill in the top nav
         opens the same palette if you&apos;d rather click.
       </P>
+      <P>
+        The palette searches your company&apos;s content too, not just the
+        section list. Type two or more characters and matching AI employees,
+        skills, routines, notebooks, notes, bases, channels, projects, todos,
+        customers, charts, dashboards, repositories, and pipelines appear
+        grouped beneath the sections. It matches <em>names</em> — plus a few fields you&apos;d
+        naturally reach for, like a customer&apos;s email, a channel&apos;s
+        topic, or an employee&apos;s role — never document bodies. Press{" "}
+        <Code>↵</Code> to open a result; a todo takes you to its
+        project&apos;s board, ticket number in hand. Results respect what you
+        can see: restricted projects and private channels you aren&apos;t in
+        stay out of the list.
+      </P>
 
       <Callout kind="tip" title="Open source, no strings.">
         Genosyn ships under MIT. The source lives at{" "}

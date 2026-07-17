@@ -62,6 +62,7 @@ import { mailRouter } from "./routes/mail.js";
 import { apiKeysRouter } from "./routes/apiKeys.js";
 import { openapiRouter } from "./routes/openapi.js";
 import { homeRouter } from "./routes/home.js";
+import { searchRouter } from "./routes/search.js";
 import { systemHealthRouter } from "./routes/systemHealth.js";
 import { pushRouter } from "./routes/push.js";
 import { browserSessionsRouter } from "./routes/browserSessions.js";
@@ -170,6 +171,8 @@ async function main() {
   app.use("/api/companies/:cid", inboxRouter);
   // Home page aggregation — the post-sign-in landing surface.
   app.use("/api/companies/:cid", homeRouter);
+  // Company-wide quick search — entity results for the ⌘K palette.
+  app.use("/api/companies/:cid", searchRouter);
   // System Health — company-scoped roll-up of failed/stuck/skipped runs,
   // missing models, stale approvals, email + integration failures.
   app.use("/api/companies/:cid", systemHealthRouter);

@@ -390,11 +390,11 @@ function subsequenceOf(hay: string, needle: string): boolean {
 }
 
 /**
- * Rank one section against a lowercased query. Higher is better; null means
+ * Rank one section against one lowercased token. Higher is better; null means
  * "no match, hide it". The tiers exist so that typing "not" puts Notes above
  * Notifications-in-a-description, and so an exact word always wins.
  */
-function scoreSection(
+function scoreToken(
   item: SectionItem,
   q: string,
 ): { score: number; hit: [number, number] | null } | null {
@@ -411,6 +411,16 @@ function scoreSection(
     return { score: boundary ? 80 : 65, hit: [at, at + q.length] };
   }
 
+  // Initials — "ae" reaches "AI Employees" without spelling either word.
+  const initials = label
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .map((w) => w[0])
+    .join("");
+  if (initials.length > 1 && initials.startsWith(q)) {
+    return { score: 58, hit: null };
+  }
+
   const kw = (item.keywords ?? []).find((k) => k.includes(q));
   if (kw) return { score: kw.startsWith(q) ? 55 : 45, hit: null };
 
@@ -419,6 +429,33 @@ function scoreSection(
   if (subsequenceOf(label, q)) return { score: 20, hit: null };
 
   return null;
+}
+
+/**
+ * Rank one section against a lowercased query. Multi-word queries AND their
+ * tokens ("ai emp" must hit on every word, in any order) and score as the
+ * weakest token, so each extra word narrows rather than widens.
+ */
+function scoreSection(
+  item: SectionItem,
+  q: string,
+): { score: number; hit: [number, number] | null } | null {
+  const whole = scoreToken(item, q);
+  const tokens = q.split(/\s+/).filter(Boolean);
+  if (tokens.length < 2) return whole;
+
+  let min = Infinity;
+  let hit: [number, number] | null = null;
+  for (const tok of tokens) {
+    const r = scoreToken(item, tok);
+    if (!r) return whole;
+    min = Math.min(min, r.score);
+    hit = hit ?? r.hit;
+  }
+  // The whole-string match keeps priority when it's the stronger signal
+  // (e.g. a keyword contains the query verbatim, spaces and all).
+  if (whole && whole.score >= min) return whole;
+  return { score: min, hit };
 }
 
 /**

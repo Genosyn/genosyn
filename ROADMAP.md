@@ -1064,6 +1064,13 @@ of the original V1 backlog has shipped — what remains is mostly
       search over labels, descriptions, and a hidden synonym index (typing
       "cron" lands on Routines), full keyboard control. Replaced the mega-menu
       that used to drop out of the section pill
+- [x] **Palette entity search** — the ⌘K palette also searches the company's
+      content by name (`GET /api/companies/:cid/search`): AI employees,
+      skills, routines, channels, projects, todos, bases, notebooks, notes,
+      resources, charts, dashboards, repos, pipelines, customers. Sections
+      stay first; entity hits group by kind underneath and ↵ opens them
+      (todos land on their project board). Respects project access modes
+      and private-channel membership
 - [x] **Home page** — post-sign-in landing at the company root:
       unread notifications, my todos, reviews waiting on me, pending
       approvals, unread channels/DMs, today's journal digest, section

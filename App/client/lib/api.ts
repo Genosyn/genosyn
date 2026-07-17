@@ -2809,3 +2809,31 @@ export function displayBillStatus(
   }
   return bill.status;
 }
+
+// ───────────────────────── Company search (⌘K palette) ──────────────────
+
+export type SearchResultKind =
+  | "employee"
+  | "skill"
+  | "routine"
+  | "channel"
+  | "project"
+  | "todo"
+  | "base"
+  | "notebook"
+  | "note"
+  | "resource"
+  | "chart"
+  | "dashboard"
+  | "repo"
+  | "pipeline"
+  | "customer";
+
+export type CompanySearchResult = {
+  kind: SearchResultKind;
+  id: string;
+  label: string;
+  sublabel: string | null;
+  /** Route under `/c/<companySlug>` that opens this result. */
+  path: string;
+};
