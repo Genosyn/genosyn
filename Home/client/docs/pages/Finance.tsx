@@ -176,8 +176,12 @@ export function Finance() {
         <Code>DR Bank / CR Accounts Receivable</Code> entry. Once the
         cumulative paid amount reaches the invoice total, the status
         flips from <Code>sent</Code> to <Code>paid</Code>. Sending or
-        resending an invoice emails the customer the rendered document
-        with a PDF copy attached, exactly as estimates do.
+        resending an invoice emails the customer the rendered document.
+        Before a resend, Genosyn shows the exact From, To, and Reply-to
+        addresses in a confirmation modal. You can add a one-off message
+        and choose whether to attach the invoice PDF. Every resend attempt
+        then appears on the invoice&apos;s Activity feed with its delivery
+        status, recipient, and attachment result.
       </P>
       <P>
         <Code>Duplicate</Code> works the same way as on estimates —

@@ -30,6 +30,9 @@ export type InvoiceHtmlInput = {
   defaultFromBlock?: string;
   /** Default footer when the invoice has no `footer` of its own. */
   defaultFooter?: string;
+  /** Optional note shown above the invoice in an email body. It is never
+   *  included in the separately rendered PDF attachment. */
+  emailMessage?: string;
 };
 
 const STYLES = `
@@ -47,6 +50,15 @@ body {
   margin: 32px auto;
   padding: 40px 48px;
   background: #fff;
+}
+.email-message {
+  margin-bottom: 32px;
+  padding: 16px 18px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #334155;
+  white-space: pre-wrap;
 }
 .header {
   display: flex;
@@ -274,6 +286,9 @@ export function renderInvoiceHtml(input: InvoiceHtmlInput): string {
 
   const numberDisplay = invoice.number || "DRAFT";
   const statusClass = invoice.status;
+  const emailMessageBlock = input.emailMessage?.trim()
+    ? `<div class="email-message">${esc(input.emailMessage.trim())}</div>`
+    : "";
 
   const billingAddress = customer.billingAddress
     ? `<div class="party-detail">${esc(customer.billingAddress)}</div>`
@@ -291,6 +306,7 @@ export function renderInvoiceHtml(input: InvoiceHtmlInput): string {
 </head>
 <body>
   <div class="page">
+    ${emailMessageBlock}
     <div class="header">
       <div>
         <div class="brand">${esc(input.companyName || "")}</div>

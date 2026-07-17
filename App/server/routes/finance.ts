@@ -26,8 +26,10 @@ import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import {
   duplicateInvoice,
+  getInvoiceEmailDetails,
   hydrateInvoices,
   issueInvoice,
+  listInvoiceResendActivities,
   loadCustomerBySlug,
   loadInvoiceBySlug,
   loadProductBySlug,
@@ -38,6 +40,7 @@ import {
   sendInvoiceEmail,
   voidInvoice,
 } from "../services/finance.js";
+import { recordAudit } from "../services/audit.js";
 import {
   applyRecurringInvoiceStatus,
   duplicateRecurringInvoice,
@@ -798,8 +801,12 @@ financeRouter.get("/invoices/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const inv = await loadInvoiceBySlug(cid, req.params.slug);
   if (!inv) return res.status(404).json({ error: "Invoice not found" });
-  const [hydrated] = await hydrateInvoices(cid, [inv]);
-  res.json(hydrated);
+  const [hydratedRows, emailDetails, resendActivities] = await Promise.all([
+    hydrateInvoices(cid, [inv]),
+    getInvoiceEmailDetails(cid, inv),
+    listInvoiceResendActivities(cid, inv.id),
+  ]);
+  res.json({ ...hydratedRows[0], emailDetails, resendActivities });
 });
 
 const invoicePatchSchema = z.object({
@@ -897,19 +904,53 @@ financeRouter.post("/invoices/:slug/issue", async (req, res) => {
   }
 });
 
-// Email send (auto-issues drafts, then sends)
-financeRouter.post("/invoices/:slug/send", async (req, res) => {
+const invoiceSendSchema = z.preprocess(
+  (value) => value ?? {},
+  z
+    .object({
+      message: z.string().max(4000).default(""),
+      attachPdf: z.boolean().default(true),
+    })
+    .strict(),
+);
+
+// Email send (auto-issues drafts, then sends). Issued invoices reach this
+// endpoint through the resend confirmation modal.
+financeRouter.post("/invoices/:slug/send", validateBody(invoiceSendSchema), async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   let inv = await loadInvoiceBySlug(cid, req.params.slug);
   if (!inv) return res.status(404).json({ error: "Invoice not found" });
   if (inv.status === "void") {
     return res.status(409).json({ error: "Voided invoices cannot be sent" });
   }
+  const isResend = inv.status !== "draft";
   if (inv.status === "draft") {
     inv = await issueInvoice(inv, req.userId ?? null);
   }
+  const body = req.body as z.infer<typeof invoiceSendSchema>;
   try {
-    const result = await sendInvoiceEmail(cid, inv, req.userId ?? null);
+    const result = await sendInvoiceEmail(cid, inv, req.userId ?? null, body);
+    if (isResend) {
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "invoice.email.resend",
+        targetType: "invoice",
+        targetId: inv.id,
+        targetLabel: inv.number || "Invoice",
+        metadata: {
+          status: result.status,
+          toAddress: result.toAddress,
+          fromAddress: result.fromAddress,
+          replyTo: result.replyTo,
+          pdfRequested: result.pdfRequested,
+          pdfAttached: result.pdfAttached,
+          hasMessage: result.hasMessage,
+          errorMessage: result.errorMessage,
+          emailLogId: result.logId,
+        },
+      });
+    }
     const [hydrated] = await hydrateInvoices(cid, [inv]);
     res.json({ invoice: hydrated, send: result });
   } catch (err) {

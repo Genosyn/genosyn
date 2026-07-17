@@ -8,6 +8,7 @@ import {
   Download,
   Mail,
   MoreHorizontal,
+  Paperclip,
   Pencil,
   Plus,
   Send,
@@ -41,6 +42,42 @@ const STATUS_BADGE: Record<string, string> = {
   void: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
 };
 
+type InvoiceEmailDetails = {
+  toAddress: string;
+  fromAddress: string;
+  replyTo: string;
+  configured: boolean;
+  source: "company_provider" | "global_smtp" | "console";
+};
+
+type InvoiceResendActivity = {
+  id: string;
+  createdAt: string;
+  status: "sent" | "skipped" | "failed";
+  toAddress: string;
+  fromAddress: string;
+  replyTo: string;
+  pdfRequested: boolean;
+  pdfAttached: boolean;
+  hasMessage: boolean;
+  errorMessage: string;
+};
+
+type InvoiceDetailPayload = Invoice & {
+  emailDetails: InvoiceEmailDetails;
+  resendActivities: InvoiceResendActivity[];
+};
+
+type InvoiceSendResponse = {
+  invoice: Invoice;
+  send: {
+    status: "sent" | "skipped" | "failed";
+    errorMessage: string;
+    pdfRequested: boolean;
+    pdfAttached: boolean;
+  };
+};
+
 /**
  * Invoice detail. Phase A of the Finance milestone (M19).
  *
@@ -56,17 +93,25 @@ export default function FinanceInvoiceDetail() {
   const { toast } = useToast();
   const dialog = useDialog();
   const [invoice, setInvoice] = React.useState<Invoice | null>(null);
+  const [emailDetails, setEmailDetails] =
+    React.useState<InvoiceEmailDetails | null>(null);
+  const [resendActivities, setResendActivities] = React.useState<
+    InvoiceResendActivity[]
+  >([]);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [showPay, setShowPay] = React.useState(false);
+  const [showResend, setShowResend] = React.useState(false);
 
   const reload = React.useCallback(async () => {
     if (!invoiceSlug) return;
     try {
-      const inv = await api.get<Invoice>(
+      const inv = await api.get<InvoiceDetailPayload>(
         `/api/companies/${company.id}/invoices/${invoiceSlug}`,
       );
       setInvoice(inv);
+      setEmailDetails(inv.emailDetails);
+      setResendActivities(inv.resendActivities);
       setLoadError(null);
     } catch (err) {
       setLoadError((err as Error).message);
@@ -99,10 +144,9 @@ export default function FinanceInvoiceDetail() {
     if (!invoice) return;
     setBusy(true);
     try {
-      const result = await api.post<{
-        invoice: Invoice;
-        send: { status: string; errorMessage: string };
-      }>(`/api/companies/${company.id}/invoices/${invoice.slug}/send`);
+      const result = await api.post<InvoiceSendResponse>(
+        `/api/companies/${company.id}/invoices/${invoice.slug}/send`,
+      );
       setInvoice(result.invoice);
       // Slug may have just changed if this was a draft.
       if (result.invoice.slug !== invoice.slug) {
@@ -111,7 +155,11 @@ export default function FinanceInvoiceDetail() {
         });
       }
       if (result.send.status === "sent") {
-        toast("Invoice emailed to customer", "success");
+        if (result.send.pdfRequested && !result.send.pdfAttached) {
+          toast("Invoice emailed, but the PDF attachment could not be generated", "info");
+        } else {
+          toast("Invoice emailed to customer", "success");
+        }
       } else if (result.send.status === "skipped") {
         toast("No email transport configured — set one in Settings → Email", "info");
       } else {
@@ -272,7 +320,11 @@ export default function FinanceInvoiceDetail() {
             </Button>
           )}
           {invoice.status === "paid" && (
-            <Button variant="secondary" onClick={send} disabled={busy}>
+            <Button
+              variant="secondary"
+              onClick={() => setShowResend(true)}
+              disabled={busy}
+            >
               <Mail size={14} /> Resend email
             </Button>
           )}
@@ -310,7 +362,7 @@ export default function FinanceInvoiceDetail() {
                     label="Resend email"
                     onSelect={() => {
                       close();
-                      send();
+                      setShowResend(true);
                     }}
                   />
                 )}
@@ -578,9 +630,52 @@ export default function FinanceInvoiceDetail() {
                 Voided {new Date(invoice.voidedAt).toISOString().slice(0, 10)}
               </li>
             )}
+            {resendActivities.map((activity) => (
+              <li key={activity.id} className="sm:col-span-2 lg:col-span-3">
+                <span
+                  className={
+                    activity.status === "sent"
+                      ? "font-medium text-slate-700 dark:text-slate-200"
+                      : activity.status === "failed"
+                        ? "font-medium text-red-600 dark:text-red-400"
+                        : "font-medium text-amber-700 dark:text-amber-400"
+                  }
+                >
+                  {activity.status === "sent"
+                    ? "Email resent"
+                    : activity.status === "failed"
+                      ? "Email resend failed"
+                      : "Email resend skipped"}
+                </span>{" "}
+                to {activity.toAddress || "the customer"} ·{" "}
+                {new Date(activity.createdAt).toLocaleString()}
+                {activity.pdfAttached && " · PDF attached"}
+                {activity.pdfRequested && !activity.pdfAttached &&
+                  " · PDF unavailable"}
+                {activity.hasMessage && " · Custom message included"}
+                {activity.fromAddress && (
+                  <span className="block text-slate-400 dark:text-slate-500">
+                    From {activity.fromAddress}
+                  </span>
+                )}
+              </li>
+            ))}
           </ul>
         </div>
       </div>
+
+      {showResend && emailDetails && (
+        <ResendInvoiceModal
+          companyId={company.id}
+          invoice={invoice}
+          details={emailDetails}
+          onClose={() => setShowResend(false)}
+          onFinished={() => {
+            setShowResend(false);
+            void reload();
+          }}
+        />
+      )}
 
       {showPay && (
         <PaymentModal
@@ -594,6 +689,131 @@ export default function FinanceInvoiceDetail() {
         />
       )}
     </div>
+  );
+}
+
+function ResendInvoiceModal({
+  companyId,
+  invoice,
+  details,
+  onClose,
+  onFinished,
+}: {
+  companyId: string;
+  invoice: Invoice;
+  details: InvoiceEmailDetails;
+  onClose: () => void;
+  onFinished: () => void;
+}) {
+  const { toast } = useToast();
+  const [message, setMessage] = React.useState("");
+  const [attachPdf, setAttachPdf] = React.useState(true);
+  const [busy, setBusy] = React.useState(false);
+
+  async function resend(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const result = await api.post<InvoiceSendResponse>(
+        `/api/companies/${companyId}/invoices/${invoice.slug}/send`,
+        { message: message.trim(), attachPdf },
+      );
+      if (result.send.status === "sent") {
+        if (result.send.pdfRequested && !result.send.pdfAttached) {
+          toast("Email resent, but the PDF attachment could not be generated", "info");
+        } else {
+          toast("Invoice email resent", "success");
+        }
+      } else if (result.send.status === "skipped") {
+        toast("No email transport configured — set one in Settings → Email", "info");
+      } else {
+        toast(`Email failed: ${result.send.errorMessage || "unknown"}`, "error");
+      }
+      onFinished();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title={`Resend ${invoice.number || "invoice"}`}>
+      <form onSubmit={resend} className="space-y-5">
+        <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50 text-sm dark:border-slate-700 dark:bg-slate-800/50">
+          <dl className="divide-y divide-slate-200 dark:divide-slate-700">
+            <div className="grid grid-cols-[5rem_1fr] gap-3 px-4 py-3">
+              <dt className="text-slate-500 dark:text-slate-400">From</dt>
+              <dd className="break-all font-medium text-slate-900 dark:text-slate-100">
+                {details.fromAddress || "No sender configured"}
+              </dd>
+            </div>
+            <div className="grid grid-cols-[5rem_1fr] gap-3 px-4 py-3">
+              <dt className="text-slate-500 dark:text-slate-400">To</dt>
+              <dd className="break-all font-medium text-slate-900 dark:text-slate-100">
+                {details.toAddress || "No customer email address"}
+              </dd>
+            </div>
+            {details.replyTo && (
+              <div className="grid grid-cols-[5rem_1fr] gap-3 px-4 py-3">
+                <dt className="text-slate-500 dark:text-slate-400">Reply to</dt>
+                <dd className="break-all text-slate-700 dark:text-slate-200">
+                  {details.replyTo}
+                </dd>
+              </div>
+            )}
+          </dl>
+        </div>
+
+        {!details.configured && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+            No email transport is configured. This attempt will be logged, but
+            no email will be delivered.
+          </div>
+        )}
+
+        <Textarea
+          label="Message (optional)"
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          placeholder="Add a short note for the customer…"
+          maxLength={4000}
+          rows={5}
+        />
+
+        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 px-3 py-3 dark:border-slate-700">
+          <input
+            type="checkbox"
+            checked={attachPdf}
+            onChange={(e) => setAttachPdf(e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-800"
+          />
+          <span className="flex min-w-0 gap-2">
+            <Paperclip
+              size={16}
+              className="mt-0.5 shrink-0 text-slate-400"
+            />
+            <span>
+              <span className="block text-sm font-medium text-slate-800 dark:text-slate-100">
+                Attach invoice as PDF
+              </span>
+              <span className="block text-xs text-slate-500 dark:text-slate-400">
+                {invoice.number || "invoice"}.pdf
+              </span>
+            </span>
+          </span>
+        </label>
+
+        <div className="flex justify-end gap-2 pt-1">
+          <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={busy || !details.toAddress}>
+            <Mail size={14} /> {busy ? "Sending…" : "Resend email"}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 

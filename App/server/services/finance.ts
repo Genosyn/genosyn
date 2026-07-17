@@ -1,6 +1,8 @@
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Customer } from "../db/entities/Customer.js";
+import { AuditEvent } from "../db/entities/AuditEvent.js";
+import { EmailProvider } from "../db/entities/EmailProvider.js";
 import { Invoice, InvoiceStatus } from "../db/entities/Invoice.js";
 import { InvoiceLineItem } from "../db/entities/InvoiceLineItem.js";
 import { InvoicePayment } from "../db/entities/InvoicePayment.js";
@@ -22,6 +24,10 @@ import {
   reverseLedgerEntriesForSources,
 } from "./ledger.js";
 import { convertCents, getFinanceSettings } from "./fx.js";
+import {
+  formatGlobalSmtpSender,
+  getEffectiveGlobalSmtp,
+} from "./globalEmailTransport.js";
 
 /**
  * Finance service — pure orchestration over the Phase A entities. Routes
@@ -655,6 +661,119 @@ export function displayStatus(invoice: Invoice, now: Date = new Date()): Display
 
 // ─────────────────────────── Email send ────────────────────────────────
 
+export type InvoiceEmailDetails = {
+  toAddress: string;
+  fromAddress: string;
+  replyTo: string;
+  configured: boolean;
+  source: "company_provider" | "global_smtp" | "console";
+};
+
+export type InvoiceResendActivity = {
+  id: string;
+  createdAt: Date;
+  status: "sent" | "skipped" | "failed";
+  toAddress: string;
+  fromAddress: string;
+  replyTo: string;
+  pdfRequested: boolean;
+  pdfAttached: boolean;
+  hasMessage: boolean;
+  errorMessage: string;
+};
+
+async function resolveInvoiceEmailSenderPreview(
+  companyId: string,
+): Promise<Omit<InvoiceEmailDetails, "toAddress">> {
+  const provider = await AppDataSource.getRepository(EmailProvider).findOne({
+    where: { companyId, isDefault: true, enabled: true },
+  });
+  if (provider) {
+    return {
+      fromAddress: provider.fromAddress,
+      replyTo: provider.replyTo,
+      configured: true,
+      source: "company_provider",
+    };
+  }
+
+  const global = await getEffectiveGlobalSmtp();
+  return {
+    fromAddress: formatGlobalSmtpSender(global.settings),
+    replyTo: "",
+    configured: global.configured && Boolean(global.settings.host),
+    source: global.configured ? "global_smtp" : "console",
+  };
+}
+
+/** Resolve the addresses shown in the resend confirmation modal. */
+export async function getInvoiceEmailDetails(
+  companyId: string,
+  invoice: Invoice,
+): Promise<InvoiceEmailDetails> {
+  const [customer, sender] = await Promise.all([
+    AppDataSource.getRepository(Customer).findOneBy({
+      id: invoice.customerId,
+      companyId,
+    }),
+    resolveInvoiceEmailSenderPreview(companyId),
+  ]);
+  if (!customer) throw new Error("Customer not found");
+  return {
+    toAddress: customer.email,
+    ...sender,
+  };
+}
+
+/**
+ * Read the durable manual-resend entries for an invoice from the company audit
+ * trail. EmailLog remains the delivery audit; these compact events are the
+ * invoice-specific activity feed correlation.
+ */
+export async function listInvoiceResendActivities(
+  companyId: string,
+  invoiceId: string,
+): Promise<InvoiceResendActivity[]> {
+  const rows = await AppDataSource.getRepository(AuditEvent).find({
+    where: {
+      companyId,
+      action: "invoice.email.resend",
+      targetType: "invoice",
+      targetId: invoiceId,
+    },
+    order: { createdAt: "DESC" },
+  });
+
+  return rows.map((row) => {
+    let metadata: Record<string, unknown> = {};
+    try {
+      metadata = JSON.parse(row.metadataJson || "{}") as Record<string, unknown>;
+    } catch {
+      metadata = {};
+    }
+    const status =
+      metadata.status === "sent" ||
+      metadata.status === "skipped" ||
+      metadata.status === "failed"
+        ? metadata.status
+        : "failed";
+    return {
+      id: row.id,
+      createdAt: row.createdAt,
+      status,
+      toAddress: typeof metadata.toAddress === "string" ? metadata.toAddress : "",
+      fromAddress:
+        typeof metadata.fromAddress === "string" ? metadata.fromAddress : "",
+      replyTo: typeof metadata.replyTo === "string" ? metadata.replyTo : "",
+      pdfRequested: metadata.pdfRequested === true,
+      pdfAttached: metadata.pdfAttached === true,
+      hasMessage: metadata.hasMessage === true,
+      errorMessage:
+        typeof metadata.errorMessage === "string" ? metadata.errorMessage : "",
+    };
+  });
+}
+
 /**
  * Email the rendered HTML invoice to the customer's `email`. Uses the
  * company's default `EmailProvider` if one exists, falling back to the
@@ -665,7 +784,19 @@ export async function sendInvoiceEmail(
   companyId: string,
   invoice: Invoice,
   triggeredByUserId: string | null,
-): Promise<{ status: "sent" | "skipped" | "failed"; logId: string; errorMessage: string }> {
+  options: { message?: string; attachPdf?: boolean } = {},
+): Promise<{
+  status: "sent" | "skipped" | "failed";
+  logId: string;
+  errorMessage: string;
+  transport: string;
+  toAddress: string;
+  fromAddress: string;
+  replyTo: string;
+  pdfRequested: boolean;
+  pdfAttached: boolean;
+  hasMessage: boolean;
+}> {
   const customer = await AppDataSource.getRepository(Customer).findOneBy({
     id: invoice.customerId,
     companyId,
@@ -684,11 +815,12 @@ export async function sendInvoiceEmail(
       order: { paidAt: "ASC" },
     }),
   ]);
-  const [company, settings] = await Promise.all([
+  const [company, settings, sender] = await Promise.all([
     AppDataSource.getRepository(Company).findOneBy({ id: companyId }),
     getFinanceSettings(companyId),
+    resolveInvoiceEmailSenderPreview(companyId),
   ]);
-  const html = renderInvoiceHtml({
+  const htmlInput = {
     invoice,
     customer,
     lines,
@@ -696,23 +828,35 @@ export async function sendInvoiceEmail(
     companyName: company?.name ?? "",
     defaultFromBlock: settings.defaultFromBlock,
     defaultFooter: settings.defaultFooter,
-  });
+  };
+  const invoiceHtml = renderInvoiceHtml(htmlInput);
+  const message = options.message?.trim() ?? "";
+  const emailHtml = message
+    ? renderInvoiceHtml({ ...htmlInput, emailMessage: message })
+    : invoiceHtml;
+  const pdfRequested = options.attachPdf ?? true;
   // Attach a PDF copy so the customer gets a portable, printable document
   // rather than only the inline HTML body. If Chromium isn't available we
   // log and send without the attachment — the HTML body still carries the
   // full invoice, so a render hiccup never blocks the send.
-  const attachments = await renderPdfAttachment(
-    html,
-    `${invoice.number || "invoice"}.pdf`,
-    "invoice",
-  );
+  const attachments = pdfRequested
+    ? await renderPdfAttachment(
+        invoiceHtml,
+        `${invoice.number || "invoice"}.pdf`,
+        "invoice",
+      )
+    : undefined;
+  const pdfAttached = Boolean(attachments?.length);
   const text =
+    (message ? `${message}\n\n` : "") +
     `Invoice ${invoice.number || "(draft)"} from your supplier — ` +
     `${formatMoney(invoice.balanceCents, invoice.currency)} due ` +
     `${invoice.dueDate.toISOString().slice(0, 10)}.\n\n` +
-    (attachments
+    (pdfAttached
       ? `The invoice is attached as a PDF.`
-      : `Open the invoice HTML in your browser to print or save as PDF.`);
+      : pdfRequested
+        ? `The PDF attachment could not be generated; the invoice is included in this email.`
+        : `The invoice is included in this email.`);
   const subject = `Invoice ${invoice.number || "(draft)"} — ${formatMoney(
     invoice.totalCents,
     invoice.currency,
@@ -721,7 +865,7 @@ export async function sendInvoiceEmail(
     to: customer.email,
     subject,
     text,
-    html,
+    html: emailHtml,
     attachments,
     companyId,
     purpose: "other",
@@ -731,6 +875,13 @@ export async function sendInvoiceEmail(
     status: result.status,
     logId: result.logId,
     errorMessage: result.errorMessage,
+    transport: result.transport,
+    toAddress: customer.email,
+    fromAddress: sender.fromAddress,
+    replyTo: sender.replyTo,
+    pdfRequested,
+    pdfAttached,
+    hasMessage: Boolean(message),
   };
 }
 
