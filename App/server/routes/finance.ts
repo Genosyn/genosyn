@@ -68,23 +68,16 @@ import {
   sendEstimateEmail,
   voidEstimate,
 } from "../services/estimates.js";
+import { postLedgerEntry, seedChartOfAccounts, trialBalance } from "../services/ledger.js";
+import { accountActivity, balanceSheet, cashFlow, incomeStatement } from "../services/reports.js";
 import {
-  postLedgerEntry,
-  seedChartOfAccounts,
-  trialBalance,
-} from "../services/ledger.js";
-import {
-  accountActivity,
-  balanceSheet,
-  cashFlow,
-  incomeStatement,
-} from "../services/reports.js";
-import {
+  assertBrexCashAccountConnection,
   autoMatchFeed,
   findMatchCandidates,
   importBankCsv,
+  listBrexCashAccountsForConnection,
   manualMatch,
-  syncStripePayouts,
+  syncBankFeed,
   unmatch,
 } from "../services/reconcile.js";
 import {
@@ -199,10 +192,7 @@ const contactWriteSchema = z.object({
  * for the same customer in the same operation so the database stays
  * single-source-of-truth instead of relying on UI to enforce it.
  */
-async function clearOtherPrimaries(
-  customerId: string,
-  exceptId: string | null,
-): Promise<void> {
+async function clearOtherPrimaries(customerId: string, exceptId: string | null): Promise<void> {
   const repo = AppDataSource.getRepository(CustomerContact);
   const others = await repo.find({
     where: { customerId, isPrimary: true },
@@ -221,9 +211,7 @@ financeRouter.get("/customers", async (req, res) => {
     where: { companyId: cid },
     order: { createdAt: "DESC" },
   });
-  const filtered = includeArchived
-    ? customers
-    : customers.filter((c) => !c.archivedAt);
+  const filtered = includeArchived ? customers : customers.filter((c) => !c.archivedAt);
   const hydrated = await hydrateCustomers(cid, filtered);
   res.json(hydrated);
 });
@@ -246,10 +234,7 @@ const customerWriteSchema = z.object({
   contacts: z.array(contactWriteSchema).max(50).optional(),
 });
 
-financeRouter.post(
-  "/customers",
-  validateBody(customerWriteSchema),
-  async (req, res) => {
+financeRouter.post("/customers", validateBody(customerWriteSchema), async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const body = req.body as z.infer<typeof customerWriteSchema>;
     const repo = AppDataSource.getRepository(Customer);
@@ -294,8 +279,7 @@ financeRouter.post(
 
     const [hydrated] = await hydrateCustomers(cid, [c]);
     res.json(hydrated);
-  },
-);
+});
 
 financeRouter.get("/customers/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
@@ -319,9 +303,11 @@ const statementQuerySchema = z.object({
   currency: z.string().length(3).optional(),
 });
 
-function parseStatementQuery(
-  query: unknown,
-): { from: Date | null; to: Date | undefined; currency: string | undefined } {
+function parseStatementQuery(query: unknown): {
+  from: Date | null;
+  to: Date | undefined;
+  currency: string | undefined;
+} {
   const parsed = statementQuerySchema.parse(query);
   const toDate = (s: string | undefined): Date | undefined => {
     if (!s) return undefined;
@@ -358,7 +344,10 @@ financeRouter.get("/customers/:slug/statement/html", async (req, res) => {
   try {
     opts = parseStatementQuery(req.query);
   } catch (err) {
-    return res.status(400).type("text/plain").send((err as Error).message);
+    return res
+      .status(400)
+      .type("text/plain")
+      .send((err as Error).message);
   }
   const statement = await buildCustomerStatement(cid, c, opts);
   const html = await renderCustomerStatementHtmlForCompany(cid, c, statement);
@@ -373,7 +362,10 @@ financeRouter.get("/customers/:slug/statement/pdf", async (req, res) => {
   try {
     opts = parseStatementQuery(req.query);
   } catch (err) {
-    return res.status(400).type("text/plain").send((err as Error).message);
+    return res
+      .status(400)
+      .type("text/plain")
+      .send((err as Error).message);
   }
   const statement = await buildCustomerStatement(cid, c, opts);
   const html = await renderCustomerStatementHtmlForCompany(cid, c, statement);
@@ -395,9 +387,11 @@ financeRouter.get("/customers/:slug/statement/pdf", async (req, res) => {
 financeRouter.patch(
   "/customers/:slug",
   validateBody(
-    customerWriteSchema.extend({
+    customerWriteSchema
+      .extend({
       archived: z.boolean().optional(),
-    }).partial(),
+      })
+      .partial(),
   ),
   async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
@@ -507,9 +501,7 @@ financeRouter.patch(
   },
 );
 
-financeRouter.delete(
-  "/customers/:slug/contacts/:contactId",
-  async (req, res) => {
+financeRouter.delete("/customers/:slug/contacts/:contactId", async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const c = await loadCustomerBySlug(cid, req.params.slug);
     if (!c) return res.status(404).json({ error: "Customer not found" });
@@ -521,8 +513,7 @@ financeRouter.delete(
     if (!ct) return res.status(404).json({ error: "Contact not found" });
     await repo.delete({ id: ct.id });
     res.json({ ok: true });
-  },
-);
+});
 
 // ──────────────────────────── Products ─────────────────────────────────
 
@@ -555,10 +546,7 @@ const productWriteSchema = z.object({
   defaultTaxRateId: z.string().uuid().nullable().optional(),
 });
 
-financeRouter.post(
-  "/products",
-  validateBody(productWriteSchema),
-  async (req, res) => {
+financeRouter.post("/products", validateBody(productWriteSchema), async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const body = req.body as z.infer<typeof productWriteSchema>;
     if (body.defaultTaxRateId) {
@@ -582,15 +570,16 @@ financeRouter.post(
     });
     await repo.save(p);
     res.json(p);
-  },
-);
+});
 
 financeRouter.patch(
   "/products/:slug",
   validateBody(
-    productWriteSchema.extend({
+    productWriteSchema
+      .extend({
       archived: z.boolean().optional(),
-    }).partial(),
+      })
+      .partial(),
   ),
   async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
@@ -650,10 +639,7 @@ const taxRateWriteSchema = z.object({
   inclusive: z.boolean().optional(),
 });
 
-financeRouter.post(
-  "/tax-rates",
-  validateBody(taxRateWriteSchema),
-  async (req, res) => {
+financeRouter.post("/tax-rates", validateBody(taxRateWriteSchema), async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const body = req.body as z.infer<typeof taxRateWriteSchema>;
     const repo = AppDataSource.getRepository(TaxRate);
@@ -665,14 +651,11 @@ financeRouter.post(
     });
     await repo.save(t);
     res.json(t);
-  },
-);
+});
 
 financeRouter.patch(
   "/tax-rates/:id",
-  validateBody(
-    taxRateWriteSchema.extend({ archived: z.boolean().optional() }).partial(),
-  ),
+  validateBody(taxRateWriteSchema.extend({ archived: z.boolean().optional() }).partial()),
   async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const repo = AppDataSource.getRepository(TaxRate);
@@ -755,10 +738,7 @@ financeRouter.get("/invoices", async (req, res) => {
   );
 });
 
-financeRouter.post(
-  "/invoices",
-  validateBody(invoiceCreateSchema),
-  async (req, res) => {
+financeRouter.post("/invoices", validateBody(invoiceCreateSchema), async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const body = req.body as z.infer<typeof invoiceCreateSchema>;
     const customer = await AppDataSource.getRepository(Customer).findOneBy({
@@ -794,8 +774,7 @@ financeRouter.post(
     const recomputed = await recomputeInvoiceTotals(inv);
     const [hydrated] = await hydrateInvoices(cid, [recomputed]);
     res.json(hydrated);
-  },
-);
+});
 
 financeRouter.get("/invoices/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
@@ -822,10 +801,7 @@ const invoicePatchSchema = z.object({
   lines: z.array(lineDraftSchema).max(200).optional(),
 });
 
-financeRouter.patch(
-  "/invoices/:slug",
-  validateBody(invoicePatchSchema),
-  async (req, res) => {
+financeRouter.patch("/invoices/:slug", validateBody(invoicePatchSchema), async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const inv = await loadInvoiceBySlug(cid, req.params.slug);
     if (!inv) return res.status(404).json({ error: "Invoice not found" });
@@ -865,8 +841,7 @@ financeRouter.patch(
     const recomputed = await recomputeInvoiceTotals(inv);
     const [hydrated] = await hydrateInvoices(cid, [recomputed]);
     res.json(hydrated);
-  },
-);
+});
 
 financeRouter.delete("/invoices/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
@@ -995,15 +970,12 @@ financeRouter.post("/invoices/:slug/duplicate", async (req, res) => {
 async function loadInvoicePrintBundle(
   companyId: string,
   slug: string,
-): Promise<
-  | null
-  | {
+): Promise<null | {
       invoice: Invoice;
       customer: Customer;
       lines: InvoiceLineItem[];
       payments: InvoicePayment[];
-    }
-> {
+}> {
   const invoice = await loadInvoiceBySlug(companyId, slug);
   if (!invoice) return null;
   const customer = await AppDataSource.getRepository(Customer).findOneBy({
@@ -1059,10 +1031,7 @@ financeRouter.get("/invoices/:slug/pdf", async (req, res) => {
     const filename = `${bundle.invoice.number || "draft"}.pdf`;
     res
       .type("application/pdf")
-      .setHeader(
-        "Content-Disposition",
-        `attachment; filename="${filename}"`,
-      )
+      .setHeader("Content-Disposition", `attachment; filename="${filename}"`)
       .send(pdf);
   } catch (err) {
     res
@@ -1091,9 +1060,7 @@ financeRouter.post(
     const inv = await loadInvoiceBySlug(cid, req.params.slug);
     if (!inv) return res.status(404).json({ error: "Invoice not found" });
     if (inv.status === "draft") {
-      return res
-        .status(409)
-        .json({ error: "Issue the invoice before recording payments" });
+      return res.status(409).json({ error: "Issue the invoice before recording payments" });
     }
     if (inv.status === "void") {
       return res.status(409).json({ error: "Voided invoices cannot be paid" });
@@ -1179,10 +1146,7 @@ financeRouter.get("/estimates", async (req, res) => {
   );
 });
 
-financeRouter.post(
-  "/estimates",
-  validateBody(estimateCreateSchema),
-  async (req, res) => {
+financeRouter.post("/estimates", validateBody(estimateCreateSchema), async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const body = req.body as z.infer<typeof estimateCreateSchema>;
     const customer = await AppDataSource.getRepository(Customer).findOneBy({
@@ -1218,8 +1182,7 @@ financeRouter.post(
     const recomputed = await recomputeEstimateTotals(est);
     const [hydrated] = await hydrateEstimates(cid, [recomputed]);
     res.json(hydrated);
-  },
-);
+});
 
 financeRouter.get("/estimates/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
@@ -1239,10 +1202,7 @@ const estimatePatchSchema = z.object({
   lines: z.array(lineDraftSchema).max(200).optional(),
 });
 
-financeRouter.patch(
-  "/estimates/:slug",
-  validateBody(estimatePatchSchema),
-  async (req, res) => {
+financeRouter.patch("/estimates/:slug", validateBody(estimatePatchSchema), async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const est = await loadEstimateBySlug(cid, req.params.slug);
     if (!est) return res.status(404).json({ error: "Estimate not found" });
@@ -1282,8 +1242,7 @@ financeRouter.patch(
     const recomputed = await recomputeEstimateTotals(est);
     const [hydrated] = await hydrateEstimates(cid, [recomputed]);
     res.json(hydrated);
-  },
-);
+});
 
 financeRouter.delete("/estimates/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
@@ -1420,14 +1379,11 @@ financeRouter.post(
 async function loadEstimatePrintBundle(
   companyId: string,
   slug: string,
-): Promise<
-  | null
-  | {
+): Promise<null | {
       estimate: Estimate;
       customer: Customer;
       lines: EstimateLineItem[];
-    }
-> {
+}> {
   const estimate = await loadEstimateBySlug(companyId, slug);
   if (!estimate) return null;
   const customer = await AppDataSource.getRepository(Customer).findOneBy({
@@ -1473,10 +1429,7 @@ financeRouter.get("/estimates/:slug/pdf", async (req, res) => {
     const filename = `${bundle.estimate.number || "draft"}.pdf`;
     res
       .type("application/pdf")
-      .setHeader(
-        "Content-Disposition",
-        `attachment; filename="${filename}"`,
-      )
+      .setHeader("Content-Disposition", `attachment; filename="${filename}"`)
       .send(pdf);
   } catch (err) {
     res
@@ -1505,16 +1458,17 @@ financeRouter.get("/accounts", async (req, res) => {
 });
 
 const accountWriteSchema = z.object({
-  code: z.string().min(1).max(20).regex(/^[A-Za-z0-9._-]+$/),
+  code: z
+    .string()
+    .min(1)
+    .max(20)
+    .regex(/^[A-Za-z0-9._-]+$/),
   name: z.string().min(1).max(120),
   type: z.enum(ACCOUNT_TYPES),
   parentId: z.string().uuid().nullable().optional(),
 });
 
-financeRouter.post(
-  "/accounts",
-  validateBody(accountWriteSchema),
-  async (req, res) => {
+financeRouter.post("/accounts", validateBody(accountWriteSchema), async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const body = req.body as z.infer<typeof accountWriteSchema>;
     const repo = AppDataSource.getRepository(Account);
@@ -1536,14 +1490,11 @@ financeRouter.post(
     });
     await repo.save(a);
     res.json(a);
-  },
-);
+});
 
 financeRouter.patch(
   "/accounts/:id",
-  validateBody(
-    accountWriteSchema.partial().extend({ archived: z.boolean().optional() }),
-  ),
+  validateBody(accountWriteSchema.partial().extend({ archived: z.boolean().optional() })),
   async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const repo = AppDataSource.getRepository(Account);
@@ -1560,27 +1511,21 @@ financeRouter.patch(
       }
       const dup = await repo.findOneBy({ companyId: cid, code: body.code });
       if (dup) {
-        return res
-          .status(409)
-          .json({ error: "An account with that code already exists" });
+        return res.status(409).json({ error: "An account with that code already exists" });
       }
       a.code = body.code;
     }
     if (body.name !== undefined) a.name = body.name;
     if (body.type !== undefined) {
       if (a.isSystem) {
-        return res
-          .status(409)
-          .json({ error: "System account types cannot change" });
+        return res.status(409).json({ error: "System account types cannot change" });
       }
       a.type = body.type;
     }
     if (body.parentId !== undefined) a.parentId = body.parentId;
     if (body.archived !== undefined) {
       if (a.isSystem && body.archived) {
-        return res
-          .status(409)
-          .json({ error: "System accounts cannot be archived" });
+        return res.status(409).json({ error: "System accounts cannot be archived" });
       }
       a.archivedAt = body.archived ? new Date() : null;
     }
@@ -1603,9 +1548,7 @@ financeRouter.delete("/accounts/:id", async (req, res) => {
     where: { accountId: a.id },
   });
   if (used > 0) {
-    return res
-      .status(409)
-      .json({ error: "Account has ledger lines — archive it instead" });
+    return res.status(409).json({ error: "Account has ledger lines — archive it instead" });
   }
   await repo.delete({ id: a.id });
   res.json({ ok: true });
@@ -1618,9 +1561,7 @@ type HydratedLedgerEntry = LedgerEntry & {
   totalCents: number;
 };
 
-async function hydrateLedgerEntries(
-  entries: LedgerEntry[],
-): Promise<HydratedLedgerEntry[]> {
+async function hydrateLedgerEntries(entries: LedgerEntry[]): Promise<HydratedLedgerEntry[]> {
   if (entries.length === 0) return [];
   const lines = await AppDataSource.getRepository(LedgerLine).find({
     where: { ledgerEntryId: In(entries.map((e) => e.id)) },
@@ -1668,10 +1609,7 @@ const ledgerEntryCreateSchema = z.object({
   lines: z.array(ledgerLineDraftSchema).min(2).max(50),
 });
 
-financeRouter.post(
-  "/ledger-entries",
-  validateBody(ledgerEntryCreateSchema),
-  async (req, res) => {
+financeRouter.post("/ledger-entries", validateBody(ledgerEntryCreateSchema), async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const body = req.body as z.infer<typeof ledgerEntryCreateSchema>;
     try {
@@ -1689,8 +1627,7 @@ financeRouter.post(
     } catch (err) {
       res.status(400).json({ error: (err as Error).message });
     }
-  },
-);
+});
 
 financeRouter.delete("/ledger-entries/:id", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
@@ -1712,8 +1649,7 @@ financeRouter.delete("/ledger-entries/:id", async (req, res) => {
 financeRouter.get("/ledger/trial-balance", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const asOfQ = req.query.asOf;
-  const asOf =
-    typeof asOfQ === "string" && asOfQ ? new Date(asOfQ) : new Date();
+  const asOf = typeof asOfQ === "string" && asOfQ ? new Date(asOfQ) : new Date();
   if (Number.isNaN(asOf.getTime())) {
     return res.status(400).json({ error: "Invalid asOf date" });
   }
@@ -1749,9 +1685,7 @@ financeRouter.get("/reports/income-statement", async (req, res) => {
     const compareTo = parseDateParam(req.query.compareTo, "compareTo");
     const current = await incomeStatement(cid, from, to);
     const prior =
-      compareFrom && compareTo
-        ? await incomeStatement(cid, compareFrom, compareTo)
-        : null;
+      compareFrom && compareTo ? await incomeStatement(cid, compareFrom, compareTo) : null;
     res.json({ current, prior });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
@@ -1783,8 +1717,7 @@ financeRouter.get("/reports/cash-flow", async (req, res) => {
     const compareFrom = parseDateParam(req.query.compareFrom, "compareFrom");
     const compareTo = parseDateParam(req.query.compareTo, "compareTo");
     const current = await cashFlow(cid, from, to);
-    const prior =
-      compareFrom && compareTo ? await cashFlow(cid, compareFrom, compareTo) : null;
+    const prior = compareFrom && compareTo ? await cashFlow(cid, compareFrom, compareTo) : null;
     res.json({ current, prior });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
@@ -1816,7 +1749,11 @@ financeRouter.get("/reports/account-activity", async (req, res) => {
 
 // ─────────────────────── Bank feeds (Phase D) ──────────────────────────
 
-const FEED_KINDS: [BankFeedKind, ...BankFeedKind[]] = ["stripe_payouts", "csv"];
+const FEED_KINDS: [BankFeedKind, ...BankFeedKind[]] = [
+  "stripe_payouts",
+  "brex_cash",
+  "csv",
+];
 
 const csvUpload = multer({
   storage: multer.memoryStorage(),
@@ -1832,11 +1769,29 @@ financeRouter.get("/bank-feeds", async (req, res) => {
   res.json(feeds);
 });
 
+const brexAccountsQuerySchema = z.object({
+  connectionId: z.string().uuid(),
+});
+
+financeRouter.get("/bank-feeds/brex-accounts", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const parsed = brexAccountsQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "A valid Brex connectionId is required" });
+  }
+  try {
+    res.json(await listBrexCashAccountsForConnection(cid, parsed.data.connectionId));
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
 const feedCreateSchema = z.object({
   name: z.string().min(1).max(120),
   kind: z.enum(FEED_KINDS),
   accountId: z.string().uuid(),
   connectionId: z.string().uuid().nullable().optional(),
+  externalAccountId: z.string().min(1).max(255).nullable().optional(),
 });
 
 financeRouter.post(
@@ -1857,9 +1812,7 @@ financeRouter.post(
     }
     if (body.kind === "stripe_payouts") {
       if (!body.connectionId) {
-        return res
-          .status(400)
-          .json({ error: "Stripe feeds need a connectionId" });
+        return res.status(400).json({ error: "Stripe feeds need a connectionId" });
       }
       const conn = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
         id: body.connectionId,
@@ -1868,6 +1821,22 @@ financeRouter.post(
       if (!conn || conn.provider !== "stripe") {
         return res.status(400).json({ error: "Connection is not Stripe" });
       }
+    } else if (body.kind === "brex_cash") {
+      if (!body.connectionId) {
+        return res.status(400).json({ error: "Brex feeds need a connectionId" });
+      }
+      if (!body.externalAccountId) {
+        return res.status(400).json({ error: "Brex feeds need a Cash account" });
+      }
+      try {
+        await assertBrexCashAccountConnection(
+          cid,
+          body.connectionId,
+          body.externalAccountId,
+        );
+      } catch (err) {
+        return res.status(400).json({ error: (err as Error).message });
+      }
     }
     const repo = AppDataSource.getRepository(BankFeed);
     const f = repo.create({
@@ -1875,7 +1844,9 @@ financeRouter.post(
       name: body.name,
       kind: body.kind,
       accountId: body.accountId,
-      connectionId: body.connectionId ?? null,
+      connectionId: body.kind === "csv" ? null : body.connectionId ?? null,
+      externalAccountId:
+        body.kind === "brex_cash" ? body.externalAccountId ?? null : null,
     });
     await repo.save(f);
     res.json(f);
@@ -1897,11 +1868,8 @@ financeRouter.post("/bank-feeds/:id/sync", async (req, res) => {
   const repo = AppDataSource.getRepository(BankFeed);
   const f = await repo.findOneBy({ id: req.params.id, companyId: cid });
   if (!f) return res.status(404).json({ error: "Feed not found" });
-  if (f.kind !== "stripe_payouts") {
-    return res.status(400).json({ error: "This feed type can only be imported via CSV" });
-  }
   try {
-    const inserted = await syncStripePayouts(f);
+    const inserted = await syncBankFeed(f);
     const matched = await autoMatchFeed(f);
     res.json({ inserted, matched });
   } catch (err) {
@@ -1938,7 +1906,8 @@ type HydratedBankTransaction = BankTransaction & {
     invoiceNumber: string;
     invoiceSlug: string;
     customerName: string;
-  } | { kind: "ledger_entry"; entryId: string; memo: string };
+  }
+    | { kind: "ledger_entry"; entryId: string; memo: string };
 };
 
 async function hydrateBankTxns(
@@ -1950,9 +1919,7 @@ async function hydrateBankTxns(
     ...new Set(txns.map((t) => t.matchedPaymentId).filter((x): x is string => !!x)),
   ];
   const entryIds = [
-    ...new Set(
-      txns.map((t) => t.matchedLedgerEntryId).filter((x): x is string => !!x),
-    ),
+    ...new Set(txns.map((t) => t.matchedLedgerEntryId).filter((x): x is string => !!x)),
   ];
   const [payments, entries] = await Promise.all([
     paymentIds.length
@@ -2036,10 +2003,7 @@ const matchSchema = z.object({
   ledgerEntryId: z.string().uuid().nullable().optional(),
 });
 
-financeRouter.post(
-  "/bank-transactions/:id/match",
-  validateBody(matchSchema),
-  async (req, res) => {
+financeRouter.post("/bank-transactions/:id/match", validateBody(matchSchema), async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const repo = AppDataSource.getRepository(BankTransaction);
     const t = await repo.findOneBy({ id: req.params.id, companyId: cid });
@@ -2052,8 +2016,7 @@ financeRouter.post(
     } catch (err) {
       res.status(400).json({ error: (err as Error).message });
     }
-  },
-);
+});
 
 financeRouter.post("/bank-transactions/:id/unmatch", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
@@ -2074,32 +2037,28 @@ financeRouter.get("/finance-settings", async (req, res) => {
 });
 
 const settingsPatchSchema = z.object({
-  homeCurrency: z.string().regex(/^[A-Za-z]{3}$/).optional(),
+  homeCurrency: z
+    .string()
+    .regex(/^[A-Za-z]{3}$/)
+    .optional(),
   defaultFromBlock: z.string().max(4000).optional(),
   defaultFooter: z.string().max(2000).optional(),
 });
 
-financeRouter.patch(
-  "/finance-settings",
-  validateBody(settingsPatchSchema),
-  async (req, res) => {
+financeRouter.patch("/finance-settings", validateBody(settingsPatchSchema), async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const body = req.body as z.infer<typeof settingsPatchSchema>;
     if (body.homeCurrency !== undefined) {
       await setHomeCurrency(cid, body.homeCurrency);
     }
-    if (
-      body.defaultFromBlock !== undefined ||
-      body.defaultFooter !== undefined
-    ) {
+  if (body.defaultFromBlock !== undefined || body.defaultFooter !== undefined) {
       await setFinanceTemplates(cid, {
         defaultFromBlock: body.defaultFromBlock,
         defaultFooter: body.defaultFooter,
       });
     }
     res.json(await getFinanceSettings(cid));
-  },
-);
+});
 
 financeRouter.get("/currencies", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
@@ -2113,10 +2072,7 @@ const currencyCreateSchema = z.object({
   decimalPlaces: z.number().int().min(0).max(8).optional(),
 });
 
-financeRouter.post(
-  "/currencies",
-  validateBody(currencyCreateSchema),
-  async (req, res) => {
+financeRouter.post("/currencies", validateBody(currencyCreateSchema), async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const body = req.body as z.infer<typeof currencyCreateSchema>;
     const repo = AppDataSource.getRepository(Currency);
@@ -2133,8 +2089,7 @@ financeRouter.post(
       }),
     );
     res.json(c);
-  },
-);
+});
 
 financeRouter.delete("/currencies/:id", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
@@ -2174,16 +2129,11 @@ const rateUpsertSchema = z.object({
   source: z.string().max(120).optional(),
 });
 
-financeRouter.post(
-  "/exchange-rates",
-  validateBody(rateUpsertSchema),
-  async (req, res) => {
+financeRouter.post("/exchange-rates", validateBody(rateUpsertSchema), async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const body = req.body as z.infer<typeof rateUpsertSchema>;
     if (body.fromCurrency.toUpperCase() === body.toCurrency.toUpperCase()) {
-      return res
-        .status(400)
-        .json({ error: "from and to currencies must differ" });
+    return res.status(400).json({ error: "from and to currencies must differ" });
     }
     const r = await setRate(
       cid,
@@ -2194,8 +2144,7 @@ financeRouter.post(
       body.source ?? "manual",
     );
     res.json(r);
-  },
-);
+});
 
 financeRouter.delete("/exchange-rates/:id", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
@@ -2223,10 +2172,7 @@ const periodCreateSchema = z.object({
   endDate: z.string().datetime(),
 });
 
-financeRouter.post(
-  "/periods",
-  validateBody(periodCreateSchema),
-  async (req, res) => {
+financeRouter.post("/periods", validateBody(periodCreateSchema), async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const body = req.body as z.infer<typeof periodCreateSchema>;
     const start = new Date(body.startDate);
@@ -2244,8 +2190,7 @@ financeRouter.post(
       }),
     );
     res.json(p);
-  },
-);
+});
 
 financeRouter.delete("/periods/:id", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
@@ -2253,9 +2198,7 @@ financeRouter.delete("/periods/:id", async (req, res) => {
   const p = await repo.findOneBy({ id: req.params.id, companyId: cid });
   if (!p) return res.status(404).json({ error: "Period not found" });
   if (p.status === "closed") {
-    return res
-      .status(409)
-      .json({ error: "Re-open the period before deleting" });
+    return res.status(409).json({ error: "Re-open the period before deleting" });
   }
   await repo.delete({ id: p.id });
   res.json({ ok: true });
@@ -2363,10 +2306,7 @@ const vendorWriteSchema = z.object({
   notes: z.string().max(2000).optional(),
 });
 
-financeRouter.post(
-  "/vendors",
-  validateBody(vendorWriteSchema),
-  async (req, res) => {
+financeRouter.post("/vendors", validateBody(vendorWriteSchema), async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const body = req.body as z.infer<typeof vendorWriteSchema>;
     const slug = await uniqueVendorSlug(cid, toSlug(body.name));
@@ -2385,8 +2325,7 @@ financeRouter.post(
     });
     await repo.save(v);
     res.json(v);
-  },
-);
+});
 
 financeRouter.patch(
   "/vendors/:slug",
@@ -2482,10 +2421,7 @@ financeRouter.get("/bills", async (req, res) => {
   );
 });
 
-financeRouter.post(
-  "/bills",
-  validateBody(billCreateSchema),
-  async (req, res) => {
+financeRouter.post("/bills", validateBody(billCreateSchema), async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const body = req.body as z.infer<typeof billCreateSchema>;
     const vendor = await AppDataSource.getRepository(Vendor).findOneBy({
@@ -2520,8 +2456,7 @@ financeRouter.post(
     const recomputed = await recomputeBillTotals(b);
     const [hydrated] = await hydrateBills(cid, [recomputed]);
     res.json(hydrated);
-  },
-);
+});
 
 financeRouter.get("/bills/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
@@ -2541,10 +2476,7 @@ const billPatchSchema = z.object({
   lines: z.array(billLineDraftSchema).max(200).optional(),
 });
 
-financeRouter.patch(
-  "/bills/:slug",
-  validateBody(billPatchSchema),
-  async (req, res) => {
+financeRouter.patch("/bills/:slug", validateBody(billPatchSchema), async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const b = await loadBillBySlug(cid, req.params.slug);
     if (!b) return res.status(404).json({ error: "Bill not found" });
@@ -2580,8 +2512,7 @@ financeRouter.patch(
     const recomputed = await recomputeBillTotals(b);
     const [hydrated] = await hydrateBills(cid, [recomputed]);
     res.json(hydrated);
-  },
-);
+});
 
 financeRouter.delete("/bills/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
@@ -2634,10 +2565,7 @@ const billPaymentSchema = z.object({
   notes: z.string().max(2000).optional(),
 });
 
-financeRouter.post(
-  "/bills/:slug/payments",
-  validateBody(billPaymentSchema),
-  async (req, res) => {
+financeRouter.post("/bills/:slug/payments", validateBody(billPaymentSchema), async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const b = await loadBillBySlug(cid, req.params.slug);
     if (!b) return res.status(404).json({ error: "Bill not found" });
@@ -2672,8 +2600,7 @@ financeRouter.post(
     const recomputed = await recomputeBillTotals(b);
     const [hydrated] = await hydrateBills(cid, [recomputed]);
     res.json(hydrated);
-  },
-);
+});
 
 financeRouter.delete("/bills/:slug/payments/:pid", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
@@ -2733,9 +2660,7 @@ const recurringInvoiceCreateSchema = z.object({
     .min(1)
     .max(120)
     .refine((v) => cron.validate(v), "Invalid cron expression"),
-  frequency: z
-    .enum(["daily", "weekly", "monthly", "quarterly", "yearly"])
-    .optional(),
+  frequency: z.enum(["daily", "weekly", "monthly", "quarterly", "yearly"]).optional(),
   intervalCount: z.number().int().min(1).max(99).optional(),
   status: z.enum(["active", "paused"]).optional(),
   daysUntilDue: z.number().int().min(0).max(365).optional(),
@@ -2829,9 +2754,7 @@ const recurringInvoicePatchSchema = z.object({
     .max(120)
     .refine((v) => cron.validate(v), "Invalid cron expression")
     .optional(),
-  frequency: z
-    .enum(["daily", "weekly", "monthly", "quarterly", "yearly"])
-    .optional(),
+  frequency: z.enum(["daily", "weekly", "monthly", "quarterly", "yearly"]).optional(),
   intervalCount: z.number().int().min(1).max(99).optional(),
   status: z.enum(["active", "paused", "ended"]).optional(),
   daysUntilDue: z.number().int().min(0).max(365).optional(),

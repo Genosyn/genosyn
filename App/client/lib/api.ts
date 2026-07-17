@@ -1,4 +1,8 @@
-async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
+async function request<T>(
+  method: string,
+  url: string,
+  body?: unknown,
+): Promise<T> {
   const res = await fetch(url, {
     method,
     credentials: "same-origin",
@@ -31,7 +35,10 @@ export async function streamPost(
   const res = await fetch(url, {
     method: "POST",
     credentials: "same-origin",
-    headers: { "content-type": "application/json", accept: "text/event-stream" },
+    headers: {
+      "content-type": "application/json",
+      accept: "text/event-stream",
+    },
     body: JSON.stringify(body),
     signal: opts.signal,
   });
@@ -180,11 +187,7 @@ export type Team = {
   updatedAt: string;
 };
 
-export type HandoffStatus =
-  | "pending"
-  | "completed"
-  | "declined"
-  | "cancelled";
+export type HandoffStatus = "pending" | "completed" | "declined" | "cancelled";
 
 export type HandoffParty = {
   id: string;
@@ -311,7 +314,12 @@ export type Approval = {
   routine: { id: string; name: string; slug: string } | null;
   employee: { id: string; name: string; slug: string } | null;
 };
-export type RunStatus = "running" | "completed" | "failed" | "skipped" | "timeout";
+export type RunStatus =
+  | "running"
+  | "completed"
+  | "failed"
+  | "skipped"
+  | "timeout";
 export type Run = {
   id: string;
   routineId: string;
@@ -1006,7 +1014,33 @@ export type BaseFieldType =
   | "url"
   | "select"
   | "multiselect"
-  | "link";
+  | "link"
+  | "customer"
+  | "invoice"
+  | "project"
+  | "employee"
+  | "member"
+  | "note"
+  | "pipeline";
+
+/** The Base field types that link to records elsewhere in Genosyn. */
+export const BASE_RESOURCE_FIELD_TYPES = [
+  "customer",
+  "invoice",
+  "project",
+  "employee",
+  "member",
+  "note",
+  "pipeline",
+] as const;
+
+export type BaseResourceFieldType = (typeof BASE_RESOURCE_FIELD_TYPES)[number];
+
+export function isBaseResourceFieldType(
+  t: BaseFieldType,
+): t is BaseResourceFieldType {
+  return (BASE_RESOURCE_FIELD_TYPES as readonly string[]).includes(t);
+}
 
 export type SelectOption = { id: string; label: string; color: string };
 
@@ -1030,6 +1064,20 @@ export type BaseRecord = {
 };
 
 export type BaseLinkOption = { id: string; label: string; tableId: string };
+
+/**
+ * A pickable target for a record-link column (customer, project, …).
+ * `url` is an app-relative deep link, or "" when the product has no
+ * per-record page. `archived` rows stay resolvable but are hidden from
+ * pickers.
+ */
+export type BaseResourceOption = {
+  id: string;
+  label: string;
+  sublabel: string;
+  url: string;
+  archived?: boolean;
+};
 
 export type BaseDetail = {
   base: Base;
@@ -1095,6 +1143,7 @@ export type BaseTableContent = {
   fields: BaseField[];
   records: BaseRecord[];
   linkOptions: Record<string, BaseLinkOption[]>;
+  resourceOptions: Record<string, BaseResourceOption[]>;
   views: BaseView[];
 };
 
@@ -1247,12 +1296,8 @@ export type Pipeline = {
   updatedAt: string;
 };
 
-export type PipelineRunStatus =
-  | "running"
-  | "completed"
-  | "failed"
-  | "skipped";
-export type PipelineTriggerKind = "manual" | "schedule" | "webhook";
+export type PipelineRunStatus = "running" | "completed" | "failed" | "skipped";
+export type PipelineTriggerKind = "manual" | "schedule" | "webhook" | "event";
 
 export type PipelineRunSummary = {
   id: string;
@@ -1261,6 +1306,7 @@ export type PipelineRunSummary = {
   finishedAt: string | null;
   status: PipelineRunStatus;
   triggerKind: PipelineTriggerKind;
+  triggerLabel: string | null;
   triggerNodeId: string | null;
   errorMessage: string | null;
 };
@@ -1519,10 +1565,7 @@ export type NotificationKind =
 
 export type NotificationActorKind = "user" | "ai" | "system";
 
-export type NotificationEntityKind =
-  | "channel_message"
-  | "todo"
-  | "approval";
+export type NotificationEntityKind = "channel_message" | "todo" | "approval";
 
 export type NotificationActor = {
   kind: NotificationActorKind;
@@ -1582,7 +1625,12 @@ export type HomeFailedRun = {
   status: RunStatus;
   exitCode: number | null;
   startedAt: string;
-  employee: { id: string; name: string; slug: string; avatarKey: string | null };
+  employee: {
+    id: string;
+    name: string;
+    slug: string;
+    avatarKey: string | null;
+  };
 };
 
 // ───────────────────────── System Health ────────────────────────────────
@@ -1612,7 +1660,12 @@ export type SystemHealthReport = {
 export type SystemHealthSummary = {
   status: HealthSeverity;
   issueCount: number;
-  checks: { id: string; title: string; severity: HealthSeverity; count: number }[];
+  checks: {
+    id: string;
+    title: string;
+    severity: HealthSeverity;
+    count: number;
+  }[];
 };
 
 // ───────────────────────── Instance Health (Admin) ──────────────────────
@@ -2068,7 +2121,10 @@ export function displayInvoiceStatus(
   inv: Pick<Invoice, "status" | "dueDate">,
   now: Date = new Date(),
 ): InvoiceStatus | "overdue" {
-  if (inv.status === "sent" && new Date(inv.dueDate).getTime() < now.getTime()) {
+  if (
+    inv.status === "sent" &&
+    new Date(inv.dueDate).getTime() < now.getTime()
+  ) {
     return "overdue";
   }
   return inv.status;
@@ -2227,10 +2283,7 @@ export type EstimateLineDraft = {
   sortOrder?: number;
 };
 
-export type DisplayEstimateStatus =
-  | EstimateStatus
-  | "expired"
-  | "invoiced";
+export type DisplayEstimateStatus = EstimateStatus | "expired" | "invoiced";
 
 export function displayEstimateStatus(
   est: Pick<Estimate, "status" | "validUntil" | "invoiceId">,
@@ -2328,7 +2381,10 @@ export const ACCOUNT_TYPE_LABEL: Record<AccountType, string> = {
 /** Display the cent magnitude in the conventional accounting layout —
  *  no minus signs in the trial balance, since the column itself
  *  encodes whether a value is a debit or a credit. */
-export function formatBalanceMagnitude(cents: number, currency: string): string {
+export function formatBalanceMagnitude(
+  cents: number,
+  currency: string,
+): string {
   return formatMoney(Math.abs(cents), currency);
 }
 
@@ -2418,7 +2474,10 @@ export type PeriodRange = { from: Date; to: Date };
  * normalizes to start/end-of-day, so the timezone of `now` doesn't
  * matter to the math.
  */
-export function rangeFromPreset(preset: PeriodPreset, now: Date = new Date()): PeriodRange {
+export function rangeFromPreset(
+  preset: PeriodPreset,
+  now: Date = new Date(),
+): PeriodRange {
   const y = now.getUTCFullYear();
   const m = now.getUTCMonth();
   switch (preset) {
@@ -2477,7 +2536,7 @@ export function priorRangeOf(range: PeriodRange): PeriodRange {
 
 // ─────────────────────── Reconciliation (M19 Phase D) ──────────────────
 
-export type BankFeedKind = "stripe_payouts" | "csv";
+export type BankFeedKind = "stripe_payouts" | "brex_cash" | "csv";
 
 export type BankFeed = {
   id: string;
@@ -2485,11 +2544,22 @@ export type BankFeed = {
   name: string;
   kind: BankFeedKind;
   connectionId: string | null;
+  externalAccountId: string | null;
   accountId: string;
   lastSyncAt: string | null;
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type BrexCashAccount = {
+  id: string;
+  name: string;
+  status: string | null;
+  primary: boolean;
+  accountNumberLast4: string;
+  currentBalance: { amount: number; currency: string | null };
+  availableBalance: { amount: number; currency: string | null };
 };
 
 export type BankTransactionMatch =
@@ -2687,7 +2757,10 @@ export function displayBillStatus(
   bill: Pick<Bill, "status" | "dueDate">,
   now: Date = new Date(),
 ): BillStatus | "overdue" {
-  if (bill.status === "sent" && new Date(bill.dueDate).getTime() < now.getTime()) {
+  if (
+    bill.status === "sent" &&
+    new Date(bill.dueDate).getTime() < now.getTime()
+  ) {
     return "overdue";
   }
   return bill.status;

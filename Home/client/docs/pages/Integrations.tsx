@@ -17,6 +17,7 @@ import {
 const CATALOG: Array<{ name: string; kind: string }> = [
   { name: "GitHub", kind: "engineering" },
   { name: "Stripe", kind: "finance" },
+  { name: "Brex", kind: "finance" },
   { name: "Gmail / Google", kind: "comms + drive" },
   { name: "Google Analytics", kind: "analytics" },
   { name: "Google Search Console", kind: "SEO / search" },
@@ -245,6 +246,25 @@ export function Integrations() {
           dependent grants disappear with it.
         </LI>
       </UL>
+
+      <H3 id="brex-cash">Brex Cash</H3>
+      <P>
+        To connect your company&apos;s Brex account, sign in to Brex as an
+        administrator, open <Code>Developer → Settings</Code>, and create a user
+        token with the <Code>accounts.cash.readonly</Code> and{" "}
+        <Code>transactions.cash.readonly</Code> scopes. In Genosyn, open{" "}
+        <Code>Settings → Integrations</Code>, choose <Code>Brex</Code>, and paste
+        that token into a new Connection. Genosyn encrypts the token and never
+        returns it to the browser after creation.
+      </P>
+      <P>
+        The Connection contributes read-only cash-account and settled-transaction
+        tools to employees who receive a Grant. To bring the same transactions
+        into the books, open <DocLink to="/docs/finance">Finance → Reconciliation</DocLink>,
+        create a <Code>Brex Cash</Code> feed, choose the Connection and Cash
+        account, then click <Code>Sync</Code>. Brex exposes settled transactions;
+        pending card activity does not appear in this bank feed.
+      </P>
 
       <H3 id="github-engineering">GitHub & engineering grants</H3>
       <P>

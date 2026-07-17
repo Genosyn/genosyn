@@ -6,6 +6,13 @@ import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { InvoicePayment } from "../db/entities/InvoicePayment.js";
 import { Invoice } from "../db/entities/Invoice.js";
 import { LedgerEntry } from "../db/entities/LedgerEntry.js";
+import {
+  type BrexCashAccountSummary,
+  type BrexConfig,
+  getBrexCashTransactionsPage,
+  listBrexCashAccounts,
+  summarizeBrexCashAccount,
+} from "../integrations/providers/brex.js";
 import { decryptConnectionConfig } from "./integrations.js";
 
 /**
@@ -28,6 +35,7 @@ import { decryptConnectionConfig } from "./integrations.js";
 
 const STRIPE_API = "https://api.stripe.com/v1";
 const MATCH_DATE_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
+const BREX_SYNC_OVERLAP_MS = 7 * 24 * 60 * 60 * 1000;
 
 // ─────────────────────────── Stripe payouts ────────────────────────────
 
@@ -98,8 +106,7 @@ export async function syncStripePayouts(feed: BankFeed): Promise<number> {
         externalId: p.id,
         date: new Date(p.arrival_date * 1000),
         amountCents: p.amount,
-        description:
-          p.description ?? p.statement_descriptor ?? `Stripe payout ${p.id}`,
+        description: p.description ?? p.statement_descriptor ?? `Stripe payout ${p.id}`,
         reference: p.id,
         raw: JSON.stringify(p),
       }),
@@ -111,6 +118,126 @@ export async function syncStripePayouts(feed: BankFeed): Promise<number> {
   feed.lastSyncAt = new Date();
   await AppDataSource.getRepository(BankFeed).save(feed);
   return fresh.length;
+}
+
+// ─────────────────────────── Brex Cash ────────────────────────────────
+
+async function getBrexConfig(companyId: string, connectionId: string): Promise<BrexConfig> {
+  const connection = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
+    id: connectionId,
+    companyId,
+    provider: "brex",
+  });
+  if (!connection) throw new Error("Brex Connection not found");
+  const config = decryptConnectionConfig(connection) as Partial<BrexConfig>;
+  if (!config.userToken || typeof config.userToken !== "string") {
+    throw new Error("Brex Connection is missing its user token");
+  }
+  return { userToken: config.userToken };
+}
+
+/** Return display-safe account choices for the new-feed UI. Full account and
+ * routing numbers never leave the server. */
+export async function listBrexCashAccountsForConnection(
+  companyId: string,
+  connectionId: string,
+): Promise<BrexCashAccountSummary[]> {
+  const config = await getBrexConfig(companyId, connectionId);
+  const accounts = await listBrexCashAccounts(config.userToken);
+  return accounts.map(summarizeBrexCashAccount);
+}
+
+/** Confirm that a feed points at a real account visible to this company's
+ * Brex Connection before persisting it. */
+export async function assertBrexCashAccountConnection(
+  companyId: string,
+  connectionId: string,
+  accountId: string,
+): Promise<void> {
+  const accounts = await listBrexCashAccountsForConnection(companyId, connectionId);
+  if (!accounts.some((account) => account.id === accountId)) {
+    throw new Error("Brex Cash account not found on this Connection");
+  }
+}
+
+/**
+ * Pull settled transactions for one Brex Cash account. The first sync walks
+ * the complete paginated history. Later syncs overlap the prior seven days so
+ * late-posted rows are not missed; Brex transaction ids make every retry
+ * idempotent.
+ */
+export async function syncBrexCashTransactions(feed: BankFeed): Promise<number> {
+  if (feed.kind !== "brex_cash") throw new Error("Feed is not a Brex Cash feed");
+  if (!feed.connectionId) {
+    throw new Error("Brex feed has no Connection — pick one first");
+  }
+  if (!feed.externalAccountId) {
+    throw new Error("Brex feed has no Cash account — pick one first");
+  }
+  const config = await getBrexConfig(feed.companyId, feed.connectionId);
+  const existing = await AppDataSource.getRepository(BankTransaction).find({
+    where: { feedId: feed.id },
+    select: ["externalId"],
+  });
+  const seen = new Set(existing.map((row) => row.externalId).filter((id): id is string => !!id));
+  const postedAtStart = feed.lastSyncAt
+    ? new Date(feed.lastSyncAt.getTime() - BREX_SYNC_OVERLAP_MS).toISOString()
+    : undefined;
+  const seenCursors = new Set<string>();
+  const transactionRepo = AppDataSource.getRepository(BankTransaction);
+  let cursor: string | undefined;
+  let inserted = 0;
+
+  for (;;) {
+    const page = await getBrexCashTransactionsPage(config.userToken, feed.externalAccountId, {
+      cursor,
+      limit: 100,
+      postedAtStart,
+    });
+    const fresh: BankTransaction[] = [];
+    for (const transaction of page.items ?? []) {
+      if (seen.has(transaction.id)) continue;
+      if (!transaction.amount || !Number.isSafeInteger(transaction.amount.amount)) {
+        throw new Error(`Brex transaction ${transaction.id} has no safe integer amount`);
+      }
+      const postedAt = new Date(transaction.posted_at_date);
+      if (Number.isNaN(postedAt.getTime())) {
+        throw new Error(`Brex transaction ${transaction.id} has an invalid posted date`);
+      }
+      seen.add(transaction.id);
+      fresh.push(
+        transactionRepo.create({
+          companyId: feed.companyId,
+          feedId: feed.id,
+          externalId: transaction.id,
+          date: postedAt,
+          amountCents: transaction.amount.amount,
+          description: transaction.description || "Brex Cash transaction",
+          reference: transaction.transfer_id ?? transaction.id,
+          raw: JSON.stringify(transaction),
+        }),
+      );
+    }
+    if (fresh.length > 0) {
+      await transactionRepo.save(fresh);
+      inserted += fresh.length;
+    }
+    const next = page.next_cursor ?? undefined;
+    if (!next) break;
+    if (seenCursors.has(next)) throw new Error("Brex returned a repeated transaction cursor");
+    seenCursors.add(next);
+    cursor = next;
+  }
+
+  feed.lastSyncAt = new Date();
+  await AppDataSource.getRepository(BankFeed).save(feed);
+  return inserted;
+}
+
+export async function syncBankFeed(feed: BankFeed): Promise<number> {
+  if (feed.kind === "stripe_payouts") return syncStripePayouts(feed);
+  if (feed.kind === "brex_cash") return syncBrexCashTransactions(feed);
+  throw new Error("This feed type can only be imported via CSV");
 }
 
 // ─────────────────────────── CSV import ────────────────────────────────
@@ -321,9 +448,7 @@ export async function autoMatchFeed(feed: BankFeed): Promise<number> {
     },
   });
   const claimed = new Set(
-    txns
-      .filter((t) => t.matchedPaymentId)
-      .map((t) => t.matchedPaymentId as string),
+    txns.filter((t) => t.matchedPaymentId).map((t) => t.matchedPaymentId as string),
   );
   const candidates = allPayments.filter((p) => !claimed.has(p.id));
 
@@ -405,9 +530,7 @@ export type MatchCandidate = {
  * (amount-equality, date-proximity). Caller decides whether to commit
  * by calling `manualMatch`.
  */
-export async function findMatchCandidates(
-  txn: BankTransaction,
-): Promise<MatchCandidate[]> {
+export async function findMatchCandidates(txn: BankTransaction): Promise<MatchCandidate[]> {
   const invoices = await AppDataSource.getRepository(Invoice).find({
     where: { companyId: txn.companyId },
   });
@@ -415,15 +538,15 @@ export async function findMatchCandidates(
   if (invIds.length === 0) return [];
   const customers = new Map(
     (
-      await AppDataSource.getRepository(
-        (await import("../db/entities/Customer.js")).Customer,
-      ).find({
-        where: {
-          id: In(invoices.map((i) => i.customerId)),
-          companyId: txn.companyId,
+      await AppDataSource.getRepository((await import("../db/entities/Customer.js")).Customer).find(
+        {
+          where: {
+            id: In(invoices.map((i) => i.customerId)),
+            companyId: txn.companyId,
+          },
+          select: ["id", "name"],
         },
-        select: ["id", "name"],
-      })
+      )
     ).map((c) => [c.id, c.name]),
   );
   const allPayments = await AppDataSource.getRepository(InvoicePayment).find({
@@ -433,9 +556,7 @@ export async function findMatchCandidates(
     where: { companyId: txn.companyId },
     select: ["matchedPaymentId"],
   });
-  const claimed = new Set(
-    txns.map((t) => t.matchedPaymentId).filter((x): x is string => !!x),
-  );
+  const claimed = new Set(txns.map((t) => t.matchedPaymentId).filter((x): x is string => !!x));
   const invById = new Map(invoices.map((i) => [i.id, i]));
 
   const out: MatchCandidate[] = [];
@@ -444,8 +565,7 @@ export async function findMatchCandidates(
     const inv = invById.get(p.invoiceId);
     if (!inv) continue;
     const amtMatch = p.amountCents === txn.amountCents ? 0.6 : 0;
-    const dayDiff =
-      Math.abs(p.paidAt.getTime() - txn.date.getTime()) / (24 * 60 * 60 * 1000);
+    const dayDiff = Math.abs(p.paidAt.getTime() - txn.date.getTime()) / (24 * 60 * 60 * 1000);
     const dateScore = Math.max(0, 0.4 - 0.05 * dayDiff);
     const score = amtMatch + dateScore;
     if (score <= 0) continue;

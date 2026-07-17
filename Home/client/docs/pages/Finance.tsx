@@ -236,6 +236,24 @@ export function Finance() {
         status to <Code>ended</Code> automatically once hit.
       </P>
 
+      <H2 id="reconciliation">Bank reconciliation</H2>
+      <P>
+        Open <Code>Finance → Reconciliation</Code> to match external bank lines
+        to the payments and journal entries already recorded in Genosyn. CSV
+        upload works with any bank; Stripe payout and Brex Cash feeds can pull
+        directly from an encrypted Connection under{" "}
+        <DocLink to="/docs/integrations">Settings → Integrations</DocLink>.
+      </P>
+      <P>
+        For Brex, create a <Code>Brex</Code> Connection using a read-only user
+        token, then click <Code>New feed</Code>, choose <Code>Brex Cash</Code>,
+        select the Connection and Cash account, and map it to the corresponding
+        asset account in the chart of accounts. <Code>Sync</Code> walks the
+        settled transaction history on the first pull and fetches only recent
+        changes after that. Repeated syncs are safe because Genosyn deduplicates
+        rows by Brex transaction id.
+      </P>
+
       <H2 id="ledger">Ledger and reports</H2>
       <P>
         Every state change on an invoice or bill emits a journal entry
