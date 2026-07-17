@@ -15,6 +15,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
 import { api, Company, CodeRepository } from "../lib/api";
 import { RepoFormModal } from "./CodeRepoForm";
+import { useCodeReposContext } from "./CodeReposLayout";
 
 /**
  * Code — the company's git repositories. Humans add any HTTPS / SSH repo and
@@ -25,6 +26,7 @@ import { RepoFormModal } from "./CodeRepoForm";
 export default function CodeReposIndex({ company }: { company: Company }) {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { reload: reloadSidebar } = useCodeReposContext();
   const [items, setItems] = React.useState<CodeRepository[] | null>(null);
   const [showNew, setShowNew] = React.useState(false);
   const [query, setQuery] = React.useState("");
@@ -128,6 +130,7 @@ export default function CodeReposIndex({ company }: { company: Company }) {
         onSaved={(row) => {
           setShowNew(false);
           reload();
+          reloadSidebar();
           navigate(`/c/${company.slug}/code/${row.slug}`);
         }}
       />

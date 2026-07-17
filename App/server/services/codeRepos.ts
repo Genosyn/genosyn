@@ -565,6 +565,7 @@ export async function composeCodeReposContext(
     "",
     "## Code Repositories",
     "You have real git checkouts of these repositories in your working directory. Use ordinary `git` to read, branch, commit, and (where allowed) push — credentials and the committer identity are already configured, so you do not need to set up remotes or tokens.",
+    "When a teammate asks you to deliver a code change, carry the work through: create a focused branch, edit the files with your coding tools, run the relevant checks, commit, and push. If a matching GitHub `*_create_pull_request` tool is available, call it after pushing to open the requested pull request (draft when requested). Never claim a pull request exists unless the tool returned it; if no PR tool is available, say that a GitHub Connection grant is needed and report the pushed branch instead.",
     "",
     ...lines,
   ].join("\n");

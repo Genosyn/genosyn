@@ -95,8 +95,11 @@ import NotebookDetail from "./pages/NotebookDetail";
 import NoteDetail from "./pages/NoteDetail";
 import ResourcesIndex from "./pages/ResourcesIndex";
 import ResourceDetail from "./pages/ResourceDetail";
+import CodeReposLayout from "./pages/CodeReposLayout";
 import CodeReposIndex from "./pages/CodeReposIndex";
-import CodeRepoDetail from "./pages/CodeRepoDetail";
+import CodeRepoOverview from "./pages/CodeRepoOverview";
+import CodeRepoAccess from "./pages/CodeRepoAccess";
+import CodeRepoSettings from "./pages/CodeRepoSettings";
 import CustomersLayout from "./pages/CustomersLayout";
 import CustomersIndex from "./pages/CustomersIndex";
 import CustomerNew from "./pages/CustomerNew";
@@ -365,11 +368,12 @@ function CompanyRoutes({
 
         {/* Code — provider-agnostic git repositories the company adds so
             granted AI employees can read, commit, and push real code. */}
-        <Route path="code" element={<CodeReposIndex company={company} />} />
-        <Route
-          path="code/:slug"
-          element={<CodeRepoDetail company={company} />}
-        />
+        <Route path="code" element={<CodeReposLayout company={company} />}>
+          <Route index element={<CodeReposIndex company={company} />} />
+          <Route path=":slug" element={<CodeRepoOverview />} />
+          <Route path=":slug/access" element={<CodeRepoAccess />} />
+          <Route path=":slug/settings" element={<CodeRepoSettings />} />
+        </Route>
 
         {/* Customers — standalone section (moved out of Finance). Customer
             accounts, plus the signed contracts uploaded against them. */}

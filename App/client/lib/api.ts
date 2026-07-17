@@ -1532,6 +1532,8 @@ export type CodeRepoGrantEmployee = {
   slug: string;
   role: string;
   avatarKey: string | null;
+  /** True when a connected GitHub Connection grant exposes the PR tool. */
+  pullRequestReady: boolean;
 };
 
 export type CodeRepoGrant = {
@@ -1545,7 +1547,10 @@ export type CodeRepoGrant = {
 
 export type CodeRepoGrantsResponse = { direct: CodeRepoGrant[] };
 
-export type CodeRepoGrantCandidate = CodeRepoGrantEmployee & {
+export type CodeRepoGrantCandidate = Omit<
+  CodeRepoGrantEmployee,
+  "pullRequestReady"
+> & {
   alreadyGranted: boolean;
 };
 

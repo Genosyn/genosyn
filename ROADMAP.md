@@ -574,8 +574,13 @@ self-hosted) over HTTPS or SSH, with access handed out per-employee.
       injected into the chat / routine prompt; `list_code_repositories` MCP
       tool on the built-in `genosyn` server.
 - [x] React UI under `/c/<co>/code`: index (list + add modal), detail
-      (test connection, settings, employee-access management, delete).
+      split into sidebar-addressable Overview, AI access, and Settings pages
+      (connection health, per-employee PR readiness, credentials, delete).
       New "Code" section under an Engineering group in the app shell.
+- [x] Code-delivery guidance — repository context tells employees to branch,
+      edit, test, commit, push, then call the granted GitHub
+      `create_pull_request` tool; the UI shows which write-granted employees
+      have that tool through a connected GitHub Connection.
 - [ ] Worktree-per-routine isolation (shared with M12; deferred)
 - [ ] Browse the checkout in a web file tree (deferred — agents use it on
       disk today)

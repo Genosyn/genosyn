@@ -65,6 +65,11 @@ export function CodeRepositories() {
           Open the repository and click <Strong>Test connection</Strong> to
           confirm Genosyn can reach it.
         </LI>
+        <LI>
+          Use the repository side menu to open <Strong>AI access</Strong>, add
+          an employee, and choose <Strong>Read &amp; push</Strong> when it should
+          deliver branches or pull requests.
+        </LI>
       </OL>
 
       <Callout kind="info" title="The Genosyn server needs git installed.">
@@ -107,8 +112,9 @@ export function CodeRepositories() {
 
       <H2 id="access">Granting access</H2>
       <P>
-        On a repository&apos;s page, the <Strong>Employee access</Strong> panel
-        lists who can work on it. Add an employee and choose a level:
+        Open a repository and choose <Strong>AI access</Strong> from its side
+        menu. The page lists who can work on it and whether each employee is
+        ready to open a GitHub pull request. Add an employee and choose a level:
       </P>
       <UL>
         <LI>
@@ -142,14 +148,48 @@ git push -u origin fix/typo`}</Pre>
         the next time it starts.
       </P>
 
+      <H2 id="pull-requests">Writing code and opening a pull request</H2>
+      <P>
+        Code editing needs no extra plugin or MCP server. Every AI employee has
+        built-in tools for shell commands, file reads and writes, exact edits,
+        directory listing, globbing, and search. A <Strong>Read &amp; push</Strong>{" "}
+        repository grant adds the working tree and git credentials.
+      </P>
+      <P>
+        Opening a GitHub pull request uses the GitHub Connection&apos;s{" "}
+        <Code>create_pull_request</Code> tool. Complete these steps once:
+      </P>
+      <OL>
+        <LI>
+          Add a GitHub Connection under <Strong>Settings → Integrations</Strong>{" "}
+          and allowlist the repository.
+        </LI>
+        <LI>
+          Grant that Connection to the same employee from the employee&apos;s{" "}
+          <Strong>Connections</Strong> page.
+        </LI>
+        <LI>
+          On <Strong>Code → repository → AI access</Strong>, confirm the
+          employee shows <Strong>PR ready</Strong>.
+        </LI>
+      </OL>
+      <P>
+        You can then ask: “Create a branch, implement this change, run the
+        tests, and send me a draft PR.” Genosyn tells the employee to carry the
+        request through editing, tests, commit, push, and the PR tool. It must
+        not claim a pull request exists unless the GitHub call succeeds; when
+        the Connection grant is missing, it reports the pushed branch and the
+        missing setup instead.
+      </P>
+
       <H3 id="vs-github">Code Repositories vs. the GitHub integration</H3>
       <P>
         The <DocLink to="/docs/integrations">GitHub integration</DocLink> is the
         right tool when you want an employee calling the GitHub API (issues,
-        PRs, reviews) against repos on a connected GitHub account. Code
+        pull requests, reviews) against repos on a connected GitHub account. Code
         Repositories are for the editor-shaped workflow — a working tree to
         commit and push to — and work against any git host, not just GitHub.
-        You can use both.
+        Use both for the full code-to-pull-request workflow.
       </P>
 
       <Callout kind="warn" title="Least privilege.">

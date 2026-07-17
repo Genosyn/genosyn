@@ -5,6 +5,8 @@ import { AppDataSource } from "../db/datasource.js";
 import { CodeRepository } from "../db/entities/CodeRepository.js";
 import { EmployeeCodeRepositoryGrant } from "../db/entities/EmployeeCodeRepositoryGrant.js";
 import type { CodeRepoAccessLevel } from "../db/entities/EmployeeCodeRepositoryGrant.js";
+import { EmployeeConnectionGrant } from "../db/entities/EmployeeConnectionGrant.js";
+import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { User } from "../db/entities/User.js";
 import { validateBody } from "../middleware/validate.js";
@@ -309,6 +311,8 @@ type GrantWithEmployee = EmployeeCodeRepositoryGrant & {
     slug: string;
     role: string;
     avatarKey: string | null;
+    /** A connected GitHub Connection grant exposes a PR tool next run. */
+    pullRequestReady: boolean;
   } | null;
 };
 
@@ -318,9 +322,35 @@ async function hydrateGrants(
 ): Promise<GrantWithEmployee[]> {
   if (grants.length === 0) return [];
   const empIds = [...new Set(grants.map((g) => g.employeeId))];
-  const emps = await AppDataSource.getRepository(AIEmployee).find({
-    where: { id: In(empIds), companyId },
-  });
+  const [emps, connectionGrants] = await Promise.all([
+    AppDataSource.getRepository(AIEmployee).find({
+      where: { id: In(empIds), companyId },
+    }),
+    AppDataSource.getRepository(EmployeeConnectionGrant).find({
+      where: { employeeId: In(empIds) },
+    }),
+  ]);
+  const connectionIds = [
+    ...new Set(connectionGrants.map((grant) => grant.connectionId)),
+  ];
+  const githubConnections = connectionIds.length
+    ? await AppDataSource.getRepository(IntegrationConnection).find({
+        where: {
+          id: In(connectionIds),
+          companyId,
+          provider: "github",
+          status: "connected",
+        },
+      })
+    : [];
+  const githubConnectionIds = new Set(
+    githubConnections.map((connection) => connection.id),
+  );
+  const prReadyEmployeeIds = new Set(
+    connectionGrants
+      .filter((grant) => githubConnectionIds.has(grant.connectionId))
+      .map((grant) => grant.employeeId),
+  );
   const byId = new Map(emps.map((e) => [e.id, e]));
   return grants.map((g) => {
     const e = byId.get(g.employeeId);
@@ -332,6 +362,7 @@ async function hydrateGrants(
             slug: e.slug,
             role: e.role,
             avatarKey: e.avatarKey ?? null,
+            pullRequestReady: prReadyEmployeeIds.has(e.id),
           }
         : null,
     });
