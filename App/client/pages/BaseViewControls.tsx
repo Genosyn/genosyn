@@ -15,7 +15,9 @@ import {
   BaseFilterRule,
   BaseLinkOption,
   BaseRecord,
+  BaseResourceOption,
   BaseSortRule,
+  isBaseResourceFieldType,
   SelectOption,
 } from "../lib/api";
 import { Menu } from "../components/ui/Menu";
@@ -42,6 +44,13 @@ type OperatorMeta = {
   /** True when no `value` is needed (e.g. `isEmpty`, `isChecked`). */
   unary?: boolean;
 };
+
+const RESOURCE_LINK_OPERATORS: OperatorMeta[] = [
+  { op: "hasAnyOf", label: "has any of" },
+  { op: "hasNoneOf", label: "has none of" },
+  { op: "isEmpty", label: "is empty", unary: true },
+  { op: "isNotEmpty", label: "is not empty", unary: true },
+];
 
 const OPERATORS_BY_TYPE: Record<BaseFieldType, OperatorMeta[]> = {
   text: [
@@ -123,6 +132,14 @@ const OPERATORS_BY_TYPE: Record<BaseFieldType, OperatorMeta[]> = {
     { op: "isEmpty", label: "is empty", unary: true },
     { op: "isNotEmpty", label: "is not empty", unary: true },
   ],
+  // Record-link columns share the link operator set — cells are id arrays.
+  customer: RESOURCE_LINK_OPERATORS,
+  invoice: RESOURCE_LINK_OPERATORS,
+  project: RESOURCE_LINK_OPERATORS,
+  employee: RESOURCE_LINK_OPERATORS,
+  member: RESOURCE_LINK_OPERATORS,
+  note: RESOURCE_LINK_OPERATORS,
+  pipeline: RESOURCE_LINK_OPERATORS,
 };
 
 export function defaultOperatorFor(type: BaseFieldType): BaseFilterOperator {
@@ -442,6 +459,7 @@ export function FilterPopover({
   filters,
   onChange,
   linkOptions,
+  resourceOptions,
 }: {
   open: boolean;
   onClose: () => void;
@@ -450,6 +468,7 @@ export function FilterPopover({
   filters: BaseFilterRule[];
   onChange: (next: BaseFilterRule[]) => void;
   linkOptions: Record<string, BaseLinkOption[]>;
+  resourceOptions: Record<string, BaseResourceOption[]>;
 }) {
   function addRule() {
     const f = fields[0];
@@ -529,6 +548,7 @@ export function FilterPopover({
                     operator={rule.operator}
                     value={rule.value}
                     linkOptions={linkOptions}
+                    resourceOptions={resourceOptions}
                     onChange={(v) => updateRule(rule.id, { value: v })}
                   />
                 )}
@@ -674,12 +694,14 @@ function FilterValueEditor({
   operator,
   value,
   linkOptions,
+  resourceOptions,
   onChange,
 }: {
   field: BaseField;
   operator: BaseFilterOperator;
   value: unknown;
   linkOptions: Record<string, BaseLinkOption[]>;
+  resourceOptions: Record<string, BaseResourceOption[]>;
   onChange: (v: unknown) => void;
 }) {
   // Multi-select operators take an array of ids.
@@ -704,6 +726,18 @@ function FilterValueEditor({
   if (field.type === "link") {
     const cfg = field.config as { targetTableId?: string };
     const opts = cfg.targetTableId ? linkOptions[cfg.targetTableId] ?? [] : [];
+    const arr = Array.isArray(value) ? (value as string[]) : [];
+    return (
+      <LinkChipList
+        options={opts.map((o) => ({ id: o.id, label: o.label }))}
+        value={arr}
+        onChange={onChange}
+      />
+    );
+  }
+
+  if (isBaseResourceFieldType(field.type)) {
+    const opts = resourceOptions[field.type] ?? [];
     const arr = Array.isArray(value) ? (value as string[]) : [];
     return (
       <LinkChipList

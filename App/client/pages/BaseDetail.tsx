@@ -32,10 +32,12 @@ import {
   BaseLinkOption,
   BaseRecord,
   BaseTable,
+  BaseResourceOption,
   BaseTableContent,
   BaseView,
   Company,
   Employee,
+  isBaseResourceFieldType,
   SelectOption,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
@@ -46,7 +48,12 @@ import { Menu, MenuHeader, MenuItem, MenuSeparator } from "../components/ui/Menu
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { useBases } from "./BasesLayout";
-import { CellEditor, CellView, SelectOptionsEditor } from "./BaseGridCells";
+import {
+  CellEditor,
+  CellView,
+  RESOURCE_TYPE_ICONS,
+  SelectOptionsEditor,
+} from "./BaseGridCells";
 import { BaseAssistant } from "./BaseAssistant";
 import { RecordDetailDrawer } from "./BaseRecordDetail";
 import {
@@ -84,6 +91,37 @@ const FIELD_TYPE_META: Record<
   select: { label: "Single select", icon: ListFilter, desc: "One colored tag" },
   multiselect: { label: "Multi-select", icon: ListChecks, desc: "Multiple colored tags" },
   link: { label: "Link to table", icon: LinkIcon, desc: "Reference rows in another table" },
+  customer: {
+    label: "Customer",
+    icon: RESOURCE_TYPE_ICONS.customer,
+    desc: "Link finance customers",
+  },
+  invoice: {
+    label: "Invoice",
+    icon: RESOURCE_TYPE_ICONS.invoice,
+    desc: "Link finance invoices",
+  },
+  project: {
+    label: "Project",
+    icon: RESOURCE_TYPE_ICONS.project,
+    desc: "Link task projects",
+  },
+  employee: {
+    label: "AI Employee",
+    icon: RESOURCE_TYPE_ICONS.employee,
+    desc: "Link AI employees",
+  },
+  member: {
+    label: "Member",
+    icon: RESOURCE_TYPE_ICONS.member,
+    desc: "Link company members",
+  },
+  note: { label: "Note", icon: RESOURCE_TYPE_ICONS.note, desc: "Link notes" },
+  pipeline: {
+    label: "Pipeline",
+    icon: RESOURCE_TYPE_ICONS.pipeline,
+    desc: "Link pipelines",
+  },
 };
 
 // Direction labels for the column-header sort menu, phrased to match the
@@ -402,6 +440,7 @@ export default function BaseDetail({ company }: { company: Company }) {
             record={record}
             fields={content.fields}
             linkOptions={content.linkOptions}
+            resourceOptions={content.resourceOptions}
             onClose={() => setOpenRecordId(null)}
             onChanged={() => loadContent(true)}
           />
@@ -473,7 +512,7 @@ function Grid({
 }) {
   const { toast } = useToast();
   const dialog = useDialog();
-  const { fields, records, linkOptions, views } = content;
+  const { fields, records, linkOptions, resourceOptions, views } = content;
   const [pendingLinkField, setPendingLinkField] = React.useState<string | null>(null);
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [filterOpen, setFilterOpen] = React.useState(false);
@@ -826,6 +865,7 @@ function Grid({
                     record={r}
                     fields={visibleFields}
                     linkOptions={linkOptions}
+                    resourceOptions={resourceOptions}
                     selected={selectedIds.has(r.id)}
                     onToggleSelect={(shift) => toggleSelect(r.id, shift)}
                     onPatchCell={(fid, v) => patchCell(r, fid, v)}
@@ -873,6 +913,7 @@ function Grid({
             fields={fields}
             filters={activeView.filters}
             linkOptions={linkOptions}
+            resourceOptions={resourceOptions}
             onChange={(filters) => void onUpdateActiveView({ filters })}
           />
           <SortPopover
@@ -1095,6 +1136,7 @@ function Row({
   record,
   fields,
   linkOptions,
+  resourceOptions,
   selected,
   onToggleSelect,
   onPatchCell,
@@ -1105,6 +1147,7 @@ function Row({
   record: BaseRecord;
   fields: BaseField[];
   linkOptions: Record<string, BaseLinkOption[]>;
+  resourceOptions: Record<string, BaseResourceOption[]>;
   selected: boolean;
   onToggleSelect: (shiftKey: boolean) => void;
   onPatchCell: (fieldId: string, value: unknown) => void;
@@ -1191,6 +1234,7 @@ function Row({
                 field={f}
                 value={value}
                 linkOptionsByTable={linkOptions}
+                resourceOptions={resourceOptions}
                 autoFocus
                 onCommit={(next) => onPatchCell(f.id, next)}
                 onClose={() => setEditingField(null)}
@@ -1201,6 +1245,7 @@ function Row({
                   field={f}
                   value={value}
                   linkOptionsByTable={linkOptions}
+                  resourceOptions={resourceOptions}
                 />
               </div>
             )}
@@ -1448,27 +1493,36 @@ function AddFieldButton({ onAdd }: { onAdd: (t: BaseFieldType) => void }) {
         </button>
       )}
     >
-      {(close) => (
-        <>
-          <MenuHeader>Add field</MenuHeader>
-          {(Object.keys(FIELD_TYPE_META) as BaseFieldType[]).map((t) => {
-            const m = FIELD_TYPE_META[t];
-            const Icon = m.icon;
-            return (
-              <MenuItem
-                key={t}
-                icon={<Icon size={12} />}
-                label={<span>{m.label}</span>}
-                hint={<span className="text-[10px]">{m.desc}</span>}
-                onSelect={() => {
-                  onAdd(t);
-                  close();
-                }}
-              />
-            );
-          })}
-        </>
-      )}
+      {(close) => {
+        const all = Object.keys(FIELD_TYPE_META) as BaseFieldType[];
+        const basic = all.filter((t) => !isBaseResourceFieldType(t));
+        const resource = all.filter(isBaseResourceFieldType);
+        const item = (t: BaseFieldType) => {
+          const m = FIELD_TYPE_META[t];
+          const Icon = m.icon;
+          return (
+            <MenuItem
+              key={t}
+              icon={<Icon size={12} />}
+              label={<span>{m.label}</span>}
+              hint={<span className="text-[10px]">{m.desc}</span>}
+              onSelect={() => {
+                onAdd(t);
+                close();
+              }}
+            />
+          );
+        };
+        return (
+          <>
+            <MenuHeader>Add field</MenuHeader>
+            {basic.map(item)}
+            <MenuSeparator />
+            <MenuHeader>Link to Genosyn</MenuHeader>
+            {resource.map(item)}
+          </>
+        );
+      }}
     </Menu>
   );
 }

@@ -459,7 +459,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "add_base_field",
     description:
-      "Add a field (column) to a table. Supported types: text, longtext, number, checkbox, date, datetime, email, url, select, multiselect, link. For `select` / `multiselect`, pass `options` as an array of `{label, color}` — option ids are generated server-side. For `link`, pass `linkTargetTableSlug` to point at a sibling table in the same base. Set `isPrimary: true` to make this the primary field (demotes any previous primary).",
+      "Add a field (column) to a table. Supported types: text, longtext, number, checkbox, date, datetime, email, url, select, multiselect, link, plus the record-link types customer, invoice, project, employee, member, note, pipeline. For `select` / `multiselect`, pass `options` as an array of `{label, color}` — option ids are generated server-side. For `link`, pass `linkTargetTableSlug` to point at a sibling table in the same base. Record-link types need no extra config: they always point at this company's records of that product (finance Customers, Invoices, task Projects, AI Employees, human Members, Notes, Pipelines), and cells hold arrays of ids — valid ids come back as `resourceOptions` on `list_base_rows`. Set `isPrimary: true` to make this the primary field (demotes any previous primary).",
     inputSchema: {
       type: "object",
       properties: {
@@ -480,6 +480,13 @@ export const STATIC_TOOLS: McpToolSpec[] = [
             "select",
             "multiselect",
             "link",
+            "customer",
+            "invoice",
+            "project",
+            "employee",
+            "member",
+            "note",
+            "pipeline",
           ],
         },
         options: {
@@ -560,7 +567,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_base_rows",
     description:
-      "Read rows from a table inside a Base. Returns fields, records, link-option labels, and a `pagination` object with the table's `total` row count so you can tell a short page from the end of the table. Rows sort by the table's manual order, which new rows are appended to — so the newest row is last in `asc` (the default) and first in `desc`. To read the most recent row, pass `{limit: 1, order: \"desc\"}` rather than fetching everything and scanning for it. Defaults to 100 rows; pass `limit` up to 500 and `offset` to page. Link options are capped at 200 per target table — call `list_base_rows` on that table directly if you need more.",
+      "Read rows from a table inside a Base. Returns fields, records, link-option labels, and a `pagination` object with the table's `total` row count so you can tell a short page from the end of the table. Rows sort by the table's manual order, which new rows are appended to — so the newest row is last in `asc` (the default) and first in `desc`. To read the most recent row, pass `{limit: 1, order: \"desc\"}` rather than fetching everything and scanning for it. Defaults to 100 rows; pass `limit` up to 500 and `offset` to page. Link options are capped at 200 per target table — call `list_base_rows` on that table directly if you need more. Record-link fields (customer, invoice, project, employee, member, note, pipeline) resolve through `resourceOptions`: a map from field type to `{id, label, sublabel}` entries — use those ids when writing such cells.",
     inputSchema: {
       type: "object",
       properties: {
@@ -586,7 +593,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "create_base_row",
     description:
-      "Insert a new row into a Base table. `data` is a map from field id → value. Call `get_base` first if you need field ids. Select/multiselect values use option ids; link values are arrays of target row ids.",
+      "Insert a new row into a Base table. `data` is a map from field id → value. Call `get_base` first if you need field ids. Select/multiselect values use option ids; link values are arrays of target row ids; record-link fields (customer, invoice, project, employee, member, note, pipeline) take arrays of ids from `list_base_rows`'s `resourceOptions`.",
     inputSchema: {
       type: "object",
       properties: {

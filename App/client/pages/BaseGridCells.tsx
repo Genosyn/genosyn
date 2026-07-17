@@ -1,8 +1,25 @@
 import React from "react";
-import { Check, ChevronDown, X, Link as LinkIcon, Plus } from "lucide-react";
+import { Link } from "react-router-dom";
+import {
+  Check,
+  ChevronDown,
+  X,
+  Link as LinkIcon,
+  Plus,
+  Building2,
+  Receipt,
+  FolderKanban,
+  Bot,
+  UserRound,
+  StickyNote,
+  Workflow,
+} from "lucide-react";
 import {
   BaseField,
   BaseLinkOption,
+  BaseResourceFieldType,
+  BaseResourceOption,
+  isBaseResourceFieldType,
   SelectOption,
 } from "../lib/api";
 import { Menu, MenuHeader, MenuItem, MenuSeparator } from "../components/ui/Menu";
@@ -15,11 +32,24 @@ import { clsx } from "../components/ui/clsx";
  * from record.data[fieldId] and a commit callback.
  */
 
+/** Icons for the record-link column types, shared with BaseDetail's menus. */
+export const RESOURCE_TYPE_ICONS: Record<BaseResourceFieldType, React.ElementType> = {
+  customer: Building2,
+  invoice: Receipt,
+  project: FolderKanban,
+  employee: Bot,
+  member: UserRound,
+  note: StickyNote,
+  pipeline: Workflow,
+};
+
 export type CellEditorProps = {
   field: BaseField;
   value: unknown;
   /** Full `{fieldId: value}` row, so link editors can render primaries etc. */
   linkOptionsByTable: Record<string, BaseLinkOption[]>;
+  /** Options for record-link columns, keyed by field type (customer, …). */
+  resourceOptions: Record<string, BaseResourceOption[]>;
   onCommit: (next: unknown) => void;
   autoFocus?: boolean;
 };
@@ -28,11 +58,57 @@ export function CellView({
   field,
   value,
   linkOptionsByTable,
+  resourceOptions,
 }: {
   field: BaseField;
   value: unknown;
   linkOptionsByTable: Record<string, BaseLinkOption[]>;
+  resourceOptions: Record<string, BaseResourceOption[]>;
 }) {
+  if (isBaseResourceFieldType(field.type)) {
+    const opts = resourceOptions[field.type] ?? [];
+    const ids = Array.isArray(value) ? (value as string[]) : [];
+    if (ids.length === 0)
+      return <span className="text-slate-400 dark:text-slate-600">—</span>;
+    const Icon = RESOURCE_TYPE_ICONS[field.type];
+    return (
+      <div className="flex flex-wrap gap-1">
+        {ids.map((id) => {
+          const o = opts.find((x) => x.id === id);
+          const label = o?.label ?? "(missing)";
+          const chip = (
+            <>
+              <Icon size={10} /> {label}
+            </>
+          );
+          if (o?.url) {
+            // Chips deep-link to the record; stop propagation so the grid
+            // cell doesn't flip into edit mode on the same click.
+            return (
+              <Link
+                key={id}
+                to={o.url}
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 rounded bg-indigo-50 px-1.5 py-0.5 text-[11px] text-indigo-700 hover:bg-indigo-100 hover:underline dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20"
+                title={o.sublabel ? `${label} — ${o.sublabel}` : label}
+              >
+                {chip}
+              </Link>
+            );
+          }
+          return (
+            <span
+              key={id}
+              className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+              title={o?.sublabel || undefined}
+            >
+              {chip}
+            </span>
+          );
+        })}
+      </div>
+    );
+  }
   switch (field.type) {
     case "checkbox":
       return (
@@ -157,10 +233,22 @@ export function CellEditor({
   field,
   value,
   linkOptionsByTable,
+  resourceOptions,
   onCommit,
   autoFocus,
   onClose,
 }: CellEditorProps & { onClose: () => void }) {
+  if (isBaseResourceFieldType(field.type)) {
+    return (
+      <ResourceEditor
+        type={field.type}
+        value={Array.isArray(value) ? (value as string[]) : []}
+        options={resourceOptions[field.type] ?? []}
+        onCommit={(v) => onCommit(v)}
+        onClose={onClose}
+      />
+    );
+  }
   switch (field.type) {
     case "longtext":
       return (
@@ -555,6 +643,106 @@ function LinkEditor({
                 </span>
                 <LinkIcon size={11} className="text-slate-400 dark:text-slate-500" />
                 <span className="truncate text-slate-800 dark:text-slate-100">{o.label}</span>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Picker for record-link columns (customer, project, …). Same interaction
+ * contract as LinkEditor: toggles commit the whole id array immediately,
+ * "Done" closes. Archived targets stay in the list only while selected, so
+ * stale cells can be cleared but new links can't point at archived records.
+ */
+function ResourceEditor({
+  type,
+  value,
+  options,
+  onCommit,
+  onClose,
+}: {
+  type: BaseResourceFieldType;
+  value: string[];
+  options: BaseResourceOption[];
+  onCommit: (v: string[]) => void;
+  onClose: () => void;
+}) {
+  const [local, setLocal] = React.useState<string[]>(value);
+  const [query, setQuery] = React.useState("");
+  const Icon = RESOURCE_TYPE_ICONS[type];
+
+  function toggle(id: string) {
+    const next = local.includes(id) ? local.filter((x) => x !== id) : [...local, id];
+    setLocal(next);
+    onCommit(next);
+  }
+
+  const visible = options.filter((o) => !o.archived || local.includes(o.id));
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? visible.filter(
+        (o) =>
+          o.label.toLowerCase().includes(q) || o.sublabel.toLowerCase().includes(q),
+      )
+    : visible;
+
+  return (
+    <div className="flex max-h-80 flex-col bg-white dark:bg-slate-900">
+      <div className="flex items-center gap-1 border-b border-slate-100 p-1 dark:border-slate-800">
+        <input
+          autoFocus
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search…"
+          className="min-w-0 flex-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:outline-none dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200"
+        />
+        <button
+          onClick={onClose}
+          className="rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800"
+        >
+          Done
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto py-1">
+        {filtered.length === 0 ? (
+          <div className="px-3 py-4 text-center text-xs text-slate-400 dark:text-slate-500">
+            {query ? "No matches" : "Nothing to link to yet."}
+          </div>
+        ) : (
+          filtered.map((o) => {
+            const on = local.includes(o.id);
+            return (
+              <button
+                key={o.id}
+                onClick={() => toggle(o.id)}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+              >
+                <span
+                  className={clsx(
+                    "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border",
+                    on
+                      ? "border-indigo-500 bg-indigo-500 text-white"
+                      : "border-slate-300 dark:border-slate-600",
+                  )}
+                >
+                  {on && <Check size={10} strokeWidth={3} />}
+                </span>
+                <Icon size={11} className="shrink-0 text-slate-400 dark:text-slate-500" />
+                <span className="min-w-0 flex-1 truncate text-slate-800 dark:text-slate-100">
+                  {o.label}
+                  {o.archived && (
+                    <span className="ml-1 text-[10px] text-slate-400">(archived)</span>
+                  )}
+                </span>
+                {o.sublabel && (
+                  <span className="max-w-[45%] shrink-0 truncate text-[11px] text-slate-400 dark:text-slate-500">
+                    {o.sublabel}
+                  </span>
+                )}
               </button>
             );
           })

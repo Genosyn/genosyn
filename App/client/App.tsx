@@ -83,6 +83,7 @@ import BasesLayout from "./pages/BasesLayout";
 import BasesIndex from "./pages/BasesIndex";
 import BaseNew from "./pages/BaseNew";
 import BaseDetail from "./pages/BaseDetail";
+import BaseRecordPage from "./pages/BaseRecordPage";
 import Workspace from "./pages/Workspace";
 import PipelinesLayout from "./pages/PipelinesLayout";
 import PipelinesIndex from "./pages/PipelinesIndex";
@@ -324,6 +325,10 @@ function CompanyRoutes({
           <Route
             path=":baseSlug/:tableSlug"
             element={<BaseDetail company={company} />}
+          />
+          <Route
+            path=":baseSlug/:tableSlug/r/:recordId"
+            element={<BaseRecordPage company={company} />}
           />
         </Route>
 

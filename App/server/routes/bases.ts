@@ -14,6 +14,7 @@ import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import { Role } from "../db/entities/Membership.js";
 import { toSlug } from "../lib/slug.js";
 import { chatWithEmployee } from "../services/chat.js";
 import {
@@ -38,6 +39,13 @@ import {
   uniqueViewSlug,
 } from "../services/bases.js";
 import { findBaseTemplate } from "../services/baseTemplates.js";
+import {
+  ALL_RESOURCE_FIELD_TYPES,
+  buildResourceOptionsFor,
+  isResourceFieldType,
+  RESOURCE_TYPE_LABELS,
+  ResourceFieldType,
+} from "../services/baseResources.js";
 import { recordAudit } from "../services/audit.js";
 import {
   baseRecordUploadMiddleware,
@@ -62,6 +70,7 @@ const FIELD_TYPES: BaseFieldType[] = [
   "select",
   "multiselect",
   "link",
+  ...ALL_RESOURCE_FIELD_TYPES,
 ];
 const COLORS = [
   "indigo",
@@ -463,12 +472,22 @@ basesRouter.get(
       listViewsForTable(t.id),
     ]);
 
-    const linkOptions = await buildLinkOptionsFor(fields);
+    const [linkOptions, resourceOptions] = await Promise.all([
+      buildLinkOptionsFor(fields),
+      buildResourceOptionsFor(cid, fields, {
+        projectViewer: {
+          kind: "user",
+          id: req.userId!,
+          role: (req as typeof req & { role: Role }).role,
+        },
+      }),
+    ]);
     res.json({
       table: t,
       fields: fields.map(hydrateField),
       records: records.map(hydrateRecord),
       linkOptions,
+      resourceOptions,
       views,
     });
   },
@@ -1203,6 +1222,8 @@ function composeAssistantPrompt(
         } catch {
           /* noop */
         }
+      } else if (isResourceFieldType(f.type)) {
+        typeLabel = RESOURCE_TYPE_LABELS[f.type as ResourceFieldType];
       }
       schemaLines.push(`    - ${f.name} (${typeLabel})${primary}`);
     }

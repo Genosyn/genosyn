@@ -141,6 +141,7 @@ genosyn/
 - **Secrets:** `Secret`
 
 ### Stack
+
 - **Backend:** Express, TypeScript, **TypeORM** (sqlite → postgres), bcrypt,
   cookie-session, nodemailer, node-cron, zod, slugify, ws
 - **Frontend:** React 18, Vite, TailwindCSS, React Router, lucide-react
@@ -149,20 +150,28 @@ genosyn/
 - **No Next.js.**
 
 ### `config.ts` shape
+
 ```ts
 export const config = {
   dataDir: "./data",
   db: {
-    driver: "sqlite",           // "sqlite" | "postgres"
+    driver: "sqlite", // "sqlite" | "postgres"
     sqlitePath: "./data/app.sqlite",
     postgresUrl: "",
   },
   port: 8471,
   publicUrl: "http://localhost:8471",
   sessionSecret: "change-me-in-production",
-  smtp: { host: "", port: 587, secure: false, user: "", pass: "",
-          fromName: "Genosyn", from: "no-reply@genosyn.local" },
-  integrations: { google: { clientId: "", clientSecret: "" }, /* … */ },
+  smtp: {
+    host: "",
+    port: 587,
+    secure: false,
+    user: "",
+    pass: "",
+    fromName: "Genosyn",
+    from: "no-reply@genosyn.local",
+  },
+  integrations: { google: { clientId: "", clientSecret: "" } /* … */ },
 } as const;
 ```
 
@@ -173,6 +182,7 @@ export const config = {
 > **Notation.** `[x]` shipped. `[~]` partial. `[ ]` not started.
 
 ### M0 — Skeleton ✅
+
 - [x] Monorepo scaffold (`App/` + `Home/`)
 - [x] `config.ts` with JSON-shape + comments
 - [x] Express server, TypeORM DataSource, initial migration
@@ -188,6 +198,7 @@ export const config = {
       engines and LLM crawlers index real content without executing JS
 
 ### M1 — Auth ✅
+
 - [x] Signup / Login / Logout (bcrypt + cookie-session)
 - [x] Forgot password (token → email → reset page)
 - [x] Email service: per-company `EmailProvider` rows (SMTP, SendGrid,
@@ -195,12 +206,14 @@ export const config = {
 - [x] Session middleware + `requireAuth` / `requireCompanyMember` guards
 
 ### M2 — Companies & Members ✅
+
 - [x] Create / rename / delete company (owner-only)
 - [x] Company switcher in app shell
 - [x] Invite member by email (token link)
 - [x] Roles: owner / admin / member
 
 ### M3 — AI Employees + Soul ✅
+
 - [x] Create employee with template selection
       (catalog in `services/templates.ts`)
 - [x] Soul scaffold seeded into `AIEmployee.soulBody`
@@ -208,11 +221,13 @@ export const config = {
 - [x] Employee list, detail pages, per-employee sidebar
 
 ### M4 — Skills ✅
+
 - [x] Create / rename / delete skill
 - [x] In-app skill body editor (markdown)
 - [x] Skills attached to employees and surfaced to the runner
 
 ### M5 — Routines ✅
+
 - [x] Create routine with cron expression
 - [x] Human-readable cron preview
 - [x] Markdown brief editor
@@ -377,14 +392,16 @@ sends system mail); this is the company's real inbox. Internal namespace is
       `suggest` on the `mail` family): open a pre-filled reply, send a
       draft, triage, open a thread, start a handover, or create an inbox
       rule. Buttons execute through the ordinary human routes with the
-      human's own authority — so a `draft`-level employee can *propose* a
+      human's own authority — so a `draft`-level employee can _propose_ a
       send the human approves with one click — and consuming buttons are
       stamped executed server-side so a reload can't re-arm them.
 
 ### M6 — AI Models (employee-owned) ✅
+
 > **Superseded by M22.** The provider-CLI harnesses, subscription sign-in, and
 > per-provider config materialization below were removed; Genosyn now calls the
 > model API directly in-process. The employee-owned / one-active model remains.
+
 - [x] `AIModel` employee-owned — many per employee, exactly one active
       (`AIModel.isActive`, newest-added active by default, switchable any time);
       runner + chat run the active one
@@ -399,6 +416,7 @@ sends system mail); this is the company's real inbox. Internal namespace is
       `mcp.servers` block inside openclaw.json)
 
 ### M22 — Direct model APIs (harnesses removed) ✅
+
 - [x] Removed the five provider-CLI harnesses (`claude-code`, `codex`,
       `opencode`, `goose`, `openclaw`) — providers are now `anthropic`,
       `openai`, `custom` (OpenAI-compatible), authMode `apikey` | `customEndpoint`
@@ -416,6 +434,7 @@ sends system mail); this is the company's real inbox. Internal namespace is
       vocabulary
 
 ### M7 — Chat + Workspace ✅
+
 - [x] Top-nav sections with context-specific sidebars
 - [x] Per-employee sub-nav (Chat / Workspace / Soul / Skills / Settings /
       Connections / Handoffs / Journal)
@@ -424,11 +443,13 @@ sends system mail); this is the company's real inbox. Internal namespace is
 - [x] Workspace file editor with path-traversal guards, 2 MiB text-only cap
 
 ### M8 — Polish + QA ✅
+
 - [x] Browser-tested flows
 - [x] Empty / loading / error states everywhere
 - [x] README + self-host docs + CLI installer
 
 ### M9 — Workspace Chat (Slack-style) ✅
+
 - [x] Public + private channels per company
 - [x] DMs (idempotent pairing)
 - [x] In-process WebSocket hub at `/api/ws` (auth via short-lived token)
@@ -443,6 +464,7 @@ sends system mail); this is the company's real inbox. Internal namespace is
 - [ ] Search, link unfurls, desktop notifications
 
 ### M10 — Pipelines ✅
+
 - [x] `Pipeline` + `PipelineRun` entities, per-company DAG
 - [x] Node catalog: triggers (manual / webhook / schedule), Genosyn actions
       (sendMessage / createTodo / createProject / createBaseRecord /
@@ -453,8 +475,16 @@ sends system mail); this is the company's real inbox. Internal namespace is
       `/api/webhooks/pipelines/:pipelineId/:token`
 - [x] Custom React canvas editor (no react-flow), side-panel node config,
       run-history tab
+- [x] Guided builder UX overhaul: client-side readiness checks
+      (`getPipelineIssues` — missing trigger, broken edges, invalid
+      cron/JSON, cycles) driving Needs setup / Ready / Paused badges,
+      `startWith` starters (manual / schedule / webhook) seeded at create,
+      resource pickers fed by live company data, an Integration-step
+      action picker from the catalog's `integrationTools`, and a docs
+      page at `/docs/pipelines`
 
 ### M11 — Notes (Notion-style) ✅
+
 - [x] `Note` + `Notebook` with parent self-reference, archive, split
       author bookkeeping
 - [x] CRUD + search routes, tree reorder, parent reparenting with cycle
@@ -467,12 +497,34 @@ sends system mail); this is the company's real inbox. Internal namespace is
       `JournalEntry`.
 
 ### M11.5 — Base record detail ✅
+
 - [x] `BaseRecordComment` + `BaseRecordAttachment` entities
 - [x] CRUD + download endpoints; multer 25 MB human cap, 5 MB AI cap
 - [x] Side drawer in `BaseDetail.tsx` with form + comment thread + files
 - [x] MCP tools — `get_base_record`, comment CRUD, attachment CRUD
 
+### M11.6 — Record link columns + record pages ✅
+
+- [x] Seven record-link field types — `customer`, `invoice`, `project`,
+      `employee`, `member`, `note`, `pipeline` — so Base columns can point
+      at records across Genosyn; cells store arrays of ids, no config and
+      no migration (field `type` is a varchar)
+- [x] `buildResourceOptionsFor` in `services/baseResources.ts` resolves
+      ids → label / sublabel / deep-link URL per product. Restricted
+      projects are filtered per viewer; archived customers and notes stay
+      resolvable in existing cells but hidden from pickers
+- [x] Grid, drawer, and view filters: chips deep-link to the target
+      record, searchable pickers, `has any of` / `has none of` operators
+- [x] Full-page record view at `/bases/<base>/<table>/r/<id>` — every
+      column viewable and editable, comments + attachments, delete;
+      the drawer's "Open full page" button links to it
+- [x] MCP surface: record-link types in `add_base_field`;
+      `list_base_rows` / `get_base_record` return a capped
+      `resourceOptions` map so agents write valid ids
+- [x] First dedicated Bases docs page (`/docs/bases`)
+
 ### M12 — Engineering Repos ✅
+
 - [x] GitHub Connection extended with OAuth + GitHub App auth modes
       (`github-oauth.ts`, `github-app.ts`) on top of existing PAT
 - [x] Per-Connection `repos[]` allowlist on `encryptedConfig.repos`
@@ -493,7 +545,7 @@ sends system mail); this is the company's real inbox. Internal namespace is
 
 Provider-agnostic cousin of M12. Where M12's repos ride on a GitHub
 **Connection** + allowlist, a **Code Repository** is a first-class
-company row pointed at *any* git URL (GitHub, GitLab, Bitbucket,
+company row pointed at _any_ git URL (GitHub, GitLab, Bitbucket,
 self-hosted) over HTTPS or SSH, with access handed out per-employee.
 "Add any repo; let the employees you choose commit and push."
 
@@ -525,6 +577,7 @@ self-hosted) over HTTPS or SSH, with access handed out per-employee.
       disk today)
 
 ### M13 — Lightning ✅
+
 - [x] `lightning` provider (NWC / NIP-47) — wallet-agnostic via Alby Hub /
       Mutiny / Phoenixd / Coinos / LNbits / Zeus
 - [x] `lightning-lnd` provider with REST + macaroon + optional CA pinning
@@ -678,6 +731,7 @@ Phase A — Foundation (this milestone)
       they already author Notes and Bases.
 
 Phase B+ (deferred — out of this PR)
+
 - Parameters / filters (date range, dropdown bound to a column).
 - Scheduled deliveries (email a PNG of the dashboard at 9am).
 - Embedding (public read-only links, signed).
@@ -686,6 +740,7 @@ Phase B+ (deferred — out of this PR)
 - AI-suggested charts on a new connection.
 
 ### M15 — 2FA / TOTP (planned)
+
 - [ ] `User` gets `totpSecret` (encrypted), `totpEnabledAt`, `recoveryCodes`
 - [ ] Enroll flow with QR (otpauth://… → render via `qrcode` dep)
 - [ ] Verify on login when enabled; recovery-code path
@@ -714,6 +769,7 @@ work the same way.
 - [ ] Owner can require SSO for their company (deferred)
 
 ### M17 — Marketplace (planned)
+
 - [ ] Export an employee as `{ soul, skills[], routines[], grants[] }`
       bundle
 - [ ] Import a bundle to scaffold a new employee (extends Templates)
@@ -726,7 +782,7 @@ invoices with HTML render → browser-print to PDF and "Send" via the
 existing per-company `EmailProvider`; payments tracked against invoices;
 double-entry general ledger that auto-posts from the invoice lifecycle;
 financial reports (P&L, Balance Sheet, Cash Flow); reconciliation against
-Stripe payouts; multi-currency with FX gain/loss; period-close workflow;
+Stripe payouts and Brex Cash transactions; multi-currency with FX gain/loss; period-close workflow;
 accountant exports; vendor/bills mirror of the invoice flow. Distinct
 from the Stripe **integration** (read-only catalog of customers /
 charges / subscriptions), which stays as-is.
@@ -740,34 +796,34 @@ are gapless per-company sequences (`numberSeq` int, displayed as
 Phased so each phase ships behind its own PR:
 
 - [x] **Phase A — Customers + Invoices.** `Customer`, `Product`,
-  `TaxRate`, `Invoice`, `InvoiceLineItem`, `InvoicePayment` entities.
-  CRUD UI for all four. Invoice creator with line items + per-line tax
-  (inclusive or exclusive). Status lifecycle draft → sent → paid (with
-  manual mark-as-paid for now) / overdue (computed) / void. Print-
-  friendly `InvoicePrint` page (browser → "Save as PDF"). "Send" button
-  emails the customer the HTML invoice via the company
-  `EmailProvider`. Top-level "Finance" sidebar entry. **No ledger
-  yet.**
+      `TaxRate`, `Invoice`, `InvoiceLineItem`, `InvoicePayment` entities.
+      CRUD UI for all four. Invoice creator with line items + per-line tax
+      (inclusive or exclusive). Status lifecycle draft → sent → paid (with
+      manual mark-as-paid for now) / overdue (computed) / void. Print-
+      friendly `InvoicePrint` page (browser → "Save as PDF"). "Send" button
+      emails the customer the HTML invoice via the company
+      `EmailProvider`. Top-level "Finance" sidebar entry. **No ledger
+      yet.**
 - [x] **Phase B — General Ledger.** `Account` (chart of accounts;
-  seeded with a sane default CoA on first visit), `LedgerEntry`,
-  `LedgerLine` (double-entry, balanced enforcement at the service
-  layer — the entity is named `LedgerEntry` rather than the
-  accountant-natural "JournalEntry" because the codebase already had
-  a `JournalEntry` for per-employee diary feeds; product copy still
-  says "journal"). Auto-post from invoice issued (DR AR / CR Revenue
-  + Tax Payable), invoice paid (DR Bank / CR AR), invoice voided
-  (reverses every entry tied to the invoice). Manual journal entry
-  UI for accountants. Trial balance view.
+      seeded with a sane default CoA on first visit), `LedgerEntry`,
+      `LedgerLine` (double-entry, balanced enforcement at the service
+      layer — the entity is named `LedgerEntry` rather than the
+      accountant-natural "JournalEntry" because the codebase already had
+      a `JournalEntry` for per-employee diary feeds; product copy still
+      says "journal"). Auto-post from invoice issued (DR AR / CR Revenue
+      + Tax Payable), invoice paid (DR Bank / CR AR), invoice voided
+      (reverses every entry tied to the invoice). Manual journal entry
+      UI for accountants. Trial balance view.
 - [x] **Phase C — Reports.** Income Statement (P&L), Balance Sheet,
-  Cash Flow Statement. Period filters (this month / quarter / YTD /
-  custom). Comparison columns (vs. prior period). Drill-through from
-  any account row to a running-balance ledger of its source entries.
-- [x] **Phase D — Reconciliation.** `BankFeed` (Stripe payouts as
-  the first feed; CSV import as the universal fallback),
-  `BankTransaction` ingestion with auto-match heuristics (amount +
-  date proximity), manual matching UI with ranked candidates, unmatch
-  escape on reconciled rows. Re-uses existing Stripe
-  `IntegrationConnection` for credentials.
+      Cash Flow Statement. Period filters (this month / quarter / YTD /
+      custom). Comparison columns (vs. prior period). Drill-through from
+      any account row to a running-balance ledger of its source entries.
+- [x] **Phase D — Reconciliation.** `BankFeed` (Stripe payouts and
+      native Brex Cash sync; CSV import as the universal fallback),
+      `BankTransaction` ingestion with auto-match heuristics (amount +
+      date proximity), manual matching UI with ranked candidates, unmatch
+      escape on reconciled rows. Re-uses the existing
+      `IntegrationConnection` framework for credentials.
 - **Phase E — Multi-currency.** `Currency`, `ExchangeRate`, and
   `CompanyFinanceSettings` (home currency). Per-invoice currency with
   FX gain/loss auto-posted on payment when the rate at payment differs
@@ -778,43 +834,43 @@ Phased so each phase ships behind its own PR:
   most jurisdictions; composable rules earn their complexity once a
   user actually hits the limit.
 - [x] **Phase F — Period close + Accountant exports.**
-  `AccountingPeriod` with open / closed status. Closing posts a
-  single balancing entry into 3100 Retained Earnings and locks the
-  window — `postLedgerEntry` refuses to write inside a closed
-  period. Plain-CSV exports (customers / invoices / general journal /
-  trial balance) cover the common accountant hand-off; IIF / Xero
-  -shaped exports are deferred until a real user asks for them.
+      `AccountingPeriod` with open / closed status. Closing posts a
+      single balancing entry into 3100 Retained Earnings and locks the
+      window — `postLedgerEntry` refuses to write inside a closed
+      period. Plain-CSV exports (customers / invoices / general journal /
+      trial balance) cover the common accountant hand-off; IIF / Xero
+      -shaped exports are deferred until a real user asks for them.
 - [x] **Phase G — Vendor side.** `Vendor`, `Bill`, `BillLineItem`,
-  `BillPayment`. Mirror of invoices but inbound — issue auto-posts
-  DR per-line Expense / CR 2200 Accounts Payable; payment auto-posts
-  DR Accounts Payable / CR Bank with FX gain/loss for foreign-
-  currency bills (mirrors the customer flow). Vendors / Bills sub-
-  nav under Finance.
+      `BillPayment`. Mirror of invoices but inbound — issue auto-posts
+      DR per-line Expense / CR 2200 Accounts Payable; payment auto-posts
+      DR Accounts Payable / CR Bank with FX gain/loss for foreign-
+      currency bills (mirrors the customer flow). Vendors / Bills sub-
+      nav under Finance.
 - [x] **Phase A follow-up — Recurring invoices.** `RecurringInvoice` +
-  `RecurringInvoiceLineItem` entities. Cron-driven heartbeat
-  (`services/recurringInvoices.ts`) materializes a fresh `Invoice`
-  on each tick, optionally auto-issuing + emailing it via the
-  existing send path. Status lifecycle active → paused → ended;
-  optional `maxRuns` and `endsOn` caps flip to ended automatically.
-  Sidebar entry under Finance, dedicated list / new / detail pages
-  with cron presets + human-readable schedule preview.
+      `RecurringInvoiceLineItem` entities. Cron-driven heartbeat
+      (`services/recurringInvoices.ts`) materializes a fresh `Invoice`
+      on each tick, optionally auto-issuing + emailing it via the
+      existing send path. Status lifecycle active → paused → ended;
+      optional `maxRuns` and `endsOn` caps flip to ended automatically.
+      Sidebar entry under Finance, dedicated list / new / detail pages
+      with cron presets + human-readable schedule preview.
 - [x] **Customers spun out — accounts, ACV + contracts.** Customers
-  graduated from a Finance sub-page to their own top-level
-  **Customers** section (Customers + Contracts sub-nav; old
-  `/finance/customers` URLs redirect). Added an **Annual Contract
-  Value** money column on `Customer` (`annualContractValueCents`,
-  shown in the customer list) and a new `CustomerContract` entity for
-  uploaded signed agreements — a global Contracts page plus a
-  per-customer panel, with bytes on disk under `customer-contracts/`
-  like other attachments and metadata-only rows in the DB.
+      graduated from a Finance sub-page to their own top-level
+      **Customers** section (Customers + Contracts sub-nav; old
+      `/finance/customers` URLs redirect). Added an **Annual Contract
+      Value** money column on `Customer` (`annualContractValueCents`,
+      shown in the customer list) and a new `CustomerContract` entity for
+      uploaded signed agreements — a global Contracts page plus a
+      per-customer panel, with bytes on disk under `customer-contracts/`
+      like other attachments and metadata-only rows in the DB.
 - [x] **Customer statements.** Statement of account per customer, derived
-  on the fly from issued invoices + payments (no entity): chronological
-  charge/credit ledger with a running balance, opening/closing totals, and
-  an aging summary (current / 1-30 / 31-60 / 61-90 / 90+). Per-currency
-  with a switcher; period presets (all time default) plus a custom range.
-  In-app view at `/customers/:slug/statement`, served as printable HTML and
-  a downloadable PDF via the same `htmlToPdf` path invoices use
-  (`services/customerStatement.ts` + `customerStatementHtml.ts`).
+      on the fly from issued invoices + payments (no entity): chronological
+      charge/credit ledger with a running balance, opening/closing totals, and
+      an aging summary (current / 1-30 / 31-60 / 61-90 / 90+). Per-currency
+      with a switcher; period presets (all time default) plus a custom range.
+      In-app view at `/customers/:slug/statement`, served as printable HTML and
+      a downloadable PDF via the same `htmlToPdf` path invoices use
+      (`services/customerStatement.ts` + `customerStatementHtml.ts`).
 
 MCP surface (added phase by phase): `list_invoices`, `get_invoice`,
 `create_invoice`, `send_invoice`, `record_payment`, `void_invoice`,
@@ -858,7 +914,7 @@ browser tools + live take-over instead of native providers.
       `lightning-shared.ts`): max single budget increase, rolling 24 h and
       30-day authorized-increase caps, `requireApprovalAbove` defaulting
       to 0 (every increase gated out of the box), and a kill switch that
-      blocks all mutations. Spend-*decreasing* actions (pause,
+      blocks all mutations. Spend-_decreasing_ actions (pause,
       budget-down) are fast-pathed — never blocked behind an approval —
       because pausing a runaway campaign is the emergency action.
 - [x] **google-ads provider.** Rides the shared `google` OAuth app with an
@@ -905,6 +961,7 @@ of the original V1 backlog has shipped — what remains is mostly
 "engineering depth."
 
 ### Employee depth
+
 - [x] **Memory / Journal** — `EmployeeMemory` durable facts auto-injected
       into prompts; `JournalEntry` is the per-employee diary feed
 - [x] **Persisted Conversations** (M7)
@@ -919,6 +976,7 @@ of the original V1 backlog has shipped — what remains is mostly
       employee detail
 
 ### Task manager
+
 - [x] **Projects + Todos** with statuses, assignees, due dates,
       `in_review` flow, comments
 - [x] **Subtasks** — `Todo.parentTodoId`, one level deep; checklist +
@@ -936,7 +994,7 @@ of the original V1 backlog has shipped — what remains is mostly
       Skipped quietly when the employee has no AI Model connected
       (`services/todoKickoff.ts`)
 - [x] **Project access** — `Project.accessMode` (`open` / `restricted`) plus
-      `ProjectMember` rows authorizing human Members *and* AI Employees at
+      `ProjectMember` rows authorizing human Members _and_ AI Employees at
       `read` / `write`. Todos and comments inherit the project's access;
       both the list and board views are gated by it. Projects are `open` by
       default, so nothing changes until someone restricts one
@@ -944,6 +1002,7 @@ of the original V1 backlog has shipped — what remains is mostly
       belong to a `Team` at all (today `Team` groups AI employees only)
 
 ### Integrations
+
 - [x] **MCP server support** (external + built-in `genosyn` stdio binary
       with short-lived per-spawn Bearer)
 - [x] **Integrations + Connections framework** with grants
@@ -962,11 +1021,13 @@ of the original V1 backlog has shipped — what remains is mostly
       the rest render `bodyText` through the export pipeline.
 
 ### Org depth
+
 - [x] **Teams** + reporting lines (`reportsToEmployeeId` org chart)
 - [x] **Templates / Hiring** — `EMPLOYEE_TEMPLATES` static catalog,
       consumed by `EmployeeNew.tsx` to seed Soul + Skills + Routines
 
 ### Platform
+
 - [ ] **API keys + REST API** — see M14 above
 - [x] **Audit log** (`AuditEvent` with `actorKind: human | ai | webhook`)
 - [x] **Usage & cost** — per-employee / per-routine token spend rollups
@@ -1004,10 +1065,11 @@ of the original V1 backlog has shipped — what remains is mostly
 - [ ] **Scripting CLI** — second, product-facing CLI for programmatic
       operations on companies / employees / routines (depends on M14)
 - [~] **Import/export** — backup/restore round-trips a whole install;
-      per-company export (one tenant out of a multi-company install) is
-      still pending
+  per-company export (one tenant out of a multi-company install) is
+  still pending
 
 ### Runner
+
 - [x] **Real execution** via the in-process agent against the model API
       (Anthropic / OpenAI / custom OpenAI-compatible); see M22
 - [x] **Streaming logs to UI** (SSE on `employeeSurface.ts`)

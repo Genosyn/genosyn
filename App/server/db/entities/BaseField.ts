@@ -17,7 +17,14 @@ export type BaseFieldType =
   | "url"
   | "select"
   | "multiselect"
-  | "link";
+  | "link"
+  | "customer"
+  | "invoice"
+  | "project"
+  | "employee"
+  | "member"
+  | "note"
+  | "pipeline";
 
 /**
  * A column on a BaseTable. The field's `id` is also the key used in
@@ -27,6 +34,12 @@ export type BaseFieldType =
  *  - select / multiselect: `{ options: Array<{ id: string; label: string; color: string }> }`
  *  - link:                 `{ targetTableId: string }`
  *  - number:               `{ precision?: number }`
+ *
+ * The record-link types (`customer`, `invoice`, `project`, `employee`,
+ * `member`, `note`, `pipeline`) need no config — they always point at the
+ * company-scoped records of that product, and cells store an array of ids
+ * (customer ids, invoice ids, … user ids for `member`). Labels are resolved
+ * at read time via `buildResourceOptionsFor` in services/baseResources.ts.
  */
 @Entity("base_fields")
 @Index(["tableId", "sortOrder"])

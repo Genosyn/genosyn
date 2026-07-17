@@ -24,6 +24,7 @@ import {
   TemplateRow,
   TemplateRowCell,
 } from "./baseTemplates.js";
+import { isResourceFieldType } from "./baseResources.js";
 
 export async function uniqueBaseSlug(companyId: string, base: string): Promise<string> {
   const repo = AppDataSource.getRepository(Base);
@@ -244,6 +245,7 @@ function encodeCell(
       .filter((x): x is string => !!x);
   }
   if (type === "link") return []; // handled in second pass
+  if (isResourceFieldType(type)) return []; // templates can't reference live company records
   return cell;
 }
 

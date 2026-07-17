@@ -36,6 +36,7 @@ import { PDFDocument, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup } fr
 import { Approval } from "../db/entities/Approval.js";
 import { createBrowserActionApproval } from "../services/approvals.js";
 import { createNotification } from "../services/notifications.js";
+import { dispatchTodoCreated } from "../services/pipelines/events.js";
 import { validateParentTodo } from "./projects.js";
 import {
   ProjectActor,
@@ -62,6 +63,7 @@ import {
   uniqueBaseSlug,
   uniqueTableSlug,
 } from "../services/bases.js";
+import { buildResourceOptionsFor } from "../services/baseResources.js";
 import { findBaseTemplate } from "../services/baseTemplates.js";
 import {
   EmployeeMailAccountGrant,
@@ -851,6 +853,9 @@ mcpInternalRouter.post(
       parentTodoId: body.parentTodoId ?? null,
     });
     await todoRepo.save(t);
+    void dispatchTodoCreated(co.id, t.id).catch((err) => {
+      console.error(`[pipelines] task event failed for ${t.id}:`, err);
+    });
 
     await recordAudit({
       companyId: co.id,
@@ -1324,9 +1329,14 @@ mcpInternalRouter.post(
       }),
       AppDataSource.getRepository(BaseRecord).count({ where: { tableId: t.id } }),
     ]);
-    const linkOptions = await buildLinkOptionsFor(fields, {
-      maxPerTable: MCP_LINK_OPTIONS_PER_TABLE,
-    });
+    const co = req.mcpCompany!;
+    const [linkOptions, resourceOptions] = await Promise.all([
+      buildLinkOptionsFor(fields, { maxPerTable: MCP_LINK_OPTIONS_PER_TABLE }),
+      buildResourceOptionsFor(co.id, fields, {
+        maxPerKind: MCP_LINK_OPTIONS_PER_TABLE,
+        projectViewer: mcpActorOf(req),
+      }),
+    ]);
     res.json({
       table: { id: t.id, slug: t.slug, name: t.name },
       fields: fields.map(hydrateField),
@@ -1340,6 +1350,7 @@ mcpInternalRouter.post(
         order: body.order ?? "asc",
       },
       linkOptions,
+      resourceOptions,
     });
   },
 );
@@ -1547,9 +1558,14 @@ mcpInternalRouter.post(
       where: { tableId: found.table.id },
       order: { sortOrder: "ASC", createdAt: "ASC" },
     });
-    const linkOptions = await buildLinkOptionsFor(fields, {
-      maxPerTable: MCP_LINK_OPTIONS_PER_TABLE,
-    });
+    const co = req.mcpCompany!;
+    const [linkOptions, resourceOptions] = await Promise.all([
+      buildLinkOptionsFor(fields, { maxPerTable: MCP_LINK_OPTIONS_PER_TABLE }),
+      buildResourceOptionsFor(co.id, fields, {
+        maxPerKind: MCP_LINK_OPTIONS_PER_TABLE,
+        projectViewer: mcpActorOf(req),
+      }),
+    ]);
     const [comments, attachments] = await Promise.all([
       AppDataSource.getRepository(BaseRecordComment).find({
         where: { recordId: found.record.id },
@@ -1560,7 +1576,6 @@ mcpInternalRouter.post(
         order: { createdAt: "ASC" },
       }),
     ]);
-    const co = req.mcpCompany!;
     res.json({
       base: { id: found.base.id, slug: found.base.slug, name: found.base.name },
       table: {
@@ -1571,6 +1586,7 @@ mcpInternalRouter.post(
       record: hydrateRecord(found.record),
       fields: fields.map(hydrateField),
       linkOptions,
+      resourceOptions,
       comments: await hydrateRecordComments(co.id, comments),
       attachments: await hydrateRecordAttachments(co.id, attachments),
     });
@@ -1891,6 +1907,13 @@ const FIELD_TYPES_ENUM: [BaseFieldType, ...BaseFieldType[]] = [
   "select",
   "multiselect",
   "link",
+  "customer",
+  "invoice",
+  "project",
+  "employee",
+  "member",
+  "note",
+  "pipeline",
 ];
 
 function randOptionId(): string {
