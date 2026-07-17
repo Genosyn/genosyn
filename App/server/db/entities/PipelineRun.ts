@@ -1,13 +1,13 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 export type PipelineRunStatus = "running" | "completed" | "failed" | "skipped";
-export type PipelineTriggerKind = "manual" | "schedule" | "webhook";
+export type PipelineTriggerKind = "manual" | "schedule" | "webhook" | "event";
 
 /**
  * One execution of a Pipeline. Mirrors the Run entity's shape (status +
  * captured log capped at 256KB). `triggerKind` + `triggerNodeId` record
  * which trigger fired when a pipeline has more than one. `inputJson` carries
- * the trigger payload (webhook body, manual fire payload) and `outputJson`
+ * the trigger payload (event data, webhook body, manual fire payload) and `outputJson`
  * holds the per-node outputs map at end of run for inspection.
  */
 @Entity("pipeline_runs")

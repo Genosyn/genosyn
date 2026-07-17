@@ -17,6 +17,8 @@ export type PipelineNodeKind =
   | "trigger.manual"
   | "trigger.webhook"
   | "trigger.schedule"
+  | "trigger.emailReceived"
+  | "trigger.todoCreated"
   // Genosyn actions (write into our own DB / surface)
   | "action.sendMessage"
   | "action.createTodo"
@@ -63,8 +65,15 @@ export type NodeOutputs = Record<string, unknown>;
  * with that id produced. Templates resolve against this map.
  */
 export type RunEnv = {
-  trigger: { kind: "manual" | "schedule" | "webhook"; payload: unknown };
+  trigger: { kind: "manual" | "schedule" | "webhook" | "event"; payload: unknown };
   nodeOutputs: Record<string, NodeOutputs>;
+};
+
+export type PipelineEventContext = {
+  /** Number of event-to-pipeline hops already followed. */
+  depth: number;
+  /** Pipelines already reached by this event chain, preventing feedback loops. */
+  visitedPipelineIds: string[];
 };
 
 /** Context handed to every node handler. */
@@ -82,6 +91,8 @@ export type NodeContext = {
   config: Record<string, unknown>;
   /** The raw node entry from the graph (in case the handler needs `id`). */
   node: PipelineNode;
+  /** Present when this Run belongs to an event chain. */
+  eventContext?: PipelineEventContext;
 };
 
 export type NodeResult = {

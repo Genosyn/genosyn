@@ -7,6 +7,7 @@ import { HANDLERS } from "./handlers.js";
 import { PipelineLog } from "./log.js";
 import { resolveConfig } from "./templates.js";
 import {
+  PipelineEventContext,
   PipelineGraph,
   PipelineNode,
   RunEnv,
@@ -34,6 +35,7 @@ export type RunPipelineArgs = {
   triggerKind: PipelineTriggerKind;
   triggerNodeId: string;
   payload: unknown;
+  eventContext?: PipelineEventContext;
 };
 
 export async function runPipeline(args: RunPipelineArgs): Promise<PipelineRun> {
@@ -147,6 +149,7 @@ export async function runPipeline(args: RunPipelineArgs): Promise<PipelineRun> {
         env,
         config: resolved,
         node,
+        eventContext: args.eventContext,
         log: (line) => log.line(`  ${line}`),
       });
       outputs = result.outputs ?? {};

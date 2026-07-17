@@ -46,6 +46,8 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
   "trigger.manual": async () => ({ outputs: {} }),
   "trigger.webhook": async () => ({ outputs: {} }),
   "trigger.schedule": async () => ({ outputs: {} }),
+  "trigger.emailReceived": async () => ({ outputs: {} }),
+  "trigger.todoCreated": async () => ({ outputs: {} }),
 
   // ───── Genosyn actions ────────────────────────────────────────────────
   "action.sendMessage": async (ctx) => {
@@ -137,6 +139,19 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
       recurrenceParentId: null,
     });
     await AppDataSource.getRepository(Todo).save(todo);
+    void import("./events.js")
+      .then(({ dispatchTodoCreated }) =>
+        dispatchTodoCreated(ctx.companyId, todo.id, {
+          depth: ctx.eventContext?.depth ?? 0,
+          visitedPipelineIds: [
+            ...new Set([...(ctx.eventContext?.visitedPipelineIds ?? []), ctx.pipelineId]),
+          ],
+        }),
+      )
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error(`[pipelines] task event failed for ${todo.id}:`, err);
+      });
     ctx.log(`created todo ${project.key}-${todo.number}: ${title}`);
     return {
       outputs: {

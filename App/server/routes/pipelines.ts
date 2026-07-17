@@ -17,6 +17,8 @@ import { NODE_CATALOG } from "../services/pipelines/catalog.js";
 import { PipelineGraph } from "../services/pipelines/types.js";
 import { recordAudit } from "../services/audit.js";
 import { PIPELINE_LOG_MAX_BYTES } from "../services/pipelines/log.js";
+import { graphForStarter } from "../services/pipelines/starters.js";
+import { getProvider, listProviderIds } from "../integrations/index.js";
 
 export const pipelinesRouter = Router({ mergeParams: true });
 pipelinesRouter.use(requireAuth);
@@ -63,10 +65,43 @@ function dto(p: Pipeline) {
   };
 }
 
+function eventTriggerLabel(
+  pipeline: Pipeline,
+  run: Pick<PipelineRun, "triggerKind" | "triggerNodeId">,
+): string | null {
+  if (run.triggerKind !== "event" || !run.triggerNodeId) return null;
+  try {
+    const node = parseGraph(pipeline.graphJson).nodes.find(
+      (candidate) => candidate.id === run.triggerNodeId,
+    );
+    if (!node) return "Company event";
+    return (
+      node.label?.trim() ||
+      NODE_CATALOG.find((entry) => entry.type === node.type)?.label ||
+      "Company event"
+    );
+  } catch {
+    return "Company event";
+  }
+}
+
 // ─── Static catalog (drives the editor's node palette + per-node forms) ─────
 
 pipelinesRouter.get("/pipelines/catalog", (_req, res) => {
-  res.json({ catalog: NODE_CATALOG });
+  const integrationTools = Object.fromEntries(
+    listProviderIds().map((providerId) => {
+      const provider = getProvider(providerId);
+      return [
+        providerId,
+        (provider?.tools ?? []).map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          inputSchema: tool.inputSchema,
+        })),
+      ];
+    }),
+  );
+  res.json({ catalog: NODE_CATALOG, integrationTools });
 });
 
 // ─── List + create ──────────────────────────────────────────────────────────
@@ -81,56 +116,45 @@ pipelinesRouter.get("/pipelines", async (req, res) => {
 const createSchema = z.object({
   name: z.string().min(1).max(80),
   description: z.string().max(500).optional(),
+  startWith: z
+    .enum(["manual", "schedule", "webhook", "emailReceived", "todoCreated"])
+    .default("manual"),
 });
 
-pipelinesRouter.post(
-  "/pipelines",
-  validateBody(createSchema),
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const body = req.body as z.infer<typeof createSchema>;
-    if (await findByName(cid, body.name)) {
-      return res
-        .status(409)
-        .json({ error: "A pipeline with that name already exists" });
-    }
-    const repo = AppDataSource.getRepository(Pipeline);
-    const slug = await uniqueSlug(cid, toSlug(body.name));
-    const p = repo.create({
-      companyId: cid,
-      name: body.name,
-      slug,
-      description: body.description ?? "",
-      enabled: true,
-      graphJson: JSON.stringify({
-        nodes: [
-          {
-            id: "trigger",
-            type: "trigger.manual",
-            x: 80,
-            y: 80,
-            config: {},
-          },
-        ],
-        edges: [],
-      }),
-      cronExpr: null,
-      nextRunAt: null,
-      lastRunAt: null,
-      createdById: req.userId ?? null,
-    });
-    await repo.save(p);
-    await recordAudit({
-      companyId: cid,
-      actorUserId: req.userId ?? null,
-      action: "pipeline.create",
-      targetType: "pipeline",
-      targetId: p.id,
-      targetLabel: p.name,
-    });
-    res.json(dto(p));
-  },
-);
+pipelinesRouter.post("/pipelines", validateBody(createSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const body = req.body as z.infer<typeof createSchema>;
+  if (await findByName(cid, body.name)) {
+    return res.status(409).json({ error: "A pipeline with that name already exists" });
+  }
+  const repo = AppDataSource.getRepository(Pipeline);
+  const slug = await uniqueSlug(cid, toSlug(body.name));
+  const p = repo.create({
+    companyId: cid,
+    name: body.name,
+    slug,
+    description: body.description ?? "",
+    enabled: true,
+    graphJson: serializeGraph(graphForStarter(body.startWith)),
+    cronExpr: null,
+    nextRunAt: null,
+    lastRunAt: null,
+    createdById: req.userId ?? null,
+  });
+  // Schedule metadata and webhook tokens must be ready immediately. The
+  // starter can be useful before the Member makes a second edit/save.
+  syncScheduleFields(p);
+  await repo.save(p);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "pipeline.create",
+    targetType: "pipeline",
+    targetId: p.id,
+    targetLabel: p.name,
+  });
+  res.json(dto(p));
+});
 
 // ─── Detail / patch / delete ────────────────────────────────────────────────
 
@@ -175,43 +199,37 @@ const patchSchema = z.object({
   graph: graphSchema.optional(),
 });
 
-pipelinesRouter.patch(
-  "/pipelines/:idOrSlug",
-  validateBody(patchSchema),
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const p = await loadPipeline(cid, req.params.idOrSlug);
-    if (!p) return res.status(404).json({ error: "Not found" });
-    const body = req.body as z.infer<typeof patchSchema>;
-    if (body.name !== undefined) {
-      if (await findByName(cid, body.name, p.id)) {
-        return res
-          .status(409)
-          .json({ error: "A pipeline with that name already exists" });
-      }
-      p.name = body.name;
+pipelinesRouter.patch("/pipelines/:idOrSlug", validateBody(patchSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const p = await loadPipeline(cid, req.params.idOrSlug);
+  if (!p) return res.status(404).json({ error: "Not found" });
+  const body = req.body as z.infer<typeof patchSchema>;
+  if (body.name !== undefined) {
+    if (await findByName(cid, body.name, p.id)) {
+      return res.status(409).json({ error: "A pipeline with that name already exists" });
     }
-    if (body.description !== undefined) p.description = body.description;
-    if (body.enabled !== undefined) p.enabled = body.enabled;
-    if (body.graph !== undefined) {
-      // Cast the validated graph back to the wider PipelineGraph type — zod's
-      // string `type` is what the executor will interpret at run time.
-      p.graphJson = serializeGraph(body.graph as unknown as PipelineGraph);
-    }
-    syncScheduleFields(p);
-    await AppDataSource.getRepository(Pipeline).save(p);
-    await recordAudit({
-      companyId: cid,
-      actorUserId: req.userId ?? null,
-      action: "pipeline.update",
-      targetType: "pipeline",
-      targetId: p.id,
-      targetLabel: p.name,
-      metadata: { fields: Object.keys(body) },
-    });
-    res.json(dto(p));
-  },
-);
+    p.name = body.name;
+  }
+  if (body.description !== undefined) p.description = body.description;
+  if (body.enabled !== undefined) p.enabled = body.enabled;
+  if (body.graph !== undefined) {
+    // Cast the validated graph back to the wider PipelineGraph type — zod's
+    // string `type` is what the executor will interpret at run time.
+    p.graphJson = serializeGraph(body.graph as unknown as PipelineGraph);
+  }
+  syncScheduleFields(p);
+  await AppDataSource.getRepository(Pipeline).save(p);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "pipeline.update",
+    targetType: "pipeline",
+    targetId: p.id,
+    targetLabel: p.name,
+    metadata: { fields: Object.keys(body) },
+  });
+  res.json(dto(p));
+});
 
 pipelinesRouter.delete("/pipelines/:idOrSlug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
@@ -236,35 +254,32 @@ const runSchema = z.object({
   payload: z.unknown().optional(),
 });
 
-pipelinesRouter.post(
-  "/pipelines/:idOrSlug/run",
-  validateBody(runSchema),
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const p = await loadPipeline(cid, req.params.idOrSlug);
-    if (!p) return res.status(404).json({ error: "Not found" });
-    if (!p.enabled) {
-      return res.status(409).json({ error: "Pipeline is disabled" });
-    }
-    const body = req.body as z.infer<typeof runSchema>;
-    try {
-      const run = await fireManually(p, body.payload ?? {});
-      res.json({
-        id: run.id,
-        pipelineId: run.pipelineId,
-        status: run.status,
-        startedAt: run.startedAt.toISOString(),
-        finishedAt: run.finishedAt?.toISOString() ?? null,
-        triggerKind: run.triggerKind,
-        errorMessage: run.errorMessage,
-      });
-    } catch (err) {
-      res.status(400).json({
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  },
-);
+pipelinesRouter.post("/pipelines/:idOrSlug/run", validateBody(runSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const p = await loadPipeline(cid, req.params.idOrSlug);
+  if (!p) return res.status(404).json({ error: "Not found" });
+  if (!p.enabled) {
+    return res.status(409).json({ error: "Pipeline is disabled" });
+  }
+  const body = req.body as z.infer<typeof runSchema>;
+  try {
+    const run = await fireManually(p, body.payload ?? {});
+    res.json({
+      id: run.id,
+      pipelineId: run.pipelineId,
+      status: run.status,
+      startedAt: run.startedAt.toISOString(),
+      finishedAt: run.finishedAt?.toISOString() ?? null,
+      triggerKind: run.triggerKind,
+      triggerLabel: eventTriggerLabel(p, run),
+      errorMessage: run.errorMessage,
+    });
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
 
 // ─── Run history ────────────────────────────────────────────────────────────
 
@@ -297,6 +312,7 @@ pipelinesRouter.get("/pipelines/:idOrSlug/runs", async (req, res) => {
       finishedAt: r.finishedAt?.toISOString() ?? null,
       status: r.status,
       triggerKind: r.triggerKind,
+      triggerLabel: eventTriggerLabel(p, r),
       triggerNodeId: r.triggerNodeId,
       errorMessage: r.errorMessage,
     })),
@@ -322,6 +338,7 @@ pipelinesRouter.get("/pipeline-runs/:runId", async (req, res) => {
     finishedAt: run.finishedAt?.toISOString() ?? null,
     status: run.status,
     triggerKind: run.triggerKind,
+    triggerLabel: eventTriggerLabel(p, run),
     triggerNodeId: run.triggerNodeId,
     inputJson: run.inputJson,
     outputJson: run.outputJson,
@@ -348,9 +365,7 @@ pipelinesRouter.post(
     try {
       token = regenerateWebhookToken(graph, body.nodeId);
     } catch (err) {
-      return res
-        .status(400)
-        .json({ error: err instanceof Error ? err.message : String(err) });
+      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }
     p.graphJson = serializeGraph(graph);
     syncScheduleFields(p);

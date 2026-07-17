@@ -1,259 +1,283 @@
 import React from "react";
-import { useNavigate, useOutletContext, useParams } from "react-router-dom";
 import {
-  Bot,
-  BookOpen,
-  CalendarClock,
-  Clock,
-  Copy,
-  Database,
-  FolderPlus,
-  Globe,
-  ListTodo,
-  type LucideIcon,
-  MessageSquare,
+  AlertCircle,
+  CheckCircle2,
+  History,
+  Pause,
   Play,
-  Plug,
-  Plus,
   Save,
-  Split,
   Trash2,
-  Variable,
-  Webhook,
   Workflow,
-  X,
 } from "lucide-react";
+import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { Breadcrumbs } from "@/components/AppShell";
+import { Button } from "@/components/ui/Button";
+import { useDialog } from "@/components/ui/Dialog";
+import { Spinner } from "@/components/ui/Spinner";
+import { useToast } from "@/components/ui/Toast";
+import { api, type Company, type Pipeline, type PipelineGraph, type PipelineNode } from "@/lib/api";
+import type { PipelinesContext } from "@/pages/PipelinesLayout";
+import { PipelineCanvas } from "@/pages/pipelines/PipelineCanvas";
+import { PipelineNodePanel } from "@/pages/pipelines/PipelineNodePanel";
+import { PipelinePalette } from "@/pages/pipelines/PipelinePalette";
+import { PipelineRuns } from "@/pages/pipelines/PipelineRuns";
+import { usePipelineResources } from "@/pages/pipelines/pipelineResources";
 import {
-  api,
-  Company,
-  Pipeline,
-  PipelineGraph,
-  PipelineNode,
-  PipelineNodeCatalogEntry,
-  PipelineRunDetail,
-  PipelineRunSummary,
-} from "../lib/api";
-import { copyToClipboard } from "../lib/clipboard";
-import { Breadcrumbs } from "../components/AppShell";
-import { Button } from "../components/ui/Button";
-import { Input } from "../components/ui/Input";
-import { Textarea } from "../components/ui/Textarea";
-import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
-import { useDialog } from "../components/ui/Dialog";
-import { PipelinesContext } from "./PipelinesLayout";
-
-/**
- * The Pipeline editor: visual canvas of nodes + edges, right-side config
- * panel, run-history tab. Custom canvas (no react-flow): nodes are absolutely
- * positioned divs, edges are SVG cubic Beziers between handle points.
- *
- * Local state holds the in-flight graph. "Save" PATCHes the whole graph back
- * (the server recomputes cron + webhook tokens). "Run now" fires the manual
- * trigger and refreshes the run history tab.
- */
-
-const NODE_WIDTH = 240;
-const NODE_HEIGHT_BASE = 80;
-
-// ─── Icon map (catalog ships an icon name; we resolve to the component) ─────
-
-const ICON_MAP: Record<string, LucideIcon> = {
-  Play,
-  Webhook,
-  CalendarClock,
-  MessageSquare,
-  ListTodo,
-  FolderPlus,
-  DatabasePlus: Database,
-  Bot,
-  BookOpen,
-  Globe,
-  Variable,
-  Split,
-  Clock,
-  Plug,
-  Workflow,
-};
-
-function iconFor(name?: string): LucideIcon {
-  if (name && ICON_MAP[name]) return ICON_MAP[name];
-  return Workflow;
-}
-
-const FAMILY_TONE: Record<string, string> = {
-  trigger:
-    "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800/60 dark:bg-amber-500/10 dark:text-amber-200",
-  action:
-    "border-indigo-200 bg-indigo-50 text-indigo-900 dark:border-indigo-700/60 dark:bg-indigo-500/10 dark:text-indigo-200",
-  logic:
-    "border-slate-200 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100",
-  integration:
-    "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800/60 dark:bg-emerald-500/10 dark:text-emerald-200",
-};
+  arrangePipelineGraph,
+  getPipelineIssues,
+  nodeDisplayName,
+  pipelineStatus,
+} from "@/pages/pipelines/pipelineUi";
 
 export default function PipelineDetail({ company }: { company: Company }) {
-  const params = useParams();
+  const { pSlug = "" } = useParams();
   const navigate = useNavigate();
-  const slug = params.pSlug ?? "";
-  const { refresh: refreshList } = useOutletContext<PipelinesContext>();
+  const {
+    catalog,
+    integrationTools,
+    loading: catalogLoading,
+    error: catalogError,
+    refresh: refreshList,
+  } = useOutletContext<PipelinesContext>();
+  const resources = usePipelineResources(company.id);
   const { toast } = useToast();
   const dialog = useDialog();
 
   const [pipeline, setPipeline] = React.useState<Pipeline | null>(null);
-  const [catalog, setCatalog] = React.useState<PipelineNodeCatalogEntry[]>([]);
   const [graph, setGraph] = React.useState<PipelineGraph | null>(null);
   const [name, setName] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [enabled, setEnabled] = React.useState(true);
   const [dirty, setDirty] = React.useState(false);
+  const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [running, setRunning] = React.useState(false);
-  const [tab, setTab] = React.useState<"editor" | "runs">("editor");
+  const [tab, setTab] = React.useState<"builder" | "runs">("builder");
   const [selectedNodeId, setSelectedNodeId] = React.useState<string | null>(null);
 
-  // ── Load pipeline + catalog ──
   const load = React.useCallback(async () => {
-    const [p, cat] = await Promise.all([
-      api.get<Pipeline>(`/api/companies/${company.id}/pipelines/${slug}`),
-      api.get<{ catalog: PipelineNodeCatalogEntry[] }>(
-        `/api/companies/${company.id}/pipelines/catalog`,
-      ),
-    ]);
-    setPipeline(p);
-    setGraph(p.graph);
-    setName(p.name);
-    setDescription(p.description ?? "");
-    setEnabled(p.enabled);
-    setCatalog(cat.catalog);
-    setDirty(false);
-  }, [company.id, slug]);
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const result = await api.get<Pipeline>(`/api/companies/${company.id}/pipelines/${pSlug}`);
+      setPipeline(result);
+      setGraph(result.graph);
+      setName(result.name);
+      setDescription(result.description ?? "");
+      setEnabled(result.enabled);
+      setDirty(false);
+    } catch (err) {
+      setLoadError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [company.id, pSlug]);
 
   React.useEffect(() => {
-    load().catch((err) => toast((err as Error).message, "error"));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug]);
+    setSelectedNodeId(null);
+    setTab("builder");
+    void load();
+  }, [load]);
 
-  // ── Mutate graph ──
-  const updateGraph = React.useCallback((next: PipelineGraph) => {
+  React.useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
+  const catalogByType = React.useMemo(
+    () => new Map(catalog.map((entry) => [entry.type, entry])),
+    [catalog],
+  );
+  const issues = React.useMemo(
+    () => (graph ? getPipelineIssues(graph, catalog) : []),
+    [catalog, graph],
+  );
+  const blockingIssues = issues.filter((issue) => issue.severity === "error");
+  const selectedNode = graph?.nodes.find((node) => node.id === selectedNodeId) ?? null;
+  const selectedEntry = selectedNode ? (catalogByType.get(selectedNode.type) ?? null) : null;
+
+  function updateGraph(next: PipelineGraph) {
     setGraph(next);
     setDirty(true);
-  }, []);
+  }
 
-  const addNode = React.useCallback(
-    (type: string, x: number, y: number) => {
-      if (!graph) return;
-      const entry = catalog.find((c) => c.type === type);
-      if (!entry) return;
-      const id = `n_${Math.random().toString(36).slice(2, 8)}`;
-      const config: Record<string, unknown> = {};
-      for (const f of entry.fields) {
-        if (f.default !== undefined) config[f.key] = f.default;
+  function addNode(type: string) {
+    if (!graph) return;
+    const entry = catalogByType.get(type);
+    if (!entry) return;
+    const id = `n_${Math.random().toString(36).slice(2, 8)}`;
+    const config: Record<string, unknown> = {};
+    for (const field of entry.fields) {
+      if (field.default !== undefined) config[field.key] = field.default;
+    }
+
+    const selected = graph.nodes.find((node) => node.id === selectedNodeId);
+    const triggerNodes = graph.nodes.filter((node) => node.type.startsWith("trigger."));
+    let x = 72;
+    let y = 88;
+    if (type.startsWith("trigger.")) {
+      y = 88 + triggerNodes.length * 152;
+    } else if (selected) {
+      x = selected.x + 320;
+      y = selected.y;
+    } else if (graph.nodes.length > 0) {
+      const rightmost = graph.nodes.reduce((best, node) => (node.x > best.x ? node : best));
+      x = rightmost.x + 320;
+      y = rightmost.y;
+    }
+
+    const node: PipelineNode = { id, type, x, y, config };
+    const edges = [...graph.edges];
+    if (selected && !type.startsWith("trigger.")) {
+      const selectedCatalog = catalogByType.get(selected.type);
+      const handles = selectedCatalog?.outputs ?? ["out"];
+      const handle = handles.length === 1 ? handles[0] : null;
+      const alreadyConnected = handle
+        ? edges.some(
+            (edge) => edge.fromNodeId === selected.id && (edge.fromHandle ?? "out") === handle,
+          )
+        : true;
+      if (handle && !alreadyConnected) {
+        edges.push({
+          id: `e_${Math.random().toString(36).slice(2, 8)}`,
+          fromNodeId: selected.id,
+          toNodeId: id,
+          fromHandle: handle,
+        });
       }
-      const node: PipelineNode = { id, type, x, y, config };
-      updateGraph({ ...graph, nodes: [...graph.nodes, node] });
-      setSelectedNodeId(id);
-    },
-    [graph, catalog, updateGraph],
-  );
+    }
+    updateGraph({ nodes: [...graph.nodes, node], edges });
+    setSelectedNodeId(id);
+  }
 
-  const updateNode = React.useCallback(
-    (id: string, updater: (n: PipelineNode) => PipelineNode) => {
-      if (!graph) return;
-      updateGraph({
-        ...graph,
-        nodes: graph.nodes.map((n) => (n.id === id ? updater(n) : n)),
+  function updateNode(id: string, next: PipelineNode) {
+    if (!graph) return;
+    updateGraph({
+      ...graph,
+      nodes: graph.nodes.map((node) => (node.id === id ? next : node)),
+    });
+  }
+
+  async function deleteNode(id: string) {
+    if (!graph) return;
+    const node = graph.nodes.find((candidate) => candidate.id === id);
+    if (!node) return;
+    const isConnected = graph.edges.some((edge) => edge.fromNodeId === id || edge.toNodeId === id);
+    if (isConnected || node.type.startsWith("trigger.")) {
+      const confirmed = await dialog.confirm({
+        title: `Delete “${nodeDisplayName(node, catalogByType)}”?`,
+        message: isConnected
+          ? "The connections into and out of this step will also be removed."
+          : "This changes how the pipeline starts.",
+        confirmLabel: "Delete step",
+        variant: "danger",
       });
-    },
-    [graph, updateGraph],
-  );
+      if (!confirmed) return;
+    }
+    updateGraph({
+      nodes: graph.nodes.filter((candidate) => candidate.id !== id),
+      edges: graph.edges.filter((edge) => edge.fromNodeId !== id && edge.toNodeId !== id),
+    });
+    if (selectedNodeId === id) setSelectedNodeId(null);
+    toast("Step removed. Save to keep this change.", "info");
+  }
 
-  const deleteNode = React.useCallback(
-    (id: string) => {
-      if (!graph) return;
-      updateGraph({
-        nodes: graph.nodes.filter((n) => n.id !== id),
-        edges: graph.edges.filter(
-          (e) => e.fromNodeId !== id && e.toNodeId !== id,
-        ),
-      });
-      if (selectedNodeId === id) setSelectedNodeId(null);
-    },
-    [graph, updateGraph, selectedNodeId],
-  );
-
-  const addEdge = React.useCallback(
-    (fromNodeId: string, toNodeId: string, fromHandle = "out") => {
-      if (!graph) return;
-      if (fromNodeId === toNodeId) return;
-      // Replace any existing edge from the same (node, handle) so the editor
-      // stays a tree-like UI. Users can branch only via explicit branch nodes.
-      const next = graph.edges.filter(
-        (e) =>
-          !(e.fromNodeId === fromNodeId && (e.fromHandle ?? "out") === fromHandle),
-      );
-      next.push({
+  function setConnection(fromId: string, handle: string, toId: string | null) {
+    if (!graph) return;
+    const edges = graph.edges.filter(
+      (edge) => !(edge.fromNodeId === fromId && (edge.fromHandle ?? "out") === handle),
+    );
+    if (toId && toId !== fromId) {
+      edges.push({
         id: `e_${Math.random().toString(36).slice(2, 8)}`,
-        fromNodeId,
-        toNodeId,
-        fromHandle,
+        fromNodeId: fromId,
+        toNodeId: toId,
+        fromHandle: handle,
       });
-      updateGraph({ ...graph, edges: next });
-    },
-    [graph, updateGraph],
-  );
+    }
+    updateGraph({ ...graph, edges });
+  }
 
-  const deleteEdge = React.useCallback(
-    (id: string) => {
-      if (!graph) return;
-      updateGraph({ ...graph, edges: graph.edges.filter((e) => e.id !== id) });
-    },
-    [graph, updateGraph],
-  );
+  function deleteEdge(id: string) {
+    if (!graph) return;
+    updateGraph({
+      ...graph,
+      edges: graph.edges.filter((edge) => edge.id !== id),
+    });
+  }
 
-  // ── Save / run ──
-  async function save() {
-    if (!pipeline || !graph) return;
+  async function save(): Promise<boolean> {
+    if (!pipeline || !graph || !name.trim()) return false;
     setSaving(true);
     try {
       const updated = await api.patch<Pipeline>(
         `/api/companies/${company.id}/pipelines/${pipeline.id}`,
-        { name, description, enabled, graph },
+        {
+          name: name.trim(),
+          description: description.trim(),
+          enabled,
+          graph,
+        },
       );
       setPipeline(updated);
       setGraph(updated.graph);
+      setName(updated.name);
+      setDescription(updated.description);
+      setEnabled(updated.enabled);
       setDirty(false);
       await refreshList();
-      toast("Saved", "success");
-      // If the slug changed (we don't currently rename slug, but keep guard)
-      if (updated.slug !== slug) {
-        navigate(`/c/${company.slug}/pipelines/${updated.slug}`, { replace: true });
+      toast("Pipeline saved", "success");
+      if (updated.slug !== pSlug) {
+        navigate(`/c/${company.slug}/pipelines/${updated.slug}`, {
+          replace: true,
+        });
       }
+      return true;
     } catch (err) {
       toast((err as Error).message, "error");
+      return false;
     } finally {
       setSaving(false);
     }
   }
 
+  const saveRef = React.useRef(save);
+  saveRef.current = save;
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void saveRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   async function runNow() {
-    if (!pipeline) return;
+    if (!pipeline || !enabled || blockingIssues.length > 0) return;
     setRunning(true);
     try {
-      if (dirty) {
-        await save();
-      }
-      const result = await api.post<{ status: string; errorMessage: string | null }>(
-        `/api/companies/${company.id}/pipelines/${pipeline.id}/run`,
-        {},
-      );
+      if (dirty && !(await save())) return;
+      const result = await api.post<{
+        status: string;
+        errorMessage: string | null;
+      }>(`/api/companies/${company.id}/pipelines/${pipeline.id}/run`, {});
       if (result.status === "completed") {
-        toast("Pipeline completed", "success");
+        toast("Test run succeeded", "success");
       } else if (result.status === "failed") {
-        toast(`Pipeline failed: ${result.errorMessage ?? "(no message)"}`, "error");
+        toast(`Test run failed: ${result.errorMessage ?? "No error message"}`, "error");
       } else {
-        toast(`Pipeline ${result.status}`, "info");
+        toast(`Test run ${result.status}`, "info");
       }
+      await load();
+      await refreshList();
       setTab("runs");
     } catch (err) {
       toast((err as Error).message, "error");
@@ -264,14 +288,13 @@ export default function PipelineDetail({ company }: { company: Company }) {
 
   async function destroy() {
     if (!pipeline) return;
-    const ok = await dialog.confirm({
-      title: `Delete pipeline "${pipeline.name}"?`,
-      message:
-        "This deletes the pipeline and all its run history. This cannot be undone.",
+    const confirmed = await dialog.confirm({
+      title: `Delete pipeline “${pipeline.name}”?`,
+      message: "This deletes the builder and all Run history. This cannot be undone.",
       confirmLabel: "Delete pipeline",
       variant: "danger",
     });
-    if (!ok) return;
+    if (!confirmed) return;
     try {
       await api.del(`/api/companies/${company.id}/pipelines/${pipeline.id}`);
       await refreshList();
@@ -281,21 +304,48 @@ export default function PipelineDetail({ company }: { company: Company }) {
     }
   }
 
-  if (!pipeline || !graph) {
+  if (loading || (catalogLoading && catalog.length === 0)) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner size={20} />
+      <div className="flex h-full min-h-80 items-center justify-center">
+        <div className="text-center">
+          <Spinner size={22} />
+          <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">Opening pipeline…</p>
+        </div>
       </div>
     );
   }
 
-  const selectedNode = graph.nodes.find((n) => n.id === selectedNodeId) ?? null;
-  const catalogByType = new Map(catalog.map((c) => [c.type, c]));
+  if (loadError || (!catalogLoading && catalog.length === 0 && catalogError)) {
+    return (
+      <div className="mx-auto max-w-xl p-6 sm:p-8">
+        <div className="rounded-xl border border-rose-200 bg-white p-6 text-center shadow-sm dark:border-rose-900 dark:bg-slate-950">
+          <AlertCircle size={24} className="mx-auto text-rose-500" />
+          <h1 className="mt-3 text-lg font-semibold text-slate-950 dark:text-slate-50">
+            This pipeline could not be opened
+          </h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            {loadError ?? catalogError}
+          </p>
+          <div className="mt-4 flex justify-center gap-2">
+            <Link to={`/c/${company.slug}/pipelines`}>
+              <Button variant="secondary">Back to pipelines</Button>
+            </Link>
+            <Button onClick={() => void load()}>Try again</Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!pipeline || !graph) return null;
+
+  const status = pipelineStatus({ enabled, graph }, catalog);
+  const canRun = enabled && blockingIssues.length === 0 && Boolean(name.trim());
+  const selectedNodeName = selectedNode ? nodeDisplayName(selectedNode, catalogByType) : null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      {/* Header */}
-      <div className="border-b border-slate-200 bg-white px-6 py-3 dark:border-slate-800 dark:bg-slate-950">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-slate-50 dark:bg-slate-900">
+      <header className="shrink-0 border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950 sm:px-6">
         <Breadcrumbs
           items={[
             { label: company.name, to: `/c/${company.slug}` },
@@ -303,898 +353,268 @@ export default function PipelineDetail({ company }: { company: Company }) {
             { label: pipeline.name },
           ]}
         />
-        <div className="mt-2 flex items-center gap-3">
-          <Workflow size={18} className="text-indigo-600" />
-          <input
-            value={name}
-            onChange={(e) => {
-              setName(e.target.value);
-              setDirty(true);
-            }}
-            className="flex-1 bg-transparent text-lg font-semibold text-slate-900 outline-none focus:ring-0 dark:text-slate-100"
-          />
-          <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-            <input
-              type="checkbox"
-              checked={enabled}
-              onChange={(e) => {
-                setEnabled(e.target.checked);
+        <div className="mt-2 flex flex-col gap-3 xl:flex-row xl:items-start">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <Workflow size={18} className="shrink-0 text-indigo-600 dark:text-indigo-300" />
+              <input
+                value={name}
+                onChange={(event) => {
+                  setName(event.target.value);
+                  setDirty(true);
+                }}
+                maxLength={80}
+                aria-label="Pipeline name"
+                className="min-w-0 flex-1 bg-transparent text-lg font-semibold text-slate-950 outline-none placeholder:text-slate-400 dark:text-slate-50"
+              />
+              <span
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${status.tone}`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />
+                {status.label}
+              </span>
+            </div>
+            <textarea
+              value={description}
+              onChange={(event) => {
+                setDescription(event.target.value);
                 setDirty(true);
               }}
-              className="h-4 w-4 accent-indigo-600"
+              maxLength={500}
+              rows={1}
+              aria-label="Pipeline purpose"
+              placeholder="Add a short purpose so others know when to use this pipeline"
+              className="mt-1.5 min-h-7 w-full resize-none bg-transparent text-sm leading-5 text-slate-500 outline-none placeholder:text-slate-400 dark:text-slate-400 dark:placeholder:text-slate-600"
             />
-            Enabled
-          </label>
-          <Button variant="secondary" size="sm" onClick={runNow} disabled={running}>
-            <Play size={14} /> {running ? "Running…" : "Run now"}
-          </Button>
-          <Button size="sm" onClick={save} disabled={!dirty || saving}>
-            <Save size={14} /> {saving ? "Saving…" : dirty ? "Save" : "Saved"}
-          </Button>
-          <button
-            onClick={destroy}
-            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-rose-600 dark:hover:bg-slate-800"
-            title="Delete pipeline"
-            aria-label="Delete pipeline"
-          >
-            <Trash2 size={16} />
-          </button>
-        </div>
-        <Textarea
-          value={description}
-          onChange={(e) => {
-            setDescription(e.target.value);
-            setDirty(true);
-          }}
-          placeholder="Optional description"
-          rows={1}
-          className="mt-2 min-h-[34px] resize-none px-2 py-1 text-sm"
-        />
-        <div className="mt-3 flex items-center gap-1 text-sm">
-          <TabBtn active={tab === "editor"} onClick={() => setTab("editor")}>
-            Editor
-          </TabBtn>
-          <TabBtn active={tab === "runs"} onClick={() => setTab("runs")}>
-            Runs
-          </TabBtn>
-        </div>
-      </div>
+          </div>
 
-      {/* Body */}
-      {tab === "editor" ? (
-        <div className="flex min-h-0 flex-1">
-          <Palette catalog={catalog} onAdd={(type) => addNode(type, 120, 120)} />
-          <Canvas
-            graph={graph}
-            catalog={catalogByType}
-            selectedNodeId={selectedNodeId}
-            onSelect={setSelectedNodeId}
-            onMove={(id, x, y) => updateNode(id, (n) => ({ ...n, x, y }))}
-            onConnect={addEdge}
-            onDeleteEdge={deleteEdge}
-          />
-          <RightPanel
-            company={company}
-            pipeline={pipeline}
-            node={selectedNode}
-            entry={selectedNode ? catalogByType.get(selectedNode.type) ?? null : null}
-            onChange={(next) => updateNode(next.id, () => next)}
-            onDelete={(id) => deleteNode(id)}
-            onClose={() => setSelectedNodeId(null)}
-            onTokenRegenerated={(token) => {
-              if (!selectedNode) return;
-              updateNode(selectedNode.id, (n) => ({
-                ...n,
-                config: { ...n.config, token },
-              }));
-              toast("Webhook token regenerated", "success");
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={enabled}
+              onClick={() => {
+                setEnabled((current) => !current);
+                setDirty(true);
+              }}
+              className={
+                "inline-flex h-8 items-center gap-2 rounded-lg border px-2.5 text-xs font-medium transition " +
+                (enabled
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-200"
+                  : "border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300")
+              }
+              title={enabled ? "Pause automatic and webhook runs" : "Allow this pipeline to run"}
+            >
+              {enabled ? <CheckCircle2 size={14} /> : <Pause size={14} />}
+              {enabled ? "On" : "Paused"}
+            </button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void runNow()}
+              disabled={!canRun || running || saving}
+              title={
+                !enabled
+                  ? "Turn the pipeline on before running it"
+                  : blockingIssues.length > 0
+                    ? "Finish the setup issues before running"
+                    : "Save any changes and start a manual test run"
+              }
+            >
+              <Play size={14} /> {running ? "Running…" : "Run now"}
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => void save()}
+              disabled={!dirty || saving || !name.trim()}
+              title="Save pipeline (⌘S or Ctrl+S)"
+            >
+              <Save size={14} /> {saving ? "Saving…" : dirty ? "Save" : "Saved"}
+            </Button>
+            <button
+              type="button"
+              onClick={() => void destroy()}
+              className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
+              title="Delete pipeline"
+              aria-label="Delete pipeline"
+            >
+              <Trash2 size={16} />
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-3 flex items-center gap-1" role="tablist" aria-label="Pipeline views">
+          <TabButton active={tab === "builder"} icon={Workflow} onClick={() => setTab("builder")}>
+            Builder
+          </TabButton>
+          <TabButton active={tab === "runs"} icon={History} onClick={() => setTab("runs")}>
+            Run history
+          </TabButton>
+        </div>
+      </header>
+
+      {tab === "builder" ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <ReadinessBar
+            enabled={enabled}
+            dirty={dirty}
+            issues={issues}
+            onReview={(nodeId) => {
+              setTab("builder");
+              if (nodeId) setSelectedNodeId(nodeId);
             }}
           />
+          <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+            <PipelinePalette
+              catalog={catalog}
+              selectedNodeName={selectedNodeName}
+              onAdd={addNode}
+            />
+            <PipelineCanvas
+              graph={graph}
+              catalog={catalogByType}
+              issues={issues}
+              selectedNodeId={selectedNodeId}
+              onSelect={setSelectedNodeId}
+              onMove={(id, x, y) => {
+                const node = graph.nodes.find((candidate) => candidate.id === id);
+                if (node) updateNode(id, { ...node, x, y });
+              }}
+              onConnect={(fromId, toId, handle) => setConnection(fromId, handle, toId)}
+              onDeleteEdge={deleteEdge}
+              onArrange={() => updateGraph(arrangePipelineGraph(graph))}
+            />
+            <PipelineNodePanel
+              company={company}
+              pipeline={pipeline}
+              graph={graph}
+              catalog={catalogByType}
+              node={selectedNode}
+              entry={selectedEntry}
+              issues={issues}
+              resources={resources}
+              integrationTools={integrationTools}
+              onChange={(next) => updateNode(next.id, next)}
+              onDelete={(id) => void deleteNode(id)}
+              onClose={() => setSelectedNodeId(null)}
+              onSetConnection={setConnection}
+              onDeleteEdge={deleteEdge}
+              onSelectIssue={setSelectedNodeId}
+              onTokenRegenerated={(token) => {
+                setGraph((current) =>
+                  current
+                    ? {
+                        ...current,
+                        nodes: current.nodes.map((node) =>
+                          node.id === selectedNodeId
+                            ? {
+                                ...node,
+                                config: { ...node.config, token },
+                              }
+                            : node,
+                        ),
+                      }
+                    : current,
+                );
+                void refreshList();
+              }}
+            />
+          </div>
         </div>
       ) : (
-        <RunsTab company={company} pipelineId={pipeline.id} />
+        <PipelineRuns
+          company={company}
+          pipelineId={pipeline.id}
+          onOpenBuilder={() => setTab("builder")}
+        />
       )}
     </div>
   );
 }
 
-function TabBtn({
+function ReadinessBar({
+  enabled,
+  dirty,
+  issues,
+  onReview,
+}: {
+  enabled: boolean;
+  dirty: boolean;
+  issues: ReturnType<typeof getPipelineIssues>;
+  onReview: (nodeId?: string) => void;
+}) {
+  const errors = issues.filter((issue) => issue.severity === "error");
+  const warnings = issues.filter((issue) => issue.severity === "warning");
+  if (!enabled) {
+    return (
+      <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-slate-100 px-4 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-800 dark:text-slate-300 sm:px-6">
+        <Pause size={14} className="shrink-0" />
+        <span>This pipeline is paused. Scheduled and webhook runs will not start.</span>
+        {dirty && <span className="ml-auto shrink-0 font-medium">Unsaved change</span>}
+      </div>
+    );
+  }
+  if (errors.length > 0) {
+    const first = errors[0];
+    return (
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-500/10 dark:text-amber-200 sm:px-6">
+        <AlertCircle size={14} className="shrink-0" />
+        <span>
+          <strong>
+            {errors.length} setup {errors.length === 1 ? "item" : "items"}
+          </strong>{" "}
+          before this pipeline can run. {first.title}.
+        </span>
+        <button
+          type="button"
+          onClick={() => onReview(first.nodeId)}
+          className="ml-auto shrink-0 font-semibold underline underline-offset-2"
+        >
+          Review first item
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-500/10 dark:text-emerald-200 sm:px-6">
+      <CheckCircle2 size={14} className="shrink-0" />
+      <span>
+        Ready to test
+        {warnings.length > 0
+          ? ` · ${warnings.length} optional warning${warnings.length === 1 ? "" : "s"}`
+          : ""}
+        .
+      </span>
+      {dirty && <span className="ml-auto shrink-0 font-medium">Unsaved changes</span>}
+    </div>
+  );
+}
+
+function TabButton({
   active,
+  icon: Icon,
   children,
   onClick,
 }: {
   active: boolean;
+  icon: typeof Workflow;
   children: React.ReactNode;
   onClick: () => void;
 }) {
   return (
     <button
+      type="button"
+      role="tab"
+      aria-selected={active}
       onClick={onClick}
       className={
-        "rounded-md px-3 py-1.5 text-sm font-medium " +
+        "inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition " +
         (active
           ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
-          : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800")
+          : "text-slate-500 hover:bg-slate-50 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-200")
       }
     >
-      {children}
+      <Icon size={14} /> {children}
     </button>
   );
-}
-
-// ─── Palette (left rail with the node catalog) ──────────────────────────────
-
-function Palette({
-  catalog,
-  onAdd,
-}: {
-  catalog: PipelineNodeCatalogEntry[];
-  onAdd: (type: string) => void;
-}) {
-  const families: { key: PipelineNodeCatalogEntry["family"]; label: string }[] = [
-    { key: "trigger", label: "Triggers" },
-    { key: "action", label: "Genosyn actions" },
-    { key: "logic", label: "Logic" },
-    { key: "integration", label: "Integrations" },
-  ];
-  return (
-    <aside className="w-60 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
-      <div className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        Add node
-      </div>
-      {families.map((fam) => {
-        const items = catalog.filter((c) => c.family === fam.key);
-        if (items.length === 0) return null;
-        return (
-          <div key={fam.key} className="mb-3">
-            <div className="px-1 pb-1 text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
-              {fam.label}
-            </div>
-            <div className="space-y-1">
-              {items.map((entry) => {
-                const Icon = iconFor(entry.icon);
-                return (
-                  <button
-                    key={entry.type}
-                    type="button"
-                    onClick={() => onAdd(entry.type)}
-                    className={
-                      "flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-sm " +
-                      (FAMILY_TONE[entry.family] ?? "")
-                    }
-                    title={entry.description}
-                  >
-                    <Icon size={14} />
-                    <span className="min-w-0 flex-1 truncate">{entry.label}</span>
-                    <Plus size={12} className="opacity-60" />
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })}
-    </aside>
-  );
-}
-
-// ─── Canvas ─────────────────────────────────────────────────────────────────
-
-type Drag =
-  | { kind: "node"; nodeId: string; offsetX: number; offsetY: number }
-  | { kind: "edge"; fromNodeId: string; fromHandle: string; cursorX: number; cursorY: number };
-
-function Canvas({
-  graph,
-  catalog,
-  selectedNodeId,
-  onSelect,
-  onMove,
-  onConnect,
-  onDeleteEdge,
-}: {
-  graph: PipelineGraph;
-  catalog: Map<string, PipelineNodeCatalogEntry>;
-  selectedNodeId: string | null;
-  onSelect: (id: string | null) => void;
-  onMove: (id: string, x: number, y: number) => void;
-  onConnect: (fromId: string, toId: string, fromHandle: string) => void;
-  onDeleteEdge: (edgeId: string) => void;
-}) {
-  const ref = React.useRef<HTMLDivElement | null>(null);
-  const [drag, setDrag] = React.useState<Drag | null>(null);
-
-  function clientToCanvas(e: { clientX: number; clientY: number }) {
-    const rect = ref.current?.getBoundingClientRect();
-    if (!rect) return { x: 0, y: 0 };
-    return {
-      x: e.clientX - rect.left + (ref.current?.scrollLeft ?? 0),
-      y: e.clientY - rect.top + (ref.current?.scrollTop ?? 0),
-    };
-  }
-
-  function onMouseMove(e: React.MouseEvent) {
-    if (!drag) return;
-    if (drag.kind === "node") {
-      const pos = clientToCanvas(e);
-      onMove(drag.nodeId, Math.max(0, pos.x - drag.offsetX), Math.max(0, pos.y - drag.offsetY));
-    } else if (drag.kind === "edge") {
-      const pos = clientToCanvas(e);
-      setDrag({ ...drag, cursorX: pos.x, cursorY: pos.y });
-    }
-  }
-
-  function endDrag() {
-    setDrag(null);
-  }
-
-  function startNodeDrag(node: PipelineNode, e: React.MouseEvent) {
-    if ((e.target as HTMLElement).closest("[data-handle]")) return;
-    if ((e.target as HTMLElement).closest("button")) return;
-    e.preventDefault();
-    e.stopPropagation();
-    onSelect(node.id);
-    const pos = clientToCanvas(e);
-    setDrag({
-      kind: "node",
-      nodeId: node.id,
-      offsetX: pos.x - node.x,
-      offsetY: pos.y - node.y,
-    });
-  }
-
-  function startEdgeDrag(node: PipelineNode, handle: string, e: React.MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    const pos = clientToCanvas(e);
-    setDrag({
-      kind: "edge",
-      fromNodeId: node.id,
-      fromHandle: handle,
-      cursorX: pos.x,
-      cursorY: pos.y,
-    });
-  }
-
-  function endEdgeDrag(targetId: string) {
-    if (drag?.kind === "edge") {
-      onConnect(drag.fromNodeId, targetId, drag.fromHandle);
-    }
-    setDrag(null);
-  }
-
-  // Compute bounding box so the canvas grows with the graph.
-  const maxX = Math.max(900, ...graph.nodes.map((n) => n.x + NODE_WIDTH + 80));
-  const maxY = Math.max(600, ...graph.nodes.map((n) => n.y + 200));
-
-  return (
-    <div
-      ref={ref}
-      className="relative min-w-0 flex-1 overflow-auto bg-slate-50 dark:bg-slate-900"
-      style={{
-        backgroundImage:
-          "radial-gradient(circle, rgba(148,163,184,0.18) 1px, transparent 1px)",
-        backgroundSize: "16px 16px",
-      }}
-      onMouseMove={onMouseMove}
-      onMouseUp={endDrag}
-      onMouseLeave={endDrag}
-      onClick={(e) => {
-        if (e.target === ref.current) onSelect(null);
-      }}
-    >
-      <div className="relative" style={{ width: maxX, height: maxY }}>
-        {/* Edges */}
-        <svg
-          width={maxX}
-          height={maxY}
-          className="pointer-events-none absolute inset-0"
-        >
-          {graph.edges.map((edge) => {
-            const from = graph.nodes.find((n) => n.id === edge.fromNodeId);
-            const to = graph.nodes.find((n) => n.id === edge.toNodeId);
-            if (!from || !to) return null;
-            const handle = edge.fromHandle ?? "out";
-            const fromEntry = catalog.get(from.type);
-            const handles = fromEntry?.outputs ?? ["out"];
-            const handleIdx = Math.max(0, handles.indexOf(handle));
-            const fromPt = handlePosition(from, "right", handleIdx, handles.length);
-            const toPt = handlePosition(to, "left", 0, 1);
-            return (
-              <g key={edge.id} className="pointer-events-auto">
-                <path
-                  d={cubic(fromPt, toPt)}
-                  stroke={
-                    handle === "false"
-                      ? "rgb(244 63 94)"
-                      : handle === "true"
-                        ? "rgb(16 185 129)"
-                        : "rgb(99 102 241)"
-                  }
-                  strokeWidth={2}
-                  fill="none"
-                />
-                <path
-                  d={cubic(fromPt, toPt)}
-                  stroke="transparent"
-                  strokeWidth={14}
-                  fill="none"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeleteEdge(edge.id);
-                  }}
-                  style={{ cursor: "pointer" }}
-                >
-                  <title>Click to remove edge</title>
-                </path>
-              </g>
-            );
-          })}
-          {/* Pending edge while dragging */}
-          {drag?.kind === "edge" &&
-            (() => {
-              const node = graph.nodes.find((n) => n.id === drag.fromNodeId);
-              if (!node) return null;
-              const entry = catalog.get(node.type);
-              const handles = entry?.outputs ?? ["out"];
-              const idx = Math.max(0, handles.indexOf(drag.fromHandle));
-              const fromPt = handlePosition(node, "right", idx, handles.length);
-              const toPt = { x: drag.cursorX, y: drag.cursorY };
-              return (
-                <path
-                  d={cubic(fromPt, toPt)}
-                  stroke="rgb(99 102 241)"
-                  strokeDasharray="4 4"
-                  strokeWidth={2}
-                  fill="none"
-                />
-              );
-            })()}
-        </svg>
-
-        {/* Nodes */}
-        {graph.nodes.map((node) => {
-          const entry = catalog.get(node.type);
-          const Icon = iconFor(entry?.icon);
-          const handles = entry?.outputs ?? ["out"];
-          const isSelected = node.id === selectedNodeId;
-          const tone = FAMILY_TONE[entry?.family ?? "logic"] ?? FAMILY_TONE.logic;
-          return (
-            <div
-              key={node.id}
-              className={
-                "absolute select-none rounded-xl border shadow-sm " +
-                tone +
-                (isSelected ? " ring-2 ring-indigo-500" : "")
-              }
-              style={{ left: node.x, top: node.y, width: NODE_WIDTH }}
-              onMouseDown={(e) => startNodeDrag(node, e)}
-              onMouseUp={() => {
-                if (drag?.kind === "edge") endEdgeDrag(node.id);
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelect(node.id);
-              }}
-            >
-              {/* Input handle (left) */}
-              {!entry?.type.startsWith("trigger.") && (
-                <div
-                  data-handle="in"
-                  className="absolute left-[-7px] top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border-2 border-white bg-indigo-500 shadow"
-                  onMouseUp={(e) => {
-                    e.stopPropagation();
-                    if (drag?.kind === "edge") endEdgeDrag(node.id);
-                  }}
-                />
-              )}
-              <div className="flex items-center gap-2 px-3 pt-2 text-sm font-medium">
-                <Icon size={14} />
-                <span className="min-w-0 flex-1 truncate">
-                  {node.label ?? entry?.label ?? node.type}
-                </span>
-              </div>
-              <div className="px-3 pb-2 pt-0.5 text-[11px] uppercase tracking-wide text-current/70">
-                {entry?.family ?? "logic"} · {node.type}
-              </div>
-              <NodeSummary node={node} entry={entry} />
-
-              {/* Output handles (right) */}
-              {handles.map((h, i) => (
-                <div
-                  key={h}
-                  data-handle="out"
-                  data-handle-name={h}
-                  className="absolute right-[-7px] flex items-center gap-1"
-                  style={{
-                    top: handles.length === 1
-                      ? "50%"
-                      : `${30 + (i * 100) / Math.max(1, handles.length - 1) * 0.4 + 10}%`,
-                    transform: "translateY(-50%)",
-                  }}
-                  onMouseDown={(e) => startEdgeDrag(node, h, e)}
-                >
-                  {handles.length > 1 && (
-                    <span
-                      className={
-                        "rounded px-1 text-[10px] font-semibold " +
-                        (h === "true"
-                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200"
-                          : h === "false"
-                            ? "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-200"
-                            : "bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200")
-                      }
-                    >
-                      {h}
-                    </span>
-                  )}
-                  <div className="h-3 w-3 rounded-full border-2 border-white bg-indigo-500 shadow" />
-                </div>
-              ))}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function NodeSummary({
-  node,
-  entry,
-}: {
-  node: PipelineNode;
-  entry: PipelineNodeCatalogEntry | undefined;
-}) {
-  if (!entry) return null;
-  // Pick the first non-empty field value as a quick preview line.
-  let preview = "";
-  for (const f of entry.fields) {
-    const v = node.config[f.key];
-    if (v === undefined || v === null || v === "" || v === "{}") continue;
-    preview = `${f.label}: ${typeof v === "string" ? v : JSON.stringify(v)}`;
-    break;
-  }
-  if (!preview) return <div className="px-3 pb-3 text-[11px] italic opacity-60">unconfigured</div>;
-  return <div className="line-clamp-2 px-3 pb-3 text-[11px] opacity-80">{preview}</div>;
-}
-
-function handlePosition(
-  node: PipelineNode,
-  side: "left" | "right",
-  handleIdx: number,
-  handleCount: number,
-): { x: number; y: number } {
-  const x = side === "left" ? node.x : node.x + NODE_WIDTH;
-  let y = node.y + NODE_HEIGHT_BASE / 2 + 6;
-  if (handleCount > 1 && side === "right") {
-    // Match the visual placement above (30% / 70%).
-    y =
-      node.y +
-      NODE_HEIGHT_BASE *
-        (0.3 + (handleIdx / Math.max(1, handleCount - 1)) * 0.4 + 0.1);
-  }
-  return { x, y };
-}
-
-function cubic(a: { x: number; y: number }, b: { x: number; y: number }): string {
-  const dx = Math.abs(b.x - a.x);
-  const cx1 = a.x + Math.max(40, dx / 2);
-  const cx2 = b.x - Math.max(40, dx / 2);
-  return `M ${a.x} ${a.y} C ${cx1} ${a.y}, ${cx2} ${b.y}, ${b.x} ${b.y}`;
-}
-
-// ─── Right config panel ────────────────────────────────────────────────────
-
-function RightPanel({
-  company,
-  pipeline,
-  node,
-  entry,
-  onChange,
-  onDelete,
-  onClose,
-  onTokenRegenerated,
-}: {
-  company: Company;
-  pipeline: Pipeline;
-  node: PipelineNode | null;
-  entry: PipelineNodeCatalogEntry | null;
-  onChange: (next: PipelineNode) => void;
-  onDelete: (id: string) => void;
-  onClose: () => void;
-  onTokenRegenerated: (token: string) => void;
-}) {
-  if (!node || !entry) {
-    return (
-      <aside className="hidden w-80 shrink-0 border-l border-slate-200 bg-white p-4 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 md:block">
-        Click a node to configure it. Drag from the right handle to another
-        node&apos;s left handle to connect them.
-      </aside>
-    );
-  }
-  const Icon = iconFor(entry.icon);
-  return (
-    <aside className="hidden w-96 shrink-0 overflow-y-auto border-l border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950 md:block">
-      <div className="flex items-center gap-2 border-b border-slate-200 p-3 dark:border-slate-800">
-        <Icon size={16} className="text-indigo-600" />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
-            {entry.label}
-          </div>
-          <div className="truncate text-xs text-slate-500 dark:text-slate-400">
-            {entry.description}
-          </div>
-        </div>
-        <button
-          onClick={() => onDelete(node.id)}
-          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-rose-600 dark:hover:bg-slate-800"
-          title="Delete node"
-          aria-label="Delete node"
-        >
-          <Trash2 size={14} />
-        </button>
-        <button
-          onClick={onClose}
-          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
-          title="Close panel"
-          aria-label="Close panel"
-        >
-          <X size={14} />
-        </button>
-      </div>
-      <div className="space-y-4 p-4">
-        <Input
-          label="Display label"
-          value={node.label ?? ""}
-          placeholder={entry.label}
-          onChange={(e) => onChange({ ...node, label: e.target.value || undefined })}
-        />
-        {entry.fields.map((f) => (
-          <FieldEditor
-            key={f.key}
-            field={f}
-            value={node.config[f.key]}
-            onChange={(value) =>
-              onChange({ ...node, config: { ...node.config, [f.key]: value } })
-            }
-          />
-        ))}
-        {node.type === "trigger.webhook" && (
-          <WebhookCallout
-            company={company}
-            pipeline={pipeline}
-            node={node}
-            onRegenerate={onTokenRegenerated}
-          />
-        )}
-      </div>
-    </aside>
-  );
-}
-
-function FieldEditor({
-  field,
-  value,
-  onChange,
-}: {
-  field: PipelineNodeCatalogEntry["fields"][number];
-  value: unknown;
-  onChange: (v: unknown) => void;
-}) {
-  const v = value === undefined || value === null ? "" : value;
-  if (field.type === "longtext" || field.type === "code") {
-    return (
-      <Textarea
-        label={field.label}
-        value={typeof v === "string" ? v : JSON.stringify(v)}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={field.placeholder}
-        rows={field.type === "code" ? 6 : 4}
-      />
-    );
-  }
-  if (field.type === "boolean") {
-    return (
-      <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-        <input
-          type="checkbox"
-          checked={Boolean(v)}
-          onChange={(e) => onChange(e.target.checked)}
-          className="h-4 w-4 accent-indigo-600"
-        />
-        {field.label}
-      </label>
-    );
-  }
-  if (field.type === "select" && field.options) {
-    return (
-      <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-          {field.label}
-        </label>
-        <select
-          value={String(v)}
-          onChange={(e) => onChange(e.target.value)}
-          className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-        >
-          {field.options.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-        {field.hint && (
-          <p className="text-xs text-slate-500 dark:text-slate-400">{field.hint}</p>
-        )}
-      </div>
-    );
-  }
-  if (field.type === "number") {
-    return (
-      <Input
-        label={field.label}
-        type="number"
-        value={typeof v === "number" ? v : v === "" ? "" : Number(v)}
-        onChange={(e) =>
-          onChange(e.target.value === "" ? "" : Number(e.target.value))
-        }
-        placeholder={field.placeholder}
-      />
-    );
-  }
-  return (
-    <div className="flex flex-col gap-1">
-      <Input
-        label={field.label}
-        value={String(v)}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={field.placeholder}
-      />
-      {field.hint && (
-        <p className="text-xs text-slate-500 dark:text-slate-400">{field.hint}</p>
-      )}
-    </div>
-  );
-}
-
-function WebhookCallout({
-  company,
-  pipeline,
-  node,
-  onRegenerate,
-}: {
-  company: Company;
-  pipeline: Pipeline;
-  node: PipelineNode;
-  onRegenerate: (token: string) => void;
-}) {
-  const { toast } = useToast();
-  const token = String(node.config.token ?? "");
-  const url = token
-    ? `${window.location.origin}/api/webhooks/pipelines/${pipeline.id}/${token}`
-    : null;
-  async function regen() {
-    try {
-      const result = await api.post<{ token: string }>(
-        `/api/companies/${company.id}/pipelines/${pipeline.id}/webhook-token`,
-        { nodeId: node.id },
-      );
-      onRegenerate(result.token);
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
-  }
-  return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs dark:border-slate-700 dark:bg-slate-900">
-      <div className="mb-1 font-semibold text-slate-700 dark:text-slate-200">
-        Webhook URL
-      </div>
-      {url ? (
-        <div className="flex items-center gap-2">
-          <code className="min-w-0 flex-1 overflow-x-auto rounded bg-white px-2 py-1 font-mono text-[11px] text-slate-700 dark:bg-slate-950 dark:text-slate-300">
-            {url}
-          </code>
-          <button
-            onClick={async () => {
-              const ok = await copyToClipboard(url);
-              toast(ok ? "Copied" : "Could not access clipboard", ok ? "success" : "error");
-            }}
-            className="rounded p-1 text-slate-500 hover:bg-slate-200 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-            title="Copy URL"
-            aria-label="Copy URL"
-          >
-            <Copy size={12} />
-          </button>
-        </div>
-      ) : (
-        <p className="text-slate-500 dark:text-slate-400">
-          Save the pipeline to mint a token.
-        </p>
-      )}
-      <p className="mt-2 text-slate-500 dark:text-slate-400">
-        POST any JSON to this URL to fire the pipeline. The body becomes
-        <code className="mx-1 rounded bg-slate-200 px-1 dark:bg-slate-800">trigger.payload</code>.
-      </p>
-      <Button
-        variant="secondary"
-        size="sm"
-        className="mt-2"
-        onClick={regen}
-      >
-        Regenerate token
-      </Button>
-    </div>
-  );
-}
-
-// ─── Runs tab ───────────────────────────────────────────────────────────────
-
-function RunsTab({ company, pipelineId }: { company: Company; pipelineId: string }) {
-  const [runs, setRuns] = React.useState<PipelineRunSummary[]>([]);
-  const [loading, setLoading] = React.useState(true);
-  const [selectedId, setSelectedId] = React.useState<string | null>(null);
-  const [detail, setDetail] = React.useState<PipelineRunDetail | null>(null);
-  const { toast } = useToast();
-
-  React.useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const list = await api.get<PipelineRunSummary[]>(
-          `/api/companies/${company.id}/pipelines/${pipelineId}/runs`,
-        );
-        if (!cancelled) {
-          setRuns(list);
-          if (list.length && !selectedId) setSelectedId(list[0].id);
-        }
-      } catch (err) {
-        if (!cancelled) toast((err as Error).message, "error");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    load();
-    const interval = window.setInterval(load, 5_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [company.id, pipelineId]);
-
-  React.useEffect(() => {
-    if (!selectedId) return;
-    let cancelled = false;
-    async function load() {
-      try {
-        const d = await api.get<PipelineRunDetail>(
-          `/api/companies/${company.id}/pipeline-runs/${selectedId}`,
-        );
-        if (!cancelled) setDetail(d);
-      } catch (err) {
-        if (!cancelled) toast((err as Error).message, "error");
-      }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [company.id, selectedId]);
-
-  return (
-    <div className="flex min-h-0 flex-1 bg-slate-50 dark:bg-slate-900">
-      <aside className="w-72 shrink-0 overflow-y-auto border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
-        {loading ? (
-          <div className="p-4 text-xs text-slate-400">Loading runs…</div>
-        ) : runs.length === 0 ? (
-          <div className="p-4 text-xs text-slate-500 dark:text-slate-400">
-            No runs yet. Click <em>Run now</em> in the editor to fire a manual
-            execution.
-          </div>
-        ) : (
-          <ul>
-            {runs.map((r) => (
-              <li key={r.id}>
-                <button
-                  onClick={() => setSelectedId(r.id)}
-                  className={
-                    "block w-full border-b border-slate-100 px-3 py-2 text-left text-sm dark:border-slate-800 " +
-                    (r.id === selectedId
-                      ? "bg-indigo-50 dark:bg-indigo-500/10"
-                      : "hover:bg-slate-50 dark:hover:bg-slate-800")
-                  }
-                >
-                  <div className="flex items-center gap-2">
-                    <StatusDot status={r.status} />
-                    <span className="font-medium text-slate-800 dark:text-slate-100">
-                      {r.status}
-                    </span>
-                    <span className="ml-auto text-[11px] text-slate-500 dark:text-slate-400">
-                      {r.triggerKind}
-                    </span>
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-                    {new Date(r.startedAt).toLocaleString()}
-                  </div>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </aside>
-      <main className="min-w-0 flex-1 overflow-y-auto p-6">
-        {detail ? (
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <StatusDot status={detail.status} />
-              <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                Run · {detail.status}
-              </h3>
-              <span className="ml-2 text-xs text-slate-500 dark:text-slate-400">
-                {new Date(detail.startedAt).toLocaleString()}
-                {detail.finishedAt &&
-                  ` → ${new Date(detail.finishedAt).toLocaleString()}`}
-              </span>
-            </div>
-            {detail.errorMessage && (
-              <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-500/10 dark:text-rose-200">
-                {detail.errorMessage}
-              </div>
-            )}
-            <div>
-              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                Log
-              </div>
-              <pre className="max-h-96 overflow-auto rounded-lg border border-slate-200 bg-slate-950 p-3 text-[12px] leading-snug text-slate-100">
-                {detail.logContent || "(no log captured)"}
-                {detail.truncated && "\n\n[truncated]"}
-              </pre>
-            </div>
-            <details className="rounded-lg border border-slate-200 bg-white p-3 text-xs dark:border-slate-800 dark:bg-slate-950">
-              <summary className="cursor-pointer text-slate-700 dark:text-slate-300">
-                Trigger payload
-              </summary>
-              <pre className="mt-2 overflow-auto whitespace-pre-wrap text-slate-600 dark:text-slate-400">
-                {pretty(detail.inputJson)}
-              </pre>
-            </details>
-            <details className="rounded-lg border border-slate-200 bg-white p-3 text-xs dark:border-slate-800 dark:bg-slate-950">
-              <summary className="cursor-pointer text-slate-700 dark:text-slate-300">
-                Final outputs (per node)
-              </summary>
-              <pre className="mt-2 overflow-auto whitespace-pre-wrap text-slate-600 dark:text-slate-400">
-                {pretty(detail.outputJson)}
-              </pre>
-            </details>
-          </div>
-        ) : (
-          <div className="text-sm text-slate-500 dark:text-slate-400">
-            Select a run to view its log.
-          </div>
-        )}
-      </main>
-    </div>
-  );
-}
-
-function pretty(json: string): string {
-  try {
-    return JSON.stringify(JSON.parse(json), null, 2);
-  } catch {
-    return json;
-  }
-}
-
-function StatusDot({ status }: { status: PipelineRunSummary["status"] }) {
-  const tone =
-    status === "completed"
-      ? "bg-emerald-500"
-      : status === "failed"
-        ? "bg-rose-500"
-        : status === "running"
-          ? "bg-amber-500 animate-pulse"
-          : "bg-slate-400";
-  return <span className={`inline-block h-2 w-2 rounded-full ${tone}`} />;
 }

@@ -3,6 +3,7 @@ import { config } from "../../../config.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { broadcastToCompany } from "../realtime.js";
+import { dispatchEmailReceived } from "../pipelines/events.js";
 import { accessTokenForAccount } from "./accounts.js";
 import {
   GmailApiError,
@@ -445,6 +446,10 @@ async function incremental(
   // the thread the employee will actually see.
   for (const { messageRowId } of newInbound) {
     await runRulesForNewMessage(account, messageRowId);
+    void dispatchEmailReceived(messageRowId).catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error(`[pipelines] email event failed for message ${messageRowId}:`, err);
+    });
   }
   return true;
 }

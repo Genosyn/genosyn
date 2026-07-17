@@ -5,11 +5,7 @@ import { IsNull, LessThanOrEqual, Not } from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
 import { Pipeline } from "../../db/entities/Pipeline.js";
 import { runPipeline } from "./executor.js";
-import {
-  PipelineGraph,
-  PipelineNode,
-  PipelineNodeKind,
-} from "./types.js";
+import { PipelineGraph, PipelineNode, PipelineNodeKind } from "./types.js";
 
 /**
  * Public pipeline service surface. Glues the executor to the rest of the app:
@@ -178,7 +174,9 @@ export async function fireManually(
   }
   return runPipeline({
     pipeline,
-    triggerKind: trigger.type === "trigger.schedule" ? "schedule" : "manual",
+    // The Member clicked Run now, even when the graph only has a schedule or
+    // webhook trigger. Keep the Run history honest about what started it.
+    triggerKind: "manual",
     triggerNodeId: trigger.id,
     payload,
   });

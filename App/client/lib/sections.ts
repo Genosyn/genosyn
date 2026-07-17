@@ -217,7 +217,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
       {
         key: "pipelines",
         label: "Pipelines",
-        description: "n8n-style visual automation.",
+        description: "Predictable, step-by-step automation.",
         icon: GitBranch,
         path: "/pipelines",
         iconBg: "bg-sky-100 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300",

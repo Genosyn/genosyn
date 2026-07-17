@@ -13,13 +13,7 @@ import { PipelineNodeKind } from "./types.js";
 
 export type NodeFamily = "trigger" | "action" | "logic" | "integration";
 
-export type NodeFieldType =
-  | "text"
-  | "longtext"
-  | "number"
-  | "boolean"
-  | "select"
-  | "code";
+export type NodeFieldType = "text" | "longtext" | "number" | "boolean" | "select" | "code";
 
 export type NodeField = {
   key: string;
@@ -53,8 +47,7 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
     family: "trigger",
     label: "Manual trigger",
     icon: "Play",
-    description:
-      "Start the pipeline from the 'Run now' button. Useful for one-off tests.",
+    description: "Start when a Member clicks Run now. Ideal for one-off work and testing.",
     fields: [],
   },
   {
@@ -63,7 +56,7 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
     label: "Webhook",
     icon: "Webhook",
     description:
-      "Fire when an external system POSTs to a unique URL. The request body is exposed as `body`.",
+      "Start when another system sends data to a private URL. Use that data as `trigger.payload` in later steps.",
     fields: [
       {
         key: "token",
@@ -79,16 +72,88 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
     family: "trigger",
     label: "Schedule",
     icon: "CalendarClock",
-    description: "Fire on a cron schedule.",
+    description: "Start automatically at the times you choose.",
     fields: [
       {
         key: "cronExpr",
         label: "Cron expression",
         type: "text",
         placeholder: "0 9 * * 1-5",
-        hint: "Standard 5-field cron. Timezone is the server's.",
+        hint: "Standard five-field cron, using the server timezone.",
         required: true,
         default: "0 9 * * *",
+      },
+    ],
+  },
+  {
+    type: "trigger.emailReceived",
+    family: "trigger",
+    label: "Email received",
+    icon: "Mail",
+    description:
+      "Start when a new inbound email reaches a connected Gmail inbox. Historical mail imported during setup is ignored.",
+    fields: [
+      {
+        key: "fromContains",
+        label: "Sender contains",
+        type: "text",
+        placeholder: "customer@example.com",
+        hint: "Optional. Match all senders by leaving this empty.",
+      },
+      {
+        key: "subjectContains",
+        label: "Subject contains",
+        type: "text",
+        placeholder: "Invoice",
+        hint: "Optional and not case-sensitive.",
+      },
+      {
+        key: "hasAttachments",
+        label: "Attachments",
+        type: "select",
+        default: "any",
+        options: [
+          { value: "any", label: "With or without attachments" },
+          { value: "yes", label: "Has attachments" },
+          { value: "no", label: "Has no attachments" },
+        ],
+      },
+    ],
+  },
+  {
+    type: "trigger.todoCreated",
+    family: "trigger",
+    label: "Task created",
+    icon: "ListPlus",
+    description:
+      "Start when a new task is added to a Project by a Member, AI employee, recurrence, or another Pipeline.",
+    fields: [
+      {
+        key: "projectSlug",
+        label: "Project",
+        type: "text",
+        hint: "Optional. Choose one Project, or leave empty to watch every Project.",
+      },
+      {
+        key: "priority",
+        label: "Priority",
+        type: "select",
+        default: "any",
+        options: [
+          { value: "any", label: "Any priority" },
+          { value: "none", label: "None" },
+          { value: "low", label: "Low" },
+          { value: "medium", label: "Medium" },
+          { value: "high", label: "High" },
+          { value: "urgent", label: "Urgent" },
+        ],
+      },
+      {
+        key: "titleContains",
+        label: "Title contains",
+        type: "text",
+        placeholder: "Follow up",
+        hint: "Optional and not case-sensitive.",
       },
     ],
   },
@@ -102,16 +167,17 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
     fields: [
       {
         key: "channelIdOrSlug",
-        label: "Channel id or slug",
+        label: "Channel",
         type: "text",
         placeholder: "general",
+        hint: "Choose the workspace channel that should receive the message.",
         required: true,
       },
       {
         key: "content",
         label: "Message",
         type: "longtext",
-        placeholder: "Hello {{trigger.body.name}}!",
+        placeholder: "Hello {{trigger.payload.name}}!",
         required: true,
       },
     ],
@@ -121,14 +187,14 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
     family: "action",
     label: "Add task",
     icon: "ListTodo",
-    description:
-      "Create a todo inside a Project. (In Genosyn, tasks live in Projects + Todos.)",
+    description: "Create a todo inside a Project. (In Genosyn, tasks live in Projects + Todos.)",
     fields: [
       {
         key: "projectSlug",
-        label: "Project slug",
+        label: "Project",
         type: "text",
         placeholder: "support",
+        hint: "Choose the Project where the new task should live.",
         required: true,
       },
       { key: "title", label: "Title", type: "text", required: true },
@@ -172,19 +238,19 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
     fields: [
       {
         key: "baseSlug",
-        label: "Base slug",
+        label: "Base",
         type: "text",
         required: true,
       },
       {
         key: "tableSlug",
-        label: "Table slug",
+        label: "Table",
         type: "text",
         required: true,
       },
       {
         key: "data",
-        label: "Row data (JSON, keyed by field id)",
+        label: "Record fields (JSON, keyed by field id)",
         type: "code",
         placeholder: '{"<field-id>": "value"}',
         default: "{}",
@@ -196,12 +262,11 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
     family: "action",
     label: "Ask AI employee",
     icon: "Bot",
-    description:
-      "Send a message to one of your AI employees and capture the reply as `reply`.",
+    description: "Send a message to one of your AI employees and capture the reply as `reply`.",
     fields: [
       {
         key: "employeeSlug",
-        label: "Employee slug",
+        label: "AI employee",
         type: "text",
         required: true,
       },
@@ -209,7 +274,7 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
         key: "message",
         label: "Message",
         type: "longtext",
-        placeholder: "Summarize the payload: {{trigger.body}}",
+        placeholder: "Summarize the payload: {{trigger.payload}}",
         required: true,
       },
     ],
@@ -221,7 +286,7 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
     icon: "BookOpen",
     description: "Write a note to an AI employee's journal.",
     fields: [
-      { key: "employeeSlug", label: "Employee slug", type: "text", required: true },
+      { key: "employeeSlug", label: "AI employee", type: "text", required: true },
       { key: "title", label: "Title", type: "text", required: true },
       { key: "body", label: "Body", type: "longtext" },
     ],
@@ -266,7 +331,7 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
         key: "values",
         label: "Output values (JSON: name → template)",
         type: "code",
-        default: '{"value": "{{trigger.body.name}}"}',
+        default: '{"value": "{{trigger.payload.name}}"}',
       },
     ],
   },
@@ -275,8 +340,7 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
     family: "logic",
     label: "If / else",
     icon: "Split",
-    description:
-      "Route to the 'true' edge when both sides match, otherwise 'false'.",
+    description: "Route to the 'true' edge when both sides match, otherwise 'false'.",
     fields: [
       { key: "left", label: "Left", type: "text", required: true },
       {
@@ -324,11 +388,17 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
     fields: [
       {
         key: "connectionId",
-        label: "Connection id",
+        label: "Connection",
         type: "text",
         required: true,
       },
-      { key: "toolName", label: "Tool name", type: "text", required: true },
+      {
+        key: "toolName",
+        label: "Action",
+        type: "text",
+        required: true,
+        hint: "Choose an action available on this Connection.",
+      },
       {
         key: "args",
         label: "Tool args (JSON)",
