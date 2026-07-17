@@ -928,6 +928,13 @@ of the original V1 backlog has shipped — what remains is mostly
       assignee belongs to whoever created it (explicit null still means
       unassigned; MCP `create_todo` already defaulted to the calling
       employee)
+- [x] **Auto-start on assign** — assigning a todo to an AI employee (on
+      create or reassign, from the app) kicks off a background work session
+      immediately: the todo flips to `in_progress`, the employee works it
+      with its full toolset and posts its report as a thread comment, then
+      moves the todo to `done` — or `in_review` when a reviewer is set.
+      Skipped quietly when the employee has no AI Model connected
+      (`services/todoKickoff.ts`)
 - [x] **Project access** — `Project.accessMode` (`open` / `restricted`) plus
       `ProjectMember` rows authorizing human Members *and* AI Employees at
       `read` / `write`. Todos and comments inherit the project's access;
