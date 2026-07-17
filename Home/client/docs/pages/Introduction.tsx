@@ -128,8 +128,9 @@ export function Introduction() {
       <P>
         To get anywhere else, press <Code>⌘K</Code> (<Code>Ctrl K</Code> on
         Windows and Linux). That opens the command palette: every section in
-        one searchable list — type a few letters, press <Code>↵</Code>, done.
-        It answers to the words you already know, so &ldquo;cron&rdquo; finds{" "}
+        one searchable list, with Essentials first — type a few letters, press{" "}
+        <Code>↵</Code>, done. It answers to the words you already know, so
+        &ldquo;cron&rdquo; finds{" "}
         <DocLink to="/docs/routines">Routines</DocLink> and
         &ldquo;slack&rdquo; finds Workspace. The section pill in the top nav
         opens the same palette if you&apos;d rather click.
