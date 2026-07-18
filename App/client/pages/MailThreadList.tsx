@@ -20,6 +20,7 @@ import {
   shortMailDate,
 } from "../lib/mail";
 import { MailOutletCtx } from "./MailLayout";
+import { MailDraftReview } from "./MailDraftReview";
 import { Button } from "../components/ui/Button";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Spinner } from "../components/ui/Spinner";
@@ -209,6 +210,27 @@ export default function MailThreadList() {
             }
           />
         </div>
+      ) : view === "drafts" && !searching && !label ? (
+        <MailDraftReview
+          companyId={company.id}
+          companySlug={company.slug}
+          threads={threads}
+          changeTick={changeTick}
+          hasMore={nextBefore !== null}
+          loadingMore={loadingMore}
+          onRefresh={() => load(false)}
+          onLoadMore={async () => {
+            if (!nextBefore) return;
+            setLoadingMore(true);
+            try {
+              await load(true, nextBefore);
+            } catch (err) {
+              toast((err as Error).message, "error");
+            } finally {
+              setLoadingMore(false);
+            }
+          }}
+        />
       ) : (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
           <ul className="divide-y divide-slate-100 dark:divide-slate-800/70">
@@ -248,7 +270,6 @@ export default function MailThreadList() {
     </div>
   );
 }
-
 // ───────────────────────────── search box ─────────────────────────────
 
 /** Operator chips offered while the box is focused — one click appends. */

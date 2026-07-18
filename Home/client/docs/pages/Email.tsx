@@ -121,6 +121,14 @@ export function Email() {
         images stay blocked behind a <Strong>Show images</Strong> click, so a
         tracking pixel can&apos;t phone home just because you opened a message.
       </P>
+      <P>
+        <Strong>Drafts</Strong> opens as a review queue. Pick a draft on the
+        left to check its recipients, subject, message, attachments, and the
+        previous message for context without leaving the page. Press{" "}
+        <Strong>Send &amp; next</Strong> to send it through the connected Gmail
+        mailbox and advance through the queue, or <Strong>Edit draft</Strong>
+        to open the full conversation before sending.
+      </P>
 
       <H2 id="assistant">The mail assistant</H2>
       <P>
