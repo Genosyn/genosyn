@@ -674,6 +674,7 @@ export type InvoiceResendActivity = {
   createdAt: Date;
   status: "sent" | "skipped" | "failed";
   toAddress: string;
+  ccAddress: string;
   fromAddress: string;
   replyTo: string;
   pdfRequested: boolean;
@@ -762,6 +763,7 @@ export async function listInvoiceResendActivities(
       createdAt: row.createdAt,
       status,
       toAddress: typeof metadata.toAddress === "string" ? metadata.toAddress : "",
+      ccAddress: typeof metadata.ccAddress === "string" ? metadata.ccAddress : "",
       fromAddress:
         typeof metadata.fromAddress === "string" ? metadata.fromAddress : "",
       replyTo: typeof metadata.replyTo === "string" ? metadata.replyTo : "",
@@ -784,13 +786,19 @@ export async function sendInvoiceEmail(
   companyId: string,
   invoice: Invoice,
   triggeredByUserId: string | null,
-  options: { message?: string; attachPdf?: boolean } = {},
+  options: {
+    message?: string;
+    attachPdf?: boolean;
+    to?: string[];
+    cc?: string[];
+  } = {},
 ): Promise<{
   status: "sent" | "skipped" | "failed";
   logId: string;
   errorMessage: string;
   transport: string;
   toAddress: string;
+  ccAddress: string;
   fromAddress: string;
   replyTo: string;
   pdfRequested: boolean;
@@ -802,9 +810,18 @@ export async function sendInvoiceEmail(
     companyId,
   });
   if (!customer) throw new Error("Customer not found");
-  if (!customer.email) {
+  if (!customer.email && options.to === undefined) {
     throw new Error("Customer has no email address — add one before sending");
   }
+  const to = normalizeRecipientAddresses(
+    options.to ?? (customer.email ? [customer.email] : []),
+  );
+  const cc = normalizeRecipientAddresses(options.cc ?? []).filter(
+    (address) => !to.some((toAddress) => toAddress.toLowerCase() === address.toLowerCase()),
+  );
+  if (to.length === 0) throw new Error("Add at least one To recipient");
+  const toAddress = to.join(", ");
+  const ccAddress = cc.join(", ");
   const [lines, payments] = await Promise.all([
     AppDataSource.getRepository(InvoiceLineItem).find({
       where: { invoiceId: invoice.id },
@@ -862,7 +879,8 @@ export async function sendInvoiceEmail(
     invoice.currency,
   )}`;
   const result = await sendEmail({
-    to: customer.email,
+    to: toAddress,
+    cc: ccAddress || undefined,
     subject,
     text,
     html: emailHtml,
@@ -876,13 +894,25 @@ export async function sendInvoiceEmail(
     logId: result.logId,
     errorMessage: result.errorMessage,
     transport: result.transport,
-    toAddress: customer.email,
+    toAddress,
+    ccAddress,
     fromAddress: sender.fromAddress,
     replyTo: sender.replyTo,
     pdfRequested,
     pdfAttached,
     hasMessage: Boolean(message),
   };
+}
+
+function normalizeRecipientAddresses(addresses: string[]): string[] {
+  const seen = new Set<string>();
+  return addresses.flatMap((address) => {
+    const trimmed = address.trim();
+    const key = trimmed.toLowerCase();
+    if (!trimmed || seen.has(key)) return [];
+    seen.add(key);
+    return [trimmed];
+  });
 }
 
 // ──────────────────────── Lookup helpers ──────────────────────────────

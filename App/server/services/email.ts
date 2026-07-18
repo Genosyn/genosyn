@@ -80,6 +80,7 @@ function getGlobalTransporter(s: ResolvedGlobalSmtp): Transporter {
 
 export type SendEmailOptions = {
   to: string;
+  cc?: string;
   subject: string;
   text: string;
   html?: string;
@@ -116,6 +117,7 @@ export async function sendEmail(
     const cfg = decryptProviderConfig(provider);
     const msg: EmailMessage = {
       to: opts.to,
+      cc: opts.cc,
       subject: opts.subject,
       text: opts.text,
       html: opts.html,
@@ -184,6 +186,7 @@ export async function sendEmail(
       const info = await getGlobalTransporter(global.settings).sendMail({
         from: sender,
         to: opts.to,
+        cc: opts.cc || undefined,
         subject: opts.subject,
         text: opts.text,
         html: opts.html,
@@ -249,7 +252,7 @@ export async function sendEmail(
       : "";
   // eslint-disable-next-line no-console
   console.log(
-    `[email:skipped] to=${opts.to} subject="${opts.subject}"${attachmentNote}\n---\n${opts.text}\n---`,
+    `[email:skipped] to=${opts.to}${opts.cc ? ` cc=${opts.cc}` : ""} subject="${opts.subject}"${attachmentNote}\n---\n${opts.text}\n---`,
   );
   const log = await writeLog({
     companyId: opts.companyId ?? null,

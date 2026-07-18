@@ -55,6 +55,7 @@ type InvoiceResendActivity = {
   createdAt: string;
   status: "sent" | "skipped" | "failed";
   toAddress: string;
+  ccAddress: string;
   fromAddress: string;
   replyTo: string;
   pdfRequested: boolean;
@@ -653,6 +654,11 @@ export default function FinanceInvoiceDetail() {
                 {activity.pdfRequested && !activity.pdfAttached &&
                   " · PDF unavailable"}
                 {activity.hasMessage && " · Custom message included"}
+                {activity.ccAddress && (
+                  <span className="block text-slate-400 dark:text-slate-500">
+                    Cc {activity.ccAddress}
+                  </span>
+                )}
                 {activity.fromAddress && (
                   <span className="block text-slate-400 dark:text-slate-500">
                     From {activity.fromAddress}
@@ -706,17 +712,25 @@ function ResendInvoiceModal({
   onFinished: () => void;
 }) {
   const { toast } = useToast();
+  const [to, setTo] = React.useState(details.toAddress);
+  const [cc, setCc] = React.useState("");
   const [message, setMessage] = React.useState("");
   const [attachPdf, setAttachPdf] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
 
   async function resend(e: React.FormEvent) {
     e.preventDefault();
+    const toRecipients = parseRecipientInput(to);
+    const ccRecipients = parseRecipientInput(cc);
+    if (toRecipients.length === 0) {
+      toast("Add at least one To recipient", "error");
+      return;
+    }
     setBusy(true);
     try {
       const result = await api.post<InvoiceSendResponse>(
         `/api/companies/${companyId}/invoices/${invoice.slug}/send`,
-        { message: message.trim(), attachPdf },
+        { to: toRecipients, cc: ccRecipients, message: message.trim(), attachPdf },
       );
       if (result.send.status === "sent") {
         if (result.send.pdfRequested && !result.send.pdfAttached) {
@@ -750,8 +764,34 @@ function ResendInvoiceModal({
             </div>
             <div className="grid grid-cols-[5rem_1fr] gap-3 px-4 py-3">
               <dt className="text-slate-500 dark:text-slate-400">To</dt>
-              <dd className="break-all font-medium text-slate-900 dark:text-slate-100">
-                {details.toAddress || "No customer email address"}
+              <dd>
+                <Input
+                  type="email"
+                  multiple
+                  required
+                  aria-label="To recipients"
+                  value={to}
+                  onChange={(e) => setTo(e.target.value)}
+                  placeholder="name@example.com, other@example.com"
+                  className="h-9"
+                />
+              </dd>
+            </div>
+            <div className="grid grid-cols-[5rem_1fr] gap-3 px-4 py-3">
+              <dt className="pt-2 text-slate-500 dark:text-slate-400">Cc</dt>
+              <dd>
+                <Input
+                  type="email"
+                  multiple
+                  aria-label="Cc recipients"
+                  value={cc}
+                  onChange={(e) => setCc(e.target.value)}
+                  placeholder="Optional"
+                  className="h-9"
+                />
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  Separate multiple addresses with commas.
+                </p>
               </dd>
             </div>
             {details.replyTo && (
@@ -808,13 +848,24 @@ function ResendInvoiceModal({
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy || !details.toAddress}>
+          <Button type="submit" disabled={busy || !to.trim()}>
             <Mail size={14} /> {busy ? "Sending…" : "Resend email"}
           </Button>
         </div>
       </form>
     </Modal>
   );
+}
+
+function parseRecipientInput(value: string): string[] {
+  const seen = new Set<string>();
+  return value.split(",").flatMap((address) => {
+    const trimmed = address.trim();
+    const key = trimmed.toLowerCase();
+    if (!trimmed || seen.has(key)) return [];
+    seen.add(key);
+    return [trimmed];
+  });
 }
 
 function PaymentModal({

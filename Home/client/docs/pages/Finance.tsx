@@ -177,11 +177,13 @@ export function Finance() {
         cumulative paid amount reaches the invoice total, the status
         flips from <Code>sent</Code> to <Code>paid</Code>. Sending or
         resending an invoice emails the customer the rendered document.
-        Before a resend, Genosyn shows the exact From, To, and Reply-to
-        addresses in a confirmation modal. You can add a one-off message
-        and choose whether to attach the invoice PDF. Every resend attempt
-        then appears on the invoice&apos;s Activity feed with its delivery
-        status, recipient, and attachment result.
+        Before a resend, Genosyn shows the exact From and Reply-to addresses
+        in a confirmation modal. Edit the <Code>To</Code> field to add or
+        remove recipients, add optional <Code>Cc</Code> recipients, include
+        a one-off message, and choose whether to attach the invoice PDF.
+        Separate multiple addresses with commas. Every resend attempt then
+        appears on the invoice&apos;s Activity feed with its delivery status,
+        To and Cc recipients, and attachment result.
       </P>
       <P>
         <Code>Duplicate</Code> works the same way as on estimates —

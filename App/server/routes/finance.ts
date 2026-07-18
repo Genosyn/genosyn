@@ -894,6 +894,8 @@ const invoiceSendSchema = z.preprocess(
     .object({
       message: z.string().max(4000).default(""),
       attachPdf: z.boolean().default(true),
+      to: z.array(z.string().trim().email().max(320)).min(1).max(25).optional(),
+      cc: z.array(z.string().trim().email().max(320)).max(25).default([]),
     })
     .strict(),
 );
@@ -925,6 +927,7 @@ financeRouter.post("/invoices/:slug/send", validateBody(invoiceSendSchema), asyn
         metadata: {
           status: result.status,
           toAddress: result.toAddress,
+          ccAddress: result.ccAddress,
           fromAddress: result.fromAddress,
           replyTo: result.replyTo,
           pdfRequested: result.pdfRequested,

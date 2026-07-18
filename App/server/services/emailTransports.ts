@@ -30,6 +30,7 @@ export type EmailAttachment = {
 
 export type EmailMessage = {
   to: string;
+  cc?: string;
   subject: string;
   text: string;
   html?: string;
@@ -488,6 +489,7 @@ async function sendSmtp(
     const info = await transport.sendMail({
       from: msg.fromAddress,
       to: msg.to,
+      cc: msg.cc || undefined,
       subject: msg.subject,
       text: msg.text,
       html: msg.html,
@@ -509,8 +511,14 @@ async function sendSendGrid(
   msg: EmailMessage,
 ): Promise<EmailSendResult> {
   const { name, email } = parseAddress(msg.fromAddress);
+  const to = splitAddressList(msg.to).map((address) => ({
+    email: parseAddress(address).email,
+  }));
+  const cc = splitAddressList(msg.cc ?? "").map((address) => ({
+    email: parseAddress(address).email,
+  }));
   const body: Record<string, unknown> = {
-    personalizations: [{ to: [{ email: msg.to }] }],
+    personalizations: [{ to, ...(cc.length > 0 ? { cc } : {}) }],
     from: name ? { email, name } : { email },
     reply_to: msg.replyTo
       ? { email: parseAddress(msg.replyTo).email }
@@ -564,6 +572,7 @@ async function sendMailgun(
     const form = new FormData();
     form.append("from", msg.fromAddress);
     form.append("to", msg.to);
+    if (msg.cc) form.append("cc", msg.cc);
     form.append("subject", msg.subject);
     form.append("text", msg.text);
     if (msg.html) form.append("html", msg.html);
@@ -584,6 +593,7 @@ async function sendMailgun(
     const form = new URLSearchParams();
     form.set("from", msg.fromAddress);
     form.set("to", msg.to);
+    if (msg.cc) form.set("cc", msg.cc);
     form.set("subject", msg.subject);
     form.set("text", msg.text);
     if (msg.html) form.set("html", msg.html);
@@ -625,10 +635,11 @@ async function sendResend(
 ): Promise<EmailSendResult> {
   const body: Record<string, unknown> = {
     from: msg.fromAddress,
-    to: [msg.to],
+    to: splitAddressList(msg.to),
     subject: msg.subject,
     text: msg.text,
   };
+  if (msg.cc) body["cc"] = splitAddressList(msg.cc);
   if (msg.html) body["html"] = msg.html;
   if (msg.replyTo) body["reply_to"] = msg.replyTo;
   if (msg.attachments && msg.attachments.length > 0) {
@@ -685,6 +696,7 @@ async function sendPostmark(
     TextBody: msg.text,
     MessageStream: "outbound",
   };
+  if (msg.cc) body["Cc"] = msg.cc;
   if (msg.html) body["HtmlBody"] = msg.html;
   if (msg.replyTo) body["ReplyTo"] = msg.replyTo;
   if (msg.attachments && msg.attachments.length > 0) {
@@ -771,4 +783,11 @@ export function parseAddress(addr: string): { name: string; email: string } {
     };
   }
   return { name: "", email: trimmed };
+}
+
+function splitAddressList(value: string): string[] {
+  return value
+    .split(",")
+    .map((address) => address.trim())
+    .filter(Boolean);
 }
