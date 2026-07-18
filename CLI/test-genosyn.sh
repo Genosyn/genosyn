@@ -86,5 +86,73 @@ check "ported: bystander on same registry is not ours" \
 check "ported: bystander under another path is not ours" \
   "$(same_repo 'registry:5000/team/app' 'registry:5000/other/db:1')" 'no'
 
+echo "auto-update schedule — enable, refresh, disable"
+test_root="$(mktemp -d -t genosyn-cli-test.XXXXXX)"
+trap 'rm -rf "${test_root}"' EXIT
+mkdir -p "${test_root}/bin" "${test_root}/state"
+mock_crontab="${test_root}/crontab"
+export MOCK_CRONTAB_FILE="${mock_crontab}"
+
+cat >"${test_root}/bin/crontab" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  -l)
+    [ -f "${MOCK_CRONTAB_FILE}" ] || exit 1
+    cat "${MOCK_CRONTAB_FILE}"
+    ;;
+  -)
+    cat >"${MOCK_CRONTAB_FILE}"
+    ;;
+  -r)
+    rm -f "${MOCK_CRONTAB_FILE}"
+    ;;
+  *) exit 2 ;;
+esac
+EOF
+chmod +x "${test_root}/bin/crontab"
+
+original_path="${PATH}"
+PATH="${test_root}/bin:${PATH}"
+AUTO_UPDATE_DIR="${test_root}/state"
+NAME="genosyn-test"
+PORT="9000"
+VOLUME="genosyn-test-data"
+IMAGE="ghcr.io/genosyn/app:latest"
+printf '%s\n' '5 2 * * * /usr/local/bin/backup' >"${mock_crontab}"
+
+enable_auto_update 1
+check "enable adds one cron entry" \
+  "$(grep -Fc '# genosyn-auto-update:genosyn-test' "${mock_crontab}")" '1'
+check "wrapper captures the custom port" \
+  "$(grep -Fxc 'export GENOSYN_PORT=9000' "$(auto_update_wrapper_path)")" '1'
+check "wrapper runs the safe upgrade command" \
+  "$(grep -Fxc '  "${cli_path}" upgrade' "$(auto_update_wrapper_path)")" '1'
+
+# Enabling again refreshes the wrapper and schedule instead of duplicating it.
+enable_auto_update 1
+check "re-enable remains idempotent" \
+  "$(grep -Fc '# genosyn-auto-update:genosyn-test' "${mock_crontab}")" '1'
+
+disable_auto_update 1
+check "disable removes only the Genosyn cron entry" \
+  "$(cat "${mock_crontab}")" '5 2 * * * /usr/local/bin/backup'
+check "disable removes the generated wrapper" \
+  "$([ ! -e "$(auto_update_wrapper_path)" ] && echo yes || echo no)" 'yes'
+check "disable records the operator opt-out" \
+  "$([ -e "$(auto_update_disabled_path)" ] && echo yes || echo no)" 'yes'
+
+ensure_auto_update_default
+check "manual upgrade respects the operator opt-out" \
+  "$(grep -Fc '# genosyn-auto-update:genosyn-test' "${mock_crontab}")" '0'
+
+rm -f "$(auto_update_disabled_path)"
+ensure_auto_update_default
+check "existing installs adopt the default-on schedule" \
+  "$(grep -Fc '# genosyn-auto-update:genosyn-test' "${mock_crontab}")" '1'
+
+PATH="${original_path}"
+rm -rf "${test_root}"
+trap - EXIT
+
 printf '\n%d passed, %d failed\n' "${pass}" "${fail}"
 [ "${fail}" -eq 0 ]

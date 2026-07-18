@@ -11,12 +11,14 @@
 #   GENOSYN_IMAGE    image reference      (default: ghcr.io/genosyn/app:latest)
 #   GENOSYN_CLI_URL  fetch URL for the CLI script used by self-upgrade
 #                    (default: https://genosyn.com/genosyn)
+#   GENOSYN_AUTO_UPDATE  enable daily automatic upgrades after install
+#                        (default: 1; set to 0 to opt out)
 #   GENOSYN_VLLM_DIR working dir for the `vllm` command's compose + .env
 #                    (default: ~/.genosyn/vllm)
 
 set -euo pipefail
 
-CLI_VERSION="0.2.1"
+CLI_VERSION="0.3.0"
 
 PORT="${GENOSYN_PORT:-8471}"
 NAME="${GENOSYN_NAME:-genosyn}"
@@ -24,6 +26,7 @@ VOLUME="${GENOSYN_VOLUME:-genosyn-data}"
 IMAGE="${GENOSYN_IMAGE:-ghcr.io/genosyn/app:latest}"
 CLI_URL="${GENOSYN_CLI_URL:-https://genosyn.com/genosyn}"
 VLLM_DIR="${GENOSYN_VLLM_DIR:-${HOME}/.genosyn/vllm}"
+AUTO_UPDATE_DIR="${GENOSYN_STATE_DIR:-${HOME}/.genosyn}"
 
 # ---------- output helpers ----------
 
@@ -159,16 +162,161 @@ self_upgrade() {
   step "Updating CLI at ${sp}"
   if [ -w "${sp}" ] 2>/dev/null; then
     install -m 0755 "${tmp}" "${sp}"
-  elif command -v sudo >/dev/null 2>&1; then
+  elif command -v sudo >/dev/null 2>&1 && [ -t 0 ]; then
     sudo install -m 0755 "${tmp}" "${sp}"
+  elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+    sudo -n install -m 0755 "${tmp}" "${sp}"
   else
     rm -f "${tmp}"
-    warn "Cannot write ${sp} and sudo is unavailable — keeping current CLI."
+    [ "${quiet}" = "1" ] || warn "Cannot update ${sp} without interactive or passwordless sudo — keeping current CLI."
     return 0
   fi
   rm -f "${tmp}"
   ok "CLI updated."
   return 1
+}
+
+# ---------- automatic upgrades ----------
+
+# Fresh installs schedule a daily `genosyn upgrade` through the host's cron.
+# A small wrapper captures this instance's CLI path and Docker overrides so
+# cron does not depend on its deliberately sparse environment. One entry is
+# kept per container name, which lets operators maintain several instances.
+auto_update_key() {
+  printf '%s' "${NAME}" | tr -c '[:alnum:]_.-' '_'
+}
+
+auto_update_marker() {
+  printf '# genosyn-auto-update:%s' "$(auto_update_key)"
+}
+
+auto_update_wrapper_path() {
+  printf '%s/auto-update-%s.sh' "${AUTO_UPDATE_DIR}" "$(auto_update_key)"
+}
+
+auto_update_log_path() {
+  printf '%s/auto-update-%s.log' "${AUTO_UPDATE_DIR}" "$(auto_update_key)"
+}
+
+auto_update_disabled_path() {
+  printf '%s/auto-update-%s.disabled' "${AUTO_UPDATE_DIR}" "$(auto_update_key)"
+}
+
+auto_update_enabled() {
+  command -v crontab >/dev/null 2>&1 || return 1
+  [ -x "$(auto_update_wrapper_path)" ] || return 1
+  crontab -l 2>/dev/null | grep -Fq "$(auto_update_marker)"
+}
+
+write_auto_update_wrapper() {
+  local wrapper tmp cli_path log_path
+  wrapper="$(auto_update_wrapper_path)"
+  tmp="${wrapper}.tmp.$$"
+  cli_path="$(self_path)"
+  log_path="$(auto_update_log_path)"
+
+  mkdir -p "${AUTO_UPDATE_DIR}"
+  {
+    printf '%s\n' '#!/usr/bin/env bash' 'set -uo pipefail'
+    printf 'export PATH=%q\n' "${PATH}"
+    printf 'export GENOSYN_PORT=%q\n' "${PORT}"
+    printf 'export GENOSYN_NAME=%q\n' "${NAME}"
+    printf 'export GENOSYN_VOLUME=%q\n' "${VOLUME}"
+    printf 'export GENOSYN_IMAGE=%q\n' "${IMAGE}"
+    printf 'export GENOSYN_CLI_URL=%q\n' "${CLI_URL}"
+    printf 'log_path=%q\n' "${log_path}"
+    printf 'cli_path=%q\n' "${cli_path}"
+    cat <<'EOF'
+mkdir -p "$(dirname "${log_path}")"
+{
+  printf '\n[%s] Starting automatic Genosyn update\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  "${cli_path}" upgrade
+} >>"${log_path}" 2>&1
+EOF
+  } >"${tmp}"
+  chmod 0700 "${tmp}"
+  mv "${tmp}" "${wrapper}"
+}
+
+enable_auto_update() {
+  local quiet="${1:-0}"
+  mkdir -p "${AUTO_UPDATE_DIR}"
+  rm -f "$(auto_update_disabled_path)"
+
+  if ! command -v crontab >/dev/null 2>&1; then
+    [ "${quiet}" = "1" ] || warn "crontab is unavailable — automatic updates could not be enabled."
+    return 1
+  fi
+
+  if ! write_auto_update_wrapper; then
+    [ "${quiet}" = "1" ] || warn "Could not write the automatic update launcher under ${AUTO_UPDATE_DIR}."
+    return 1
+  fi
+
+  local marker wrapper existing filtered line
+  marker="$(auto_update_marker)"
+  wrapper="$(auto_update_wrapper_path)"
+  existing="$(crontab -l 2>/dev/null || true)"
+  filtered="$(printf '%s\n' "${existing}" | awk -v marker="${marker}" 'index($0, marker) == 0')"
+  printf -v line '17 3 * * * %q %s' "${wrapper}" "${marker}"
+
+  if ! {
+    [ -z "${filtered}" ] || printf '%s\n' "${filtered}"
+    printf '%s\n' "${line}"
+  } | crontab -; then
+    rm -f "${wrapper}"
+    [ "${quiet}" = "1" ] || warn "Could not install the automatic update cron entry."
+    return 1
+  fi
+
+  [ "${quiet}" = "1" ] || ok "Automatic updates enabled (daily at 03:17 local time)."
+}
+
+disable_auto_update() {
+  local quiet="${1:-0}"
+  local remember="${2:-1}"
+  local marker existing filtered
+  marker="$(auto_update_marker)"
+
+  mkdir -p "${AUTO_UPDATE_DIR}"
+  if [ "${remember}" = "1" ]; then
+    touch "$(auto_update_disabled_path)"
+  else
+    rm -f "$(auto_update_disabled_path)"
+  fi
+
+  local cron_ok=1
+  if command -v crontab >/dev/null 2>&1 && crontab -l 2>/dev/null | grep -Fq "${marker}"; then
+    existing="$(crontab -l 2>/dev/null || true)"
+    filtered="$(printf '%s\n' "${existing}" | awk -v marker="${marker}" 'index($0, marker) == 0')"
+    if [ -n "${filtered}" ]; then
+      printf '%s\n' "${filtered}" | crontab - || cron_ok=0
+    else
+      crontab -r 2>/dev/null || cron_ok=0
+    fi
+  fi
+
+  rm -f "$(auto_update_wrapper_path)"
+  if [ "${cron_ok}" = "0" ]; then
+    [ "${quiet}" = "1" ] || warn "The update launcher was disabled, but its stale cron entry could not be removed."
+    return 1
+  fi
+  [ "${quiet}" = "1" ] || ok "Automatic updates disabled."
+}
+
+ensure_auto_update_default() {
+  [ -e "$(auto_update_disabled_path)" ] && return 0
+  auto_update_enabled && return 0
+  if ! enable_auto_update 1; then
+    warn "Automatic updates are on by default, but cron setup failed. Run 'genosyn auto-update on' after installing cron."
+  fi
+}
+
+auto_update_requested() {
+  case "${1:-1}" in
+    0|false|FALSE|no|NO|off|OFF) return 1 ;;
+    *) return 0 ;;
+  esac
 }
 
 # ---------- preconditions ----------
@@ -262,7 +410,18 @@ confirm() {
 # ---------- commands ----------
 
 cmd_install() {
+  local auto_update="${GENOSYN_AUTO_UPDATE:-1}"
   parse_common_flags "$@"
+  set -- ${REMAINING[@]+"${REMAINING[@]}"}
+  while [ $# -gt 0 ]; do
+    case "${1:-}" in
+      ""               ) shift ;;
+      --auto-update     ) auto_update=1; shift ;;
+      --no-auto-update  ) auto_update=0; shift ;;
+      *) die "Unknown argument to install: $1" ;;
+    esac
+  done
+
   require_docker
 
   printf '%sGenosyn%s %sinstaller%s\n' "${C_BOLD}" "${C_RESET}" "${C_DIM}" "${C_RESET}"
@@ -282,7 +441,20 @@ cmd_install() {
 
   wait_for_ready || warn "Container started but did not answer HTTP in time. Check 'genosyn logs'."
 
+  if auto_update_requested "${auto_update}"; then
+    if ! enable_auto_update 1; then
+      warn "Genosyn is installed, but automatic updates could not be scheduled. Run 'genosyn auto-update on' after installing cron."
+    fi
+  else
+    disable_auto_update 1
+  fi
+
   ok "Genosyn is running."
+  if auto_update_enabled; then
+    printf '%sUpdates%s    automatic, daily at 03:17 local time\n' "${C_DIM}" "${C_RESET}"
+  else
+    printf '%sUpdates%s    manual\n' "${C_DIM}" "${C_RESET}"
+  fi
   print_post_install
 }
 
@@ -311,6 +483,11 @@ cmd_upgrade() {
   if ! container_exists; then
     die "No container named '${NAME}' found. Run 'genosyn install' first."
   fi
+
+  # Existing installations adopt the default-on schedule the first time they
+  # upgrade with a CLI that supports it. `auto-update off` writes a durable
+  # opt-out marker so later manual upgrades do not silently turn it back on.
+  ensure_auto_update_default
 
   step "Pulling ${IMAGE}"
   local before after before_ver after_ver
@@ -556,6 +733,7 @@ cmd_uninstall() {
   require_docker
 
   if ! container_exists && ! volume_exists; then
+    disable_auto_update 1 0 || warn "Automatic updates were disabled, but the stale cron entry could not be removed."
     ok "Nothing to uninstall."
     return 0
   fi
@@ -579,7 +757,37 @@ cmd_uninstall() {
     printf '%sKept%s data volume %s (use --purge to delete)\n' "${C_DIM}" "${C_RESET}" "${VOLUME}"
   fi
 
+  disable_auto_update 1 0 || warn "Automatic updates were disabled, but the stale cron entry could not be removed."
+
   ok "Uninstalled."
+}
+
+cmd_auto_update() {
+  parse_common_flags "$@"
+  set -- ${REMAINING[@]+"${REMAINING[@]}"}
+
+  local action="${1:-status}"
+  [ $# -le 1 ] || die "Usage: genosyn auto-update <on|off|status>"
+  case "${action}" in
+    on|enable)
+      require_docker
+      container_exists || die "No container named '${NAME}' found. Run 'genosyn install' first."
+      enable_auto_update
+      ;;
+    off|disable)
+      disable_auto_update
+      ;;
+    status)
+      if auto_update_enabled; then
+        printf '%sEnabled%s — daily at 03:17 local time\n' "${C_GREEN}" "${C_RESET}"
+        printf '%sLog%s      %s\n' "${C_DIM}" "${C_RESET}" "$(auto_update_log_path)"
+      else
+        printf '%sDisabled%s — run %sgenosyn auto-update on%s to enable\n' \
+          "${C_YELLOW}" "${C_RESET}" "${C_BOLD}" "${C_RESET}"
+      fi
+      ;;
+    *) die "Unknown auto-update action: ${action}. Use on, off, or status." ;;
+  esac
 }
 
 cmd_self_upgrade() {
@@ -1356,11 +1564,13 @@ ${C_BOLD}Usage:${C_RESET}
   genosyn <command> [flags]
 
 ${C_BOLD}Commands:${C_RESET}
-  install              Pull the image and start the container (idempotent).
+  install              Pull the image, start the container, and enable daily
+                       automatic updates. Pass --no-auto-update to opt out.
   upgrade              Self-upgrade the CLI, pull the latest image, recreate
                        the container. Pass --no-self-upgrade to skip the
                        script update.
   self-upgrade         Update only the genosyn CLI script in place.
+  auto-update <action> Manage daily upgrades: on, off, or status.
   start                Start a stopped container.
   stop                 Stop the running container.
   restart              Stop, then start.
@@ -1387,6 +1597,7 @@ ${C_BOLD}Common flags (any command):${C_RESET}
 
 ${C_BOLD}Examples:${C_RESET}
   genosyn install --port 9000
+  genosyn auto-update status
   genosyn upgrade
   genosyn logs -f --tail 100
   genosyn backup --out ~/backups/genosyn-\$(date +%F).tar.gz
@@ -1428,6 +1639,7 @@ main() {
     users)             cmd_users     "$@" ;;
     reset-password)    cmd_reset_password "$@" ;;
     self-upgrade|self-update) cmd_self_upgrade "$@" ;;
+    auto-update|autoupdate) cmd_auto_update "$@" ;;
     version|--version|-v) cmd_version ;;
     help|--help|-h)    cmd_help ;;
     *) die "Unknown command: ${sub}. Run 'genosyn help' for usage." ;;

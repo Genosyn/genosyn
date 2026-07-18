@@ -18,8 +18,9 @@ type Cmd = {
 const COMMANDS: Cmd[] = [
   {
     name: "install",
+    flags: "[--no-auto-update]",
     blurb:
-      "Pull the image and start the container. Idempotent — runs cleanly on a clean machine or one that already has Genosyn.",
+      "Pull the image, start the container, and enable daily automatic updates. Pass --no-auto-update to opt out. Idempotent on clean machines and existing installs.",
   },
   {
     name: "upgrade",
@@ -31,6 +32,12 @@ const COMMANDS: Cmd[] = [
     name: "self-upgrade",
     blurb:
       "Update only the genosyn CLI script in place. Useful when the container is fine but you want a newer CLI.",
+  },
+  {
+    name: "auto-update",
+    flags: "<on|off|status>",
+    blurb:
+      "Enable, disable, or inspect the host's daily 03:17 automatic upgrade. Each run self-upgrades the CLI, pulls the latest image, and safely recreates the container around the existing data volume.",
   },
   { name: "start", blurb: "Start a stopped container." },
   { name: "stop", blurb: "Stop the running container." },
@@ -215,6 +222,15 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
               </>
             ),
           },
+          {
+            term: "GENOSYN_AUTO_UPDATE",
+            def: (
+              <>
+                Enable the daily automatic update during installation. Default{" "}
+                <Code>1</Code>; set <Code>0</Code> to opt out.
+              </>
+            ),
+          },
         ]}
       />
 
@@ -224,6 +240,16 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
 
       <H3 id="follow-logs">Follow logs, last 100 lines</H3>
       <Pre lang="bash">{`genosyn logs -f --tail 100`}</Pre>
+
+      <H3 id="automatic-updates">Manage automatic updates</H3>
+      <Pre lang="bash">{`genosyn auto-update status
+genosyn auto-update off
+genosyn auto-update on`}</Pre>
+      <P>
+        Automatic updates use the host&apos;s <Code>crontab</Code> and write
+        logs under <Code>~/.genosyn</Code>. If cron is unavailable, installation
+        still completes and prints the command to retry after cron is installed.
+      </P>
 
       <H3 id="scheduled-backup">Daily backup to a known path</H3>
       <Pre lang="bash">{`genosyn backup --out ~/backups/genosyn-$(date +%F).tar.gz`}</Pre>

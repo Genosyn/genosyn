@@ -72,8 +72,17 @@ export function Install() {
       <P>
         When it finishes, Genosyn is running on{" "}
         <Code>http://localhost:8471</Code>. Open it, create the first owner
-        account, and you&apos;ll land in an empty company.
+        account, and you&apos;ll land in an empty company. The CLI also schedules
+        a daily automatic update at 03:17 local time, using the same safe
+        upgrade path.
       </P>
+
+      <Callout kind="info" title="Automatic updates are on by default.">
+        Check or change them with <Code>genosyn auto-update status</Code>,{" "}
+        <Code>genosyn auto-update off</Code>, or{" "}
+        <Code>genosyn auto-update on</Code>. To opt out during installation,
+        set <Code>GENOSYN_AUTO_UPDATE=0</Code> on the installer command.
+      </Callout>
 
       <H2 id="docker-run">Without the installer</H2>
       <P>
@@ -114,13 +123,15 @@ export function Install() {
 
       <H2 id="upgrading">Upgrading</H2>
       <P>
-        The same installer command also upgrades. Or use the CLI directly:
+        Fresh CLI installs update automatically once a day. You can also
+        upgrade immediately by rerunning the installer or using the CLI:
       </P>
       <Pre lang="bash">{`genosyn upgrade`}</Pre>
       <P>
         This pulls the latest image and recreates the container, preserving the
-        data volume. See <DocLink to="/docs/cli">CLI reference</DocLink> for
-        every flag.
+        data volume. Automatic updates run this same command after first
+        self-upgrading the CLI. See <DocLink to="/docs/cli">CLI reference</DocLink>{" "}
+        for every flag.
       </P>
 
       <H3 id="backing-up">Backing up</H3>

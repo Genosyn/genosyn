@@ -16,6 +16,8 @@
 #   GENOSYN_NAME     container name       (default: genosyn)
 #   GENOSYN_VOLUME   data volume name     (default: genosyn-data)
 #   GENOSYN_IMAGE    image reference      (default: ghcr.io/genosyn/app:latest)
+#   GENOSYN_AUTO_UPDATE  enable daily automatic upgrades after install
+#                        (default: 1; set to 0 to opt out)
 #
 # Additional env for the CLI download itself:
 #   GENOSYN_CLI_URL         fetch URL for the genosyn script

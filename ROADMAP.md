@@ -1110,7 +1110,9 @@ of the original V1 backlog has shipped — what remains is mostly
 - [ ] **2FA (TOTP)** — see M15
 - [x] **Dark mode** — fully covered (1,500+ `dark:` classes)
 - [x] **CLI** — `CLI/genosyn` bash wrapper around Docker, installed via
-      `curl -fsSL https://genosyn.com/install.sh | bash`
+      `curl -fsSL https://genosyn.com/install.sh | bash`; fresh installs
+      schedule a daily CLI + image upgrade by default, managed with
+      `genosyn auto-update on|off|status`
 - [ ] **Scripting CLI** — second, product-facing CLI for programmatic
       operations on companies / employees / routines (depends on M14)
 - [~] **Import/export** — backup/restore round-trips a whole install;

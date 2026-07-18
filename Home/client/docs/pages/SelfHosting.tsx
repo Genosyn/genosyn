@@ -503,8 +503,14 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
 
       <H2 id="upgrading">Upgrading</H2>
       <P>
-        <Code>genosyn upgrade</Code> pulls the latest image and recreates the
-        container, preserving the data volume. Or rerun the installer:
+        CLI installs schedule <Code>genosyn upgrade</Code> automatically every
+        day at 03:17 local time. The command self-upgrades the CLI, pulls the
+        latest image, and recreates the container while preserving the data
+        volume. Check or change the schedule with{" "}
+        <Code>genosyn auto-update status</Code>,{" "}
+        <Code>genosyn auto-update off</Code>, or{" "}
+        <Code>genosyn auto-update on</Code>. You can also upgrade immediately
+        by rerunning the installer:
       </P>
       <Pre lang="bash">{`curl -fsSL https://genosyn.com/install.sh | bash`}</Pre>
 
