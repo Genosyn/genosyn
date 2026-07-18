@@ -93,7 +93,7 @@ export const gmailTools: IntegrationTool[] = [
   {
     name: "gmail_search_messages",
     description:
-      "Search the connected inbox with a Gmail search query (same syntax as the Gmail search bar). Returns message metadata; call `gmail_get_message` for full bodies.",
+      "Search the connected inbox with a Gmail search query (same syntax as the Gmail search bar). Returns message metadata; call `gmail_get_message` for full bodies. When the response includes `nextPageToken`, pass it back as `pageToken` with the same filters to continue through every result page.",
     inputSchema: {
       type: "object",
       properties: {
@@ -107,6 +107,11 @@ export const gmailTools: IntegrationTool[] = [
           minimum: 1,
           maximum: 100,
           description: "Max messages to return (default 20).",
+        },
+        pageToken: {
+          type: "string",
+          description:
+            "Continuation token from a previous response's `nextPageToken`. Keep the same query and labels when fetching the next page.",
         },
         labelIds: {
           type: "array",
@@ -168,6 +173,9 @@ export async function invokeGmailTool(
       const qs = new URLSearchParams();
       if (typeof a.q === "string" && a.q.trim()) qs.set("q", a.q);
       qs.set("maxResults", String(clampInt(a.maxResults, 1, 100, 20)));
+      if (typeof a.pageToken === "string" && a.pageToken) {
+        qs.set("pageToken", a.pageToken);
+      }
       if (Array.isArray(a.labelIds)) {
         for (const id of a.labelIds) {
           if (typeof id === "string") qs.append("labelIds", id);

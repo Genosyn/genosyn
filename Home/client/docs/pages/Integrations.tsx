@@ -294,6 +294,16 @@ export function Integrations() {
         once a human ✓&apos;s it.
       </P>
 
+      <H3 id="gmail-search-pagination">Searching busy Gmail inboxes</H3>
+      <P>
+        Gmail search results are paginated. If a call to{" "}
+        <Code>gmail_search_messages</Code> returns a{" "}
+        <Code>nextPageToken</Code>, the employee passes that value back as{" "}
+        <Code>pageToken</Code> with the same query and labels. It repeats this
+        until Gmail omits <Code>nextPageToken</Code>, so busy date windows are
+        scanned in full instead of stopping at the first 100 messages.
+      </P>
+
       <H3 id="gmail-attachments">Emailing files from Resources</H3>
       <P>
         An employee drafting or sending mail through the{" "}
