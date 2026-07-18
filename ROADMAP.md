@@ -1094,6 +1094,11 @@ of the original V1 backlog has shipped — what remains is mostly
       search over labels, descriptions, and a hidden synonym index (typing
       "cron" lands on Routines), full keyboard control. Replaced the mega-menu
       that used to drop out of the section pill
+- [x] **Keyboard-first navigation** — `G` then a mnemonic key opens any
+      top-level page, with a visible destination HUD after the first key and a
+      complete `?` shortcut guide. Chords pause in editors and dialogs;
+      consistent focus rings, Escape handling, and a skip-to-main link make
+      the rest of the shell keyboard-friendly too
 - [x] **Palette entity search** — the ⌘K palette also searches the company's
       content by name (`GET /api/companies/:cid/search`): AI employees,
       skills, routines, channels, projects, todos, bases, notebooks, notes,

@@ -636,6 +636,13 @@ function PaletteRow({
           {item.description}
         </span>
       </span>
+      <span
+        className="hidden shrink-0 items-center gap-0.5 sm:flex"
+        aria-label={`Shortcut G then ${item.shortcut}`}
+      >
+        <Kbd>G</Kbd>
+        <Kbd>{item.shortcut}</Kbd>
+      </span>
       {isCurrent && (
         <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-700/60 dark:text-slate-300">
           Current

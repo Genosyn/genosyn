@@ -4,6 +4,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleUser,
+  Keyboard,
   LogOut,
   Monitor,
   Moon,
@@ -23,6 +24,10 @@ import {
 } from "./CommandPalette";
 import { CompanySocketProvider } from "./CompanySocket";
 import { Logo, LogoMark } from "./Logo";
+import {
+  KeyboardShortcutsProvider,
+  useKeyboardShortcuts,
+} from "./KeyboardShortcuts";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { useTheme, Theme } from "./Theme";
 
@@ -79,23 +84,43 @@ export function AppShell({ me, companies, current, onCompaniesChanged, children 
 
   return (
     <CompanySocketProvider companyId={current.id}>
-      <CommandPaletteProvider
-        me={me}
-        companyId={current.id}
+      <KeyboardShortcutsProvider
         companySlug={current.slug}
+        isMasterAdmin={Boolean(me.isMasterAdmin)}
       >
-        <ContextualSidebarContext.Provider value={sidebarState}>
-          <div className="flex h-full flex-col">
-            <TopNav
-              me={me}
-              companies={companies}
-              current={current}
-              onCompaniesChanged={onCompaniesChanged}
-            />
-            <div className="flex min-h-0 flex-1">{children}</div>
-          </div>
-        </ContextualSidebarContext.Provider>
-      </CommandPaletteProvider>
+        <CommandPaletteProvider
+          me={me}
+          companyId={current.id}
+          companySlug={current.slug}
+        >
+          <ContextualSidebarContext.Provider value={sidebarState}>
+            <div className="flex h-full flex-col">
+              <a
+                href="#main-content"
+                onClick={(event) => {
+                  event.preventDefault();
+                  document.getElementById("main-content")?.focus();
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  document.getElementById("main-content")?.focus();
+                }}
+                className="sr-only z-[80] rounded-md bg-white px-3 py-2 text-sm font-medium text-indigo-700 shadow-lg focus:not-sr-only focus:fixed focus:left-3 focus:top-3 dark:bg-slate-900 dark:text-indigo-300"
+              >
+                Skip to main content
+              </a>
+              <TopNav
+                me={me}
+                companies={companies}
+                current={current}
+                onCompaniesChanged={onCompaniesChanged}
+              />
+              <div className="flex min-h-0 flex-1">{children}</div>
+            </div>
+          </ContextualSidebarContext.Provider>
+        </CommandPaletteProvider>
+      </KeyboardShortcutsProvider>
     </CompanySocketProvider>
   );
 }
@@ -115,9 +140,21 @@ function TopNav({
   const location = useLocation();
   const { toast } = useToast();
   const dialog = useDialog();
+  const shortcuts = useKeyboardShortcuts();
   const sidebarCtx = React.useContext(ContextualSidebarContext);
   const [companyOpen, setCompanyOpen] = React.useState(false);
   const [userOpen, setUserOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!companyOpen && !userOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setCompanyOpen(false);
+      setUserOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [companyOpen, userOpen]);
 
   async function logout() {
     await api.post("/api/auth/logout");
@@ -153,8 +190,13 @@ function TopNav({
           bar, so it absorbs the squeeze on narrow viewports. */}
       <div className="relative min-w-0">
         <button
-          onClick={() => setCompanyOpen((d) => !d)}
+          onClick={() => {
+            setUserOpen(false);
+            setCompanyOpen((d) => !d);
+          }}
           className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-slate-900 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800"
+          aria-expanded={companyOpen}
+          aria-haspopup="menu"
         >
           <span className="truncate">{current.name}</span>
           <ChevronDown size={14} className="shrink-0 text-slate-400" />
@@ -206,12 +248,25 @@ function TopNav({
       <SectionMenu current={section} />
 
       <div className="ml-auto flex items-center gap-2">
+        <button
+          onClick={shortcuts.openGuide}
+          className="hidden h-8 w-8 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 sm:flex dark:text-slate-300 dark:hover:bg-slate-800"
+          title="Keyboard shortcuts (?)"
+          aria-label="Show keyboard shortcuts"
+        >
+          <Keyboard size={16} />
+        </button>
         <NotificationsPanel company={current} meId={me.id} />
         <ThemeToggle />
         <div className="relative">
           <button
-            onClick={() => setUserOpen((d) => !d)}
+            onClick={() => {
+              setCompanyOpen(false);
+              setUserOpen((d) => !d);
+            }}
             className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+            aria-expanded={userOpen}
+            aria-haspopup="menu"
           >
             <Avatar
               name={me.name || me.email}
@@ -309,6 +364,16 @@ function ThemeToggle() {
     { value: "system", label: "System", icon: <Monitor size={14} /> },
   ];
   const current = options.find((o) => o.value === theme) ?? options[2];
+
+  React.useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
   return (
     <div className="relative">
       <button
@@ -316,6 +381,8 @@ function ThemeToggle() {
         className="flex h-8 w-8 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
         title={`Theme: ${current.label}`}
         aria-label="Toggle theme"
+        aria-expanded={open}
+        aria-haspopup="menu"
       >
         {current.icon}
       </button>
@@ -415,7 +482,13 @@ export function ContextualLayout({
           )}
         </>
       )}
-      <main className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-900">{children}</main>
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-900"
+      >
+        {children}
+      </main>
     </>
   );
 }

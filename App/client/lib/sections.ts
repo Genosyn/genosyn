@@ -58,6 +58,8 @@ export type SectionItem = {
   label: string;
   description: string;
   icon: LucideIcon;
+  /** Second key in the global `G`, then key navigation chord. */
+  shortcut: string;
   /** Path under `/c/<slug>/…` — empty string for the company root. */
   path: string;
   iconBg: string;
@@ -81,6 +83,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         label: "Home",
         description: "Everything that needs your attention.",
         icon: Home,
+        shortcut: "H",
         path: "",
         iconBg:
           "bg-slate-100 text-slate-600 dark:bg-slate-700/40 dark:text-slate-200",
@@ -91,6 +94,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         label: "Workspace",
         description: "Slack-style channels and DMs.",
         icon: MessageSquare,
+        shortcut: "W",
         path: "/workspace",
         iconBg:
           "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300",
@@ -101,6 +105,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         label: "Email",
         description: "Your Gmail inbox, with AI triage and drafts.",
         icon: Mail,
+        shortcut: "M",
         path: "/mail",
         iconBg: "bg-sky-100 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300",
         keywords: ["gmail", "inbox", "mail", "threads", "triage"],
@@ -110,6 +115,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         label: "Tasks",
         description: "Projects, todos, review queue.",
         icon: ListChecks,
+        shortcut: "T",
         path: "/tasks",
         iconBg:
           "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300",
@@ -129,6 +135,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         label: "AI Employees",
         description: "AI teammates and their souls.",
         icon: Users,
+        shortcut: "E",
         path: "/employees",
         iconBg:
           "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
@@ -139,6 +146,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         label: "Skills",
         description: "Playbooks your AI employees follow.",
         icon: Wrench,
+        shortcut: "S",
         path: "/skills",
         iconBg:
           "bg-green-100 text-green-600 dark:bg-green-500/15 dark:text-green-300",
@@ -149,6 +157,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         label: "Routines",
         description: "Scheduled work, and how every run went.",
         icon: CalendarClock,
+        shortcut: "R",
         path: "/routines",
         iconBg:
           "bg-purple-100 text-purple-600 dark:bg-purple-500/15 dark:text-purple-300",
@@ -164,6 +173,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         label: "Bases",
         description: "Airtable-style structured data.",
         icon: Table2,
+        shortcut: "B",
         path: "/bases",
         iconBg:
           "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300",
@@ -174,6 +184,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         label: "Notes",
         description: "Notion-style markdown pages.",
         icon: NotebookText,
+        shortcut: "N",
         path: "/notes",
         iconBg:
           "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300",
@@ -184,6 +195,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         label: "Resources",
         description: "URLs, ebooks, transcripts AI employees can study.",
         icon: Library,
+        shortcut: "L",
         path: "/resources",
         iconBg:
           "bg-fuchsia-100 text-fuchsia-600 dark:bg-fuchsia-500/15 dark:text-fuchsia-300",
@@ -194,6 +206,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         label: "Explore",
         description: "Saved SQL charts and dashboards.",
         icon: BarChart3,
+        shortcut: "X",
         path: "/explore",
         iconBg:
           "bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300",
@@ -209,6 +222,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         label: "Code",
         description: "Git repositories your AI employees can work on.",
         icon: FolderGit2,
+        shortcut: "C",
         path: "/code",
         iconBg:
           "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
@@ -219,6 +233,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         label: "Pipelines",
         description: "Predictable, step-by-step automation.",
         icon: GitBranch,
+        shortcut: "P",
         path: "/pipelines",
         iconBg: "bg-sky-100 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300",
         keywords: ["n8n", "automation", "flows", "workflows", "nodes"],
@@ -233,6 +248,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         label: "Customers",
         description: "Accounts and signed contracts.",
         icon: Contact2,
+        shortcut: "U",
         path: "/customers",
         iconBg:
           "bg-pink-100 text-pink-600 dark:bg-pink-500/15 dark:text-pink-300",
@@ -243,6 +259,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         label: "Finance",
         description: "Invoices, bills, and revenue.",
         icon: Wallet,
+        shortcut: "F",
         path: "/finance",
         iconBg:
           "bg-teal-100 text-teal-600 dark:bg-teal-500/15 dark:text-teal-300",
@@ -267,6 +284,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         label: "Journal",
         description: "Today's journal entries across employees.",
         icon: NotebookPen,
+        shortcut: "J",
         path: "/inbox",
         iconBg:
           "bg-cyan-100 text-cyan-600 dark:bg-cyan-500/15 dark:text-cyan-300",
@@ -277,6 +295,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         label: "Approvals",
         description: "Gate routines that need a human.",
         icon: ShieldCheck,
+        shortcut: "A",
         path: "/approvals",
         iconBg:
           "bg-orange-100 text-orange-600 dark:bg-orange-500/15 dark:text-orange-300",
@@ -287,6 +306,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         label: "Settings",
         description: "Members, integrations, email, secrets.",
         icon: SettingsIcon,
+        shortcut: ",",
         path: "/settings",
         iconBg:
           "bg-slate-200 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
@@ -319,6 +339,7 @@ export const ACCOUNT_SECTION: SectionItem = {
   label: "Account",
   description: "Your profile, password, and notifications.",
   icon: CircleUser,
+  shortcut: "O",
   path: "/account",
   iconBg:
     "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
@@ -331,6 +352,7 @@ export const ADMIN_SECTION: SectionItem = {
   label: "Admin",
   description: "Users, companies, health, and backups.",
   icon: ServerCog,
+  shortcut: "D",
   path: "/admin",
   iconBg: "bg-slate-800 text-slate-100 dark:bg-slate-200/20 dark:text-slate-100",
   keywords: ["users", "companies", "health", "backups", "instance", "operator"],

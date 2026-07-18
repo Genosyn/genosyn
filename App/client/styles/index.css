@@ -25,6 +25,19 @@ html.dark ::selection {
   color: white;
 }
 
+/* A visible, consistent keyboard cursor across raw controls and shared UI
+   primitives. Mouse clicks do not receive the ring because `:focus-visible`
+   follows the browser's input-modality heuristic. */
+:where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
+}
+
+html.dark
+  :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
+  outline-color: #818cf8;
+}
+
 @keyframes chatDot {
   0%,
   80%,

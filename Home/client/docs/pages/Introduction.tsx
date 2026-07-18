@@ -136,6 +136,16 @@ export function Introduction() {
         opens the same palette if you&apos;d rather click.
       </P>
       <P>
+        For pages you use every day, press <Code>G</Code> and then the page&apos;s
+        letter: <Code>G H</Code> opens Home, <Code>G E</Code> opens AI
+        Employees, and <Code>G R</Code> opens Routines. Pressing <Code>G</Code>
+        shows the complete destination map, so you never have to guess. Press{" "}
+        <Code>?</Code> anywhere outside an editor to open the full shortcut
+        guide. Genosyn pauses global shortcuts while you type, and ordinary{" "}
+        <Code>Tab</Code> navigation has a visible focus ring plus a skip-to-main
+        link.
+      </P>
+      <P>
         The palette searches your company&apos;s content too, not just the
         section list. Type two or more characters and matching AI employees,
         skills, routines, notebooks, notes, bases, channels, projects, todos,
