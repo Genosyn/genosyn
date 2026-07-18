@@ -43,7 +43,7 @@ const LEVEL_HINT: Record<MailAccessLevel, string> = {
 export default function MailSettings() {
   const { company, account, accounts, refresh, syncing, syncNow } =
     useOutletContext<MailOutletCtx>();
-  const { toast } = useToast();
+  const { toast, background } = useToast();
   const dialog = useDialog();
   const navigate = useNavigate();
 
@@ -51,6 +51,9 @@ export default function MailSettings() {
   const [candidates, setCandidates] = React.useState<MailGrantCandidate[]>([]);
   const [addOpen, setAddOpen] = React.useState(false);
   const [connectOpen, setConnectOpen] = React.useState(false);
+  const [displayStatus, setDisplayStatus] = React.useState(account.status);
+
+  React.useEffect(() => setDisplayStatus(account.status), [account.status]);
 
   const loadGrants = React.useCallback(async () => {
     const [g, cand] = await Promise.all([
@@ -67,24 +70,27 @@ export default function MailSettings() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadGrants]);
 
-  const togglePause = async () => {
-    try {
-      await mailApi.patchAccount(
-        company.id,
-        account.id,
-        account.status === "paused" ? "active" : "paused",
-      );
-      await refresh();
-      toast(account.status === "paused" ? "Sync resumed" : "Sync paused", "info");
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+  const togglePause = () => {
+    const previous = displayStatus;
+    const next = displayStatus === "paused" ? "active" : "paused";
+    setDisplayStatus(next);
+    background(() => mailApi.patchAccount(company.id, account.id, next), {
+      loading: next === "active" ? "Resuming sync…" : "Pausing sync…",
+      success: next === "active" ? "Sync resumed" : "Sync paused",
+      error: (error) =>
+        `Couldn\u2019t update sync: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. The change was undone.`,
+      onSuccess: () => void refresh(),
+      onError: () => setDisplayStatus(previous),
+    });
   };
 
   const disconnect = async () => {
     const ok = await dialog.confirm({
       title: `Disconnect ${account.address}?`,
-      message: "Removes the local mirror (threads, rules, handovers, AI grants) here. Your Gmail account and the Google connection are untouched.",
+      message:
+        "Removes the local mirror (threads, rules, handovers, AI grants) here. Your Gmail account and the Google connection are untouched.",
       variant: "danger",
     });
     if (!ok) return;
@@ -98,22 +104,51 @@ export default function MailSettings() {
     }
   };
 
-  const setLevel = async (grant: MailGrant, level: MailAccessLevel) => {
-    try {
-      await mailApi.patchGrant(company.id, account.id, grant.id, level);
-      await loadGrants();
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+  const setLevel = (grant: MailGrant, level: MailAccessLevel) => {
+    setGrants(
+      (current) =>
+        current?.map((item) => (item.id === grant.id ? { ...item, accessLevel: level } : item)) ??
+        current,
+    );
+    background(() => mailApi.patchGrant(company.id, account.id, grant.id, level), {
+      loading: "Updating AI access…",
+      error: (error) =>
+        `Couldn\u2019t update AI access: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. The change was undone.`,
+      onSuccess: ({ grant: updated }) => {
+        setGrants(
+          (current) => current?.map((item) => (item.id === updated.id ? updated : item)) ?? current,
+        );
+      },
+      onError: () => {
+        setGrants(
+          (current) => current?.map((item) => (item.id === grant.id ? grant : item)) ?? current,
+        );
+      },
+    });
   };
 
-  const revoke = async (grant: MailGrant) => {
-    try {
-      await mailApi.deleteGrant(company.id, account.id, grant.id);
-      await loadGrants();
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+  const revoke = (grant: MailGrant) => {
+    const originalIndex = grants?.findIndex((item) => item.id === grant.id) ?? -1;
+    setGrants((current) => current?.filter((item) => item.id !== grant.id) ?? current);
+    background(() => mailApi.deleteGrant(company.id, account.id, grant.id), {
+      loading: "Revoking AI access…",
+      success: "Access revoked",
+      error: (error) =>
+        `Couldn\u2019t revoke AI access: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. The grant has been restored.`,
+      onSuccess: () => void loadGrants(),
+      onError: () => {
+        setGrants((current) => {
+          if (!current || current.some((item) => item.id === grant.id)) return current;
+          const next = [...current];
+          next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, grant);
+          return next;
+        });
+      },
+    });
   };
 
   return (
@@ -129,15 +164,13 @@ export default function MailSettings() {
             <Mail size={18} />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="font-medium text-slate-900 dark:text-slate-100">
-              {account.address}
-            </div>
+            <div className="font-medium text-slate-900 dark:text-slate-100">{account.address}</div>
             <div className="mt-0.5 flex items-center gap-1.5 text-xs">
-              {account.status === "error" ? (
+              {displayStatus === "error" ? (
                 <span className="flex items-center gap-1 text-red-600 dark:text-red-400">
                   <AlertTriangle size={12} /> {account.statusMessage || "Sync error"}
                 </span>
-              ) : account.status === "paused" ? (
+              ) : displayStatus === "paused" ? (
                 <span className="text-slate-500">Sync paused</span>
               ) : (
                 <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
@@ -154,18 +187,15 @@ export default function MailSettings() {
           <Button
             size="sm"
             variant="secondary"
-            disabled={syncing || account.status === "paused"}
+            disabled={syncing || displayStatus === "paused"}
             onClick={() => void syncNow()}
             aria-busy={syncing}
           >
-            <RefreshCw
-              size={14}
-              className={syncing ? "mr-1.5 animate-spin" : "mr-1.5"}
-            />{" "}
+            <RefreshCw size={14} className={syncing ? "mr-1.5 animate-spin" : "mr-1.5"} />{" "}
             {syncing ? "Syncing…" : "Sync now"}
           </Button>
           <Button size="sm" variant="secondary" onClick={togglePause}>
-            {account.status === "paused" ? (
+            {displayStatus === "paused" ? (
               <>
                 <Play size={14} className="mr-1.5" /> Resume sync
               </>
@@ -185,21 +215,14 @@ export default function MailSettings() {
       <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
         <div className="mb-1 flex items-center gap-2">
           <Users size={16} className="text-slate-400" />
-          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            AI access
-          </h2>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="ml-auto"
-            onClick={() => setAddOpen(true)}
-          >
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI access</h2>
+          <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setAddOpen(true)}>
             <Plus size={14} className="mr-1" /> Grant access
           </Button>
         </div>
         <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">
-          Which AI employees can act on this mailbox through their tools and
-          via rules. Members always have full access; this only governs AI.
+          Which AI employees can act on this mailbox through their tools and via rules. Members
+          always have full access; this only governs AI.
         </p>
 
         {grants === null ? (
@@ -208,8 +231,7 @@ export default function MailSettings() {
           </div>
         ) : grants.length === 0 ? (
           <p className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-700">
-            No AI employees have access yet. Grant one so it can triage,
-            draft, or reply.
+            No AI employees have access yet. Grant one so it can triage, draft, or reply.
           </p>
         ) : (
           <ul className="divide-y divide-slate-100 dark:divide-slate-800/70">
@@ -225,9 +247,7 @@ export default function MailSettings() {
                   <div className="truncate text-sm text-slate-900 dark:text-slate-100">
                     {g.employee?.name ?? "Unknown employee"}
                   </div>
-                  <div className="truncate text-xs text-slate-400">
-                    {LEVEL_HINT[g.accessLevel]}
-                  </div>
+                  <div className="truncate text-xs text-slate-400">{LEVEL_HINT[g.accessLevel]}</div>
                 </div>
                 <Select
                   value={g.accessLevel}
@@ -281,8 +301,7 @@ export default function MailSettings() {
           ))}
         </ul>
         <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-          Need to add a Gmail account not listed? Add a Google connection with
-          the Gmail scope under{" "}
+          Need to add a Gmail account not listed? Add a Google connection with the Gmail scope under{" "}
           <Link
             to={`/c/${company.slug}/settings/integrations`}
             className="text-indigo-600 hover:underline dark:text-indigo-400"
@@ -382,9 +401,7 @@ function GrantModal({
             <option value="draft">Draft — triage + write drafts</option>
             <option value="send">Send — can send mail</option>
           </Select>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            {LEVEL_HINT[level]}.
-          </p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">{LEVEL_HINT[level]}.</p>
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={onClose} disabled={busy}>
               Cancel
@@ -409,9 +426,7 @@ function ConnectModal({
   onConnected: () => Promise<void>;
 }) {
   const { toast } = useToast();
-  const [candidates, setCandidates] = React.useState<MailConnectCandidate[] | null>(
-    null,
-  );
+  const [candidates, setCandidates] = React.useState<MailConnectCandidate[] | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -422,9 +437,7 @@ function ConnectModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId]);
 
-  const usable = (candidates ?? []).filter(
-    (c) => c.hasGmailScope && !c.linkedAccountId,
-  );
+  const usable = (candidates ?? []).filter((c) => c.hasGmailScope && !c.linkedAccountId);
 
   return (
     <Modal open onClose={onClose} title="Connect a mailbox">
@@ -434,8 +447,8 @@ function ConnectModal({
         </div>
       ) : usable.length === 0 ? (
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          No unlinked Gmail-capable Google connections. Add one with the Gmail
-          scope under Settings → Integrations first.
+          No unlinked Gmail-capable Google connections. Add one with the Gmail scope under Settings
+          → Integrations first.
         </p>
       ) : (
         <div className="space-y-2">

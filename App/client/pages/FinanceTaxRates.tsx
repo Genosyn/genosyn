@@ -20,7 +20,7 @@ import { FinanceOutletCtx } from "./FinanceLayout";
  */
 export default function FinanceTaxRates() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { toast } = useToast();
+  const { background } = useToast();
   const dialog = useDialog();
   const [rates, setRates] = React.useState<TaxRate[] | null>(null);
   const [editing, setEditing] = React.useState<TaxRate | "new" | null>(null);
@@ -42,32 +42,39 @@ export default function FinanceTaxRates() {
       confirmLabel: "Delete",
     });
     if (!ok) return;
-    try {
-      await api.del(`/api/companies/${company.id}/tax-rates/${t.id}`);
-      reload();
-    } catch (e) {
-      toast((e as Error).message, "error");
-    }
+    const originalIndex = rates?.findIndex((item) => item.id === t.id) ?? -1;
+    setRates((current) => current?.filter((item) => item.id !== t.id) ?? current);
+    background(() => api.del(`/api/companies/${company.id}/tax-rates/${t.id}`), {
+      loading: "Deleting tax rate…",
+      success: "Tax rate deleted",
+      error: (error) =>
+        `Couldn\u2019t delete the tax rate: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. It has been restored.`,
+      onError: () => {
+        setRates((current) => {
+          if (!current || current.some((item) => item.id === t.id)) return current;
+          const next = [...current];
+          next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, t);
+          return next;
+        });
+      },
+    });
   }
 
   return (
     <div className="mx-auto max-w-3xl p-8">
       <div className="mb-6">
         <Breadcrumbs
-          items={[
-            { label: "Finance", to: `/c/${company.slug}/finance` },
-            { label: "Tax rates" },
-          ]}
+          items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Tax rates" }]}
         />
       </div>
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-            Tax rates
-          </h1>
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Tax rates</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Define the rates you charge. Each invoice line snapshots its
-            chosen rate, so editing here never changes a historical invoice.
+            Define the rates you charge. Each invoice line snapshots its chosen rate, so editing
+            here never changes a historical invoice.
           </p>
         </div>
         <Button onClick={() => setEditing("new")}>
@@ -103,10 +110,7 @@ export default function FinanceTaxRates() {
               {rates.map((t) => (
                 <tr key={t.id}>
                   <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">
-                    <button
-                      onClick={() => setEditing(t)}
-                      className="text-left hover:underline"
-                    >
+                    <button onClick={() => setEditing(t)} className="text-left hover:underline">
                       {t.name}
                     </button>
                   </td>
@@ -160,9 +164,7 @@ function TaxRateEditor({
 }) {
   const { toast } = useToast();
   const [name, setName] = React.useState(rate?.name ?? "");
-  const [ratePercent, setRatePercent] = React.useState(
-    rate ? String(rate.ratePercent) : "",
-  );
+  const [ratePercent, setRatePercent] = React.useState(rate ? String(rate.ratePercent) : "");
   const [inclusive, setInclusive] = React.useState(rate?.inclusive ?? false);
   const [busy, setBusy] = React.useState(false);
 
@@ -214,9 +216,7 @@ function TaxRateEditor({
             className="mt-0.5 rounded border-slate-300"
           />
           <span>
-            <span className="font-medium text-slate-900 dark:text-slate-100">
-              Inclusive
-            </span>
+            <span className="font-medium text-slate-900 dark:text-slate-100">Inclusive</span>
             <span className="block text-xs text-slate-500 dark:text-slate-400">
               The unit price already contains the tax (EU/AU/NZ VAT/GST style).
             </span>

@@ -25,16 +25,13 @@ import { clsx } from "../components/ui/clsx";
  * done, push back → in_progress). No modals, no navigation required.
  */
 export default function TasksReview({ company }: { company: Company }) {
-  const { toast } = useToast();
+  const { toast, background } = useToast();
   const { reload: reloadSidebar } = useTasks();
   const [items, setItems] = React.useState<ReviewItem[] | null>(null);
-  const [busyId, setBusyId] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     try {
-      const d = await api.get<{ todos: ReviewItem[] }>(
-        `/api/companies/${company.id}/reviews`,
-      );
+      const d = await api.get<{ todos: ReviewItem[] }>(`/api/companies/${company.id}/reviews`);
       setItems(d.todos);
     } catch (err) {
       toast((err as Error).message, "error");
@@ -46,38 +43,38 @@ export default function TasksReview({ company }: { company: Company }) {
     reload();
   }, [reload]);
 
-  async function resolve(t: ReviewItem, status: "done" | "in_progress") {
-    setBusyId(t.id);
-    try {
-      await api.patch(`/api/companies/${company.id}/todos/${t.id}`, { status });
-      // Remove from the queue; it no longer qualifies as in_review.
-      setItems((list) => (list ? list.filter((x) => x.id !== t.id) : list));
-      reloadSidebar();
-      toast(
-        status === "done" ? "Approved and marked done." : "Sent back for more work.",
-        "success",
-      );
-    } catch (err) {
-      toast((err as Error).message, "error");
-    } finally {
-      setBusyId(null);
-    }
+  function resolve(t: ReviewItem, status: "done" | "in_progress") {
+    const originalIndex = items?.findIndex((item) => item.id === t.id) ?? -1;
+    setItems((list) => (list ? list.filter((item) => item.id !== t.id) : list));
+
+    background(() => api.patch(`/api/companies/${company.id}/todos/${t.id}`, { status }), {
+      loading: status === "done" ? "Approving todo…" : "Sending todo back…",
+      success: status === "done" ? "Approved and marked done" : "Sent back for more work",
+      error: (error) =>
+        `Couldn\u2019t update the todo: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. It has been returned to the review queue.`,
+      onSuccess: () => void reloadSidebar(),
+      onError: () => {
+        setItems((list) => {
+          if (!list || list.some((item) => item.id === t.id)) return list;
+          const next = [...list];
+          next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, t);
+          return next;
+        });
+      },
+    });
   }
 
   return (
     <div className="flex min-h-full flex-col">
       <div className="border-b border-slate-200 bg-white px-6 py-4 dark:bg-slate-900 dark:border-slate-700">
         <Breadcrumbs
-          items={[
-            { label: "Tasks", to: `/c/${company.slug}/tasks` },
-            { label: "Review queue" },
-          ]}
+          items={[{ label: "Tasks", to: `/c/${company.slug}/tasks` }, { label: "Review queue" }]}
         />
         <div className="mt-1 flex items-center gap-2">
           <ShieldCheck size={18} className="text-violet-500" />
-          <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-            Review queue
-          </h1>
+          <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Review queue</h1>
           {items && items.length > 0 && (
             <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700 dark:bg-violet-500/15 dark:text-violet-200">
               {items.length}
@@ -85,8 +82,8 @@ export default function TasksReview({ company }: { company: Company }) {
           )}
         </div>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          Every todo waiting on sign-off, across all projects. Approve to mark
-          done, or push back to the assignee for another pass.
+          Every todo waiting on sign-off, across all projects. Approve to mark done, or push back to
+          the assignee for another pass.
         </p>
       </div>
 
@@ -104,7 +101,6 @@ export default function TasksReview({ company }: { company: Company }) {
                 key={t.id}
                 item={t}
                 company={company}
-                busy={busyId === t.id}
                 onApprove={() => resolve(t, "done")}
                 onPushBack={() => resolve(t, "in_progress")}
               />
@@ -122,12 +118,10 @@ function EmptyQueue() {
       <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
         <Check size={20} />
       </div>
-      <h2 className="mt-4 text-lg font-semibold text-slate-900 dark:text-slate-100">
-        All clear
-      </h2>
+      <h2 className="mt-4 text-lg font-semibold text-slate-900 dark:text-slate-100">All clear</h2>
       <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-        Nothing is waiting on a reviewer. When an assignee moves a todo to
-        &ldquo;In review&rdquo;, it will land here.
+        Nothing is waiting on a reviewer. When an assignee moves a todo to &ldquo;In review&rdquo;,
+        it will land here.
       </p>
     </div>
   );
@@ -136,13 +130,11 @@ function EmptyQueue() {
 function ReviewCard({
   item,
   company,
-  busy,
   onApprove,
   onPushBack,
 }: {
   item: ReviewItem;
   company: Company;
-  busy: boolean;
   onApprove: () => void;
   onPushBack: () => void;
 }) {
@@ -191,24 +183,16 @@ function ReviewCard({
         )}
 
         <div className="mt-4 grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
-          <PersonLine
-            label="Assignee"
-            person={item.assignee}
-            placeholder="Unassigned"
-          />
-          <PersonLine
-            label="Reviewer"
-            person={item.reviewer}
-            placeholder="No reviewer"
-          />
+          <PersonLine label="Assignee" person={item.assignee} placeholder="Unassigned" />
+          <PersonLine label="Reviewer" person={item.reviewer} placeholder="No reviewer" />
         </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-5 py-3 dark:border-slate-800">
-        <Button size="sm" onClick={onApprove} disabled={busy}>
+        <Button size="sm" onClick={onApprove}>
           <Check size={13} /> Approve &amp; mark done
         </Button>
-        <Button variant="secondary" size="sm" onClick={onPushBack} disabled={busy}>
+        <Button variant="secondary" size="sm" onClick={onPushBack}>
           <CornerUpLeft size={13} /> Push back
           {item.assignee?.kind === "ai" ? " to AI" : " to assignee"}
         </Button>
@@ -241,9 +225,7 @@ function PersonLine({
       {person ? (
         <span className="flex items-center gap-1.5">
           <PersonAvatar kind={person.kind} name={person.name} />
-          <span className="truncate text-sm text-slate-700 dark:text-slate-200">
-            {person.name}
-          </span>
+          <span className="truncate text-sm text-slate-700 dark:text-slate-200">{person.name}</span>
           {person.kind === "ai" && (
             <span className="rounded bg-violet-100 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-500/15 dark:text-violet-200">
               AI

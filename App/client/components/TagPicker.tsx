@@ -77,8 +77,13 @@ export function TagPicker({
   const [available, setAvailable] = React.useState<CompanyTag[] | null>(null);
   const [query, setQuery] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  const [displayValue, setDisplayValue] = React.useState(value);
   const rootRef = React.useRef<HTMLDivElement>(null);
-  const { toast } = useToast();
+  const { toast, background } = useToast();
+
+  React.useEffect(() => {
+    if (!saving) setDisplayValue(value);
+  }, [saving, value]);
 
   const load = React.useCallback(async () => {
     try {
@@ -101,16 +106,19 @@ export function TagPicker({
     return () => document.removeEventListener("mousedown", close);
   }, []);
 
-  async function commit(next: CompanyTag[]) {
+  function commit(next: CompanyTag[]) {
     if (saving) return;
+    const previous = displayValue;
+    setDisplayValue(next);
     setSaving(true);
-    try {
-      await onChange(next);
-    } catch (err) {
-      toast((err as Error).message, "error");
-    } finally {
-      setSaving(false);
-    }
+    background(() => Promise.resolve(onChange(next)).finally(() => setSaving(false)), {
+      loading: "Updating tags…",
+      error: (error) =>
+        `Couldn\u2019t update the tags: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. The change was undone.`,
+      onError: () => setDisplayValue(previous),
+    });
   }
 
   async function createTag() {
@@ -125,8 +133,8 @@ export function TagPicker({
           ? rows
           : [...rows, created].sort((a, b) => a.name.localeCompare(b.name));
       });
-      if (!value.some((tag) => tag.id === created.id)) {
-        await onChange([...value, created]);
+      if (!displayValue.some((tag) => tag.id === created.id)) {
+        await onChange([...displayValue, created]);
       }
       setQuery("");
     } catch (err) {
@@ -146,7 +154,7 @@ export function TagPicker({
     <div ref={rootRef} className="relative">
       <div className="mb-1.5 text-sm font-medium text-slate-700 dark:text-slate-300">{label}</div>
       <div className="flex min-h-9 flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 dark:border-slate-700 dark:bg-slate-900">
-        {value.map((tag) => (
+        {displayValue.map((tag) => (
           <span
             key={tag.id}
             className={`inline-flex max-w-48 items-center gap-1 rounded-full border py-0.5 pl-2 pr-1 text-xs font-medium ${getTagColorOption(tag.color).chipClass}`}
@@ -154,7 +162,7 @@ export function TagPicker({
             <span className="truncate">{tag.name}</span>
             <button
               type="button"
-              onClick={() => commit(value.filter((row) => row.id !== tag.id))}
+              onClick={() => commit(displayValue.filter((row) => row.id !== tag.id))}
               disabled={saving}
               className="rounded-full p-0.5 opacity-60 hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
               aria-label={`Remove ${tag.name}`}
@@ -166,7 +174,7 @@ export function TagPicker({
         <button
           type="button"
           onClick={() => setOpen((current) => !current)}
-          disabled={saving || value.length >= 20}
+          disabled={saving || displayValue.length >= 20}
           className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-indigo-600 disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-300"
         >
           {saving ? <Spinner size={12} /> : <Plus size={12} />}
@@ -200,14 +208,16 @@ export function TagPicker({
             ) : (
               <>
                 {filtered.map((tag) => {
-                  const selected = value.some((row) => row.id === tag.id);
+                  const selected = displayValue.some((row) => row.id === tag.id);
                   return (
                     <button
                       key={tag.id}
                       type="button"
                       onClick={() =>
                         commit(
-                          selected ? value.filter((row) => row.id !== tag.id) : [...value, tag],
+                          selected
+                            ? displayValue.filter((row) => row.id !== tag.id)
+                            : [...displayValue, tag],
                         )
                       }
                       className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"

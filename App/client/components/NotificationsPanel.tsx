@@ -1,21 +1,10 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  AtSign,
-  Bell,
-  CheckCircle2,
-  ClipboardCheck,
-  Mail,
-  ShieldCheck,
-} from "lucide-react";
-import {
-  api,
-  Company,
-  Notification,
-  NotificationKind,
-} from "../lib/api";
+import { AtSign, Bell, CheckCircle2, ClipboardCheck, Mail, ShieldCheck } from "lucide-react";
+import { api, Company, Notification, NotificationKind } from "../lib/api";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "./ui/Avatar";
 import { useCompanySocketSubscription } from "./CompanySocket";
+import { useToast } from "./ui/Toast";
 
 /**
  * Bell + popover panel mounted in the top bar. Reads the per-user feed
@@ -24,14 +13,9 @@ import { useCompanySocketSubscription } from "./CompanySocket";
  * frames over the shared company WebSocket. The 15-second poll is kept
  * as a backstop in case the socket missed a frame during reconnect.
  */
-export function NotificationsPanel({
-  company,
-  meId,
-}: {
-  company: Company;
-  meId: string;
-}) {
+export function NotificationsPanel({ company, meId }: { company: Company; meId: string }) {
   const navigate = useNavigate();
+  const { background } = useToast();
   const [open, setOpen] = React.useState(false);
   const [count, setCount] = React.useState(0);
   const [items, setItems] = React.useState<Notification[]>([]);
@@ -91,11 +75,7 @@ export function NotificationsPanel({
       if (ev.userId !== meId) return;
       const ids = new Set(ev.notificationIds);
       const now = new Date().toISOString();
-      setItems((rows) =>
-        rows.map((r) =>
-          ids.has(r.id) && !r.readAt ? { ...r, readAt: now } : r,
-        ),
-      );
+      setItems((rows) => rows.map((r) => (ids.has(r.id) && !r.readAt ? { ...r, readAt: now } : r)));
       // Server is authoritative on the unread count. Re-poll after a read
       // frame so we don't double-decrement under StrictMode's twice-invoked
       // setter or miss a frame that read more rows than we currently hold.
@@ -103,40 +83,50 @@ export function NotificationsPanel({
     }
   });
 
-  async function handleClick(n: Notification) {
+  function handleClick(n: Notification) {
     setOpen(false);
     if (!n.readAt) {
-      try {
-        await api.post(
-          `/api/companies/${company.id}/notifications/mark-read`,
-          { notificationId: n.id },
-        );
-        setItems((rows) =>
-          rows.map((r) =>
-            r.id === n.id ? { ...r, readAt: new Date().toISOString() } : r,
-          ),
-        );
-        setCount((c) => Math.max(0, c - 1));
-      } catch {
-        // Navigation should win even if the read flag failed to persist.
-      }
+      setItems((rows) =>
+        rows.map((r) => (r.id === n.id ? { ...r, readAt: new Date().toISOString() } : r)),
+      );
+      setCount((c) => Math.max(0, c - 1));
+      background(
+        () =>
+          api.post(`/api/companies/${company.id}/notifications/mark-read`, {
+            notificationId: n.id,
+          }),
+        {
+          loading: "Marking notification read…",
+          error: (error) =>
+            `Couldn\u2019t mark the notification read: ${
+              error instanceof Error ? error.message : "Unknown error"
+            }. It will be reconciled on refresh.`,
+          onError: () => {
+            void refreshCount();
+            void refreshList();
+          },
+        },
+      );
     }
     if (n.link) navigate(n.link);
   }
 
-  async function handleMarkAll() {
-    try {
-      await api.post(
-        `/api/companies/${company.id}/notifications/mark-all-read`,
-      );
-      const now = new Date().toISOString();
-      setItems((rows) =>
-        rows.map((r) => (r.readAt ? r : { ...r, readAt: now })),
-      );
-      setCount(0);
-    } catch {
-      // Same logic as above — surface nothing; the next refresh tells truth.
-    }
+  function handleMarkAll() {
+    const now = new Date().toISOString();
+    setItems((rows) => rows.map((r) => (r.readAt ? r : { ...r, readAt: now })));
+    setCount(0);
+    background(() => api.post(`/api/companies/${company.id}/notifications/mark-all-read`), {
+      loading: "Marking notifications read…",
+      success: "Notifications marked read",
+      error: (error) =>
+        `Couldn\u2019t mark notifications read: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. The list has been refreshed.`,
+      onError: () => {
+        void refreshCount();
+        void refreshList();
+      },
+    });
   }
 
   return (
@@ -156,10 +146,7 @@ export function NotificationsPanel({
       </button>
       {open && (
         <>
-          <div
-            className="fixed inset-0 z-10"
-            onClick={() => setOpen(false)}
-          />
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           {/* Anchored to the bell from sm up; pinned to the viewport edges on
               phones, where a 22rem panel would run off-screen. */}
           <div className="fixed left-3 right-3 top-16 z-20 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[22rem] dark:border-slate-700 dark:bg-slate-900">
@@ -214,10 +201,7 @@ export function NotificationsPanel({
 function EmptyState() {
   return (
     <div className="flex flex-col items-center gap-2 px-6 py-10 text-center">
-      <CheckCircle2
-        size={20}
-        className="text-emerald-500 dark:text-emerald-400"
-      />
+      <CheckCircle2 size={20} className="text-emerald-500 dark:text-emerald-400" />
       <div className="text-sm font-medium text-slate-700 dark:text-slate-200">
         You&apos;re all caught up
       </div>
@@ -270,12 +254,7 @@ function NotificationRow({
             size="md"
           />
         ) : (
-          <div
-            className={
-              "flex h-8 w-8 items-center justify-center rounded-full " +
-              tone.iconBg
-            }
-          >
+          <div className={"flex h-8 w-8 items-center justify-center rounded-full " + tone.iconBg}>
             <KindIcon kind={n.kind} className={tone.iconFg} />
           </div>
         )}
@@ -334,10 +313,7 @@ function KindIcon({
   }
 }
 
-const KIND_TONE: Record<
-  NotificationKind,
-  { iconBg: string; iconFg: string }
-> = {
+const KIND_TONE: Record<NotificationKind, { iconBg: string; iconFg: string }> = {
   mention: {
     iconBg: "bg-rose-100 dark:bg-rose-500/15",
     iconFg: "text-rose-600 dark:text-rose-300",

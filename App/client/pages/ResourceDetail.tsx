@@ -150,10 +150,7 @@ export default function ResourceDetail({ company }: { company: Company }) {
         <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
           Resource not found
         </h2>
-        <Button
-          variant="secondary"
-          onClick={() => navigate(`/c/${company.slug}/resources`)}
-        >
+        <Button variant="secondary" onClick={() => navigate(`/c/${company.slug}/resources`)}>
           <ArrowLeft size={14} /> Back to resources
         </Button>
       </div>
@@ -187,9 +184,7 @@ export default function ResourceDetail({ company }: { company: Company }) {
                 <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 uppercase tracking-wide dark:bg-slate-800">
                   {row.sourceKind}
                 </span>
-                <span className="tabular-nums">
-                  {formatBodyLength(row.bodyLength)}
-                </span>
+                <span className="tabular-nums">{formatBodyLength(row.bodyLength)}</span>
                 <span aria-hidden>·</span>
                 <span className="tabular-nums">{formatBytes(row.bytes)}</span>
                 {row.status !== "ready" && (
@@ -217,9 +212,7 @@ export default function ResourceDetail({ company }: { company: Company }) {
                   rel="noreferrer"
                   className="mt-2 inline-flex items-center gap-1 text-sm text-indigo-600 hover:underline dark:text-indigo-400"
                 >
-                  <span className="max-w-[28rem] truncate">
-                    {hostnameOf(row.sourceUrl)}
-                  </span>
+                  <span className="max-w-[28rem] truncate">{hostnameOf(row.sourceUrl)}</span>
                   <ExternalLink size={12} />
                 </a>
               )}
@@ -321,12 +314,8 @@ export default function ResourceDetail({ company }: { company: Company }) {
             {row.sourceKind === "pdf" && row.storageKey && (
               <PdfViewer fileUrl={fileUrl} title={row.title} />
             )}
-            {row.sourceKind === "epub" && row.storageKey && (
-              <EpubViewer fileUrl={fileUrl} />
-            )}
-            {row.sourceKind === "video" && row.storageKey && (
-              <VideoContent fileUrl={fileUrl} />
-            )}
+            {row.sourceKind === "epub" && row.storageKey && <EpubViewer fileUrl={fileUrl} />}
+            {row.sourceKind === "video" && row.storageKey && <VideoContent fileUrl={fileUrl} />}
             {row.sourceKind === "url" && (
               <UrlContent
                 resource={row}
@@ -464,9 +453,9 @@ function DownloadMenu({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = filenameFromContentDisposition(
-        res.headers.get("Content-Disposition"),
-      ) ?? `${slug}.${format}`;
+      a.download =
+        filenameFromContentDisposition(res.headers.get("Content-Disposition")) ??
+        `${slug}.${format}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -535,9 +524,7 @@ function DownloadMenu({
                 onClick={() => download(o.format)}
                 className="flex w-full items-start gap-2 px-3 py-2 text-left text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
               >
-                <span className="mt-0.5 text-slate-400 dark:text-slate-500">
-                  {o.icon}
-                </span>
+                <span className="mt-0.5 text-slate-400 dark:text-slate-500">{o.icon}</span>
                 <span className="flex-1">
                   <span className="block">{o.label}</span>
                   <span className="block text-[11px] text-slate-500 dark:text-slate-400">
@@ -553,9 +540,7 @@ function DownloadMenu({
   );
 }
 
-function filenameFromContentDisposition(
-  header: string | null,
-): string | null {
+function filenameFromContentDisposition(header: string | null): string | null {
   if (!header) return null;
   const match = /filename="?([^";]+)"?/i.exec(header);
   return match ? match[1] : null;
@@ -611,9 +596,7 @@ function EpubViewer({ fileUrl }: { fileUrl: string }) {
   const [ready, setReady] = React.useState(false);
 
   const isDark = React.useMemo(
-    () =>
-      typeof document !== "undefined" &&
-      document.documentElement.classList.contains("dark"),
+    () => typeof document !== "undefined" && document.documentElement.classList.contains("dark"),
     [],
   );
 
@@ -669,9 +652,7 @@ function EpubViewer({ fileUrl }: { fileUrl: string }) {
       try {
         const nav = await book.loaded.navigation;
         const flat: TocItem[] = [];
-        const walk = (
-          items: Array<{ href: string; label: string; subitems?: unknown[] }>,
-        ) => {
+        const walk = (items: Array<{ href: string; label: string; subitems?: unknown[] }>) => {
           for (const it of items) {
             flat.push({ href: it.href, label: (it.label ?? "").trim() });
             if (Array.isArray(it.subitems) && it.subitems.length) {
@@ -679,9 +660,7 @@ function EpubViewer({ fileUrl }: { fileUrl: string }) {
             }
           }
         };
-        walk(
-          (nav.toc ?? []) as Array<{ href: string; label: string; subitems?: unknown[] }>,
-        );
+        walk((nav.toc ?? []) as Array<{ href: string; label: string; subitems?: unknown[] }>);
         if (!cancelled) setToc(flat);
       } catch {
         // toc is a nice-to-have — silent fail keeps the reader usable
@@ -829,9 +808,7 @@ function UrlContent({
           <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
             Open original
           </div>
-          <div className="truncate text-xs text-slate-500 dark:text-slate-400">
-            {host}
-          </div>
+          <div className="truncate text-xs text-slate-500 dark:text-slate-400">{host}</div>
         </div>
         <span className="text-xs font-medium text-indigo-600 group-hover:translate-x-0.5 transition dark:text-indigo-300">
           Visit ↗
@@ -944,11 +921,9 @@ function ShareModal({
   onClose: () => void;
   onChanged?: () => void;
 }) {
-  const { toast } = useToast();
+  const { toast, background } = useToast();
   const [grants, setGrants] = React.useState<ResourceGrant[]>([]);
-  const [candidates, setCandidates] = React.useState<ResourceGrantCandidate[]>(
-    [],
-  );
+  const [candidates, setCandidates] = React.useState<ResourceGrantCandidate[]>([]);
   const [busy, setBusy] = React.useState(false);
 
   const reload = React.useCallback(async () => {
@@ -989,36 +964,55 @@ function ShareModal({
     }
   }
 
-  async function changeLevel(grant: ResourceGrant, next: ResourceAccessLevel) {
+  function changeLevel(grant: ResourceGrant, next: ResourceAccessLevel) {
     if (grant.accessLevel === next) return;
-    setBusy(true);
-    try {
-      await api.patch(
-        `/api/companies/${company.id}/resources/${resource.slug}/grants/${grant.id}`,
-        { accessLevel: next },
-      );
-      await reload();
-      onChanged?.();
-    } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
-    } finally {
-      setBusy(false);
-    }
+    setGrants((current) =>
+      current.map((item) => (item.id === grant.id ? { ...item, accessLevel: next } : item)),
+    );
+    background(
+      () =>
+        api.patch(`/api/companies/${company.id}/resources/${resource.slug}/grants/${grant.id}`, {
+          accessLevel: next,
+        }),
+      {
+        loading: "Updating resource access…",
+        error: (error) =>
+          `Couldn\u2019t update access: ${
+            error instanceof Error ? error.message : String(error)
+          }. The change was undone.`,
+        onSuccess: () => onChanged?.(),
+        onError: () => {
+          setGrants((current) => current.map((item) => (item.id === grant.id ? grant : item)));
+        },
+      },
+    );
   }
 
-  async function remove(grantId: string) {
-    setBusy(true);
-    try {
-      await api.del(
-        `/api/companies/${company.id}/resources/${resource.slug}/grants/${grantId}`,
-      );
-      await reload();
-      onChanged?.();
-    } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
-    } finally {
-      setBusy(false);
-    }
+  function remove(grantId: string) {
+    const grant = grants.find((item) => item.id === grantId);
+    if (!grant) return;
+    const originalIndex = grants.findIndex((item) => item.id === grantId);
+    setGrants((current) => current.filter((item) => item.id !== grantId));
+    background(
+      () => api.del(`/api/companies/${company.id}/resources/${resource.slug}/grants/${grantId}`),
+      {
+        loading: "Removing resource access…",
+        success: "Resource access removed",
+        error: (error) =>
+          `Couldn\u2019t remove access: ${
+            error instanceof Error ? error.message : String(error)
+          }. The grant has been restored.`,
+        onSuccess: () => onChanged?.(),
+        onError: () => {
+          setGrants((current) => {
+            if (current.some((item) => item.id === grantId)) return current;
+            const next = [...current];
+            next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, grant);
+            return next;
+          });
+        },
+      },
+    );
   }
 
   const ungranted = candidates.filter((c) => !c.alreadyGranted);
@@ -1027,16 +1021,14 @@ function ShareModal({
     <Modal open={open} onClose={onClose} title="Share with AI employees" size="lg">
       <div className="flex flex-col gap-5">
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Pick what each AI employee can do with this resource through its
-          MCP tools — <span className="font-medium">View only</span> reads
-          it, <span className="font-medium">Can edit</span> also modifies
-          it, <span className="font-medium">Can delete</span> can also
-          remove it. Authors keep full control of the rows they create.
+          Pick what each AI employee can do with this resource through its MCP tools —{" "}
+          <span className="font-medium">View only</span> reads it,{" "}
+          <span className="font-medium">Can edit</span> also modifies it,{" "}
+          <span className="font-medium">Can delete</span> can also remove it. Authors keep full
+          control of the rows they create.
         </p>
         <div>
-          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-            Has access
-          </h3>
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Has access</h3>
           {grants.length === 0 ? (
             <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
               No employees have access. Add one below.
@@ -1044,16 +1036,10 @@ function ShareModal({
           ) : (
             <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-700">
               {grants.map((g) => (
-                <li
-                  key={g.id}
-                  className="flex items-center justify-between gap-3 px-3 py-2"
-                >
+                <li key={g.id} className="flex items-center justify-between gap-3 px-3 py-2">
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
-                      <Check
-                        size={12}
-                        className="text-emerald-600 dark:text-emerald-400"
-                      />
+                      <Check size={12} className="text-emerald-600 dark:text-emerald-400" />
                       <span className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
                         {g.employee?.name ?? "Unknown"}
                       </span>
@@ -1095,10 +1081,7 @@ function ShareModal({
           ) : (
             <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-700">
               {ungranted.map((c) => (
-                <li
-                  key={c.id}
-                  className="flex items-center justify-between gap-2 px-3 py-2"
-                >
+                <li key={c.id} className="flex items-center justify-between gap-2 px-3 py-2">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
                       {c.name}
@@ -1124,11 +1107,7 @@ function ShareModal({
                     >
                       <Plus size={12} /> Edit
                     </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => add(c.id, "delete")}
-                      disabled={busy}
-                    >
+                    <Button size="sm" onClick={() => add(c.id, "delete")} disabled={busy}>
                       <Plus size={12} /> Delete
                     </Button>
                   </div>
@@ -1215,9 +1194,7 @@ function AccessLevelMenu({
                     {o.hint}
                   </span>
                 </span>
-                {level === o.value && (
-                  <Check size={12} className="mt-1 shrink-0" />
-                )}
+                {level === o.value && <Check size={12} className="mt-1 shrink-0" />}
               </button>
             ))}
           </div>

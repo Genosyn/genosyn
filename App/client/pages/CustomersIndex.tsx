@@ -28,7 +28,7 @@ import { CustomersOutletCtx } from "./CustomersLayout";
 export default function CustomersIndex() {
   const { company } = useOutletContext<CustomersOutletCtx>();
   const navigate = useNavigate();
-  const { toast } = useToast();
+  const { background } = useToast();
   const dialog = useDialog();
   const [customers, setCustomers] = React.useState<Customer[] | null>(null);
   const [showArchived, setShowArchived] = React.useState(false);
@@ -44,11 +44,44 @@ export default function CustomersIndex() {
     reload().catch(() => setCustomers([]));
   }, [reload]);
 
-  async function archive(c: Customer) {
-    await api.patch(`/api/companies/${company.id}/customers/${c.slug}`, {
-      archived: !c.archivedAt,
+  function archive(c: Customer) {
+    const archived = !c.archivedAt;
+    const originalIndex = customers?.findIndex((item) => item.id === c.id) ?? -1;
+    const optimistic = {
+      ...c,
+      archivedAt: archived ? new Date().toISOString() : null,
+    };
+    setCustomers((current) => {
+      if (!current) return current;
+      if (archived && !showArchived) return current.filter((item) => item.id !== c.id);
+      return current.map((item) => (item.id === c.id ? optimistic : item));
     });
-    reload();
+    background(
+      () =>
+        api.patch<Customer>(`/api/companies/${company.id}/customers/${c.slug}`, {
+          archived,
+        }),
+      {
+        loading: archived ? "Archiving customer…" : "Restoring customer…",
+        success: archived ? "Customer archived" : "Customer restored",
+        error: (error) =>
+          `Couldn\u2019t update the customer: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }. The change was undone.`,
+        onSuccess: () => void reload(),
+        onError: () => {
+          setCustomers((current) => {
+            if (!current) return current;
+            if (current.some((item) => item.id === c.id)) {
+              return current.map((item) => (item.id === c.id ? c : item));
+            }
+            const next = [...current];
+            next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, c);
+            return next;
+          });
+        },
+      },
+    );
   }
 
   async function remove(c: Customer) {
@@ -59,12 +92,24 @@ export default function CustomersIndex() {
       confirmLabel: "Delete",
     });
     if (!confirmed) return;
-    try {
-      await api.del(`/api/companies/${company.id}/customers/${c.slug}`);
-      reload();
-    } catch (e) {
-      toast((e as Error).message, "error");
-    }
+    const originalIndex = customers?.findIndex((item) => item.id === c.id) ?? -1;
+    setCustomers((current) => current?.filter((item) => item.id !== c.id) ?? current);
+    background(() => api.del(`/api/companies/${company.id}/customers/${c.slug}`), {
+      loading: "Deleting customer…",
+      success: "Customer deleted",
+      error: (error) =>
+        `Couldn\u2019t delete the customer: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. It has been restored.`,
+      onError: () => {
+        setCustomers((current) => {
+          if (!current || current.some((item) => item.id === c.id)) return current;
+          const next = [...current];
+          next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, c);
+          return next;
+        });
+      },
+    });
   }
 
   return (
@@ -73,9 +118,7 @@ export default function CustomersIndex() {
         <Breadcrumbs items={[{ label: "Customers" }]} />
       </div>
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-          Customers
-        </h1>
+        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Customers</h1>
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
             <input
@@ -113,79 +156,73 @@ export default function CustomersIndex() {
       ) : (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-              <tr>
-                <th className="px-4 py-2 text-left font-medium">Name</th>
-                <th className="px-4 py-2 text-left font-medium">Email</th>
-                <th className="px-4 py-2 text-left font-medium">Contacts</th>
-                <th className="px-4 py-2 text-right font-medium">
-                  Annual contract value
-                </th>
-                <th className="px-4 py-2 text-left font-medium">Currency</th>
-                <th className="px-4 py-2 text-right font-medium">&nbsp;</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {customers.map((c) => (
-                <tr key={c.id} className={c.archivedAt ? "opacity-60" : ""}>
-                  <td className="px-4 py-3">
-                    <Link
-                      to={`/c/${company.slug}/customers/${c.slug}`}
-                      className="font-medium text-slate-900 hover:text-indigo-600 hover:underline dark:text-slate-100 dark:hover:text-indigo-400"
-                    >
-                      {c.name}
-                    </Link>
-                    {c.taxNumber && (
-                      <div className="text-xs text-slate-500 dark:text-slate-400">
-                        Tax #: {c.taxNumber}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
-                    {c.email ? (
-                      <span className="inline-flex items-center gap-1">
-                        <Mail size={12} /> {c.email}
-                      </span>
-                    ) : (
-                      <span className="text-slate-400">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
-                    {c.contacts.length > 0 ? (
-                      <span className="inline-flex items-center gap-1 text-xs">
-                        <Users size={12} /> {c.contacts.length}
-                      </span>
-                    ) : (
-                      <span className="text-slate-400">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-slate-700 dark:text-slate-200">
-                    {c.annualContractValueCents > 0 ? (
-                      formatMoney(c.annualContractValueCents, c.currency)
-                    ) : (
-                      <span className="text-slate-400">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">
-                    {c.currency}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <RowMenu
-                      onEdit={() =>
-                        navigate(
-                          `/c/${company.slug}/customers/${c.slug}/edit`,
-                        )
-                      }
-                      onArchive={() => archive(c)}
-                      onDelete={() => remove(c)}
-                      archived={!!c.archivedAt}
-                    />
-                  </td>
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                <tr>
+                  <th className="px-4 py-2 text-left font-medium">Name</th>
+                  <th className="px-4 py-2 text-left font-medium">Email</th>
+                  <th className="px-4 py-2 text-left font-medium">Contacts</th>
+                  <th className="px-4 py-2 text-right font-medium">Annual contract value</th>
+                  <th className="px-4 py-2 text-left font-medium">Currency</th>
+                  <th className="px-4 py-2 text-right font-medium">&nbsp;</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {customers.map((c) => (
+                  <tr key={c.id} className={c.archivedAt ? "opacity-60" : ""}>
+                    <td className="px-4 py-3">
+                      <Link
+                        to={`/c/${company.slug}/customers/${c.slug}`}
+                        className="font-medium text-slate-900 hover:text-indigo-600 hover:underline dark:text-slate-100 dark:hover:text-indigo-400"
+                      >
+                        {c.name}
+                      </Link>
+                      {c.taxNumber && (
+                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                          Tax #: {c.taxNumber}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                      {c.email ? (
+                        <span className="inline-flex items-center gap-1">
+                          <Mail size={12} /> {c.email}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                      {c.contacts.length > 0 ? (
+                        <span className="inline-flex items-center gap-1 text-xs">
+                          <Users size={12} /> {c.contacts.length}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-slate-700 dark:text-slate-200">
+                      {c.annualContractValueCents > 0 ? (
+                        formatMoney(c.annualContractValueCents, c.currency)
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">
+                      {c.currency}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <RowMenu
+                        onEdit={() => navigate(`/c/${company.slug}/customers/${c.slug}/edit`)}
+                        onArchive={() => archive(c)}
+                        onDelete={() => remove(c)}
+                        archived={!!c.archivedAt}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

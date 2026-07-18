@@ -18,12 +18,7 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
-import {
-  api,
-  ConnectionGrant,
-  IntegrationCatalogEntry,
-  IntegrationConnection,
-} from "../lib/api";
+import { api, ConnectionGrant, IntegrationCatalogEntry, IntegrationConnection } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
@@ -62,7 +57,7 @@ function useCtx(): EmployeeOutletCtx {
 
 export function EmployeeConnections() {
   const { company, emp } = useCtx();
-  const { toast } = useToast();
+  const { toast, background } = useToast();
   const dialog = useDialog();
 
   const [grants, setGrants] = React.useState<ConnectionGrant[] | null>(null);
@@ -76,12 +71,8 @@ export function EmployeeConnections() {
         api.get<ConnectionGrant[]>(
           `/api/companies/${company.id}/integrations/employees/${emp.id}/grants`,
         ),
-        api.get<IntegrationCatalogEntry[]>(
-          `/api/companies/${company.id}/integrations/catalog`,
-        ),
-        api.get<IntegrationConnection[]>(
-          `/api/companies/${company.id}/integrations/connections`,
-        ),
+        api.get<IntegrationCatalogEntry[]>(`/api/companies/${company.id}/integrations/catalog`),
+        api.get<IntegrationConnection[]>(`/api/companies/${company.id}/integrations/connections`),
       ]);
       setGrants(g);
       setCatalog(cat);
@@ -104,15 +95,30 @@ export function EmployeeConnections() {
       variant: "danger",
     });
     if (!ok) return;
-    try {
-      await api.del(
-        `/api/companies/${company.id}/integrations/employees/${emp.id}/grants/${grant.connectionId}`,
-      );
-      setGrants((prev) => (prev ?? []).filter((g) => g.id !== grant.id));
-      toast("Revoked", "success");
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+    const originalIndex = grants?.findIndex((item) => item.id === grant.id) ?? -1;
+    setGrants((current) => current?.filter((item) => item.id !== grant.id) ?? current);
+    background(
+      () =>
+        api.del(
+          `/api/companies/${company.id}/integrations/employees/${emp.id}/grants/${grant.connectionId}`,
+        ),
+      {
+        loading: "Revoking Connection access…",
+        success: "Access revoked",
+        error: (error) =>
+          `Couldn\u2019t revoke access: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }. The grant has been restored.`,
+        onError: () => {
+          setGrants((current) => {
+            if (!current || current.some((item) => item.id === grant.id)) return current;
+            const next = [...current];
+            next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, grant);
+            return next;
+          });
+        },
+      },
+    );
   }
 
   const grantedIds = React.useMemo(
@@ -169,7 +175,7 @@ export function EmployeeConnections() {
           <ul className="divide-y divide-slate-100 dark:divide-slate-800">
             {grants.map((g) => {
               const entry = catalog.find((e) => e.provider === g.connection.provider);
-              const Icon = entry ? ICONS[entry.icon] ?? Plug : Plug;
+              const Icon = entry ? (ICONS[entry.icon] ?? Plug) : Plug;
               return (
                 <li key={g.id} className="flex items-center gap-3 py-3">
                   <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
@@ -178,7 +184,10 @@ export function EmployeeConnections() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 text-sm font-medium">
                       <span className="truncate">{g.connection.label}</span>
-                      <StatusBadge status={g.connection.status} message={g.connection.statusMessage} />
+                      <StatusBadge
+                        status={g.connection.status}
+                        message={g.connection.statusMessage}
+                      />
                     </div>
                     <div className="truncate text-xs text-slate-500 dark:text-slate-400">
                       {entry?.name ?? g.connection.provider} · {g.connection.accountHint || "—"}
@@ -258,13 +267,14 @@ function GrantPickerModal({
     <Modal open={open} onClose={onClose} title="Grant access to a connection" size="lg">
       {options.length === 0 ? (
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          Every company connection is already granted to this employee. Add more in Settings → Integrations.
+          Every company connection is already granted to this employee. Add more in Settings →
+          Integrations.
         </p>
       ) : (
         <ul className="flex flex-col gap-2">
           {options.map((c) => {
             const entry = catalog.find((e) => e.provider === c.provider);
-            const Icon = entry ? ICONS[entry.icon] ?? Plug : Plug;
+            const Icon = entry ? (ICONS[entry.icon] ?? Plug) : Plug;
             return (
               <li key={c.id}>
                 <button

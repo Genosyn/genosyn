@@ -48,7 +48,7 @@ const VIEW_TITLES: Record<MailThreadView, string> = {
 export default function MailThreadList() {
   const { company, account, labels, changeTick, syncing, syncNow, openCompose } =
     useOutletContext<MailOutletCtx>();
-  const { toast } = useToast();
+  const { toast, background } = useToast();
   const [params, setParams] = useSearchParams();
   const view = (params.get("view") ?? "inbox") as MailThreadView;
   const label = params.get("label") ?? "";
@@ -120,13 +120,35 @@ export default function MailThreadList() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
 
-  const act = async (thread: MailThread, action: ThreadActionName) => {
-    try {
-      await mailApi.threadAction(company.id, thread.id, action);
-      await load(false);
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+  const act = (thread: MailThread, action: ThreadActionName) => {
+    const originalIndex = threads?.findIndex((row) => row.id === thread.id) ?? -1;
+    setThreads((current) =>
+      current ? applyThreadAction(current, thread.id, action, view) : current,
+    );
+
+    background(() => mailApi.threadAction(company.id, thread.id, action), {
+      loading: "Updating email…",
+      error: (error) =>
+        `Couldn\u2019t update the email: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. The change was undone.`,
+      onSuccess: ({ thread: updated }) => {
+        if (!updated) return;
+        setThreads(
+          (current) => current?.map((row) => (row.id === updated.id ? updated : row)) ?? current,
+        );
+      },
+      onError: () => {
+        setThreads((current) => {
+          if (!current || current.some((row) => row.id === thread.id)) {
+            return current?.map((row) => (row.id === thread.id ? thread : row)) ?? current;
+          }
+          const next = [...current];
+          next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, thread);
+          return next;
+        });
+      },
+    });
   };
 
   const labelName = label ? (labels.find((l) => l.gmailLabelId === label)?.name ?? label) : null;
@@ -459,7 +481,7 @@ function ThreadRow({
   thread: MailThread;
   companySlug: string;
   highlightTerms: string[];
-  onAction: (t: MailThread, action: ThreadActionName) => Promise<void>;
+  onAction: (t: MailThread, action: ThreadActionName) => void;
 }) {
   const starred = thread.labelIds.includes("STARRED");
   const inTrash = thread.labelIds.includes("TRASH");
@@ -551,6 +573,42 @@ function ThreadRow({
       </div>
     </li>
   );
+}
+
+function applyThreadAction(
+  rows: MailThread[],
+  threadId: string,
+  action: ThreadActionName,
+  view: MailThreadView,
+): MailThread[] {
+  const removeFromView =
+    (action === "archive" && view === "inbox") ||
+    (action === "unstar" && view === "starred") ||
+    (action === "trash" && view !== "trash") ||
+    (action === "untrash" && view === "trash");
+  if (removeFromView) return rows.filter((row) => row.id !== threadId);
+
+  return rows.map((row) => {
+    if (row.id !== threadId) return row;
+    const labels = new Set(row.labelIds);
+    if (action === "star") labels.add("STARRED");
+    if (action === "unstar") labels.delete("STARRED");
+    if (action === "archive") labels.delete("INBOX");
+    if (action === "moveToInbox") {
+      labels.add("INBOX");
+      labels.delete("TRASH");
+    }
+    if (action === "trash") {
+      labels.add("TRASH");
+      labels.delete("INBOX");
+    }
+    if (action === "untrash") labels.delete("TRASH");
+    return {
+      ...row,
+      labelIds: [...labels],
+      unread: action === "markRead" ? false : action === "markUnread" ? true : row.unread,
+    };
+  });
 }
 
 function RowAction({

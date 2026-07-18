@@ -93,7 +93,7 @@ function useCtx(): SettingsOutletCtx {
 
 export function SettingsIntegrations() {
   const { company } = useCtx();
-  const { toast } = useToast();
+  const { toast, background } = useToast();
   const dialog = useDialog();
 
   const [catalog, setCatalog] = React.useState<IntegrationCatalogEntry[] | null>(null);
@@ -112,12 +112,8 @@ export function SettingsIntegrations() {
   const reload = React.useCallback(async () => {
     try {
       const [cat, conns] = await Promise.all([
-        api.get<IntegrationCatalogEntry[]>(
-          `/api/companies/${company.id}/integrations/catalog`,
-        ),
-        api.get<IntegrationConnection[]>(
-          `/api/companies/${company.id}/integrations/connections`,
-        ),
+        api.get<IntegrationCatalogEntry[]>(`/api/companies/${company.id}/integrations/catalog`),
+        api.get<IntegrationConnection[]>(`/api/companies/${company.id}/integrations/connections`),
       ]);
       setCatalog(cat);
       setConnections(conns);
@@ -136,7 +132,12 @@ export function SettingsIntegrations() {
   // (this page). Refresh the list on success so the new connection appears.
   React.useEffect(() => {
     function handler(ev: MessageEvent) {
-      const data = ev.data as { source?: string; ok?: boolean; title?: string; detail?: string } | null;
+      const data = ev.data as {
+        source?: string;
+        ok?: boolean;
+        title?: string;
+        detail?: string;
+      } | null;
       if (!data || data.source !== "genosyn-oauth") return;
       if (data.ok) {
         toast(data.title ?? "Connected", "success");
@@ -150,11 +151,13 @@ export function SettingsIntegrations() {
   }, [reload, toast]);
 
   const groupedCatalog = React.useMemo(() => {
-    if (!catalog) return [] as Array<{ category: IntegrationCategory; entries: IntegrationCatalogEntry[] }>;
+    if (!catalog)
+      return [] as Array<{ category: IntegrationCategory; entries: IntegrationCatalogEntry[] }>;
     const needle = search.trim().toLowerCase();
     const filtered = needle
       ? catalog.filter((e) => {
-          const hay = `${e.name} ${e.tagline} ${e.description ?? ""} ${e.provider} ${e.category}`.toLowerCase();
+          const hay =
+            `${e.name} ${e.tagline} ${e.description ?? ""} ${e.provider} ${e.category}`.toLowerCase();
           return hay.includes(needle);
         })
       : catalog;
@@ -213,9 +216,7 @@ export function SettingsIntegrations() {
       const updated = await api.post<IntegrationConnection>(
         `/api/companies/${company.id}/integrations/connections/${conn.id}/check`,
       );
-      setConnections((prev) =>
-        (prev ?? []).map((c) => (c.id === updated.id ? updated : c)),
-      );
+      setConnections((prev) => (prev ?? []).map((c) => (c.id === updated.id ? updated : c)));
       if (updated.status === "connected") {
         toast("Connection is healthy", "success");
       } else {
@@ -239,18 +240,37 @@ export function SettingsIntegrations() {
     if (next === null) return;
     const trimmed = next.trim();
     if (trimmed === conn.label) return;
-    try {
-      const updated = await api.patch<IntegrationConnection>(
-        `/api/companies/${company.id}/integrations/connections/${conn.id}`,
-        { label: trimmed },
-      );
-      setConnections((prev) =>
-        (prev ?? []).map((c) => (c.id === updated.id ? updated : c)),
-      );
-      toast("Connection renamed", "success");
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+    setConnections(
+      (current) =>
+        current?.map((item) => (item.id === conn.id ? { ...item, label: trimmed } : item)) ??
+        current,
+    );
+    background(
+      () =>
+        api.patch<IntegrationConnection>(
+          `/api/companies/${company.id}/integrations/connections/${conn.id}`,
+          { label: trimmed },
+        ),
+      {
+        loading: "Renaming Connection…",
+        success: "Connection renamed",
+        error: (error) =>
+          `Couldn\u2019t rename the Connection: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }. The previous name has been restored.`,
+        onSuccess: (updated) => {
+          setConnections(
+            (current) =>
+              current?.map((item) => (item.id === updated.id ? updated : item)) ?? current,
+          );
+        },
+        onError: () => {
+          setConnections(
+            (current) => current?.map((item) => (item.id === conn.id ? conn : item)) ?? current,
+          );
+        },
+      },
+    );
   }
 
   async function removeConnection(conn: IntegrationConnection) {
@@ -262,13 +282,24 @@ export function SettingsIntegrations() {
       variant: "danger",
     });
     if (!ok) return;
-    try {
-      await api.del(`/api/companies/${company.id}/integrations/connections/${conn.id}`);
-      setConnections((prev) => (prev ?? []).filter((c) => c.id !== conn.id));
-      toast("Disconnected", "success");
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+    const originalIndex = connections?.findIndex((item) => item.id === conn.id) ?? -1;
+    setConnections((current) => current?.filter((item) => item.id !== conn.id) ?? current);
+    background(() => api.del(`/api/companies/${company.id}/integrations/connections/${conn.id}`), {
+      loading: "Disconnecting…",
+      success: "Disconnected",
+      error: (error) =>
+        `Couldn\u2019t disconnect: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. The Connection has been restored.`,
+      onError: () => {
+        setConnections((current) => {
+          if (!current || current.some((item) => item.id === conn.id)) return current;
+          const next = [...current];
+          next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, conn);
+          return next;
+        });
+      },
+    });
   }
 
   return (
@@ -280,7 +311,8 @@ export function SettingsIntegrations() {
           <CardHeader>
             <h2 className="text-sm font-semibold">Your connections</h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Third-party accounts your AI employees can access once granted. Credentials are encrypted at rest.
+              Third-party accounts your AI employees can access once granted. Credentials are
+              encrypted at rest.
             </p>
           </CardHeader>
           <CardBody>
@@ -295,7 +327,7 @@ export function SettingsIntegrations() {
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                 {connections.map((c) => {
                   const entry = catalog?.find((e) => e.provider === c.provider);
-                  const Icon = entry ? ICONS[entry.icon] ?? Plug : Plug;
+                  const Icon = entry ? (ICONS[entry.icon] ?? Plug) : Plug;
                   return (
                     <li key={c.id} className="flex items-center gap-3 py-3">
                       <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
@@ -482,8 +514,7 @@ export function SettingsIntegrations() {
           (reconnecting !== null && reconnecting.conn.authMode === "apikey")
         }
         entry={
-          addingApiKey ??
-          (reconnecting?.conn.authMode === "apikey" ? reconnecting.entry : null)
+          addingApiKey ?? (reconnecting?.conn.authMode === "apikey" ? reconnecting.entry : null)
         }
         reconnect={
           reconnecting?.conn.authMode === "apikey"
@@ -674,16 +705,11 @@ function ManageAccessModal({
   if (!connection) return null;
 
   const entry = catalog.find((e) => e.provider === connection.provider);
-  const Icon = entry ? ICONS[entry.icon] ?? Plug : Plug;
+  const Icon = entry ? (ICONS[entry.icon] ?? Plug) : Plug;
   const ready = employees !== null && grants !== null;
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={`Manage access · ${connection.label}`}
-      size="lg"
-    >
+    <Modal open={open} onClose={onClose} title={`Manage access · ${connection.label}`} size="lg">
       <div className="flex flex-col gap-4">
         <div className="flex items-start gap-3 rounded-lg bg-slate-50 p-3 dark:bg-slate-800/60">
           <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-slate-700 shadow-sm dark:bg-slate-900 dark:text-slate-200">
@@ -699,7 +725,8 @@ function ManageAccessModal({
               )}
             </div>
             <p className="mt-0.5">
-              Pick which AI employees can use this connection through their MCP tools on the next spawn.
+              Pick which AI employees can use this connection through their MCP tools on the next
+              spawn.
             </p>
           </div>
         </div>
@@ -760,11 +787,7 @@ function ManageAccessModal({
                       </Button>
                     </div>
                   ) : (
-                    <Button
-                      size="sm"
-                      onClick={() => grant(emp)}
-                      disabled={isBusy}
-                    >
+                    <Button size="sm" onClick={() => grant(emp)} disabled={isBusy}>
                       Grant access
                     </Button>
                   )}
@@ -856,9 +879,7 @@ function ApiKeyModal({
   if (!entry || entry.authMode !== "apikey") return null;
 
   const isReconnect = reconnect !== null;
-  const title = isReconnect
-    ? `Reconnect ${reconnect.label}`
-    : `Connect ${entry.name}`;
+  const title = isReconnect ? `Reconnect ${reconnect.label}` : `Connect ${entry.name}`;
 
   return (
     <Modal open={open} onClose={onClose} title={title} size="lg">
@@ -1053,15 +1074,24 @@ function OauthOrServiceAccountModal({
       // non-empty stored selection, prefill from that. Legacy connections
       // (empty stored array) fall back to "all" so the user sees the
       // current grant rather than an empty list.
-      const allGroupKeys = (
-        initialMode === "oauth"
+      const allGroupKeys =
+        (initialMode === "oauth"
           ? entry.oauth?.scopeGroups
           : entry.serviceAccount?.scopeGroups
-      )?.map((g) => g.key) ?? [];
+        )?.map((g) => g.key) ?? [];
       const stored = reconnect?.scopeGroups ?? [];
       setSelectedScopeGroups(stored.length > 0 ? stored : allGroupKeys);
     }
-  }, [open, entry, supportsOauth, supportsSa, supportsGithubApp, supportsBrowser, isReconnect, reconnect]);
+  }, [
+    open,
+    entry,
+    supportsOauth,
+    supportsSa,
+    supportsGithubApp,
+    supportsBrowser,
+    isReconnect,
+    reconnect,
+  ]);
 
   if (!entry) return null;
 
@@ -1084,9 +1114,7 @@ function OauthOrServiceAccountModal({
               clientId: clientId.trim(),
               clientSecret: clientSecret.trim(),
               scopeGroups: selectedScopeGroups,
-              ...(entry.oauth?.extraFields?.length
-                ? { extraFields: oauthExtraFields }
-                : {}),
+              ...(entry.oauth?.extraFields?.length ? { extraFields: oauthExtraFields } : {}),
             },
           );
       const popup = window.open(authorizeUrl, "genosyn-oauth", "width=520,height=700");
@@ -1141,16 +1169,13 @@ function OauthOrServiceAccountModal({
         );
         toast(`${entry.name} reconnected`, "success");
       } else {
-        await api.post(
-          `/api/companies/${companyId}/integrations/connections/github-app`,
-          {
-            provider: entry.provider,
-            label: label.trim() || entry.name,
-            appId: appId.trim(),
-            privateKey: appPrivateKey.trim(),
-            installationId: selectedInstallationId.trim(),
-          },
-        );
+        await api.post(`/api/companies/${companyId}/integrations/connections/github-app`, {
+          provider: entry.provider,
+          label: label.trim() || entry.name,
+          appId: appId.trim(),
+          privateKey: appPrivateKey.trim(),
+          installationId: selectedInstallationId.trim(),
+        });
         toast(`${entry.name} connected`, "success");
       }
       onSaved();
@@ -1192,14 +1217,11 @@ function OauthOrServiceAccountModal({
         );
         toast(`${entry.name} reconnected`, "success");
       } else {
-        await api.post(
-          `/api/companies/${companyId}/integrations/connections/browser-login`,
-          {
-            provider: entry.provider,
-            label: label.trim() || entry.name,
-            fields: browserFields,
-          },
-        );
+        await api.post(`/api/companies/${companyId}/integrations/connections/browser-login`, {
+          provider: entry.provider,
+          label: label.trim() || entry.name,
+          fields: browserFields,
+        });
         toast(`${entry.name} connected`, "success");
       }
       onSaved();
@@ -1226,16 +1248,13 @@ function OauthOrServiceAccountModal({
         );
         toast(`${entry.name} reconnected`, "success");
       } else {
-        await api.post(
-          `/api/companies/${companyId}/integrations/connections/service-account`,
-          {
-            provider: entry.provider,
-            label: label.trim() || entry.name,
-            keyJson,
-            impersonationEmail: impersonationEmail.trim() || undefined,
-            scopeGroups: selectedScopeGroups,
-          },
-        );
+        await api.post(`/api/companies/${companyId}/integrations/connections/service-account`, {
+          provider: entry.provider,
+          label: label.trim() || entry.name,
+          keyJson,
+          impersonationEmail: impersonationEmail.trim() || undefined,
+          scopeGroups: selectedScopeGroups,
+        });
         toast(`${entry.name} connected`, "success");
       }
       onSaved();
@@ -1436,7 +1455,8 @@ function OauthOrServiceAccountModal({
                     className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-mono shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
                   />
                   <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                    Encrypted at rest with the app&apos;s session secret. Used to refresh access tokens.
+                    Encrypted at rest with the app&apos;s session secret. Used to refresh access
+                    tokens.
                   </p>
                 </div>
                 {(entry.oauth?.extraFields ?? []).map((f) => (
@@ -1484,11 +1504,7 @@ function OauthOrServiceAccountModal({
                   (!isReconnect && (!clientId.trim() || !clientSecret.trim()))
                 }
               >
-                {busy
-                  ? "Starting…"
-                  : isReconnect
-                    ? "Reconnect"
-                    : `Connect with ${entry.name}`}
+                {busy ? "Starting…" : isReconnect ? "Reconnect" : `Connect with ${entry.name}`}
               </Button>
             </div>
           </form>
@@ -1499,11 +1515,14 @@ function OauthOrServiceAccountModal({
             <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300">
               <p className="font-medium">Service account JSON key</p>
               <p className="mt-1">
-                Google Cloud Console → IAM &amp; Admin → Service Accounts → pick or create one → Keys → Add key → JSON. Paste the entire downloaded file below.
+                Google Cloud Console → IAM &amp; Admin → Service Accounts → pick or create one →
+                Keys → Add key → JSON. Paste the entire downloaded file below.
               </p>
               {entry.serviceAccount?.impersonation && (
                 <p className="mt-2">
-                  Service accounts can&apos;t read personal Gmail. To act on a Workspace user&apos;s mailbox, set <em>domain-wide delegation</em> in the Workspace Admin Console (Security → API controls) and provide the user&apos;s email below.
+                  Service accounts can&apos;t read personal Gmail. To act on a Workspace user&apos;s
+                  mailbox, set <em>domain-wide delegation</em> in the Workspace Admin Console
+                  (Security → API controls) and provide the user&apos;s email below.
                 </p>
               )}
             </div>
@@ -1554,11 +1573,7 @@ function OauthOrServiceAccountModal({
                 type="submit"
                 disabled={busy || !keyJson.trim() || selectedScopeGroups.length === 0}
               >
-                {busy
-                  ? "Validating…"
-                  : isReconnect
-                    ? "Reconnect"
-                    : "Save service account"}
+                {busy ? "Validating…" : isReconnect ? "Reconnect" : "Save service account"}
               </Button>
             </div>
           </form>
@@ -1570,17 +1585,13 @@ function OauthOrServiceAccountModal({
               <p className="font-medium">Register a GitHub App first</p>
               <ol className="mt-1 list-decimal space-y-0.5 pl-4">
                 <li>
-                  github.com/settings/apps → New GitHub App. Pick repository
-                  permissions: <em>Contents: Read &amp; write</em>,{" "}
-                  <em>Pull requests: Read &amp; write</em>,{" "}
-                  <em>Issues: Read &amp; write</em>, plus{" "}
-                  <em>Workflows: Read &amp; write</em> if the AI edits CI.
+                  github.com/settings/apps → New GitHub App. Pick repository permissions:{" "}
+                  <em>Contents: Read &amp; write</em>, <em>Pull requests: Read &amp; write</em>,{" "}
+                  <em>Issues: Read &amp; write</em>, plus <em>Workflows: Read &amp; write</em> if
+                  the AI edits CI.
                 </li>
                 <li>Generate a private key and download the .pem file.</li>
-                <li>
-                  Install the App on the org or user that owns the target
-                  repos.
-                </li>
+                <li>Install the App on the org or user that owns the target repos.</li>
                 <li>Paste the App ID and the .pem contents below.</li>
               </ol>
             </div>
@@ -1644,8 +1655,8 @@ function OauthOrServiceAccountModal({
             {appDiscovery ? (
               appDiscovery.installations.length === 0 ? (
                 <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
-                  This App has no installations yet. Install it on the org or
-                  user that owns the repos you want, then click Discover again.
+                  This App has no installations yet. Install it on the org or user that owns the
+                  repos you want, then click Discover again.
                 </div>
               ) : (
                 <div>
@@ -1675,10 +1686,7 @@ function OauthOrServiceAccountModal({
               <Button
                 type="submit"
                 disabled={
-                  busy ||
-                  !appId.trim() ||
-                  !appPrivateKey.trim() ||
-                  !selectedInstallationId.trim()
+                  busy || !appId.trim() || !appPrivateKey.trim() || !selectedInstallationId.trim()
                 }
               >
                 {busy ? "Saving…" : isReconnect ? "Reconnect" : "Connect"}
@@ -1692,7 +1700,14 @@ function OauthOrServiceAccountModal({
             <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300">
               <p className="font-medium">Personal Access Token</p>
               <p className="mt-1">
-                Headless setups (CI / scripts) where running the OAuth consent flow isn&apos;t practical. Generate a fine-grained token at github.com/settings/personal-access-tokens scoped to the repos and orgs you trust — the token needs <code className="rounded bg-slate-100 px-1 py-0.5 font-mono dark:bg-slate-800">repo</code> at minimum to clone and push.
+                Headless setups (CI / scripts) where running the OAuth consent flow isn&apos;t
+                practical. Generate a fine-grained token at
+                github.com/settings/personal-access-tokens scoped to the repos and orgs you trust —
+                the token needs{" "}
+                <code className="rounded bg-slate-100 px-1 py-0.5 font-mono dark:bg-slate-800">
+                  repo
+                </code>{" "}
+                at minimum to clone and push.
               </p>
             </div>
             <Input
@@ -1794,7 +1809,7 @@ function OauthOrServiceAccountModal({
                 disabled={
                   busy ||
                   (entry.browserLogin?.fields ?? []).some(
-                    (f) => f.required && !((browserFields[f.key] ?? "").trim()),
+                    (f) => f.required && !(browserFields[f.key] ?? "").trim(),
                   )
                 }
               >
@@ -1854,9 +1869,7 @@ function RepoAllowlistModal({
         const data = await api.get<{
           allowed: GithubRepoRow[];
           discoverable: GithubRepoRow[];
-        }>(
-          `/api/companies/${companyId}/integrations/connections/${connection.id}/github/repos`,
-        );
+        }>(`/api/companies/${companyId}/integrations/connections/${connection.id}/github/repos`);
         if (cancelled) return;
         setAllowed(data.allowed);
         setDiscoverable(data.discoverable);
@@ -1875,10 +1888,7 @@ function RepoAllowlistModal({
     (r: GithubRepoRow) => `${r.owner.toLowerCase()}/${r.name.toLowerCase()}`,
     [],
   );
-  const allowedSet = React.useMemo(
-    () => new Set(allowed.map(allowedKey)),
-    [allowed, allowedKey],
-  );
+  const allowedSet = React.useMemo(() => new Set(allowed.map(allowedKey)), [allowed, allowedKey]);
 
   function toggle(repo: GithubRepoRow) {
     const key = allowedKey(repo);
@@ -1923,9 +1933,7 @@ function RepoAllowlistModal({
     if (!discoverable) return null;
     const q = search.trim().toLowerCase();
     if (!q) return discoverable;
-    return discoverable.filter((r) =>
-      `${r.owner}/${r.name}`.toLowerCase().includes(q),
-    );
+    return discoverable.filter((r) => `${r.owner}/${r.name}`.toLowerCase().includes(q));
   }, [discoverable, search]);
 
   return (
@@ -1937,11 +1945,14 @@ function RepoAllowlistModal({
     >
       <div className="flex flex-col gap-3">
         <p className="rounded-md bg-slate-50 p-3 text-xs text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
-          AI employees with a grant on this Connection get every selected repo
-          cloned into their working directory before each spawn. They use
-          plain <code className="rounded bg-slate-100 px-1 py-0.5 font-mono dark:bg-slate-900">git</code> to
-          branch, commit, and push, and the <code className="rounded bg-slate-100 px-1 py-0.5 font-mono dark:bg-slate-900">create_pull_request</code> tool
-          to ship work back as a PR.
+          AI employees with a grant on this Connection get every selected repo cloned into their
+          working directory before each spawn. They use plain{" "}
+          <code className="rounded bg-slate-100 px-1 py-0.5 font-mono dark:bg-slate-900">git</code>{" "}
+          to branch, commit, and push, and the{" "}
+          <code className="rounded bg-slate-100 px-1 py-0.5 font-mono dark:bg-slate-900">
+            create_pull_request
+          </code>{" "}
+          tool to ship work back as a PR.
         </p>
 
         {loadError ? (
@@ -2046,7 +2057,13 @@ function ScopeGroupPicker({
   selected,
   onToggle,
 }: {
-  groups: { key: string; label: string; description: string; required?: boolean; workspaceOnly?: boolean }[];
+  groups: {
+    key: string;
+    label: string;
+    description: string;
+    required?: boolean;
+    workspaceOnly?: boolean;
+  }[];
   selected: string[];
   onToggle: (key: string) => void;
 }) {

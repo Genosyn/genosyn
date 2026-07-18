@@ -1,9 +1,26 @@
 import React from "react";
+import { Loader2 } from "lucide-react";
 
-type Toast = { id: number; message: string; kind: "info" | "error" | "success" };
-type Ctx = { toast: (m: string, k?: Toast["kind"]) => void };
+type ToastKind = "info" | "error" | "success" | "loading";
+type Toast = { id: number; message: string; kind: ToastKind };
 
-const ToastContext = React.createContext<Ctx>({ toast: () => {} });
+type BackgroundActionOptions<T> = {
+  loading: string;
+  success?: string | ((result: T) => string | null);
+  error?: string | ((error: unknown) => string);
+  onSuccess?: (result: T) => void;
+  onError?: (error: unknown) => void;
+};
+
+type Ctx = {
+  toast: (message: string, kind?: Exclude<ToastKind, "loading">) => void;
+  background: <T>(action: () => Promise<T>, options: BackgroundActionOptions<T>) => void;
+};
+
+const ToastContext = React.createContext<Ctx>({
+  toast: () => {},
+  background: () => {},
+});
 
 export function useToast() {
   return React.useContext(ToastContext);
@@ -11,18 +28,68 @@ export function useToast() {
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = React.useState<Toast[]>([]);
-  const toast = React.useCallback((message: string, kind: Toast["kind"] = "info") => {
-    const id = Date.now() + Math.random();
-    setItems((prev) => [...prev, { id, message, kind }]);
-    setTimeout(() => setItems((prev) => prev.filter((t) => t.id !== id)), 3500);
+  const dismissLater = React.useCallback((id: number, delay = 3500) => {
+    window.setTimeout(() => {
+      setItems((prev) => prev.filter((item) => item.id !== id));
+    }, delay);
   }, []);
+
+  const toast = React.useCallback(
+    (message: string, kind: Exclude<ToastKind, "loading"> = "info") => {
+      const id = Date.now() + Math.random();
+      setItems((prev) => [...prev, { id, message, kind }]);
+      dismissLater(id);
+    },
+    [dismissLater],
+  );
+
+  const background = React.useCallback(
+    <T,>(action: () => Promise<T>, options: BackgroundActionOptions<T>) => {
+      const id = Date.now() + Math.random();
+      setItems((prev) => [...prev, { id, message: options.loading, kind: "loading" }]);
+
+      void Promise.resolve()
+        .then(action)
+        .then((result) => {
+          options.onSuccess?.(result);
+          const message =
+            typeof options.success === "function" ? options.success(result) : options.success;
+          if (!message) {
+            setItems((prev) => prev.filter((item) => item.id !== id));
+            return;
+          }
+          setItems((prev) =>
+            prev.map((item) => (item.id === id ? { ...item, message, kind: "success" } : item)),
+          );
+          dismissLater(id);
+        })
+        .catch((error: unknown) => {
+          options.onError?.(error);
+          const message =
+            typeof options.error === "function"
+              ? options.error(error)
+              : (options.error ??
+                (error instanceof Error ? error.message : "The background action failed"));
+          setItems((prev) =>
+            prev.map((item) => (item.id === id ? { ...item, message, kind: "error" } : item)),
+          );
+          dismissLater(id, 6000);
+        });
+    },
+    [dismissLater],
+  );
+
   return (
-    <ToastContext.Provider value={{ toast }}>
+    <ToastContext.Provider value={{ toast, background }}>
       {children}
-      <div className="pointer-events-none fixed bottom-4 right-4 z-[60] flex flex-col gap-2">
-        {items.map((t) => (
+      <div
+        className="pointer-events-none fixed bottom-4 right-4 z-[60] flex flex-col gap-2"
+        aria-live="polite"
+      >
+        {items.slice(-5).map((t) => (
           <div
             key={t.id}
+            role={t.kind === "error" ? "alert" : "status"}
             className={
               "pointer-events-auto rounded-lg border px-4 py-2 text-sm shadow-sm " +
               (t.kind === "error"
@@ -32,7 +99,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                   : "border-slate-200 bg-white text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100")
             }
           >
-            {t.message}
+            <span className="flex items-center gap-2">
+              {t.kind === "loading" && <Loader2 size={14} className="animate-spin" />}
+              {t.message}
+            </span>
           </div>
         ))}
       </div>

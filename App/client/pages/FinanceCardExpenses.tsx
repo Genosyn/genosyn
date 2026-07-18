@@ -22,7 +22,7 @@ import { FinanceOutletCtx } from "./FinanceLayout";
 
 export default function FinanceCardExpenses() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { toast } = useToast();
+  const { toast, background } = useToast();
   const dialog = useDialog();
   const [feeds, setFeeds] = React.useState<CardFeed[] | null>(null);
   const [accounts, setAccounts] = React.useState<Account[]>([]);
@@ -100,19 +100,40 @@ export default function FinanceCardExpenses() {
     }
   }
 
-  async function changeCategory(transaction: CardTransaction, expenseAccountId: string) {
-    setRowBusy(transaction.id);
-    try {
-      await api.patch(`/api/companies/${company.id}/card-transactions/${transaction.id}/category`, {
-        expenseAccountId,
-      });
-      toast("Expense reclassified with an audit entry", "success");
-      await reloadTransactions();
-    } catch (err) {
-      toast((err as Error).message, "error");
-    } finally {
-      setRowBusy(null);
-    }
+  function changeCategory(transaction: CardTransaction, expenseAccountId: string) {
+    setTransactions(
+      (current) =>
+        current?.map((item) =>
+          item.id === transaction.id ? { ...item, expenseAccountId } : item,
+        ) ?? current,
+    );
+    background(
+      () =>
+        api.patch<CardTransaction>(
+          `/api/companies/${company.id}/card-transactions/${transaction.id}/category`,
+          { expenseAccountId },
+        ),
+      {
+        loading: "Reclassifying expense…",
+        success: "Expense reclassified with an audit entry",
+        error: (error) =>
+          `Couldn\u2019t reclassify the expense: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }. The previous category has been restored.`,
+        onSuccess: (updated) => {
+          setTransactions(
+            (current) =>
+              current?.map((item) => (item.id === updated.id ? updated : item)) ?? current,
+          );
+        },
+        onError: () => {
+          setTransactions(
+            (current) =>
+              current?.map((item) => (item.id === transaction.id ? transaction : item)) ?? current,
+          );
+        },
+      },
+    );
   }
 
   async function retryPosting(transaction: CardTransaction) {

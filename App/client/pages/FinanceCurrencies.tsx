@@ -1,12 +1,7 @@
 import React from "react";
 import { useOutletContext } from "react-router-dom";
 import { Plus, Trash2 } from "lucide-react";
-import {
-  api,
-  CompanyFinanceSettings,
-  Currency,
-  ExchangeRate,
-} from "../lib/api";
+import { api, CompanyFinanceSettings, Currency, ExchangeRate } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
@@ -27,7 +22,7 @@ import { FinanceOutletCtx } from "./FinanceLayout";
  */
 export default function FinanceCurrencies() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { toast } = useToast();
+  const { background } = useToast();
   const dialog = useDialog();
 
   const [settings, setSettings] = React.useState<CompanyFinanceSettings | null>(null);
@@ -55,17 +50,26 @@ export default function FinanceCurrencies() {
     });
   }, [reload]);
 
-  async function changeHomeCurrency(code: string) {
-    try {
-      const s = await api.patch<CompanyFinanceSettings>(
-        `/api/companies/${company.id}/finance-settings`,
-        { homeCurrency: code },
-      );
-      setSettings(s);
-      toast(`Home currency set to ${code}`, "success");
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+  function changeHomeCurrency(code: string) {
+    if (!settings || settings.homeCurrency === code) return;
+    const previous = settings;
+    setSettings({ ...settings, homeCurrency: code });
+    background(
+      () =>
+        api.patch<CompanyFinanceSettings>(`/api/companies/${company.id}/finance-settings`, {
+          homeCurrency: code,
+        }),
+      {
+        loading: "Changing home currency…",
+        success: `Home currency set to ${code}`,
+        error: (error) =>
+          `Couldn\u2019t change the home currency: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }. The previous currency has been restored.`,
+        onSuccess: setSettings,
+        onError: () => setSettings(previous),
+      },
+    );
   }
 
   async function deleteCurrency(c: Currency) {
@@ -75,12 +79,24 @@ export default function FinanceCurrencies() {
       confirmLabel: "Delete",
     });
     if (!ok) return;
-    try {
-      await api.del(`/api/companies/${company.id}/currencies/${c.id}`);
-      reload();
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+    const originalIndex = currencies?.findIndex((item) => item.id === c.id) ?? -1;
+    setCurrencies((current) => current?.filter((item) => item.id !== c.id) ?? current);
+    background(() => api.del(`/api/companies/${company.id}/currencies/${c.id}`), {
+      loading: "Deleting currency…",
+      success: "Currency deleted",
+      error: (error) =>
+        `Couldn\u2019t delete the currency: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. It has been restored.`,
+      onError: () => {
+        setCurrencies((current) => {
+          if (!current || current.some((item) => item.id === c.id)) return current;
+          const next = [...current];
+          next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, c);
+          return next;
+        });
+      },
+    });
   }
 
   async function deleteRate(r: ExchangeRate) {
@@ -90,12 +106,24 @@ export default function FinanceCurrencies() {
       confirmLabel: "Delete",
     });
     if (!ok) return;
-    try {
-      await api.del(`/api/companies/${company.id}/exchange-rates/${r.id}`);
-      reload();
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+    const originalIndex = rates?.findIndex((item) => item.id === r.id) ?? -1;
+    setRates((current) => current?.filter((item) => item.id !== r.id) ?? current);
+    background(() => api.del(`/api/companies/${company.id}/exchange-rates/${r.id}`), {
+      loading: "Deleting exchange rate…",
+      success: "Exchange rate deleted",
+      error: (error) =>
+        `Couldn\u2019t delete the exchange rate: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. It has been restored.`,
+      onError: () => {
+        setRates((current) => {
+          if (!current || current.some((item) => item.id === r.id)) return current;
+          const next = [...current];
+          next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, r);
+          return next;
+        });
+      },
+    });
   }
 
   const loading = !settings || !currencies || !rates;
@@ -104,20 +132,16 @@ export default function FinanceCurrencies() {
     <div className="mx-auto max-w-5xl p-8">
       <div className="mb-6">
         <Breadcrumbs
-          items={[
-            { label: "Finance", to: `/c/${company.slug}/finance` },
-            { label: "Currencies" },
-          ]}
+          items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Currencies" }]}
         />
       </div>
       <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
         Currencies & exchange rates
       </h1>
       <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-        The home currency is what the ledger reports in. Foreign-currency
-        invoices convert at issue using the most recent rate on or
-        before the issue date; payments convert at the payment date,
-        with the difference posting to FX gain or loss.
+        The home currency is what the ledger reports in. Foreign-currency invoices convert at issue
+        using the most recent rate on or before the issue date; payments convert at the payment
+        date, with the difference posting to FX gain or loss.
       </p>
 
       {loading ? (
@@ -143,8 +167,8 @@ export default function FinanceCurrencies() {
               </Select>
             </div>
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-              Already-posted ledger entries are not retroactively
-              converted; changes apply to new postings.
+              Already-posted ledger entries are not retroactively converted; changes apply to new
+              postings.
             </p>
           </div>
 
@@ -173,9 +197,7 @@ export default function FinanceCurrencies() {
                     <td className="px-4 py-2 font-mono text-sm font-semibold text-slate-900 dark:text-slate-100">
                       {c.code}
                     </td>
-                    <td className="px-4 py-2 text-slate-700 dark:text-slate-200">
-                      {c.name}
-                    </td>
+                    <td className="px-4 py-2 text-slate-700 dark:text-slate-200">{c.name}</td>
                     <td className="px-4 py-2 text-slate-700 dark:text-slate-200">
                       {c.symbol || "—"}
                     </td>
@@ -210,8 +232,7 @@ export default function FinanceCurrencies() {
             </div>
             {rates.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-slate-400">
-                No exchange rates yet. Add one before issuing
-                foreign-currency invoices.
+                No exchange rates yet. Add one before issuing foreign-currency invoices.
               </div>
             ) : (
               <table className="w-full text-sm">
@@ -236,9 +257,7 @@ export default function FinanceCurrencies() {
                       <td className="px-4 py-2 text-right tabular-nums text-slate-900 dark:text-slate-100">
                         {r.rate}
                       </td>
-                      <td className="px-4 py-2 text-slate-500 dark:text-slate-400">
-                        {r.source}
-                      </td>
+                      <td className="px-4 py-2 text-slate-500 dark:text-slate-400">{r.source}</td>
                       <td className="px-4 py-2 text-right">
                         <button
                           onClick={() => deleteRate(r)}
@@ -344,7 +363,13 @@ function RateModal({
             ))}
           </Select>
         </div>
-        <Input label="Date" type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+        <Input
+          label="Date"
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          required
+        />
         <Input
           label={`Rate (1 ${from} = ? ${to})`}
           value={rate}
@@ -416,12 +441,7 @@ function AddCurrencyModal({
           placeholder="e.g. SEK"
           required
         />
-        <Input
-          label="Name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-        />
+        <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
         <div className="grid grid-cols-2 gap-3">
           <Input
             label="Symbol"

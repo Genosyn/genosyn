@@ -23,7 +23,7 @@ import { FinanceOutletCtx } from "./FinanceLayout";
  */
 export default function FinanceProducts() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { toast } = useToast();
+  const { background } = useToast();
   const dialog = useDialog();
   const [products, setProducts] = React.useState<Product[] | null>(null);
   const [taxRates, setTaxRates] = React.useState<TaxRate[]>([]);
@@ -32,9 +32,7 @@ export default function FinanceProducts() {
 
   const reload = React.useCallback(async () => {
     const [p, t] = await Promise.all([
-      api.get<Product[]>(
-        `/api/companies/${company.id}/products?archived=${showArchived}`,
-      ),
+      api.get<Product[]>(`/api/companies/${company.id}/products?archived=${showArchived}`),
       api.get<TaxRate[]>(`/api/companies/${company.id}/tax-rates`),
     ]);
     setProducts(p);
@@ -45,11 +43,41 @@ export default function FinanceProducts() {
     reload().catch(() => setProducts([]));
   }, [reload]);
 
-  async function archive(p: Product) {
-    await api.patch(`/api/companies/${company.id}/products/${p.slug}`, {
-      archived: !p.archivedAt,
+  function archive(p: Product) {
+    const archived = !p.archivedAt;
+    const originalIndex = products?.findIndex((item) => item.id === p.id) ?? -1;
+    const optimistic = { ...p, archivedAt: archived ? new Date().toISOString() : null };
+    setProducts((current) => {
+      if (!current) return current;
+      if (archived && !showArchived) return current.filter((item) => item.id !== p.id);
+      return current.map((item) => (item.id === p.id ? optimistic : item));
     });
-    reload();
+    background(
+      () =>
+        api.patch<Product>(`/api/companies/${company.id}/products/${p.slug}`, {
+          archived,
+        }),
+      {
+        loading: archived ? "Archiving product…" : "Restoring product…",
+        success: archived ? "Product archived" : "Product restored",
+        error: (error) =>
+          `Couldn\u2019t update the product: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }. The change was undone.`,
+        onSuccess: () => void reload(),
+        onError: () => {
+          setProducts((current) => {
+            if (!current) return current;
+            if (current.some((item) => item.id === p.id)) {
+              return current.map((item) => (item.id === p.id ? p : item));
+            }
+            const next = [...current];
+            next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, p);
+            return next;
+          });
+        },
+      },
+    );
   }
 
   async function remove(p: Product) {
@@ -60,27 +88,33 @@ export default function FinanceProducts() {
       confirmLabel: "Delete",
     });
     if (!ok) return;
-    try {
-      await api.del(`/api/companies/${company.id}/products/${p.slug}`);
-      reload();
-    } catch (e) {
-      toast((e as Error).message, "error");
-    }
+    const originalIndex = products?.findIndex((item) => item.id === p.id) ?? -1;
+    setProducts((current) => current?.filter((item) => item.id !== p.id) ?? current);
+    background(() => api.del(`/api/companies/${company.id}/products/${p.slug}`), {
+      loading: "Deleting product…",
+      success: "Product deleted",
+      error: (error) =>
+        `Couldn\u2019t delete the product: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. It has been restored.`,
+      onError: () => {
+        setProducts((current) => {
+          if (!current || current.some((item) => item.id === p.id)) return current;
+          const next = [...current];
+          next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, p);
+          return next;
+        });
+      },
+    });
   }
 
-  const taxById = React.useMemo(
-    () => new Map(taxRates.map((t) => [t.id, t])),
-    [taxRates],
-  );
+  const taxById = React.useMemo(() => new Map(taxRates.map((t) => [t.id, t])), [taxRates]);
 
   return (
     <div className="mx-auto max-w-5xl p-8">
       <div className="mb-6">
         <Breadcrumbs
-          items={[
-            { label: "Finance", to: `/c/${company.slug}/finance` },
-            { label: "Products" },
-          ]}
+          items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Products" }]}
         />
       </div>
       <div className="mb-4 flex items-center justify-between">
@@ -136,9 +170,7 @@ export default function FinanceProducts() {
               {products.map((p) => (
                 <tr key={p.id} className={p.archivedAt ? "opacity-60" : ""}>
                   <td className="px-4 py-3">
-                    <div className="font-medium text-slate-900 dark:text-slate-100">
-                      {p.name}
-                    </div>
+                    <div className="font-medium text-slate-900 dark:text-slate-100">{p.name}</div>
                     {p.description && (
                       <div className="text-xs text-slate-500 dark:text-slate-400">
                         {p.description}
@@ -149,9 +181,7 @@ export default function FinanceProducts() {
                     {formatMoney(p.unitPriceCents, p.currency)}
                   </td>
                   <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
-                    {p.defaultTaxRateId
-                      ? taxById.get(p.defaultTaxRateId)?.name ?? "—"
-                      : "—"}
+                    {p.defaultTaxRateId ? (taxById.get(p.defaultTaxRateId)?.name ?? "—") : "—"}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <RowMenu
@@ -263,9 +293,7 @@ function ProductEditor({
     product ? (product.unitPriceCents / 100).toFixed(2) : "",
   );
   const [currency, setCurrency] = React.useState(product?.currency ?? "USD");
-  const [defaultTaxRateId, setDefaultTaxRateId] = React.useState(
-    product?.defaultTaxRateId ?? "",
-  );
+  const [defaultTaxRateId, setDefaultTaxRateId] = React.useState(product?.defaultTaxRateId ?? "");
   const [busy, setBusy] = React.useState(false);
 
   async function save(e: React.FormEvent) {
@@ -280,10 +308,7 @@ function ProductEditor({
         defaultTaxRateId: defaultTaxRateId || null,
       };
       if (product) {
-        await api.patch(
-          `/api/companies/${companyId}/products/${product.slug}`,
-          body,
-        );
+        await api.patch(`/api/companies/${companyId}/products/${product.slug}`, body);
       } else {
         await api.post(`/api/companies/${companyId}/products`, body);
       }

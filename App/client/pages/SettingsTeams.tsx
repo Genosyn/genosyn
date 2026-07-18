@@ -27,14 +27,12 @@ export function SettingsTeams() {
   const [creating, setCreating] = React.useState(false);
   const [createError, setCreateError] = React.useState<string | null>(null);
   const [editing, setEditing] = React.useState<Team | null>(null);
-  const { toast } = useToast();
+  const { toast, background } = useToast();
   const dialog = useDialog();
 
   const reload = React.useCallback(async () => {
     try {
-      const list = await api.get<Team[]>(
-        `/api/companies/${company.id}/teams?includeArchived=true`,
-      );
+      const list = await api.get<Team[]>(`/api/companies/${company.id}/teams?includeArchived=true`);
       setTeams(list);
     } catch (err) {
       toast((err as Error).message, "error");
@@ -78,13 +76,24 @@ export function SettingsTeams() {
       variant: "danger",
     });
     if (!ok) return;
-    try {
-      await api.del(`/api/companies/${company.id}/teams/${team.id}`);
-      await reload();
-      toast("Team deleted", "success");
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+    const originalIndex = teams?.findIndex((item) => item.id === team.id) ?? -1;
+    setTeams((current) => current?.filter((item) => item.id !== team.id) ?? current);
+    background(() => api.del(`/api/companies/${company.id}/teams/${team.id}`), {
+      loading: "Deleting team…",
+      success: "Team deleted",
+      error: (error) =>
+        `Couldn\u2019t delete the team: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. It has been restored.`,
+      onError: () => {
+        setTeams((current) => {
+          if (!current || current.some((item) => item.id === team.id)) return current;
+          const next = [...current];
+          next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, team);
+          return next;
+        });
+      },
+    });
   }
 
   return (
@@ -133,15 +142,9 @@ export function SettingsTeams() {
           ) : (
             <ul className="divide-y divide-slate-100 dark:divide-slate-800">
               {teams.map((t) => (
-                <li
-                  key={t.id}
-                  className="flex items-center justify-between gap-3 py-3 text-sm"
-                >
+                <li key={t.id} className="flex items-center justify-between gap-3 py-3 text-sm">
                   <div className="flex min-w-0 items-center gap-3">
-                    <Users
-                      size={16}
-                      className="text-slate-400 dark:text-slate-500"
-                    />
+                    <Users size={16} className="text-slate-400 dark:text-slate-500" />
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="truncate font-medium">{t.name}</span>
@@ -160,18 +163,10 @@ export function SettingsTeams() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setEditing(t)}
-                    >
+                    <Button size="sm" variant="ghost" onClick={() => setEditing(t)}>
                       <Pencil size={12} /> Edit
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => deleteTeam(t)}
-                    >
+                    <Button size="sm" variant="ghost" onClick={() => deleteTeam(t)}>
                       <Trash2 size={12} /> Delete
                     </Button>
                   </div>
@@ -243,12 +238,7 @@ function EditTeamModal({
         <h3 className="text-base font-semibold">Edit team</h3>
         <form className="mt-4 flex flex-col gap-3" onSubmit={save}>
           <FormError message={error} />
-          <Input
-            label="Name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
+          <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
           <Input
             label="Description"
             value={description}
@@ -263,12 +253,7 @@ function EditTeamModal({
             Archived
           </label>
           <div className="flex justify-end gap-2 pt-2">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => onClose(false)}
-              disabled={saving}
-            >
+            <Button type="button" variant="ghost" onClick={() => onClose(false)} disabled={saving}>
               Cancel
             </Button>
             <Button type="submit" disabled={!name.trim() || saving}>

@@ -35,7 +35,7 @@ function ApiKeysCard({ company }: { company: Company }) {
   const [rows, setRows] = React.useState<ApiKey[] | null>(null);
   const [creating, setCreating] = React.useState(false);
   const [justCreated, setJustCreated] = React.useState<ApiKeyCreated | null>(null);
-  const { toast } = useToast();
+  const { toast, background } = useToast();
   const dialog = useDialog();
 
   const reload = React.useCallback(async () => {
@@ -60,8 +60,8 @@ function ApiKeysCard({ company }: { company: Company }) {
             <div className="min-w-0">
               <h2 className="text-sm font-semibold">Personal access tokens</h2>
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                Authenticate as you against the same REST surface the UI uses.
-                Pass <code className="font-mono">Authorization: Bearer gen_…</code>.
+                Authenticate as you against the same REST surface the UI uses. Pass{" "}
+                <code className="font-mono">Authorization: Bearer gen_…</code>.
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
@@ -102,14 +102,26 @@ function ApiKeysCard({ company }: { company: Company }) {
                       variant: "danger",
                     });
                     if (!ok) return;
-                    try {
-                      await api.del(
-                        `/api/companies/${company.id}/api-keys/${k.id}`,
-                      );
-                      await reload();
-                    } catch (err) {
-                      toast((err as Error).message, "error");
-                    }
+                    const originalIndex = rows.findIndex((item) => item.id === k.id);
+                    setRows((current) => current?.filter((item) => item.id !== k.id) ?? current);
+                    background(() => api.del(`/api/companies/${company.id}/api-keys/${k.id}`), {
+                      loading: "Revoking API key…",
+                      success: "API key revoked",
+                      error: (error) =>
+                        `Couldn\u2019t revoke the API key: ${
+                          error instanceof Error ? error.message : "Unknown error"
+                        }. It has been restored.`,
+                      onError: () => {
+                        setRows((current) => {
+                          if (!current || current.some((item) => item.id === k.id)) {
+                            return current;
+                          }
+                          const next = [...current];
+                          next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, k);
+                          return next;
+                        });
+                      },
+                    });
                   }}
                 />
               ))}
@@ -129,24 +141,14 @@ function ApiKeysCard({ company }: { company: Company }) {
         }}
       />
 
-      <NewKeyTokenModal
-        created={justCreated}
-        onClose={() => setJustCreated(null)}
-      />
+      <NewKeyTokenModal created={justCreated} onClose={() => setJustCreated(null)} />
     </>
   );
 }
 
-function ApiKeyRow({
-  apiKey,
-  onRevoke,
-}: {
-  apiKey: ApiKey;
-  onRevoke: () => void | Promise<void>;
-}) {
+function ApiKeyRow({ apiKey, onRevoke }: { apiKey: ApiKey; onRevoke: () => void | Promise<void> }) {
   const revoked = !!apiKey.revokedAt;
-  const expired =
-    !!apiKey.expiresAt && new Date(apiKey.expiresAt).getTime() <= Date.now();
+  const expired = !!apiKey.expiresAt && new Date(apiKey.expiresAt).getTime() <= Date.now();
   return (
     <li className="flex items-center justify-between gap-3 py-2 text-sm">
       <div className="min-w-0 flex-1">
@@ -170,9 +172,7 @@ function ApiKeyRow({
           )}
         </div>
         <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400">
-          <span>
-            Created {new Date(apiKey.createdAt).toLocaleDateString()}
-          </span>
+          <span>Created {new Date(apiKey.createdAt).toLocaleDateString()}</span>
           <span>
             {apiKey.lastUsedAt
               ? `Last used ${new Date(apiKey.lastUsedAt).toLocaleString()}`
@@ -210,9 +210,7 @@ function CreateApiKeyModal({
   onCreated: (created: ApiKeyCreated) => void;
 }) {
   const [name, setName] = React.useState("");
-  const [expiresIn, setExpiresIn] = React.useState<"never" | "30d" | "90d" | "365d">(
-    "never",
-  );
+  const [expiresIn, setExpiresIn] = React.useState<"never" | "30d" | "90d" | "365d">("never");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -241,10 +239,10 @@ function CreateApiKeyModal({
           setError(null);
           setBusy(true);
           try {
-            const created = await api.post<ApiKeyCreated>(
-              `/api/companies/${companyId}/api-keys`,
-              { name: name.trim(), expiresAt: computeExpiresAt() },
-            );
+            const created = await api.post<ApiKeyCreated>(`/api/companies/${companyId}/api-keys`, {
+              name: name.trim(),
+              expiresAt: computeExpiresAt(),
+            });
             onCreated(created);
           } catch (err) {
             setError((err as Error).message);
@@ -268,9 +266,7 @@ function CreateApiKeyModal({
           </label>
           <select
             value={expiresIn}
-            onChange={(e) =>
-              setExpiresIn(e.target.value as typeof expiresIn)
-            }
+            onChange={(e) => setExpiresIn(e.target.value as typeof expiresIn)}
             className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900"
           >
             <option value="never">Never</option>
@@ -312,9 +308,8 @@ function NewKeyTokenModal({
     <Modal open onClose={onClose} title="Copy your new API key" size="lg">
       <div className="flex flex-col gap-4">
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-          This is the only time you&apos;ll see the full token. Store it
-          somewhere safe (a password manager, your CI secrets, …) — if you
-          lose it, generate a new one and revoke this one.
+          This is the only time you&apos;ll see the full token. Store it somewhere safe (a password
+          manager, your CI secrets, …) — if you lose it, generate a new one and revoke this one.
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
@@ -338,8 +333,7 @@ function NewKeyTokenModal({
                 }
               }}
             >
-              {copied ? <Check size={14} /> : <Copy size={14} />}{" "}
-              {copied ? "Copied" : "Copy"}
+              {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? "Copied" : "Copy"}
             </Button>
           </div>
         </div>
@@ -348,7 +342,7 @@ function NewKeyTokenModal({
             Try it
           </label>
           <pre className="overflow-x-auto rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
-{`curl -H "Authorization: Bearer ${created.token}" \\
+            {`curl -H "Authorization: Bearer ${created.token}" \\
   ${window.location.origin}/api/companies/<id>/employees`}
           </pre>
         </div>

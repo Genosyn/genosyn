@@ -43,16 +43,14 @@ const STATUS_BADGE: Record<StatusFilter, string> = {
  */
 export default function FinanceInvoices() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { toast } = useToast();
+  const { toast, background } = useToast();
   const dialog = useDialog();
   const navigate = useNavigate();
   const [invoices, setInvoices] = React.useState<InvoiceListItem[] | null>(null);
   const [filter, setFilter] = React.useState<StatusFilter>("all");
 
   const reload = React.useCallback(async () => {
-    const list = await api.get<InvoiceListItem[]>(
-      `/api/companies/${company.id}/invoices`,
-    );
+    const list = await api.get<InvoiceListItem[]>(`/api/companies/${company.id}/invoices`);
     setInvoices(list);
   }, [company.id]);
 
@@ -68,12 +66,24 @@ export default function FinanceInvoices() {
       confirmLabel: "Delete",
     });
     if (!ok) return;
-    try {
-      await api.del(`/api/companies/${company.id}/invoices/${inv.slug}`);
-      reload();
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+    const originalIndex = invoices?.findIndex((item) => item.id === inv.id) ?? -1;
+    setInvoices((current) => current?.filter((item) => item.id !== inv.id) ?? current);
+    background(() => api.del(`/api/companies/${company.id}/invoices/${inv.slug}`), {
+      loading: "Deleting invoice draft…",
+      success: "Invoice draft deleted",
+      error: (error) =>
+        `Couldn\u2019t delete the invoice: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. It has been restored.`,
+      onError: () => {
+        setInvoices((current) => {
+          if (!current || current.some((item) => item.id === inv.id)) return current;
+          const next = [...current];
+          next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, inv);
+          return next;
+        });
+      },
+    });
   }
 
   async function duplicate(inv: InvoiceListItem) {
@@ -97,14 +107,34 @@ export default function FinanceInvoices() {
       confirmLabel: "Void",
     });
     if (!ok) return;
-    try {
-      await api.post<Invoice>(
-        `/api/companies/${company.id}/invoices/${inv.slug}/void`,
-      );
-      reload();
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+    const optimistic = {
+      ...inv,
+      status: "void" as const,
+      voidedAt: new Date().toISOString(),
+    };
+    setInvoices(
+      (current) => current?.map((item) => (item.id === inv.id ? optimistic : item)) ?? current,
+    );
+    background(() => api.post<Invoice>(`/api/companies/${company.id}/invoices/${inv.slug}/void`), {
+      loading: "Voiding invoice…",
+      success: "Invoice voided",
+      error: (error) =>
+        `Couldn\u2019t void the invoice: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. The change was undone.`,
+      onSuccess: (updated) => {
+        setInvoices(
+          (current) =>
+            current?.map((item) => (item.id === inv.id ? { ...item, ...updated } : item)) ??
+            current,
+        );
+      },
+      onError: () => {
+        setInvoices(
+          (current) => current?.map((item) => (item.id === inv.id ? inv : item)) ?? current,
+        );
+      },
+    });
   }
 
   const filtered = React.useMemo(() => {
@@ -133,16 +163,11 @@ export default function FinanceInvoices() {
     <div className="mx-auto max-w-6xl p-8">
       <div className="mb-6">
         <Breadcrumbs
-          items={[
-            { label: "Finance", to: `/c/${company.slug}/finance` },
-            { label: "Invoices" },
-          ]}
+          items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Invoices" }]}
         />
       </div>
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-          Invoices
-        </h1>
+        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Invoices</h1>
         <Link to={`/c/${company.slug}/finance/invoices/new`}>
           <Button>
             <Plus size={14} /> New invoice

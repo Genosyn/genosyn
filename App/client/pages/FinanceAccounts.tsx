@@ -1,12 +1,7 @@
 import React from "react";
 import { useOutletContext } from "react-router-dom";
 import { Archive, ArchiveRestore, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
-import {
-  Account,
-  ACCOUNT_TYPE_LABEL,
-  AccountType,
-  api,
-} from "../lib/api";
+import { Account, ACCOUNT_TYPE_LABEL, AccountType, api } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
@@ -38,7 +33,7 @@ const TYPE_BADGE: Record<AccountType, string> = {
  */
 export default function FinanceAccounts() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { toast } = useToast();
+  const { background } = useToast();
   const dialog = useDialog();
   const [accounts, setAccounts] = React.useState<Account[] | null>(null);
   const [editing, setEditing] = React.useState<Account | "new" | null>(null);
@@ -52,15 +47,39 @@ export default function FinanceAccounts() {
     reload().catch(() => setAccounts([]));
   }, [reload]);
 
-  async function archive(a: Account) {
-    try {
-      await api.patch(`/api/companies/${company.id}/accounts/${a.id}`, {
-        archived: !a.archivedAt,
-      });
-      reload();
-    } catch (e) {
-      toast((e as Error).message, "error");
-    }
+  function archive(a: Account) {
+    const optimistic = {
+      ...a,
+      archivedAt: a.archivedAt ? null : new Date().toISOString(),
+    };
+    setAccounts(
+      (current) => current?.map((item) => (item.id === a.id ? optimistic : item)) ?? current,
+    );
+    background(
+      () =>
+        api.patch<Account>(`/api/companies/${company.id}/accounts/${a.id}`, {
+          archived: !a.archivedAt,
+        }),
+      {
+        loading: a.archivedAt ? "Restoring account…" : "Archiving account…",
+        success: a.archivedAt ? "Account restored" : "Account archived",
+        error: (error) =>
+          `Couldn\u2019t update the account: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }. The change was undone.`,
+        onSuccess: (updated) => {
+          setAccounts(
+            (current) =>
+              current?.map((item) => (item.id === updated.id ? updated : item)) ?? current,
+          );
+        },
+        onError: () => {
+          setAccounts(
+            (current) => current?.map((item) => (item.id === a.id ? a : item)) ?? current,
+          );
+        },
+      },
+    );
   }
 
   async function remove(a: Account) {
@@ -71,12 +90,24 @@ export default function FinanceAccounts() {
       confirmLabel: "Delete",
     });
     if (!ok) return;
-    try {
-      await api.del(`/api/companies/${company.id}/accounts/${a.id}`);
-      reload();
-    } catch (e) {
-      toast((e as Error).message, "error");
-    }
+    const originalIndex = accounts?.findIndex((item) => item.id === a.id) ?? -1;
+    setAccounts((current) => current?.filter((item) => item.id !== a.id) ?? current);
+    background(() => api.del(`/api/companies/${company.id}/accounts/${a.id}`), {
+      loading: "Deleting account…",
+      success: "Account deleted",
+      error: (error) =>
+        `Couldn\u2019t delete the account: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. It has been restored.`,
+      onError: () => {
+        setAccounts((current) => {
+          if (!current || current.some((item) => item.id === a.id)) return current;
+          const next = [...current];
+          next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, a);
+          return next;
+        });
+      },
+    });
   }
 
   // Group by type for accountant-friendly presentation.
@@ -92,10 +123,7 @@ export default function FinanceAccounts() {
     <div className="mx-auto max-w-5xl p-8">
       <div className="mb-6">
         <Breadcrumbs
-          items={[
-            { label: "Finance", to: `/c/${company.slug}/finance` },
-            { label: "Accounts" },
-          ]}
+          items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Accounts" }]}
         />
       </div>
       <div className="mb-4 flex items-center justify-between">
@@ -104,9 +132,8 @@ export default function FinanceAccounts() {
             Chart of accounts
           </h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            The list of buckets every transaction posts into. System
-            accounts (1100, 1200, 2100, 4000) are reserved for invoice
-            auto-posting and can be renamed but not removed.
+            The list of buckets every transaction posts into. System accounts (1100, 1200, 2100,
+            4000) are reserved for invoice auto-posting and can be renamed but not removed.
           </p>
         </div>
         <Button onClick={() => setEditing("new")}>
@@ -130,9 +157,7 @@ export default function FinanceAccounts() {
               >
                 <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2 dark:border-slate-800">
                   <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                    <span
-                      className={"rounded px-1.5 py-0.5 " + TYPE_BADGE[type]}
-                    >
+                    <span className={"rounded px-1.5 py-0.5 " + TYPE_BADGE[type]}>
                       {ACCOUNT_TYPE_LABEL[type]}
                     </span>
                   </h2>
@@ -326,8 +351,8 @@ function AccountEditor({
         </Select>
         {isSystem && (
           <p className="rounded-md bg-slate-50 p-3 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-            This is a system account — the auto-post hooks look it up by
-            code, so the code and type can&apos;t change. Renaming is fine.
+            This is a system account — the auto-post hooks look it up by code, so the code and type
+            can&apos;t change. Renaming is fine.
           </p>
         )}
         <div className="flex justify-end gap-2 pt-2">

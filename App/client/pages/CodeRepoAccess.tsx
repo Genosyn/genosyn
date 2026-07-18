@@ -25,7 +25,7 @@ import { useCodeReposContext } from "./CodeReposLayout";
 
 export default function CodeRepoAccess() {
   const { company, repo, reload: reloadRepos } = useCodeReposContext();
-  const { toast } = useToast();
+  const { toast, background } = useToast();
   const [grants, setGrants] = React.useState<CodeRepoGrant[] | null>(null);
   const [candidates, setCandidates] = React.useState<CodeRepoGrantCandidate[]>([]);
   const [adding, setAdding] = React.useState(false);
@@ -82,22 +82,47 @@ export default function CodeRepoAccess() {
     }
   }
 
-  async function changeLevel(grant: CodeRepoGrant, level: CodeRepoAccessLevel) {
-    try {
-      await api.patch(`${base}/grants/${grant.id}`, { accessLevel: level });
-      await reload();
-    } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
-    }
+  function changeLevel(grant: CodeRepoGrant, level: CodeRepoAccessLevel) {
+    setGrants(
+      (current) =>
+        current?.map((item) => (item.id === grant.id ? { ...item, accessLevel: level } : item)) ??
+        current,
+    );
+    background(() => api.patch(`${base}/grants/${grant.id}`, { accessLevel: level }), {
+      loading: "Updating repository access…",
+      error: (error) =>
+        `Couldn\u2019t update access: ${
+          error instanceof Error ? error.message : String(error)
+        }. The change was undone.`,
+      onSuccess: () => void reloadRepos(),
+      onError: () => {
+        setGrants(
+          (current) => current?.map((item) => (item.id === grant.id ? grant : item)) ?? current,
+        );
+      },
+    });
   }
 
-  async function revoke(grant: CodeRepoGrant) {
-    try {
-      await api.del(`${base}/grants/${grant.id}`);
-      await Promise.all([reload(), reloadRepos()]);
-    } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
-    }
+  function revoke(grant: CodeRepoGrant) {
+    const originalIndex = grants?.findIndex((item) => item.id === grant.id) ?? -1;
+    setGrants((current) => current?.filter((item) => item.id !== grant.id) ?? current);
+    background(() => api.del(`${base}/grants/${grant.id}`), {
+      loading: "Revoking repository access…",
+      success: "Repository access revoked",
+      error: (error) =>
+        `Couldn\u2019t revoke access: ${
+          error instanceof Error ? error.message : String(error)
+        }. The grant has been restored.`,
+      onSuccess: () => void reloadRepos(),
+      onError: () => {
+        setGrants((current) => {
+          if (!current || current.some((item) => item.id === grant.id)) return current;
+          const next = [...current];
+          next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, grant);
+          return next;
+        });
+      },
+    });
   }
 
   return (

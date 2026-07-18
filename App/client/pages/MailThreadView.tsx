@@ -108,10 +108,37 @@ const DEFAULT_INSTRUCTIONS: Record<MailHandoverMode, string> = {
   triage: "Categorize this email with an appropriate label and archive it if no action is needed.",
 };
 
+function applyThreadAction(
+  thread: MailThread,
+  action: ThreadActionName,
+  labelId?: string,
+): MailThread {
+  const labels = new Set(thread.labelIds);
+  if (action === "star") labels.add("STARRED");
+  if (action === "unstar") labels.delete("STARRED");
+  if (action === "archive") labels.delete("INBOX");
+  if (action === "moveToInbox") {
+    labels.add("INBOX");
+    labels.delete("TRASH");
+  }
+  if (action === "trash") {
+    labels.add("TRASH");
+    labels.delete("INBOX");
+  }
+  if (action === "untrash") labels.delete("TRASH");
+  if (action === "applyLabel" && labelId) labels.add(labelId);
+  if (action === "removeLabel" && labelId) labels.delete(labelId);
+  return {
+    ...thread,
+    labelIds: [...labels],
+    unread: action === "markRead" ? false : action === "markUnread" ? true : thread.unread,
+  };
+}
+
 export default function MailThreadView() {
   const { company, account, labels, changeTick, openCompose } = useOutletContext<MailOutletCtx>();
   const { threadId } = useParams();
-  const { toast } = useToast();
+  const { toast, background } = useToast();
   const navigate = useNavigate();
 
   const forward = React.useCallback(
@@ -202,18 +229,23 @@ export default function MailThreadView() {
   const userLabels = labels.filter((l) => l.labelType === "user");
   const threadUserLabels = userLabels.filter((l) => thread.labelIds.includes(l.gmailLabelId));
 
-  const act = async (action: ThreadActionName, opts?: { labelId?: string; labelName?: string }) => {
-    try {
-      await mailApi.threadAction(company.id, thread.id, action, opts);
-      if (action === "trash") {
-        toast("Moved to trash", "info");
-        navigate(base);
-        return;
-      }
-      await load();
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+  const act = (action: ThreadActionName, opts?: { labelId?: string; labelName?: string }) => {
+    const snapshot = thread;
+    setThread(applyThreadAction(thread, action, opts?.labelId));
+    if (action === "trash") navigate(base);
+
+    background(() => mailApi.threadAction(company.id, thread.id, action, opts), {
+      loading: "Updating email…",
+      success: action === "trash" ? "Moved to trash" : undefined,
+      error: (error) =>
+        `Couldn\u2019t update the email: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. The change was undone.`,
+      onSuccess: ({ thread: updated }) => {
+        if (updated) setThread(updated);
+      },
+      onError: () => setThread(snapshot),
+    });
   };
 
   const focusedDraftId = [...messages].reverse().find((message) => message.isDraft)?.id;
@@ -548,7 +580,7 @@ function DraftCard({
   companyId: string;
   onChanged: () => Promise<void>;
 }) {
-  const { toast } = useToast();
+  const { toast, background } = useToast();
   const dialog = useDialog();
   const [editing, setEditing] = React.useState(false);
   const [to, setTo] = React.useState(draft.toEmails);
@@ -556,6 +588,7 @@ function DraftCard({
   const [body, setBody] = React.useState(draft.bodyText);
   const [busy, setBusy] = React.useState<"save" | "send" | "discard" | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [hidden, setHidden] = React.useState(false);
 
   React.useEffect(() => {
     setTo(draft.toEmails);
@@ -576,21 +609,32 @@ function DraftCard({
 
   const dirty = to !== draft.toEmails || subject !== draft.subject || body !== draft.bodyText;
 
-  const onSend = async () => {
-    setBusy("send");
+  const onSend = () => {
     setError(null);
-    try {
-      let id = draft.id;
-      if (dirty) id = (await save()) ?? draft.id;
-      await mailApi.sendDraft(companyId, id);
-      toast("Sent", "success");
-      await onChanged();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(null);
-    }
+    setHidden(true);
+    background(
+      async () => {
+        let id = draft.id;
+        if (dirty) id = (await save()) ?? draft.id;
+        return mailApi.sendDraft(companyId, id);
+      },
+      {
+        loading: "Sending draft…",
+        success: "Sent",
+        error: (sendError) =>
+          `Couldn\u2019t send the draft: ${
+            sendError instanceof Error ? sendError.message : "Unknown error"
+          }. It has been restored.`,
+        onSuccess: () => void onChanged(),
+        onError: (sendError) => {
+          setHidden(false);
+          setError(sendError instanceof Error ? sendError.message : "Could not send draft");
+        },
+      },
+    );
   };
+
+  if (hidden) return null;
 
   return (
     <div className="rounded-xl border border-amber-200 bg-amber-50/40 shadow-sm dark:border-amber-500/30 dark:bg-amber-500/5">
@@ -607,7 +651,7 @@ function DraftCard({
               Edit
             </Button>
             <Button size="sm" disabled={busy !== null} onClick={onSend}>
-              {busy === "send" ? <Spinner size={13} /> : "Send"}
+              Send
             </Button>
             <Button
               size="sm"
@@ -620,16 +664,17 @@ function DraftCard({
                   variant: "danger",
                 });
                 if (!ok) return;
-                setBusy("discard");
-                try {
-                  await mailApi.discardDraft(companyId, draft.id);
-                  toast("Draft discarded", "info");
-                  await onChanged();
-                } catch (err) {
-                  toast((err as Error).message, "error");
-                } finally {
-                  setBusy(null);
-                }
+                setHidden(true);
+                background(() => mailApi.discardDraft(companyId, draft.id), {
+                  loading: "Discarding draft…",
+                  success: "Draft discarded",
+                  error: (discardError) =>
+                    `Couldn\u2019t discard the draft: ${
+                      discardError instanceof Error ? discardError.message : "Unknown error"
+                    }. It has been restored.`,
+                  onSuccess: () => void onChanged(),
+                  onError: () => setHidden(false),
+                });
               }}
             >
               Discard
@@ -685,7 +730,7 @@ function DraftCard({
               {busy === "save" ? <Spinner size={13} /> : "Save"}
             </Button>
             <Button size="sm" disabled={busy !== null} onClick={onSend}>
-              {busy === "send" ? <Spinner size={13} /> : "Send"}
+              Send
             </Button>
           </div>
         </div>
@@ -709,12 +754,11 @@ function ReplyComposer({
   onSent: () => Promise<void>;
   onDraftSaved: () => Promise<void>;
 }) {
-  const { toast } = useToast();
+  const { background } = useToast();
   const [open, setOpen] = React.useState(false);
   const [replyAll, setReplyAll] = React.useState(false);
   const [recipients, setRecipients] = React.useState<{ to: string; cc: string } | null>(null);
   const [body, setBody] = React.useState("");
-  const [busy, setBusy] = React.useState<"send" | "draft" | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const attach = useMailAttachments(companyId, accountId);
 
@@ -753,37 +797,41 @@ function ReplyComposer({
     );
   }
 
-  const submit = async (kind: "send" | "draft") => {
-    setBusy(kind);
+  const submit = (kind: "send" | "draft") => {
     setError(null);
-    try {
-      const input = {
-        to: recipients?.to ?? "",
-        cc: replyAll ? recipients?.cc || undefined : undefined,
-        bodyText: body,
-        threadId: thread.id,
-        attachmentIds: attach.ids.length ? attach.ids : undefined,
-      };
-      if (kind === "send") {
-        await mailApi.send(companyId, accountId, input);
-        toast("Sent", "success");
-        setBody("");
-        attach.clear();
-        setOpen(false);
-        await onSent();
-      } else {
-        await mailApi.createDraft(companyId, accountId, input);
-        toast("Draft saved", "success");
-        setBody("");
-        attach.clear();
-        setOpen(false);
-        await onDraftSaved();
-      }
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(null);
-    }
+    const submittedBody = body;
+    const input = {
+      to: recipients?.to ?? "",
+      cc: replyAll ? recipients?.cc || undefined : undefined,
+      bodyText: submittedBody,
+      threadId: thread.id,
+      attachmentIds: attach.ids.length ? attach.ids : undefined,
+    };
+    setBody("");
+    setOpen(false);
+    background(
+      () =>
+        kind === "send"
+          ? mailApi.send(companyId, accountId, input)
+          : mailApi.createDraft(companyId, accountId, input),
+      {
+        loading: kind === "send" ? "Sending reply…" : "Saving draft…",
+        success: kind === "send" ? "Sent" : "Draft saved",
+        error: (submitError) =>
+          `${kind === "send" ? "Couldn\u2019t send the reply" : "Couldn\u2019t save the draft"}: ${
+            submitError instanceof Error ? submitError.message : "Unknown error"
+          }. Your message has been restored.`,
+        onSuccess: () => {
+          attach.clear();
+          void (kind === "send" ? onSent() : onDraftSaved());
+        },
+        onError: (submitError) => {
+          setError(submitError instanceof Error ? submitError.message : "Request failed");
+          setBody((current) => current || submittedBody);
+          setOpen(true);
+        },
+      },
+    );
   };
 
   return (
@@ -822,23 +870,23 @@ function ReplyComposer({
       </div>
       <FormError message={error} className="mt-2" />
       <div className="mt-2 flex items-center justify-end gap-2">
-        <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => setOpen(false)}>
+        <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
           Cancel
         </Button>
         <Button
           variant="secondary"
           size="sm"
-          disabled={busy !== null || attach.uploading || !body.trim()}
+          disabled={attach.uploading || !body.trim()}
           onClick={() => submit("draft")}
         >
-          {busy === "draft" ? <Spinner size={13} /> : "Save draft"}
+          Save draft
         </Button>
         <Button
           size="sm"
-          disabled={busy !== null || attach.uploading || !body.trim()}
+          disabled={attach.uploading || !body.trim()}
           onClick={() => submit("send")}
         >
-          {busy === "send" ? <Spinner size={13} /> : "Send"}
+          Send
         </Button>
       </div>
     </div>

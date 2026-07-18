@@ -108,6 +108,12 @@ export function Introduction() {
           OpenAI-compatible endpoint) and point each employee at the model you
           choose.
         </LI>
+        <LI>
+          <Strong>Fast feedback.</Strong> Everyday actions update the screen
+          immediately while the server finishes in the background. Progress
+          follows you between pages; if a request fails, Genosyn surfaces the
+          error and restores the affected item or draft.
+        </LI>
       </UL>
 
       <H2 id="where-to-start">Where to start</H2>

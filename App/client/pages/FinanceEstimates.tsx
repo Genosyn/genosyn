@@ -46,16 +46,14 @@ const STATUS_BADGE: Record<DisplayEstimateStatus, string> = {
  */
 export default function FinanceEstimates() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { toast } = useToast();
+  const { toast, background } = useToast();
   const dialog = useDialog();
   const navigate = useNavigate();
   const [estimates, setEstimates] = React.useState<EstimateListItem[] | null>(null);
   const [filter, setFilter] = React.useState<StatusFilter>("all");
 
   const reload = React.useCallback(async () => {
-    const list = await api.get<EstimateListItem[]>(
-      `/api/companies/${company.id}/estimates`,
-    );
+    const list = await api.get<EstimateListItem[]>(`/api/companies/${company.id}/estimates`);
     setEstimates(list);
   }, [company.id]);
 
@@ -66,18 +64,29 @@ export default function FinanceEstimates() {
   async function deleteDraft(est: EstimateListItem) {
     const ok = await dialog.confirm({
       title: "Delete this draft?",
-      message:
-        "Drafts can be permanently deleted. Issued estimates must be voided instead.",
+      message: "Drafts can be permanently deleted. Issued estimates must be voided instead.",
       variant: "danger",
       confirmLabel: "Delete",
     });
     if (!ok) return;
-    try {
-      await api.del(`/api/companies/${company.id}/estimates/${est.slug}`);
-      reload();
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+    const originalIndex = estimates?.findIndex((item) => item.id === est.id) ?? -1;
+    setEstimates((current) => current?.filter((item) => item.id !== est.id) ?? current);
+    background(() => api.del(`/api/companies/${company.id}/estimates/${est.slug}`), {
+      loading: "Deleting estimate draft…",
+      success: "Estimate draft deleted",
+      error: (error) =>
+        `Couldn\u2019t delete the estimate: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. It has been restored.`,
+      onError: () => {
+        setEstimates((current) => {
+          if (!current || current.some((item) => item.id === est.id)) return current;
+          const next = [...current];
+          next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, est);
+          return next;
+        });
+      },
+    });
   }
 
   async function duplicate(est: EstimateListItem) {
@@ -101,14 +110,37 @@ export default function FinanceEstimates() {
       confirmLabel: "Void",
     });
     if (!ok) return;
-    try {
-      await api.post<Estimate>(
-        `/api/companies/${company.id}/estimates/${est.slug}/void`,
-      );
-      reload();
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+    const optimistic = {
+      ...est,
+      status: "void" as const,
+      voidedAt: new Date().toISOString(),
+    };
+    setEstimates(
+      (current) => current?.map((item) => (item.id === est.id ? optimistic : item)) ?? current,
+    );
+    background(
+      () => api.post<Estimate>(`/api/companies/${company.id}/estimates/${est.slug}/void`),
+      {
+        loading: "Voiding estimate…",
+        success: "Estimate voided",
+        error: (error) =>
+          `Couldn\u2019t void the estimate: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }. The change was undone.`,
+        onSuccess: (updated) => {
+          setEstimates(
+            (current) =>
+              current?.map((item) => (item.id === est.id ? { ...item, ...updated } : item)) ??
+              current,
+          );
+        },
+        onError: () => {
+          setEstimates(
+            (current) => current?.map((item) => (item.id === est.id ? est : item)) ?? current,
+          );
+        },
+      },
+    );
   }
 
   const filtered = React.useMemo(() => {
@@ -139,16 +171,11 @@ export default function FinanceEstimates() {
     <div className="mx-auto max-w-6xl p-8">
       <div className="mb-6">
         <Breadcrumbs
-          items={[
-            { label: "Finance", to: `/c/${company.slug}/finance` },
-            { label: "Estimates" },
-          ]}
+          items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Estimates" }]}
         />
       </div>
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-          Estimates
-        </h1>
+        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Estimates</h1>
         <Link to={`/c/${company.slug}/finance/estimates/new`}>
           <Button>
             <Plus size={14} /> New estimate
@@ -220,10 +247,7 @@ export default function FinanceEstimates() {
               {filtered.map((est) => {
                 const ds = displayEstimateStatus(est);
                 return (
-                  <tr
-                    key={est.id}
-                    className="hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                  >
+                  <tr key={est.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                     <td className="px-4 py-3 font-mono text-xs">
                       <Link
                         to={`/c/${company.slug}/finance/estimates/${est.slug}`}

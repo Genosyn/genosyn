@@ -87,7 +87,7 @@ function copyFor(a: Approval): ApprovalCopy {
 
 export default function Approvals({ company }: { company: Company }) {
   const [rows, setRows] = React.useState<Approval[] | null>(null);
-  const { toast } = useToast();
+  const { toast, background } = useToast();
   const base = `/api/companies/${company.id}/approvals`;
 
   async function reload() {
@@ -105,20 +105,50 @@ export default function Approvals({ company }: { company: Company }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [company.id]);
 
-  async function decide(row: Approval, action: "approve" | "reject") {
-    try {
-      const updated = await api.post<Approval & { executeError?: string }>(
-        `${base}/${row.id}/${action}`,
-      );
-      if (action === "approve" && updated.executeError) {
-        toast(`Approved, but execute failed: ${updated.executeError}`, "error");
-      } else {
-        toast(action === "approve" ? copyFor(row).approvedToast : "Rejected", "success");
-      }
-      reload();
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+  function decide(row: Approval, action: "approve" | "reject") {
+    setRows(
+      (current) =>
+        current?.map((item) =>
+          item.id === row.id
+            ? {
+                ...item,
+                status: action === "approve" ? "approved" : "rejected",
+                decidedAt: new Date().toISOString(),
+              }
+            : item,
+        ) ?? current,
+    );
+
+    background(
+      () => api.post<Approval & { executeError?: string }>(`${base}/${row.id}/${action}`),
+      {
+        loading: action === "approve" ? "Approving request…" : "Rejecting request…",
+        success: (updated) =>
+          action === "approve" && updated.executeError
+            ? null
+            : action === "approve"
+              ? copyFor(row).approvedToast
+              : "Rejected",
+        error: (error) =>
+          `Couldn\u2019t record the decision: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }. The approval is pending again.`,
+        onSuccess: (updated) => {
+          setRows(
+            (current) =>
+              current?.map((item) => (item.id === updated.id ? updated : item)) ?? current,
+          );
+          if (action === "approve" && updated.executeError) {
+            toast(`Approved, but execute failed: ${updated.executeError}`, "error");
+          }
+        },
+        onError: () => {
+          setRows(
+            (current) => current?.map((item) => (item.id === row.id ? row : item)) ?? current,
+          );
+        },
+      },
+    );
   }
 
   const pending = rows?.filter((r) => r.status === "pending") ?? [];
@@ -158,19 +188,15 @@ export default function Approvals({ company }: { company: Company }) {
                               {c.title}
                             </div>
                             <div className="text-xs text-slate-500 dark:text-slate-400">
-                              {a.employee?.name ?? "(deleted employee)"} · {c.subtitle} ·
-                              requested {new Date(a.requestedAt).toLocaleString()}
+                              {a.employee?.name ?? "(deleted employee)"} · {c.subtitle} · requested{" "}
+                              {new Date(a.requestedAt).toLocaleString()}
                             </div>
                           </div>
                           <div className="flex gap-1">
                             <Button size="sm" onClick={() => decide(a, "approve")}>
                               <Check size={14} /> Approve
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => decide(a, "reject")}
-                            >
+                            <Button size="sm" variant="ghost" onClick={() => decide(a, "reject")}>
                               <X size={14} /> Reject
                             </Button>
                           </div>

@@ -46,7 +46,7 @@ const EMPTY_EDITOR: EditorState = {
 
 export default function MailRules() {
   const { company, account } = useOutletContext<MailOutletCtx>();
-  const { toast } = useToast();
+  const { toast, background } = useToast();
   const dialog = useDialog();
   const [rules, setRules] = React.useState<MailRule[] | null>(null);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
@@ -67,13 +67,29 @@ export default function MailRules() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load]);
 
-  const toggle = async (rule: MailRule) => {
-    try {
-      await mailApi.patchRule(company.id, rule.id, { enabled: !rule.enabled });
-      await load();
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+  const toggle = (rule: MailRule) => {
+    const enabled = !rule.enabled;
+    setRules(
+      (current) =>
+        current?.map((item) => (item.id === rule.id ? { ...item, enabled } : item)) ?? current,
+    );
+    background(() => mailApi.patchRule(company.id, rule.id, { enabled }), {
+      loading: enabled ? "Enabling rule…" : "Disabling rule…",
+      error: (error) =>
+        `Couldn\u2019t update the rule: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. The change was undone.`,
+      onSuccess: ({ rule: updated }) => {
+        setRules(
+          (current) => current?.map((item) => (item.id === updated.id ? updated : item)) ?? current,
+        );
+      },
+      onError: () => {
+        setRules(
+          (current) => current?.map((item) => (item.id === rule.id ? rule : item)) ?? current,
+        );
+      },
+    });
   };
 
   const remove = async (rule: MailRule) => {
@@ -83,33 +99,38 @@ export default function MailRules() {
       variant: "danger",
     });
     if (!ok) return;
-    try {
-      await mailApi.deleteRule(company.id, rule.id);
-      toast("Rule deleted", "info");
-      await load();
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+    const originalIndex = rules?.findIndex((item) => item.id === rule.id) ?? -1;
+    setRules((current) => current?.filter((item) => item.id !== rule.id) ?? current);
+    background(() => mailApi.deleteRule(company.id, rule.id), {
+      loading: "Deleting rule…",
+      success: "Rule deleted",
+      error: (error) =>
+        `Couldn\u2019t delete the rule: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. It has been restored.`,
+      onError: () => {
+        setRules((current) => {
+          if (!current || current.some((item) => item.id === rule.id)) return current;
+          const next = [...current];
+          next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, rule);
+          return next;
+        });
+      },
+    });
   };
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6">
       <div className="mb-1 flex items-center gap-2">
         <SlidersHorizontal size={18} className="text-slate-400" />
-        <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-          Rules
-        </h1>
-        <Button
-          size="sm"
-          className="ml-auto"
-          onClick={() => setEditing({ ...EMPTY_EDITOR })}
-        >
+        <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Rules</h1>
+        <Button size="sm" className="ml-auto" onClick={() => setEditing({ ...EMPTY_EDITOR })}>
           <Plus size={14} className="mr-1.5" /> New rule
         </Button>
       </div>
       <p className="mb-5 text-sm text-slate-500 dark:text-slate-400">
-        Runs on every new email that arrives in {account.address}. Every
-        matching rule fires — label mail, and hand it to an AI employee.
+        Runs on every new email that arrives in {account.address}. Every matching rule fires — label
+        mail, and hand it to an AI employee.
       </p>
 
       {rules === null ? (
@@ -138,9 +159,7 @@ export default function MailRules() {
                   onClick={() => toggle(rule)}
                   className={clsx(
                     "mt-0.5 h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors",
-                    rule.enabled
-                      ? "bg-indigo-600"
-                      : "bg-slate-200 dark:bg-slate-700",
+                    rule.enabled ? "bg-indigo-600" : "bg-slate-200 dark:bg-slate-700",
                   )}
                   title={rule.enabled ? "Disable" : "Enable"}
                 >
@@ -157,9 +176,7 @@ export default function MailRules() {
                       {rule.name}
                     </span>
                     {rule.matchCount > 0 && (
-                      <span className="text-xs text-slate-400">
-                        matched {rule.matchCount}×
-                      </span>
+                      <span className="text-xs text-slate-400">matched {rule.matchCount}×</span>
                     )}
                   </div>
                   <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -271,10 +288,8 @@ function RuleEditor({
   const setCond = (patch: Partial<MailRuleConditions>) =>
     setConditions((prev) => ({ ...prev, ...patch }));
 
-  const addAction = () =>
-    setActions((prev) => [...prev, { type: "applyLabel", labelName: "" }]);
-  const removeAction = (i: number) =>
-    setActions((prev) => prev.filter((_, idx) => idx !== i));
+  const addAction = () => setActions((prev) => [...prev, { type: "applyLabel", labelName: "" }]);
+  const removeAction = (i: number) => setActions((prev) => prev.filter((_, idx) => idx !== i));
 
   const setActionType = (i: number, type: MailRuleAction["type"]) => {
     setActions((prev) =>
@@ -306,10 +321,8 @@ function RuleEditor({
     const out: MailRuleConditions = {};
     if (conditions.from?.trim()) out.from = conditions.from.trim();
     if (conditions.to?.trim()) out.to = conditions.to.trim();
-    if (conditions.subjectContains?.trim())
-      out.subjectContains = conditions.subjectContains.trim();
-    if (conditions.bodyContains?.trim())
-      out.bodyContains = conditions.bodyContains.trim();
+    if (conditions.subjectContains?.trim()) out.subjectContains = conditions.subjectContains.trim();
+    if (conditions.bodyContains?.trim()) out.bodyContains = conditions.bodyContains.trim();
     if (conditions.hasAttachment) out.hasAttachment = true;
     return out;
   };
@@ -361,12 +374,7 @@ function RuleEditor({
   };
 
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title={state.id ? "Edit rule" : "New rule"}
-      size="lg"
-    >
+    <Modal open onClose={onClose} title={state.id ? "Edit rule" : "New rule"} size="lg">
       <div className="space-y-4">
         <Input
           label="Rule name"
@@ -416,25 +424,18 @@ function RuleEditor({
 
         <div>
           <div className="mb-2 flex items-center justify-between">
-            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              Then do
-            </span>
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Then do</span>
             <Button size="sm" variant="ghost" onClick={addAction}>
               <Plus size={13} className="mr-1" /> Add action
             </Button>
           </div>
           <div className="space-y-2">
             {actions.map((action, i) => (
-              <div
-                key={i}
-                className="rounded-lg border border-slate-200 p-3 dark:border-slate-700"
-              >
+              <div key={i} className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
                 <div className="flex items-center gap-2">
                   <Select
                     value={action.type}
-                    onChange={(e) =>
-                      setActionType(i, e.target.value as MailRuleAction["type"])
-                    }
+                    onChange={(e) => setActionType(i, e.target.value as MailRuleAction["type"])}
                   >
                     <option value="applyLabel">Apply label</option>
                     <option value="markRead">Mark read</option>
@@ -470,9 +471,7 @@ function RuleEditor({
                       <>
                         <Select
                           value={action.employeeId}
-                          onChange={(e) =>
-                            patchAction(i, { employeeId: e.target.value })
-                          }
+                          onChange={(e) => patchAction(i, { employeeId: e.target.value })}
                         >
                           {employees.map((emp) => (
                             <option key={emp.id} value={emp.id}>
@@ -496,13 +495,11 @@ function RuleEditor({
                           rows={2}
                           placeholder="Instruction, e.g. 'Categorize by product area and draft a first response.'"
                           value={action.instruction}
-                          onChange={(e) =>
-                            patchAction(i, { instruction: e.target.value })
-                          }
+                          onChange={(e) => patchAction(i, { instruction: e.target.value })}
                         />
                         <p className="flex items-center gap-1 text-xs text-slate-400">
-                          <Bot size={11} /> The employee needs a matching grant
-                          on this mailbox (draft, or send for &quot;reply&quot;).
+                          <Bot size={11} /> The employee needs a matching grant on this mailbox
+                          (draft, or send for &quot;reply&quot;).
                         </p>
                       </>
                     )}

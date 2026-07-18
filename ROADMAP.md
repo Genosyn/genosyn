@@ -1106,6 +1106,12 @@ of the original V1 backlog has shipped — what remains is mostly
       complete `?` shortcut guide. Chords pause in editors and dialogs;
       consistent focus rings, Escape handling, and a skip-to-main link make
       the rest of the shell keyboard-friendly too
+- [x] **Optimistic UI + background mutations** — high-frequency actions update
+      locally on click while the API request continues in the background:
+      email send/triage, todos and review queues, approvals, notifications,
+      tags, grants, settings toggles, and list-row archive/delete/status
+      actions. A shared progress toast follows work across navigation; failures
+      stay visible and restore the affected row, value, draft, or composer.
 - [x] **Palette entity search** — the ⌘K palette also searches the company's
       content by name (`GET /api/companies/:cid/search`): AI employees,
       skills, routines, channels, projects, todos, bases, notebooks, notes,

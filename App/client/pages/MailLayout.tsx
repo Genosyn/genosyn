@@ -88,6 +88,7 @@ export default function MailLayout({ company }: { company: Company }) {
   const syncBaselineRef = React.useRef<string | null>(null);
   const [composeOpen, setComposeOpen] = React.useState(false);
   const [composeInit, setComposeInit] = React.useState<Partial<ComposeInput>>({});
+  const [composeSession, setComposeSession] = React.useState(0);
 
   const account = accounts.find((a) => a.id === activeId) ?? accounts[0] ?? null;
 
@@ -233,6 +234,7 @@ export default function MailLayout({ company }: { company: Company }) {
 
   const openCompose = React.useCallback((init: Partial<ComposeInput> = {}) => {
     setComposeInit(init);
+    setComposeSession((current) => current + 1);
     setComposeOpen(true);
   }, []);
 
@@ -379,9 +381,11 @@ export default function MailLayout({ company }: { company: Company }) {
       <MailComposeModal
         open={composeOpen}
         onClose={() => setComposeOpen(false)}
+        onReopen={() => setComposeOpen(true)}
         company={company}
         account={account}
         init={composeInit}
+        session={composeSession}
       />
     </ContextualLayout>
   );
@@ -577,70 +581,101 @@ function MailOnboarding({
 function MailComposeModal({
   open,
   onClose,
+  onReopen,
   company,
   account,
   init,
+  session,
 }: {
   open: boolean;
   onClose: () => void;
+  onReopen: () => void;
   company: Company;
   account: MailAccount;
   init: Partial<ComposeInput>;
+  session: number;
 }) {
-  const { toast } = useToast();
+  const { background } = useToast();
   const navigate = useNavigate();
   const [to, setTo] = React.useState("");
   const [cc, setCc] = React.useState("");
   const [subject, setSubject] = React.useState("");
   const [body, setBody] = React.useState("");
   const [showCc, setShowCc] = React.useState(false);
-  const [busy, setBusy] = React.useState<"send" | "draft" | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const recovering = React.useRef(false);
+  const activeSession = React.useRef(session);
+  const initializedSession = React.useRef(-1);
+  activeSession.current = session;
   const attach = useMailAttachments(company.id, account.id);
   const clearAttach = attach.clear;
 
   React.useEffect(() => {
     if (!open) return;
+    const sessionChanged = initializedSession.current !== session;
+    initializedSession.current = session;
+    if (recovering.current && !sessionChanged) {
+      recovering.current = false;
+      return;
+    }
+    recovering.current = false;
     setTo(init.to ?? "");
     setCc(init.cc ?? "");
     setShowCc(Boolean(init.cc));
     setSubject(init.subject ?? "");
     setBody(init.bodyText ?? "");
     setError(null);
-    setBusy(null);
     clearAttach();
-  }, [open, init, clearAttach]);
+  }, [open, init, clearAttach, session]);
 
-  const submit = async (kind: "send" | "draft") => {
+  const submit = (kind: "send" | "draft") => {
     setError(null);
     if (kind === "send" && !to.trim()) {
       setError("Add at least one recipient.");
       return;
     }
-    setBusy(kind);
-    try {
-      const input: ComposeInput = {
-        to: to.trim(),
-        cc: cc.trim() || undefined,
-        subject: subject.trim(),
-        bodyText: body,
-        threadId: init.threadId,
-        attachmentIds: attach.ids.length ? attach.ids : undefined,
-      };
-      if (kind === "send") {
-        await mailApi.send(company.id, account.id, input);
-        toast("Sent", "success");
-      } else {
-        const res = await mailApi.createDraft(company.id, account.id, input);
-        toast("Draft saved", "success");
-        navigate(`/c/${company.slug}/mail/t/${res.message.threadId}`);
-      }
-      onClose();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(null);
-    }
+    const input: ComposeInput = {
+      to: to.trim(),
+      cc: cc.trim() || undefined,
+      subject: subject.trim(),
+      bodyText: body,
+      threadId: init.threadId,
+      attachmentIds: attach.ids.length ? attach.ids : undefined,
+    };
+    const submittedSession = session;
+    recovering.current = true;
+    onClose();
+    background(
+      () =>
+        kind === "send"
+          ? mailApi.send(company.id, account.id, input)
+          : mailApi.createDraft(company.id, account.id, input),
+      {
+        loading: kind === "send" ? "Sending message…" : "Saving draft…",
+        success: kind === "send" ? "Sent" : "Draft saved",
+        error: (submitError) =>
+          `${kind === "send" ? "Couldn\u2019t send the message" : "Couldn\u2019t save the draft"}: ${
+            submitError instanceof Error ? submitError.message : "Unknown error"
+          }. ${
+            activeSession.current === submittedSession
+              ? "The composer has been restored."
+              : "Your newer draft is untouched."
+          }`,
+        onSuccess: (result) => {
+          if (activeSession.current !== submittedSession) return;
+          recovering.current = false;
+          clearAttach();
+          if (kind === "draft") {
+            navigate(`/c/${company.slug}/mail/t/${result.message.threadId}`);
+          }
+        },
+        onError: (submitError) => {
+          if (activeSession.current !== submittedSession) return;
+          setError(submitError instanceof Error ? submitError.message : "Request failed");
+          onReopen();
+        },
+      },
+    );
   };
 
   return (
@@ -680,15 +715,11 @@ function MailComposeModal({
         />
         <FormError message={error} />
         <div className="flex items-center justify-end gap-2">
-          <Button
-            variant="secondary"
-            disabled={busy !== null || attach.uploading}
-            onClick={() => submit("draft")}
-          >
-            {busy === "draft" ? <Spinner size={14} /> : "Save draft"}
+          <Button variant="secondary" disabled={attach.uploading} onClick={() => submit("draft")}>
+            Save draft
           </Button>
-          <Button disabled={busy !== null || attach.uploading} onClick={() => submit("send")}>
-            {busy === "send" ? <Spinner size={14} /> : "Send"}
+          <Button disabled={attach.uploading} onClick={() => submit("send")}>
+            Send
           </Button>
         </div>
       </div>

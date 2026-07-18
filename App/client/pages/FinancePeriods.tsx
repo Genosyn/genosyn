@@ -23,17 +23,14 @@ import { FinanceOutletCtx } from "./FinanceLayout";
  */
 export default function FinancePeriods() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { toast } = useToast();
+  const { background } = useToast();
   const dialog = useDialog();
 
   const [periods, setPeriods] = React.useState<AccountingPeriod[] | null>(null);
   const [showNew, setShowNew] = React.useState(false);
-  const [busy, setBusy] = React.useState(false);
 
   const reload = React.useCallback(async () => {
-    const list = await api.get<AccountingPeriod[]>(
-      `/api/companies/${company.id}/periods`,
-    );
+    const list = await api.get<AccountingPeriod[]>(`/api/companies/${company.id}/periods`);
     setPeriods(list);
   }, [company.id]);
 
@@ -49,15 +46,34 @@ export default function FinancePeriods() {
       confirmLabel: "Close period",
     });
     if (!ok) return;
-    setBusy(true);
-    try {
-      await api.post(`/api/companies/${company.id}/periods/${p.id}/close`);
-      reload();
-    } catch (err) {
-      toast((err as Error).message, "error");
-    } finally {
-      setBusy(false);
-    }
+    setPeriods(
+      (current) =>
+        current?.map((item) =>
+          item.id === p.id
+            ? { ...item, status: "closed", closedAt: new Date().toISOString() }
+            : item,
+        ) ?? current,
+    );
+    background(
+      () => api.post<AccountingPeriod>(`/api/companies/${company.id}/periods/${p.id}/close`),
+      {
+        loading: "Closing accounting period…",
+        success: "Accounting period closed",
+        error: (error) =>
+          `Couldn\u2019t close the period: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }. It remains open.`,
+        onSuccess: (updated) => {
+          setPeriods(
+            (current) =>
+              current?.map((item) => (item.id === updated.id ? updated : item)) ?? current,
+          );
+        },
+        onError: () => {
+          setPeriods((current) => current?.map((item) => (item.id === p.id ? p : item)) ?? current);
+        },
+      },
+    );
   }
 
   async function reopen(p: AccountingPeriod) {
@@ -68,15 +84,34 @@ export default function FinancePeriods() {
       confirmLabel: "Re-open",
     });
     if (!ok) return;
-    setBusy(true);
-    try {
-      await api.post(`/api/companies/${company.id}/periods/${p.id}/reopen`);
-      reload();
-    } catch (err) {
-      toast((err as Error).message, "error");
-    } finally {
-      setBusy(false);
-    }
+    setPeriods(
+      (current) =>
+        current?.map((item) =>
+          item.id === p.id
+            ? { ...item, status: "open", closedAt: null, closedById: null, closingEntryId: null }
+            : item,
+        ) ?? current,
+    );
+    background(
+      () => api.post<AccountingPeriod>(`/api/companies/${company.id}/periods/${p.id}/reopen`),
+      {
+        loading: "Re-opening accounting period…",
+        success: "Accounting period re-opened",
+        error: (error) =>
+          `Couldn\u2019t re-open the period: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }. It remains closed.`,
+        onSuccess: (updated) => {
+          setPeriods(
+            (current) =>
+              current?.map((item) => (item.id === updated.id ? updated : item)) ?? current,
+          );
+        },
+        onError: () => {
+          setPeriods((current) => current?.map((item) => (item.id === p.id ? p : item)) ?? current);
+        },
+      },
+    );
   }
 
   async function remove(p: AccountingPeriod) {
@@ -86,12 +121,24 @@ export default function FinancePeriods() {
       confirmLabel: "Delete",
     });
     if (!ok) return;
-    try {
-      await api.del(`/api/companies/${company.id}/periods/${p.id}`);
-      reload();
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+    const originalIndex = periods?.findIndex((item) => item.id === p.id) ?? -1;
+    setPeriods((current) => current?.filter((item) => item.id !== p.id) ?? current);
+    background(() => api.del(`/api/companies/${company.id}/periods/${p.id}`), {
+      loading: "Deleting accounting period…",
+      success: "Accounting period deleted",
+      error: (error) =>
+        `Couldn\u2019t delete the period: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. It has been restored.`,
+      onError: () => {
+        setPeriods((current) => {
+          if (!current || current.some((item) => item.id === p.id)) return current;
+          const next = [...current];
+          next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, p);
+          return next;
+        });
+      },
+    });
   }
 
   const exports = [
@@ -135,9 +182,8 @@ export default function FinancePeriods() {
         Periods & exports
       </h1>
       <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-        Define your fiscal periods and close them at month/quarter end.
-        Closed periods are locked — no entry can post inside them
-        until you re-open. CSV exports below are what most external
+        Define your fiscal periods and close them at month/quarter end. Closed periods are locked —
+        no entry can post inside them until you re-open. CSV exports below are what most external
         accountants ask for.
       </p>
 
@@ -156,8 +202,7 @@ export default function FinancePeriods() {
           </div>
         ) : periods.length === 0 ? (
           <div className="px-4 py-8 text-center text-sm text-slate-400">
-            No periods defined yet. Create your first one to start
-            closing books at month-end.
+            No periods defined yet. Create your first one to start closing books at month-end.
           </div>
         ) : (
           <table className="w-full text-sm">
@@ -198,7 +243,7 @@ export default function FinancePeriods() {
                     <div className="flex justify-end gap-2">
                       {p.status === "open" ? (
                         <>
-                          <Button onClick={() => close(p)} disabled={busy} size="sm">
+                          <Button onClick={() => close(p)} size="sm">
                             <Lock size={12} /> Close
                           </Button>
                           <button
@@ -210,12 +255,7 @@ export default function FinancePeriods() {
                           </button>
                         </>
                       ) : (
-                        <Button
-                          onClick={() => reopen(p)}
-                          disabled={busy}
-                          variant="secondary"
-                          size="sm"
-                        >
+                        <Button onClick={() => reopen(p)} variant="secondary" size="sm">
                           <Unlock size={12} /> Re-open
                         </Button>
                       )}
@@ -230,9 +270,7 @@ export default function FinancePeriods() {
 
       <div className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
-          <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-            CSV exports
-          </h2>
+          <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">CSV exports</h2>
         </div>
         <ul className="divide-y divide-slate-100 dark:divide-slate-800">
           {exports.map((e) => (
@@ -241,9 +279,7 @@ export default function FinancePeriods() {
                 <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
                   {e.label}
                 </div>
-                <div className="text-xs text-slate-500 dark:text-slate-400">
-                  {e.desc}
-                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">{e.desc}</div>
               </div>
               <a href={e.url} download>
                 <Button variant="secondary" size="sm">
@@ -285,12 +321,8 @@ function NewPeriodModal({
   const [name, setName] = React.useState(
     monthStart.toLocaleString("en-US", { month: "long", year: "numeric" }),
   );
-  const [startDate, setStartDate] = React.useState(
-    monthStart.toISOString().slice(0, 10),
-  );
-  const [endDate, setEndDate] = React.useState(
-    monthEnd.toISOString().slice(0, 10),
-  );
+  const [startDate, setStartDate] = React.useState(monthStart.toISOString().slice(0, 10));
+  const [endDate, setEndDate] = React.useState(monthEnd.toISOString().slice(0, 10));
   const [busy, setBusy] = React.useState(false);
 
   async function save(e: React.FormEvent) {

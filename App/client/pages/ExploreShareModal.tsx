@@ -58,7 +58,7 @@ export function ExploreShareModal({
   slug: string;
   rowTitle: string;
 }) {
-  const { toast } = useToast();
+  const { toast, background } = useToast();
   const [grants, setGrants] = React.useState<Grant[]>([]);
   const [candidates, setCandidates] = React.useState<Candidate[]>([]);
   const [busy, setBusy] = React.useState(false);
@@ -100,66 +100,71 @@ export function ExploreShareModal({
     }
   }
 
-  async function changeLevel(grant: Grant, next: AccessLevel) {
+  function changeLevel(grant: Grant, next: AccessLevel) {
     if (grant.accessLevel === next) return;
-    setBusy(true);
-    try {
-      await api.patch(`${base}/grants/${grant.id}`, { accessLevel: next });
-      await reload();
-      onChanged?.();
-    } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
-    } finally {
-      setBusy(false);
-    }
+    setGrants((current) =>
+      current.map((item) => (item.id === grant.id ? { ...item, accessLevel: next } : item)),
+    );
+    background(() => api.patch(`${base}/grants/${grant.id}`, { accessLevel: next }), {
+      loading: "Updating share access…",
+      error: (error) =>
+        `Couldn\u2019t update access: ${
+          error instanceof Error ? error.message : String(error)
+        }. The change was undone.`,
+      onSuccess: () => onChanged?.(),
+      onError: () => {
+        setGrants((current) => current.map((item) => (item.id === grant.id ? grant : item)));
+      },
+    });
   }
 
-  async function remove(grantId: string) {
-    setBusy(true);
-    try {
-      await api.del(`${base}/grants/${grantId}`);
-      await reload();
-      onChanged?.();
-    } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
-    } finally {
-      setBusy(false);
-    }
+  function remove(grantId: string) {
+    const grant = grants.find((item) => item.id === grantId);
+    if (!grant) return;
+    const originalIndex = grants.findIndex((item) => item.id === grantId);
+    setGrants((current) => current.filter((item) => item.id !== grantId));
+    background(() => api.del(`${base}/grants/${grantId}`), {
+      loading: "Removing share access…",
+      success: "Share access removed",
+      error: (error) =>
+        `Couldn\u2019t remove access: ${
+          error instanceof Error ? error.message : String(error)
+        }. The grant has been restored.`,
+      onSuccess: () => onChanged?.(),
+      onError: () => {
+        setGrants((current) => {
+          if (current.some((item) => item.id === grantId)) return current;
+          const next = [...current];
+          next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, grant);
+          return next;
+        });
+      },
+    });
   }
 
   const ungranted = candidates.filter((c) => !c.alreadyGranted);
   const noun = kind === "chart" ? "chart" : "dashboard";
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={`Share "${rowTitle}"`}
-      size="lg"
-    >
+    <Modal open={open} onClose={onClose} title={`Share "${rowTitle}"`} size="lg">
       <div className="flex flex-col gap-5">
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Pick what each AI employee can do with this {noun} through its MCP
-          tools — <span className="font-medium">View only</span> lets the
-          employee list/run it, <span className="font-medium">Can edit</span>{" "}
-          also lets them change or remove it.
+          Pick what each AI employee can do with this {noun} through its MCP tools —{" "}
+          <span className="font-medium">View only</span> lets the employee list/run it,{" "}
+          <span className="font-medium">Can edit</span> also lets them change or remove it.
           {kind === "dashboard" && (
             <>
-              {" "}Granting a dashboard does <em>not</em> grant the underlying
-              charts — share each chart separately if you want the data
-              visible too.
+              {" "}
+              Granting a dashboard does <em>not</em> grant the underlying charts — share each chart
+              separately if you want the data visible too.
             </>
           )}
         </p>
 
         <div>
-          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-            Has access
-          </h3>
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Has access</h3>
           {loading ? (
-            <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
-              Loading…
-            </p>
+            <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">Loading…</p>
           ) : grants.length === 0 ? (
             <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
               No AI employees have access. Add one below.
@@ -167,21 +172,12 @@ export function ExploreShareModal({
           ) : (
             <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-700">
               {grants.map((g) => (
-                <li
-                  key={g.id}
-                  className="flex items-center justify-between gap-3 px-3 py-2"
-                >
+                <li key={g.id} className="flex items-center justify-between gap-3 px-3 py-2">
                   <div className="flex min-w-0 items-center gap-2">
-                    <Avatar
-                      name={g.employee?.name ?? "?"}
-                      size="sm"
-                    />
+                    <Avatar name={g.employee?.name ?? "?"} size="sm" />
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <Check
-                          size={12}
-                          className="text-emerald-600 dark:text-emerald-400"
-                        />
+                        <Check size={12} className="text-emerald-600 dark:text-emerald-400" />
                         <span className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
                           {g.employee?.name ?? "Unknown"}
                         </span>
@@ -224,10 +220,7 @@ export function ExploreShareModal({
           ) : (
             <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-700">
               {ungranted.map((c) => (
-                <li
-                  key={c.id}
-                  className="flex items-center justify-between gap-2 px-3 py-2"
-                >
+                <li key={c.id} className="flex items-center justify-between gap-2 px-3 py-2">
                   <div className="flex min-w-0 items-center gap-2">
                     <Avatar name={c.name} size="sm" />
                     <div className="min-w-0">

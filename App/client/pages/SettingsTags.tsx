@@ -25,7 +25,7 @@ export function SettingsTags() {
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const dialog = useDialog();
-  const { toast } = useToast();
+  const { toast, background } = useToast();
 
   const reload = React.useCallback(async () => {
     try {
@@ -58,22 +58,39 @@ export function SettingsTags() {
     }
   }
 
-  async function rename(tag: CompanyTag) {
+  function rename(tag: CompanyTag) {
     if (!editName.trim() || saving) return;
-    setSaving(true);
-    try {
-      await api.patch(`/api/companies/${company.id}/tags/${tag.id}`, {
-        name: editName.trim(),
-        color: editColor,
-      });
-      setEditing(null);
-      await reload();
-      toast("Tag renamed", "success");
-    } catch (err) {
-      toast((err as Error).message, "error");
-    } finally {
-      setSaving(false);
-    }
+    const optimistic = { ...tag, name: editName.trim(), color: editColor };
+    setTags(
+      (current) => current?.map((item) => (item.id === tag.id ? optimistic : item)) ?? current,
+    );
+    setEditing(null);
+    background(
+      () =>
+        api.patch<CompanyTag>(`/api/companies/${company.id}/tags/${tag.id}`, {
+          name: optimistic.name,
+          color: optimistic.color,
+        }),
+      {
+        loading: "Renaming tag…",
+        success: "Tag renamed",
+        error: (error) =>
+          `Couldn\u2019t rename the tag: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }. The previous name has been restored.`,
+        onSuccess: (updated) => {
+          setTags(
+            (current) =>
+              current?.map((item) => (item.id === updated.id ? updated : item)) ?? current,
+          );
+        },
+        onError: () => {
+          setTags(
+            (current) => current?.map((item) => (item.id === tag.id ? tag : item)) ?? current,
+          );
+        },
+      },
+    );
   }
 
   async function remove(tag: CompanyTag) {
@@ -88,13 +105,24 @@ export function SettingsTags() {
       variant: "danger",
     });
     if (!ok) return;
-    try {
-      await api.del(`/api/companies/${company.id}/tags/${tag.id}`);
-      await reload();
-      toast("Tag deleted", "success");
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+    const originalIndex = tags?.findIndex((item) => item.id === tag.id) ?? -1;
+    setTags((current) => current?.filter((item) => item.id !== tag.id) ?? current);
+    background(() => api.del(`/api/companies/${company.id}/tags/${tag.id}`), {
+      loading: "Deleting tag…",
+      success: "Tag deleted",
+      error: (error) =>
+        `Couldn\u2019t delete the tag: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. It has been restored.`,
+      onError: () => {
+        setTags((current) => {
+          if (!current || current.some((item) => item.id === tag.id)) return current;
+          const next = [...current];
+          next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, tag);
+          return next;
+        });
+      },
+    });
   }
 
   return (

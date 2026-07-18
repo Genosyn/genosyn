@@ -22,7 +22,7 @@ import { FinanceOutletCtx } from "./FinanceLayout";
  */
 export default function FinanceVendors() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { toast } = useToast();
+  const { background } = useToast();
   const dialog = useDialog();
   const [vendors, setVendors] = React.useState<Vendor[] | null>(null);
   const [showArchived, setShowArchived] = React.useState(false);
@@ -39,11 +39,41 @@ export default function FinanceVendors() {
     reload().catch(() => setVendors([]));
   }, [reload]);
 
-  async function archive(v: Vendor) {
-    await api.patch(`/api/companies/${company.id}/vendors/${v.slug}`, {
-      archived: !v.archivedAt,
+  function archive(v: Vendor) {
+    const archived = !v.archivedAt;
+    const originalIndex = vendors?.findIndex((item) => item.id === v.id) ?? -1;
+    const optimistic = { ...v, archivedAt: archived ? new Date().toISOString() : null };
+    setVendors((current) => {
+      if (!current) return current;
+      if (archived && !showArchived) return current.filter((item) => item.id !== v.id);
+      return current.map((item) => (item.id === v.id ? optimistic : item));
     });
-    reload();
+    background(
+      () =>
+        api.patch<Vendor>(`/api/companies/${company.id}/vendors/${v.slug}`, {
+          archived,
+        }),
+      {
+        loading: archived ? "Archiving vendor…" : "Restoring vendor…",
+        success: archived ? "Vendor archived" : "Vendor restored",
+        error: (error) =>
+          `Couldn\u2019t update the vendor: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }. The change was undone.`,
+        onSuccess: () => void reload(),
+        onError: () => {
+          setVendors((current) => {
+            if (!current) return current;
+            if (current.some((item) => item.id === v.id)) {
+              return current.map((item) => (item.id === v.id ? v : item));
+            }
+            const next = [...current];
+            next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, v);
+            return next;
+          });
+        },
+      },
+    );
   }
 
   async function remove(v: Vendor) {
@@ -54,28 +84,35 @@ export default function FinanceVendors() {
       confirmLabel: "Delete",
     });
     if (!ok) return;
-    try {
-      await api.del(`/api/companies/${company.id}/vendors/${v.slug}`);
-      reload();
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+    const originalIndex = vendors?.findIndex((item) => item.id === v.id) ?? -1;
+    setVendors((current) => current?.filter((item) => item.id !== v.id) ?? current);
+    background(() => api.del(`/api/companies/${company.id}/vendors/${v.slug}`), {
+      loading: "Deleting vendor…",
+      success: "Vendor deleted",
+      error: (error) =>
+        `Couldn\u2019t delete the vendor: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. It has been restored.`,
+      onError: () => {
+        setVendors((current) => {
+          if (!current || current.some((item) => item.id === v.id)) return current;
+          const next = [...current];
+          next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, v);
+          return next;
+        });
+      },
+    });
   }
 
   return (
     <div className="mx-auto max-w-5xl p-8">
       <div className="mb-6">
         <Breadcrumbs
-          items={[
-            { label: "Finance", to: `/c/${company.slug}/finance` },
-            { label: "Vendors" },
-          ]}
+          items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Vendors" }]}
         />
       </div>
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-          Vendors
-        </h1>
+        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Vendors</h1>
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
             <input
@@ -125,9 +162,7 @@ export default function FinanceVendors() {
               {vendors.map((v) => (
                 <tr key={v.id} className={v.archivedAt ? "opacity-60" : ""}>
                   <td className="px-4 py-3">
-                    <div className="font-medium text-slate-900 dark:text-slate-100">
-                      {v.name}
-                    </div>
+                    <div className="font-medium text-slate-900 dark:text-slate-100">{v.name}</div>
                     {v.taxNumber && (
                       <div className="text-xs text-slate-500 dark:text-slate-400">
                         Tax #: {v.taxNumber}
@@ -284,12 +319,7 @@ function VendorEditor({
   }
 
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title={vendor ? `Edit ${vendor.name}` : "New vendor"}
-      size="lg"
-    >
+    <Modal open onClose={onClose} title={vendor ? `Edit ${vendor.name}` : "New vendor"} size="lg">
       <form onSubmit={save} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="sm:col-span-2">
           <Input
@@ -306,11 +336,7 @@ function VendorEditor({
           onChange={(e) => setEmail(e.target.value)}
           type="email"
         />
-        <Input
-          label="Phone"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-        />
+        <Input label="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
         <Input
           label="Tax / VAT number"
           value={taxNumber}

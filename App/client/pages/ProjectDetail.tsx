@@ -211,10 +211,7 @@ function Avatar({
  * Client-side reference to an assignee or reviewer. `null` = unset. The picker
  * operates on this; the route layer decides which DB column to write to.
  */
-export type AssigneeRef =
-  | { kind: "ai"; id: string }
-  | { kind: "human"; id: string }
-  | null;
+export type AssigneeRef = { kind: "ai"; id: string } | { kind: "human"; id: string } | null;
 
 function refFromTodo(t: Todo): AssigneeRef {
   if (t.assigneeEmployeeId) return { kind: "ai", id: t.assigneeEmployeeId };
@@ -242,6 +239,56 @@ function patchForReviewerRef(ref: AssigneeRef): Partial<Todo> {
     return { reviewerEmployeeId: ref.id, reviewerUserId: null };
   }
   return { reviewerUserId: ref.id, reviewerEmployeeId: null };
+}
+
+function optimisticTodo(
+  todo: Todo,
+  patch: Partial<Todo>,
+  employees: Employee[],
+  members: Member[],
+): Todo {
+  const next = { ...todo, ...patch, updatedAt: new Date().toISOString() };
+  if ("assigneeEmployeeId" in patch || "assigneeUserId" in patch) {
+    const employee = employees.find((item) => item.id === next.assigneeEmployeeId);
+    const member = members.find((item) => item.userId === next.assigneeUserId);
+    next.assignee = employee
+      ? {
+          kind: "ai",
+          id: employee.id,
+          name: employee.name,
+          slug: employee.slug,
+          role: employee.role,
+        }
+      : member
+        ? {
+            kind: "human",
+            id: member.userId,
+            name: member.name ?? member.email ?? "Member",
+            email: member.email,
+          }
+        : null;
+  }
+  if ("reviewerEmployeeId" in patch || "reviewerUserId" in patch) {
+    const employee = employees.find((item) => item.id === next.reviewerEmployeeId);
+    const member = members.find((item) => item.userId === next.reviewerUserId);
+    next.reviewer = employee
+      ? {
+          kind: "ai",
+          id: employee.id,
+          name: employee.name,
+          slug: employee.slug,
+          role: employee.role,
+        }
+      : member
+        ? {
+            kind: "human",
+            id: member.userId,
+            name: member.name ?? member.email ?? "Member",
+            email: member.email,
+          }
+        : null;
+  }
+  return next;
 }
 
 function formatDue(iso: string | null): { label: string; cls: string } | null {
@@ -293,7 +340,9 @@ function StatusPicker({
           )}
         >
           <StatusIcon status={value} />
-          {!compact && <span className="text-slate-700 dark:text-slate-200">{STATUS_LABEL[value]}</span>}
+          {!compact && (
+            <span className="text-slate-700 dark:text-slate-200">{STATUS_LABEL[value]}</span>
+          )}
         </button>
       )}
       width={200}
@@ -422,9 +471,7 @@ function AssigneePicker({
   const q = query.trim().toLowerCase();
   const matchEmp = (e: Employee) => !q || e.name.toLowerCase().includes(q);
   const matchMem = (m: Member) =>
-    !q ||
-    (m.name ?? "").toLowerCase().includes(q) ||
-    (m.email ?? "").toLowerCase().includes(q);
+    !q || (m.name ?? "").toLowerCase().includes(q) || (m.email ?? "").toLowerCase().includes(q);
 
   const filteredEmps = employees.filter(matchEmp);
   const filteredMems = members.filter(matchMem);
@@ -598,7 +645,9 @@ function RecurrencePicker({
             disabled
               ? clsx(
                   "cursor-default",
-                  active ? "text-indigo-600 dark:text-indigo-300" : "text-slate-500 dark:text-slate-400",
+                  active
+                    ? "text-indigo-600 dark:text-indigo-300"
+                    : "text-slate-500 dark:text-slate-400",
                 )
               : open
                 ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
@@ -740,16 +789,10 @@ function SubtaskCountChip({ stats }: { stats: ChildStats }) {
 
 // ───────────────────────── main page ─────────────────────────────────────────
 
-export default function ProjectDetail({
-  company,
-  me,
-}: {
-  company: Company;
-  me: Me;
-}) {
+export default function ProjectDetail({ company, me }: { company: Company; me: Me }) {
   const { pSlug } = useParams();
   const navigate = useNavigate();
-  const { toast } = useToast();
+  const { toast, background } = useToast();
   const dialog = useDialog();
   const { reload: reloadProjects } = useTasks();
 
@@ -761,6 +804,7 @@ export default function ProjectDetail({
   const [showSettings, setShowSettings] = React.useState(false);
   const [filters, setFilters] = React.useState<Filters>(emptyFilters);
   const addInputRef = React.useRef<HTMLInputElement>(null);
+  const todoMutationSeq = React.useRef(new Map<string, number>());
 
   // Every write affordance below hangs off this one value. `myAccessLevel` is
   // optional on `Project` (the list endpoint omits it) but always present on
@@ -775,9 +819,7 @@ export default function ProjectDetail({
   const reload = React.useCallback(async () => {
     if (!pSlug) return;
     try {
-      const d = await api.get<ProjectTodos>(
-        `/api/companies/${company.id}/projects/${pSlug}/todos`,
-      );
+      const d = await api.get<ProjectTodos>(`/api/companies/${company.id}/projects/${pSlug}/todos`);
       setData(d);
     } catch (err) {
       toast((err as Error).message, "error");
@@ -844,43 +886,70 @@ export default function ProjectDetail({
 
   const { project, todos } = data;
   const visibleTodos = applyFilters(todos, filters);
-  const peekTodo = peekId ? todos.find((t) => t.id === peekId) ?? null : null;
+  const peekTodo = peekId ? (todos.find((t) => t.id === peekId) ?? null) : null;
   const childStats = childStatsFor(todos);
   const todoById = new Map(todos.map((t) => [t.id, t]));
 
-  async function patchTodo(t: Todo, patch: Partial<Todo>) {
-    try {
-      const updated = await api.patch<Todo>(
-        `/api/companies/${company.id}/todos/${t.id}`,
-        patch,
-      );
-      setData((d) =>
-        d
-          ? { ...d, todos: d.todos.map((x) => (x.id === updated.id ? updated : x)) }
-          : d,
-      );
-      // Recurring todo just completed → the server spawned a fresh instance
-      // with a bumped due date. Re-fetch so it appears in the list, and
-      // surface a toast so the user knows what happened.
-      const becameDone =
-        patch.status === "done" && t.status !== "done" && t.recurrence !== "none";
-      if (becameDone) {
-        await reload();
-        toast(
-          `Next occurrence scheduled (${RECURRENCE_LABEL[t.recurrence].toLowerCase()}).`,
-          "success",
+  function patchTodo(t: Todo, patch: Partial<Todo>) {
+    const seq = (todoMutationSeq.current.get(t.id) ?? 0) + 1;
+    todoMutationSeq.current.set(t.id, seq);
+    const optimistic = optimisticTodo(t, patch, employees, members);
+    setData((current) =>
+      current
+        ? {
+            ...current,
+            todos: current.todos.map((item) => (item.id === t.id ? optimistic : item)),
+          }
+        : current,
+    );
+
+    background(() => api.patch<Todo>(`/api/companies/${company.id}/todos/${t.id}`, patch), {
+      loading: "Saving todo…",
+      error: (error) =>
+        `Couldn\u2019t save the todo: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. The change was undone.`,
+      onSuccess: (updated) => {
+        if (todoMutationSeq.current.get(t.id) === seq) {
+          setData((current) =>
+            current
+              ? {
+                  ...current,
+                  todos: current.todos.map((item) =>
+                    item.id === updated.id ? updated : item,
+                  ),
+                }
+              : current,
+          );
+        }
+        const becameDone =
+          patch.status === "done" && t.status !== "done" && t.recurrence !== "none";
+        if (becameDone) {
+          void reload().then(() => {
+            toast(
+              `Next occurrence scheduled (${RECURRENCE_LABEL[t.recurrence].toLowerCase()}).`,
+              "success",
+            );
+          });
+        }
+        void reloadProjects();
+      },
+      onError: () => {
+        if (todoMutationSeq.current.get(t.id) !== seq) return;
+        setData((current) =>
+          current
+            ? {
+                ...current,
+                todos: current.todos.map((item) => (item.id === t.id ? t : item)),
+              }
+            : current,
         );
-      }
-      reloadProjects();
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+      },
+    });
   }
 
   async function deleteTodo(t: Todo) {
-    const subCount = data
-      ? data.todos.filter((x) => x.parentTodoId === t.id).length
-      : 0;
+    const subCount = data ? data.todos.filter((x) => x.parentTodoId === t.id).length : 0;
     const ok = await dialog.confirm({
       title: `Delete "${t.title}"?`,
       message:
@@ -891,23 +960,36 @@ export default function ProjectDetail({
       variant: "danger",
     });
     if (!ok) return;
-    try {
-      await api.del(`/api/companies/${company.id}/todos/${t.id}`);
-      setData((d) =>
-        d
-          ? {
-              ...d,
-              todos: d.todos.filter(
-                (x) => x.id !== t.id && x.parentTodoId !== t.id,
-              ),
-            }
-          : d,
-      );
-      if (peekId === t.id) setPeekId(null);
-      reloadProjects();
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+    const removed = todos.filter((item) => item.id === t.id || item.parentTodoId === t.id);
+    setData((current) =>
+      current
+        ? {
+            ...current,
+            todos: current.todos.filter((item) => item.id !== t.id && item.parentTodoId !== t.id),
+          }
+        : current,
+    );
+    if (peekId === t.id) setPeekId(null);
+
+    background(() => api.del(`/api/companies/${company.id}/todos/${t.id}`), {
+      loading: "Deleting todo…",
+      success: "Todo deleted",
+      error: (error) =>
+        `Couldn\u2019t delete the todo: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. It has been restored.`,
+      onSuccess: () => void reloadProjects(),
+      onError: () => {
+        setData((current) =>
+          current
+            ? {
+                ...current,
+                todos: [...current.todos, ...removed].sort((a, b) => a.sortOrder - b.sortOrder),
+              }
+            : current,
+        );
+      },
+    });
   }
 
   const summary = summarize(todos);
@@ -919,10 +1001,7 @@ export default function ProjectDetail({
         <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-6 py-4 dark:bg-slate-900 dark:border-slate-700">
           <div className="min-w-0 flex-1">
             <Breadcrumbs
-              items={[
-                { label: "Tasks", to: `/c/${company.slug}/tasks` },
-                { label: project.name },
-              ]}
+              items={[{ label: "Tasks", to: `/c/${company.slug}/tasks` }, { label: project.name }]}
             />
             <div className="mt-1 flex items-center gap-2">
               <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
@@ -1091,12 +1170,10 @@ function ViewToggle({
 }) {
   return (
     <div className="flex items-center rounded-lg border border-slate-200 bg-white p-0.5 dark:bg-slate-900 dark:border-slate-700">
-      {(
-        [
-          { v: "list" as const, label: "List", Icon: LayoutList },
-          { v: "board" as const, label: "Board", Icon: Columns3 },
-        ]
-      ).map(({ v, label, Icon }) => (
+      {[
+        { v: "list" as const, label: "List", Icon: LayoutList },
+        { v: "board" as const, label: "Board", Icon: Columns3 },
+      ].map(({ v, label, Icon }) => (
         <button
           key={v}
           onClick={() => onChange(v)}
@@ -1374,10 +1451,7 @@ function NewTodoRow({
 }) {
   // New todos default to the creator — unowned work sits forever. The
   // picker shows it, so one click reassigns or clears before adding.
-  const defaultAssignee = React.useMemo<AssigneeRef>(
-    () => ({ kind: "human", id: meId }),
-    [meId],
-  );
+  const defaultAssignee = React.useMemo<AssigneeRef>(() => ({ kind: "human", id: meId }), [meId]);
   const [title, setTitle] = React.useState("");
   const [assignee, setAssignee] = React.useState<AssigneeRef>(defaultAssignee);
   const [reviewer, setReviewer] = React.useState<AssigneeRef>(null);
@@ -1392,19 +1466,16 @@ function NewTodoRow({
     if (!title.trim()) return;
     setBusy(true);
     try {
-      const t = await api.post<Todo>(
-        `/api/companies/${companyId}/projects/${projectSlug}/todos`,
-        {
-          title: title.trim(),
-          priority,
-          status,
-          assigneeEmployeeId: assignee?.kind === "ai" ? assignee.id : null,
-          assigneeUserId: assignee?.kind === "human" ? assignee.id : null,
-          reviewerEmployeeId: reviewer?.kind === "ai" ? reviewer.id : null,
-          reviewerUserId: reviewer?.kind === "human" ? reviewer.id : null,
-          recurrence,
-        },
-      );
+      const t = await api.post<Todo>(`/api/companies/${companyId}/projects/${projectSlug}/todos`, {
+        title: title.trim(),
+        priority,
+        status,
+        assigneeEmployeeId: assignee?.kind === "ai" ? assignee.id : null,
+        assigneeUserId: assignee?.kind === "human" ? assignee.id : null,
+        reviewerEmployeeId: reviewer?.kind === "ai" ? reviewer.id : null,
+        reviewerUserId: reviewer?.kind === "human" ? reviewer.id : null,
+        recurrence,
+      });
       onCreated(t);
       setTitle("");
       setPriority("none");
@@ -1540,7 +1611,7 @@ function ListView({
                   employees={employees}
                   members={members}
                   active={activePeekId === t.id}
-                  parent={t.parentTodoId ? todoById.get(t.parentTodoId) ?? null : null}
+                  parent={t.parentTodoId ? (todoById.get(t.parentTodoId) ?? null) : null}
                   stats={childStats.get(t.id) ?? null}
                   canEdit={canEdit}
                   onOpen={() => onOpen(t.id)}
@@ -1662,27 +1733,17 @@ function TodoRow({
         )}
       </div>
       {parent && (
-        <ParentChip
-          parent={parent}
-          project={project}
-          onOpen={() => onOpenTodo(parent.id)}
-        />
+        <ParentChip parent={parent} project={project} onOpen={() => onOpenTodo(parent.id)} />
       )}
       {stats && <SubtaskCountChip stats={stats} />}
       {todo.description.trim() && (
-        <span
-          className="shrink-0 text-slate-300 dark:text-slate-600"
-          title="Has description"
-        >
+        <span className="shrink-0 text-slate-300 dark:text-slate-600" title="Has description">
           <MessageSquare size={12} />
         </span>
       )}
       {due && (
         <span
-          className={clsx(
-            "flex shrink-0 items-center gap-1 text-xs",
-            due.cls,
-          )}
+          className={clsx("flex shrink-0 items-center gap-1 text-xs", due.cls)}
           title={todo.dueAt ?? undefined}
         >
           <Calendar size={12} /> {due.label}
@@ -1700,11 +1761,7 @@ function TodoRow({
       {todo.status === "in_review" && (
         <span
           className="flex shrink-0 items-center gap-1 rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-500/15 dark:text-violet-200"
-          title={
-            todo.reviewer
-              ? `Awaiting review by ${todo.reviewer.name}`
-              : "Awaiting reviewer"
-          }
+          title={todo.reviewer ? `Awaiting review by ${todo.reviewer.name}` : "Awaiting reviewer"}
         >
           <ShieldCheck size={10} />
           <span className="hidden sm:inline">Review</span>
@@ -1747,13 +1804,7 @@ function TodoRow({
 
 // ───────────────────────── board view ────────────────────────────────────────
 
-const BOARD_COLUMNS: TodoStatus[] = [
-  "backlog",
-  "todo",
-  "in_progress",
-  "in_review",
-  "done",
-];
+const BOARD_COLUMNS: TodoStatus[] = ["backlog", "todo", "in_progress", "in_review", "done"];
 
 function BoardView({
   todos,
@@ -1834,9 +1885,7 @@ function BoardView({
                     todo={t}
                     project={project}
                     active={activePeekId === t.id}
-                    parent={
-                      t.parentTodoId ? todoById.get(t.parentTodoId) ?? null : null
-                    }
+                    parent={t.parentTodoId ? (todoById.get(t.parentTodoId) ?? null) : null}
                     stats={childStats.get(t.id) ?? null}
                     canEdit={canEdit}
                     onClick={() => onOpen(t.id)}
@@ -1895,9 +1944,7 @@ function BoardCard({
             : "border-slate-200 dark:border-slate-700",
       )}
     >
-      <div
-        className={clsx("absolute left-0 top-0 h-full w-0.5", PRIORITY_BAR[todo.priority])}
-      />
+      <div className={clsx("absolute left-0 top-0 h-full w-0.5", PRIORITY_BAR[todo.priority])} />
       <div className="p-3 pl-3.5">
         <div className="flex items-center gap-2 text-[10px] text-slate-400 dark:text-slate-500">
           <span className="font-mono">
@@ -1905,27 +1952,23 @@ function BoardCard({
           </span>
           <PriorityIcon priority={todo.priority} size={11} />
           {parent && (
-            <ParentChip
-              parent={parent}
-              project={project}
-              onOpen={() => onOpenTodo(parent.id)}
-            />
+            <ParentChip parent={parent} project={project} onOpen={() => onOpenTodo(parent.id)} />
           )}
           {stats && <SubtaskCountChip stats={stats} />}
           {isReview && (
             <span
               className="ml-auto flex items-center gap-1 rounded bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-500/15 dark:text-violet-200"
               title={
-                todo.reviewer
-                  ? `Awaiting review by ${todo.reviewer.name}`
-                  : "Awaiting reviewer"
+                todo.reviewer ? `Awaiting review by ${todo.reviewer.name}` : "Awaiting reviewer"
               }
             >
               <ShieldCheck size={10} /> Review
             </span>
           )}
         </div>
-        <div className="mt-1 line-clamp-3 text-sm text-slate-900 dark:text-slate-100">{todo.title}</div>
+        <div className="mt-1 line-clamp-3 text-sm text-slate-900 dark:text-slate-100">
+          {todo.title}
+        </div>
         <div className="mt-2 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             {due && (
@@ -1944,10 +1987,7 @@ function BoardCard({
           </div>
           <div className="flex items-center gap-1">
             {isReview && todo.reviewer && (
-              <span
-                title={`Reviewer: ${todo.reviewer.name}`}
-                className="flex items-center"
-              >
+              <span title={`Reviewer: ${todo.reviewer.name}`} className="flex items-center">
                 <Avatar
                   name={todo.reviewer.name}
                   size={20}
@@ -2031,7 +2071,7 @@ function TodoPeek({
   }
   const due = todo.dueAt ? todo.dueAt.slice(0, 10) : "";
   const parent = todo.parentTodoId
-    ? allTodos.find((t) => t.id === todo.parentTodoId) ?? null
+    ? (allTodos.find((t) => t.id === todo.parentTodoId) ?? null)
     : null;
   const subtasks = allTodos.filter((t) => t.parentTodoId === todo.id);
 
@@ -2133,9 +2173,7 @@ function TodoPeek({
               Add a description — supports **markdown**, `code`, lists, links…
             </button>
           ) : (
-            <p className="px-3 py-2 text-sm text-slate-400 dark:text-slate-500">
-              No description.
-            </p>
+            <p className="px-3 py-2 text-sm text-slate-400 dark:text-slate-500">No description.</p>
           )}
         </div>
 
@@ -2195,9 +2233,7 @@ function TodoPeek({
               disabled={!canEdit}
               onChange={(e) =>
                 onPatch({
-                  dueAt: e.target.value
-                    ? new Date(e.target.value).toISOString()
-                    : null,
+                  dueAt: e.target.value ? new Date(e.target.value).toISOString() : null,
                 })
               }
             />
@@ -2252,12 +2288,7 @@ function TodoPeek({
           />
         )}
 
-        <CommentThread
-          todo={todo}
-          employees={employees}
-          companyId={companyId}
-          canEdit={canEdit}
-        />
+        <CommentThread todo={todo} employees={employees} companyId={companyId} canEdit={canEdit} />
       </div>
 
       <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 dark:border-slate-700">
@@ -2304,9 +2335,7 @@ function SubtasksSection({
   const [busy, setBusy] = React.useState(false);
   const { toast } = useToast();
 
-  const done = subtasks.filter(
-    (t) => t.status === "done" || t.status === "cancelled",
-  ).length;
+  const done = subtasks.filter((t) => t.status === "done" || t.status === "cancelled").length;
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
@@ -2316,10 +2345,10 @@ function SubtasksSection({
     try {
       // Assignee intentionally omitted — the server defaults it to the
       // creator, which is the right owner for a step you just wrote down.
-      const t = await api.post<Todo>(
-        `/api/companies/${companyId}/projects/${project.slug}/todos`,
-        { title: trimmed, parentTodoId: parent.id },
-      );
+      const t = await api.post<Todo>(`/api/companies/${companyId}/projects/${project.slug}/todos`, {
+        title: trimmed,
+        parentTodoId: parent.id,
+      });
       onCreated(t);
       setTitle("");
     } catch (err) {
@@ -2446,18 +2475,16 @@ function ReviewPanel({
           <div className="mt-0.5 text-violet-800/90 dark:text-violet-200/90">
             {reviewerName ? (
               <>
-                Waiting on <b>{reviewerName}</b> to sign off on work by{" "}
-                <b>{assigneeName}</b>.
+                Waiting on <b>{reviewerName}</b> to sign off on work by <b>{assigneeName}</b>.
               </>
             ) : canEdit ? (
               <>
-                <b>{assigneeName}</b> finished this task. Pick a reviewer above
-                to assign sign-off, or approve it below.
+                <b>{assigneeName}</b> finished this task. Pick a reviewer above to assign sign-off,
+                or approve it below.
               </>
             ) : (
               <>
-                <b>{assigneeName}</b> finished this task. It is waiting on a
-                reviewer.
+                <b>{assigneeName}</b> finished this task. It is waiting on a reviewer.
               </>
             )}
           </div>
@@ -2664,8 +2691,7 @@ function ProjectGeneralTab({
     <div className="flex flex-col gap-3">
       {!canEdit && (
         <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
-          You have view-only access to this project, so its settings are
-          read-only.
+          You have view-only access to this project, so its settings are read-only.
         </p>
       )}
       <Input
@@ -2678,9 +2704,7 @@ function ProjectGeneralTab({
         label="Key"
         value={projectKey}
         disabled={!canEdit}
-        onChange={(e) =>
-          setProjectKey(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))
-        }
+        onChange={(e) => setProjectKey(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
         maxLength={6}
       />
       <div className="flex flex-col gap-1">
@@ -2708,10 +2732,7 @@ function ProjectGeneralTab({
             {canEdit ? "Cancel" : "Close"}
           </Button>
           {canEdit && (
-            <Button
-              onClick={save}
-              disabled={busy || !name.trim() || !projectKey.trim()}
-            >
+            <Button onClick={save} disabled={busy || !name.trim() || !projectKey.trim()}>
               {busy ? "Saving…" : "Save"}
             </Button>
           )}
@@ -2882,9 +2903,7 @@ function ProjectAccessTab({
   // has no effect. Show it dimmed rather than hiding what is still stored.
   const interactive = canEdit && restricted && !busy;
 
-  const takenUsers = new Set(
-    access.members.flatMap((m) => (m.userId ? [m.userId] : [])),
-  );
+  const takenUsers = new Set(access.members.flatMap((m) => (m.userId ? [m.userId] : [])));
   const takenEmployees = new Set(
     access.members.flatMap((m) => (m.employeeId ? [m.employeeId] : [])),
   );
@@ -2899,8 +2918,8 @@ function ProjectAccessTab({
           Who can open this project
         </h3>
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          The list and board are two views of the same project, so this applies
-          to both — and to every todo inside it.
+          The list and board are two views of the same project, so this applies to both — and to
+          every todo inside it.
         </p>
         <div className="flex flex-col gap-2 sm:flex-row">
           <ModeOption
@@ -2921,17 +2940,11 @@ function ProjectAccessTab({
       </div>
 
       <div>
-        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-          Who has access
-        </h3>
+        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Who has access</h3>
         {!restricted && (
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            Everyone in the company already has access. This list only takes
-            effect once you switch to{" "}
-            <span className="font-medium">
-              Only people and AI employees you add
-            </span>
-            .
+            Everyone in the company already has access. This list only takes effect once you switch
+            to <span className="font-medium">Only people and AI employees you add</span>.
           </p>
         )}
         {access.members.length === 0 ? (
@@ -2950,10 +2963,7 @@ function ProjectAccessTab({
               const secondary = isAi ? m.slug : m.email;
               const isMe = m.memberKind === "user" && m.userId === me.id;
               return (
-                <li
-                  key={m.id}
-                  className="flex items-center justify-between gap-3 px-3 py-2"
-                >
+                <li key={m.id} className="flex items-center justify-between gap-3 px-3 py-2">
                   <div className="flex min-w-0 items-center gap-2">
                     <Avatar name={m.name} size={20} kind={isAi ? "ai" : "human"} />
                     <div className="min-w-0">
@@ -2999,9 +3009,7 @@ function ProjectAccessTab({
 
       {canEdit && restricted && (
         <div>
-          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-            Add someone
-          </h3>
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Add someone</h3>
           {!hasChoices ? (
             <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
               Everyone in this company already has access.
@@ -3035,11 +3043,7 @@ function ProjectAccessTab({
                 )}
               </select>
               <div className="flex items-center gap-2">
-                <LevelSelect
-                  value={addLevel}
-                  disabled={busy}
-                  onChange={setAddLevel}
-                />
+                <LevelSelect value={addLevel} disabled={busy} onChange={setAddLevel} />
                 <Button size="sm" onClick={addMember} disabled={busy || !addPick}>
                   <Plus size={13} /> Add
                 </Button>
@@ -3082,9 +3086,7 @@ function ModeOption({
         {active && <Check size={12} className="shrink-0 text-indigo-600 dark:text-indigo-400" />}
         {title}
       </span>
-      <span className="text-[11px] text-slate-500 dark:text-slate-400">
-        {subtitle}
-      </span>
+      <span className="text-[11px] text-slate-500 dark:text-slate-400">{subtitle}</span>
     </button>
   );
 }
@@ -3131,11 +3133,10 @@ function CommentThread({
   companyId: string;
   canEdit: boolean;
 }) {
-  const { toast } = useToast();
+  const { toast, background } = useToast();
   const [comments, setComments] = React.useState<TodoComment[] | null>(null);
   const [body, setBody] = React.useState("");
   const [mentionId, setMentionId] = React.useState<string | null>(null);
-  const [posting, setPosting] = React.useState(false);
   const scrollerRef = React.useRef<HTMLDivElement>(null);
 
   const load = React.useCallback(async () => {
@@ -3174,40 +3175,76 @@ function CommentThread({
     }
   }, [todo.assigneeEmployeeId, mentionId]);
 
-  async function submit(withMention: boolean) {
+  function submit(withMention: boolean) {
     const text = body.trim();
     if (!text) return;
-    setPosting(true);
-    try {
-      const created = await api.post<TodoComment[]>(
-        `/api/companies/${companyId}/todos/${todo.id}/comments`,
-        {
+    const optimisticId = `optimistic-${crypto.randomUUID()}`;
+    const optimistic: TodoComment = {
+      id: optimisticId,
+      todoId: todo.id,
+      authorUserId: null,
+      authorEmployeeId: null,
+      body: text,
+      pending: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      author: null,
+    };
+    setComments((current) => [...(current ?? []), optimistic]);
+    setBody("");
+    requestAnimationFrame(() => {
+      scrollerRef.current?.scrollTo({
+        top: scrollerRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    });
+
+    background(
+      () =>
+        api.post<TodoComment[]>(`/api/companies/${companyId}/todos/${todo.id}/comments`, {
           body: text,
           mentionEmployeeId: withMention ? mentionId : null,
+        }),
+      {
+        loading: withMention ? "Posting and asking AI…" : "Posting comment…",
+        error: (error) =>
+          `Couldn\u2019t post the comment: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }. Your text has been restored.`,
+        onSuccess: (created) => {
+          setComments((current) => [
+            ...(current ?? []).filter((comment) => comment.id !== optimisticId),
+            ...created,
+          ]);
         },
-      );
-      setComments((prev) => [...(prev ?? []), ...created]);
-      setBody("");
-      requestAnimationFrame(() => {
-        scrollerRef.current?.scrollTo({
-          top: scrollerRef.current.scrollHeight,
-          behavior: "smooth",
-        });
-      });
-    } catch (err) {
-      toast((err as Error).message, "error");
-    } finally {
-      setPosting(false);
-    }
+        onError: () => {
+          setComments(
+            (current) => current?.filter((comment) => comment.id !== optimisticId) ?? current,
+          );
+          setBody((current) => current || text);
+        },
+      },
+    );
   }
 
-  async function remove(c: TodoComment) {
-    try {
-      await api.del(`/api/companies/${companyId}/comments/${c.id}`);
-      setComments((prev) => (prev ? prev.filter((x) => x.id !== c.id) : prev));
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
+  function remove(c: TodoComment) {
+    const originalIndex = comments?.findIndex((comment) => comment.id === c.id) ?? -1;
+    setComments((current) => current?.filter((comment) => comment.id !== c.id) ?? current);
+    background(() => api.del(`/api/companies/${companyId}/comments/${c.id}`), {
+      loading: "Deleting comment…",
+      error: (error) =>
+        `Couldn\u2019t delete the comment: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. It has been restored.`,
+      onError: () => {
+        setComments((current) => {
+          if (!current || current.some((comment) => comment.id === c.id)) return current;
+          const next = [...current];
+          next.splice(Math.max(0, Math.min(originalIndex, next.length)), 0, c);
+          return next;
+        });
+      },
+    });
   }
 
   const mentionEmp = mentionId ? employees.find((e) => e.id === mentionId) : null;
@@ -3237,12 +3274,7 @@ function CommentThread({
           </div>
         ) : (
           comments.map((c) => (
-            <CommentRow
-              key={c.id}
-              comment={c}
-              canEdit={canEdit}
-              onDelete={remove}
-            />
+            <CommentRow key={c.id} comment={c} canEdit={canEdit} onDelete={remove} />
           ))
         )}
       </div>
@@ -3264,17 +3296,13 @@ function CommentThread({
             className="w-full resize-none rounded-t-lg bg-transparent px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
           />
           <div className="flex items-center gap-1 border-t border-slate-100 px-2 py-1.5 dark:border-slate-800">
-            <MentionPicker
-              value={mentionId}
-              employees={employees}
-              onChange={setMentionId}
-            />
+            <MentionPicker value={mentionId} employees={employees} onChange={setMentionId} />
             <div className="flex-1" />
             {mentionEmp ? (
               <Button
                 size="sm"
                 onClick={() => submit(true)}
-                disabled={!body.trim() || posting}
+                disabled={!body.trim()}
                 title="Post and ask the AI employee to reply (⌘⏎)"
               >
                 <Sparkles size={13} /> Ask {mentionEmp.name.split(" ")[0]}
@@ -3283,7 +3311,7 @@ function CommentThread({
               <Button
                 size="sm"
                 onClick={() => submit(false)}
-                disabled={!body.trim() || posting}
+                disabled={!body.trim()}
                 title="Post comment (⌘⏎)"
               >
                 <Send size={13} /> Send
@@ -3306,7 +3334,8 @@ function CommentRow({
   onDelete: (c: TodoComment) => void;
 }) {
   const author = comment.author;
-  const name = author?.name ?? "Unknown";
+  const optimistic = comment.id.startsWith("optimistic-");
+  const name = optimistic ? "You" : (author?.name ?? "Unknown");
   const isAi = author?.kind === "ai";
   const when = formatWhen(comment.createdAt);
 
@@ -3332,7 +3361,7 @@ function CommentRow({
           <span className="text-slate-400 dark:text-slate-500">·</span>
           <span className="text-slate-400 dark:text-slate-500">{when}</span>
           <div className="flex-1" />
-          {canEdit && (
+          {canEdit && !optimistic && (
             <button
               onClick={() => onDelete(comment)}
               title="Delete"
@@ -3555,5 +3584,3 @@ function EditorTab({
     </button>
   );
 }
-
-

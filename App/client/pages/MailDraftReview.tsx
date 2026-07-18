@@ -62,18 +62,25 @@ export function MailDraftReview({
   onRefresh,
   openCompose,
 }: MailDraftReviewProps) {
-  const { toast } = useToast();
+  const { toast, background } = useToast();
   const [selectedId, setSelectedId] = React.useState(threads[0]?.id ?? "");
   const [detail, setDetail] = React.useState<DraftThreadDetail | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [loadError, setLoadError] = React.useState<string | null>(null);
-  const [sendingId, setSendingId] = React.useState<string | null>(null);
+  const [hiddenThreadIds, setHiddenThreadIds] = React.useState<Set<string>>(() => new Set());
   const requestSeq = React.useRef(0);
+  const selectedIdRef = React.useRef(selectedId);
+  selectedIdRef.current = selectedId;
+
+  const visibleThreads = React.useMemo(
+    () => threads.filter((thread) => !hiddenThreadIds.has(thread.id)),
+    [hiddenThreadIds, threads],
+  );
 
   React.useEffect(() => {
-    if (threads.some((thread) => thread.id === selectedId)) return;
-    setSelectedId(threads[0]?.id ?? "");
-  }, [threads, selectedId]);
+    if (visibleThreads.some((thread) => thread.id === selectedId)) return;
+    setSelectedId(visibleThreads[0]?.id ?? "");
+  }, [visibleThreads, selectedId]);
 
   const loadDetail = React.useCallback(async () => {
     if (!selectedId) {
@@ -106,28 +113,54 @@ export function MailDraftReview({
 
   const selectedIndex = Math.max(
     0,
-    threads.findIndex((thread) => thread.id === selectedId),
+    visibleThreads.findIndex((thread) => thread.id === selectedId),
   );
   const drafts = detail?.messages.filter((message) => message.isDraft) ?? [];
 
-  const sendDraft = async (draft: MailMessage) => {
-    setSendingId(draft.id);
-    try {
-      await mailApi.sendDraft(companyId, draft.id);
-      toast("Draft sent", "success");
+  const sendDraft = (draft: MailMessage) => {
+    if (!detail) return;
+    const snapshot = detail;
+    const threadId = detail.thread.id;
+    const remainingDrafts = drafts.filter((message) => message.id !== draft.id);
 
-      const nextDetail = await loadDetail();
-      const remaining = nextDetail?.messages.filter((message) => message.isDraft) ?? [];
-      if (remaining.length === 0) {
-        const nextThread = threads[selectedIndex + 1] ?? threads[selectedIndex - 1];
-        if (nextThread) setSelectedId(nextThread.id);
-      }
-      await onRefresh();
-    } catch (err) {
-      toast((err as Error).message, "error");
-    } finally {
-      setSendingId(null);
+    // Sending through Gmail can take seconds. Treat the click as the user's
+    // decision immediately: remove the draft locally and let them review the
+    // next item while the request finishes in the background.
+    setDetail((current) =>
+      current?.thread.id === threadId
+        ? { ...current, messages: current.messages.filter((message) => message.id !== draft.id) }
+        : current,
+    );
+    if (remainingDrafts.length === 0) {
+      setHiddenThreadIds((current) => new Set(current).add(threadId));
+      const nextThread = visibleThreads[selectedIndex + 1] ?? visibleThreads[selectedIndex - 1];
+      setSelectedId(nextThread?.id ?? "");
     }
+
+    background(() => mailApi.sendDraft(companyId, draft.id), {
+      loading: "Sending draft…",
+      success: "Draft sent",
+      error: (error) =>
+        `Couldn\u2019t send the draft: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }. It has been returned to the queue.`,
+      onSuccess: () => {
+        void onRefresh().catch((error) => {
+          toast(
+            `Draft sent, but the queue could not refresh: ${(error as Error).message}`,
+            "error",
+          );
+        });
+      },
+      onError: () => {
+        setHiddenThreadIds((current) => {
+          const next = new Set(current);
+          next.delete(threadId);
+          return next;
+        });
+        if (selectedIdRef.current === threadId) setDetail(snapshot);
+      },
+    });
   };
 
   return (
@@ -145,7 +178,7 @@ export function MailDraftReview({
           </div>
         </div>
         <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium tabular-nums text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
-          {threads.length}
+          {visibleThreads.length}
           {hasMore ? "+" : ""} to review
         </span>
       </div>
@@ -153,7 +186,7 @@ export function MailDraftReview({
       <div className="grid min-h-[32rem] grid-cols-1 lg:grid-cols-[17rem_minmax(0,1fr)] xl:grid-cols-[17rem_minmax(0,1fr)_22rem]">
         <div className="border-b border-slate-200 dark:border-slate-800 lg:border-b-0 lg:border-r">
           <div className="max-h-72 overflow-y-auto lg:max-h-[40rem]">
-            {threads.map((thread, index) => (
+            {visibleThreads.map((thread, index) => (
               <button
                 key={thread.id}
                 type="button"
@@ -235,7 +268,7 @@ export function MailDraftReview({
             <div>
               <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-3 dark:border-slate-800/70">
                 <span className="text-xs font-medium tabular-nums text-slate-500 dark:text-slate-400">
-                  {selectedIndex + 1} of {threads.length}
+                  {selectedIndex + 1} of {visibleThreads.length}
                   {hasMore ? "+" : ""}
                 </span>
                 <div className="ml-auto flex items-center gap-1">
@@ -244,7 +277,7 @@ export function MailDraftReview({
                     variant="ghost"
                     aria-label="Previous draft"
                     disabled={selectedIndex === 0}
-                    onClick={() => setSelectedId(threads[selectedIndex - 1].id)}
+                    onClick={() => setSelectedId(visibleThreads[selectedIndex - 1].id)}
                   >
                     <ArrowLeft size={14} />
                   </Button>
@@ -252,8 +285,8 @@ export function MailDraftReview({
                     size="sm"
                     variant="ghost"
                     aria-label="Next draft"
-                    disabled={selectedIndex >= threads.length - 1}
-                    onClick={() => setSelectedId(threads[selectedIndex + 1].id)}
+                    disabled={selectedIndex >= visibleThreads.length - 1}
+                    onClick={() => setSelectedId(visibleThreads[selectedIndex + 1].id)}
                   >
                     <ArrowRight size={14} />
                   </Button>
@@ -273,9 +306,7 @@ export function MailDraftReview({
                     companyId={companyId}
                     draft={draft}
                     context={lastConversationMessage(detail.messages, draft.id)}
-                    sending={sendingId === draft.id}
-                    sendDisabled={sendingId !== null}
-                    onSend={() => void sendDraft(draft)}
+                    onSend={() => sendDraft(draft)}
                   />
                 ))}
               </div>
@@ -316,15 +347,11 @@ function DraftPreview({
   companyId,
   draft,
   context,
-  sending,
-  sendDisabled,
   onSend,
 }: {
   companyId: string;
   draft: MailMessage;
   context: MailMessage | null;
-  sending: boolean;
-  sendDisabled: boolean;
   onSend: () => void;
 }) {
   const hasRecipient = draft.toEmails.trim().length > 0;
@@ -405,14 +432,8 @@ function DraftPreview({
             ? "Sending uses the connected Gmail mailbox."
             : "Edit this draft to add a recipient."}
         </div>
-        <Button disabled={sendDisabled || !hasRecipient} onClick={onSend}>
-          {sending ? (
-            <Spinner size={14} />
-          ) : (
-            <>
-              <Send size={14} className="mr-1.5" /> Send &amp; next
-            </>
-          )}
+        <Button disabled={!hasRecipient} onClick={onSend}>
+          <Send size={14} className="mr-1.5" /> Send &amp; next
         </Button>
       </div>
     </article>
