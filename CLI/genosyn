@@ -13,12 +13,14 @@
 #                    (default: https://genosyn.com/genosyn)
 #   GENOSYN_AUTO_UPDATE  enable daily automatic upgrades after install
 #                        (default: 1; set to 0 to opt out)
+#   GENOSYN_BACKUP_DIR   host directory for automatic pre-upgrade backups
+#                        (default: ~/.genosyn/backups)
 #   GENOSYN_VLLM_DIR working dir for the `vllm` command's compose + .env
 #                    (default: ~/.genosyn/vllm)
 
 set -euo pipefail
 
-CLI_VERSION="0.3.0"
+CLI_VERSION="0.4.0"
 
 PORT="${GENOSYN_PORT:-8471}"
 NAME="${GENOSYN_NAME:-genosyn}"
@@ -27,6 +29,7 @@ IMAGE="${GENOSYN_IMAGE:-ghcr.io/genosyn/app:latest}"
 CLI_URL="${GENOSYN_CLI_URL:-https://genosyn.com/genosyn}"
 VLLM_DIR="${GENOSYN_VLLM_DIR:-${HOME}/.genosyn/vllm}"
 AUTO_UPDATE_DIR="${GENOSYN_STATE_DIR:-${HOME}/.genosyn}"
+UPGRADE_BACKUP_DIR="${GENOSYN_BACKUP_DIR:-${HOME}/.genosyn/backups}"
 
 # ---------- output helpers ----------
 
@@ -224,6 +227,7 @@ write_auto_update_wrapper() {
     printf 'export GENOSYN_VOLUME=%q\n' "${VOLUME}"
     printf 'export GENOSYN_IMAGE=%q\n' "${IMAGE}"
     printf 'export GENOSYN_CLI_URL=%q\n' "${CLI_URL}"
+    printf 'export GENOSYN_BACKUP_DIR=%q\n' "${UPGRADE_BACKUP_DIR}"
     printf 'log_path=%q\n' "${log_path}"
     printf 'cli_path=%q\n' "${cli_path}"
     cat <<'EOF'
@@ -343,12 +347,121 @@ volume_exists() {
 # Wait for the app to answer on its HTTP port from inside the container.
 wait_for_ready() {
   for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-    if docker exec "${NAME}" sh -c "wget -qO- http://127.0.0.1:8471 >/dev/null 2>&1 || curl -fsS http://127.0.0.1:8471 >/dev/null 2>&1"; then
+    if docker exec "${NAME}" sh -c "wget -qO- http://127.0.0.1:8471 >/dev/null 2>&1 || curl -fsS http://127.0.0.1:8471 >/dev/null 2>&1" >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
   done
   return 1
+}
+
+# Upgrades may need to apply database migrations before HTTP is available.
+# Give them longer than a normal start before deciding the new image failed.
+wait_for_upgrade_ready() {
+  local attempts=0
+  while [ "${attempts}" -lt 60 ]; do
+    if docker exec "${NAME}" sh -c "wget -qO- http://127.0.0.1:8471 >/dev/null 2>&1 || curl -fsS http://127.0.0.1:8471 >/dev/null 2>&1" >/dev/null 2>&1; then
+      return 0
+    fi
+    attempts=$((attempts + 1))
+    sleep 1
+  done
+  return 1
+}
+
+container_named_exists() {
+  docker ps -a --format '{{.Names}}' | grep -qx "$1"
+}
+
+upgrade_backup_path() {
+  mkdir -p "${UPGRADE_BACKUP_DIR}"
+  chmod 0700 "${UPGRADE_BACKUP_DIR}" 2>/dev/null || true
+
+  local backup_dir
+  backup_dir="$(cd "${UPGRADE_BACKUP_DIR}" && pwd)"
+  printf '%s/genosyn-pre-upgrade-%s-%s-%s.tar.gz' \
+    "${backup_dir}" "$(auto_update_key)" "$(date -u +%Y%m%d-%H%M%S)" "$$"
+}
+
+# Write and validate a complete volume archive. The app must be stopped by the
+# caller when a consistent SQLite snapshot matters.
+backup_volume_to() {
+  local out="$1"
+  local out_dir out_base owner_uid owner_gid
+  out_dir="$(cd "$(dirname "${out}")" && pwd)"
+  out_base="$(basename "${out}")"
+  owner_uid="$(id -u)"
+  owner_gid="$(id -g)"
+
+  if ! docker run --rm \
+    -v "${VOLUME}:/data:ro" \
+    -v "${out_dir}:/backup" \
+    alpine:3.20 \
+    sh -c 'cd /data && tar -czf "/backup/$1" . && { chown "$2:$3" "/backup/$1" 2>/dev/null || true; }' \
+    sh "${out_base}" "${owner_uid}" "${owner_gid}" >/dev/null; then
+    return 1
+  fi
+
+  [ -s "${out}" ] || return 1
+  docker run --rm \
+    -v "${out_dir}:/backup:ro" \
+    alpine:3.20 \
+    sh -c 'tar -tzf "/backup/$1" >/dev/null' sh "${out_base}"
+}
+
+restore_volume_from() {
+  local file="$1"
+  local file_dir file_base
+  file_dir="$(cd "$(dirname "${file}")" && pwd)"
+  file_base="$(basename "${file}")"
+
+  docker run --rm \
+    -v "${VOLUME}:/data" \
+    -v "${file_dir}:/backup:ro" \
+    alpine:3.20 \
+    sh -c 'cd /data && rm -rf ./* ./.[!.]* ./..?* 2>/dev/null; tar -xzf "/backup/$1"' \
+    sh "${file_base}" >/dev/null
+}
+
+rollback_upgrade() {
+  local rollback_name="$1"
+  local backup_path="$2"
+
+  warn "The new version did not become ready — rolling back automatically."
+
+  if container_exists; then
+    docker logs --tail 50 "${NAME}" >&2 2>/dev/null || true
+    step "Removing failed container '${NAME}'"
+    docker rm -f "${NAME}" >/dev/null 2>&1 || true
+  fi
+
+  step "Restoring pre-upgrade backup"
+  if ! restore_volume_from "${backup_path}"; then
+    if container_named_exists "${rollback_name}" && ! container_exists; then
+      docker rename "${rollback_name}" "${NAME}" >/dev/null 2>&1 || true
+    fi
+    warn "Automatic restore failed. The previous container is stopped and the backup is preserved at ${backup_path}."
+    return 1
+  fi
+
+  if ! docker rename "${rollback_name}" "${NAME}" >/dev/null; then
+    warn "Data was restored, but the previous container could not be renamed. It remains '${rollback_name}'."
+    return 1
+  fi
+
+  step "Restarting previous container '${NAME}'"
+  if ! docker start "${NAME}" >/dev/null; then
+    warn "Data was restored, but the previous container could not be restarted."
+    return 1
+  fi
+
+  if ! wait_for_ready; then
+    warn "The previous container was restored but did not become ready. Check 'genosyn logs'."
+    return 1
+  fi
+
+  ok "Rollback complete. Previous version restored; backup kept at ${backup_path}."
+  return 0
 }
 
 print_post_install() {
@@ -362,12 +475,17 @@ print_post_install() {
 
 # Start a fresh container with the configured name/port/volume/image.
 run_container() {
+  run_container_with_image "${IMAGE}"
+}
+
+run_container_with_image() {
+  local image_ref="$1"
   docker run -d \
     --name "${NAME}" \
     --restart unless-stopped \
     -p "${PORT}:8471" \
     -v "${VOLUME}:/app/data" \
-    "${IMAGE}" >/dev/null
+    "${image_ref}" >/dev/null
 }
 
 # ---------- flag parsing ----------
@@ -428,9 +546,20 @@ cmd_install() {
   printf '%sRun companies autonomously.%s\n\n' "${C_DIM}" "${C_RESET}"
 
   if container_exists; then
-    warn "Container '${NAME}' already exists — recreating it. Data volume '${VOLUME}' will be preserved."
-    step "Removing existing container '${NAME}'"
-    docker rm -f "${NAME}" >/dev/null
+    warn "Container '${NAME}' already exists — using the backup-and-rollback upgrade path."
+    if auto_update_requested "${auto_update}"; then
+      if ! enable_auto_update 1; then
+        warn "Automatic updates could not be scheduled. Run 'genosyn auto-update on' after installing cron."
+      fi
+    else
+      disable_auto_update 1
+    fi
+    cmd_upgrade \
+      --port "${PORT}" \
+      --name "${NAME}" \
+      --volume "${VOLUME}" \
+      --image "${IMAGE}"
+    return $?
   fi
 
   step "Pulling ${IMAGE}"
@@ -489,10 +618,11 @@ cmd_upgrade() {
   # opt-out marker so later manual upgrades do not silently turn it back on.
   ensure_auto_update_default
 
-  step "Pulling ${IMAGE}"
   local before after before_ver after_ver
-  before="$(docker image inspect --format '{{.Id}}' "${IMAGE}" 2>/dev/null || true)"
+  before="$(docker inspect --format '{{.Image}}' "${NAME}")"
   before_ver="$(image_version_label "${before}")"
+
+  step "Pulling ${IMAGE}"
   docker pull "${IMAGE}" >/dev/null
   after="$(docker image inspect --format '{{.Id}}' "${IMAGE}")"
   after_ver="$(image_version_label "${after}")"
@@ -510,20 +640,75 @@ cmd_upgrade() {
       return 0
     fi
     warn "Container is not running — starting it."
+    docker start "${NAME}" >/dev/null
+    wait_for_ready || warn "Container started but did not answer HTTP in time. Check 'genosyn logs'."
+    return 0
   fi
 
-  step "Recreating '${NAME}'"
-  docker rm -f "${NAME}" >/dev/null
-  run_container
+  local rollback_name="${NAME}-upgrade-rollback"
+  if container_named_exists "${rollback_name}"; then
+    die "Cannot upgrade while rollback container '${rollback_name}' exists. Remove or recover it first."
+  fi
 
-  wait_for_ready || warn "Upgraded but container did not answer HTTP in time. Check 'genosyn logs'."
+  local was_running=0
+  if container_running; then
+    was_running=1
+    step "Stopping '${NAME}' for a consistent backup"
+    docker stop "${NAME}" >/dev/null
+  fi
 
-  if [ -n "${before}" ] && [ "${before}" != "${after}" ]; then
+  local backup_path
+  if ! backup_path="$(upgrade_backup_path)"; then
+    [ "${was_running}" = "0" ] || docker start "${NAME}" >/dev/null 2>&1 || true
+    die "Could not prepare the pre-upgrade backup directory. Upgrade aborted."
+  fi
+
+  step "Backing up volume '${VOLUME}' → ${backup_path}"
+  if ! backup_volume_to "${backup_path}"; then
+    rm -f "${backup_path}"
+    [ "${was_running}" = "0" ] || docker start "${NAME}" >/dev/null 2>&1 || true
+    die "Pre-upgrade backup failed or could not be validated. Upgrade aborted; the existing container was not replaced."
+  fi
+  ok "Pre-upgrade backup verified."
+
+  step "Keeping previous container as '${rollback_name}'"
+  if ! docker rename "${NAME}" "${rollback_name}" >/dev/null; then
+    [ "${was_running}" = "0" ] || docker start "${NAME}" >/dev/null 2>&1 || true
+    die "Could not preserve the previous container. Upgrade aborted; backup kept at ${backup_path}."
+  fi
+
+  step "Starting upgraded '${NAME}'"
+  local upgrade_failed=0
+  if ! run_container_with_image "${IMAGE}"; then
+    upgrade_failed=1
+  elif ! wait_for_upgrade_ready; then
+    upgrade_failed=1
+  fi
+
+  if [ "${upgrade_failed}" = "1" ]; then
+    if rollback_upgrade "${rollback_name}" "${backup_path}"; then
+      warn "Upgrade failed; the previous version and data were restored automatically."
+    else
+      warn "Upgrade and automatic rollback both need attention. Backup: ${backup_path}"
+    fi
+    return 1
+  fi
+
+  step "Removing retained previous container"
+  local previous_container_removed=0
+  if docker rm "${rollback_name}" >/dev/null; then
+    previous_container_removed=1
+  else
+    warn "Upgrade succeeded, but retained container '${rollback_name}' could not be removed."
+  fi
+
+  if [ "${previous_container_removed}" = "1" ] && [ -n "${before}" ] && [ "${before}" != "${after}" ]; then
     step "Removing previous image"
     docker image rm "${before}" >/dev/null 2>&1 || true
   fi
 
   ok "Genosyn upgraded${ver_msg}."
+  printf '%sBackup%s     %s\n' "${C_DIM}" "${C_RESET}" "${backup_path}"
   print_post_install
 }
 
@@ -641,19 +826,16 @@ cmd_backup() {
   fi
 
   local out_abs out_dir out_base
+  mkdir -p "$(dirname "${out}")"
   out_dir="$(cd "$(dirname "${out}")" && pwd)"
   out_base="$(basename "${out}")"
   out_abs="${out_dir}/${out_base}"
 
   step "Backing up volume '${VOLUME}' → ${out_abs}"
-  # Run a throwaway alpine container with the volume mounted; stream tar to stdout
-  # so we never need a writable mount on the host path. The second mount is the
-  # destination dir, read-write, so tar can write into it.
-  docker run --rm \
-    -v "${VOLUME}:/data:ro" \
-    -v "${out_dir}:/backup" \
-    alpine:3.20 \
-    sh -c "cd /data && tar -czf /backup/${out_base} ." >/dev/null
+  if ! backup_volume_to "${out_abs}"; then
+    rm -f "${out_abs}"
+    die "Backup failed or the archive could not be validated."
+  fi
 
   ok "Backup written: ${out_abs}"
 }
@@ -678,10 +860,8 @@ cmd_restore() {
 
   require_docker
 
-  local file_abs file_dir file_base
-  file_dir="$(cd "$(dirname "${file}")" && pwd)"
-  file_base="$(basename "${file}")"
-  file_abs="${file_dir}/${file_base}"
+  local file_abs
+  file_abs="$(cd "$(dirname "${file}")" && pwd)/$(basename "${file}")"
 
   if volume_exists; then
     warn "This will ERASE the current contents of volume '${VOLUME}' and replace them with '${file_abs}'."
@@ -701,11 +881,9 @@ cmd_restore() {
   fi
 
   step "Restoring into volume '${VOLUME}'"
-  docker run --rm \
-    -v "${VOLUME}:/data" \
-    -v "${file_dir}:/backup:ro" \
-    alpine:3.20 \
-    sh -c "cd /data && rm -rf ./* ./.[!.]* ./..?* 2>/dev/null; tar -xzf /backup/${file_base}" >/dev/null
+  if ! restore_volume_from "${file_abs}"; then
+    die "Restore failed. The source archive is unchanged at ${file_abs}."
+  fi
 
   if container_exists; then
     step "Starting '${NAME}'"
@@ -1566,9 +1744,10 @@ ${C_BOLD}Usage:${C_RESET}
 ${C_BOLD}Commands:${C_RESET}
   install              Pull the image, start the container, and enable daily
                        automatic updates. Pass --no-auto-update to opt out.
-  upgrade              Self-upgrade the CLI, pull the latest image, recreate
-                       the container. Pass --no-self-upgrade to skip the
-                       script update.
+  upgrade              Back up data, self-upgrade the CLI, pull the latest
+                       image, and recreate the container. Failed upgrades
+                       restore the backup and previous container automatically.
+                       Pass --no-self-upgrade to skip the script update.
   self-upgrade         Update only the genosyn CLI script in place.
   auto-update <action> Manage daily upgrades: on, off, or status.
   start                Start a stopped container.

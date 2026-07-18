@@ -128,10 +128,13 @@ export function Install() {
       </P>
       <Pre lang="bash">{`genosyn upgrade`}</Pre>
       <P>
-        This pulls the latest image and recreates the container, preserving the
-        data volume. Automatic updates run this same command after first
-        self-upgrading the CLI. See <DocLink to="/docs/cli">CLI reference</DocLink>{" "}
-        for every flag.
+        When a new image is available, the CLI stops the container briefly and
+        writes a verified data-volume backup under{" "}
+        <Code>~/.genosyn/backups</Code> before replacing it. If the new version
+        fails to become ready, Genosyn restores that backup and restarts the
+        previous container automatically. Automatic updates use this same safe
+        path after first self-upgrading the CLI. See{" "}
+        <DocLink to="/docs/cli">CLI reference</DocLink> for every flag.
       </P>
 
       <H3 id="backing-up">Backing up</H3>

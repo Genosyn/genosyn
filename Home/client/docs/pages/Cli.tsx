@@ -26,7 +26,7 @@ const COMMANDS: Cmd[] = [
     name: "upgrade",
     flags: "[--no-self-upgrade]",
     blurb:
-      "Self-upgrade the CLI script, pull the latest image, and recreate the container. Pass --no-self-upgrade to skip the script update.",
+      "Self-upgrade the CLI, pull the latest image, stop the container for a verified data backup, and recreate it. If the new version fails to start or become ready, the CLI restores the backup and previous container automatically. Pass --no-self-upgrade to skip the script update.",
   },
   {
     name: "self-upgrade",
@@ -231,6 +231,15 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
               </>
             ),
           },
+          {
+            term: "GENOSYN_BACKUP_DIR",
+            def: (
+              <>
+                Host directory for verified pre-upgrade backups. Default{" "}
+                <Code>~/.genosyn/backups</Code>.
+              </>
+            ),
+          },
         ]}
       />
 
@@ -249,6 +258,13 @@ genosyn auto-update on`}</Pre>
         Automatic updates use the host&apos;s <Code>crontab</Code> and write
         logs under <Code>~/.genosyn</Code>. If cron is unavailable, installation
         still completes and prints the command to retry after cron is installed.
+      </P>
+      <P>
+        A newly available image triggers a verified backup under{" "}
+        <Code>~/.genosyn/backups</Code> before the existing container is
+        replaced. If the new container does not become ready, the CLI restores
+        that archive and restarts the previous version automatically. Successful
+        upgrade backups are retained for manual recovery.
       </P>
 
       <H3 id="scheduled-backup">Daily backup to a known path</H3>
