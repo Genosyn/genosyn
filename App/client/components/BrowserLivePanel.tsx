@@ -4,10 +4,11 @@ import { api } from "../lib/api";
 
 /**
  * Live-view panel for the built-in `browser` MCP server. Polls the server
- * for the most recent browser session matching the current chat or run,
- * then embeds the viewer in an iframe alongside the conversation. Humans
- * can flip into "Take over" mode from inside the iframe to solve a captcha
- * or 2FA, then hand control back to the AI.
+ * for the most recent browser session matching the current chat or run that
+ * has actually launched Chromium, then embeds the viewer in an iframe
+ * alongside the conversation. Humans can flip into "Take over" mode from
+ * inside the iframe to solve a captcha or 2FA, then hand control back to the
+ * AI.
  *
  * The panel is keyed to either a `conversationId` (chat seam) or a `runId`
  * (routine seam). When neither is set the panel is hidden entirely.
@@ -165,7 +166,11 @@ export function BrowserLivePanel(props: Props) {
     const params = new URLSearchParams();
     if (conversationId) params.set("conversationId", conversationId);
     if (runId) params.set("runId", runId);
-    params.set("status", "pending,live,closed");
+    // A pending row is created while the agent's available tools are assembled,
+    // before it decides whether to call a browser tool. Showing that row makes
+    // the panel open on every ordinary chat turn. Only poll sessions that have
+    // progressed far enough to launch Chromium (or have since closed).
+    params.set("status", "live,closed");
 
     async function tick() {
       try {
@@ -177,14 +182,17 @@ export function BrowserLivePanel(props: Props) {
           setSession(null);
           return;
         }
-        // Pick the most recent active or recently-closed session. The API
-        // already orders by createdAt DESC; we just filter out anything stale.
+        // Pick the most recent session that really started. A pending session
+        // can be manually closed without ever launching Chromium, so startedAt
+        // remains the authoritative browser-activity signal even for closed
+        // rows. Live sessions stay visible regardless of age; closed sessions
+        // are only useful briefly after their last activity.
         const cutoff = Date.now() - STALE_AFTER_MS;
         const fresh = list.find((s) => {
-          const created = new Date(s.createdAt).getTime();
-          if (Number.isNaN(created)) return false;
-          if (created < cutoff) return false;
-          return true;
+          if (!s.startedAt) return false;
+          if (s.status === "live") return true;
+          const lastActivity = new Date(s.closedAt ?? s.startedAt).getTime();
+          return !Number.isNaN(lastActivity) && lastActivity >= cutoff;
         });
         setSession(fresh ?? null);
       } catch {
