@@ -900,6 +900,9 @@ Phased so each phase ships behind its own PR:
       optional `maxRuns` and `endsOn` caps flip to ended automatically.
       Sidebar entry under Finance, dedicated list / new / detail pages
       with cron presets + human-readable schedule preview.
+- [x] **Invoice delivery defaults.** Finance settings can hold internal
+      always-Cc addresses that are merged into every customer invoice email,
+      including manual sends, resends, and recurring auto-sends.
 - [x] **Customers spun out — accounts, ACV + contracts.** Customers
       graduated from a Finance sub-page to their own top-level
       **Customers** section (Customers + Contracts sub-nav; old
