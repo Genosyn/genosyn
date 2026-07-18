@@ -1,4 +1,4 @@
-import { In, Not } from "typeorm";
+import { In, IsNull, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Base } from "../db/entities/Base.js";
@@ -14,6 +14,7 @@ import { Routine } from "../db/entities/Routine.js";
 import { Skill } from "../db/entities/Skill.js";
 import { Tag } from "../db/entities/Tag.js";
 import { TagAssignment, TaggableResourceType } from "../db/entities/TagAssignment.js";
+import { randomTagColor, TagColor } from "../lib/tagColors.js";
 
 export const TAGGABLE_RESOURCE_TYPES = [
   "routine",
@@ -59,33 +60,40 @@ export async function listCompanyTags(companyId: string): Promise<CompanyTag[]> 
   return tags.map((tag) => Object.assign(tag, { usageCount: counts.get(tag.id) ?? 0 }));
 }
 
-export async function createCompanyTag(companyId: string, rawName: string): Promise<Tag> {
+export async function createCompanyTag(
+  companyId: string,
+  rawName: string,
+  color: TagColor = randomTagColor(),
+): Promise<Tag> {
   const name = cleanTagName(rawName).slice(0, 50);
   const normalizedName = normalizeTagName(name);
   const repo = AppDataSource.getRepository(Tag);
   const existing = await repo.findOneBy({ companyId, normalizedName });
   if (existing) return existing;
-  return repo.save(repo.create({ companyId, name, normalizedName }));
+  return repo.save(repo.create({ companyId, name, normalizedName, color }));
 }
 
-export async function renameCompanyTag(
+export async function updateCompanyTag(
   companyId: string,
   tagId: string,
-  rawName: string,
+  updates: { name?: string; color?: TagColor },
 ): Promise<Tag | null> {
   const repo = AppDataSource.getRepository(Tag);
   const tag = await repo.findOneBy({ id: tagId, companyId });
   if (!tag) return null;
-  const name = cleanTagName(rawName).slice(0, 50);
-  const normalizedName = normalizeTagName(name);
-  const duplicate = await repo.findOneBy({ companyId, normalizedName });
-  if (duplicate && duplicate.id !== tag.id) {
-    throw new TagConflictError(`The tag "${duplicate.name}" already exists.`);
+  if (updates.name !== undefined) {
+    const name = cleanTagName(updates.name).slice(0, 50);
+    const normalizedName = normalizeTagName(name);
+    const duplicate = await repo.findOneBy({ companyId, normalizedName });
+    if (duplicate && duplicate.id !== tag.id) {
+      throw new TagConflictError(`The tag "${duplicate.name}" already exists.`);
+    }
+    tag.name = name;
+    tag.normalizedName = normalizedName;
   }
-  tag.name = name;
-  tag.normalizedName = normalizedName;
+  if (updates.color !== undefined) tag.color = updates.color;
   await repo.save(tag);
-  await syncLegacyResourceTagsForTag(tag.id);
+  if (updates.name !== undefined) await syncLegacyResourceTagsForTag(tag.id);
   return tag;
 }
 
@@ -310,4 +318,14 @@ export async function backfillLegacyResourceTags(): Promise<void> {
       await replaceResourceTagNames(resource.companyId, "resource", resource.id, resource.tags);
     }
   }
+}
+
+/** Assign a stable random palette entry to tags created before colors shipped. */
+export async function backfillTagColors(): Promise<void> {
+  const repo = AppDataSource.getRepository(Tag);
+  const tags = await repo.find({ where: { color: IsNull() } });
+  for (const tag of tags) {
+    tag.color = randomTagColor();
+  }
+  if (tags.length > 0) await repo.save(tags);
 }

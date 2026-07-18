@@ -24,7 +24,7 @@ import { Textarea } from "../components/ui/Textarea";
 import { useToast } from "../components/ui/Toast";
 import { Spinner } from "../components/ui/Spinner";
 import { api, Company, CompanyTag, Resource, ResourceSourceKind } from "../lib/api";
-import { TagFilterBar, TagPicker } from "../components/TagPicker";
+import { TagChips, TagFilterBar, TagPicker } from "../components/TagPicker";
 
 /**
  * Resources — knowledge ingestion. Humans paste a URL, paste raw text,
@@ -288,19 +288,10 @@ function ResourceList({
                 <span className="capitalize">{r.sourceKind}</span>
                 <span aria-hidden>·</span>
                 <span>{formatBodyLength(r.bodyLength)}</span>
-                {r.tagList.length > 0 && (
+                {r.tags.length > 0 && (
                   <>
                     <span aria-hidden>·</span>
-                    <span className="flex flex-wrap gap-1">
-                      {r.tagList.slice(0, 4).map((t) => (
-                        <span
-                          key={t}
-                          className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-                        >
-                          {t}
-                        </span>
-                      ))}
-                    </span>
+                    <TagChips tags={r.tags} limit={4} />
                   </>
                 )}
               </span>

@@ -303,6 +303,8 @@ can be attached to the same resource.
       new company tag
 - [x] Tag chips and filters on the company-wide Routines, Skills, and
       Resources lists
+- [x] Curated tag colors across chips, filters, and pickers, with color
+      management in Settings and random colors assigned to existing tags
 - [x] Existing comma-separated M18 Resource tags import into the company
       catalog on boot; the legacy string stays synchronized for MCP search and
       backwards-compatible Resource tools

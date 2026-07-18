@@ -187,11 +187,25 @@ export type Team = {
   updatedAt: string;
 };
 
+export type TagColor =
+  | "slate"
+  | "red"
+  | "orange"
+  | "amber"
+  | "green"
+  | "teal"
+  | "cyan"
+  | "blue"
+  | "indigo"
+  | "violet"
+  | "pink";
+
 export type CompanyTag = {
   id: string;
   companyId: string;
   name: string;
   normalizedName: string;
+  color: TagColor;
   usageCount?: number;
   createdAt: string;
   updatedAt: string;

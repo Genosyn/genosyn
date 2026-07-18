@@ -8,8 +8,8 @@ export function Tags() {
         title="Tags"
         lead={
           <>
-            Tags are reusable, company-wide labels for organizing resources. Create any names your
-            team needs, then attach several tags to the same resource.
+            Tags are reusable, color-coded company labels for organizing resources. Create any names
+            your team needs, then attach several tags to the same resource.
           </>
         }
       />
@@ -37,9 +37,10 @@ export function Tags() {
       <H2 id="manage">Manage the company catalog</H2>
       <P>
         Go to <Strong>Settings → Tags</Strong> to create, rename, or delete company tags. Renaming
-        updates every attached resource. Deleting a tag removes only the label and its assignments —
-        it never deletes the resources themselves. The usage count shows how widely each tag is used
-        before you make a change.
+        or changing a color updates every attached resource. New tags created here use the color you
+        choose; tags created inline receive a color automatically and can be adjusted later.
+        Deleting a tag removes only the label and its assignments — it never deletes the resources
+        themselves. The usage count shows how widely each tag is used before you make a change.
       </P>
 
       <H2 id="names">Naming</H2>

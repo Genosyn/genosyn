@@ -3,6 +3,7 @@ import { Check, Plus, Tag, X } from "lucide-react";
 import { api, CompanyTag, TaggableResourceType } from "../lib/api";
 import { Spinner } from "./ui/Spinner";
 import { useToast } from "./ui/Toast";
+import { getTagColorOption, TagColorDot } from "./TagColorPicker";
 
 export function TagChips({ tags, limit }: { tags: CompanyTag[]; limit?: number }) {
   const shown = limit ? tags.slice(0, limit) : tags;
@@ -12,7 +13,7 @@ export function TagChips({ tags, limit }: { tags: CompanyTag[]; limit?: number }
       {shown.map((tag) => (
         <span
           key={tag.id}
-          className="max-w-40 truncate rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+          className={`max-w-40 truncate rounded-full border px-2 py-0.5 text-[11px] font-medium ${getTagColorOption(tag.color).chipClass}`}
           title={tag.name}
         >
           {tag.name}
@@ -47,12 +48,11 @@ export function TagFilterBar({
           key={tag.id}
           type="button"
           onClick={() => onSelect(selectedId === tag.id ? null : tag.id)}
-          className={
-            "rounded-full border px-2.5 py-0.5 text-xs font-medium transition " +
-            (selectedId === tag.id
-              ? "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300"
-              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-slate-600")
-          }
+          className={`rounded-full border px-2.5 py-0.5 text-xs font-medium transition hover:brightness-95 dark:hover:brightness-110 ${getTagColorOption(tag.color).chipClass} ${
+            selectedId === tag.id
+              ? "ring-2 ring-indigo-500 ring-offset-1 dark:ring-offset-slate-950"
+              : ""
+          }`}
         >
           {tag.name}
         </button>
@@ -149,14 +149,14 @@ export function TagPicker({
         {value.map((tag) => (
           <span
             key={tag.id}
-            className="inline-flex max-w-48 items-center gap-1 rounded-full bg-slate-100 py-0.5 pl-2 pr-1 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+            className={`inline-flex max-w-48 items-center gap-1 rounded-full border py-0.5 pl-2 pr-1 text-xs font-medium ${getTagColorOption(tag.color).chipClass}`}
           >
             <span className="truncate">{tag.name}</span>
             <button
               type="button"
               onClick={() => commit(value.filter((row) => row.id !== tag.id))}
               disabled={saving}
-              className="rounded-full p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+              className="rounded-full p-0.5 opacity-60 hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
               aria-label={`Remove ${tag.name}`}
             >
               <X size={11} />
@@ -215,6 +215,7 @@ export function TagPicker({
                       <span className="flex h-4 w-4 items-center justify-center rounded border border-slate-300 dark:border-slate-600">
                         {selected && <Check size={11} />}
                       </span>
+                      <TagColorDot color={tag.color} />
                       <span className="min-w-0 flex-1 truncate">{tag.name}</span>
                     </button>
                   );

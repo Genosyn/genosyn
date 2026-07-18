@@ -1,7 +1,7 @@
 import React from "react";
-import { Pencil, Tag, Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { useOutletContext } from "react-router-dom";
-import { api, CompanyTag } from "../lib/api";
+import { api, CompanyTag, TagColor } from "../lib/api";
 import { TopBar } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
@@ -12,13 +12,16 @@ import { Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
 import { useToast } from "../components/ui/Toast";
 import type { SettingsOutletCtx } from "./SettingsLayout";
+import { getTagColorOption, randomTagColor, TagColorPicker } from "../components/TagColorPicker";
 
 export function SettingsTags() {
   const { company } = useOutletContext<SettingsOutletCtx>();
   const [tags, setTags] = React.useState<CompanyTag[] | null>(null);
   const [name, setName] = React.useState("");
+  const [color, setColor] = React.useState<TagColor>(() => randomTagColor());
   const [editing, setEditing] = React.useState<CompanyTag | null>(null);
   const [editName, setEditName] = React.useState("");
+  const [editColor, setEditColor] = React.useState<TagColor>("slate");
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const dialog = useDialog();
@@ -43,8 +46,9 @@ export function SettingsTags() {
     setSaving(true);
     setError(null);
     try {
-      await api.post(`/api/companies/${company.id}/tags`, { name: name.trim() });
+      await api.post(`/api/companies/${company.id}/tags`, { name: name.trim(), color });
       setName("");
+      setColor(randomTagColor());
       await reload();
       toast("Tag created", "success");
     } catch (err) {
@@ -60,6 +64,7 @@ export function SettingsTags() {
     try {
       await api.patch(`/api/companies/${company.id}/tags/${tag.id}`, {
         name: editName.trim(),
+        color: editColor,
       });
       setEditing(null);
       await reload();
@@ -110,6 +115,7 @@ export function SettingsTags() {
               maxLength={50}
               required
             />
+            <TagColorPicker value={color} onChange={setColor} />
             <p className="text-xs text-slate-500 dark:text-slate-400">
               Tags belong to the company. Reuse them across routines, skills, and Resources.
             </p>
@@ -140,37 +146,43 @@ export function SettingsTags() {
                 <li key={tag.id} className="flex items-center justify-between gap-3 py-3">
                   {editing?.id === tag.id ? (
                     <form
-                      className="flex min-w-0 flex-1 items-center gap-2"
+                      className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-end"
                       onSubmit={(event) => {
                         event.preventDefault();
                         rename(tag);
                       }}
                     >
-                      <input
-                        value={editName}
-                        onChange={(event) => setEditName(event.target.value)}
-                        maxLength={50}
-                        autoFocus
-                        className="min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-900 dark:focus:border-indigo-700 dark:focus:ring-indigo-900/30"
-                      />
-                      <Button size="sm" type="submit" disabled={!editName.trim() || saving}>
-                        Save
-                      </Button>
-                      <Button
-                        size="sm"
-                        type="button"
-                        variant="ghost"
-                        onClick={() => setEditing(null)}
-                      >
-                        Cancel
-                      </Button>
+                      <div className="min-w-0 flex-1">
+                        <Input
+                          label="Name"
+                          value={editName}
+                          onChange={(event) => setEditName(event.target.value)}
+                          maxLength={50}
+                          autoFocus
+                        />
+                      </div>
+                      <TagColorPicker value={editColor} onChange={setEditColor} />
+                      <div className="flex gap-2">
+                        <Button size="sm" type="submit" disabled={!editName.trim() || saving}>
+                          Save
+                        </Button>
+                        <Button
+                          size="sm"
+                          type="button"
+                          variant="ghost"
+                          onClick={() => setEditing(null)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
                     </form>
                   ) : (
                     <>
                       <div className="flex min-w-0 items-center gap-3">
-                        <Tag size={15} className="shrink-0 text-slate-400 dark:text-slate-500" />
                         <div className="min-w-0">
-                          <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                          <div
+                            className={`inline-block max-w-full truncate rounded-full border px-2.5 py-0.5 text-sm font-medium ${getTagColorOption(tag.color).chipClass}`}
+                          >
                             {tag.name}
                           </div>
                           <div className="text-xs text-slate-500 dark:text-slate-400">
@@ -185,6 +197,7 @@ export function SettingsTags() {
                           onClick={() => {
                             setEditing(tag);
                             setEditName(tag.name);
+                            setEditColor(tag.color);
                           }}
                         >
                           <Pencil size={12} /> Edit

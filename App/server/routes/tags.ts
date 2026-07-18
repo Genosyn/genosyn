@@ -8,17 +8,32 @@ import {
   createCompanyTag,
   deleteCompanyTag,
   listCompanyTags,
-  renameCompanyTag,
+  updateCompanyTag,
   replaceResourceTags,
   taggableResourceExists,
   tagsForResource,
 } from "../services/tags.js";
+import { TAG_COLORS } from "../lib/tagColors.js";
 
 export const tagsRouter = Router({ mergeParams: true });
 tagsRouter.use(requireAuth);
 tagsRouter.use(requireCompanyMember);
 
-const tagNameSchema = z.object({ name: z.string().trim().min(1).max(50) }).strict();
+const tagCreateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(50),
+    color: z.enum(TAG_COLORS).optional(),
+  })
+  .strict();
+const tagUpdateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(50).optional(),
+    color: z.enum(TAG_COLORS).optional(),
+  })
+  .strict()
+  .refine((body) => body.name !== undefined || body.color !== undefined, {
+    message: "Name or color is required",
+  });
 const tagIdParamsSchema = z.object({ tagId: z.string().uuid() });
 const resourceParamsSchema = z.object({
   resourceType: z.enum(TAGGABLE_RESOURCE_TYPES),
@@ -31,19 +46,19 @@ tagsRouter.get("/tags", async (req, res) => {
   res.json(await listCompanyTags(cid));
 });
 
-tagsRouter.post("/tags", validateBody(tagNameSchema), async (req, res) => {
+tagsRouter.post("/tags", validateBody(tagCreateSchema), async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
-  const body = req.body as z.infer<typeof tagNameSchema>;
-  res.status(201).json(await createCompanyTag(cid, body.name));
+  const body = req.body as z.infer<typeof tagCreateSchema>;
+  res.status(201).json(await createCompanyTag(cid, body.name, body.color));
 });
 
-tagsRouter.patch("/tags/:tagId", validateBody(tagNameSchema), async (req, res) => {
+tagsRouter.patch("/tags/:tagId", validateBody(tagUpdateSchema), async (req, res) => {
   const params = tagIdParamsSchema.safeParse(req.params);
   if (!params.success) return res.status(400).json({ error: "Invalid tag id" });
   const cid = (req.params as Record<string, string>).cid;
-  const body = req.body as z.infer<typeof tagNameSchema>;
+  const body = req.body as z.infer<typeof tagUpdateSchema>;
   try {
-    const tag = await renameCompanyTag(cid, params.data.tagId, body.name);
+    const tag = await updateCompanyTag(cid, params.data.tagId, body);
     if (!tag) return res.status(404).json({ error: "Tag not found" });
     res.json(tag);
   } catch (err) {

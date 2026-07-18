@@ -69,13 +69,14 @@ import { browserSessionsRouter } from "./routes/browserSessions.js";
 import { browserRpcRouter } from "./routes/browserRpc.js";
 import { bootBrowserSessionSweeper } from "./services/browserSessions.js";
 import { tagsRouter } from "./routes/tags.js";
-import { backfillLegacyResourceTags } from "./services/tags.js";
+import { backfillLegacyResourceTags, backfillTagColors } from "./services/tags.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function main() {
   await initDb();
+  await backfillTagColors();
   await backfillLegacyResourceTags();
   // Never leave the install without an operator: if the master-admin column
   // was just added on an existing DB, promote the earliest user so the Admin
