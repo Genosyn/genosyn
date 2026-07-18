@@ -157,7 +157,7 @@ PATH="${original_path}"
 rm -rf "${test_root}"
 trap - EXIT
 
-echo "upgrade safety — backup naming and automatic rollback"
+echo "upgrade safety — optional backup and automatic rollback"
 test_root="$(mktemp -d -t genosyn-cli-upgrade-test.XXXXXX)"
 trap 'rm -rf "${test_root}"' EXIT
 UPGRADE_BACKUP_DIR="${test_root}/backups"
@@ -200,6 +200,54 @@ check "rollback removes failed container, restores data, and restarts old contai
     'docker rename genosyn-test-upgrade-rollback genosyn-test' \
     'docker start genosyn-test' \
     'wait-ready')"
+
+: >"${rollback_log}"
+rollback_upgrade "genosyn-test-upgrade-rollback" "" >/dev/null 2>&1
+check "rollback without a backup restarts the old container without restoring data" \
+  "$(cat "${rollback_log}")" \
+  "$(printf '%s\n' \
+    'docker logs --tail 50 genosyn-test' \
+    'docker rm -f genosyn-test' \
+    'docker rename genosyn-test-upgrade-rollback genosyn-test' \
+    'docker start genosyn-test' \
+    'wait-ready')"
+
+upgrade_log="${test_root}/upgrade.log"
+docker() {
+  case "${1:-} ${2:-}" in
+    'inspect --format') printf '%s\n' 'sha256:old' ;;
+    'image inspect') printf '%s\n' 'sha256:new' ;;
+    *) printf 'docker %s\n' "$*" >>"${upgrade_log}" ;;
+  esac
+  return 0
+}
+require_docker() { return 0; }
+container_exists() { return 0; }
+container_running() { return 0; }
+container_named_exists() { return 1; }
+ensure_auto_update_default() { return 0; }
+image_version_label() { return 0; }
+upgrade_backup_path() { printf '%s\n' "${test_root}/backups/pre-upgrade.tar.gz"; }
+backup_volume_to() {
+  printf 'backup-volume %s\n' "$1" >>"${upgrade_log}"
+  return 0
+}
+run_container_with_image() {
+  printf 'run-container %s\n' "$1" >>"${upgrade_log}"
+  return 0
+}
+wait_for_upgrade_ready() { return 0; }
+print_post_install() { return 0; }
+
+: >"${upgrade_log}"
+cmd_upgrade --no-self-upgrade >/dev/null 2>&1
+check "upgrade skips the data backup by default" \
+  "$(grep -Fc 'backup-volume ' "${upgrade_log}" || true)" '0'
+
+: >"${upgrade_log}"
+cmd_upgrade --no-self-upgrade --backup >/dev/null 2>&1
+check "--backup creates one verified data backup" \
+  "$(grep -Fc 'backup-volume ' "${upgrade_log}" || true)" '1'
 
 install_log="${test_root}/install.log"
 require_docker() { return 0; }

@@ -18,7 +18,7 @@
 #   GENOSYN_IMAGE    image reference      (default: ghcr.io/genosyn/app:latest)
 #   GENOSYN_AUTO_UPDATE  enable daily automatic upgrades after install
 #                        (default: 1; set to 0 to opt out)
-#   GENOSYN_BACKUP_DIR   host directory for automatic pre-upgrade backups
+#   GENOSYN_BACKUP_DIR   host directory for optional pre-upgrade backups
 #                        (default: ~/.genosyn/backups)
 #
 # Additional env for the CLI download itself:

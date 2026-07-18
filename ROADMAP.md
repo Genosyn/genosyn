@@ -1117,9 +1117,10 @@ of the original V1 backlog has shipped — what remains is mostly
 - [x] **CLI** — `CLI/genosyn` bash wrapper around Docker, installed via
       `curl -fsSL https://genosyn.com/install.sh | bash`; fresh installs
       schedule a daily CLI + image upgrade by default, managed with
-      `genosyn auto-update on|off|status`; real upgrades take and validate a
-      consistent data-volume backup, retain the prior container until the new
-      version is healthy, and automatically restore both on failure
+      `genosyn auto-update on|off|status`; upgrades retain the prior container
+      until the new version is healthy, while opt-in `genosyn upgrade --backup`
+      also takes and validates a consistent data-volume backup and restores it
+      on failure
 - [ ] **Scripting CLI** — second, product-facing CLI for programmatic
       operations on companies / employees / routines (depends on M14)
 - [~] **Import/export** — backup/restore round-trips a whole install;

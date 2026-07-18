@@ -505,11 +505,12 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
       <P>
         CLI installs schedule <Code>genosyn upgrade</Code> automatically every
         day at 03:17 local time. The command self-upgrades the CLI, pulls the
-        latest image, and, when it changed, stops the container for a verified
-        data-volume backup under <Code>~/.genosyn/backups</Code>. It retains the
-        previous container until the new version becomes ready; a failed start
-        automatically restores the backup and previous version. Check or change
-        the schedule with{" "}
+        latest image, and retains the previous container until the new version
+        becomes ready. A failed start restarts the previous version with the
+        current data volume. Backups are off by default; run{" "}
+        <Code>genosyn upgrade --backup</Code> for a manual upgrade that also
+        writes a verified archive under <Code>~/.genosyn/backups</Code> and
+        restores it on failure. Check or change the schedule with{" "}
         <Code>genosyn auto-update status</Code>,{" "}
         <Code>genosyn auto-update off</Code>, or{" "}
         <Code>genosyn auto-update on</Code>. You can also upgrade immediately

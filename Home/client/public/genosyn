@@ -13,14 +13,14 @@
 #                    (default: https://genosyn.com/genosyn)
 #   GENOSYN_AUTO_UPDATE  enable daily automatic upgrades after install
 #                        (default: 1; set to 0 to opt out)
-#   GENOSYN_BACKUP_DIR   host directory for automatic pre-upgrade backups
+#   GENOSYN_BACKUP_DIR   host directory for optional pre-upgrade backups
 #                        (default: ~/.genosyn/backups)
 #   GENOSYN_VLLM_DIR working dir for the `vllm` command's compose + .env
 #                    (default: ~/.genosyn/vllm)
 
 set -euo pipefail
 
-CLI_VERSION="0.4.0"
+CLI_VERSION="0.4.1"
 
 PORT="${GENOSYN_PORT:-8471}"
 NAME="${GENOSYN_NAME:-genosyn}"
@@ -435,23 +435,33 @@ rollback_upgrade() {
     docker rm -f "${NAME}" >/dev/null 2>&1 || true
   fi
 
-  step "Restoring pre-upgrade backup"
-  if ! restore_volume_from "${backup_path}"; then
-    if container_named_exists "${rollback_name}" && ! container_exists; then
-      docker rename "${rollback_name}" "${NAME}" >/dev/null 2>&1 || true
+  if [ -n "${backup_path}" ]; then
+    step "Restoring pre-upgrade backup"
+    if ! restore_volume_from "${backup_path}"; then
+      if container_named_exists "${rollback_name}" && ! container_exists; then
+        docker rename "${rollback_name}" "${NAME}" >/dev/null 2>&1 || true
+      fi
+      warn "Automatic restore failed. The previous container is stopped and the backup is preserved at ${backup_path}."
+      return 1
     fi
-    warn "Automatic restore failed. The previous container is stopped and the backup is preserved at ${backup_path}."
-    return 1
   fi
 
   if ! docker rename "${rollback_name}" "${NAME}" >/dev/null; then
-    warn "Data was restored, but the previous container could not be renamed. It remains '${rollback_name}'."
+    if [ -n "${backup_path}" ]; then
+      warn "Data was restored, but the previous container could not be renamed. It remains '${rollback_name}'."
+    else
+      warn "The previous container could not be renamed. It remains '${rollback_name}'."
+    fi
     return 1
   fi
 
   step "Restarting previous container '${NAME}'"
   if ! docker start "${NAME}" >/dev/null; then
-    warn "Data was restored, but the previous container could not be restarted."
+    if [ -n "${backup_path}" ]; then
+      warn "Data was restored, but the previous container could not be restarted."
+    else
+      warn "The previous container could not be restarted."
+    fi
     return 1
   fi
 
@@ -460,7 +470,11 @@ rollback_upgrade() {
     return 1
   fi
 
-  ok "Rollback complete. Previous version restored; backup kept at ${backup_path}."
+  if [ -n "${backup_path}" ]; then
+    ok "Rollback complete. Previous version and data restored; backup kept at ${backup_path}."
+  else
+    ok "Rollback complete. Previous version restarted with the current data volume."
+  fi
   return 0
 }
 
@@ -546,7 +560,7 @@ cmd_install() {
   printf '%sRun companies autonomously.%s\n\n' "${C_DIM}" "${C_RESET}"
 
   if container_exists; then
-    warn "Container '${NAME}' already exists — using the backup-and-rollback upgrade path."
+    warn "Container '${NAME}' already exists — using the retained-container upgrade path."
     if auto_update_requested "${auto_update}"; then
       if ! enable_auto_update 1; then
         warn "Automatic updates could not be scheduled. Run 'genosyn auto-update on' after installing cron."
@@ -590,11 +604,13 @@ cmd_install() {
 cmd_upgrade() {
   local original_args=("$@")
   local skip_self=0
+  local take_backup=0
   parse_common_flags "$@"
   set -- ${REMAINING[@]+"${REMAINING[@]}"}
   while [ $# -gt 0 ]; do
     case "${1:-}" in
       ""               ) shift ;;
+      --backup          ) take_backup=1; shift ;;
       --no-self-upgrade) skip_self=1; shift ;;
       *) die "Unknown argument to upgrade: $1" ;;
     esac
@@ -653,28 +669,37 @@ cmd_upgrade() {
   local was_running=0
   if container_running; then
     was_running=1
-    step "Stopping '${NAME}' for a consistent backup"
+    if [ "${take_backup}" = "1" ]; then
+      step "Stopping '${NAME}' for a consistent backup"
+    else
+      step "Stopping '${NAME}' for upgrade"
+    fi
     docker stop "${NAME}" >/dev/null
   fi
 
-  local backup_path
-  if ! backup_path="$(upgrade_backup_path)"; then
-    [ "${was_running}" = "0" ] || docker start "${NAME}" >/dev/null 2>&1 || true
-    die "Could not prepare the pre-upgrade backup directory. Upgrade aborted."
-  fi
+  local backup_path=""
+  if [ "${take_backup}" = "1" ]; then
+    if ! backup_path="$(upgrade_backup_path)"; then
+      [ "${was_running}" = "0" ] || docker start "${NAME}" >/dev/null 2>&1 || true
+      die "Could not prepare the pre-upgrade backup directory. Upgrade aborted."
+    fi
 
-  step "Backing up volume '${VOLUME}' → ${backup_path}"
-  if ! backup_volume_to "${backup_path}"; then
-    rm -f "${backup_path}"
-    [ "${was_running}" = "0" ] || docker start "${NAME}" >/dev/null 2>&1 || true
-    die "Pre-upgrade backup failed or could not be validated. Upgrade aborted; the existing container was not replaced."
+    step "Backing up volume '${VOLUME}' → ${backup_path}"
+    if ! backup_volume_to "${backup_path}"; then
+      rm -f "${backup_path}"
+      [ "${was_running}" = "0" ] || docker start "${NAME}" >/dev/null 2>&1 || true
+      die "Pre-upgrade backup failed or could not be validated. Upgrade aborted; the existing container was not replaced."
+    fi
+    ok "Pre-upgrade backup verified."
   fi
-  ok "Pre-upgrade backup verified."
 
   step "Keeping previous container as '${rollback_name}'"
   if ! docker rename "${NAME}" "${rollback_name}" >/dev/null; then
     [ "${was_running}" = "0" ] || docker start "${NAME}" >/dev/null 2>&1 || true
-    die "Could not preserve the previous container. Upgrade aborted; backup kept at ${backup_path}."
+    if [ -n "${backup_path}" ]; then
+      die "Could not preserve the previous container. Upgrade aborted; backup kept at ${backup_path}."
+    fi
+    die "Could not preserve the previous container. Upgrade aborted."
   fi
 
   step "Starting upgraded '${NAME}'"
@@ -687,9 +712,17 @@ cmd_upgrade() {
 
   if [ "${upgrade_failed}" = "1" ]; then
     if rollback_upgrade "${rollback_name}" "${backup_path}"; then
-      warn "Upgrade failed; the previous version and data were restored automatically."
+      if [ -n "${backup_path}" ]; then
+        warn "Upgrade failed; the previous version and data were restored automatically."
+      else
+        warn "Upgrade failed; the previous version was restarted without restoring the data volume."
+      fi
     else
-      warn "Upgrade and automatic rollback both need attention. Backup: ${backup_path}"
+      if [ -n "${backup_path}" ]; then
+        warn "Upgrade and automatic rollback both need attention. Backup: ${backup_path}"
+      else
+        warn "Upgrade and automatic rollback both need attention. No pre-upgrade backup is available."
+      fi
     fi
     return 1
   fi
@@ -708,7 +741,9 @@ cmd_upgrade() {
   fi
 
   ok "Genosyn upgraded${ver_msg}."
-  printf '%sBackup%s     %s\n' "${C_DIM}" "${C_RESET}" "${backup_path}"
+  if [ -n "${backup_path}" ]; then
+    printf '%sBackup%s     %s\n' "${C_DIM}" "${C_RESET}" "${backup_path}"
+  fi
   print_post_install
 }
 
@@ -1744,10 +1779,11 @@ ${C_BOLD}Usage:${C_RESET}
 ${C_BOLD}Commands:${C_RESET}
   install              Pull the image, start the container, and enable daily
                        automatic updates. Pass --no-auto-update to opt out.
-  upgrade              Back up data, self-upgrade the CLI, pull the latest
-                       image, and recreate the container. Failed upgrades
-                       restore the backup and previous container automatically.
-                       Pass --no-self-upgrade to skip the script update.
+  upgrade [--backup]   Self-upgrade the CLI, pull the latest image, and
+                       recreate the container. The previous container is kept
+                       until ready. Pass --backup to create a verified data
+                       backup and restore it on failure; backup is off by
+                       default. Pass --no-self-upgrade to skip the script update.
   self-upgrade         Update only the genosyn CLI script in place.
   auto-update <action> Manage daily upgrades: on, off, or status.
   start                Start a stopped container.
