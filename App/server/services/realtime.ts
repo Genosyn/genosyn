@@ -79,6 +79,9 @@ export type WsEvent =
        * refetch the views they have open rather than patching state. */
       type: "mail.updated";
       accountId: string;
+      /** False when only account sync metadata changed. Omitted means the
+       * mirrored messages, labels, or related Email state may have changed. */
+      threadsChanged?: boolean;
     };
 
 type ConnectedSocket = {

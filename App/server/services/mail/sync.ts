@@ -173,12 +173,13 @@ export async function syncAccountNow(accountId: string): Promise<void> {
     }
     account.lastSyncAt = new Date();
     await repo.save(account);
-    if (changed) {
-      broadcastToCompany(account.companyId, {
-        type: "mail.updated",
-        accountId: account.id,
-      });
-    }
+    // A completed no-op pass still advances lastSyncAt. Always notify clients
+    // so their sync loader can finish and the visible timestamp stays honest.
+    broadcastToCompany(account.companyId, {
+      type: "mail.updated",
+      accountId: account.id,
+      threadsChanged: changed,
+    });
   } finally {
     syncing.delete(accountId);
   }

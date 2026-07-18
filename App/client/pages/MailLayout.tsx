@@ -66,6 +66,10 @@ export type MailOutletCtx = {
   counts: MailCounts;
   /** Bumps on every `mail.updated` websocket event for the active account. */
   changeTick: number;
+  /** True while a user-requested sync is running for the active account. */
+  syncing: boolean;
+  /** Start a sync and keep `syncing` true until lastSyncAt advances. */
+  syncNow: () => Promise<void>;
   refresh: () => Promise<void>;
   openCompose: (init?: Partial<ComposeInput>) => void;
   /** Open the AI assistant panel (no-op if already open). */
@@ -92,6 +96,10 @@ export default function MailLayout({ company }: { company: Company }) {
   const labelRequestSeq = React.useRef(0);
   const lastLabelRefreshAt = React.useRef(0);
   const [changeTick, setChangeTick] = React.useState(0);
+  const [syncingAccountId, setSyncingAccountId] = React.useState<string | null>(
+    null,
+  );
+  const syncBaselineRef = React.useRef<string | null>(null);
   const [composeOpen, setComposeOpen] = React.useState(false);
   const [composeInit, setComposeInit] = React.useState<Partial<ComposeInput>>({});
   const [assistantOpen, setAssistantOpen] = React.useState(
@@ -138,6 +146,56 @@ export default function MailLayout({ company }: { company: Company }) {
     if (current) await refreshLabels(current.id);
   }, [refreshAccounts, refreshLabels, activeId]);
 
+  const syncNow = React.useCallback(async () => {
+    if (!account || syncingAccountId) return;
+    if (account.status === "paused") {
+      toast("Resume this mailbox before syncing", "info");
+      return;
+    }
+
+    syncBaselineRef.current = account.lastSyncAt;
+    setSyncingAccountId(account.id);
+    try {
+      await mailApi.syncNow(company.id, account.id);
+    } catch (err) {
+      setSyncingAccountId(null);
+      toast((err as Error).message, "error");
+    }
+  }, [account, company.id, syncingAccountId, toast]);
+
+  // Websocket delivery normally refreshes the account immediately. Poll as
+  // a fallback while a manual sync is pending so a dropped socket cannot
+  // leave the button spinning after the server has completed the pass.
+  React.useEffect(() => {
+    if (!syncingAccountId) return;
+    const interval = window.setInterval(() => {
+      void refreshAccounts().catch(() => {});
+    }, 2_000);
+    return () => window.clearInterval(interval);
+  }, [refreshAccounts, syncingAccountId]);
+
+  React.useEffect(() => {
+    if (!syncingAccountId) return;
+    const syncedAccount = accounts.find((a) => a.id === syncingAccountId);
+    if (!syncedAccount) {
+      setSyncingAccountId(null);
+      return;
+    }
+    if (
+      !syncedAccount.lastSyncAt ||
+      syncedAccount.lastSyncAt === syncBaselineRef.current
+    ) {
+      return;
+    }
+
+    setSyncingAccountId(null);
+    if (syncedAccount.status === "error") {
+      toast(syncedAccount.statusMessage || "Mailbox sync failed", "error");
+    } else {
+      toast("Inbox synced", "success");
+    }
+  }, [accounts, syncingAccountId, toast]);
+
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -176,9 +234,15 @@ export default function MailLayout({ company }: { company: Company }) {
   // watch, and refreshes the sidebar counts.
   useCompanySocketSubscription((ev) => {
     if ((ev as { type?: string }).type !== "mail.updated") return;
-    const accountId = (ev as { accountId?: string }).accountId;
+    const mailEvent = ev as {
+      accountId?: string;
+      threadsChanged?: boolean;
+    };
+    const accountId = mailEvent.accountId;
     if (!account || accountId !== account.id) return;
-    setChangeTick((t) => t + 1);
+    if (mailEvent.threadsChanged !== false) {
+      setChangeTick((t) => t + 1);
+    }
 
     // A first mailbox import can emit progress after every Gmail page. Each
     // sidebar refresh scans the mirrored thread labels, so cap those scans
@@ -342,6 +406,8 @@ export default function MailLayout({ company }: { company: Company }) {
     labels,
     counts,
     changeTick,
+    syncing: syncingAccountId === account.id,
+    syncNow,
     refresh,
     openCompose,
     openAssistant: () => setAssistant(true),

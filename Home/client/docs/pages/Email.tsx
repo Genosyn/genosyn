@@ -100,6 +100,11 @@ export function Email() {
         Gmail immediately.
       </P>
       <P>
+        The Inbox header shows when the mailbox last completed a sync. Click{" "}
+        <Strong>Sync now</Strong> to check Gmail immediately; the button shows
+        the running sync until that pass completes.
+      </P>
+      <P>
         Search (press <Code>/</Code> to jump to the box) covers{" "}
         <Strong>all mail</Strong> — every folder except Spam and Trash — and
         matches subjects, participants, and the{" "}

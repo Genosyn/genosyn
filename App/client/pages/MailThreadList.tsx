@@ -16,6 +16,7 @@ import {
   MailThread,
   MailThreadView,
   ThreadActionName,
+  mailSyncDate,
   mailApi,
   shortMailDate,
 } from "../lib/mail";
@@ -45,7 +46,7 @@ const VIEW_TITLES: Record<MailThreadView, string> = {
 };
 
 export default function MailThreadList() {
-  const { company, account, labels, changeTick } =
+  const { company, account, labels, changeTick, syncing, syncNow } =
     useOutletContext<MailOutletCtx>();
   const { toast } = useToast();
   const [params, setParams] = useSearchParams();
@@ -57,7 +58,6 @@ export default function MailThreadList() {
   const [nextBefore, setNextBefore] = React.useState<string | null>(null);
   const [loadingMore, setLoadingMore] = React.useState(false);
   const [search, setSearch] = React.useState(q);
-  const [syncing, setSyncing] = React.useState(false);
 
   // Monotonic request id: an all-mail body search can take a while, and a
   // response that resolves after a newer request (folder switch, cleared
@@ -131,18 +131,6 @@ export default function MailThreadList() {
     }
   };
 
-  const syncNow = async () => {
-    setSyncing(true);
-    try {
-      await mailApi.syncNow(company.id, account.id);
-      toast("Sync started", "info");
-    } catch (err) {
-      toast((err as Error).message, "error");
-    } finally {
-      setTimeout(() => setSyncing(false), 1500);
-    }
-  };
-
   const labelName = label
     ? labels.find((l) => l.gmailLabelId === label)?.name ?? label
     : null;
@@ -159,16 +147,33 @@ export default function MailThreadList() {
 
   return (
     <div className="mx-auto flex min-h-full max-w-5xl flex-col px-4 py-4 sm:px-6">
-      <div className="mb-3 flex items-center gap-3">
-        <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-          {title}
-        </h1>
+      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="min-w-0">
+          <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+            {title}
+          </h1>
+          <div
+            className="text-xs text-slate-500 dark:text-slate-400"
+            title={
+              account.lastSyncAt
+                ? new Date(account.lastSyncAt).toLocaleString()
+                : undefined
+            }
+          >
+            {account.lastSyncAt
+              ? `Last synced ${mailSyncDate(account.lastSyncAt)}`
+              : "Not synced yet"}
+          </div>
+        </div>
         <button
-          onClick={syncNow}
-          title="Sync now"
-          className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+          onClick={() => void syncNow()}
+          disabled={syncing || account.status === "paused"}
+          title={account.status === "paused" ? "Resume sync in settings" : "Sync now"}
+          aria-busy={syncing}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
         >
           <RefreshCw size={14} className={syncing ? "animate-spin" : undefined} />
+          {syncing ? "Syncing…" : "Sync now"}
         </button>
         <SearchBox value={search} onChange={setSearch} />
       </div>

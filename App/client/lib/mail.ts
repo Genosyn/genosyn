@@ -452,3 +452,12 @@ export function shortMailDate(iso: string | null): string {
     sameYear ? { month: "short", day: "numeric" } : { year: "numeric", month: "short", day: "numeric" },
   );
 }
+
+/** Full, unambiguous timestamp for mailbox sync status. */
+export function mailSyncDate(iso: string | null): string {
+  if (!iso) return "Not synced yet";
+  return new Date(iso).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}

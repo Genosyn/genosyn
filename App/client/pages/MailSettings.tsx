@@ -41,7 +41,7 @@ const LEVEL_HINT: Record<MailAccessLevel, string> = {
 };
 
 export default function MailSettings() {
-  const { company, account, accounts, refresh } =
+  const { company, account, accounts, refresh, syncing, syncNow } =
     useOutletContext<MailOutletCtx>();
   const { toast } = useToast();
   const dialog = useDialog();
@@ -154,16 +154,15 @@ export default function MailSettings() {
           <Button
             size="sm"
             variant="secondary"
-            onClick={async () => {
-              try {
-                await mailApi.syncNow(company.id, account.id);
-                toast("Sync started", "info");
-              } catch (err) {
-                toast((err as Error).message, "error");
-              }
-            }}
+            disabled={syncing || account.status === "paused"}
+            onClick={() => void syncNow()}
+            aria-busy={syncing}
           >
-            <RefreshCw size={14} className="mr-1.5" /> Sync now
+            <RefreshCw
+              size={14}
+              className={syncing ? "mr-1.5 animate-spin" : "mr-1.5"}
+            />{" "}
+            {syncing ? "Syncing…" : "Sync now"}
           </Button>
           <Button size="sm" variant="secondary" onClick={togglePause}>
             {account.status === "paused" ? (
