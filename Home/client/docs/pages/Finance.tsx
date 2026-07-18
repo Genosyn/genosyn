@@ -177,9 +177,14 @@ export function Finance() {
         cumulative paid amount reaches the invoice total, the status
         flips from <Code>sent</Code> to <Code>paid</Code>. Sending or
         resending an invoice emails the customer the rendered document.
+        To copy an internal finance mailbox on every delivery, open{" "}
+        <Code>Finance → Settings</Code> and add one or more addresses under{" "}
+        <Strong>Always Cc on invoices</Strong>. The saved addresses are added
+        to manual sends, recurring auto-sends, and resends automatically.
         Before a resend, Genosyn shows the exact From and Reply-to addresses
         in a confirmation modal. Edit the <Code>To</Code> field to add or
-        remove recipients, add optional <Code>Cc</Code> recipients, include
+        remove recipients, see the company&apos;s always-Cc recipients, add
+        optional additional <Code>Cc</Code> recipients, include
         a one-off message, and choose whether to attach the invoice PDF.
         Separate multiple addresses with commas. Every resend attempt then
         appears on the invoice&apos;s Activity feed with its delivery status,

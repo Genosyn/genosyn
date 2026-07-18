@@ -663,6 +663,7 @@ export function displayStatus(invoice: Invoice, now: Date = new Date()): Display
 
 export type InvoiceEmailDetails = {
   toAddress: string;
+  alwaysCcAddress: string;
   fromAddress: string;
   replyTo: string;
   configured: boolean;
@@ -685,7 +686,7 @@ export type InvoiceResendActivity = {
 
 async function resolveInvoiceEmailSenderPreview(
   companyId: string,
-): Promise<Omit<InvoiceEmailDetails, "toAddress">> {
+): Promise<Omit<InvoiceEmailDetails, "toAddress" | "alwaysCcAddress">> {
   const provider = await AppDataSource.getRepository(EmailProvider).findOne({
     where: { companyId, isDefault: true, enabled: true },
   });
@@ -712,16 +713,18 @@ export async function getInvoiceEmailDetails(
   companyId: string,
   invoice: Invoice,
 ): Promise<InvoiceEmailDetails> {
-  const [customer, sender] = await Promise.all([
+  const [customer, sender, settings] = await Promise.all([
     AppDataSource.getRepository(Customer).findOneBy({
       id: invoice.customerId,
       companyId,
     }),
     resolveInvoiceEmailSenderPreview(companyId),
+    getFinanceSettings(companyId),
   ]);
   if (!customer) throw new Error("Customer not found");
   return {
     toAddress: customer.email,
+    alwaysCcAddress: settings.invoiceCcEmails.join(", "),
     ...sender,
   };
 }
@@ -805,10 +808,13 @@ export async function sendInvoiceEmail(
   pdfAttached: boolean;
   hasMessage: boolean;
 }> {
-  const customer = await AppDataSource.getRepository(Customer).findOneBy({
-    id: invoice.customerId,
-    companyId,
-  });
+  const [customer, settings] = await Promise.all([
+    AppDataSource.getRepository(Customer).findOneBy({
+      id: invoice.customerId,
+      companyId,
+    }),
+    getFinanceSettings(companyId),
+  ]);
   if (!customer) throw new Error("Customer not found");
   if (!customer.email && options.to === undefined) {
     throw new Error("Customer has no email address — add one before sending");
@@ -816,7 +822,10 @@ export async function sendInvoiceEmail(
   const to = normalizeRecipientAddresses(
     options.to ?? (customer.email ? [customer.email] : []),
   );
-  const cc = normalizeRecipientAddresses(options.cc ?? []).filter(
+  const cc = normalizeRecipientAddresses([
+    ...settings.invoiceCcEmails,
+    ...(options.cc ?? []),
+  ]).filter(
     (address) => !to.some((toAddress) => toAddress.toLowerCase() === address.toLowerCase()),
   );
   if (to.length === 0) throw new Error("Add at least one To recipient");
@@ -832,9 +841,8 @@ export async function sendInvoiceEmail(
       order: { paidAt: "ASC" },
     }),
   ]);
-  const [company, settings, sender] = await Promise.all([
+  const [company, sender] = await Promise.all([
     AppDataSource.getRepository(Company).findOneBy({ id: companyId }),
-    getFinanceSettings(companyId),
     resolveInvoiceEmailSenderPreview(companyId),
   ]);
   const htmlInput = {

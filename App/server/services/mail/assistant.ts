@@ -16,9 +16,9 @@ import { captureTurnActions, parseActions } from "../turnActions.js";
 import { columnHasLabel } from "./store.js";
 
 /**
- * The mail assistant — the chat panel that sits beside the Email section.
+ * The per-email AI chat panel that sits beside an opened mail thread.
  *
- * One rolling conversation per mailbox. The human @-tags any AI employee
+ * Every mail thread owns an independent conversation. The human @-tags any AI employee
  * (`@slug`) to address them; the target is sticky across turns until another
  * employee is tagged. Each turn runs through the ordinary chat seam, so the
  * employee brings its Soul / Memory / Skills and the grant-gated `mail`
@@ -48,9 +48,7 @@ export type MailSuggestionRecord = {
   [key: string]: unknown;
 };
 
-export function parseSuggestions(
-  raw: string | null | undefined,
-): MailSuggestionRecord[] {
+export function parseSuggestions(raw: string | null | undefined): MailSuggestionRecord[] {
   if (!raw) return [];
   try {
     const v = JSON.parse(raw);
@@ -85,10 +83,11 @@ export function serializeAssistantMessage(m: MailChatMessage) {
 
 export async function listAssistantMessages(
   account: MailAccount,
+  threadId: string,
   limit: number,
 ): Promise<MailChatMessage[]> {
   const rows = await AppDataSource.getRepository(MailChatMessage).find({
-    where: { accountId: account.id },
+    where: { accountId: account.id, threadId },
     order: { createdAt: "DESC" },
     take: limit,
   });
@@ -97,9 +96,11 @@ export async function listAssistantMessages(
 
 export async function clearAssistantMessages(
   account: MailAccount,
+  threadId: string,
 ): Promise<void> {
   await AppDataSource.getRepository(MailChatMessage).delete({
     accountId: account.id,
+    threadId,
   });
 }
 
@@ -156,12 +157,13 @@ export async function assistantRoster(
  *   1. an explicit `@slug` mention in the message;
  *   2. the `employeeId` the client sent (its own picker / sticky state);
  *   3. the employee that answered the previous turn (sticky);
- *   4. the only employee holding a grant on this mailbox, if exactly one.
+ *   4. the most recently granted employee with a model (then any grant).
  * Returns null when nothing resolves — the caller persists an explanatory
  * error turn so the human learns to tag someone.
  */
 async function resolveTargetEmployee(
   account: MailAccount,
+  threadId: string,
   message: string,
   explicitEmployeeId: string | undefined,
 ): Promise<AIEmployee | null> {
@@ -191,7 +193,7 @@ async function resolveTargetEmployee(
   }
 
   const lastAssistant = await AppDataSource.getRepository(MailChatMessage).findOne({
-    where: { accountId: account.id, role: "assistant" },
+    where: { accountId: account.id, threadId, role: "assistant" },
     order: { createdAt: "DESC" },
   });
   if (lastAssistant?.employeeId) {
@@ -204,25 +206,36 @@ async function resolveTargetEmployee(
 
   const grants = await AppDataSource.getRepository(EmployeeMailAccountGrant).find({
     where: { accountId: account.id },
+    order: { createdAt: "DESC" },
   });
-  if (grants.length === 1) {
-    return empRepo.findOneBy({
-      id: grants[0].employeeId,
-      companyId: account.companyId,
-    });
+  if (grants.length > 0) {
+    const employeeIds = grants.map((grant) => grant.employeeId);
+    const [employees, models] = await Promise.all([
+      empRepo.find({
+        where: { id: In(employeeIds), companyId: account.companyId },
+      }),
+      AppDataSource.getRepository(AIModel).find({
+        where: { employeeId: In(employeeIds) },
+        select: ["employeeId"],
+      }),
+    ]);
+    const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
+    const modeled = new Set(models.map((model) => model.employeeId));
+    for (const grant of grants) {
+      const employee = employeeById.get(grant.employeeId);
+      if (employee && modeled.has(employee.id)) return employee;
+    }
+    return employeeById.get(grants[0].employeeId) ?? null;
   }
   return null;
 }
 
 /** The panel briefing appended to the employee's system prompt. */
-function assistantBriefing(
-  account: MailAccount,
-  accessLevel: MailAccessLevel | null,
-): string {
+function assistantBriefing(account: MailAccount, accessLevel: MailAccessLevel | null): string {
   const lines = [
     "",
-    "## Email assistant panel",
-    `You are answering inside the Email assistant — a chat panel beside the ${account.address} mailbox. The teammate reads your reply next to their inbox, so keep it tight and act rather than narrate.`,
+    "## Per-email AI chat",
+    `You are answering inside an AI chat attached to one email thread in the ${account.address} mailbox. The teammate reads your reply beside that email, so keep it tight and act rather than narrate.`,
   ];
   if (accessLevel) {
     // Only describe the ops the grant actually allows — telling a read-level
@@ -233,6 +246,7 @@ function assistantBriefing(
       : 'op "search"/"get" to read — your level allows reading only, so route drafting, triage, and sending through the suggestion buttons below instead of calling those ops';
     lines.push(
       `Your access level on this mailbox is "${accessLevel}". Use the \`mail\` tool for real work: ${ops}.`,
+      'When the teammate asks you to change an existing draft, fetch the thread, identify the draft message id, and use the `mail` tool op "edit" to update that Gmail draft directly. Do not create a second draft and do not merely describe the rewrite.',
       'End turns that have obvious next steps with the `mail` tool op "suggest" (`suggest_mail_actions`): it renders one-click buttons under your reply that the teammate executes with their own authority. Suggest things beyond your grant there — e.g. propose sending a draft (`send_draft`), triage actions, opening a thread, a handover, or an inbox rule you noticed a pattern for. 1–4 buttons, short imperative labels. Never repeat a button\'s contents in prose.',
     );
   } else {
@@ -251,21 +265,18 @@ function assistantBriefing(
  */
 async function composeTurnContext(
   account: MailAccount,
-  threadId: string | null,
+  threadId: string,
+  focusedMessageId: string | null,
   canRead: boolean,
 ): Promise<string> {
   const parts: string[] = [];
-  parts.push(`[Email assistant context — mailbox: ${account.address}]`);
-  if (!threadId) {
-    parts.push("The teammate is browsing the mailbox (no thread open).");
-    return parts.join("\n");
-  }
+  parts.push(`[Per-email AI chat context — mailbox: ${account.address}]`);
   const thread = await AppDataSource.getRepository(MailThread).findOneBy({
     id: threadId,
     accountId: account.id,
   });
   if (!thread) {
-    parts.push("The teammate is browsing the mailbox (no thread open).");
+    parts.push("The email thread is no longer available.");
     return parts.join("\n");
   }
   if (!canRead) {
@@ -297,9 +308,7 @@ async function composeTurnContext(
       body,
     ].join("\n");
     if (block.length > budget) {
-      rendered.push(
-        `… ${i + 1} earlier message(s) omitted — fetch with the mail tool if needed.`,
-      );
+      rendered.push(`… ${i + 1} earlier message(s) omitted — fetch with the mail tool if needed.`);
       break;
     }
     budget -= block.length;
@@ -312,6 +321,14 @@ async function composeTurnContext(
         .map((d) => `messageId ${d.id}`)
         .join(", ")}.`,
     );
+  }
+  if (focusedMessageId) {
+    const focusedDraft = drafts.find((draft) => draft.id === focusedMessageId);
+    if (focusedDraft) {
+      parts.push(
+        `The teammate is currently reviewing draft messageId ${focusedDraft.id}. Treat “this draft” or “this email” in an editing request as that draft.`,
+      );
+    }
   }
   return parts.join("\n");
 }
@@ -333,7 +350,8 @@ export type AssistantTurnCallbacks = {
 export async function runAssistantTurn(args: {
   account: MailAccount;
   message: string;
-  threadId: string | null;
+  threadId: string;
+  focusedMessageId?: string | null;
   employeeId?: string;
   userId: string | null;
   callbacks: AssistantTurnCallbacks;
@@ -356,6 +374,7 @@ export async function runAssistantTurn(args: {
 
   const employee = await resolveTargetEmployee(
     account,
+    args.threadId,
     args.message,
     args.employeeId,
   );
@@ -396,25 +415,22 @@ export async function runAssistantTurn(args: {
     return;
   }
 
-  const grant = await AppDataSource.getRepository(EmployeeMailAccountGrant).findOneBy(
-    { employeeId: employee.id, accountId: account.id },
-  );
+  const grant = await AppDataSource.getRepository(EmployeeMailAccountGrant).findOneBy({
+    employeeId: employee.id,
+    accountId: account.id,
+  });
   const accessLevel = grant?.accessLevel ?? null;
   const canRead = accessLevel !== null && MAIL_ACCESS_RANK[accessLevel] >= MAIL_ACCESS_RANK.read;
 
-  // Replay the recent panel history (raw text only — the context block below
+  // Replay the recent per-email history (raw text only — the context block below
   // is rebuilt fresh each turn). Turns answered by a different employee are
   // attributed so the current one doesn't own words it never said.
   const prior = await AppDataSource.getRepository(MailChatMessage).find({
-    where: { accountId: account.id },
+    where: { accountId: account.id, threadId: args.threadId },
     order: { createdAt: "DESC" },
     take: MAX_REPLAY_TURNS + 1,
   });
-  const empIds = [
-    ...new Set(
-      prior.map((m) => m.employeeId).filter((id): id is string => !!id),
-    ),
-  ];
+  const empIds = [...new Set(prior.map((m) => m.employeeId).filter((id): id is string => !!id))];
   const empNames = new Map(
     (empIds.length
       ? await AppDataSource.getRepository(AIEmployee).find({
@@ -448,7 +464,12 @@ export async function runAssistantTurn(args: {
       };
     });
 
-  const context = await composeTurnContext(account, args.threadId, canRead);
+  const context = await composeTurnContext(
+    account,
+    args.threadId,
+    args.focusedMessageId ?? null,
+    canRead,
+  );
   const prompt = `${context}\n\n${args.message}`;
 
   const turnStart = new Date(Date.now() - 10);
@@ -499,18 +520,20 @@ export async function markSuggestionExecuted(
   suggestionId: string,
 ): Promise<MailChatMessage | null> {
   const prev = stampChains.get(messageId) ?? Promise.resolve();
-  const run = prev.catch(() => {}).then(async () => {
-    const repo = AppDataSource.getRepository(MailChatMessage);
-    const row = await repo.findOneBy({ id: messageId, companyId });
-    if (!row) return null;
-    const suggestions = parseSuggestions(row.suggestionsJson);
-    const hit = suggestions.find((s) => s.id === suggestionId);
-    if (!hit) return null;
-    hit.executedAt = new Date().toISOString();
-    row.suggestionsJson = JSON.stringify(suggestions);
-    await repo.save(row);
-    return row;
-  });
+  const run = prev
+    .catch(() => {})
+    .then(async () => {
+      const repo = AppDataSource.getRepository(MailChatMessage);
+      const row = await repo.findOneBy({ id: messageId, companyId });
+      if (!row) return null;
+      const suggestions = parseSuggestions(row.suggestionsJson);
+      const hit = suggestions.find((s) => s.id === suggestionId);
+      if (!hit) return null;
+      hit.executedAt = new Date().toISOString();
+      row.suggestionsJson = JSON.stringify(suggestions);
+      await repo.save(row);
+      return row;
+    });
   stampChains.set(messageId, run);
   void run.finally(() => {
     if (stampChains.get(messageId) === run) stampChains.delete(messageId);

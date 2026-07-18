@@ -23,6 +23,8 @@ import {
  *   - `defaultFooter`: multi-line text used as the printable footer
  *     when a specific invoice / estimate has no `footer` of its own.
  *     Per-doc footers always win — this is just the default.
+ *   - `invoiceCcEmails`: internal recipients copied on every customer
+ *     invoice email, including recurring auto-sends and manual resends.
  *
  * Created lazily the first time `getFinanceSettings()` is called.
  */
@@ -43,6 +45,9 @@ export class CompanyFinanceSettings {
 
   @Column({ type: "text", default: "" })
   defaultFooter!: string;
+
+  @Column({ type: "simple-json", default: "[]" })
+  invoiceCcEmails!: string[];
 
   @CreateDateColumn()
   createdAt!: Date;

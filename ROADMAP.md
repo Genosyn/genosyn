@@ -409,12 +409,16 @@ sends system mail); this is the company's real inbox. Internal namespace is
       back down. The search box gets a `/` shortcut, a clear button, an
       operator cheat-sheet popover, a result-count header, and term
       highlighting in the result rows.
-- [x] **Mail assistant** — a chat panel docked beside the whole Email
-      section (`MailAssistant`, one rolling conversation per mailbox on
-      `MailChatMessage`). Tag any AI employee with `@slug` (sticky until
-      somebody else is tagged), and the turn runs through the chat seam
-      with the mailbox + currently-viewed thread injected as context
+- [x] **Per-email AI chat** — every opened thread and Drafts review item has
+      an always-visible chat panel (`MailAssistant`, one independent
+      conversation per `MailThread` on `MailChatMessage`); there is no global
+      mailbox assistant. Tag any AI employee with `@slug` (sticky within that
+      email until somebody else is tagged), and the turn runs through the chat
+      seam with the mailbox + opened thread injected as context
       (thread contents only when the employee holds a `read` grant).
+      Draft-focused chats also identify the draft in front of the human, and
+      the grant-gated `edit_mail_draft` / `mail` op `edit` replaces that Gmail
+      draft in place, so natural-language edits need no extra UI action.
       Replies carry **action pills** (what the employee did, from
       AuditEvents) and **suggestion buttons** — structured next steps the
       employee proposes via the new `suggest_mail_actions` tool (op

@@ -46,7 +46,7 @@ const VIEW_TITLES: Record<MailThreadView, string> = {
 };
 
 export default function MailThreadList() {
-  const { company, account, labels, changeTick, syncing, syncNow } =
+  const { company, account, labels, changeTick, syncing, syncNow, openCompose } =
     useOutletContext<MailOutletCtx>();
   const { toast } = useToast();
   const [params, setParams] = useSearchParams();
@@ -74,9 +74,7 @@ export default function MailThreadList() {
         limit: 50,
       });
       if (seq !== loadSeq.current) return;
-      setThreads((prev) =>
-        append && prev ? [...prev, ...res.threads] : res.threads,
-      );
+      setThreads((prev) => (append && prev ? [...prev, ...res.threads] : res.threads));
       setNextBefore(res.nextBefore);
     },
     [company.id, account.id, view, label, q],
@@ -131,11 +129,9 @@ export default function MailThreadList() {
     }
   };
 
-  const labelName = label
-    ? labels.find((l) => l.gmailLabelId === label)?.name ?? label
-    : null;
+  const labelName = label ? (labels.find((l) => l.gmailLabelId === label)?.name ?? label) : null;
   const searching = q.trim().length > 0;
-  const title = searching ? "Search" : labelName ?? VIEW_TITLES[view] ?? "Inbox";
+  const title = searching ? "Search" : (labelName ?? VIEW_TITLES[view] ?? "Inbox");
   const highlightTerms = React.useMemo(
     () => (searching ? extractHighlightTerms(q) : []),
     [searching, q],
@@ -146,19 +142,18 @@ export default function MailThreadList() {
   );
 
   return (
-    <div className="mx-auto flex min-h-full max-w-5xl flex-col px-4 py-4 sm:px-6">
+    <div
+      className={clsx(
+        "mx-auto flex min-h-full flex-col px-4 py-4 sm:px-6",
+        view === "drafts" && !searching && !label ? "max-w-[96rem]" : "max-w-5xl",
+      )}
+    >
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
         <div className="min-w-0">
-          <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-            {title}
-          </h1>
+          <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{title}</h1>
           <div
             className="text-xs text-slate-500 dark:text-slate-400"
-            title={
-              account.lastSyncAt
-                ? new Date(account.lastSyncAt).toLocaleString()
-                : undefined
-            }
+            title={account.lastSyncAt ? new Date(account.lastSyncAt).toLocaleString() : undefined}
           >
             {account.lastSyncAt
               ? `Last synced ${mailSyncDate(account.lastSyncAt)}`
@@ -219,10 +214,13 @@ export default function MailThreadList() {
         <MailDraftReview
           companyId={company.id}
           companySlug={company.slug}
+          company={company}
+          account={account}
           threads={threads}
           changeTick={changeTick}
           hasMore={nextBefore !== null}
           loadingMore={loadingMore}
+          openCompose={openCompose}
           onRefresh={() => load(false)}
           onLoadMore={async () => {
             if (!nextBefore) return;
@@ -289,13 +287,7 @@ const SEARCH_OPERATORS: Array<{ op: string; hint: string }> = [
   { op: "before:", hint: "date" },
 ];
 
-function SearchBox({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) {
+function SearchBox({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const [focused, setFocused] = React.useState(false);
 
@@ -382,8 +374,8 @@ function SearchBox({
             ))}
           </div>
           <div className="mt-1.5 text-[11px] text-slate-400 dark:text-slate-500">
-            Terms combine (AND), &quot;quotes&quot; match phrases, and searches
-            cover every message body across all mail.
+            Terms combine (AND), &quot;quotes&quot; match phrases, and searches cover every message
+            body across all mail.
           </div>
         </div>
       )}
@@ -447,10 +439,7 @@ function Highlight({ text, terms }: { text: string; terms: string[] }) {
     <>
       {parts.map((p, i) =>
         i % 2 === 1 ? (
-          <mark
-            key={i}
-            className="rounded-sm bg-amber-100 text-inherit dark:bg-amber-400/30"
-          >
+          <mark key={i} className="rounded-sm bg-amber-100 text-inherit dark:bg-amber-400/30">
             {p}
           </mark>
         ) : (
@@ -492,9 +481,7 @@ function ThreadRow({
           title={starred ? "Unstar" : "Star"}
           className={clsx(
             "shrink-0",
-            starred
-              ? "text-amber-400"
-              : "text-slate-300 hover:text-slate-400 dark:text-slate-600",
+            starred ? "text-amber-400" : "text-slate-300 hover:text-slate-400 dark:text-slate-600",
           )}
         >
           <Star size={15} fill={starred ? "currentColor" : "none"} />
@@ -513,9 +500,7 @@ function ThreadRow({
             "(unknown sender)"
           )}
           {thread.messageCount > 1 && (
-            <span className="ml-1 text-xs font-normal text-slate-400">
-              {thread.messageCount}
-            </span>
+            <span className="ml-1 text-xs font-normal text-slate-400">{thread.messageCount}</span>
           )}
         </span>
         <span className="min-w-0 flex-1 truncate text-sm">
@@ -539,9 +524,7 @@ function ThreadRow({
             </span>
           )}
         </span>
-        {thread.hasAttachments && (
-          <Paperclip size={13} className="shrink-0 text-slate-400" />
-        )}
+        {thread.hasAttachments && <Paperclip size={13} className="shrink-0 text-slate-400" />}
         <span className="w-16 shrink-0 text-right text-xs tabular-nums text-slate-400">
           {shortMailDate(thread.lastMessageAt)}
         </span>

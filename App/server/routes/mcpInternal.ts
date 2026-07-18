@@ -39,11 +39,7 @@ import { createBrowserActionApproval } from "../services/approvals.js";
 import { createNotification } from "../services/notifications.js";
 import { dispatchTodoCreated } from "../services/pipelines/events.js";
 import { validateParentTodo } from "./projects.js";
-import {
-  ProjectActor,
-  hasProjectAccess,
-  listAccessibleProjectIds,
-} from "../services/projects.js";
+import { ProjectActor, hasProjectAccess, listAccessibleProjectIds } from "../services/projects.js";
 import {
   getGrantWithConnection,
   invokeConnectionTool,
@@ -79,6 +75,7 @@ import {
   performThreadAction,
   sendMailDraft,
   sendMailMessage,
+  updateMailDraft,
 } from "../services/mail/actions.js";
 import { columnToLabelIds } from "../services/mail/store.js";
 import { Base } from "../db/entities/Base.js";
@@ -117,11 +114,7 @@ import { EmployeeNoteGrant } from "../db/entities/EmployeeNoteGrant.js";
 import { Resource } from "../db/entities/Resource.js";
 import { CodeRepository } from "../db/entities/CodeRepository.js";
 import { EmployeeCodeRepositoryGrant } from "../db/entities/EmployeeCodeRepositoryGrant.js";
-import {
-  hasNoteAccess,
-  listAccessibleNoteIds,
-  upsertNoteGrant,
-} from "../services/notes.js";
+import { hasNoteAccess, listAccessibleNoteIds, upsertNoteGrant } from "../services/notes.js";
 import { ensureDefaultNotebook } from "../services/notebooks.js";
 import {
   RESOURCE_BODY_TEXT_CAP,
@@ -219,11 +212,7 @@ mcpInternalRouter.post("/manifest", (_req: McpRequest, res: Response) => {
   res.json({ tools: STATIC_TOOLS });
 });
 
-async function journal(
-  employeeId: string,
-  title: string,
-  body = "",
-): Promise<void> {
+async function journal(employeeId: string, title: string, body = ""): Promise<void> {
   try {
     const repo = AppDataSource.getRepository(JournalEntry);
     await repo.save(
@@ -754,7 +743,10 @@ const createProjectSchema = z
   .strict();
 
 function deriveProjectKey(name: string): string {
-  const cleaned = name.toUpperCase().replace(/[^A-Z0-9 ]/g, "").trim();
+  const cleaned = name
+    .toUpperCase()
+    .replace(/[^A-Z0-9 ]/g, "")
+    .trim();
   if (!cleaned) return "PRJ";
   const parts = cleaned.split(/\s+/).filter(Boolean);
   if (parts.length >= 2) {
@@ -1048,17 +1040,11 @@ mcpInternalRouter.post(
     if (body.dueAt !== undefined) t.dueAt = body.dueAt ? new Date(body.dueAt) : null;
     if (body.parentTodoId !== undefined) {
       if (body.parentTodoId) {
-        const parentErr = await validateParentTodo(
-          t.projectId,
-          body.parentTodoId,
-          t.id,
-        );
+        const parentErr = await validateParentTodo(t.projectId, body.parentTodoId, t.id);
         if (parentErr) return res.status(400).json({ error: parentErr });
         const childCount = await todoRepo.countBy({ parentTodoId: t.id });
         if (childCount > 0) {
-          return res
-            .status(400)
-            .json({ error: "A todo with subtasks cannot become a subtask" });
+          return res.status(400).json({ error: "A todo with subtasks cannot become a subtask" });
         }
       }
       t.parentTodoId = body.parentTodoId;
@@ -1605,10 +1591,7 @@ async function loadGrantedRecord(
   req: McpRequest,
   res: Response,
   rowId: string,
-): Promise<
-  | { record: BaseRecord; table: BaseTable; base: Base }
-  | null
-> {
+): Promise<{ record: BaseRecord; table: BaseTable; base: Base } | null> {
   const emp = req.mcpEmployee!;
   const co = req.mcpCompany!;
   const record = await AppDataSource.getRepository(BaseRecord).findOneBy({
@@ -1829,8 +1812,7 @@ const attachToRecordSchema = z
   })
   .strict()
   .refine(
-    (b) =>
-      (b.contentText !== undefined) !== (b.contentBase64 !== undefined),
+    (b) => (b.contentText !== undefined) !== (b.contentBase64 !== undefined),
     "Provide exactly one of contentText or contentBase64",
   );
 
@@ -1904,7 +1886,12 @@ const readAttachmentSchema = z
     recordId: z.string().uuid(),
     attachmentId: z.string().uuid(),
     /** Cap content read into memory. Defaults to 256 KiB. */
-    maxBytes: z.number().int().min(1).max(1024 * 1024).optional(),
+    maxBytes: z
+      .number()
+      .int()
+      .min(1)
+      .max(1024 * 1024)
+      .optional(),
   })
   .strict();
 
@@ -2534,9 +2521,7 @@ mcpInternalRouter.post("/integrations/_list", async (req: McpRequest, res) => {
     const disambiguate = group.length > 1;
     for (const { connection } of group) {
       const connSlug = toolNameSegment(connection.label || connection.id);
-      const prefix = disambiguate
-        ? `${providerId}_${connSlug}`
-        : providerId;
+      const prefix = disambiguate ? `${providerId}_${connSlug}` : providerId;
       for (const tool of provider.tools) {
         const name = `${prefix}_${tool.name}`;
         out.push({
@@ -2594,9 +2579,7 @@ mcpInternalRouter.post(
         action: "integration.invoke",
         targetType: "connection",
         targetId: body.connectionId,
-        targetLabel: connection?.label
-          ? `${connection.label} · ${body.toolName}`
-          : body.toolName,
+        targetLabel: connection?.label ? `${connection.label} · ${body.toolName}` : body.toolName,
         metadata: {
           via: "mcp",
           provider: connection?.provider ?? null,
@@ -2618,9 +2601,7 @@ mcpInternalRouter.post(
         action: "integration.invoke",
         targetType: "connection",
         targetId: body.connectionId,
-        targetLabel: connection?.label
-          ? `${connection.label} · ${body.toolName}`
-          : body.toolName,
+        targetLabel: connection?.label ? `${connection.label} · ${body.toolName}` : body.toolName,
         metadata: {
           via: "mcp",
           provider: connection?.provider ?? null,
@@ -2656,10 +2637,7 @@ function previewForAudit(value: unknown, capBytes = 20_000): string {
     }
   }
   if (str.length <= capBytes) return str;
-  return (
-    str.slice(0, capBytes) +
-    `\n…[truncated, ${str.length.toLocaleString()} chars total]`
-  );
+  return str.slice(0, capBytes) + `\n…[truncated, ${str.length.toLocaleString()} chars total]`;
 }
 
 /**
@@ -2748,9 +2726,7 @@ mcpInternalRouter.post(
         },
       });
     } catch (err) {
-      res
-        .status(400)
-        .json({ error: err instanceof Error ? err.message : "Create failed" });
+      res.status(400).json({ error: err instanceof Error ? err.message : "Create failed" });
     }
   },
 );
@@ -2772,9 +2748,7 @@ mcpInternalRouter.post(
     const ch = await findChannelBySlugOrId(co.id, body.channel);
     if (!ch) return res.status(404).json({ error: "Channel not found" });
     if (body.name === undefined && body.topic === undefined) {
-      return res
-        .status(400)
-        .json({ error: "Pass at least one of `name` or `topic`." });
+      return res.status(400).json({ error: "Pass at least one of `name` or `topic`." });
     }
     try {
       const updated = await renameChannel({
@@ -2810,9 +2784,7 @@ mcpInternalRouter.post(
         },
       });
     } catch (err) {
-      res
-        .status(400)
-        .json({ error: err instanceof Error ? err.message : "Rename failed" });
+      res.status(400).json({ error: err instanceof Error ? err.message : "Rename failed" });
     }
   },
 );
@@ -2866,9 +2838,8 @@ const sendWorkspaceMessageSchema = z
   .strict()
   .refine(
     (v) =>
-      [v.channel, v.dmEmployee, v.dmUser].filter(
-        (x) => typeof x === "string" && x.length > 0,
-      ).length === 1,
+      [v.channel, v.dmEmployee, v.dmUser].filter((x) => typeof x === "string" && x.length > 0)
+        .length === 1,
     {
       message: "Specify exactly one of: channel, dmEmployee, dmUser.",
     },
@@ -2894,8 +2865,7 @@ mcpInternalRouter.post(
       }
       if (ch.kind === "dm") {
         return res.status(400).json({
-          error:
-            "That is a DM channel; pass `dmEmployee` or `dmUser` instead of `channel`.",
+          error: "That is a DM channel; pass `dmEmployee` or `dmUser` instead of `channel`.",
         });
       }
       // Auto-join public channels (mirrors the @mention auto-join in chat).
@@ -3017,9 +2987,7 @@ mcpInternalRouter.post(
     await journal(
       self.id,
       journalTitle,
-      body.content.length > 240
-        ? `${body.content.slice(0, 240)}…`
-        : body.content,
+      body.content.length > 240 ? `${body.content.slice(0, 240)}…` : body.content,
     );
 
     res.json({
@@ -3123,10 +3091,7 @@ mcpInternalRouter.post(
     } else if (direction === "outgoing") {
       qb.andWhere("h.fromEmployeeId = :eid", { eid: self.id });
     } else {
-      qb.andWhere(
-        "(h.toEmployeeId = :eid OR h.fromEmployeeId = :eid)",
-        { eid: self.id },
-      );
+      qb.andWhere("(h.toEmployeeId = :eid OR h.fromEmployeeId = :eid)", { eid: self.id });
     }
     if (body.status) qb.andWhere("h.status = :status", { status: body.status });
     qb.orderBy("h.createdAt", "DESC").take(body.limit ?? 50);
@@ -3144,12 +3109,9 @@ const createHandoffSchema = z
     dueAt: z.string().datetime().optional(),
   })
   .strict()
-  .refine(
-    (v) => Boolean(v.toEmployee) !== Boolean(v.toManager),
-    {
-      message: "Specify exactly one of `toEmployee` (slug/UUID) or `toManager: true`.",
-    },
-  );
+  .refine((v) => Boolean(v.toEmployee) !== Boolean(v.toManager), {
+    message: "Specify exactly one of `toEmployee` (slug/UUID) or `toManager: true`.",
+  });
 
 mcpInternalRouter.post(
   "/tools/create_handoff",
@@ -3162,7 +3124,8 @@ mcpInternalRouter.post(
     if (body.toManager) {
       if (!self.reportsToEmployeeId) {
         return res.status(400).json({
-          error: "You don't have a manager set. Ask a human to wire up your reporting line, or pass `toEmployee` instead.",
+          error:
+            "You don't have a manager set. Ask a human to wire up your reporting line, or pass `toEmployee` instead.",
         });
       }
       target = await AppDataSource.getRepository(AIEmployee).findOneBy({
@@ -3170,9 +3133,7 @@ mcpInternalRouter.post(
         companyId: co.id,
       });
       if (!target) {
-        return res
-          .status(400)
-          .json({ error: "Manager record is stale; ask a human to fix it." });
+        return res.status(400).json({ error: "Manager record is stale; ask a human to fix it." });
       }
     } else if (body.toEmployee) {
       target = await findEmployeeBySlugOrId(co.id, body.toEmployee);
@@ -3254,8 +3215,7 @@ async function applyMcpTransition(
     });
     return;
   }
-  const allowedActorId =
-    expectedActor === "to" ? h.toEmployeeId : h.fromEmployeeId;
+  const allowedActorId = expectedActor === "to" ? h.toEmployeeId : h.fromEmployeeId;
   if (allowedActorId !== self.id) {
     res.status(403).json({
       error:
@@ -3278,22 +3238,9 @@ async function applyMcpTransition(
     targetLabel: h.title,
     metadata: { via: "mcp" },
   });
-  const verb =
-    next === "completed"
-      ? "completed"
-      : next === "declined"
-        ? "declined"
-        : "cancelled";
-  await journal(
-    h.fromEmployeeId,
-    `Handoff "${h.title}" ${verb}`,
-    body.resolutionNote ?? "",
-  );
-  await journal(
-    h.toEmployeeId,
-    `Handoff "${h.title}" ${verb}`,
-    body.resolutionNote ?? "",
-  );
+  const verb = next === "completed" ? "completed" : next === "declined" ? "declined" : "cancelled";
+  await journal(h.fromEmployeeId, `Handoff "${h.title}" ${verb}`, body.resolutionNote ?? "");
+  await journal(h.toEmployeeId, `Handoff "${h.title}" ${verb}`, body.resolutionNote ?? "");
   res.json({ handoff: serializeHandoff(h) });
 }
 
@@ -3442,9 +3389,7 @@ mcpInternalRouter.post(
       for (const n of allNotes) accessibleNotebookIds.add(n.notebookId);
     }
     res.json({
-      notebooks: rows
-        .filter((nb) => accessibleNotebookIds.has(nb.id))
-        .map(serializeNotebook),
+      notebooks: rows.filter((nb) => accessibleNotebookIds.has(nb.id)).map(serializeNotebook),
     });
   },
 );
@@ -3471,10 +3416,7 @@ mcpInternalRouter.post(
       .where("n.companyId = :cid", { cid: co.id })
       .andWhere("n.archivedAt IS NULL")
       .andWhere("n.id IN (:...ids)", { ids: [...accessible] })
-      .andWhere(
-        "(n.title LIKE :term ESCAPE '\\' OR n.body LIKE :term ESCAPE '\\')",
-        { term },
-      )
+      .andWhere("(n.title LIKE :term ESCAPE '\\' OR n.body LIKE :term ESCAPE '\\')", { term })
       .orderBy("n.updatedAt", "DESC")
       .limit(50)
       .getMany();
@@ -3654,9 +3596,7 @@ mcpInternalRouter.post(
         });
         if (!parent) return res.status(400).json({ error: "Unknown parent note" });
         if (parent.id === note.id) {
-          return res
-            .status(400)
-            .json({ error: "A note cannot be its own parent" });
+          return res.status(400).json({ error: "A note cannot be its own parent" });
         }
         if (await isNoteDescendant(co.id, parent.id, note.id)) {
           return res
@@ -3770,7 +3710,10 @@ async function isNoteDescendant(
 
 function serializeResource(r: Resource, opts: { includeBody?: boolean } = {}) {
   const tagList = r.tags
-    ? r.tags.split(",").map((t) => t.trim()).filter((t) => t.length > 0)
+    ? r.tags
+        .split(",")
+        .map((t) => t.trim())
+        .filter((t) => t.length > 0)
     : [];
   const out: Record<string, unknown> = {
     id: r.id,
@@ -3897,9 +3840,7 @@ mcpInternalRouter.post(
       return res.status(403).json({ error: "No access to that resource" });
     }
     if (!row.bodyText || row.bodyText.length === 0) {
-      return res
-        .status(400)
-        .json({ error: "Resource has no body to export." });
+      return res.status(400).json({ error: "Resource has no body to export." });
     }
     try {
       const artifact = await exportResource(row, body.format);
@@ -3930,13 +3871,11 @@ mcpInternalRouter.post(
   async (req: McpRequest, res) => {
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
-    const grants = await AppDataSource.getRepository(
-      EmployeeCodeRepositoryGrant,
-    ).find({ where: { employeeId: self.id } });
+    const grants = await AppDataSource.getRepository(EmployeeCodeRepositoryGrant).find({
+      where: { employeeId: self.id },
+    });
     if (grants.length === 0) return res.json({ repositories: [] });
-    const accessById = new Map(
-      grants.map((g) => [g.codeRepositoryId, g.accessLevel]),
-    );
+    const accessById = new Map(grants.map((g) => [g.codeRepositoryId, g.accessLevel]));
     const rows = await AppDataSource.getRepository(CodeRepository).find({
       where: { companyId: co.id, id: In([...accessById.keys()]) },
       order: { updatedAt: "DESC" },
@@ -3984,9 +3923,7 @@ mcpInternalRouter.post(
 
     if (body.sourceKind === "url") {
       if (!body.url) {
-        return res
-          .status(400)
-          .json({ error: "`url` is required when sourceKind is 'url'" });
+        return res.status(400).json({ error: "`url` is required when sourceKind is 'url'" });
       }
       sourceUrl = body.url;
       try {
@@ -4001,14 +3938,10 @@ mcpInternalRouter.post(
       }
     } else {
       if (!title) {
-        return res
-          .status(400)
-          .json({ error: "`title` is required when sourceKind is 'text'" });
+        return res.status(400).json({ error: "`title` is required when sourceKind is 'text'" });
       }
       if (!body.body || !body.body.trim()) {
-        return res
-          .status(400)
-          .json({ error: "`body` is required when sourceKind is 'text'" });
+        return res.status(400).json({ error: "`body` is required when sourceKind is 'text'" });
       }
       bodyText = trimBodyText(body.body);
       bytes = bodyText.length;
@@ -4097,9 +4030,7 @@ mcpInternalRouter.post(
     });
     if (!row) return res.status(404).json({ error: "Resource not found" });
     if (!(await hasResourceAccess(self.id, row.id, "edit"))) {
-      return res
-        .status(403)
-        .json({ error: "No edit permission on that resource" });
+      return res.status(403).json({ error: "No edit permission on that resource" });
     }
 
     if (body.title !== undefined) row.title = body.title;
@@ -4166,9 +4097,7 @@ mcpInternalRouter.post(
     });
     if (!row) return res.status(404).json({ error: "Resource not found" });
     if (!(await hasResourceAccess(self.id, row.id, "delete"))) {
-      return res
-        .status(403)
-        .json({ error: "No delete permission on that resource" });
+      return res.status(403).json({ error: "No delete permission on that resource" });
     }
 
     await deleteGrantsForResource(row.id);
@@ -4284,41 +4213,38 @@ mcpInternalRouter.post(
   },
 );
 
-mcpInternalRouter.get(
-  "/tools/check_browser_approval/:id",
-  async (req: McpRequest, res) => {
-    const id = req.params.id;
-    const emp = req.mcpEmployee!;
-    const approval = await AppDataSource.getRepository(Approval).findOneBy({ id });
-    if (!approval || approval.kind !== "browser_action") {
-      return res.status(404).json({ error: "Approval not found" });
-    }
-    if (approval.employeeId !== emp.id) {
-      // The MCP token resolves to one employee; refuse to leak status of
-      // a different employee's pending approvals.
-      return res.status(403).json({ error: "Approval belongs to another employee" });
-    }
-    // Return the held action alongside the status so `browser_resume` can
-    // re-fire it even when the MCP child that queued it is long gone — the
-    // child is spawned per chat turn, and approvals usually land later. The
-    // `pageUrl` lets the child refuse to fire if the page has since changed
-    // (the approval is bound to what the human actually saw), and `executed`
-    // makes the approval one-shot so it can't be replayed indefinitely.
-    let payload: { selector?: unknown; key?: unknown; pageUrl?: unknown; executedAt?: unknown } = {};
-    try {
-      payload = JSON.parse(approval.payloadJson || "{}") as typeof payload;
-    } catch {
-      // legacy/malformed payload — status alone still helps
-    }
-    res.json({
-      status: approval.status,
-      selector: typeof payload.selector === "string" ? payload.selector : null,
-      key: typeof payload.key === "string" ? payload.key : null,
-      pageUrl: typeof payload.pageUrl === "string" ? payload.pageUrl : null,
-      executed: typeof payload.executedAt === "string",
-    });
-  },
-);
+mcpInternalRouter.get("/tools/check_browser_approval/:id", async (req: McpRequest, res) => {
+  const id = req.params.id;
+  const emp = req.mcpEmployee!;
+  const approval = await AppDataSource.getRepository(Approval).findOneBy({ id });
+  if (!approval || approval.kind !== "browser_action") {
+    return res.status(404).json({ error: "Approval not found" });
+  }
+  if (approval.employeeId !== emp.id) {
+    // The MCP token resolves to one employee; refuse to leak status of
+    // a different employee's pending approvals.
+    return res.status(403).json({ error: "Approval belongs to another employee" });
+  }
+  // Return the held action alongside the status so `browser_resume` can
+  // re-fire it even when the MCP child that queued it is long gone — the
+  // child is spawned per chat turn, and approvals usually land later. The
+  // `pageUrl` lets the child refuse to fire if the page has since changed
+  // (the approval is bound to what the human actually saw), and `executed`
+  // makes the approval one-shot so it can't be replayed indefinitely.
+  let payload: { selector?: unknown; key?: unknown; pageUrl?: unknown; executedAt?: unknown } = {};
+  try {
+    payload = JSON.parse(approval.payloadJson || "{}") as typeof payload;
+  } catch {
+    // legacy/malformed payload — status alone still helps
+  }
+  res.json({
+    status: approval.status,
+    selector: typeof payload.selector === "string" ? payload.selector : null,
+    key: typeof payload.key === "string" ? payload.key : null,
+    pageUrl: typeof payload.pageUrl === "string" ? payload.pageUrl : null,
+    executed: typeof payload.executedAt === "string",
+  });
+});
 
 /**
  * Mark a browser_action approval as fired, so it can't be replayed. Called
@@ -4556,8 +4482,7 @@ mcpInternalRouter.post(
         field.setText(typeof value === "boolean" ? String(value) : value);
       } else if (field instanceof PDFCheckBox) {
         const truthy =
-          value === true ||
-          (typeof value === "string" && /^(true|yes|on|x|checked)$/i.test(value));
+          value === true || (typeof value === "string" && /^(true|yes|on|x|checked)$/i.test(value));
         if (truthy) field.check();
         else field.uncheck();
       } else if (field instanceof PDFDropdown) {
@@ -4576,8 +4501,7 @@ mcpInternalRouter.post(
     if (body.flatten !== false) form.flatten();
     const out = await loaded.doc.save();
     const outputName =
-      body.outputFilename ||
-      loaded.row.filename.replace(/\.pdf$/i, "") + "-filled.pdf";
+      body.outputFilename || loaded.row.filename.replace(/\.pdf$/i, "") + "-filled.pdf";
 
     const row = await recordAttachmentBytes({
       companyId: co.id,
@@ -4642,9 +4566,7 @@ mcpInternalRouter.post(
   },
 );
 
-const getChartSchema = z
-  .object({ chartSlug: z.string().min(1).max(160) })
-  .strict();
+const getChartSchema = z.object({ chartSlug: z.string().min(1).max(160) }).strict();
 
 mcpInternalRouter.post(
   "/tools/get_chart",
@@ -4692,9 +4614,7 @@ mcpInternalRouter.post(
       companyId: co.id,
     });
     if (!conn) {
-      return res
-        .status(400)
-        .json({ error: "Chart's connection no longer exists" });
+      return res.status(400).json({ error: "Chart's connection no longer exists" });
     }
     try {
       const result = await runSqlAgainstConnection(conn, row.sql, {
@@ -4702,21 +4622,12 @@ mcpInternalRouter.post(
       });
       res.json(result);
     } catch (err) {
-      res
-        .status(400)
-        .json({ error: err instanceof Error ? err.message : String(err) });
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }
   },
 );
 
-const VIZ_ENUM_MCP = [
-  "table",
-  "scalar",
-  "bar",
-  "line",
-  "area",
-  "pie",
-] as [string, ...string[]];
+const VIZ_ENUM_MCP = ["table", "scalar", "bar", "line", "area", "pie"] as [string, ...string[]];
 
 const createChartMcpSchema = z
   .object({
@@ -4742,9 +4653,7 @@ mcpInternalRouter.post(
     });
     if (!conn) return res.status(400).json({ error: "Unknown connection" });
     if (!isExploreProvider(conn.provider)) {
-      return res
-        .status(400)
-        .json({ error: "Connection is not a supported Explore source" });
+      return res.status(400).json({ error: "Connection is not a supported Explore source" });
     }
     const repo = AppDataSource.getRepository(Chart);
     const slug = await uniqueChartSlug(co.id, body.title);
@@ -4802,9 +4711,7 @@ mcpInternalRouter.post(
     });
     if (!row) return res.status(404).json({ error: "Chart not found" });
     if (!(await hasChartAccess(self.id, row.id, "write"))) {
-      return res
-        .status(403)
-        .json({ error: "Write access required to edit that chart" });
+      return res.status(403).json({ error: "Write access required to edit that chart" });
     }
     if (body.title !== undefined) row.title = body.title;
     if (body.description !== undefined) row.description = body.description;
@@ -4825,9 +4732,7 @@ mcpInternalRouter.post(
   },
 );
 
-const deleteChartMcpSchema = z
-  .object({ chartSlug: z.string().min(1).max(160) })
-  .strict();
+const deleteChartMcpSchema = z.object({ chartSlug: z.string().min(1).max(160) }).strict();
 
 mcpInternalRouter.post(
   "/tools/delete_chart",
@@ -4842,9 +4747,7 @@ mcpInternalRouter.post(
     });
     if (!row) return res.status(404).json({ error: "Chart not found" });
     if (!(await hasChartAccess(self.id, row.id, "write"))) {
-      return res
-        .status(403)
-        .json({ error: "Write access required to delete that chart" });
+      return res.status(403).json({ error: "Write access required to delete that chart" });
     }
     await AppDataSource.getRepository(DashboardCard).delete({ chartId: row.id });
     await deleteGrantsForChart(row.id);
@@ -4880,9 +4783,7 @@ mcpInternalRouter.post(
   },
 );
 
-const getDashboardSchema = z
-  .object({ dashboardSlug: z.string().min(1).max(160) })
-  .strict();
+const getDashboardSchema = z.object({ dashboardSlug: z.string().min(1).max(160) }).strict();
 
 mcpInternalRouter.post(
   "/tools/get_dashboard",
@@ -4991,9 +4892,7 @@ mcpInternalRouter.post(
     });
     if (!dashboard) return res.status(404).json({ error: "Dashboard not found" });
     if (!(await hasDashboardAccess(self.id, dashboard.id, "write"))) {
-      return res
-        .status(403)
-        .json({ error: "Write access required to edit that dashboard" });
+      return res.status(403).json({ error: "Write access required to edit that dashboard" });
     }
     const chart = await AppDataSource.getRepository(Chart).findOneBy({
       companyId: co.id,
@@ -5001,9 +4900,7 @@ mcpInternalRouter.post(
     });
     if (!chart) return res.status(400).json({ error: "Unknown chart" });
     if (!(await hasChartAccess(self.id, chart.id, "read"))) {
-      return res
-        .status(403)
-        .json({ error: "Read access on the chart is required to pin it" });
+      return res.status(403).json({ error: "Read access on the chart is required to pin it" });
     }
     let defaultY = 0;
     if (body.y === undefined) {
@@ -5142,11 +5039,13 @@ const AGENT_MAIL_BODY_CAP = 20_000;
 function serializeMailMessageForAgent(m: MailMessage) {
   let attachments: unknown[] = [];
   try {
-    attachments = (JSON.parse(m.attachmentsJson) as Array<{
-      filename?: string;
-      mimeType?: string;
-      size?: number;
-    }>).map((a) => ({ filename: a.filename, mimeType: a.mimeType, size: a.size }));
+    attachments = (
+      JSON.parse(m.attachmentsJson) as Array<{
+        filename?: string;
+        mimeType?: string;
+        size?: number;
+      }>
+    ).map((a) => ({ filename: a.filename, mimeType: a.mimeType, size: a.size }));
   } catch {
     attachments = [];
   }
@@ -5168,37 +5067,34 @@ function serializeMailMessageForAgent(m: MailMessage) {
   };
 }
 
-mcpInternalRouter.post(
-  "/tools/list_mail_accounts",
-  async (req: McpRequest, res: Response) => {
-    const self = req.mcpEmployee!;
-    const co = req.mcpCompany!;
-    const grants = await AppDataSource.getRepository(EmployeeMailAccountGrant).find({
-      where: { employeeId: self.id },
-    });
-    const accounts = grants.length
-      ? await AppDataSource.getRepository(MailAccount).find({
-          where: { id: In(grants.map((g) => g.accountId)), companyId: co.id },
-        })
-      : [];
-    const byId = new Map(accounts.map((a) => [a.id, a]));
-    res.json({
-      accounts: grants.flatMap((g) => {
-        const a = byId.get(g.accountId);
-        return a
-          ? [
-              {
-                accountId: a.id,
-                address: a.address,
-                status: a.status,
-                accessLevel: g.accessLevel,
-              },
-            ]
-          : [];
-      }),
-    });
-  },
-);
+mcpInternalRouter.post("/tools/list_mail_accounts", async (req: McpRequest, res: Response) => {
+  const self = req.mcpEmployee!;
+  const co = req.mcpCompany!;
+  const grants = await AppDataSource.getRepository(EmployeeMailAccountGrant).find({
+    where: { employeeId: self.id },
+  });
+  const accounts = grants.length
+    ? await AppDataSource.getRepository(MailAccount).find({
+        where: { id: In(grants.map((g) => g.accountId)), companyId: co.id },
+      })
+    : [];
+  const byId = new Map(accounts.map((a) => [a.id, a]));
+  res.json({
+    accounts: grants.flatMap((g) => {
+      const a = byId.get(g.accountId);
+      return a
+        ? [
+            {
+              accountId: a.id,
+              address: a.address,
+              status: a.status,
+              accessLevel: g.accessLevel,
+            },
+          ]
+        : [];
+    }),
+  });
+});
 
 const searchMailSchema = z
   .object({
@@ -5260,9 +5156,7 @@ mcpInternalRouter.post(
   },
 );
 
-const getMailThreadSchema = z
-  .object({ threadId: z.string().uuid() })
-  .strict();
+const getMailThreadSchema = z.object({ threadId: z.string().uuid() }).strict();
 
 mcpInternalRouter.post(
   "/tools/get_mail_thread",
@@ -5344,16 +5238,89 @@ mcpInternalRouter.post(
       await journal(
         self.id,
         `Drafted an email: "${message.subject || "(no subject)"}"`,
-        thread ? `Reply draft on thread ${thread.id} in ${account.address}.` : `New draft in ${account.address}.`,
+        thread
+          ? `Reply draft on thread ${thread.id} in ${account.address}.`
+          : `New draft in ${account.address}.`,
       );
       res.json({
         message: serializeMailMessageForAgent(message),
         note: "Draft saved to the thread and to Gmail Drafts. A human can now review and send it.",
       });
     } catch (err) {
-      res
-        .status(400)
-        .json({ error: err instanceof Error ? err.message : "Draft failed" });
+      res.status(400).json({ error: err instanceof Error ? err.message : "Draft failed" });
+    }
+  },
+);
+
+const editMailDraftSchema = z
+  .object({
+    draftMessageId: z.string().uuid(),
+    to: z.string().max(2000).optional(),
+    cc: z.string().max(2000).optional(),
+    bcc: z.string().max(2000).optional(),
+    subject: z.string().max(1000).optional(),
+    bodyText: z.string().min(1).max(200_000).optional(),
+  })
+  .strict()
+  .refine(
+    (body) =>
+      body.to !== undefined ||
+      body.cc !== undefined ||
+      body.bcc !== undefined ||
+      body.subject !== undefined ||
+      body.bodyText !== undefined,
+    { message: "Pass at least one draft field to edit." },
+  );
+
+mcpInternalRouter.post(
+  "/tools/edit_mail_draft",
+  validateBody(editMailDraftSchema),
+  async (req: McpRequest, res: Response) => {
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    const body = req.body as z.infer<typeof editMailDraftSchema>;
+    const draft = await AppDataSource.getRepository(MailMessage).findOneBy({
+      id: body.draftMessageId,
+      companyId: co.id,
+    });
+    if (!draft || !draft.gmailDraftId) {
+      return res.status(404).json({ error: "Draft not found" });
+    }
+    const account = await loadGrantedMailAccount(req, res, draft.accountId, "draft");
+    if (!account) return;
+
+    try {
+      const message = await updateMailDraft(account, draft, {
+        to: body.to ?? draft.toEmails,
+        cc: (body.cc ?? draft.ccEmails) || undefined,
+        bcc: (body.bcc ?? draft.bccEmails) || undefined,
+        subject: body.subject ?? draft.subject,
+        bodyText: body.bodyText ?? draft.bodyText,
+      });
+      await recordAudit({
+        companyId: co.id,
+        actorEmployeeId: self.id,
+        action: "mail.draft.update",
+        targetType: "mail_message",
+        targetId: message.id,
+        targetLabel: message.subject || "(no subject)",
+        metadata: {
+          via: "mcp",
+          previousMessageId: draft.id,
+          threadId: message.threadId,
+        },
+      });
+      await journal(
+        self.id,
+        `Edited an email draft: "${message.subject || "(no subject)"}"`,
+        `Updated draft on thread ${message.threadId} in ${account.address}.`,
+      );
+      res.json({
+        message: serializeMailMessageForAgent(message),
+        note: "Draft updated in Genosyn and Gmail. Gmail assigned the returned messageId to the replacement draft.",
+      });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : "Draft update failed" });
     }
   },
 );
@@ -5553,17 +5520,15 @@ mcpInternalRouter.post(
       );
       res.json({ message: serializeMailMessageForAgent(sent) });
     } catch (err) {
-      res
-        .status(400)
-        .json({ error: err instanceof Error ? err.message : "Send failed" });
+      res.status(400).json({ error: err instanceof Error ? err.message : "Send failed" });
     }
   },
 );
 
-// ----- Email assistant: structured action suggestions -----
+// ----- Per-email AI chat: structured action suggestions -----
 //
 // `suggest_mail_actions` never mutates anything — it stages structured
-// suggestions on the turn's MCP token; the mail assistant drains them after
+// suggestions on the turn's MCP token; the per-email chat drains them after
 // the turn and renders them as one-click buttons the human executes through
 // the ordinary mail routes (with the human's own authority). That is the
 // point: a draft-level employee can *propose* a send it isn't allowed to do.
@@ -5585,7 +5550,9 @@ const suggestedRuleSchema = z
     actions: z
       .array(
         z.discriminatedUnion("type", [
-          z.object({ type: z.literal("applyLabel"), labelName: z.string().min(1).max(200) }).strict(),
+          z
+            .object({ type: z.literal("applyLabel"), labelName: z.string().min(1).max(200) })
+            .strict(),
           z.object({ type: z.literal("markRead") }).strict(),
           z.object({ type: z.literal("star") }).strict(),
           z.object({ type: z.literal("archive") }).strict(),
@@ -5778,7 +5745,7 @@ mcpInternalRouter.post(
     res.json({
       ok: true,
       staged: body.suggestions.length,
-      note: "The buttons will render under your reply in the Email assistant — mention them briefly instead of repeating their contents.",
+      note: "The buttons will render under your reply in this email's AI chat — mention them briefly instead of repeating their contents.",
     });
   },
 );

@@ -34,23 +34,25 @@ import { clsx } from "../components/ui/clsx";
 import { useToast } from "../components/ui/Toast";
 
 /**
- * The mail assistant panel — a chat rail beside the Email section where any
- * AI employee can be @-tagged and put to work on the mailbox. Replies come
+ * The per-email AI chat — a rail beside one opened mail thread where any AI
+ * employee can be @-tagged and put to work on that email. Replies come
  * back with action pills (what the employee did) and suggestion buttons
  * (what it proposes the human does next, executed here through the ordinary
  * mail routes with the human's own authority).
  *
- * One rolling conversation per mailbox, streamed over SSE like employee
- * chat. The employee the last reply came from stays "on the thread" until
+ * Every mail thread has its own conversation, streamed over SSE like employee
+ * chat. The employee the last reply came from stays on this email's chat until
  * somebody else is tagged.
  */
 
 type Props = {
   company: Company;
   account: MailAccount;
-  /** Local thread id the human is currently viewing, if any. */
-  threadId: string | null;
-  onClose: () => void;
+  /** Local thread id that owns this independent AI conversation. */
+  threadId: string;
+  /** Draft currently in front of the human, when this is a Drafts review. */
+  focusedMessageId?: string | null;
+  onClose?: () => void;
   openCompose: (init?: Partial<ComposeInput>) => void;
 };
 
@@ -58,14 +60,13 @@ export function MailAssistant({
   company,
   account,
   threadId,
+  focusedMessageId,
   onClose,
   openCompose,
 }: Props) {
   const { toast } = useToast();
   const navigate = useNavigate();
-  const [messages, setMessages] = React.useState<MailAssistantMessage[] | null>(
-    null,
-  );
+  const [messages, setMessages] = React.useState<MailAssistantMessage[] | null>(null);
   const [roster, setRoster] = React.useState<MailAssistantRosterEntry[]>([]);
   const [draft, setDraft] = React.useState("");
   const [busy, setBusy] = React.useState(false);
@@ -89,10 +90,12 @@ export function MailAssistant({
     let cancelled = false;
     setMessages(null);
     setTarget(null);
+    setDraft("");
+    setMentionQuery(null);
     setStreaming(null);
     setBusy(false);
     mailApi
-      .assistant(company.id, account.id)
+      .assistant(company.id, account.id, threadId)
       .then((res) => {
         if (cancelled) return;
         // Merge rather than replace: a message sent while the bootstrap was
@@ -122,7 +125,7 @@ export function MailAssistant({
       streamAbortRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [company.id, account.id]);
+  }, [company.id, account.id, threadId]);
 
   const scrollToBottom = React.useCallback(() => {
     requestAnimationFrame(() => {
@@ -167,15 +170,14 @@ export function MailAssistant({
           account.id,
           {
             message,
-            threadId: threadId ?? undefined,
+            threadId,
+            focusedMessageId: focusedMessageId ?? undefined,
             employeeId: target?.id,
           },
           (event, data) => {
             if (event === "user") {
               const row = data as MailAssistantMessage;
-              setMessages((prev) =>
-                (prev ?? []).map((m) => (m.id === temp.id ? row : m)),
-              );
+              setMessages((prev) => (prev ?? []).map((m) => (m.id === temp.id ? row : m)));
             } else if (event === "target") {
               const emp = (
                 data as {
@@ -221,21 +223,16 @@ export function MailAssistant({
         scrollToBottom();
       }
     },
-    [busy, company.id, account.id, threadId, target, scrollToBottom],
+    [busy, company.id, account.id, threadId, focusedMessageId, target, scrollToBottom],
   );
 
-  const markExecuted = React.useCallback(
-    (updated: MailAssistantMessage) => {
-      setMessages((prev) =>
-        (prev ?? []).map((m) => (m.id === updated.id ? updated : m)),
-      );
-    },
-    [],
-  );
+  const markExecuted = React.useCallback((updated: MailAssistantMessage) => {
+    setMessages((prev) => (prev ?? []).map((m) => (m.id === updated.id ? updated : m)));
+  }, []);
 
   const clearConversation = async () => {
     try {
-      await mailApi.assistantClear(company.id, account.id);
+      await mailApi.assistantClear(company.id, account.id, threadId);
       setMessages([]);
       setTarget(null);
     } catch (err) {
@@ -248,9 +245,7 @@ export function MailAssistant({
   const mentionCandidates = React.useMemo(() => {
     if (mentionQuery === null) return [];
     const q = mentionQuery.toLowerCase();
-    return roster
-      .filter((r) => r.slug.includes(q) || r.name.toLowerCase().includes(q))
-      .slice(0, 6);
+    return roster.filter((r) => r.slug.includes(q) || r.name.toLowerCase().includes(q)).slice(0, 6);
   }, [mentionQuery, roster]);
 
   const refreshMentionState = (value: string, caret: number) => {
@@ -291,9 +286,7 @@ export function MailAssistant({
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        setMentionIndex(
-          (i) => (i - 1 + mentionCandidates.length) % mentionCandidates.length,
-        );
+        setMentionIndex((i) => (i - 1 + mentionCandidates.length) % mentionCandidates.length);
         return;
       }
       if (e.key === "Enter" || e.key === "Tab") {
@@ -312,16 +305,16 @@ export function MailAssistant({
     }
   };
 
-  const quickPrompts = threadId
+  const quickPrompts = focusedMessageId
     ? [
-        "Summarize this thread and what it needs from me.",
-        "Draft a reply to this thread.",
-        "Triage this — label it and archive if nothing is needed.",
+        "Make this draft clearer and more concise.",
+        "Check this draft against the conversation and fix anything missing.",
+        "Improve the tone and grammar of this draft.",
       ]
     : [
-        "What needs my attention in the inbox?",
-        "Which threads are still waiting on a reply from us?",
-        "Find newsletters cluttering the inbox and propose a rule.",
+        "Summarize this email and what it needs from me.",
+        "Draft a reply to this email.",
+        "Triage this email — label it and archive if nothing is needed.",
       ];
 
   return (
@@ -332,11 +325,9 @@ export function MailAssistant({
           <Sparkles size={14} className="text-violet-600 dark:text-violet-300" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            Mail assistant
-          </div>
+          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Ask AI</div>
           <div className="truncate text-[11px] text-slate-500 dark:text-slate-400">
-            {target ? `Talking to ${target.name}` : "Tag an AI employee with @"}
+            {target ? `Working with ${target.name}` : "A separate chat for this email"}
           </div>
         </div>
         {messages !== null && messages.length > 0 && (
@@ -348,13 +339,15 @@ export function MailAssistant({
             <Trash2 size={14} />
           </button>
         )}
-        <button
-          onClick={onClose}
-          className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
-          title="Close"
-        >
-          <X size={15} />
-        </button>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+            title="Close"
+          >
+            <X size={15} />
+          </button>
+        )}
       </div>
 
       {/* Messages */}
@@ -449,7 +442,7 @@ export function MailAssistant({
             ref={textareaRef}
             value={draft}
             rows={2}
-            placeholder={`Ask about ${account.address} — @ to tag an employee`}
+            placeholder="Ask AI to summarize, reply, edit, or triage…"
             onChange={(e) => {
               setDraft(e.target.value);
               refreshMentionState(e.target.value, e.target.selectionStart);
@@ -495,14 +488,12 @@ function IntroTips({
   return (
     <div className="rounded-xl border border-dashed border-slate-200 p-4 dark:border-slate-800">
       <div className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
-        <Bot size={15} className="text-violet-500" /> Put your AI employees on
-        this inbox
+        <Bot size={15} className="text-violet-500" /> Work on this email with AI
       </div>
       <p className="mb-3 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
         Tag anyone with <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">@</code> and
-        ask them to summarize, draft, triage, or clean up. They&apos;ll act
-        within their mailbox access and hand you buttons for anything that
-        needs your sign-off.
+        ask them to summarize, draft, edit, triage, or clean up. This email keeps its own chat, and
+        employees act within their mailbox access.
       </p>
       {taggable.length > 0 && (
         <div className="mb-3 flex flex-wrap gap-1.5">
@@ -567,9 +558,7 @@ function MessageRow({
     );
   }
 
-  const emp = message.employeeId
-    ? roster.find((r) => r.id === message.employeeId)
-    : undefined;
+  const emp = message.employeeId ? roster.find((r) => r.id === message.employeeId) : undefined;
   const isError = message.status === "error";
   const isSkipped = message.status === "skipped";
 
@@ -587,9 +576,7 @@ function MessageRow({
         <div
           className={clsx(
             "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full",
-            isError
-              ? "bg-rose-100 dark:bg-rose-500/15"
-              : "bg-violet-100 dark:bg-violet-500/15",
+            isError ? "bg-rose-100 dark:bg-rose-500/15" : "bg-violet-100 dark:bg-violet-500/15",
           )}
         >
           {isError ? (
@@ -601,7 +588,7 @@ function MessageRow({
       )}
       <div className="min-w-0 flex-1">
         <div className="mb-0.5 text-[11px] text-slate-400 dark:text-slate-500">
-          {emp?.name ?? "Mail assistant"}
+          {emp?.name ?? "Email AI"}
           {isSkipped ? " · skipped" : ""}
         </div>
         <div
@@ -647,9 +634,7 @@ function ActionPills({ actions }: { actions: MessageAction[] }) {
           title={a.targetLabel ?? a.action}
         >
           <Check size={10} className="text-emerald-500" />
-          <span className="max-w-[180px] truncate">
-            {describeAction(a)}
-          </span>
+          <span className="max-w-[180px] truncate">{describeAction(a)}</span>
         </span>
       ))}
     </div>
@@ -661,6 +646,8 @@ function describeAction(a: MessageAction): string {
   switch (a.action) {
     case "mail.draft.create":
       return `Drafted${label}`;
+    case "mail.draft.update":
+      return `Edited${label}`;
     case "mail.send":
       return `Sent${label}`;
     case "mail.thread.action":
@@ -747,9 +734,7 @@ function SuggestionButtons({
           let to = s.to;
           let cc = s.cc;
           if (s.threadId && !to) {
-            const rec = await mailApi
-              .replyRecipients(company.id, s.threadId)
-              .catch(() => null);
+            const rec = await mailApi.replyRecipients(company.id, s.threadId).catch(() => null);
             to = rec?.to;
             cc = cc ?? (rec?.cc || undefined);
           }

@@ -13,7 +13,6 @@ import {
   Paperclip,
   Reply,
   ReplyAll,
-  Sparkles,
   Star,
   Tag,
   Trash2,
@@ -30,6 +29,7 @@ import {
   shortMailDate,
 } from "../lib/mail";
 import { MailOutletCtx } from "./MailLayout";
+import { MailAssistant } from "./MailAssistant";
 import { Button } from "../components/ui/Button";
 import { useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
@@ -109,8 +109,7 @@ const DEFAULT_INSTRUCTIONS: Record<MailHandoverMode, string> = {
 };
 
 export default function MailThreadView() {
-  const { company, account, labels, changeTick, openCompose, openAssistant } =
-    useOutletContext<MailOutletCtx>();
+  const { company, account, labels, changeTick, openCompose } = useOutletContext<MailOutletCtx>();
   const { threadId } = useParams();
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -201,9 +200,7 @@ export default function MailThreadView() {
   const inInbox = thread.labelIds.includes("INBOX");
   const inTrash = thread.labelIds.includes("TRASH");
   const userLabels = labels.filter((l) => l.labelType === "user");
-  const threadUserLabels = userLabels.filter((l) =>
-    thread.labelIds.includes(l.gmailLabelId),
-  );
+  const threadUserLabels = userLabels.filter((l) => thread.labelIds.includes(l.gmailLabelId));
 
   const act = async (action: ThreadActionName, opts?: { labelId?: string; labelName?: string }) => {
     try {
@@ -219,167 +216,178 @@ export default function MailThreadView() {
     }
   };
 
+  const focusedDraftId = [...messages].reverse().find((message) => message.isDraft)?.id;
+
   return (
-    <div className="mx-auto max-w-4xl px-4 py-4 sm:px-6">
-      {/* Header */}
-      <div className="mb-1 flex items-center gap-2">
-        <button
-          onClick={() => navigate(-1)}
-          className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
-          title="Back"
-        >
-          <ArrowLeft size={16} />
-        </button>
-        <h1 className="min-w-0 flex-1 truncate text-lg font-semibold text-slate-900 dark:text-slate-100">
-          {thread.subject || "(no subject)"}
-        </h1>
-        <div className="flex shrink-0 items-center gap-0.5">
-          <HeaderAction
-            title={starred ? "Unstar" : "Star"}
-            onClick={() => act(starred ? "unstar" : "star")}
-          >
-            <Star size={15} fill={starred ? "currentColor" : "none"} className={starred ? "text-amber-400" : undefined} />
-          </HeaderAction>
-          <HeaderAction title="Mark unread" onClick={() => act("markUnread")}>
-            <Mail size={15} />
-          </HeaderAction>
-          {!inTrash && (
-            <HeaderAction
-              title={inInbox ? "Archive" : "Move to inbox"}
-              onClick={() => act(inInbox ? "archive" : "moveToInbox")}
+    <div className="flex min-h-full flex-col xl:h-full xl:min-h-0 xl:flex-row xl:overflow-hidden">
+      <main className="min-w-0 flex-1 xl:overflow-y-auto">
+        <div className="mx-auto max-w-4xl px-4 py-4 sm:px-6">
+          {/* Header */}
+          <div className="mb-1 flex items-center gap-2">
+            <button
+              onClick={() => navigate(-1)}
+              className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+              title="Back"
             >
-              {inInbox ? <Archive size={15} /> : <ArchiveRestore size={15} />}
-            </HeaderAction>
-          )}
-          <HeaderAction
-            title={inTrash ? "Restore from trash" : "Move to trash"}
-            onClick={() => act(inTrash ? "untrash" : "trash")}
-          >
-            {inTrash ? <ArchiveRestore size={15} /> : <Trash2 size={15} />}
-          </HeaderAction>
-          <Menu
-            align="right"
-            trigger={({ ref, onClick }) => (
-              <button
-                ref={ref}
-                onClick={onClick}
-                title="Labels"
-                className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+              <ArrowLeft size={16} />
+            </button>
+            <h1 className="min-w-0 flex-1 truncate text-lg font-semibold text-slate-900 dark:text-slate-100">
+              {thread.subject || "(no subject)"}
+            </h1>
+            <div className="flex shrink-0 items-center gap-0.5">
+              <HeaderAction
+                title={starred ? "Unstar" : "Star"}
+                onClick={() => act(starred ? "unstar" : "star")}
               >
-                <Tag size={15} />
-              </button>
-            )}
-          >
-            {(close) => (
-              <>
-                <MenuHeader>Labels</MenuHeader>
-                {userLabels.length === 0 && (
-                  <div className="px-2 py-1.5 text-xs text-slate-400">
-                    No user labels yet — AI rules can create them.
-                  </div>
+                <Star
+                  size={15}
+                  fill={starred ? "currentColor" : "none"}
+                  className={starred ? "text-amber-400" : undefined}
+                />
+              </HeaderAction>
+              <HeaderAction title="Mark unread" onClick={() => act("markUnread")}>
+                <Mail size={15} />
+              </HeaderAction>
+              {!inTrash && (
+                <HeaderAction
+                  title={inInbox ? "Archive" : "Move to inbox"}
+                  onClick={() => act(inInbox ? "archive" : "moveToInbox")}
+                >
+                  {inInbox ? <Archive size={15} /> : <ArchiveRestore size={15} />}
+                </HeaderAction>
+              )}
+              <HeaderAction
+                title={inTrash ? "Restore from trash" : "Move to trash"}
+                onClick={() => act(inTrash ? "untrash" : "trash")}
+              >
+                {inTrash ? <ArchiveRestore size={15} /> : <Trash2 size={15} />}
+              </HeaderAction>
+              <Menu
+                align="right"
+                trigger={({ ref, onClick }) => (
+                  <button
+                    ref={ref}
+                    onClick={onClick}
+                    title="Labels"
+                    className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                  >
+                    <Tag size={15} />
+                  </button>
                 )}
-                {userLabels.map((l) => {
-                  const has = thread.labelIds.includes(l.gmailLabelId);
-                  return (
-                    <MenuItem
-                      key={l.id}
-                      label={l.name}
-                      active={has}
-                      onSelect={() => {
-                        close();
-                        void act(has ? "removeLabel" : "applyLabel", {
-                          labelId: l.gmailLabelId,
-                        });
-                      }}
-                    />
-                  );
-                })}
-              </>
+              >
+                {(close) => (
+                  <>
+                    <MenuHeader>Labels</MenuHeader>
+                    {userLabels.length === 0 && (
+                      <div className="px-2 py-1.5 text-xs text-slate-400">
+                        No user labels yet — AI rules can create them.
+                      </div>
+                    )}
+                    {userLabels.map((l) => {
+                      const has = thread.labelIds.includes(l.gmailLabelId);
+                      return (
+                        <MenuItem
+                          key={l.id}
+                          label={l.name}
+                          active={has}
+                          onSelect={() => {
+                            close();
+                            void act(has ? "removeLabel" : "applyLabel", {
+                              labelId: l.gmailLabelId,
+                            });
+                          }}
+                        />
+                      );
+                    })}
+                  </>
+                )}
+              </Menu>
+              <Button size="sm" variant="secondary" onClick={() => setHandOpen(true)}>
+                <Bot size={14} className="mr-1.5" /> Hand to AI
+              </Button>
+            </div>
+          </div>
+
+          {/* Label chips */}
+          {threadUserLabels.length > 0 && (
+            <div className="mb-3 ml-9 flex flex-wrap gap-1.5">
+              {threadUserLabels.map((l) => (
+                <span
+                  key={l.id}
+                  className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                >
+                  {l.name}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Handover timeline */}
+          {handovers.length > 0 && (
+            <div className="mb-3 space-y-2">
+              {handovers.map((h) => (
+                <HandoverCard key={h.id} handover={h} companyId={company.id} onChanged={load} />
+              ))}
+            </div>
+          )}
+
+          {/* Messages */}
+          <div className="space-y-2">
+            {messages.map((m) =>
+              m.isDraft ? (
+                <DraftCard key={m.id} draft={m} companyId={company.id} onChanged={load} />
+              ) : (
+                <MessageCard
+                  key={m.id}
+                  message={m}
+                  companyId={company.id}
+                  selfAddress={account.address}
+                  expanded={expanded.has(m.id)}
+                  onForward={() => forward(m)}
+                  onToggle={() =>
+                    setExpanded((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(m.id)) next.delete(m.id);
+                      else next.add(m.id);
+                      return next;
+                    })
+                  }
+                />
+              ),
             )}
-          </Menu>
-          <Button size="sm" variant="secondary" onClick={() => openAssistant()}>
-            <Sparkles size={14} className="mr-1.5 text-violet-500" /> Ask AI
-          </Button>
-          <Button size="sm" variant="secondary" onClick={() => setHandOpen(true)}>
-            <Bot size={14} className="mr-1.5" /> Hand to AI
-          </Button>
-        </div>
-      </div>
+          </div>
 
-      {/* Label chips */}
-      {threadUserLabels.length > 0 && (
-        <div className="mb-3 ml-9 flex flex-wrap gap-1.5">
-          {threadUserLabels.map((l) => (
-            <span
-              key={l.id}
-              className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 dark:border-slate-700 dark:text-slate-300"
-            >
-              {l.name}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* Handover timeline */}
-      {handovers.length > 0 && (
-        <div className="mb-3 space-y-2">
-          {handovers.map((h) => (
-            <HandoverCard key={h.id} handover={h} companyId={company.id} onChanged={load} />
-          ))}
-        </div>
-      )}
-
-      {/* Messages */}
-      <div className="space-y-2">
-        {messages.map((m) =>
-          m.isDraft ? (
-            <DraftCard
-              key={m.id}
-              draft={m}
+          {/* Reply composer */}
+          {!inTrash && messages.some((m) => !m.isDraft) && (
+            <ReplyComposer
               companyId={company.id}
-              onChanged={load}
+              accountId={account.id}
+              thread={thread}
+              onSent={load}
+              onDraftSaved={load}
             />
-          ) : (
-            <MessageCard
-              key={m.id}
-              message={m}
-              companyId={company.id}
-              selfAddress={account.address}
-              expanded={expanded.has(m.id)}
-              onForward={() => forward(m)}
-              onToggle={() =>
-                setExpanded((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(m.id)) next.delete(m.id);
-                  else next.add(m.id);
-                  return next;
-                })
-              }
-            />
-          ),
-        )}
-      </div>
+          )}
 
-      {/* Reply composer */}
-      {!inTrash && messages.some((m) => !m.isDraft) && (
-        <ReplyComposer
-          companyId={company.id}
-          accountId={account.id}
-          thread={thread}
-          onSent={load}
-          onDraftSaved={load}
+          <HandToAiModal
+            open={handOpen}
+            onClose={() => setHandOpen(false)}
+            companyId={company.id}
+            companySlug={company.slug}
+            accountId={account.id}
+            threadId={thread.id}
+            onCreated={load}
+          />
+        </div>
+      </main>
+      <aside className="min-h-[30rem] shrink-0 border-t border-slate-200 bg-white xl:min-h-0 xl:w-[23rem] xl:border-l xl:border-t-0 dark:border-slate-800 dark:bg-slate-950">
+        <MailAssistant
+          company={company}
+          account={account}
+          threadId={thread.id}
+          focusedMessageId={focusedDraftId}
+          openCompose={openCompose}
         />
-      )}
-
-      <HandToAiModal
-        open={handOpen}
-        onClose={() => setHandOpen(false)}
-        companyId={company.id}
-        companySlug={company.slug}
-        accountId={account.id}
-        threadId={thread.id}
-        onCreated={load}
-      />
+      </aside>
     </div>
   );
 }
@@ -417,9 +425,7 @@ function forwardQuote(m: MailMessage): string {
     `To: ${m.toEmails}`,
   ];
   if (m.attachments.length > 0) {
-    lines.push(
-      `Attachments (not re-attached): ${m.attachments.map((a) => a.filename).join(", ")}`,
-    );
+    lines.push(`Attachments (not re-attached): ${m.attachments.map((a) => a.filename).join(", ")}`);
   }
   lines.push("", m.bodyText || m.snippet);
   return lines.join("\n");
@@ -455,10 +461,7 @@ function MessageCard({
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
-      <button
-        onClick={onToggle}
-        className="flex w-full items-baseline gap-2 px-4 py-3 text-left"
-      >
+      <button onClick={onToggle} className="flex w-full items-baseline gap-2 px-4 py-3 text-left">
         <span className="min-w-0 truncate text-sm font-medium text-slate-900 dark:text-slate-100">
           {fromLabel}
         </span>
@@ -468,9 +471,7 @@ function MessageCard({
             {message.ccEmails ? `, cc ${message.ccEmails}` : ""}
           </span>
         ) : (
-          <span className="min-w-0 flex-1 truncate text-xs text-slate-400">
-            {message.snippet}
-          </span>
+          <span className="min-w-0 flex-1 truncate text-xs text-slate-400">{message.snippet}</span>
         )}
         <span className="shrink-0 text-xs tabular-nums text-slate-400">
           {shortMailDate(message.sentAt)}
@@ -494,10 +495,7 @@ function MessageCard({
             </button>
           )}
           {html ? (
-            <div
-              className="mail-html"
-              dangerouslySetInnerHTML={{ __html: html }}
-            />
+            <div className="mail-html" dangerouslySetInnerHTML={{ __html: html }} />
           ) : (
             <pre className="whitespace-pre-wrap break-words font-sans text-sm text-slate-700 dark:text-slate-300">
               {message.bodyText || message.snippet}
@@ -576,8 +574,7 @@ function DraftCard({
     return res.message.id;
   };
 
-  const dirty =
-    to !== draft.toEmails || subject !== draft.subject || body !== draft.bodyText;
+  const dirty = to !== draft.toEmails || subject !== draft.subject || body !== draft.bodyText;
 
   const onSend = async () => {
     setBusy("send");
@@ -649,11 +646,7 @@ function DraftCard({
       ) : (
         <div className="space-y-3 border-t border-amber-100 px-4 py-3 dark:border-amber-500/20">
           <Input label="To" value={to} onChange={(e) => setTo(e.target.value)} />
-          <Input
-            label="Subject"
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-          />
+          <Input label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
           <Textarea
             label="Message"
             rows={8}
@@ -883,9 +876,7 @@ function HandoverCard({
             : handover.mode === "reply"
               ? "replying"
               : "triaging"}
-          {handover.sourceKind === "rule" && (
-            <span className="text-slate-400"> · via rule</span>
-          )}
+          {handover.sourceKind === "rule" && <span className="text-slate-400"> · via rule</span>}
         </span>
         <span
           className={clsx(
@@ -1050,8 +1041,7 @@ function HandToAiModal({
             <div className="space-y-1.5">
               {(Object.keys(MODE_LABELS) as MailHandoverMode[]).map((m) => {
                 const disabled =
-                  (m === "reply" && !canSend) ||
-                  ((m === "draft" || m === "triage") && !canDraft);
+                  (m === "reply" && !canSend) || ((m === "draft" || m === "triage") && !canDraft);
                 return (
                   <label
                     key={m}
@@ -1093,9 +1083,8 @@ function HandToAiModal({
           />
           {!canDraft && (
             <p className="text-xs text-amber-600 dark:text-amber-400">
-              {selected?.employee?.name ?? "This employee"} only has read
-              access to this mailbox — grant &quot;draft&quot; or higher under
-              Settings → AI access before handing over.
+              {selected?.employee?.name ?? "This employee"} only has read access to this mailbox —
+              grant &quot;draft&quot; or higher under Settings → AI access before handing over.
             </p>
           )}
           <FormError message={error} />
@@ -1103,10 +1092,7 @@ function HandToAiModal({
             <Button variant="ghost" onClick={onClose} disabled={busy}>
               Cancel
             </Button>
-            <Button
-              onClick={submit}
-              disabled={busy || !employeeId || !canDraft}
-            >
+            <Button onClick={submit} disabled={busy || !employeeId || !canDraft}>
               {busy ? <Spinner size={14} /> : "Hand over"}
             </Button>
           </div>

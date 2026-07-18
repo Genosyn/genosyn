@@ -10,7 +10,16 @@ import {
   Send,
   Users,
 } from "lucide-react";
-import { MailMessage, MailThread, mailApi, shortMailDate } from "../lib/mail";
+import { Company } from "../lib/api";
+import {
+  ComposeInput,
+  MailAccount,
+  MailMessage,
+  MailThread,
+  mailApi,
+  shortMailDate,
+} from "../lib/mail";
+import { MailAssistant } from "./MailAssistant";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
@@ -24,12 +33,15 @@ type DraftThreadDetail = {
 type MailDraftReviewProps = {
   companyId: string;
   companySlug: string;
+  company: Company;
+  account: MailAccount;
   threads: MailThread[];
   changeTick: number;
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore: () => Promise<void>;
   onRefresh: () => Promise<void>;
+  openCompose: (init?: Partial<ComposeInput>) => void;
 };
 
 /**
@@ -40,12 +52,15 @@ type MailDraftReviewProps = {
 export function MailDraftReview({
   companyId,
   companySlug,
+  company,
+  account,
   threads,
   changeTick,
   hasMore,
   loadingMore,
   onLoadMore,
   onRefresh,
+  openCompose,
 }: MailDraftReviewProps) {
   const { toast } = useToast();
   const [selectedId, setSelectedId] = React.useState(threads[0]?.id ?? "");
@@ -135,7 +150,7 @@ export function MailDraftReview({
         </span>
       </div>
 
-      <div className="grid min-h-[32rem] grid-cols-1 lg:grid-cols-[19rem_minmax(0,1fr)]">
+      <div className="grid min-h-[32rem] grid-cols-1 lg:grid-cols-[17rem_minmax(0,1fr)] xl:grid-cols-[17rem_minmax(0,1fr)_22rem]">
         <div className="border-b border-slate-200 dark:border-slate-800 lg:border-b-0 lg:border-r">
           <div className="max-h-72 overflow-y-auto lg:max-h-[40rem]">
             {threads.map((thread, index) => (
@@ -277,6 +292,21 @@ export function MailDraftReview({
             </div>
           )}
         </div>
+        <aside className="min-h-[30rem] border-t border-slate-200 bg-white lg:col-span-2 xl:col-span-1 xl:min-h-0 xl:border-l xl:border-t-0 dark:border-slate-800 dark:bg-slate-950">
+          {detail && drafts.length > 0 ? (
+            <MailAssistant
+              company={company}
+              account={account}
+              threadId={detail.thread.id}
+              focusedMessageId={drafts[0].id}
+              openCompose={openCompose}
+            />
+          ) : (
+            <div className="flex h-full min-h-80 items-center justify-center px-6 text-center text-sm text-slate-400">
+              Pick a draft to start its AI chat.
+            </div>
+          )}
+        </aside>
       </div>
     </div>
   );

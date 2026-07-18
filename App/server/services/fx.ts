@@ -64,7 +64,9 @@ export async function getFinanceSettings(
   const repo = AppDataSource.getRepository(CompanyFinanceSettings);
   let s = await repo.findOneBy({ companyId });
   if (!s) {
-    s = await repo.save(repo.create({ companyId, homeCurrency: "USD" }));
+    s = await repo.save(
+      repo.create({ companyId, homeCurrency: "USD", invoiceCcEmails: [] }),
+    );
   }
   await ensureFxAccounts(companyId);
   await seedCurrencies(companyId);
@@ -126,6 +128,27 @@ export async function setFinanceTemplates(
   if (patch.defaultFooter !== undefined) {
     s.defaultFooter = patch.defaultFooter;
   }
+  return repo.save(s);
+}
+
+/**
+ * Replace the internal recipients copied on every invoice email. The route
+ * validates address syntax; the service owns case-insensitive de-duplication
+ * so callers outside HTTP get the same durable representation.
+ */
+export async function setInvoiceCcEmails(
+  companyId: string,
+  emails: string[],
+): Promise<CompanyFinanceSettings> {
+  const repo = AppDataSource.getRepository(CompanyFinanceSettings);
+  const s = await getFinanceSettings(companyId);
+  const seen = new Set<string>();
+  s.invoiceCcEmails = emails.flatMap((email) => {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized || seen.has(normalized)) return [];
+    seen.add(normalized);
+    return [normalized];
+  });
   return repo.save(s);
 }
 

@@ -1,11 +1,5 @@
 import React from "react";
-import {
-  Link,
-  Outlet,
-  useLocation,
-  useNavigate,
-  useSearchParams,
-} from "react-router-dom";
+import { Link, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Archive,
   Bot,
@@ -19,7 +13,6 @@ import {
   Settings as SettingsIcon,
   ShieldAlert,
   SlidersHorizontal,
-  Sparkles,
   Star,
   Tag,
   Trash2,
@@ -34,7 +27,6 @@ import {
   mailApi,
 } from "../lib/mail";
 import { ContextualLayout, SidebarLink } from "../components/AppShell";
-import { MailAssistant } from "./MailAssistant";
 import { AttachmentBar, useMailAttachments } from "../components/MailAttachments";
 import { useCompanySocketSubscription } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -72,13 +64,9 @@ export type MailOutletCtx = {
   syncNow: () => Promise<void>;
   refresh: () => Promise<void>;
   openCompose: (init?: Partial<ComposeInput>) => void;
-  /** Open the AI assistant panel (no-op if already open). */
-  openAssistant: () => void;
 };
 
 const activeAccountKey = (companyId: string) => `genosyn.mail.account.${companyId}`;
-const assistantOpenKey = (companyId: string) =>
-  `genosyn.mail.assistant.${companyId}`;
 
 export default function MailLayout({ company }: { company: Company }) {
   const { toast } = useToast();
@@ -96,31 +84,12 @@ export default function MailLayout({ company }: { company: Company }) {
   const labelRequestSeq = React.useRef(0);
   const lastLabelRefreshAt = React.useRef(0);
   const [changeTick, setChangeTick] = React.useState(0);
-  const [syncingAccountId, setSyncingAccountId] = React.useState<string | null>(
-    null,
-  );
+  const [syncingAccountId, setSyncingAccountId] = React.useState<string | null>(null);
   const syncBaselineRef = React.useRef<string | null>(null);
   const [composeOpen, setComposeOpen] = React.useState(false);
   const [composeInit, setComposeInit] = React.useState<Partial<ComposeInput>>({});
-  const [assistantOpen, setAssistantOpen] = React.useState(
-    () => localStorage.getItem(assistantOpenKey(company.id)) === "1",
-  );
-  const location = useLocation();
-  // The thread the human is looking at, if any — the assistant injects it as
-  // context so "summarize this" needs no ids.
-  const viewedThreadId =
-    location.pathname.match(/\/mail\/t\/([^/]+)/)?.[1] ?? null;
 
-  const account =
-    accounts.find((a) => a.id === activeId) ?? accounts[0] ?? null;
-
-  const setAssistant = React.useCallback(
-    (open: boolean) => {
-      setAssistantOpen(open);
-      localStorage.setItem(assistantOpenKey(company.id), open ? "1" : "0");
-    },
-    [company.id],
-  );
+  const account = accounts.find((a) => a.id === activeId) ?? accounts[0] ?? null;
 
   const refreshAccounts = React.useCallback(async () => {
     const res = await mailApi.accounts(company.id);
@@ -181,10 +150,7 @@ export default function MailLayout({ company }: { company: Company }) {
       setSyncingAccountId(null);
       return;
     }
-    if (
-      !syncedAccount.lastSyncAt ||
-      syncedAccount.lastSyncAt === syncBaselineRef.current
-    ) {
+    if (!syncedAccount.lastSyncAt || syncedAccount.lastSyncAt === syncBaselineRef.current) {
       return;
     }
 
@@ -331,8 +297,7 @@ export default function MailLayout({ company }: { company: Company }) {
             to={`${base}/settings`}
             className="mt-2 flex items-center gap-1.5 rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700 dark:bg-red-500/10 dark:text-red-300"
           >
-            <ShieldAlert size={12} className="shrink-0" /> Sync error — open
-            settings
+            <ShieldAlert size={12} className="shrink-0" /> Sync error — open settings
           </Link>
         )}
         {account.status === "active" && !account.backfilledAt && (
@@ -343,27 +308,33 @@ export default function MailLayout({ company }: { company: Company }) {
               : "Importing your mailbox…"}
           </div>
         )}
-        <Button
-          className="mt-3 w-full"
-          size="sm"
-          onClick={() => openCompose()}
-        >
+        <Button className="mt-3 w-full" size="sm" onClick={() => openCompose()}>
           <PenSquare size={14} className="mr-1.5" /> Compose
-        </Button>
-        <Button
-          className="mt-2 w-full"
-          size="sm"
-          variant="secondary"
-          onClick={() => setAssistant(!assistantOpen)}
-        >
-          <Sparkles size={14} className="mr-1.5 text-violet-500" /> AI assistant
         </Button>
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
-        <FolderLink base={base} view="inbox" icon={<Inbox size={14} />} label="Inbox" badge={counts.inboxUnread} />
-        <FolderLink base={base} view="starred" icon={<Star size={14} />} label="Starred" badge={counts.starred} />
+        <FolderLink
+          base={base}
+          view="inbox"
+          icon={<Inbox size={14} />}
+          label="Inbox"
+          badge={counts.inboxUnread}
+        />
+        <FolderLink
+          base={base}
+          view="starred"
+          icon={<Star size={14} />}
+          label="Starred"
+          badge={counts.starred}
+        />
         <FolderLink base={base} view="sent" icon={<Send size={14} />} label="Sent" />
-        <FolderLink base={base} view="drafts" icon={<FileText size={14} />} label="Drafts" badge={counts.drafts} />
+        <FolderLink
+          base={base}
+          view="drafts"
+          icon={<FileText size={14} />}
+          label="Drafts"
+          badge={counts.drafts}
+        />
         <FolderLink base={base} view="all" icon={<Archive size={14} />} label="All mail" />
         <FolderLink base={base} view="spam" icon={<ShieldAlert size={14} />} label="Spam" />
         <FolderLink base={base} view="trash" icon={<Trash2 size={14} />} label="Trash" />
@@ -380,21 +351,9 @@ export default function MailLayout({ company }: { company: Company }) {
         <div className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
           Automation
         </div>
-        <SidebarLink
-          to={`${base}/rules`}
-          icon={<SlidersHorizontal size={14} />}
-          label="Rules"
-        />
-        <SidebarLink
-          to={`${base}/handovers`}
-          icon={<Bot size={14} />}
-          label="AI handovers"
-        />
-        <SidebarLink
-          to={`${base}/settings`}
-          icon={<SettingsIcon size={14} />}
-          label="Settings"
-        />
+        <SidebarLink to={`${base}/rules`} icon={<SlidersHorizontal size={14} />} label="Rules" />
+        <SidebarLink to={`${base}/handovers`} icon={<Bot size={14} />} label="AI handovers" />
+        <SidebarLink to={`${base}/settings`} icon={<SettingsIcon size={14} />} label="Settings" />
       </nav>
     </div>
   );
@@ -410,33 +369,12 @@ export default function MailLayout({ company }: { company: Company }) {
     syncNow,
     refresh,
     openCompose,
-    openAssistant: () => setAssistant(true),
   };
 
   return (
     <ContextualLayout sidebar={sidebar}>
-      <div className="flex h-full min-h-0 overflow-hidden">
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-          <Outlet context={ctx} />
-        </div>
-        {assistantOpen && (
-          <>
-            {/* Mobile scrim — the panel overlays below lg and docks at lg+. */}
-            <div
-              className="fixed inset-0 z-40 bg-slate-900/40 lg:hidden"
-              onClick={() => setAssistant(false)}
-            />
-            <aside className="fixed inset-y-0 right-0 z-40 flex w-[380px] max-w-[92vw] flex-col border-l border-slate-200 bg-white shadow-xl lg:static lg:z-auto lg:w-[380px] lg:max-w-none lg:shrink-0 lg:shadow-none dark:border-slate-800 dark:bg-slate-950">
-              <MailAssistant
-                company={company}
-                account={account}
-                threadId={viewedThreadId}
-                onClose={() => setAssistant(false)}
-                openCompose={openCompose}
-              />
-            </aside>
-          </>
-        )}
+      <div className="h-full min-h-0 overflow-y-auto">
+        <Outlet context={ctx} />
       </div>
       <MailComposeModal
         open={composeOpen}
@@ -470,8 +408,7 @@ function FolderLink({
   const current = params.get("view") ?? "inbox";
   // An active search scopes to all mail server-side, so no folder row should
   // claim to be the thing being shown.
-  const isActive =
-    onIndex && !params.get("q") && !params.get("label") && current === view;
+  const isActive = onIndex && !params.get("q") && !params.get("label") && current === view;
   return (
     <Link
       to={view === "inbox" ? base : `${base}?view=${view}`}
@@ -497,8 +434,7 @@ function LabelLink({ base, label }: { base: string; label: MailLabelInfo }) {
   const [params] = useSearchParams();
   const { pathname } = useLocation();
   const onIndex = pathname.replace(/\/$/, "") === base;
-  const isActive =
-    onIndex && !params.get("q") && params.get("label") === label.gmailLabelId;
+  const isActive = onIndex && !params.get("q") && params.get("label") === label.gmailLabelId;
   return (
     <Link
       to={`${base}?label=${encodeURIComponent(label.gmailLabelId)}`}
@@ -512,9 +448,7 @@ function LabelLink({ base, label }: { base: string; label: MailLabelInfo }) {
       <Tag size={14} style={label.color ? { color: label.color } : undefined} />
       <span className="min-w-0 flex-1 truncate">{label.name}</span>
       {label.threadCount > 0 && (
-        <span className="text-[10px] tabular-nums text-slate-400">
-          {label.threadCount}
-        </span>
+        <span className="text-[10px] tabular-nums text-slate-400">{label.threadCount}</span>
       )}
     </Link>
   );
@@ -530,9 +464,7 @@ function MailOnboarding({
   onConnected: () => Promise<void>;
 }) {
   const { toast } = useToast();
-  const [candidates, setCandidates] = React.useState<MailConnectCandidate[] | null>(
-    null,
-  );
+  const [candidates, setCandidates] = React.useState<MailConnectCandidate[] | null>(null);
   const [connecting, setConnecting] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -564,9 +496,7 @@ function MailOnboarding({
     }
   };
 
-  const usable = (candidates ?? []).filter(
-    (c) => c.hasGmailScope && !c.linkedAccountId,
-  );
+  const usable = (candidates ?? []).filter((c) => c.hasGmailScope && !c.linkedAccountId);
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-16">
@@ -577,9 +507,8 @@ function MailOnboarding({
         Bring your inbox into Genosyn
       </h1>
       <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-        Connect a Gmail account to read and answer mail here, hand threads to
-        AI employees, and run rules on everything that arrives. Changes sync
-        both ways.
+        Connect a Gmail account to read and answer mail here, hand threads to AI employees, and run
+        rules on everything that arrives. Changes sync both ways.
       </p>
 
       {candidates === null ? (
@@ -633,9 +562,8 @@ function MailOnboarding({
           />
           {(candidates ?? []).some((c) => !c.hasGmailScope) && (
             <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-              You have Google connections, but none were authorized with the
-              Gmail scope — reconnect one and tick the Gmail product on the
-              consent screen.
+              You have Google connections, but none were authorized with the Gmail scope — reconnect
+              one and tick the Gmail product on the consent screen.
             </p>
           )}
         </div>
@@ -736,14 +664,8 @@ function MailComposeModal({
             </button>
           )}
         </div>
-        {showCc && (
-          <Input label="Cc" value={cc} onChange={(e) => setCc(e.target.value)} />
-        )}
-        <Input
-          label="Subject"
-          value={subject}
-          onChange={(e) => setSubject(e.target.value)}
-        />
+        {showCc && <Input label="Cc" value={cc} onChange={(e) => setCc(e.target.value)} />}
+        <Input label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
         <Textarea
           label="Message"
           value={body}
@@ -765,10 +687,7 @@ function MailComposeModal({
           >
             {busy === "draft" ? <Spinner size={14} /> : "Save draft"}
           </Button>
-          <Button
-            disabled={busy !== null || attach.uploading}
-            onClick={() => submit("send")}
-          >
+          <Button disabled={busy !== null || attach.uploading} onClick={() => submit("send")}>
             {busy === "send" ? <Spinner size={14} /> : "Send"}
           </Button>
         </div>

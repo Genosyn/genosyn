@@ -1,15 +1,9 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  Index,
-} from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 /**
- * One turn in a mailbox's assistant conversation — the chat panel that sits
- * beside the Email section. Unlike a `Conversation` (which belongs to one
- * employee), the mail assistant is scoped to a MailAccount and any AI
+ * One turn in an email thread's AI conversation — the chat panel that sits
+ * beside the opened email. Unlike a `Conversation` (which belongs to one
+ * employee), this chat is scoped to a MailAccount + MailThread and any AI
  * employee can be @-tagged into it, so each assistant row records which
  * employee answered.
  *
@@ -31,7 +25,7 @@ export class MailChatMessage {
   @Column({ type: "varchar" })
   accountId!: string;
 
-  /** Local MailThread id the human was viewing when they asked, if any. */
+  /** Local MailThread id that owns this independent AI conversation. */
   @Column({ type: "varchar", nullable: true })
   threadId!: string | null;
 

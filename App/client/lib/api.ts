@@ -2727,6 +2727,8 @@ export type CompanyFinanceSettings = {
   /** Default printable footer for invoices and estimates that don't
    *  have one of their own. Per-doc footers always win. */
   defaultFooter: string;
+  /** Internal recipients copied on every invoice email. */
+  invoiceCcEmails: string[];
   createdAt: string;
   updatedAt: string;
 };

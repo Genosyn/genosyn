@@ -94,6 +94,7 @@ import {
   seedCurrencies,
   setFinanceTemplates,
   setHomeCurrency,
+  setInvoiceCcEmails,
   setRate,
 } from "../services/fx.js";
 import { Currency } from "../db/entities/Currency.js";
@@ -2055,6 +2056,10 @@ const settingsPatchSchema = z.object({
     .optional(),
   defaultFromBlock: z.string().max(4000).optional(),
   defaultFooter: z.string().max(2000).optional(),
+  invoiceCcEmails: z
+    .array(z.string().trim().email().max(320).transform((email) => email.toLowerCase()))
+    .max(25)
+    .optional(),
 });
 
 financeRouter.patch("/finance-settings", validateBody(settingsPatchSchema), async (req, res) => {
@@ -2068,6 +2073,9 @@ financeRouter.patch("/finance-settings", validateBody(settingsPatchSchema), asyn
         defaultFromBlock: body.defaultFromBlock,
         defaultFooter: body.defaultFooter,
       });
+    }
+    if (body.invoiceCcEmails !== undefined) {
+      await setInvoiceCcEmails(cid, body.invoiceCcEmails);
     }
     res.json(await getFinanceSettings(cid));
 });

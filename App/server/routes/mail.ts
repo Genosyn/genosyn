@@ -36,11 +36,7 @@ import {
   updateMailDraft,
   type ThreadAction,
 } from "../services/mail/actions.js";
-import {
-  extractBodies,
-  getAttachment,
-  getMessage,
-} from "../services/mail/gmailClient.js";
+import { extractBodies, getAttachment, getMessage } from "../services/mail/gmailClient.js";
 import { stageAttachment } from "../services/mail/outbox.js";
 import {
   createMailHandover,
@@ -80,10 +76,7 @@ mailRouter.use(requireCompanyMember);
 
 // ───────────────────────────── helpers ─────────────────────────────
 
-async function loadAccount(
-  cid: string,
-  accountId: string,
-): Promise<MailAccount | null> {
+async function loadAccount(cid: string, accountId: string): Promise<MailAccount | null> {
   return AppDataSource.getRepository(MailAccount).findOneBy({
     id: accountId,
     companyId: cid,
@@ -175,9 +168,7 @@ function serializeHandover(
     accountId: h.accountId,
     threadId: h.threadId,
     threadSubject: thread ? thread.subject || "(no subject)" : undefined,
-    employee: emp
-      ? { id: emp.id, name: emp.name, slug: emp.slug, avatarKey: emp.avatarKey }
-      : null,
+    employee: emp ? { id: emp.id, name: emp.name, slug: emp.slug, avatarKey: emp.avatarKey } : null,
     mode: h.mode,
     instruction: h.instruction,
     status: h.status,
@@ -248,74 +239,73 @@ mailRouter.get("/mail/connect-candidates", async (req, res) => {
 
 const createAccountSchema = z.object({ connectionId: z.string().uuid() });
 
-mailRouter.post(
-  "/mail/accounts",
-  validateBody(createAccountSchema),
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const body = req.body as z.infer<typeof createAccountSchema>;
-    let account: MailAccount;
-    try {
-      account = await createMailAccount({
-        companyId: cid,
-        connectionId: body.connectionId,
-        createdByUserId: req.userId ?? null,
-      });
-    } catch (err) {
-      return res
-        .status(400)
-        .json({ error: err instanceof Error ? err.message : "Connect failed" });
-    }
-    await recordAudit({
+mailRouter.post("/mail/accounts", validateBody(createAccountSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const body = req.body as z.infer<typeof createAccountSchema>;
+  let account: MailAccount;
+  try {
+    account = await createMailAccount({
       companyId: cid,
-      actorUserId: req.userId ?? null,
-      action: "mail.account.connect",
-      targetType: "mail_account",
-      targetId: account.id,
-      targetLabel: account.address,
+      connectionId: body.connectionId,
+      createdByUserId: req.userId ?? null,
     });
-    // First sync (the backfill) runs in the background; the UI follows along
-    // via `mail.updated` events and the account's lastSyncAt/backfilledAt.
-    void syncAccountNow(account.id).catch(() => {});
-    res.json({ account: serializeMailAccount(account) });
-  },
-);
+  } catch (err) {
+    return res.status(400).json({ error: err instanceof Error ? err.message : "Connect failed" });
+  }
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "mail.account.connect",
+    targetType: "mail_account",
+    targetId: account.id,
+    targetLabel: account.address,
+  });
+  // First sync (the backfill) runs in the background; the UI follows along
+  // via `mail.updated` events and the account's lastSyncAt/backfilledAt.
+  void syncAccountNow(account.id).catch(() => {});
+  res.json({ account: serializeMailAccount(account) });
+});
 
 mailRouter.get("/mail/accounts/:aid", async (req, res) => {
-  const account = await loadAccount((req.params as Record<string, string>).cid, req.params.aid as string);
+  const account = await loadAccount(
+    (req.params as Record<string, string>).cid,
+    req.params.aid as string,
+  );
   if (!account) return res.status(404).json({ error: "Mail account not found" });
   res.json({ account: serializeMailAccount(account) });
 });
 
 const patchAccountSchema = z.object({ status: z.enum(["active", "paused"]) });
 
-mailRouter.patch(
-  "/mail/accounts/:aid",
-  validateBody(patchAccountSchema),
-  async (req, res) => {
-    const account = await loadAccount((req.params as Record<string, string>).cid, req.params.aid as string);
-    if (!account) return res.status(404).json({ error: "Mail account not found" });
-    const body = req.body as z.infer<typeof patchAccountSchema>;
-    const resumed = body.status === "active" && account.status !== "active";
-    account.status = body.status;
-    if (body.status === "active") account.statusMessage = "";
-    await AppDataSource.getRepository(MailAccount).save(account);
-    await recordAudit({
-      companyId: account.companyId,
-      actorUserId: req.userId ?? null,
-      action: body.status === "paused" ? "mail.account.pause" : "mail.account.resume",
-      targetType: "mail_account",
-      targetId: account.id,
-      targetLabel: account.address,
-    });
-    // Un-pausing should catch up immediately, not on the next heartbeat.
-    if (resumed) void syncAccountNow(account.id).catch(() => {});
-    res.json({ account: serializeMailAccount(account) });
-  },
-);
+mailRouter.patch("/mail/accounts/:aid", validateBody(patchAccountSchema), async (req, res) => {
+  const account = await loadAccount(
+    (req.params as Record<string, string>).cid,
+    req.params.aid as string,
+  );
+  if (!account) return res.status(404).json({ error: "Mail account not found" });
+  const body = req.body as z.infer<typeof patchAccountSchema>;
+  const resumed = body.status === "active" && account.status !== "active";
+  account.status = body.status;
+  if (body.status === "active") account.statusMessage = "";
+  await AppDataSource.getRepository(MailAccount).save(account);
+  await recordAudit({
+    companyId: account.companyId,
+    actorUserId: req.userId ?? null,
+    action: body.status === "paused" ? "mail.account.pause" : "mail.account.resume",
+    targetType: "mail_account",
+    targetId: account.id,
+    targetLabel: account.address,
+  });
+  // Un-pausing should catch up immediately, not on the next heartbeat.
+  if (resumed) void syncAccountNow(account.id).catch(() => {});
+  res.json({ account: serializeMailAccount(account) });
+});
 
 mailRouter.delete("/mail/accounts/:aid", async (req, res) => {
-  const account = await loadAccount((req.params as Record<string, string>).cid, req.params.aid as string);
+  const account = await loadAccount(
+    (req.params as Record<string, string>).cid,
+    req.params.aid as string,
+  );
   if (!account) return res.status(404).json({ error: "Mail account not found" });
   await deleteMailAccount(account);
   await recordAudit({
@@ -330,7 +320,10 @@ mailRouter.delete("/mail/accounts/:aid", async (req, res) => {
 });
 
 mailRouter.post("/mail/accounts/:aid/sync", async (req, res) => {
-  const account = await loadAccount((req.params as Record<string, string>).cid, req.params.aid as string);
+  const account = await loadAccount(
+    (req.params as Record<string, string>).cid,
+    req.params.aid as string,
+  );
   if (!account) return res.status(404).json({ error: "Mail account not found" });
   // Fire in the background — a backfill can take minutes. The client hears
   // about progress over the `mail.updated` websocket event.
@@ -341,7 +334,10 @@ mailRouter.post("/mail/accounts/:aid/sync", async (req, res) => {
 // ───────────────────────────── labels + counts ─────────────────────────────
 
 mailRouter.get("/mail/accounts/:aid/labels", async (req, res) => {
-  const account = await loadAccount((req.params as Record<string, string>).cid, req.params.aid as string);
+  const account = await loadAccount(
+    (req.params as Record<string, string>).cid,
+    req.params.aid as string,
+  );
   if (!account) return res.status(404).json({ error: "Mail account not found" });
   const labels = await AppDataSource.getRepository(MailLabel).find({
     where: { accountId: account.id },
@@ -386,33 +382,23 @@ mailRouter.get("/mail/accounts/:aid/labels", async (req, res) => {
 
 // ───────────────────────────── threads ─────────────────────────────
 
-const THREAD_VIEWS = [
-  "inbox",
-  "starred",
-  "sent",
-  "drafts",
-  "all",
-  "spam",
-  "trash",
-] as const;
+const THREAD_VIEWS = ["inbox", "starred", "sent", "drafts", "all", "spam", "trash"] as const;
 type ThreadView = (typeof THREAD_VIEWS)[number];
 
 mailRouter.get("/mail/accounts/:aid/threads", async (req, res) => {
-  const account = await loadAccount((req.params as Record<string, string>).cid, req.params.aid as string);
+  const account = await loadAccount(
+    (req.params as Record<string, string>).cid,
+    req.params.aid as string,
+  );
   if (!account) return res.status(404).json({ error: "Mail account not found" });
 
   const view = (
-    THREAD_VIEWS.includes(req.query.view as ThreadView)
-      ? req.query.view
-      : "inbox"
+    THREAD_VIEWS.includes(req.query.view as ThreadView) ? req.query.view : "inbox"
   ) as ThreadView;
   const label = typeof req.query.label === "string" ? req.query.label : "";
   const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
   const before = typeof req.query.before === "string" ? req.query.before : "";
-  const limit = Math.min(
-    Math.max(parseInt(String(req.query.limit ?? "50"), 10) || 50, 1),
-    100,
-  );
+  const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? "50"), 10) || 50, 1), 100);
 
   // A search covers the whole mailbox (minus spam/trash), like Gmail —
   // finding an archived thread from the Inbox is the whole point. The query
@@ -428,9 +414,7 @@ mailRouter.get("/mail/accounts/:aid/threads", async (req, res) => {
     .andWhere("t.lastMessageAt IS NOT NULL");
 
   if (searching) {
-    const labelId = parsed.label
-      ? await resolveSearchLabelId(account.id, parsed.label)
-      : undefined;
+    const labelId = parsed.label ? await resolveSearchLabelId(account.id, parsed.label) : undefined;
     qb = applyMailScope(qb, effectiveScope(parsed, labelId));
     qb = applyMailSearchFilters(qb, parsed, labelId);
   } else if (label) {
@@ -454,13 +438,16 @@ mailRouter.get("/mail/accounts/:aid/threads", async (req, res) => {
   const page = rows.slice(0, limit);
   const nextBefore =
     rows.length > limit && page.length > 0
-      ? page[page.length - 1].lastMessageAt?.toISOString() ?? null
+      ? (page[page.length - 1].lastMessageAt?.toISOString() ?? null)
       : null;
   res.json({ threads: page.map(serializeThread), nextBefore });
 });
 
 mailRouter.get("/mail/threads/:tid", async (req, res) => {
-  const found = await loadThread((req.params as Record<string, string>).cid, req.params.tid as string);
+  const found = await loadThread(
+    (req.params as Record<string, string>).cid,
+    req.params.tid as string,
+  );
   if (!found) return res.status(404).json({ error: "Thread not found" });
   const { thread, account } = found;
   const messages = await AppDataSource.getRepository(MailMessage).find({
@@ -501,7 +488,10 @@ mailRouter.post(
   "/mail/threads/:tid/actions",
   validateBody(threadActionSchema),
   async (req, res) => {
-    const found = await loadThread((req.params as Record<string, string>).cid, req.params.tid as string);
+    const found = await loadThread(
+      (req.params as Record<string, string>).cid,
+      req.params.tid as string,
+    );
     if (!found) return res.status(404).json({ error: "Thread not found" });
     const body = req.body as z.infer<typeof threadActionSchema>;
     try {
@@ -510,9 +500,7 @@ mailRouter.post(
         labelName: body.labelName,
       });
     } catch (err) {
-      return res
-        .status(400)
-        .json({ error: err instanceof Error ? err.message : "Action failed" });
+      return res.status(400).json({ error: err instanceof Error ? err.message : "Action failed" });
     }
     await recordAudit({
       companyId: found.account.companyId,
@@ -532,7 +520,10 @@ mailRouter.post(
 
 /** Prefill helper for the reply-all composer. */
 mailRouter.get("/mail/threads/:tid/reply-recipients", async (req, res) => {
-  const found = await loadThread((req.params as Record<string, string>).cid, req.params.tid as string);
+  const found = await loadThread(
+    (req.params as Record<string, string>).cid,
+    req.params.tid as string,
+  );
   if (!found) return res.status(404).json({ error: "Thread not found" });
   const recipients = await replyAllRecipients(found.account, found.thread);
   res.json(recipients);
@@ -575,9 +566,7 @@ mailRouter.post(
       });
       res.json({ attachment: info });
     } catch (err) {
-      res
-        .status(400)
-        .json({ error: err instanceof Error ? err.message : "Upload failed" });
+      res.status(400).json({ error: err instanceof Error ? err.message : "Upload failed" });
     }
   },
 );
@@ -597,55 +586,43 @@ async function resolveComposeThread(
   return { thread: found.thread };
 }
 
-mailRouter.post(
-  "/mail/accounts/:aid/send",
-  validateBody(composeSchema),
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const account = await loadAccount(cid, req.params.aid as string);
-    if (!account) return res.status(404).json({ error: "Mail account not found" });
-    const body = req.body as z.infer<typeof composeSchema>;
-    const resolved = await resolveComposeThread(cid, account.id, body.threadId, res);
-    if (!resolved) return;
-    try {
-      const message = await sendMailMessage(account, body, resolved.thread);
-      await recordAudit({
-        companyId: cid,
-        actorUserId: req.userId ?? null,
-        action: "mail.send",
-        targetType: "mail_message",
-        targetId: message.id,
-        targetLabel: message.subject || "(no subject)",
-      });
-      res.json({ message: serializeMessage(message) });
-    } catch (err) {
-      res
-        .status(400)
-        .json({ error: err instanceof Error ? err.message : "Send failed" });
-    }
-  },
-);
+mailRouter.post("/mail/accounts/:aid/send", validateBody(composeSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const account = await loadAccount(cid, req.params.aid as string);
+  if (!account) return res.status(404).json({ error: "Mail account not found" });
+  const body = req.body as z.infer<typeof composeSchema>;
+  const resolved = await resolveComposeThread(cid, account.id, body.threadId, res);
+  if (!resolved) return;
+  try {
+    const message = await sendMailMessage(account, body, resolved.thread);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "mail.send",
+      targetType: "mail_message",
+      targetId: message.id,
+      targetLabel: message.subject || "(no subject)",
+    });
+    res.json({ message: serializeMessage(message) });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Send failed" });
+  }
+});
 
-mailRouter.post(
-  "/mail/accounts/:aid/drafts",
-  validateBody(composeSchema),
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const account = await loadAccount(cid, req.params.aid as string);
-    if (!account) return res.status(404).json({ error: "Mail account not found" });
-    const body = req.body as z.infer<typeof composeSchema>;
-    const resolved = await resolveComposeThread(cid, account.id, body.threadId, res);
-    if (!resolved) return;
-    try {
-      const message = await createMailDraft(account, body, resolved.thread);
-      res.json({ message: serializeMessage(message) });
-    } catch (err) {
-      res
-        .status(400)
-        .json({ error: err instanceof Error ? err.message : "Draft failed" });
-    }
-  },
-);
+mailRouter.post("/mail/accounts/:aid/drafts", validateBody(composeSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const account = await loadAccount(cid, req.params.aid as string);
+  if (!account) return res.status(404).json({ error: "Mail account not found" });
+  const body = req.body as z.infer<typeof composeSchema>;
+  const resolved = await resolveComposeThread(cid, account.id, body.threadId, res);
+  if (!resolved) return;
+  try {
+    const message = await createMailDraft(account, body, resolved.thread);
+    res.json({ message: serializeMessage(message) });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Draft failed" });
+  }
+});
 
 async function loadDraft(
   cid: string,
@@ -663,26 +640,26 @@ async function loadDraft(
 
 const patchDraftSchema = composeSchema.omit({ threadId: true });
 
-mailRouter.patch(
-  "/mail/drafts/:mid",
-  validateBody(patchDraftSchema),
-  async (req, res) => {
-    const found = await loadDraft((req.params as Record<string, string>).cid, req.params.mid as string);
-    if (!found) return res.status(404).json({ error: "Draft not found" });
-    const body = req.body as z.infer<typeof patchDraftSchema>;
-    try {
-      const message = await updateMailDraft(found.account, found.draft, body);
-      res.json({ message: serializeMessage(message) });
-    } catch (err) {
-      res
-        .status(400)
-        .json({ error: err instanceof Error ? err.message : "Update failed" });
-    }
-  },
-);
+mailRouter.patch("/mail/drafts/:mid", validateBody(patchDraftSchema), async (req, res) => {
+  const found = await loadDraft(
+    (req.params as Record<string, string>).cid,
+    req.params.mid as string,
+  );
+  if (!found) return res.status(404).json({ error: "Draft not found" });
+  const body = req.body as z.infer<typeof patchDraftSchema>;
+  try {
+    const message = await updateMailDraft(found.account, found.draft, body);
+    res.json({ message: serializeMessage(message) });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Update failed" });
+  }
+});
 
 mailRouter.post("/mail/drafts/:mid/send", async (req, res) => {
-  const found = await loadDraft((req.params as Record<string, string>).cid, req.params.mid as string);
+  const found = await loadDraft(
+    (req.params as Record<string, string>).cid,
+    req.params.mid as string,
+  );
   if (!found) return res.status(404).json({ error: "Draft not found" });
   try {
     const message = await sendMailDraft(found.account, found.draft);
@@ -697,22 +674,21 @@ mailRouter.post("/mail/drafts/:mid/send", async (req, res) => {
     });
     res.json({ message: serializeMessage(message) });
   } catch (err) {
-    res
-      .status(400)
-      .json({ error: err instanceof Error ? err.message : "Send failed" });
+    res.status(400).json({ error: err instanceof Error ? err.message : "Send failed" });
   }
 });
 
 mailRouter.delete("/mail/drafts/:mid", async (req, res) => {
-  const found = await loadDraft((req.params as Record<string, string>).cid, req.params.mid as string);
+  const found = await loadDraft(
+    (req.params as Record<string, string>).cid,
+    req.params.mid as string,
+  );
   if (!found) return res.status(404).json({ error: "Draft not found" });
   try {
     await discardMailDraft(found.account, found.draft);
     res.json({ ok: true });
   } catch (err) {
-    res
-      .status(400)
-      .json({ error: err instanceof Error ? err.message : "Discard failed" });
+    res.status(400).json({ error: err instanceof Error ? err.message : "Discard failed" });
   }
 });
 
@@ -761,9 +737,7 @@ mailRouter.get("/mail/messages/:mid/attachments/:index", async (req, res) => {
     );
     res.send(buf);
   } catch (err) {
-    res
-      .status(400)
-      .json({ error: err instanceof Error ? err.message : "Download failed" });
+    res.status(400).json({ error: err instanceof Error ? err.message : "Download failed" });
   }
 });
 
@@ -851,7 +825,10 @@ async function ruleEmployees(rules: MailRule[]): Promise<Map<string, AIEmployee>
 }
 
 mailRouter.get("/mail/accounts/:aid/rules", async (req, res) => {
-  const account = await loadAccount((req.params as Record<string, string>).cid, req.params.aid as string);
+  const account = await loadAccount(
+    (req.params as Record<string, string>).cid,
+    req.params.aid as string,
+  );
   if (!account) return res.status(404).json({ error: "Mail account not found" });
   const rules = await AppDataSource.getRepository(MailRule).find({
     where: { accountId: account.id },
@@ -876,42 +853,38 @@ async function assertRuleEmployees(
   return null;
 }
 
-mailRouter.post(
-  "/mail/accounts/:aid/rules",
-  validateBody(createRuleSchema),
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const account = await loadAccount(cid, req.params.aid as string);
-    if (!account) return res.status(404).json({ error: "Mail account not found" });
-    const body = req.body as z.infer<typeof createRuleSchema>;
-    const empError = await assertRuleEmployees(cid, body.actions);
-    if (empError) return res.status(400).json({ error: empError });
-    const repo = AppDataSource.getRepository(MailRule);
-    const maxPosition = await repo.count({ where: { accountId: account.id } });
-    const rule = await repo.save(
-      repo.create({
-        companyId: cid,
-        accountId: account.id,
-        name: body.name,
-        enabled: body.enabled,
-        position: maxPosition,
-        conditionsJson: JSON.stringify(body.conditions),
-        actionsJson: JSON.stringify(body.actions),
-        createdByUserId: req.userId ?? null,
-      }),
-    );
-    await recordAudit({
+mailRouter.post("/mail/accounts/:aid/rules", validateBody(createRuleSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const account = await loadAccount(cid, req.params.aid as string);
+  if (!account) return res.status(404).json({ error: "Mail account not found" });
+  const body = req.body as z.infer<typeof createRuleSchema>;
+  const empError = await assertRuleEmployees(cid, body.actions);
+  if (empError) return res.status(400).json({ error: empError });
+  const repo = AppDataSource.getRepository(MailRule);
+  const maxPosition = await repo.count({ where: { accountId: account.id } });
+  const rule = await repo.save(
+    repo.create({
       companyId: cid,
-      actorUserId: req.userId ?? null,
-      action: "mail.rule.create",
-      targetType: "mail_rule",
-      targetId: rule.id,
-      targetLabel: rule.name,
-    });
-    const employees = await ruleEmployees([rule]);
-    res.json({ rule: serializeRule(rule, employees) });
-  },
-);
+      accountId: account.id,
+      name: body.name,
+      enabled: body.enabled,
+      position: maxPosition,
+      conditionsJson: JSON.stringify(body.conditions),
+      actionsJson: JSON.stringify(body.actions),
+      createdByUserId: req.userId ?? null,
+    }),
+  );
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "mail.rule.create",
+    targetType: "mail_rule",
+    targetId: rule.id,
+    targetLabel: rule.name,
+  });
+  const employees = await ruleEmployees([rule]);
+  res.json({ rule: serializeRule(rule, employees) });
+});
 
 const patchRuleSchema = z.object({
   name: z.string().min(1).max(200).optional(),
@@ -921,46 +894,39 @@ const patchRuleSchema = z.object({
   actions: z.array(ruleActionSchema).min(1).max(10).optional(),
 });
 
-async function loadRule(
-  cid: string,
-  ruleId: string,
-): Promise<MailRule | null> {
+async function loadRule(cid: string, ruleId: string): Promise<MailRule | null> {
   return AppDataSource.getRepository(MailRule).findOneBy({
     id: ruleId,
     companyId: cid,
   });
 }
 
-mailRouter.patch(
-  "/mail/rules/:rid",
-  validateBody(patchRuleSchema),
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const rule = await loadRule(cid, req.params.rid as string);
-    if (!rule) return res.status(404).json({ error: "Rule not found" });
-    const body = req.body as z.infer<typeof patchRuleSchema>;
-    if (body.actions) {
-      const empError = await assertRuleEmployees(cid, body.actions);
-      if (empError) return res.status(400).json({ error: empError });
-      rule.actionsJson = JSON.stringify(body.actions);
-    }
-    if (body.conditions) rule.conditionsJson = JSON.stringify(body.conditions);
-    if (body.name !== undefined) rule.name = body.name;
-    if (body.enabled !== undefined) rule.enabled = body.enabled;
-    if (body.position !== undefined) rule.position = body.position;
-    await AppDataSource.getRepository(MailRule).save(rule);
-    await recordAudit({
-      companyId: cid,
-      actorUserId: req.userId ?? null,
-      action: "mail.rule.update",
-      targetType: "mail_rule",
-      targetId: rule.id,
-      targetLabel: rule.name,
-    });
-    const employees = await ruleEmployees([rule]);
-    res.json({ rule: serializeRule(rule, employees) });
-  },
-);
+mailRouter.patch("/mail/rules/:rid", validateBody(patchRuleSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const rule = await loadRule(cid, req.params.rid as string);
+  if (!rule) return res.status(404).json({ error: "Rule not found" });
+  const body = req.body as z.infer<typeof patchRuleSchema>;
+  if (body.actions) {
+    const empError = await assertRuleEmployees(cid, body.actions);
+    if (empError) return res.status(400).json({ error: empError });
+    rule.actionsJson = JSON.stringify(body.actions);
+  }
+  if (body.conditions) rule.conditionsJson = JSON.stringify(body.conditions);
+  if (body.name !== undefined) rule.name = body.name;
+  if (body.enabled !== undefined) rule.enabled = body.enabled;
+  if (body.position !== undefined) rule.position = body.position;
+  await AppDataSource.getRepository(MailRule).save(rule);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "mail.rule.update",
+    targetType: "mail_rule",
+    targetId: rule.id,
+    targetLabel: rule.name,
+  });
+  const employees = await ruleEmployees([rule]);
+  res.json({ rule: serializeRule(rule, employees) });
+});
 
 mailRouter.delete("/mail/rules/:rid", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
@@ -981,7 +947,10 @@ mailRouter.delete("/mail/rules/:rid", async (req, res) => {
 // ───────────────────────────── handovers ─────────────────────────────
 
 mailRouter.get("/mail/accounts/:aid/handovers", async (req, res) => {
-  const account = await loadAccount((req.params as Record<string, string>).cid, req.params.aid as string);
+  const account = await loadAccount(
+    (req.params as Record<string, string>).cid,
+    req.params.aid as string,
+  );
   if (!account) return res.status(404).json({ error: "Mail account not found" });
   const where: Record<string, string> = { accountId: account.id };
   if (typeof req.query.threadId === "string" && req.query.threadId) {
@@ -1021,11 +990,7 @@ mailRouter.post(
       companyId: cid,
     });
     if (!employee) return res.status(404).json({ error: "Employee not found" });
-    const grantError = await handoverGrantError(
-      employee.id,
-      found.account.id,
-      body.mode,
-    );
+    const grantError = await handoverGrantError(employee.id, found.account.id, body.mode);
     if (grantError) return res.status(400).json({ error: grantError });
     const handover = await createMailHandover({
       account: found.account,
@@ -1058,14 +1023,28 @@ mailRouter.post("/mail/handovers/:hid/retry", async (req, res) => {
 
 // ───────────────────────────── assistant ─────────────────────────────
 
-/** Panel bootstrap: the rolling conversation plus everyone tag-able on it. */
+const assistantThreadQuerySchema = z.object({
+  threadId: z.string().uuid(),
+  limit: z.coerce.number().int().min(1).max(200).default(100),
+}).strict();
+
+/** Panel bootstrap: this email's conversation plus everyone tag-able on it. */
 mailRouter.get("/mail/accounts/:aid/assistant", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const account = await loadAccount(cid, req.params.aid as string);
   if (!account) return res.status(404).json({ error: "Mail account not found" });
-  const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 100));
+  const parsed = assistantThreadQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "ValidationError", issues: parsed.error.issues });
+  }
+  const thread = await AppDataSource.getRepository(MailThread).findOneBy({
+    id: parsed.data.threadId,
+    accountId: account.id,
+    companyId: cid,
+  });
+  if (!thread) return res.status(404).json({ error: "Mail thread not found" });
   const [messages, roster] = await Promise.all([
-    listAssistantMessages(account, limit),
+    listAssistantMessages(account, thread.id, parsed.data.limit),
     assistantRoster(cid, account.id),
   ]);
   res.json({
@@ -1078,13 +1057,24 @@ mailRouter.delete("/mail/accounts/:aid/assistant/messages", async (req, res) => 
   const cid = (req.params as Record<string, string>).cid;
   const account = await loadAccount(cid, req.params.aid as string);
   if (!account) return res.status(404).json({ error: "Mail account not found" });
-  await clearAssistantMessages(account);
+  const parsed = assistantThreadQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "ValidationError", issues: parsed.error.issues });
+  }
+  const thread = await AppDataSource.getRepository(MailThread).findOneBy({
+    id: parsed.data.threadId,
+    accountId: account.id,
+    companyId: cid,
+  });
+  if (!thread) return res.status(404).json({ error: "Mail thread not found" });
+  await clearAssistantMessages(account, thread.id);
   res.json({ ok: true });
 });
 
 const assistantSendSchema = z.object({
   message: z.string().min(1).max(8000),
-  threadId: z.string().uuid().optional(),
+  threadId: z.string().uuid(),
+  focusedMessageId: z.string().uuid().optional(),
   employeeId: z.string().uuid().optional(),
 });
 
@@ -1120,10 +1110,21 @@ mailRouter.post(
         writeEvent("done", {});
         return res.end();
       }
+      const thread = await AppDataSource.getRepository(MailThread).findOneBy({
+        id: body.threadId,
+        accountId: account.id,
+        companyId: cid,
+      });
+      if (!thread) {
+        writeEvent("error", { message: "Mail thread not found" });
+        writeEvent("done", {});
+        return res.end();
+      }
       await runAssistantTurn({
         account,
         message: body.message,
-        threadId: body.threadId ?? null,
+        threadId: thread.id,
+        focusedMessageId: body.focusedMessageId ?? null,
         employeeId: body.employeeId,
         userId: req.userId ?? null,
         callbacks: {
@@ -1150,25 +1151,16 @@ mailRouter.post(
 );
 
 /** Stamp a suggestion button as executed (idempotence guard after reload). */
-mailRouter.post(
-  "/mail/assistant/messages/:mid/suggestions/:sid/executed",
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const row = await markSuggestionExecuted(
-      cid,
-      req.params.mid as string,
-      req.params.sid as string,
-    );
-    if (!row) return res.status(404).json({ error: "Suggestion not found" });
-    res.json({ message: serializeAssistantMessage(row) });
-  },
-);
+mailRouter.post("/mail/assistant/messages/:mid/suggestions/:sid/executed", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const row = await markSuggestionExecuted(cid, req.params.mid as string, req.params.sid as string);
+  if (!row) return res.status(404).json({ error: "Suggestion not found" });
+  res.json({ message: serializeAssistantMessage(row) });
+});
 
 // ───────────────────────────── grants ─────────────────────────────
 
-async function hydrateGrants(
-  grants: EmployeeMailAccountGrant[],
-): Promise<unknown[]> {
+async function hydrateGrants(grants: EmployeeMailAccountGrant[]): Promise<unknown[]> {
   const employees = await employeesById(grants.map((g) => g.employeeId));
   return grants.map((g) => {
     const emp = employees.get(g.employeeId);
@@ -1185,7 +1177,10 @@ async function hydrateGrants(
 }
 
 mailRouter.get("/mail/accounts/:aid/grants", async (req, res) => {
-  const account = await loadAccount((req.params as Record<string, string>).cid, req.params.aid as string);
+  const account = await loadAccount(
+    (req.params as Record<string, string>).cid,
+    req.params.aid as string,
+  );
   if (!account) return res.status(404).json({ error: "Mail account not found" });
   const grants = await AppDataSource.getRepository(EmployeeMailAccountGrant).find({
     where: { accountId: account.id },
@@ -1199,47 +1194,43 @@ const createGrantSchema = z.object({
   accessLevel: z.enum(["read", "draft", "send"]).default("draft"),
 });
 
-mailRouter.post(
-  "/mail/accounts/:aid/grants",
-  validateBody(createGrantSchema),
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const account = await loadAccount(cid, req.params.aid as string);
-    if (!account) return res.status(404).json({ error: "Mail account not found" });
-    const body = req.body as z.infer<typeof createGrantSchema>;
-    const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
-      id: body.employeeId,
-      companyId: cid,
-    });
-    if (!employee) return res.status(404).json({ error: "Employee not found" });
-    const repo = AppDataSource.getRepository(EmployeeMailAccountGrant);
-    let grant = await repo.findOneBy({
+mailRouter.post("/mail/accounts/:aid/grants", validateBody(createGrantSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const account = await loadAccount(cid, req.params.aid as string);
+  if (!account) return res.status(404).json({ error: "Mail account not found" });
+  const body = req.body as z.infer<typeof createGrantSchema>;
+  const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
+    id: body.employeeId,
+    companyId: cid,
+  });
+  if (!employee) return res.status(404).json({ error: "Employee not found" });
+  const repo = AppDataSource.getRepository(EmployeeMailAccountGrant);
+  let grant = await repo.findOneBy({
+    employeeId: employee.id,
+    accountId: account.id,
+  });
+  if (grant) {
+    grant.accessLevel = body.accessLevel;
+  } else {
+    grant = repo.create({
       employeeId: employee.id,
       accountId: account.id,
+      accessLevel: body.accessLevel,
     });
-    if (grant) {
-      grant.accessLevel = body.accessLevel;
-    } else {
-      grant = repo.create({
-        employeeId: employee.id,
-        accountId: account.id,
-        accessLevel: body.accessLevel,
-      });
-    }
-    await repo.save(grant);
-    await recordAudit({
-      companyId: cid,
-      actorUserId: req.userId ?? null,
-      action: "mail.grant.create",
-      targetType: "mail_account",
-      targetId: account.id,
-      targetLabel: account.address,
-      metadata: { employeeId: employee.id, accessLevel: body.accessLevel },
-    });
-    const [hydrated] = await hydrateGrants([grant]);
-    res.json({ grant: hydrated });
-  },
-);
+  }
+  await repo.save(grant);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "mail.grant.create",
+    targetType: "mail_account",
+    targetId: account.id,
+    targetLabel: account.address,
+    metadata: { employeeId: employee.id, accessLevel: body.accessLevel },
+  });
+  const [hydrated] = await hydrateGrants([grant]);
+  res.json({ grant: hydrated });
+});
 
 const patchGrantSchema = z.object({
   accessLevel: z.enum(MAIL_ACCESS_LEVELS as [MailAccessLevel, ...MailAccessLevel[]]),

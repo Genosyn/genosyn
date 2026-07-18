@@ -1,4 +1,8 @@
-import { STATIC_TOOLS, type McpToolInputSchema, type McpToolSpec } from "../../../mcp/toolManifest.js";
+import {
+  STATIC_TOOLS,
+  type McpToolInputSchema,
+  type McpToolSpec,
+} from "../../../mcp/toolManifest.js";
 
 /**
  * Regroups the granular {@link STATIC_TOOLS} catalogue into a smaller set of
@@ -80,8 +84,7 @@ const FAMILIES: Record<string, FamilySpec> = {
     },
   },
   memory: {
-    blurb:
-      "Curate your durable memory — the facts auto-injected into every prompt.",
+    blurb: "Curate your durable memory — the facts auto-injected into every prompt.",
     ops: {
       list: "list_memory",
       create: "add_memory",
@@ -205,6 +208,7 @@ const FAMILIES: Record<string, FamilySpec> = {
       search: "search_mail",
       get: "get_mail_thread",
       draft: "create_mail_draft",
+      edit: "edit_mail_draft",
       update: "update_mail_thread",
       send: "send_mail",
       suggest: "suggest_mail_actions",
@@ -273,10 +277,7 @@ export function collapseStaticTools(): {
  * Writing it into the description is how that constraint stays visible to the
  * model instead of only surfacing as a zod error after a wasted call.
  */
-function describeFamily(
-  blurb: string,
-  members: Array<{ op: string; tool: McpToolSpec }>,
-): string {
+function describeFamily(blurb: string, members: Array<{ op: string; tool: McpToolSpec }>): string {
   const lines = [blurb, "", "Set `op` to choose the action:", ""];
   for (const { op, tool } of members) {
     const required = tool.inputSchema.required ?? [];
@@ -329,9 +330,7 @@ function unionSchema(members: Array<{ op: string; tool: McpToolSpec }>): McpTool
   }
 
   const requiredSets = members.map((m) => new Set(m.tool.inputSchema.required ?? []));
-  const shared = [...(requiredSets[0] ?? [])].filter((r) =>
-    requiredSets.every((s) => s.has(r)),
-  );
+  const shared = [...(requiredSets[0] ?? [])].filter((r) => requiredSets.every((s) => s.has(r)));
 
   return {
     type: "object",

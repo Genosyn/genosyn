@@ -1,16 +1,13 @@
 import { MoreThan } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
-import {
-  MessageAction,
-  MessageActionMetadata,
-} from "../db/entities/ConversationMessage.js";
+import { MessageAction, MessageActionMetadata } from "../db/entities/ConversationMessage.js";
 
 /**
  * Turn-action capture: after an AI chat turn finishes, project the
  * AuditEvents the employee produced during the turn onto the lean
  * `MessageAction` shape the chat UIs render as action pills. Shared by the
- * employee chat surface and the mail assistant — "no audit row, no pill".
+ * employee chat surface and per-email AI chat — "no audit row, no pill".
  */
 
 export function parseActions(raw: string | null | undefined): MessageAction[] {
@@ -20,9 +17,7 @@ export function parseActions(raw: string | null | undefined): MessageAction[] {
     if (!Array.isArray(v)) return [];
     return v.filter(
       (x): x is MessageAction =>
-        !!x &&
-        typeof x === "object" &&
-        typeof (x as MessageAction).action === "string",
+        !!x && typeof x === "object" && typeof (x as MessageAction).action === "string",
     );
   } catch {
     return [];
@@ -35,9 +30,7 @@ export function parseActions(raw: string | null | undefined): MessageAction[] {
  * server-side into the client JSON — and fields of unexpected shape
  * should silently drop so one bad row can't break the pill list.
  */
-function parseActionMetadata(
-  raw: string | null | undefined,
-): MessageActionMetadata | undefined {
+function parseActionMetadata(raw: string | null | undefined): MessageActionMetadata | undefined {
   if (!raw) return undefined;
   let parsed: unknown;
   try {

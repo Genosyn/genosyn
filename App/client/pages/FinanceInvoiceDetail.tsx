@@ -44,6 +44,7 @@ const STATUS_BADGE: Record<string, string> = {
 
 type InvoiceEmailDetails = {
   toAddress: string;
+  alwaysCcAddress: string;
   fromAddress: string;
   replyTo: string;
   configured: boolean;
@@ -762,6 +763,14 @@ function ResendInvoiceModal({
                 {details.fromAddress || "No sender configured"}
               </dd>
             </div>
+            {details.alwaysCcAddress && (
+              <div className="grid grid-cols-[5rem_1fr] gap-3 px-4 py-3">
+                <dt className="text-slate-500 dark:text-slate-400">Always Cc</dt>
+                <dd className="break-all text-slate-700 dark:text-slate-200">
+                  {details.alwaysCcAddress}
+                </dd>
+              </div>
+            )}
             <div className="grid grid-cols-[5rem_1fr] gap-3 px-4 py-3">
               <dt className="text-slate-500 dark:text-slate-400">To</dt>
               <dd>
@@ -790,7 +799,8 @@ function ResendInvoiceModal({
                   className="h-9"
                 />
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  Separate multiple addresses with commas.
+                  Additional recipients only. Finance → Settings recipients are
+                  always included. Separate multiple addresses with commas.
                 </p>
               </dd>
             </div>

@@ -286,7 +286,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "update_todo",
     description:
-      "Update a Todo by id, in a Project you can edit — change status, priority, title, description, assignee, reviewer, or due date. When you finish work on a todo assigned to you, set `status: \"in_review\"` (and optionally set `reviewerEmployeeSlug`) so a reviewer can sign it off instead of marking it done yourself.",
+      'Update a Todo by id, in a Project you can edit — change status, priority, title, description, assignee, reviewer, or due date. When you finish work on a todo assigned to you, set `status: "in_review"` (and optionally set `reviewerEmployeeSlug`) so a reviewer can sign it off instead of marking it done yourself.',
     inputSchema: {
       type: "object",
       properties: {
@@ -435,7 +435,8 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
         icon: {
           type: "string",
-          description: "Optional lucide-react icon name (e.g. 'LineChart'). Defaults to 'Database'.",
+          description:
+            "Optional lucide-react icon name (e.g. 'LineChart'). Defaults to 'Database'.",
         },
         color: {
           type: "string",
@@ -570,7 +571,8 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         isPrimary: { type: "boolean" },
         options: {
           type: "array",
-          description: "Replacement select/multiselect options. Include existing ids to preserve them.",
+          description:
+            "Replacement select/multiselect options. Include existing ids to preserve them.",
           items: {
             type: "object",
             properties: {
@@ -921,8 +923,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
         parentSlug: {
           type: "string",
-          description:
-            "Optional. Slug of a parent note — only direct children are returned.",
+          description: "Optional. Slug of a parent note — only direct children are returned.",
         },
         includeArchived: {
           type: "boolean",
@@ -981,8 +982,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
         icon: {
           type: "string",
-          description:
-            "Optional emoji or short string shown in the sidebar (e.g. '📘').",
+          description: "Optional emoji or short string shown in the sidebar (e.g. '📘').",
         },
         notebookSlug: {
           type: "string",
@@ -1115,8 +1115,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
         title: {
           type: "string",
-          description:
-            "Required for `text`; optional for `url` (defaults to the page title).",
+          description: "Required for `text`; optional for `url` (defaults to the page title).",
         },
         url: {
           type: "string",
@@ -1124,8 +1123,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
         body: {
           type: "string",
-          description:
-            "Markdown content. Required when sourceKind is 'text'.",
+          description: "Markdown content. Required when sourceKind is 'text'.",
         },
         summary: {
           type: "string",
@@ -1270,13 +1268,11 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
         contentText: {
           type: "string",
-          description:
-            "UTF-8 text content. Use for plain text, markdown, CSV, JSON, etc.",
+          description: "UTF-8 text content. Use for plain text, markdown, CSV, JSON, etc.",
         },
         contentBase64: {
           type: "string",
-          description:
-            "Base64-encoded bytes. Use for small binary files like PNGs.",
+          description: "Base64-encoded bytes. Use for small binary files like PNGs.",
         },
       },
       required: ["recordId", "filename"],
@@ -1333,13 +1329,11 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
         contentText: {
           type: "string",
-          description:
-            "UTF-8 text content. Use for plain text, markdown, CSV, JSON, etc.",
+          description: "UTF-8 text content. Use for plain text, markdown, CSV, JSON, etc.",
         },
         contentBase64: {
           type: "string",
-          description:
-            "Base64-encoded bytes. Use for PDFs and other binary files.",
+          description: "Base64-encoded bytes. Use for PDFs and other binary files.",
         },
       },
       required: ["filename"],
@@ -1355,8 +1349,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
       properties: {
         attachmentId: {
           type: "string",
-          description:
-            "Id of a chat attachment the human uploaded. PDFs only.",
+          description: "Id of a chat attachment the human uploaded. PDFs only.",
         },
       },
       required: ["attachmentId"],
@@ -1379,8 +1372,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           additionalProperties: {
             type: ["string", "boolean"],
           },
-          description:
-            "Map of field name to value. Use the names from read_pdf_fields verbatim.",
+          description: "Map of field name to value. Use the names from read_pdf_fields verbatim.",
         },
         outputFilename: {
           type: "string",
@@ -1530,8 +1522,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   },
   {
     name: "create_dashboard",
-    description:
-      "Create a new empty Dashboard. Add cards afterwards with `add_dashboard_card`.",
+    description: "Create a new empty Dashboard. Add cards afterwards with `add_dashboard_card`.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1589,8 +1580,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         before: { type: "string", description: "Only threads before this date (YYYY-MM-DD)." },
         label: {
           type: "string",
-          description:
-            "Gmail label id (INBOX, STARRED, SENT, …) or a user label name.",
+          description: "Gmail label id (INBOX, STARRED, SENT, …) or a user label name.",
         },
         unreadOnly: { type: "boolean" },
         hasAttachment: { type: "boolean" },
@@ -1620,7 +1610,10 @@ export const STATIC_TOOLS: McpToolSpec[] = [
       type: "object",
       properties: {
         threadId: { type: "string", description: "Reply on this thread." },
-        accountId: { type: "string", description: "Required for fresh composes with multiple grants." },
+        accountId: {
+          type: "string",
+          description: "Required for fresh composes with multiple grants.",
+        },
         to: { type: "string", description: "Comma-separated recipients. Inferred for replies." },
         cc: { type: "string" },
         bcc: { type: "string" },
@@ -1628,6 +1621,27 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         bodyText: { type: "string", description: "Plain-text body of the draft." },
       },
       required: ["bodyText"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "edit_mail_draft",
+    description:
+      "Replace fields on an existing Gmail draft. Fetch the email first with `get_mail_thread`, then pass its draft `messageId` plus every field that should change; omitted fields stay as they are. Gmail may assign a new message id, which is returned. Requires the `draft` access level.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        draftMessageId: {
+          type: "string",
+          description: "Local message id of the existing draft.",
+        },
+        to: { type: "string", description: "Replacement comma-separated recipients." },
+        cc: { type: "string", description: "Replacement cc recipients." },
+        bcc: { type: "string", description: "Replacement bcc recipients." },
+        subject: { type: "string", description: "Replacement subject." },
+        bodyText: { type: "string", description: "Replacement plain-text draft body." },
+      },
+      required: ["draftMessageId"],
       additionalProperties: false,
     },
   },
@@ -1672,7 +1686,10 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           description: "Local message id of a draft to send as-is.",
         },
         threadId: { type: "string", description: "Reply on this thread." },
-        accountId: { type: "string", description: "Required for fresh composes with multiple grants." },
+        accountId: {
+          type: "string",
+          description: "Required for fresh composes with multiple grants.",
+        },
         to: { type: "string", description: "Comma-separated recipients. Inferred for replies." },
         cc: { type: "string" },
         bcc: { type: "string" },
@@ -1685,14 +1702,13 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "suggest_mail_actions",
     description:
-      "Offer the teammate one-click action buttons in the Email assistant panel. Call this once at the end of a turn when there are concrete next steps for the human — the buttons render under your reply and execute with the human's own authority, so use it to propose things beyond your grant level (e.g. a draft-level employee suggesting a send). Kinds and their required fields: `reply` opens the composer pre-filled (`threadId` for a reply, or `to` + `subject` for fresh mail; always `bodyText`); `send_draft` sends an existing draft (`messageId` of the draft); `thread_action` triages (`threadId` + `action`: markRead | markUnread | star | unstar | archive | moveToInbox | trash | applyLabel | removeLabel, `labelName` for the label ones); `open_thread` jumps to a thread (`threadId`); `hand_over` starts a Mail Handover (`threadId` + `employeeId` + `mode` + `instruction`); `create_rule` proposes an inbox rule (`rule` object). Keep it to the 1–4 most useful buttons; `label` is the button text. Requires the `read` access level. Only has an effect inside the Email assistant — elsewhere the suggestions are dropped.",
+      "Offer the teammate one-click action buttons in an email's AI chat. Call this once at the end of a turn when there are concrete next steps for the human — the buttons render under your reply and execute with the human's own authority, so use it to propose things beyond your grant level (e.g. a draft-level employee suggesting a send). Kinds and their required fields: `reply` opens the composer pre-filled (`threadId` for a reply, or `to` + `subject` for fresh mail; always `bodyText`); `send_draft` sends an existing draft (`messageId` of the draft); `thread_action` triages (`threadId` + `action`: markRead | markUnread | star | unstar | archive | moveToInbox | trash | applyLabel | removeLabel, `labelName` for the label ones); `open_thread` jumps to a thread (`threadId`); `hand_over` starts a Mail Handover (`threadId` + `employeeId` + `mode` + `instruction`); `create_rule` proposes an inbox rule (`rule` object). Keep it to the 1–4 most useful buttons; `label` is the button text. Requires the `read` access level. Only has an effect inside per-email AI chat — elsewhere the suggestions are dropped.",
     inputSchema: {
       type: "object",
       properties: {
         accountId: {
           type: "string",
-          description:
-            "Mail account id. Optional when you have exactly one granted mailbox.",
+          description: "Mail account id. Optional when you have exactly one granted mailbox.",
         },
         suggestions: {
           type: "array",
@@ -1721,7 +1737,10 @@ export const STATIC_TOOLS: McpToolSpec[] = [
                 type: "string",
                 description: "Local message id of a draft (send_draft).",
               },
-              to: { type: "string", description: "Comma-separated recipients (reply, fresh compose)." },
+              to: {
+                type: "string",
+                description: "Comma-separated recipients (reply, fresh compose).",
+              },
               cc: { type: "string" },
               subject: { type: "string" },
               bodyText: { type: "string", description: "Proposed body (reply)." },
@@ -1744,7 +1763,10 @@ export const STATIC_TOOLS: McpToolSpec[] = [
                 type: "string",
                 description: "Label name for applyLabel / removeLabel.",
               },
-              employeeId: { type: "string", description: "Employee to hand the thread to (hand_over)." },
+              employeeId: {
+                type: "string",
+                description: "Employee to hand the thread to (hand_over).",
+              },
               mode: {
                 type: "string",
                 enum: ["draft", "reply", "triage"],

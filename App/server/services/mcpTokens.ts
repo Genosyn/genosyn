@@ -47,7 +47,7 @@ const stagedAttachments = new Map<string, string[]>();
  * hand back to whichever surface ran the turn — same lifecycle as
  * `stagedAttachments`, but keyed by a payload kind so unrelated tools don't
  * trample each other. Today the only producer is `suggest_mail_actions`
- * (kind "mail.suggestions"); the mail assistant drains it after the turn and
+ * (kind "mail.suggestions"); per-email AI chat drains it after the turn and
  * renders the payloads as one-click action buttons.
  */
 const stagedSidecars = new Map<string, Map<string, unknown[]>>();
@@ -69,10 +69,7 @@ export function issueMcpToken(employeeId: string, companyId: string): string {
   return token;
 }
 
-export function stageAttachmentForToken(
-  token: string,
-  attachmentId: string,
-): void {
+export function stageAttachmentForToken(token: string, attachmentId: string): void {
   // A revoked token's drain has already run (or never will) — staging for it
   // would leak the entry for the life of the process.
   if (!tokens.has(token)) return;
@@ -87,11 +84,7 @@ export function drainAttachmentsForToken(token: string): string[] {
   return list ?? [];
 }
 
-export function stageSidecarForToken(
-  token: string,
-  kind: string,
-  payload: unknown,
-): void {
+export function stageSidecarForToken(token: string, kind: string, payload: unknown): void {
   // Same dead-token guard as attachments: a handler that finishes after the
   // turn's revoke must not resurrect an undrainable entry.
   if (!tokens.has(token)) return;
@@ -103,9 +96,7 @@ export function stageSidecarForToken(
 }
 
 /** Drain every staged sidecar payload for a token, grouped by kind. */
-export function drainSidecarsForToken(
-  token: string,
-): Record<string, unknown[]> {
+export function drainSidecarsForToken(token: string): Record<string, unknown[]> {
   const byKind = stagedSidecars.get(token);
   stagedSidecars.delete(token);
   if (!byKind) return {};

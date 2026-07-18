@@ -18,6 +18,7 @@ import {
   Package,
   Percent,
   Repeat,
+  Settings,
   Wallet,
 } from "lucide-react";
 import { Company } from "../lib/api";
@@ -133,6 +134,11 @@ export default function FinanceLayout({ company }: { company: Company }) {
           to={`${base}/templates`}
           icon={<LayoutTemplate size={14} />}
           label="Templates"
+        />
+        <SidebarLink
+          to={`${base}/settings`}
+          icon={<Settings size={14} />}
+          label="Settings"
         />
       </nav>
     </div>

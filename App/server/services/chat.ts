@@ -13,10 +13,7 @@ import {
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
 import { materializeReposForEmployee } from "./repoSync.js";
-import {
-  composeCodeReposContext,
-  materializeCodeReposForEmployee,
-} from "./codeRepos.js";
+import { composeCodeReposContext, materializeCodeReposForEmployee } from "./codeRepos.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
 import type { AgentMessage } from "./agent/types.js";
 
@@ -48,13 +45,23 @@ export type ChatTurn = { role: "user" | "assistant"; content: string };
  *
  * `sidecars` carries any structured payloads tools staged for the calling
  * surface during the turn, grouped by kind (see `stageSidecarForToken`) —
- * e.g. the mail assistant reads `sidecars["mail.suggestions"]`. Surfaces
+ * e.g. per-email AI chat reads `sidecars["mail.suggestions"]`. Surfaces
  * that don't know a kind just ignore it.
  */
 export type ChatResult =
   | { status: "ok"; reply: string; attachmentIds: string[]; sidecars: Record<string, unknown[]> }
-  | { status: "skipped"; reply: string; attachmentIds: string[]; sidecars: Record<string, unknown[]> }
-  | { status: "error"; reply: string; attachmentIds: string[]; sidecars: Record<string, unknown[]> };
+  | {
+      status: "skipped";
+      reply: string;
+      attachmentIds: string[];
+      sidecars: Record<string, unknown[]>;
+    }
+  | {
+      status: "error";
+      reply: string;
+      attachmentIds: string[];
+      sidecars: Record<string, unknown[]>;
+    };
 
 /** Hard ceiling on a whole chat turn. */
 const CHAT_HARD_TIMEOUT_MS = 60 * 60_000;
@@ -65,7 +72,7 @@ export type ChatOptions = {
   conversationId?: string;
   /**
    * Extra system-prompt section appended after the Soul/Skills — lets a
-   * surface (e.g. the mail assistant) brief the employee on its context and
+   * surface (e.g. per-email AI chat) brief the employee on its context and
    * surface-specific tools without touching the shared prompt.
    */
   extraSystem?: string;
@@ -100,7 +107,8 @@ export async function streamChatWithEmployee(
   const skillRepo = AppDataSource.getRepository(Skill);
 
   const emp = await empRepo.findOneBy({ id: employeeId, companyId });
-  if (!emp) return { status: "error", reply: "Employee not found.", attachmentIds: [], sidecars: {} };
+  if (!emp)
+    return { status: "error", reply: "Employee not found.", attachmentIds: [], sidecars: {} };
   const co = await coRepo.findOneBy({ id: companyId });
   if (!co) return { status: "error", reply: "Company not found.", attachmentIds: [], sidecars: {} };
   const model = await getActiveModel(emp.id);
@@ -230,13 +238,13 @@ function toolsBriefing(): string {
     "",
     "## Tools",
     "You have tools available — reach for them instead of describing what you would do. Describing an action you don't actually take is a lie the human will catch: they'll open the Routines / Todos tab and see nothing there.",
-    "- Genosyn: `create_routine` to schedule recurring AI work (Genosyn calls these **Routines**, never \"tasks\"); `update_routine` to rename, re-schedule, rewrite, or pause/resume an existing Routine in place — never create a duplicate to change one — and `delete_routine` to remove one for good; `create_project` and `create_todo` for one-off work items; `update_todo`; `add_journal_entry` to log decisions on your own diary (the last ~7 days are auto-injected into every prompt); `memory` to curate durable facts that are auto-injected; Bases (`bases`, `base_tables`, `base_fields`, `base_rows`); chat attachments (`send_chat_attachment` to send a generated file back as a download chip); PDF forms (`read_pdf_fields`, `fill_pdf_form`); `workspace_channels`; email via the `mail` tool when a mailbox has been granted to you (op: accounts/search/get/draft/update/send — prefer drafts unless explicitly told to send); and read-only helpers (`get_self`, `list_employees`, `list_routines`, `list_projects`, `list_todos`, `list_journal`).",
-    "- Related actions are bundled behind an `op` argument rather than one tool each — `memory` takes `op: \"list\" | \"create\" | \"update\" | \"delete\"`, and `base_rows`, `notes`, `charts`, `skills` and others work the same way. Each tool's description lists the ops it accepts and what each one requires; read it before calling.",
+    '- Genosyn: `create_routine` to schedule recurring AI work (Genosyn calls these **Routines**, never "tasks"); `update_routine` to rename, re-schedule, rewrite, or pause/resume an existing Routine in place — never create a duplicate to change one — and `delete_routine` to remove one for good; `create_project` and `create_todo` for one-off work items; `update_todo`; `add_journal_entry` to log decisions on your own diary (the last ~7 days are auto-injected into every prompt); `memory` to curate durable facts that are auto-injected; Bases (`bases`, `base_tables`, `base_fields`, `base_rows`); chat attachments (`send_chat_attachment` to send a generated file back as a download chip); PDF forms (`read_pdf_fields`, `fill_pdf_form`); `workspace_channels`; email via the `mail` tool when a mailbox has been granted to you (op: accounts/search/get/draft/update/send — prefer drafts unless explicitly told to send); and read-only helpers (`get_self`, `list_employees`, `list_routines`, `list_projects`, `list_todos`, `list_journal`).',
+    '- Related actions are bundled behind an `op` argument rather than one tool each — `memory` takes `op: "list" | "create" | "update" | "delete"`, and `base_rows`, `notes`, `charts`, `skills` and others work the same way. Each tool\'s description lists the ops it accepts and what each one requires; read it before calling.',
     "- Coding: `bash`, `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep`, rooted at your working directory (which holds any granted git repos under `repos/` and `code-repos/`).",
     "- Parallel delegation: `delegate_parallel_work` runs independent briefs concurrently as temporary copies of you, then returns their results for you to verify and synthesize. Prefer independent research, analysis, and API calls. Workers share your working directory, so partition file-writing briefs explicitly and never overlap git operations.",
     "- Any company integration tools, browser tools (when enabled), and company-configured MCP servers appear as additional tools.",
     "",
-    "When the teammate uploads a file, you'll see a header like `[Attachment id=<uuid> filename=\"foo.pdf\" size=… mime=\"…\"]` at the top of their message. That `id=` is the `attachmentId` you pass to `read_pdf_fields` / `fill_pdf_form` / any tool that takes an `attachmentId` — copy it verbatim.",
+    'When the teammate uploads a file, you\'ll see a header like `[Attachment id=<uuid> filename="foo.pdf" size=… mime="…"]` at the top of their message. That `id=` is the `attachmentId` you pass to `read_pdf_fields` / `fill_pdf_form` / any tool that takes an `attachmentId` — copy it verbatim.',
     "",
     "### Before calling any write tool (`create_routine`, `create_project`, `create_todo`, `update_todo`)",
     "Privately answer: (1) **Scope** — the objective in the teammate's exact words; (2) **Inputs** — which data source/metric (\"revenue\" is not a metric — ARR, MRR, bookings, churn, NRR are); (3) **Output** — where the result goes; (4) **Audience** — who reads it; (5) **Escalation** — what threshold makes it worth flagging. If any is genuinely unknown after re-reading the conversation, **ask before calling the tool** — a short bulleted list of concrete questions the teammate can answer in one pass. After clarifying: call the tool (don't describe it), confirm briefly (the UI renders an action pill), and quote the teammate's specifics inside the `brief`/`description` field.",

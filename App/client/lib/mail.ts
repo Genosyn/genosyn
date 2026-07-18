@@ -163,14 +163,7 @@ export type MailConnectCandidate = {
   linkedAccountId: string | null;
 };
 
-export type MailThreadView =
-  | "inbox"
-  | "starred"
-  | "sent"
-  | "drafts"
-  | "all"
-  | "spam"
-  | "trash";
+export type MailThreadView = "inbox" | "starred" | "sent" | "drafts" | "all" | "spam" | "trash";
 
 export type ThreadActionName =
   | "markRead"
@@ -199,13 +192,7 @@ export type ComposeInput = {
 /** One structured action button an employee proposed via `suggest_mail_actions`. */
 export type MailSuggestion = {
   id: string;
-  kind:
-    | "reply"
-    | "send_draft"
-    | "thread_action"
-    | "open_thread"
-    | "hand_over"
-    | "create_rule";
+  kind: "reply" | "send_draft" | "thread_action" | "open_thread" | "hand_over" | "create_rule";
   label: string;
   accountId?: string;
   threadId?: string;
@@ -258,12 +245,9 @@ export type MailAssistantRosterEntry = {
 const base = (companyId: string) => `/api/companies/${companyId}/mail`;
 
 export const mailApi = {
-  accounts: (cid: string) =>
-    api.get<{ accounts: MailAccount[] }>(`${base(cid)}/accounts`),
+  accounts: (cid: string) => api.get<{ accounts: MailAccount[] }>(`${base(cid)}/accounts`),
   connectCandidates: (cid: string) =>
-    api.get<{ candidates: MailConnectCandidate[] }>(
-      `${base(cid)}/connect-candidates`,
-    ),
+    api.get<{ candidates: MailConnectCandidate[] }>(`${base(cid)}/connect-candidates`),
   connectAccount: (cid: string, connectionId: string) =>
     api.post<{ account: MailAccount }>(`${base(cid)}/accounts`, { connectionId }),
   account: (cid: string, aid: string) =>
@@ -276,9 +260,7 @@ export const mailApi = {
     api.post<{ ok: true }>(`${base(cid)}/accounts/${aid}/sync`, {}),
 
   labels: (cid: string, aid: string) =>
-    api.get<{ labels: MailLabelInfo[]; counts: MailCounts }>(
-      `${base(cid)}/accounts/${aid}/labels`,
-    ),
+    api.get<{ labels: MailLabelInfo[]; counts: MailCounts }>(`${base(cid)}/accounts/${aid}/labels`),
 
   threads: (
     cid: string,
@@ -322,9 +304,7 @@ export const mailApi = {
     }),
 
   replyRecipients: (cid: string, tid: string) =>
-    api.get<{ to: string; cc: string }>(
-      `${base(cid)}/threads/${tid}/reply-recipients`,
-    ),
+    api.get<{ to: string; cc: string }>(`${base(cid)}/threads/${tid}/reply-recipients`),
 
   send: (cid: string, aid: string, input: ComposeInput) =>
     api.post<{ message: MailMessage }>(`${base(cid)}/accounts/${aid}/send`, input),
@@ -334,17 +314,15 @@ export const mailApi = {
     api.patch<{ message: MailMessage }>(`${base(cid)}/drafts/${mid}`, input),
   sendDraft: (cid: string, mid: string) =>
     api.post<{ message: MailMessage }>(`${base(cid)}/drafts/${mid}/send`, {}),
-  discardDraft: (cid: string, mid: string) =>
-    api.del<{ ok: true }>(`${base(cid)}/drafts/${mid}`),
+  discardDraft: (cid: string, mid: string) => api.del<{ ok: true }>(`${base(cid)}/drafts/${mid}`),
 
   attachmentUrl: (cid: string, mid: string, index: number) =>
     `${base(cid)}/messages/${mid}/attachments/${index}`,
   uploadAttachment: (cid: string, aid: string, file: File) =>
     api
-      .uploadFile<{ attachment: StagedAttachment }>(
-        `${base(cid)}/accounts/${aid}/outbox-attachments`,
-        file,
-      )
+      .uploadFile<{
+        attachment: StagedAttachment;
+      }>(`${base(cid)}/accounts/${aid}/outbox-attachments`, file)
       .then((r) => r.attachment),
 
   rules: (cid: string, aid: string) =>
@@ -370,8 +348,7 @@ export const mailApi = {
       actions: MailRuleAction[];
     }>,
   ) => api.patch<{ rule: MailRule }>(`${base(cid)}/rules/${rid}`, input),
-  deleteRule: (cid: string, rid: string) =>
-    api.del<{ ok: true }>(`${base(cid)}/rules/${rid}`),
+  deleteRule: (cid: string, rid: string) => api.del<{ ok: true }>(`${base(cid)}/rules/${rid}`),
 
   handovers: (cid: string, aid: string, threadId?: string) =>
     api.get<{ handovers: MailHandover[] }>(
@@ -381,11 +358,7 @@ export const mailApi = {
     cid: string,
     tid: string,
     input: { employeeId: string; instruction: string; mode: MailHandoverMode },
-  ) =>
-    api.post<{ handover: MailHandover }>(
-      `${base(cid)}/threads/${tid}/handovers`,
-      input,
-    ),
+  ) => api.post<{ handover: MailHandover }>(`${base(cid)}/threads/${tid}/handovers`, input),
   retryHandover: (cid: string, hid: string) =>
     api.post<{ ok: true }>(`${base(cid)}/handovers/${hid}/retry`, {}),
 
@@ -403,30 +376,29 @@ export const mailApi = {
   deleteGrant: (cid: string, aid: string, gid: string) =>
     api.del<{ ok: true }>(`${base(cid)}/accounts/${aid}/grants/${gid}`),
   grantCandidates: (cid: string, aid: string) =>
-    api.get<{ candidates: MailGrantCandidate[] }>(
-      `${base(cid)}/accounts/${aid}/grant-candidates`,
-    ),
+    api.get<{ candidates: MailGrantCandidate[] }>(`${base(cid)}/accounts/${aid}/grant-candidates`),
 
-  assistant: (cid: string, aid: string) =>
+  assistant: (cid: string, aid: string, threadId: string) =>
     api.get<{
       messages: MailAssistantMessage[];
       roster: MailAssistantRosterEntry[];
-    }>(`${base(cid)}/accounts/${aid}/assistant`),
+    }>(`${base(cid)}/accounts/${aid}/assistant?threadId=${encodeURIComponent(threadId)}`),
   assistantSend: (
     cid: string,
     aid: string,
-    input: { message: string; threadId?: string; employeeId?: string },
+    input: {
+      message: string;
+      threadId: string;
+      focusedMessageId?: string;
+      employeeId?: string;
+    },
     onEvent: (event: string, data: unknown) => void,
     opts: { signal?: AbortSignal } = {},
-  ) =>
-    api.stream(
-      `${base(cid)}/accounts/${aid}/assistant/messages`,
-      input,
-      onEvent,
-      opts,
+  ) => api.stream(`${base(cid)}/accounts/${aid}/assistant/messages`, input, onEvent, opts),
+  assistantClear: (cid: string, aid: string, threadId: string) =>
+    api.del<{ ok: true }>(
+      `${base(cid)}/accounts/${aid}/assistant/messages?threadId=${encodeURIComponent(threadId)}`,
     ),
-  assistantClear: (cid: string, aid: string) =>
-    api.del<{ ok: true }>(`${base(cid)}/accounts/${aid}/assistant/messages`),
   assistantMarkExecuted: (cid: string, mid: string, sid: string) =>
     api.post<{ message: MailAssistantMessage }>(
       `${base(cid)}/assistant/messages/${mid}/suggestions/${sid}/executed`,
@@ -449,7 +421,9 @@ export function shortMailDate(iso: string | null): string {
   const sameYear = d.getFullYear() === now.getFullYear();
   return d.toLocaleDateString(
     undefined,
-    sameYear ? { month: "short", day: "numeric" } : { year: "numeric", month: "short", day: "numeric" },
+    sameYear
+      ? { month: "short", day: "numeric" }
+      : { year: "numeric", month: "short", day: "numeric" },
   );
 }
 
