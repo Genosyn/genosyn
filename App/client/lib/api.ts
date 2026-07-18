@@ -2355,7 +2355,11 @@ export type LedgerEntrySource =
   | "manual"
   | "invoice_issue"
   | "invoice_payment"
-  | "invoice_void";
+  | "invoice_void"
+  | "brex_card_expense"
+  | "brex_card_refund"
+  | "brex_card_payment"
+  | "brex_card_reclass";
 
 export type LedgerLine = {
   id: string;

@@ -35,6 +35,27 @@ const SOURCE_BADGE: Record<LedgerEntrySource, { label: string; cls: string }> = 
     label: "Reversal",
     cls: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
   },
+  brex_card_expense: {
+    label: "Card expense",
+    cls: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
+  },
+  brex_card_refund: {
+    label: "Card refund",
+    cls: "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300",
+  },
+  brex_card_payment: {
+    label: "Card payment",
+    cls: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
+  },
+  brex_card_reclass: {
+    label: "Reclassification",
+    cls: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-500/15 dark:text-fuchsia-300",
+  },
+};
+
+const UNKNOWN_SOURCE_BADGE = {
+  label: "Other",
+  cls: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
 };
 
 /**
@@ -169,7 +190,9 @@ function EntryRow({
   onDelete: () => void;
 }) {
   const [open, setOpen] = React.useState(false);
-  const badge = SOURCE_BADGE[entry.source];
+  // Ledger sources are persisted strings. Keep the Journal usable if a newer
+  // backend source reaches an older client before its dedicated badge ships.
+  const badge = SOURCE_BADGE[entry.source] ?? UNKNOWN_SOURCE_BADGE;
   const total = entry.lines.reduce((s, l) => s + l.debitCents, 0);
 
   return (
