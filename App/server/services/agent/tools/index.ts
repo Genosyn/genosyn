@@ -26,6 +26,8 @@ export async function gatherEmployeeTools(params: {
   employeeId: string;
   genosynToken: string;
   cwd: string;
+  /** Runtime-local tools (for example bounded parallel delegation). */
+  localTools?: AgentTool[];
   /** Env for the bash tool (company secrets + materialized repo vars). */
   toolEnv: Record<string, string>;
   bashTimeoutMs: number;
@@ -52,7 +54,11 @@ export async function gatherEmployeeTools(params: {
     loadUserServerSpecs(params.employeeId),
   ]);
 
-  const tools: AgentTool[] = [...codingTools(codingCtx), ...genosyn];
+  const tools: AgentTool[] = [
+    ...(params.localTools ?? []),
+    ...codingTools(codingCtx),
+    ...genosyn,
+  ];
   const bridged: BridgedServer[] = [];
 
   // 3: browser server (bridged stdio child) when enabled.

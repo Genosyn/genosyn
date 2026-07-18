@@ -454,6 +454,12 @@ sends system mail); this is the company's real inbox. Internal namespace is
       file read/write/edit/glob/grep), the genosyn tools (dispatched in-process
       over loopback), browser tools (bridged from the stdio MCP child), and
       company-configured MCP servers (bridged over stdio/HTTP)
+- [x] **Bounded parallel delegation.** Chat turns and Routine runs expose
+      `delegate_parallel_work`: one AI Employee can run up to four temporary
+      copies of itself concurrently (eight briefs per call, twelve per turn),
+      then verify and synthesize their ordered results. Workers inherit the
+      same Soul, Skills, AI Model, Grants, secrets, working directory, and
+      timeout; recursion stops after one level.
 - [x] Dropped subscription/OAuth sign-in, the in-browser pty install/login
       surface, node-pty, and the per-provider on-disk credential dirs; model
       credentials live encrypted on `AIModel.configJson`

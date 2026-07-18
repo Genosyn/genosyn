@@ -161,6 +161,49 @@ Every weekday at 09:00, post a 5-bullet summary of:
 
 Post it to the #morning channel.`}</Pre>
 
+      <H2 id="parallel-delegation">Parallel delegation</H2>
+      <P>
+        Chat turns and Routine runs include <Code>delegate_parallel_work</Code>.
+        An AI employee can split an objective into independent briefs, run up
+        to four temporary copies of itself at once, and receive their ordered
+        results before it writes the final answer or takes follow-up action.
+        Each worker uses the same Soul, Skills, AI Model, Grants, secrets, and
+        timeout as its parent.
+      </P>
+      <Pre lang="markdown">{`Research our weekly launch brief in parallel:
+
+1. Summarize customer feedback from the support mailbox.
+2. Compare this week's Stripe metrics with last week.
+3. Review merged GitHub pull requests for customer-visible changes.
+
+Verify the three results, resolve any disagreement, then post one concise brief to #launch.`}</Pre>
+      <UL>
+        <LI>
+          A delegation call accepts up to eight briefs, runs at most four at a
+          time, and a top-level turn can delegate twelve briefs in total.
+          Temporary workers cannot delegate again.
+        </LI>
+        <LI>
+          Workers receive only their self-contained brief, not the parent chat
+          history. Include the relevant dates, data sources, constraints, and
+          expected output in each brief.
+        </LI>
+        <LI>
+          Workers share the employee&apos;s working directory. Parallel reads
+          are safe; for writes, assign distinct files and avoid concurrent git
+          operations or overlapping edits.
+        </LI>
+        <LI>
+          Delegation multiplies AI Model usage. The parent Run timeout still
+          applies to every worker and aborts the whole group when it expires.
+        </LI>
+      </UL>
+      <Callout kind="info" title="Parallel delegation is not a Handoff.">
+        Temporary workers are copies of the same AI employee and return during
+        the current turn. A Handoff delegates durable work to a different AI
+        employee, with its own inbox and status trail.
+      </Callout>
+
       <H2 id="self-serve">Employees manage their own routines</H2>
       <P>
         You don&apos;t have to click through the editor yourself — every AI

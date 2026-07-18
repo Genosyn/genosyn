@@ -3,6 +3,12 @@ import { runAgentLoop } from "./loop.js";
 import { createModelClient } from "./modelClients/index.js";
 import { gatherEmployeeTools } from "./tools/index.js";
 import type { AgentMessage, AgentTool, StreamCallbacks } from "./types.js";
+import {
+  createParallelDelegationTool,
+  MAX_DELEGATIONS_PER_TURN,
+  type DelegatedBrief,
+  type DelegationBudget,
+} from "./tools/parallelDelegation.js";
 
 /**
  * Run one employee agent turn end-to-end — the entry point both the chat seam
@@ -39,6 +45,10 @@ export type EmployeeAgentParams = {
   runId?: string;
   signal?: AbortSignal;
   callbacks?: StreamCallbacks;
+  /** Internal recursion guard. Only the top-level employee can delegate. */
+  delegationDepth?: number;
+  /** Internal shared cap across every delegation call in this top-level turn. */
+  delegationBudget?: DelegationBudget;
 };
 
 export type EmployeeAgentResult =
@@ -78,10 +88,25 @@ export async function runEmployeeAgent(
   const built = createModelClient(params.model);
   if ("error" in built) return { status: "error", error: built.error };
 
+  const delegationDepth = params.delegationDepth ?? 0;
+  const delegationBudget =
+    params.delegationBudget ?? { remaining: MAX_DELEGATIONS_PER_TURN };
+  const localTools: AgentTool[] = [];
+  if (delegationDepth === 0) {
+    localTools.push(
+      createParallelDelegationTool({
+        budget: delegationBudget,
+        signal: params.signal,
+        runBrief: (brief) => runDelegatedBrief(params, brief, delegationBudget),
+      }),
+    );
+  }
+
   const gathered = await gatherEmployeeTools({
     employeeId: params.employeeId,
     genosynToken: params.genosynToken,
     cwd: params.cwd,
+    localTools,
     toolEnv: params.toolEnv,
     bashTimeoutMs: params.bashTimeoutMs,
     routineId: params.routineId,
@@ -114,4 +139,75 @@ export async function runEmployeeAgent(
   } finally {
     await gathered.close();
   }
+}
+
+/** Run one temporary copy of the employee with an isolated conversation. */
+async function runDelegatedBrief(
+  parent: EmployeeAgentParams,
+  brief: DelegatedBrief,
+  delegationBudget: DelegationBudget,
+): Promise<{ status: "completed"; output: string } | { status: "failed"; error: string }> {
+  if (parent.signal?.aborted) {
+    return { status: "failed", error: "The parent turn was aborted." };
+  }
+
+  const workerLabel = brief.label.replace(/\s+/g, " ").slice(0, 40);
+  const callbacks: StreamCallbacks = {
+    onToolUse: (name, input) =>
+      parent.callbacks?.onToolUse?.(`[worker:${workerLabel}] ${name}`, input),
+    onToolResult: (name, result) =>
+      parent.callbacks?.onToolResult?.(`[worker:${workerLabel}] ${name}`, result),
+    onUsage: parent.callbacks?.onUsage,
+    onCompact: parent.callbacks?.onCompact,
+    onToolsTrimmed: parent.callbacks?.onToolsTrimmed,
+  };
+
+  const result = await runEmployeeAgent({
+    ...parent,
+    system: delegatedSystemPrompt(parent.system, brief.label),
+    messages: [
+      {
+        role: "user",
+        content: [{ type: "text", text: delegatedUserMessage(brief) }],
+      },
+    ],
+    // A child is a bounded specialist, not another full-length top-level run.
+    maxSteps: Math.min(parent.maxSteps, 30),
+    // Give each browser-enabled worker an independent browser session instead
+    // of racing the parent conversation's persistent page state.
+    conversationId: undefined,
+    callbacks,
+    delegationDepth: (parent.delegationDepth ?? 0) + 1,
+    delegationBudget,
+  });
+
+  if (parent.signal?.aborted) {
+    return { status: "failed", error: "The parent turn was aborted." };
+  }
+  if (result.status === "error") return { status: "failed", error: result.error };
+  return {
+    status: "completed",
+    output: result.finalText.trim() || "(worker completed without a text result)",
+  };
+}
+
+function delegatedSystemPrompt(parentSystem: string, label: string): string {
+  return [
+    parentSystem,
+    "",
+    "## Temporary parallel worker",
+    `You are handling the delegated brief ${JSON.stringify(label)} as a temporary copy of the parent AI Employee.`,
+    "Work only on this brief. You do not receive the parent conversation, so rely on the self-contained instruction below.",
+    "Use your tools when needed, but do not create a Handoff or try to delegate again. Return a concise, factual result with evidence the parent can verify and synthesize.",
+  ].join("\n");
+}
+
+function delegatedUserMessage(brief: DelegatedBrief): string {
+  return [
+    `## Delegated brief: ${brief.label}`,
+    "",
+    brief.instruction,
+    "",
+    "Complete this brief now and return the result to the parent AI Employee.",
+  ].join("\n");
 }
