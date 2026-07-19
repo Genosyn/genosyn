@@ -456,15 +456,19 @@ function CommandPalette({
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Search field — doubles as the dialog's header. */}
-        <div className="flex shrink-0 items-center gap-3 border-b border-slate-100 px-4 dark:border-slate-800">
-          <Search size={16} className="shrink-0 text-slate-400" aria-hidden="true" />
+        <div className="group flex shrink-0 items-center gap-3 border-b border-slate-100 px-4 transition-colors focus-within:border-indigo-300 focus-within:bg-indigo-50/40 dark:border-slate-800 dark:focus-within:border-indigo-700 dark:focus-within:bg-indigo-950/20">
+          <Search
+            size={16}
+            className="shrink-0 text-slate-400 transition-colors group-focus-within:text-indigo-500 dark:group-focus-within:text-indigo-400"
+            aria-hidden="true"
+          />
           <input
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder="Search sections, employees, notes…"
-            className="min-w-0 flex-1 bg-transparent py-3.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-500"
+            className="min-w-0 flex-1 bg-transparent py-3.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus-visible:outline-none dark:text-slate-100 dark:placeholder:text-slate-500"
             role="combobox"
             aria-expanded="true"
             aria-controls="command-palette-list"

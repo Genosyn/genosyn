@@ -148,8 +148,8 @@ export function Introduction() {
         shows the complete destination map, so you never have to guess. Press{" "}
         <Code>?</Code> anywhere outside an editor to open the full shortcut
         guide. Genosyn pauses global shortcuts while you type, and ordinary{" "}
-        <Code>Tab</Code> navigation has a visible focus ring plus a skip-to-main
-        link.
+        <Code>Tab</Code> navigation has clear, context-appropriate focus styling
+        plus a skip-to-main link.
       </P>
       <P>
         The palette searches your company&apos;s content too, not just the
