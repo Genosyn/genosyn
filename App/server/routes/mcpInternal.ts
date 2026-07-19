@@ -134,6 +134,13 @@ import { Chart } from "../db/entities/Chart.js";
 import { Dashboard } from "../db/entities/Dashboard.js";
 import { DashboardCard } from "../db/entities/DashboardCard.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
+import { seedChartOfAccounts, trialBalance } from "../services/ledger.js";
+import { balanceSheet, cashFlow, financialTrends, incomeStatement } from "../services/reports.js";
+import {
+  getLedgerEntryForReview,
+  listLedgerEntriesForReview,
+  stageAiLedgerReview,
+} from "../services/transactionReviews.js";
 import {
   deleteGrantsForChart,
   grantChartToAllEmployees,
@@ -301,6 +308,176 @@ mcpInternalRouter.post("/tools/list_employees", async (req: McpRequest, res) => 
   });
   res.json({ employees: all.map(serializeEmployee) });
 });
+
+// ----- Finance -----
+
+const emptyFinanceSchema = z.object({}).strict();
+
+mcpInternalRouter.post(
+  "/tools/list_finance_accounts",
+  validateBody(emptyFinanceSchema),
+  async (req: McpRequest, res) => {
+    const accounts = await seedChartOfAccounts(req.mcpCompany!.id);
+    res.json({
+      accounts: accounts.map((account) => ({
+        id: account.id,
+        code: account.code,
+        name: account.name,
+        type: account.type,
+        archived: !!account.archivedAt,
+      })),
+    });
+  },
+);
+
+const financeTransactionsSchema = z
+  .object({
+    reviewStatus: z.enum(["unreviewed", "ai_reviewed", "approved"]).optional(),
+    source: z.string().min(1).max(80).optional(),
+    from: z.string().max(40).optional(),
+    to: z.string().max(40).optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+  })
+  .strict();
+
+function parseOptionalFinanceDate(value: string | undefined, label: string): Date | undefined {
+  if (!value) return undefined;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw new Error(`Invalid ${label} date`);
+  return date;
+}
+
+mcpInternalRouter.post(
+  "/tools/list_finance_transactions",
+  validateBody(financeTransactionsSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof financeTransactionsSchema>;
+    try {
+      const transactions = await listLedgerEntriesForReview({
+        companyId: req.mcpCompany!.id,
+        reviewStatus: body.reviewStatus,
+        source: body.source,
+        from: parseOptionalFinanceDate(body.from, "from"),
+        to: parseOptionalFinanceDate(body.to, "to"),
+        limit: body.limit ?? 50,
+      });
+      res.json({ transactions });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+const financeTransactionSchema = z.object({ transactionId: z.string().uuid() }).strict();
+
+mcpInternalRouter.post(
+  "/tools/get_finance_transaction",
+  validateBody(financeTransactionSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof financeTransactionSchema>;
+    const transaction = await getLedgerEntryForReview(req.mcpCompany!.id, body.transactionId);
+    if (!transaction) return res.status(404).json({ error: "Transaction not found" });
+    res.json({ transaction });
+  },
+);
+
+const financeReviewSchema = z
+  .object({
+    transactionId: z.string().uuid(),
+    changes: z
+      .array(
+        z.object({
+          lineId: z.string().uuid(),
+          accountId: z.string().uuid(),
+        }),
+      )
+      .max(20)
+      .optional(),
+    note: z.string().max(2000).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/review_finance_transaction",
+  validateBody(financeReviewSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof financeReviewSchema>;
+    const company = req.mcpCompany!;
+    const employee = req.mcpEmployee!;
+    try {
+      const transaction = await stageAiLedgerReview({
+        companyId: company.id,
+        entryId: body.transactionId,
+        employeeId: employee.id,
+        changes: body.changes ?? [],
+        note: body.note,
+      });
+      await recordAudit({
+        companyId: company.id,
+        actorEmployeeId: employee.id,
+        action: "finance.transaction.ai_review",
+        targetType: "ledger_entry",
+        targetId: transaction.id,
+        targetLabel: transaction.memo,
+        metadata: { categoryChanges: transaction.reviewChanges, via: "mcp" },
+      });
+      await journal(
+        employee.id,
+        `${employee.name} reviewed finance transaction ${transaction.id.slice(0, 8)}`,
+        `${transaction.reviewChanges.length} category change(s) staged for final human approval.`,
+      );
+      res.json({
+        transaction,
+        status: "waiting_for_human_approval",
+        note: "The proposed categories are staged only. An owner or admin has been notified for final approval.",
+      });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+const financeReportSchema = z
+  .object({
+    report: z.enum(["income_statement", "balance_sheet", "cash_flow", "trial_balance", "trends"]),
+    from: z.string().max(40).optional(),
+    to: z.string().max(40).optional(),
+    asOf: z.string().max(40).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/get_finance_report",
+  validateBody(financeReportSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof financeReportSchema>;
+    const companyId = req.mcpCompany!.id;
+    try {
+      if (body.report === "balance_sheet" || body.report === "trial_balance") {
+        const asOf = parseOptionalFinanceDate(body.asOf, "asOf") ?? new Date();
+        const report =
+          body.report === "balance_sheet"
+            ? await balanceSheet(companyId, asOf)
+            : { asOf: asOf.toISOString(), rows: await trialBalance(companyId, asOf) };
+        return res.json({ report: body.report, data: report });
+      }
+      const from = parseOptionalFinanceDate(body.from, "from");
+      const to = parseOptionalFinanceDate(body.to, "to");
+      if (!from || !to) {
+        return res.status(400).json({ error: "from and to are required for this report" });
+      }
+      const report =
+        body.report === "income_statement"
+          ? await incomeStatement(companyId, from, to)
+          : body.report === "cash_flow"
+            ? await cashFlow(companyId, from, to)
+            : await financialTrends(companyId, from, to);
+      res.json({ report: body.report, data: report });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
 
 // ----- Skills -----
 

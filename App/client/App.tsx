@@ -36,11 +36,7 @@ import SkillsIndex from "./pages/SkillsIndex";
 import SkillNew from "./pages/SkillNew";
 import SkillDetail from "./pages/SkillDetail";
 import SettingsLayout from "./pages/SettingsLayout";
-import {
-  SettingsCompany,
-  SettingsMembers,
-  SettingsSecrets,
-} from "./pages/Settings";
+import { SettingsCompany, SettingsMembers, SettingsSecrets } from "./pages/Settings";
 import AccountLayout from "./pages/AccountLayout";
 import { AccountProfile } from "./pages/AccountProfile";
 import AdminLayout from "./pages/AdminLayout";
@@ -124,6 +120,7 @@ import FinanceTemplates from "./pages/FinanceTemplates";
 import FinanceSettings from "./pages/FinanceSettings";
 import FinanceAccounts from "./pages/FinanceAccounts";
 import FinanceJournal from "./pages/FinanceJournal";
+import FinanceTransactions from "./pages/FinanceTransactions";
 import FinanceTrialBalance from "./pages/FinanceTrialBalance";
 import FinanceReports from "./pages/FinanceReports";
 import FinanceReconcile from "./pages/FinanceReconcile";
@@ -163,26 +160,26 @@ export default function App() {
 
   return (
     <ThemeProvider>
-    <ToastProvider>
-    <DialogProvider>
-      {auth.status === "loading" ? (
-        <div className="flex h-full items-center justify-center">
-          <Spinner size={24} />
-        </div>
-      ) : auth.status === "anon" ? (
-        <Routes>
-          <Route path="/login" element={<Login onAuth={refresh} />} />
-          <Route path="/signup" element={<Signup onAuth={refresh} />} />
-          <Route path="/forgot" element={<Forgot />} />
-          <Route path="/reset/:token" element={<Reset />} />
-          <Route path="/invite/:token" element={<Navigate to="/login" replace />} />
-          <Route path="*" element={<Navigate to="/login" replace />} />
-        </Routes>
-      ) : (
-        <AuthedRoutes me={auth.me} companies={auth.companies} onChanged={refresh} />
-      )}
-    </DialogProvider>
-    </ToastProvider>
+      <ToastProvider>
+        <DialogProvider>
+          {auth.status === "loading" ? (
+            <div className="flex h-full items-center justify-center">
+              <Spinner size={24} />
+            </div>
+          ) : auth.status === "anon" ? (
+            <Routes>
+              <Route path="/login" element={<Login onAuth={refresh} />} />
+              <Route path="/signup" element={<Signup onAuth={refresh} />} />
+              <Route path="/forgot" element={<Forgot />} />
+              <Route path="/reset/:token" element={<Reset />} />
+              <Route path="/invite/:token" element={<Navigate to="/login" replace />} />
+              <Route path="*" element={<Navigate to="/login" replace />} />
+            </Routes>
+          ) : (
+            <AuthedRoutes me={auth.me} companies={auth.companies} onChanged={refresh} />
+          )}
+        </DialogProvider>
+      </ToastProvider>
     </ThemeProvider>
   );
 }
@@ -208,15 +205,10 @@ function AuthedRoutes({
   return (
     <Routes>
       <Route path="/invite/:token" element={<Invite />} />
-      <Route
-        path="/"
-        element={<Navigate to={`/c/${companies[0].slug}`} replace />}
-      />
+      <Route path="/" element={<Navigate to={`/c/${companies[0].slug}`} replace />} />
       <Route
         path="/c/:companySlug/*"
-        element={
-          <CompanyRoutes me={me} companies={companies} onChanged={onChanged} />
-        }
+        element={<CompanyRoutes me={me} companies={companies} onChanged={onChanged} />}
       />
       <Route path="*" element={<Navigate to={`/c/${companies[0].slug}`} replace />} />
     </Routes>
@@ -239,350 +231,299 @@ function CompanyRoutes({
   return (
     <AppShell me={me} companies={companies} current={company} onCompaniesChanged={onChanged}>
       <ChatSessionsProvider key={company.id}>
-      <Routes>
-        {/* Home — the post-sign-in landing page: everything that needs the
+        <Routes>
+          {/* Home — the post-sign-in landing page: everything that needs the
             member's attention plus quick navigation. */}
-        <Route index element={<HomePage company={company} me={me} />} />
+          <Route index element={<HomePage company={company} me={me} />} />
 
-        {/* Inbox — company-wide rollup of today's journal entries. */}
-        <Route path="inbox" element={<Inbox company={company} />} />
+          {/* Inbox — company-wide rollup of today's journal entries. */}
+          <Route path="inbox" element={<Inbox company={company} />} />
 
-        {/* Email (M25) — the company's Gmail inboxes. Sidebar = folders +
+          {/* Email (M25) — the company's Gmail inboxes. Sidebar = folders +
             labels + automation; the index is the thread list, filtered by
             `?view=` / `?label=` query params. */}
-        <Route path="mail" element={<MailLayout company={company} />}>
-          <Route index element={<MailThreadList />} />
-          <Route path="t/:threadId" element={<MailThreadView />} />
-          <Route path="rules" element={<MailRules />} />
-          <Route path="handovers" element={<MailHandovers />} />
-          <Route path="settings" element={<MailSettings />} />
-        </Route>
-
-        {/* Employees section — sidebar = roster */}
-        <Route path="employees" element={<EmployeesLayout company={company} />}>
-          <Route index element={<EmployeesIndex company={company} />} />
-          <Route path="new" element={<EmployeeNew company={company} />} />
-        </Route>
-
-        {/* Selected-employee section — sidebar = employee sub-nav */}
-        <Route
-          path="employees/:empSlug"
-          element={<EmployeeLayout company={company} />}
-        >
-          <Route index element={<Navigate to="chat" replace />} />
-          <Route path="chat" element={<EmployeeChat />} />
-          <Route path="journal" element={<JournalPage />} />
-          <Route path="handoffs" element={<HandoffsPage />} />
-          <Route path="memory" element={<MemoryPage />} />
-          <Route path="connections" element={<EmployeeConnections />} />
-          <Route path="mcp" element={<McpPage />} />
-          <Route path="settings" element={<SettingsPage />}>
-            <Route index element={<Navigate to="general" replace />} />
-            <Route path="general" element={<GeneralSettingsPage />} />
-            <Route path="soul" element={<SoulSettingsPage />} />
-            <Route path="model" element={<ModelSettingsPage />} />
-            <Route path="browser" element={<BrowserSettingsPage />} />
+          <Route path="mail" element={<MailLayout company={company} />}>
+            <Route index element={<MailThreadList />} />
+            <Route path="t/:threadId" element={<MailThreadView />} />
+            <Route path="rules" element={<MailRules />} />
+            <Route path="handovers" element={<MailHandovers />} />
+            <Route path="settings" element={<MailSettings />} />
           </Route>
-        </Route>
 
-        {/* Routines — every scheduled routine in the company. Sits beside
+          {/* Employees section — sidebar = roster */}
+          <Route path="employees" element={<EmployeesLayout company={company} />}>
+            <Route index element={<EmployeesIndex company={company} />} />
+            <Route path="new" element={<EmployeeNew company={company} />} />
+          </Route>
+
+          {/* Selected-employee section — sidebar = employee sub-nav */}
+          <Route path="employees/:empSlug" element={<EmployeeLayout company={company} />}>
+            <Route index element={<Navigate to="chat" replace />} />
+            <Route path="chat" element={<EmployeeChat />} />
+            <Route path="journal" element={<JournalPage />} />
+            <Route path="handoffs" element={<HandoffsPage />} />
+            <Route path="memory" element={<MemoryPage />} />
+            <Route path="connections" element={<EmployeeConnections />} />
+            <Route path="mcp" element={<McpPage />} />
+            <Route path="settings" element={<SettingsPage />}>
+              <Route index element={<Navigate to="general" replace />} />
+              <Route path="general" element={<GeneralSettingsPage />} />
+              <Route path="soul" element={<SoulSettingsPage />} />
+              <Route path="model" element={<ModelSettingsPage />} />
+              <Route path="browser" element={<BrowserSettingsPage />} />
+            </Route>
+          </Route>
+
+          {/* Routines — every scheduled routine in the company. Sits beside
             Employees under the AI section: a routine always belongs to an
             employee, but "what is scheduled around here?" is a company-level
             question, and answering it used to mean opening each employee in
             turn. */}
-        <Route path="routines" element={<RoutinesLayout company={company} />}>
-          <Route index element={<RoutinesIndex company={company} />} />
-          <Route path="new" element={<RoutineNew company={company} />} />
-          {/* Two segments, not one: a routine slug is unique only within its
+          <Route path="routines" element={<RoutinesLayout company={company} />}>
+            <Route index element={<RoutinesIndex company={company} />} />
+            <Route path="new" element={<RoutineNew company={company} />} />
+            {/* Two segments, not one: a routine slug is unique only within its
               employee, so `:routineSlug` alone would be ambiguous. */}
-          <Route
-            path=":empSlug/:routineSlug"
-            element={<RoutineDetail company={company} />}
-          />
-        </Route>
+            <Route path=":empSlug/:routineSlug" element={<RoutineDetail company={company} />} />
+          </Route>
 
-        {/* Skills — every playbook in the company. Same shape as Routines, and
+          {/* Skills — every playbook in the company. Same shape as Routines, and
             for the same reason: a skill always belongs to an employee, but
             "what do we know how to do?" is a company-level question. */}
-        <Route path="skills" element={<SkillsLayout company={company} />}>
-          <Route index element={<SkillsIndex company={company} />} />
-          <Route path="new" element={<SkillNew company={company} />} />
-          {/* Two segments, not one: a skill slug is unique only within its
+          <Route path="skills" element={<SkillsLayout company={company} />}>
+            <Route index element={<SkillsIndex company={company} />} />
+            <Route path="new" element={<SkillNew company={company} />} />
+            {/* Two segments, not one: a skill slug is unique only within its
               employee, so `:skillSlug` alone would be ambiguous. */}
-          <Route path=":empSlug/:skillSlug" element={<SkillDetail company={company} />} />
-        </Route>
+            <Route path=":empSlug/:skillSlug" element={<SkillDetail company={company} />} />
+          </Route>
 
-        {/* Tasks (Projects + Todos) — task manager. */}
-        <Route path="tasks" element={<TasksLayout company={company} />}>
-          <Route index element={<TasksIndex company={company} />} />
-          <Route path="review" element={<TasksReview company={company} />} />
-          <Route path="new" element={<ProjectNew company={company} />} />
-          <Route
-            path="p/:pSlug"
-            element={<ProjectDetail company={company} me={me} />}
-          />
-        </Route>
+          {/* Tasks (Projects + Todos) — task manager. */}
+          <Route path="tasks" element={<TasksLayout company={company} />}>
+            <Route index element={<TasksIndex company={company} />} />
+            <Route path="review" element={<TasksReview company={company} />} />
+            <Route path="new" element={<ProjectNew company={company} />} />
+            <Route path="p/:pSlug" element={<ProjectDetail company={company} me={me} />} />
+          </Route>
 
-        {/* Bases (Airtable-style) — structured data for the company. */}
-        <Route path="bases" element={<BasesLayout company={company} />}>
-          <Route index element={<BasesIndex company={company} />} />
-          <Route path="new" element={<BaseNew company={company} />} />
-          <Route path=":baseSlug" element={<BaseDetail company={company} />} />
-          <Route
-            path=":baseSlug/:tableSlug"
-            element={<BaseDetail company={company} />}
-          />
-          <Route
-            path=":baseSlug/:tableSlug/r/:recordId"
-            element={<BaseRecordPage company={company} />}
-          />
-        </Route>
+          {/* Bases (Airtable-style) — structured data for the company. */}
+          <Route path="bases" element={<BasesLayout company={company} />}>
+            <Route index element={<BasesIndex company={company} />} />
+            <Route path="new" element={<BaseNew company={company} />} />
+            <Route path=":baseSlug" element={<BaseDetail company={company} />} />
+            <Route path=":baseSlug/:tableSlug" element={<BaseDetail company={company} />} />
+            <Route
+              path=":baseSlug/:tableSlug/r/:recordId"
+              element={<BaseRecordPage company={company} />}
+            />
+          </Route>
 
-        {/* Pipelines (M10) — n8n-style visual automation, separate from Routines. */}
-        <Route path="pipelines" element={<PipelinesLayout company={company} />}>
-          <Route index element={<PipelinesIndex company={company} />} />
-          <Route path="new" element={<PipelineNew company={company} />} />
-          <Route path=":pSlug" element={<PipelineDetail company={company} />} />
-        </Route>
+          {/* Pipelines (M10) — n8n-style visual automation, separate from Routines. */}
+          <Route path="pipelines" element={<PipelinesLayout company={company} />}>
+            <Route index element={<PipelinesIndex company={company} />} />
+            <Route path="new" element={<PipelineNew company={company} />} />
+            <Route path=":pSlug" element={<PipelineDetail company={company} />} />
+          </Route>
 
-        {/* Notes — Notion-style company-wide markdown knowledge base.
+          {/* Notes — Notion-style company-wide markdown knowledge base.
             URL shape: /notes/<notebook>/<note>. The bare /notes lists
             notebooks; /notes/<notebook> shows that notebook's contents. */}
-        <Route path="notes" element={<NotesLayout company={company} />}>
-          <Route index element={<NotesIndex company={company} />} />
-          <Route
-            path=":notebookSlug"
-            element={<NotebookDetail company={company} />}
-          />
-          <Route
-            path=":notebookSlug/:noteSlug"
-            element={<NoteDetail company={company} />}
-          />
-        </Route>
+          <Route path="notes" element={<NotesLayout company={company} />}>
+            <Route index element={<NotesIndex company={company} />} />
+            <Route path=":notebookSlug" element={<NotebookDetail company={company} />} />
+            <Route path=":notebookSlug/:noteSlug" element={<NoteDetail company={company} />} />
+          </Route>
 
-        {/* Resources (M18) — knowledge ingestion. URL / ebook / paste →
+          {/* Resources (M18) — knowledge ingestion. URL / ebook / paste →
             extracted text, queryable by AI employees via MCP tools. */}
-        <Route path="resources" element={<ResourcesIndex company={company} />} />
-        <Route
-          path="resources/:slug"
-          element={<ResourceDetail company={company} />}
-        />
+          <Route path="resources" element={<ResourcesIndex company={company} />} />
+          <Route path="resources/:slug" element={<ResourceDetail company={company} />} />
 
-        {/* Code — provider-agnostic git repositories the company adds so
+          {/* Code — provider-agnostic git repositories the company adds so
             granted AI employees can read, commit, and push real code. */}
-        <Route path="code" element={<CodeReposLayout company={company} />}>
-          <Route index element={<CodeReposIndex company={company} />} />
-          <Route path=":slug" element={<CodeRepoOverview />} />
-          <Route path=":slug/access" element={<CodeRepoAccess />} />
-          <Route path=":slug/settings" element={<CodeRepoSettings />} />
-        </Route>
+          <Route path="code" element={<CodeReposLayout company={company} />}>
+            <Route index element={<CodeReposIndex company={company} />} />
+            <Route path=":slug" element={<CodeRepoOverview />} />
+            <Route path=":slug/access" element={<CodeRepoAccess />} />
+            <Route path=":slug/settings" element={<CodeRepoSettings />} />
+          </Route>
 
-        {/* Customers — standalone section (moved out of Finance). Customer
+          {/* Customers — standalone section (moved out of Finance). Customer
             accounts, plus the signed contracts uploaded against them. */}
-        <Route path="customers" element={<CustomersLayout company={company} />}>
-          <Route index element={<CustomersIndex />} />
-          <Route path="new" element={<CustomerNew />} />
-          <Route path="contracts" element={<ContractsIndex />} />
-          <Route path=":customerSlug" element={<CustomerDetail />} />
-          <Route path=":customerSlug/statement" element={<CustomerStatement />} />
-          <Route path=":customerSlug/edit" element={<CustomerNew />} />
-        </Route>
+          <Route path="customers" element={<CustomersLayout company={company} />}>
+            <Route index element={<CustomersIndex />} />
+            <Route path="new" element={<CustomerNew />} />
+            <Route path="contracts" element={<ContractsIndex />} />
+            <Route path=":customerSlug" element={<CustomerDetail />} />
+            <Route path=":customerSlug/statement" element={<CustomerStatement />} />
+            <Route path=":customerSlug/edit" element={<CustomerNew />} />
+          </Route>
 
-        {/* Finance (M19 Phase A) — Products, Tax rates, Invoices, Bills,
+          {/* Finance (M19 Phase A) — Products, Tax rates, Invoices, Bills,
             ledger. Native invoicing with browser-print to PDF and email send
             via the company's EmailProvider. Customers moved to their own
             section above. */}
-        <Route path="finance" element={<FinanceLayout company={company} />}>
-          <Route index element={<FinanceIndex />} />
-          <Route path="products" element={<FinanceProducts />} />
-          <Route path="tax-rates" element={<FinanceTaxRates />} />
-          <Route path="invoices" element={<FinanceInvoices />} />
-          <Route path="invoices/new" element={<FinanceInvoiceNew />} />
-          <Route
-            path="invoices/:invoiceSlug"
-            element={<FinanceInvoiceDetail />}
-          />
-          <Route
-            path="invoices/:invoiceSlug/edit"
-            element={<FinanceInvoiceNew />}
-          />
-          <Route
-            path="recurring-invoices"
-            element={<FinanceRecurringInvoices />}
-          />
-          <Route
-            path="recurring-invoices/new"
-            element={<FinanceRecurringInvoiceNew />}
-          />
-          <Route
-            path="recurring-invoices/:recurringSlug"
-            element={<FinanceRecurringInvoiceDetail />}
-          />
-          <Route
-            path="recurring-invoices/:recurringSlug/edit"
-            element={<FinanceRecurringInvoiceNew />}
-          />
-          <Route path="estimates" element={<FinanceEstimates />} />
-          <Route path="estimates/new" element={<FinanceEstimateNew />} />
-          <Route
-            path="estimates/:estimateSlug"
-            element={<FinanceEstimateDetail />}
-          />
-          <Route
-            path="estimates/:estimateSlug/edit"
-            element={<FinanceEstimateNew />}
-          />
-          <Route path="accounts" element={<FinanceAccounts />} />
-          <Route path="journal" element={<FinanceJournal />} />
-          <Route path="trial-balance" element={<FinanceTrialBalance />} />
-          <Route path="reports" element={<FinanceReports />} />
-          <Route path="reconcile" element={<FinanceReconcile />} />
-          <Route path="card-expenses" element={<FinanceCardExpenses />} />
-          <Route path="currencies" element={<FinanceCurrencies />} />
-          <Route path="templates" element={<FinanceTemplates />} />
-          <Route path="settings" element={<FinanceSettings />} />
-          <Route path="periods" element={<FinancePeriods />} />
-          <Route path="vendors" element={<FinanceVendors />} />
-          <Route path="bills" element={<FinanceBills />} />
-          <Route path="bills/new" element={<FinanceBillNew />} />
-          <Route path="bills/:billSlug" element={<FinanceBillDetail />} />
-        </Route>
+          <Route path="finance" element={<FinanceLayout company={company} />}>
+            <Route index element={<FinanceIndex />} />
+            <Route path="products" element={<FinanceProducts />} />
+            <Route path="tax-rates" element={<FinanceTaxRates />} />
+            <Route path="invoices" element={<FinanceInvoices />} />
+            <Route path="invoices/new" element={<FinanceInvoiceNew />} />
+            <Route path="invoices/:invoiceSlug" element={<FinanceInvoiceDetail />} />
+            <Route path="invoices/:invoiceSlug/edit" element={<FinanceInvoiceNew />} />
+            <Route path="recurring-invoices" element={<FinanceRecurringInvoices />} />
+            <Route path="recurring-invoices/new" element={<FinanceRecurringInvoiceNew />} />
+            <Route
+              path="recurring-invoices/:recurringSlug"
+              element={<FinanceRecurringInvoiceDetail />}
+            />
+            <Route
+              path="recurring-invoices/:recurringSlug/edit"
+              element={<FinanceRecurringInvoiceNew />}
+            />
+            <Route path="estimates" element={<FinanceEstimates />} />
+            <Route path="estimates/new" element={<FinanceEstimateNew />} />
+            <Route path="estimates/:estimateSlug" element={<FinanceEstimateDetail />} />
+            <Route path="estimates/:estimateSlug/edit" element={<FinanceEstimateNew />} />
+            <Route path="accounts" element={<FinanceAccounts />} />
+            <Route path="transactions" element={<FinanceTransactions />} />
+            <Route path="journal" element={<FinanceJournal />} />
+            <Route path="trial-balance" element={<FinanceTrialBalance />} />
+            <Route path="reports" element={<FinanceReports />} />
+            <Route path="reconcile" element={<FinanceReconcile />} />
+            <Route path="card-expenses" element={<FinanceCardExpenses />} />
+            <Route path="currencies" element={<FinanceCurrencies />} />
+            <Route path="templates" element={<FinanceTemplates />} />
+            <Route path="settings" element={<FinanceSettings />} />
+            <Route path="periods" element={<FinancePeriods />} />
+            <Route path="vendors" element={<FinanceVendors />} />
+            <Route path="bills" element={<FinanceBills />} />
+            <Route path="bills/new" element={<FinanceBillNew />} />
+            <Route path="bills/:billSlug" element={<FinanceBillDetail />} />
+          </Route>
 
-        {/* Explore (M20) — Metabase-style analytics. Saved Charts (SQL +
+          {/* Explore (M20) — Metabase-style analytics. Saved Charts (SQL +
             viz) and Dashboards (grids of cards) over the company's
             postgres / mysql / clickhouse Integration Connections. */}
-        <Route path="explore" element={<ExploreLayout company={company} />}>
-          <Route index element={<ExploreIndex company={company} />} />
-          <Route
-            path="charts/:slug"
-            element={<ExploreChartDetail company={company} />}
-          />
-          <Route
-            path="dashboards/:slug"
-            element={<ExploreDashboardDetail company={company} />}
-          />
-        </Route>
+          <Route path="explore" element={<ExploreLayout company={company} />}>
+            <Route index element={<ExploreIndex company={company} />} />
+            <Route path="charts/:slug" element={<ExploreChartDetail company={company} />} />
+            <Route path="dashboards/:slug" element={<ExploreDashboardDetail company={company} />} />
+          </Route>
 
-        <Route path="approvals" element={<Approvals company={company} />} />
+          <Route path="approvals" element={<Approvals company={company} />} />
 
-        {/* Workspace chat — Slack-style channels and DMs (M9). */}
-        <Route path="workspace" element={<Workspace company={company} me={me} />} />
-        <Route
-          path="workspace/:channelId"
-          element={<Workspace company={company} me={me} />}
-        />
+          {/* Workspace chat — Slack-style channels and DMs (M9). */}
+          <Route path="workspace" element={<Workspace company={company} me={me} />} />
+          <Route path="workspace/:channelId" element={<Workspace company={company} me={me} />} />
 
-        {/* Settings — company-scoped only. Its own sidebar, like
+          {/* Settings — company-scoped only. Its own sidebar, like
             Employees/Tasks/Bases. Account-global pages live under /account;
             install-wide pages live under /admin. */}
-        <Route
-          path="settings"
-          element={
-            <SettingsLayout company={company} me={me} onCompaniesChanged={onChanged} />
-          }
-        >
-          <Route index element={<Navigate to="company" replace />} />
-          <Route path="company" element={<SettingsCompany />} />
-          <Route path="members" element={<SettingsMembers />} />
-          <Route path="teams" element={<SettingsTeams />} />
-          <Route path="tags" element={<SettingsTags />} />
-          <Route path="integrations" element={<SettingsIntegrations />} />
-          <Route path="email" element={<SettingsEmail />}>
-            <Route index element={<Navigate to="providers" replace />} />
-            <Route path="providers" element={<SettingsEmailProviders />} />
-            <Route path="logs" element={<SettingsEmailLogs />} />
+          <Route
+            path="settings"
+            element={<SettingsLayout company={company} me={me} onCompaniesChanged={onChanged} />}
+          >
+            <Route index element={<Navigate to="company" replace />} />
+            <Route path="company" element={<SettingsCompany />} />
+            <Route path="members" element={<SettingsMembers />} />
+            <Route path="teams" element={<SettingsTeams />} />
+            <Route path="tags" element={<SettingsTags />} />
+            <Route path="integrations" element={<SettingsIntegrations />} />
+            <Route path="email" element={<SettingsEmail />}>
+              <Route index element={<Navigate to="providers" replace />} />
+              <Route path="providers" element={<SettingsEmailProviders />} />
+              <Route path="logs" element={<SettingsEmailLogs />} />
+            </Route>
+            <Route path="secrets" element={<SettingsSecrets />} />
+            <Route path="api-keys" element={<SettingsApiKeys />} />
+            <Route path="usage" element={<Usage />} />
+            <Route path="audit" element={<AuditLog />} />
+            <Route path="system-health" element={<SettingsSystemHealth />} />
           </Route>
-          <Route path="secrets" element={<SettingsSecrets />} />
-          <Route path="api-keys" element={<SettingsApiKeys />} />
-          <Route path="usage" element={<Usage />} />
-          <Route path="audit" element={<AuditLog />} />
-          <Route path="system-health" element={<SettingsSystemHealth />} />
-        </Route>
 
-        {/* Account — global to the signed-in user, not the current company.
+          {/* Account — global to the signed-in user, not the current company.
             Profile, password, and per-device notifications live here. */}
-        <Route
-          path="account"
-          element={
-            <AccountLayout company={company} me={me} onCompaniesChanged={onChanged} />
-          }
-        >
-          <Route index element={<Navigate to="profile" replace />} />
-          <Route path="profile" element={<AccountProfile />} />
-        </Route>
+          <Route
+            path="account"
+            element={<AccountLayout company={company} me={me} onCompaniesChanged={onChanged} />}
+          >
+            <Route index element={<Navigate to="profile" replace />} />
+            <Route path="profile" element={<AccountProfile />} />
+          </Route>
 
-        {/* Admin — install-wide operations that span every company: instance
+          {/* Admin — install-wide operations that span every company: instance
             health, backups, and the users/companies directory. Restricted to
             instance master admins; anyone else is bounced to the company home. */}
-        <Route
-          path="admin"
-          element={
-            me.isMasterAdmin ? (
-              <AdminLayout company={company} me={me} onCompaniesChanged={onChanged} />
-            ) : (
-              <Navigate to={`/c/${company.slug}`} replace />
-            )
-          }
-        >
-          <Route index element={<Navigate to="overview" replace />} />
-          <Route path="overview" element={<AdminOverview />} />
-          <Route path="instance-health" element={<AdminInstanceHealth />} />
-          <Route path="db" element={<AdminDbConsole />} />
-          <Route path="migrations" element={<AdminMigrations />} />
-          <Route path="email" element={<AdminEmail />} />
-          <Route path="signups" element={<AdminSignups />} />
-          <Route path="sso" element={<AdminSSO />} />
-          <Route path="backup" element={<AdminBackup />} />
-          <Route path="users" element={<AdminUsers />} />
-          <Route path="companies" element={<AdminCompanies />} />
-        </Route>
+          <Route
+            path="admin"
+            element={
+              me.isMasterAdmin ? (
+                <AdminLayout company={company} me={me} onCompaniesChanged={onChanged} />
+              ) : (
+                <Navigate to={`/c/${company.slug}`} replace />
+              )
+            }
+          >
+            <Route index element={<Navigate to="overview" replace />} />
+            <Route path="overview" element={<AdminOverview />} />
+            <Route path="instance-health" element={<AdminInstanceHealth />} />
+            <Route path="db" element={<AdminDbConsole />} />
+            <Route path="migrations" element={<AdminMigrations />} />
+            <Route path="email" element={<AdminEmail />} />
+            <Route path="signups" element={<AdminSignups />} />
+            <Route path="sso" element={<AdminSSO />} />
+            <Route path="backup" element={<AdminBackup />} />
+            <Route path="users" element={<AdminUsers />} />
+            <Route path="companies" element={<AdminCompanies />} />
+          </Route>
 
-        {/* Legacy redirects: Routines and Skills used to be per-employee tabs. */}
-        <Route
-          path="employees/:empSlug/routines"
-          element={<EmployeeRoutinesRedirect companySlug={company.slug} />}
-        />
-        <Route
-          path="employees/:empSlug/skills"
-          element={<EmployeeSkillsRedirect companySlug={company.slug} />}
-        />
+          {/* Legacy redirects: Routines and Skills used to be per-employee tabs. */}
+          <Route
+            path="employees/:empSlug/routines"
+            element={<EmployeeRoutinesRedirect companySlug={company.slug} />}
+          />
+          <Route
+            path="employees/:empSlug/skills"
+            element={<EmployeeSkillsRedirect companySlug={company.slug} />}
+          />
 
-        {/* Legacy redirects: Profile moved to Account; Backup moved to Admin. */}
-        <Route
-          path="settings/profile"
-          element={<Navigate to={`/c/${company.slug}/account/profile`} replace />}
-        />
-        <Route
-          path="settings/backup"
-          element={<Navigate to={`/c/${company.slug}/admin/backup`} replace />}
-        />
+          {/* Legacy redirects: Profile moved to Account; Backup moved to Admin. */}
+          <Route
+            path="settings/profile"
+            element={<Navigate to={`/c/${company.slug}/account/profile`} replace />}
+          />
+          <Route
+            path="settings/backup"
+            element={<Navigate to={`/c/${company.slug}/admin/backup`} replace />}
+          />
 
-        {/* Legacy redirects: Customers used to live under Finance. */}
-        <Route
-          path="finance/customers"
-          element={<Navigate to={`/c/${company.slug}/customers`} replace />}
-        />
-        <Route
-          path="finance/customers/new"
-          element={<Navigate to={`/c/${company.slug}/customers/new`} replace />}
-        />
-        <Route
-          path="finance/customers/:customerSlug/edit"
-          element={<CustomerEditRedirect companySlug={company.slug} />}
-        />
+          {/* Legacy redirects: Customers used to live under Finance. */}
+          <Route
+            path="finance/customers"
+            element={<Navigate to={`/c/${company.slug}/customers`} replace />}
+          />
+          <Route
+            path="finance/customers/new"
+            element={<Navigate to={`/c/${company.slug}/customers/new`} replace />}
+          />
+          <Route
+            path="finance/customers/:customerSlug/edit"
+            element={<CustomerEditRedirect companySlug={company.slug} />}
+          />
 
-        {/* Legacy redirects: Usage / Audit used to live at the top level. */}
-        <Route
-          path="usage"
-          element={<Navigate to={`/c/${company.slug}/settings/usage`} replace />}
-        />
-        <Route
-          path="audit"
-          element={<Navigate to={`/c/${company.slug}/settings/audit`} replace />}
-        />
+          {/* Legacy redirects: Usage / Audit used to live at the top level. */}
+          <Route
+            path="usage"
+            element={<Navigate to={`/c/${company.slug}/settings/usage`} replace />}
+          />
+          <Route
+            path="audit"
+            element={<Navigate to={`/c/${company.slug}/settings/audit`} replace />}
+          />
 
-        <Route path="*" element={<Navigate to="" replace />} />
-      </Routes>
+          <Route path="*" element={<Navigate to="" replace />} />
+        </Routes>
       </ChatSessionsProvider>
     </AppShell>
   );
@@ -622,7 +563,5 @@ function EmployeeSkillsRedirect({ companySlug }: { companySlug: string }) {
  *  the standalone Customers section, preserving the slug. */
 function CustomerEditRedirect({ companySlug }: { companySlug: string }) {
   const { customerSlug } = useParams();
-  return (
-    <Navigate to={`/c/${companySlug}/customers/${customerSlug}/edit`} replace />
-  );
+  return <Navigate to={`/c/${companySlug}/customers/${customerSlug}/edit`} replace />;
 }

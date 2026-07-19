@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   ChevronRight,
   ClipboardCheck,
+  Landmark,
   ListChecks,
   Mail,
   MessageSquare,
@@ -53,13 +54,7 @@ import { clsx } from "../components/ui/clsx";
 
 const PUSH_PROMPT_DISMISSED_KEY = "genosyn.pushPromptDismissed";
 
-export default function HomePage({
-  company,
-  me,
-}: {
-  company: Company;
-  me: Me;
-}) {
+export default function HomePage({ company, me }: { company: Company; me: Me }) {
   const [data, setData] = React.useState<HomeData | null>(null);
 
   const reload = React.useCallback(async () => {
@@ -127,7 +122,13 @@ export default function HomePage({
 function Greeting({ me, company }: { me: Me; company: Company }) {
   const hour = new Date().getHours();
   const salute =
-    hour < 5 ? "Good night" : hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+    hour < 5
+      ? "Good night"
+      : hour < 12
+        ? "Good morning"
+        : hour < 18
+          ? "Good afternoon"
+          : "Good evening";
   const firstName = (me.name || me.email).split(/[\s@]/)[0];
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long",
@@ -187,8 +188,8 @@ function PushPromptBanner() {
           Get notified when something needs you
         </div>
         <div className="text-xs text-slate-600 dark:text-slate-400">
-          Mentions, review requests, and approvals arrive as push notifications
-          — even when Genosyn is closed.
+          Mentions, review requests, and approvals arrive as push notifications — even when Genosyn
+          is closed.
         </div>
       </div>
       <Button size="sm" onClick={enable} disabled={busy}>
@@ -228,24 +229,21 @@ function StatStrip({ company, data }: { company: Company; data: HomeData }) {
       value: data.myTodoCount,
       icon: <ListChecks size={15} />,
       to: `/c/${company.slug}/tasks`,
-      accent:
-        "text-indigo-600 bg-indigo-100 dark:bg-indigo-500/15 dark:text-indigo-300",
+      accent: "text-indigo-600 bg-indigo-100 dark:bg-indigo-500/15 dark:text-indigo-300",
     },
     {
       label: "Reviews waiting on you",
       value: data.reviewTodoCount,
       icon: <ClipboardCheck size={15} />,
       to: `/c/${company.slug}/tasks/review`,
-      accent:
-        "text-violet-600 bg-violet-100 dark:bg-violet-500/15 dark:text-violet-300",
+      accent: "text-violet-600 bg-violet-100 dark:bg-violet-500/15 dark:text-violet-300",
     },
     {
       label: "Pending approvals",
       value: data.pendingApprovalCount,
       icon: <ShieldCheck size={15} />,
       to: `/c/${company.slug}/approvals`,
-      accent:
-        "text-amber-600 bg-amber-100 dark:bg-amber-500/15 dark:text-amber-300",
+      accent: "text-amber-600 bg-amber-100 dark:bg-amber-500/15 dark:text-amber-300",
     },
   ];
   return (
@@ -353,11 +351,7 @@ function FailedRoutinesAlert({
                 name={r.employee.name}
                 kind="ai"
                 size="sm"
-                src={employeeAvatarUrl(
-                  company.id,
-                  r.employee.id,
-                  r.employee.avatarKey,
-                )}
+                src={employeeAvatarUrl(company.id, r.employee.id, r.employee.avatarKey)}
               />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium text-slate-900 dark:text-slate-100">
@@ -379,11 +373,7 @@ function FailedRoutinesAlert({
               aria-label={`Dismiss ${r.routineName} failure`}
               className="flex shrink-0 items-center px-3 text-rose-400 transition hover:bg-rose-100/50 hover:text-rose-700 disabled:opacity-50 dark:text-rose-500/70 dark:hover:bg-rose-500/10 dark:hover:text-rose-200"
             >
-              {dismissing === r.runId ? (
-                <Spinner size={14} />
-              ) : (
-                <X size={15} />
-              )}
+              {dismissing === r.runId ? <Spinner size={14} /> : <X size={15} />}
             </button>
           </li>
         ))}
@@ -413,9 +403,7 @@ function HomeCard({
     <section className="flex flex-col rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
         <span className="text-slate-400 dark:text-slate-500">{icon}</span>
-        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-          {title}
-        </h2>
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</h2>
         {count !== undefined && count > 0 && (
           <span className="rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
             {count}
@@ -503,13 +491,7 @@ function AttentionCard({
   );
 }
 
-function NotificationAvatar({
-  company,
-  n,
-}: {
-  company: Company;
-  n: NotificationRow;
-}) {
+function NotificationAvatar({ company, n }: { company: Company; n: NotificationRow }) {
   const tone = KIND_TONE[n.kind] ?? KIND_TONE.mention;
   const actor = n.actor;
   const src = actor
@@ -521,33 +503,19 @@ function NotificationAvatar({
     : null;
   if (actor) {
     return (
-      <Avatar
-        name={actor.name}
-        src={src}
-        kind={actor.kind === "ai" ? "ai" : "human"}
-        size="sm"
-      />
+      <Avatar name={actor.name} src={src} kind={actor.kind === "ai" ? "ai" : "human"} size="sm" />
     );
   }
   return (
     <span
-      className={clsx(
-        "flex h-6 w-6 shrink-0 items-center justify-center rounded-full",
-        tone.bg,
-      )}
+      className={clsx("flex h-6 w-6 shrink-0 items-center justify-center rounded-full", tone.bg)}
     >
       <KindIcon kind={n.kind} className={tone.fg} />
     </span>
   );
 }
 
-function KindIcon({
-  kind,
-  className,
-}: {
-  kind: NotificationKind;
-  className?: string;
-}) {
+function KindIcon({ kind, className }: { kind: NotificationKind; className?: string }) {
   switch (kind) {
     case "mention":
       return <AtSign size={12} className={className} />;
@@ -555,6 +523,8 @@ function KindIcon({
       return <ClipboardCheck size={12} className={className} />;
     case "approval_pending":
       return <ShieldCheck size={12} className={className} />;
+    case "finance_review_ready":
+      return <Landmark size={12} className={className} />;
     case "mail_handover":
       return <Mail size={12} className={className} />;
   }
@@ -573,6 +543,10 @@ const KIND_TONE: Record<NotificationKind, { bg: string; fg: string }> = {
     bg: "bg-amber-100 dark:bg-amber-500/15",
     fg: "text-amber-600 dark:text-amber-300",
   },
+  finance_review_ready: {
+    bg: "bg-emerald-100 dark:bg-emerald-500/15",
+    fg: "text-emerald-600 dark:text-emerald-300",
+  },
   mail_handover: {
     bg: "bg-sky-100 dark:bg-sky-500/15",
     fg: "text-sky-600 dark:text-sky-300",
@@ -589,13 +563,7 @@ const PRIORITY_DOT: Record<TodoPriority, string> = {
   urgent: "bg-red-500",
 };
 
-function TodoList({
-  company,
-  todos,
-}: {
-  company: Company;
-  todos: HomeTodo[];
-}) {
+function TodoList({ company, todos }: { company: Company; todos: HomeTodo[] }) {
   return (
     <ul className="divide-y divide-slate-100 dark:divide-slate-800">
       {todos.map((t) => {
@@ -607,10 +575,7 @@ function TodoList({
               className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/60"
             >
               <span
-                className={clsx(
-                  "h-2 w-2 shrink-0 rounded-full",
-                  PRIORITY_DOT[t.priority],
-                )}
+                className={clsx("h-2 w-2 shrink-0 rounded-full", PRIORITY_DOT[t.priority])}
                 title={`Priority: ${t.priority}`}
               />
               <span className="w-16 shrink-0 font-mono text-[11px] text-slate-400 dark:text-slate-500">
@@ -620,12 +585,7 @@ function TodoList({
                 {t.title}
               </span>
               {due && (
-                <span
-                  className={clsx(
-                    "flex shrink-0 items-center gap-1 text-[11px]",
-                    due.cls,
-                  )}
-                >
+                <span className={clsx("flex shrink-0 items-center gap-1 text-[11px]", due.cls)}>
                   <Calendar size={11} /> {due.label}
                 </span>
               )}
@@ -744,10 +704,7 @@ function ApprovalsCard({ company, data }: { company: Company; data: HomeData }) 
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm text-slate-900 dark:text-slate-100">
-                    {a.title ||
-                      (a.routine
-                        ? `Run "${a.routine.name}"`
-                        : "Approval requested")}
+                    {a.title || (a.routine ? `Run "${a.routine.name}"` : "Approval requested")}
                   </span>
                   <span className="block truncate text-[11px] text-slate-400 dark:text-slate-500">
                     {a.employee ? `${a.employee.name} · ` : ""}
@@ -778,8 +735,7 @@ function ActivityCard({ company, data }: { company: Company; data: HomeData }) {
         <div className="flex h-full min-h-[8rem] flex-col items-center justify-center gap-2 px-6 py-6 text-center">
           <Sparkles size={18} className="text-violet-500 dark:text-violet-400" />
           <span className="text-xs text-slate-500 dark:text-slate-400">
-            No AI employees yet — hire your first to put the company on
-            autopilot.
+            No AI employees yet — hire your first to put the company on autopilot.
           </span>
           <Link
             to={`/c/${company.slug}/employees/new`}
@@ -798,8 +754,7 @@ function ActivityCard({ company, data }: { company: Company; data: HomeData }) {
           <div>
             <div className="text-sm text-slate-900 dark:text-slate-100">
               <b className="tabular-nums">{entries}</b> journal{" "}
-              {entries === 1 ? "entry" : "entries"} from{" "}
-              <b className="tabular-nums">{employees}</b>{" "}
+              {entries === 1 ? "entry" : "entries"} from <b className="tabular-nums">{employees}</b>{" "}
               {employees === 1 ? "employee" : "employees"} today
             </div>
             <div className="text-xs text-slate-500 dark:text-slate-400">
@@ -846,10 +801,7 @@ function saveHealthDismissed(companyId: string, map: Record<string, number>) {
     if (Object.keys(map).length === 0) {
       localStorage.removeItem(HEALTH_DISMISS_PREFIX + companyId);
     } else {
-      localStorage.setItem(
-        HEALTH_DISMISS_PREFIX + companyId,
-        JSON.stringify(map),
-      );
+      localStorage.setItem(HEALTH_DISMISS_PREFIX + companyId, JSON.stringify(map));
     }
   } catch {
     // localStorage may be unavailable (private mode) — dismissals just won't
@@ -857,13 +809,7 @@ function saveHealthDismissed(companyId: string, map: Record<string, number>) {
   }
 }
 
-function SystemHealthCard({
-  company,
-  data,
-}: {
-  company: Company;
-  data: HomeData;
-}) {
+function SystemHealthCard({ company, data }: { company: Company; data: HomeData }) {
   const failing = data.systemHealth.checks.filter((c) => c.severity !== "ok");
   const failingKey = failing
     .map((c) => c.id)
@@ -906,9 +852,7 @@ function SystemHealthCard({
 
   // Show a check unless it's been dismissed at a count >= its current one
   // (i.e. nothing new has happened since you dismissed it).
-  const visible = failing.filter(
-    (c) => !(c.id in dismissed) || c.count > dismissed[c.id],
-  );
+  const visible = failing.filter((c) => !(c.id in dismissed) || c.count > dismissed[c.id]);
   const dismissedCount = failing.length - visible.length;
 
   return (
@@ -925,8 +869,7 @@ function SystemHealthCard({
         <div className="flex h-full min-h-[8rem] flex-col items-center justify-center gap-1.5 px-6 py-6 text-center">
           <CheckCircle2 size={18} className="text-slate-400 dark:text-slate-500" />
           <span className="text-xs text-slate-500 dark:text-slate-400">
-            {dismissedCount} {dismissedCount === 1 ? "issue" : "issues"} dismissed
-            on this device.
+            {dismissedCount} {dismissedCount === 1 ? "issue" : "issues"} dismissed on this device.
           </span>
           <button
             type="button"
@@ -945,10 +888,7 @@ function SystemHealthCard({
                 className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pl-4 pr-2 hover:bg-slate-50 dark:hover:bg-slate-800/60"
               >
                 <span
-                  className={clsx(
-                    "h-2 w-2 shrink-0 rounded-full",
-                    HEALTH_DOT[c.severity],
-                  )}
+                  className={clsx("h-2 w-2 shrink-0 rounded-full", HEALTH_DOT[c.severity])}
                   title={c.severity}
                 />
                 <span className="min-w-0 flex-1 truncate text-sm text-slate-900 dark:text-slate-100">
@@ -1048,7 +988,6 @@ function formatDue(iso: string | null): { label: string; cls: string } | null {
   const month = d.toLocaleString("en-US", { month: "short", day: "numeric" });
   if (days < 0) return { label: month, cls: "text-red-600 dark:text-red-400" };
   if (days === 0) return { label: "Today", cls: "text-amber-600 dark:text-amber-400" };
-  if (days === 1)
-    return { label: "Tomorrow", cls: "text-amber-600 dark:text-amber-400" };
+  if (days === 1) return { label: "Tomorrow", cls: "text-amber-600 dark:text-amber-400" };
   return { label: month, cls: "text-slate-500 dark:text-slate-400" };
 }

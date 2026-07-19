@@ -1,8 +1,4 @@
-async function request<T>(
-  method: string,
-  url: string,
-  body?: unknown,
-): Promise<T> {
+async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
     method,
     credentials: "same-origin",
@@ -102,11 +98,7 @@ export const api = {
   /** Multipart upload of a single file under field name `file`, with
    *  optional extra text fields appended to the same form (e.g. a title or
    *  customer id alongside a contract). */
-  uploadFile: async <T>(
-    url: string,
-    file: File,
-    fields?: Record<string, string>,
-  ): Promise<T> => {
+  uploadFile: async <T>(url: string, file: File, fields?: Record<string, string>): Promise<T> => {
     const form = new FormData();
     form.append("file", file);
     if (fields) {
@@ -353,12 +345,7 @@ export type Approval = {
   routine: { id: string; name: string; slug: string } | null;
   employee: { id: string; name: string; slug: string } | null;
 };
-export type RunStatus =
-  | "running"
-  | "completed"
-  | "failed"
-  | "skipped"
-  | "timeout";
+export type RunStatus = "running" | "completed" | "failed" | "skipped" | "timeout";
 export type Run = {
   id: string;
   routineId: string;
@@ -722,12 +709,7 @@ export type ApiKeyCreated = ApiKey & { token: string };
 
 // ───────────────────────── Email providers + logs ──────────────────────────
 
-export type EmailProviderKind =
-  | "smtp"
-  | "sendgrid"
-  | "mailgun"
-  | "resend"
-  | "postmark";
+export type EmailProviderKind = "smtp" | "sendgrid" | "mailgun" | "resend" | "postmark";
 
 export type EmailProviderField = {
   key: string;
@@ -782,12 +764,7 @@ export type EmailLogTransport =
   | "postmark"
   | "config_smtp"
   | "console";
-export type EmailLogPurpose =
-  | "invitation"
-  | "password_reset"
-  | "welcome"
-  | "test"
-  | "other";
+export type EmailLogPurpose = "invitation" | "password_reset" | "welcome" | "test" | "other";
 
 export type EmailLog = {
   id: string;
@@ -886,13 +863,7 @@ export type BackupDeliveryResult = {
   error?: string;
 };
 
-export type TodoStatus =
-  | "backlog"
-  | "todo"
-  | "in_progress"
-  | "in_review"
-  | "done"
-  | "cancelled";
+export type TodoStatus = "backlog" | "todo" | "in_progress" | "in_review" | "done" | "cancelled";
 export type TodoPriority = "none" | "low" | "medium" | "high" | "urgent";
 export type TodoRecurrence =
   | "none"
@@ -1011,14 +982,7 @@ export type TodoComment = {
 
 // ───────────────────────── Bases (Airtable-style) ───────────────────────────
 
-export type BaseColor =
-  | "indigo"
-  | "emerald"
-  | "amber"
-  | "rose"
-  | "sky"
-  | "violet"
-  | "slate";
+export type BaseColor = "indigo" | "emerald" | "amber" | "rose" | "sky" | "violet" | "slate";
 
 export type Base = {
   id: string;
@@ -1075,9 +1039,7 @@ export const BASE_RESOURCE_FIELD_TYPES = [
 
 export type BaseResourceFieldType = (typeof BASE_RESOURCE_FIELD_TYPES)[number];
 
-export function isBaseResourceFieldType(
-  t: BaseFieldType,
-): t is BaseResourceFieldType {
+export function isBaseResourceFieldType(t: BaseFieldType): t is BaseResourceFieldType {
   return (BASE_RESOURCE_FIELD_TYPES as readonly string[]).includes(t);
 }
 
@@ -1270,13 +1232,7 @@ export type BaseGrant = {
 // ───────────────────────── Pipelines (n8n-style automation) ──────────────────
 
 export type PipelineNodeFamily = "trigger" | "action" | "logic" | "integration";
-export type PipelineNodeFieldType =
-  | "text"
-  | "longtext"
-  | "number"
-  | "boolean"
-  | "select"
-  | "code";
+export type PipelineNodeFieldType = "text" | "longtext" | "number" | "boolean" | "select" | "code";
 
 export type PipelineNodeField = {
   key: string;
@@ -1586,10 +1542,7 @@ export type CodeRepoGrant = {
 
 export type CodeRepoGrantsResponse = { direct: CodeRepoGrant[] };
 
-export type CodeRepoGrantCandidate = Omit<
-  CodeRepoGrantEmployee,
-  "pullRequestReady"
-> & {
+export type CodeRepoGrantCandidate = Omit<CodeRepoGrantEmployee, "pullRequestReady"> & {
   alreadyGranted: boolean;
 };
 
@@ -1605,11 +1558,12 @@ export type NotificationKind =
   | "mention"
   | "todo_review_requested"
   | "approval_pending"
+  | "finance_review_ready"
   | "mail_handover";
 
 export type NotificationActorKind = "user" | "ai" | "system";
 
-export type NotificationEntityKind = "channel_message" | "todo" | "approval";
+export type NotificationEntityKind = "channel_message" | "todo" | "approval" | "ledger_entry";
 
 export type NotificationActor = {
   kind: NotificationActorKind;
@@ -2054,12 +2008,7 @@ export type TaxRate = {
 
 export type InvoiceStatus = "draft" | "sent" | "paid" | "void";
 
-export type InvoicePaymentMethod =
-  | "cash"
-  | "bank_transfer"
-  | "stripe"
-  | "lightning"
-  | "other";
+export type InvoicePaymentMethod = "cash" | "bank_transfer" | "stripe" | "lightning" | "other";
 
 export type InvoiceLineItem = {
   id: string;
@@ -2165,10 +2114,7 @@ export function displayInvoiceStatus(
   inv: Pick<Invoice, "status" | "dueDate">,
   now: Date = new Date(),
 ): InvoiceStatus | "overdue" {
-  if (
-    inv.status === "sent" &&
-    new Date(inv.dueDate).getTime() < now.getTime()
-  ) {
+  if (inv.status === "sent" && new Date(inv.dueDate).getTime() < now.getTime()) {
     return "overdue";
   }
   return inv.status;
@@ -2178,12 +2124,7 @@ export function displayInvoiceStatus(
 
 export type RecurringInvoiceStatus = "active" | "paused" | "ended";
 
-export type RecurringInvoiceFrequency =
-  | "daily"
-  | "weekly"
-  | "monthly"
-  | "quarterly"
-  | "yearly";
+export type RecurringInvoiceFrequency = "daily" | "weekly" | "monthly" | "quarterly" | "yearly";
 
 export type RecurringInvoiceLineItem = {
   id: string;
@@ -2246,12 +2187,7 @@ export type RecurringInvoiceLineDraft = {
 
 // ──────────────────────────── Estimates ─────────────────────────────────
 
-export type EstimateStatus =
-  | "draft"
-  | "sent"
-  | "accepted"
-  | "declined"
-  | "void";
+export type EstimateStatus = "draft" | "sent" | "accepted" | "declined" | "void";
 
 export type EstimateLineItem = {
   id: string;
@@ -2345,12 +2281,7 @@ export function displayEstimateStatus(
 
 // ─────────────────────────── Ledger (M19 Phase B) ───────────────────────
 
-export type AccountType =
-  | "asset"
-  | "liability"
-  | "equity"
-  | "revenue"
-  | "expense";
+export type AccountType = "asset" | "liability" | "equity" | "revenue" | "expense";
 
 export type Account = {
   id: string;
@@ -2373,7 +2304,16 @@ export type LedgerEntrySource =
   | "brex_card_expense"
   | "brex_card_refund"
   | "brex_card_payment"
-  | "brex_card_reclass";
+  | "brex_card_reclass"
+  | "ledger_reclass";
+
+export type LedgerReviewStatus = "unreviewed" | "ai_reviewed" | "approved";
+
+export type LedgerReviewChange = {
+  lineId: string;
+  fromAccountId: string;
+  toAccountId: string;
+};
 
 export type LedgerLine = {
   id: string;
@@ -2394,6 +2334,15 @@ export type LedgerEntry = {
   source: LedgerEntrySource;
   sourceRefId: string | null;
   createdById: string | null;
+  reviewStatus: LedgerReviewStatus;
+  reviewChangesJson: string | null;
+  reviewChanges: LedgerReviewChange[];
+  reviewNote: string | null;
+  reviewedByEmployeeId: string | null;
+  reviewedByEmployee: { id: string; name: string; slug: string } | null;
+  reviewedAt: string | null;
+  approvedById: string | null;
+  approvedAt: string | null;
   createdAt: string;
   lines: LedgerLine[];
   totalCents: number;
@@ -2429,10 +2378,7 @@ export const ACCOUNT_TYPE_LABEL: Record<AccountType, string> = {
 /** Display the cent magnitude in the conventional accounting layout —
  *  no minus signs in the trial balance, since the column itself
  *  encodes whether a value is a debit or a credit. */
-export function formatBalanceMagnitude(
-  cents: number,
-  currency: string,
-): string {
+export function formatBalanceMagnitude(cents: number, currency: string): string {
   return formatMoney(Math.abs(cents), currency);
 }
 
@@ -2503,6 +2449,30 @@ export type AccountActivityReport = {
 
 export type ReportEnvelope<T> = { current: T; prior: T | null };
 
+export type FinancialTrendPoint = {
+  label: string;
+  from: string;
+  to: string;
+  revenue: number;
+  expenses: number;
+  netIncome: number;
+  assets: number;
+  liabilities: number;
+  equity: number;
+  operatingCash: number;
+  investingCash: number;
+  financingCash: number;
+  netCash: number;
+  closingCash: number;
+};
+
+export type FinancialTrendsReport = {
+  from: string;
+  to: string;
+  truncated: boolean;
+  points: FinancialTrendPoint[];
+};
+
 // ─────────────────────── Period preset helper ──────────────────────────
 
 export type PeriodPreset =
@@ -2522,29 +2492,27 @@ export type PeriodRange = { from: Date; to: Date };
  * normalizes to start/end-of-day, so the timezone of `now` doesn't
  * matter to the math.
  */
-export function rangeFromPreset(
-  preset: PeriodPreset,
-  now: Date = new Date(),
-): PeriodRange {
+export function rangeFromPreset(preset: PeriodPreset, now: Date = new Date()): PeriodRange {
   const y = now.getUTCFullYear();
   const m = now.getUTCMonth();
+  const today = new Date(Date.UTC(y, m, now.getUTCDate()));
   switch (preset) {
     case "this_month":
       return {
         from: new Date(Date.UTC(y, m, 1)),
-        to: new Date(Date.UTC(y, m + 1, 0)),
+        to: today,
       };
     case "this_quarter": {
       const qStart = Math.floor(m / 3) * 3;
       return {
         from: new Date(Date.UTC(y, qStart, 1)),
-        to: new Date(Date.UTC(y, qStart + 3, 0)),
+        to: today,
       };
     }
     case "this_year":
       return {
         from: new Date(Date.UTC(y, 0, 1)),
-        to: new Date(Date.UTC(y, 11, 31)),
+        to: today,
       };
     case "last_month":
       return {
@@ -2567,7 +2535,7 @@ export function rangeFromPreset(
       // Caller picks; default to YTD.
       return {
         from: new Date(Date.UTC(y, 0, 1)),
-        to: new Date(Date.UTC(y, 11, 31)),
+        to: today,
       };
   }
 }
@@ -2851,10 +2819,7 @@ export function displayBillStatus(
   bill: Pick<Bill, "status" | "dueDate">,
   now: Date = new Date(),
 ): BillStatus | "overdue" {
-  if (
-    bill.status === "sent" &&
-    new Date(bill.dueDate).getTime() < now.getTime()
-  ) {
+  if (bill.status === "sent" && new Date(bill.dueDate).getTime() < now.getTime()) {
     return "overdue";
   }
   return bill.status;

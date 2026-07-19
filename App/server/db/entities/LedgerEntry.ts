@@ -1,10 +1,4 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  Index,
-} from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 /**
  * Where this ledger entry came from. The auto-post hooks in
@@ -34,7 +28,10 @@ export type LedgerEntrySource =
   | "brex_card_expense"
   | "brex_card_refund"
   | "brex_card_payment"
-  | "brex_card_reclass";
+  | "brex_card_reclass"
+  | "ledger_reclass";
+
+export type LedgerReviewStatus = "unreviewed" | "ai_reviewed" | "approved";
 
 /**
  * A balanced double-entry transaction. Phase B of the Finance milestone
@@ -47,6 +44,7 @@ export type LedgerEntrySource =
 @Entity("ledger_entries")
 @Index(["companyId", "date"])
 @Index(["companyId", "source", "sourceRefId"])
+@Index(["companyId", "reviewStatus"])
 export class LedgerEntry {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -73,6 +71,32 @@ export class LedgerEntry {
 
   @Column({ type: "varchar", nullable: true })
   createdById!: string | null;
+
+  /** Human-in-the-loop bookkeeping review. AI employees may move an entry
+   *  to `ai_reviewed` with staged category changes; only an owner/admin can
+   *  apply those changes and move it to `approved`. */
+  @Column({ type: "varchar", default: "unreviewed" })
+  reviewStatus!: LedgerReviewStatus;
+
+  /** JSON array of staged `{lineId,fromAccountId,toAccountId}` category
+   *  changes. They do not affect the ledger until human approval. */
+  @Column({ type: "text", nullable: true })
+  reviewChangesJson!: string | null;
+
+  @Column({ type: "text", nullable: true })
+  reviewNote!: string | null;
+
+  @Column({ type: "varchar", nullable: true })
+  reviewedByEmployeeId!: string | null;
+
+  @Column({ type: "datetime", nullable: true })
+  reviewedAt!: Date | null;
+
+  @Column({ type: "varchar", nullable: true })
+  approvedById!: string | null;
+
+  @Column({ type: "datetime", nullable: true })
+  approvedAt!: Date | null;
 
   @CreateDateColumn()
   createdAt!: Date;

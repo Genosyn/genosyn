@@ -6,6 +6,7 @@ import {
   api,
   BalanceSheetReport,
   CashFlowReport,
+  FinancialTrendsReport,
   formatBalanceMagnitude,
   formatMoney,
   IncomeStatementReport,
@@ -19,6 +20,10 @@ import {
 import { Breadcrumbs } from "../components/AppShell";
 import { Spinner } from "../components/ui/Spinner";
 import { FinanceOutletCtx } from "./FinanceLayout";
+import {
+  FinancialTrendChart,
+  type FinancialTrendSeries,
+} from "../components/finance/FinancialTrendChart";
 
 type Tab = "income" | "balance" | "cashflow";
 
@@ -59,7 +64,9 @@ export default function FinanceReports() {
   const [compare, setCompare] = React.useState(false);
   // Drill-through state: when set, render the side panel for this
   // account + period. Cleared when the user closes it.
-  const [drill, setDrill] = React.useState<{ accountId: string; range: PeriodRange | null } | null>(null);
+  const [drill, setDrill] = React.useState<{ accountId: string; range: PeriodRange | null } | null>(
+    null,
+  );
 
   const range = React.useMemo(() => rangeFromPreset(preset), [preset]);
   const [customFrom, setCustomFrom] = React.useState(() => dateInputValue(range.from));
@@ -81,27 +88,48 @@ export default function FinanceReports() {
     return range;
   }, [preset, range, customFrom, customTo]);
 
-  const priorRange = React.useMemo(
-    () => priorRangeOf(effectiveRange),
-    [effectiveRange],
-  );
+  const priorRange = React.useMemo(() => priorRangeOf(effectiveRange), [effectiveRange]);
+  const [trends, setTrends] = React.useState<FinancialTrendsReport | null>(null);
+  const [trendError, setTrendError] = React.useState("");
+
+  React.useEffect(() => {
+    if (Number.isNaN(effectiveRange.from.getTime()) || Number.isNaN(effectiveRange.to.getTime())) {
+      setTrendError("Choose a valid date range to draw the chart.");
+      setTrends(null);
+      return;
+    }
+    let alive = true;
+    setTrends(null);
+    setTrendError("");
+    const query = new URLSearchParams({
+      from: effectiveRange.from.toISOString(),
+      to: effectiveRange.to.toISOString(),
+    });
+    api
+      .get<FinancialTrendsReport>(`/api/companies/${company.id}/reports/trends?${query.toString()}`)
+      .then((report) => {
+        if (alive) setTrends(report);
+      })
+      .catch((err: unknown) => {
+        if (alive) setTrendError((err as Error).message || "Could not load chart data");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [company.id, effectiveRange.from, effectiveRange.to]);
+
+  const trendConfig = trendSeriesFor(tab);
 
   return (
     <div className="mx-auto max-w-6xl p-8">
       <div className="mb-6">
         <Breadcrumbs
-          items={[
-            { label: "Finance", to: `/c/${company.slug}/finance` },
-            { label: "Reports" },
-          ]}
+          items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Reports" }]}
         />
       </div>
-      <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-        Reports
-      </h1>
+      <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Reports</h1>
       <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-        Pulled live from the general ledger. Click any line to drill
-        through to its source entries.
+        Pulled live from the general ledger. Click any line to drill through to its source entries.
       </p>
 
       <div className="mt-4 flex flex-wrap items-end gap-3">
@@ -167,14 +195,32 @@ export default function FinanceReports() {
       </div>
 
       <div className="mt-6">
+        {trendError ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-500/10 dark:text-red-300">
+            {trendError}
+          </div>
+        ) : trends === null ? (
+          <div className="flex h-72 items-center justify-center rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+            <Spinner size={20} />
+          </div>
+        ) : (
+          <FinancialTrendChart
+            title={trendConfig.title}
+            subtitle={trendConfig.subtitle}
+            points={trends.points}
+            series={trendConfig.series}
+            truncated={trends.truncated}
+          />
+        )}
+      </div>
+
+      <div className="mt-6">
         {tab === "income" && (
           <IncomeStatementView
             companyId={company.id}
             range={effectiveRange}
             priorRange={compare ? priorRange : null}
-            onDrill={(accountId) =>
-              setDrill({ accountId, range: effectiveRange })
-            }
+            onDrill={(accountId) => setDrill({ accountId, range: effectiveRange })}
           />
         )}
         {tab === "balance" && (
@@ -208,6 +254,44 @@ export default function FinanceReports() {
       )}
     </div>
   );
+}
+
+function trendSeriesFor(tab: Tab): {
+  title: string;
+  subtitle: string;
+  series: FinancialTrendSeries[];
+} {
+  if (tab === "balance") {
+    return {
+      title: "Balance sheet trend",
+      subtitle: "Month-end assets, liabilities, and equity from the live ledger.",
+      series: [
+        { key: "assets", label: "Assets", color: "#6366f1" },
+        { key: "liabilities", label: "Liabilities", color: "#f59e0b" },
+        { key: "equity", label: "Equity", color: "#10b981" },
+      ],
+    };
+  }
+  if (tab === "cashflow") {
+    return {
+      title: "Cash-flow trend",
+      subtitle: "Monthly operating movement and net cash change.",
+      series: [
+        { key: "operatingCash", label: "Operating", color: "#0ea5e9" },
+        { key: "netCash", label: "Net cash", color: "#6366f1" },
+        { key: "closingCash", label: "Closing cash", color: "#10b981", dashed: true },
+      ],
+    };
+  }
+  return {
+    title: "Profit and loss trend",
+    subtitle: "Monthly revenue, expenses, and net income.",
+    series: [
+      { key: "revenue", label: "Revenue", color: "#10b981" },
+      { key: "expenses", label: "Expenses", color: "#f59e0b" },
+      { key: "netIncome", label: "Net income", color: "#6366f1" },
+    ],
+  };
 }
 
 // ────────────────────────── Income Statement ─────────────────────────
@@ -251,9 +335,7 @@ function IncomeStatementView({
         onDrill={onDrill}
       />
       <div className="flex items-center justify-between border-t-2 border-slate-300 bg-slate-50 px-4 py-3 dark:border-slate-600 dark:bg-slate-800/60">
-        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-          Net income
-        </div>
+        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Net income</div>
         <div className="flex gap-12">
           {data.prior && (
             <div className="text-sm tabular-nums text-slate-500 dark:text-slate-400">
@@ -291,9 +373,7 @@ function ReportTable({
   priorTotal?: number;
   onDrill: (accountId: string) => void;
 }) {
-  const priorByAcct = new Map(
-    (priorRows ?? []).map((r) => [r.account.id, r.amountCents]),
-  );
+  const priorByAcct = new Map((priorRows ?? []).map((r) => [r.account.id, r.amountCents]));
   return (
     <div className="border-b border-slate-100 last:border-b-0 dark:border-slate-800">
       <div className="bg-slate-50 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:bg-slate-800/40 dark:text-slate-400">
@@ -368,8 +448,7 @@ function BalanceSheetView({
   if (data === "loading") return <ReportSpinner />;
   if (data === "error") return <ReportError />;
 
-  const liabAndEquity =
-    data.current.totalLiabilities + data.current.totalEquity;
+  const liabAndEquity = data.current.totalLiabilities + data.current.totalEquity;
   const balanced = liabAndEquity === data.current.totalAssets;
 
   return (
@@ -444,9 +523,7 @@ function BSSection({
   extraRow?: { label: string; amount: number; priorAmount?: number };
   onDrill: (accountId: string) => void;
 }) {
-  const priorByAcct = new Map(
-    (priorRows ?? []).map((r) => [r.account.id, r.amountCents]),
-  );
+  const priorByAcct = new Map((priorRows ?? []).map((r) => [r.account.id, r.amountCents]));
   const showPrior = priorRows !== undefined;
   return (
     <div className="border-b border-slate-100 last:border-b-0 dark:border-slate-800">
@@ -494,9 +571,7 @@ function BSSection({
             ))}
             {extraRow && (
               <tr>
-                <td className="w-20 px-4 py-2 font-mono text-xs text-slate-400">
-                  —
-                </td>
+                <td className="w-20 px-4 py-2 font-mono text-xs text-slate-400">—</td>
                 <td className="px-2 py-2 italic text-slate-500 dark:text-slate-400">
                   {extraRow.label}
                 </td>
@@ -545,12 +620,7 @@ function CashFlowView({
   range: PeriodRange;
   priorRange: PeriodRange | null;
 }) {
-  const data = useReport<CashFlowReport>(
-    companyId,
-    "/reports/cash-flow",
-    range,
-    priorRange,
-  );
+  const data = useReport<CashFlowReport>(companyId, "/reports/cash-flow", range, priorRange);
   if (data === "loading") return <ReportSpinner />;
   if (data === "error") return <ReportError />;
 
@@ -646,16 +716,14 @@ function CFRow({
     <div
       className={
         "flex items-center justify-between border-t border-slate-100 px-4 py-2 dark:border-slate-800 " +
-        (bold
-          ? "bg-slate-50 dark:bg-slate-800/40 "
-          : small
-            ? ""
-            : "")
+        (bold ? "bg-slate-50 dark:bg-slate-800/40 " : small ? "" : "")
       }
     >
       <div
         className={
-          (small ? "text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400" : "text-sm text-slate-700 dark:text-slate-200") +
+          (small
+            ? "text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400"
+            : "text-sm text-slate-700 dark:text-slate-200") +
           (bold ? " font-semibold text-slate-900 dark:text-slate-100" : "")
         }
       >
@@ -708,9 +776,7 @@ function DrillPanel({
       params.set("to", range.to.toISOString());
     }
     api
-      .get<AccountActivityReport>(
-        `/api/companies/${companyId}/reports/account-activity?${params}`,
-      )
+      .get<AccountActivityReport>(`/api/companies/${companyId}/reports/account-activity?${params}`)
       .then((r) => {
         if (alive) setData(r);
       })
@@ -768,9 +834,7 @@ function DrillPanel({
             <Spinner size={20} />
           </div>
         ) : data === "error" ? (
-          <div className="p-6 text-sm text-rose-600">
-            Failed to load account activity.
-          </div>
+          <div className="p-6 text-sm text-rose-600">Failed to load account activity.</div>
         ) : (
           <div className="flex-1 overflow-y-auto">
             <div className="flex items-center justify-between bg-slate-50 px-4 py-2 text-xs dark:bg-slate-800/40">
@@ -803,7 +867,11 @@ function DrillPanel({
                         {r.date.slice(0, 10)}
                       </td>
                       <td className="px-3 py-2 text-slate-700 dark:text-slate-200">
-                        <div>{r.memo || r.description || <span className="text-slate-400">(no memo)</span>}</div>
+                        <div>
+                          {r.memo || r.description || (
+                            <span className="text-slate-400">(no memo)</span>
+                          )}
+                        </div>
                         {r.description && r.memo && (
                           <div className="text-xs text-slate-400">{r.description}</div>
                         )}
@@ -823,9 +891,7 @@ function DrillPanel({
               </tbody>
             </table>
             <div className="flex items-center justify-between border-t-2 border-slate-300 bg-slate-50 px-4 py-2 text-sm dark:border-slate-600 dark:bg-slate-800/60">
-              <span className="font-semibold text-slate-900 dark:text-slate-100">
-                Closing
-              </span>
+              <span className="font-semibold text-slate-900 dark:text-slate-100">Closing</span>
               <span className="font-semibold tabular-nums text-slate-900 dark:text-slate-100">
                 {formatMoney(data.closingBalance, "USD")}
               </span>
@@ -845,9 +911,7 @@ function useReport<T>(
   range: PeriodRange,
   priorRange: PeriodRange | null,
 ): ReportEnvelope<T> | "loading" | "error" {
-  const [data, setData] = React.useState<ReportEnvelope<T> | "loading" | "error">(
-    "loading",
-  );
+  const [data, setData] = React.useState<ReportEnvelope<T> | "loading" | "error">("loading");
   React.useEffect(() => {
     let alive = true;
     setData("loading");
@@ -874,14 +938,10 @@ function useReport<T>(
   return data;
 }
 
-function useBalanceSheet(
-  companyId: string,
-  asOf: Date,
-  priorAsOf: Date | null,
-) {
-  const [data, setData] = React.useState<
-    ReportEnvelope<BalanceSheetReport> | "loading" | "error"
-  >("loading");
+function useBalanceSheet(companyId: string, asOf: Date, priorAsOf: Date | null) {
+  const [data, setData] = React.useState<ReportEnvelope<BalanceSheetReport> | "loading" | "error">(
+    "loading",
+  );
   React.useEffect(() => {
     let alive = true;
     setData("loading");
@@ -919,4 +979,3 @@ function ReportError() {
     </div>
   );
 }
-

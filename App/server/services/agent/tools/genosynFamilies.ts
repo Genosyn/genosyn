@@ -12,10 +12,10 @@ import {
  *
  * Providers cap how many tools one request may carry — OpenAI's Chat Completions
  * rejects anything over 128 with a 400 that kills the whole turn. The built-in
- * floor (7 coding + 79 genosyn + 9 browser) leaves barely 30 slots for an
+ * floor (7 coding + 84 genosyn + 9 browser) leaves barely 30 slots for an
  * employee's integrations, and a sales employee with a few CRM connections blows
  * straight through it. Collapsing the CRUD families takes the genosyn static
- * surface from 79 tools to 33.
+ * surface from 84 tools to 34.
  *
  * ## Why only the agent's view collapses
  *
@@ -198,6 +198,17 @@ const FAMILIES: Record<string, FamilySpec> = {
       get: "get_dashboard",
       create: "create_dashboard",
       add_card: "add_dashboard_card",
+    },
+  },
+  finance: {
+    blurb:
+      "Inspect the company's books, read financial statements, and prepare accounting transactions for final human approval.",
+    ops: {
+      accounts: "list_finance_accounts",
+      transactions: "list_finance_transactions",
+      get: "get_finance_transaction",
+      review: "review_finance_transaction",
+      report: "get_finance_report",
     },
   },
   mail: {

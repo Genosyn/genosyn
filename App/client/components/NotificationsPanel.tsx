@@ -1,6 +1,14 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { AtSign, Bell, CheckCircle2, ClipboardCheck, Mail, ShieldCheck } from "lucide-react";
+import {
+  AtSign,
+  Bell,
+  CheckCircle2,
+  ClipboardCheck,
+  Landmark,
+  Mail,
+  ShieldCheck,
+} from "lucide-react";
 import { api, Company, Notification, NotificationKind } from "../lib/api";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "./ui/Avatar";
 import { useCompanySocketSubscription } from "./CompanySocket";
@@ -308,6 +316,8 @@ function KindIcon({
       return <ClipboardCheck size={size} className={className} />;
     case "approval_pending":
       return <ShieldCheck size={size} className={className} />;
+    case "finance_review_ready":
+      return <Landmark size={size} className={className} />;
     case "mail_handover":
       return <Mail size={size} className={className} />;
   }
@@ -325,6 +335,10 @@ const KIND_TONE: Record<NotificationKind, { iconBg: string; iconFg: string }> = 
   approval_pending: {
     iconBg: "bg-amber-100 dark:bg-amber-500/15",
     iconFg: "text-amber-600 dark:text-amber-300",
+  },
+  finance_review_ready: {
+    iconBg: "bg-emerald-100 dark:bg-emerald-500/15",
+    iconFg: "text-emerald-600 dark:text-emerald-300",
   },
   mail_handover: {
     iconBg: "bg-sky-100 dark:bg-sky-500/15",

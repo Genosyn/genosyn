@@ -165,6 +165,7 @@ export async function deleteUserCascade(args: {
     await m.update(Invoice, { createdById: userId }, { createdById: null });
     await m.update(InvoicePayment, { createdById: userId }, { createdById: null });
     await m.update(LedgerEntry, { createdById: userId }, { createdById: null });
+    await m.update(LedgerEntry, { approvedById: userId }, { approvedById: null });
     await m.update(Note, { createdById: userId }, { createdById: null });
     await m.update(Note, { lastEditedById: userId }, { lastEditedById: null });
     await m.update(Notebook, { createdById: userId }, { createdById: null });

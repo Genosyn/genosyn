@@ -496,6 +496,9 @@ sends system mail); this is the company's real inbox. Internal namespace is
 - [x] File uploads (multer, 25 MB cap)
 - [x] `@employee-slug` mentions auto-invite + reply via `streamChatWithEmployee`
 - [x] AI DMs reply on every message
+- [x] DM archiving (including automatic archive when an AI employee is
+      deleted), `/new` context boundaries, and `#` resource references across
+      every AI-employee chat composer
 - [x] Unread badges + read markers
 - [x] Edit / soft-delete own messages, broadcast over WS
 - [ ] Typing indicators UI (plumbing exists, UI deferred)
@@ -694,7 +697,7 @@ not write**, ingested once, queried on demand via the MCP surface.
       escalating capabilities `read` < `edit` < `delete` (richer than
       notes' `read` / `write` because the team often wants employees
       that can keep a page tidy without authority to remove it).
-- [x] Ingestion service `services/resources.ts`: * URL → `fetch` + minimal HTML→text (no jsdom/readability dep) * Plain text / `.txt` / `.md` / `.html` upload → store + index * PDF upload → text via `pdf-parse` (new dep, flagged below) * EPUB upload → unzip + collect XHTML body text via existing `unzipper` * Video → accepted but flagged `failed` with a "transcripts coming
+- [x] Ingestion service `services/resources.ts`: _ URL → `fetch` + minimal HTML→text (no jsdom/readability dep) _ Plain text / `.txt` / `.md` / `.html` upload → store + index _ PDF upload → text via `pdf-parse` (new dep, flagged below) _ EPUB upload → unzip + collect XHTML body text via existing `unzipper` \* Video → accepted but flagged `failed` with a "transcripts coming
       soon" note (no ASR dep)
 - [x] HTTP routes under `/api/companies/:cid/resources`: list, create
       (URL / paste / upload via multer, 25 MB cap), detail, patch
@@ -870,6 +873,18 @@ Phased so each phase ships behind its own PR:
       statement collections post DR Card Payable / CR Bank. Expense-category
       changes create append-only reclassification entries; failed postings stay
       visible and retryable.
+- [x] **Agentic transaction review.** Every `LedgerEntry` enters a Finance →
+      Transactions review queue as unreviewed. AI employees can inspect the
+      chart of accounts, transactions, and all standard statements through the
+      built-in `finance` tool family; they stage expense/revenue category
+      changes and mark the posting AI reviewed. Owners/admins receive a
+      notification, inspect every debit and credit, then apply the balanced,
+      append-only reclassification and give final approval. AI employees have
+      no final-approval tool.
+- [x] **Financial statement charts.** Reports now graph monthly P&L (revenue,
+      expenses, net income), balance-sheet totals, and cash-flow movement from
+      the same ledger calculations as their underlying tables. Long custom
+      ranges show the most recent 24 months.
 - **Phase E — Multi-currency.** `Currency`, `ExchangeRate`, and
   `CompanyFinanceSettings` (home currency). Per-invoice currency with
   FX gain/loss auto-posted on payment when the rate at payment differs
@@ -1190,7 +1205,7 @@ of the original V1 backlog has shipped — what remains is mostly
         (`Page.startScreencast`, JPEG q60) and pushes frames over a
         WebSocket up to the App, which fans them out to viewers
         connected at `/api/companies/:cid/employees/:eid/browser-sessions/
-    :id/view`. The viewer page is a plain HTML+canvas iframe that
+:id/view`. The viewer page is a plain HTML+canvas iframe that
         also forwards mouse / keyboard events back via CDP
         `Input.dispatchMouseEvent` / `dispatchKeyEvent` when the human
         flips into "Take over" mode. Solves captcha / 2FA without an

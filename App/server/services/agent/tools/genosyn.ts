@@ -14,9 +14,9 @@ import type { AgentTool, ToolResult } from "../types.js";
  * loopback internal API with a minted MCP token — reusing every tool's zod
  * validation, audit trail, journal write, and attachment staging unchanged.
  *
- * The model does not see all 79 static tools: the CRUD families are collapsed
+ * The model does not see all 84 static tools: the CRUD and domain families are collapsed
  * into `op`-dispatched tools first (see {@link collapseStaticTools}), which
- * takes the static surface to 33 and buys back the slots an employee's
+ * takes the static surface to 34 and buys back the slots an employee's
  * integrations need under OpenAI's 128-tool cap. The collapse is a view, not a
  * rewrite — every call still lands on the same `/tools/<name>` endpoint.
  */

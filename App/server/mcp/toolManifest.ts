@@ -1553,6 +1553,98 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "list_finance_accounts",
+    description:
+      "List the company's chart of accounts with ids, codes, names, account types, and archived state. Use these ids when reviewing transaction categories.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "list_finance_transactions",
+    description:
+      "List posted accounting transactions and every debit/credit line. Filter by review status to find work: `unreviewed` needs an AI or human check, `ai_reviewed` is waiting for final human approval, and `approved` is final. Category proposals do not affect the ledger until a human approves them.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        reviewStatus: {
+          type: "string",
+          enum: ["unreviewed", "ai_reviewed", "approved"],
+        },
+        source: { type: "string", description: "Optional ledger source filter." },
+        from: { type: "string", description: "Optional ISO date/datetime lower bound." },
+        to: { type: "string", description: "Optional ISO date/datetime upper bound." },
+        limit: { type: "integer", minimum: 1, maximum: 200 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_finance_transaction",
+    description:
+      "Fetch one accounting transaction with all debit/credit lines, current review state, and any staged category proposal.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        transactionId: { type: "string", description: "Ledger transaction UUID." },
+      },
+      required: ["transactionId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "review_finance_transaction",
+    description:
+      "Semi-approve an accounting transaction as an AI employee. Inspect the full debit/credit entry first. Pass zero category changes when it is already correct, or stage expense/revenue line moves to another account of the same type. This never posts a reclassification or gives final approval: it notifies owners/admins and waits for a human decision.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        transactionId: { type: "string", description: "Ledger transaction UUID." },
+        changes: {
+          type: "array",
+          maxItems: 20,
+          description:
+            "Proposed category changes. Omit or pass [] when the current categories are correct.",
+          items: {
+            type: "object",
+            properties: {
+              lineId: { type: "string", description: "Ledger line UUID." },
+              accountId: {
+                type: "string",
+                description: "Proposed expense/revenue account id from list_finance_accounts.",
+              },
+            },
+            required: ["lineId", "accountId"],
+            additionalProperties: false,
+          },
+        },
+        note: {
+          type: "string",
+          description: "Concise rationale and any uncertainty for the human reviewer.",
+        },
+      },
+      required: ["transactionId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_finance_report",
+    description:
+      "Read a live accounting report from the general ledger: profit and loss (`income_statement`), balance sheet, cash flow, trial balance, or monthly chart trends. Period reports need `from` and `to`; balance/trial balance use `asOf`.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        report: {
+          type: "string",
+          enum: ["income_statement", "balance_sheet", "cash_flow", "trial_balance", "trends"],
+        },
+        from: { type: "string", description: "ISO date/datetime period start." },
+        to: { type: "string", description: "ISO date/datetime period end." },
+        asOf: { type: "string", description: "ISO date/datetime snapshot date." },
+      },
+      required: ["report"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_mail_accounts",
     description:
       "List the company mailboxes (Email section) you have been granted access to, with your access level on each: `read` (browse threads), `draft` (also write drafts, apply labels, archive, mark read), or `send` (also send mail). Call this first when asked to work with email — the account id it returns is optional for the other mail tools when you hold exactly one grant.",

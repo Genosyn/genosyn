@@ -2,10 +2,7 @@ import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Account, AccountType } from "../db/entities/Account.js";
 import { AccountingPeriod } from "../db/entities/AccountingPeriod.js";
-import {
-  LedgerEntry,
-  LedgerEntrySource,
-} from "../db/entities/LedgerEntry.js";
+import { LedgerEntry, LedgerEntrySource, LedgerReviewStatus } from "../db/entities/LedgerEntry.js";
 import { LedgerLine } from "../db/entities/LedgerLine.js";
 
 /**
@@ -88,10 +85,7 @@ export async function seedChartOfAccounts(companyId: string): Promise<Account[]>
   });
 }
 
-export async function accountByCode(
-  companyId: string,
-  code: string,
-): Promise<Account | null> {
+export async function accountByCode(companyId: string, code: string): Promise<Account | null> {
   return AppDataSource.getRepository(Account).findOneBy({ companyId, code });
 }
 
@@ -143,6 +137,7 @@ export type PostLedgerEntryInput = {
   source?: LedgerEntrySource;
   sourceRefId?: string | null;
   createdById?: string | null;
+  reviewStatus?: LedgerReviewStatus;
   lines: LedgerLineDraft[];
 };
 
@@ -182,9 +177,7 @@ export async function postLedgerEntry(
     totalCredit += c;
   }
   if (totalDebit !== totalCredit) {
-    throw new Error(
-      `Entry is unbalanced: debits ${totalDebit} ≠ credits ${totalCredit}`,
-    );
+    throw new Error(`Entry is unbalanced: debits ${totalDebit} ≠ credits ${totalCredit}`);
   }
   // Phase F: refuse to post inside a closed `AccountingPeriod` so
   // accountants can rely on closed-period numbers staying frozen. The
@@ -221,6 +214,13 @@ export async function postLedgerEntry(
       source: input.source ?? "manual",
       sourceRefId: input.sourceRefId ?? null,
       createdById: input.createdById ?? null,
+      reviewStatus: input.reviewStatus ?? "unreviewed",
+      reviewChangesJson: null,
+      reviewNote: null,
+      reviewedByEmployeeId: null,
+      reviewedAt: null,
+      approvedById: null,
+      approvedAt: null,
     }),
   );
 
@@ -358,10 +358,7 @@ export type TrialBalanceRow = {
  * this; Phase D's reconciliation page reads the Bank account's balance
  * and compares to the bank feed.
  */
-export async function trialBalance(
-  companyId: string,
-  asOf: Date,
-): Promise<TrialBalanceRow[]> {
+export async function trialBalance(companyId: string, asOf: Date): Promise<TrialBalanceRow[]> {
   const accounts = await seedChartOfAccounts(companyId);
   // Treat the asOf as inclusive through end-of-day. A date-only input
   // ("2026-05-04") parses as midnight UTC otherwise, which would
@@ -414,9 +411,5 @@ async function findClosedPeriodCovering(
     where: { companyId, status: "closed" },
   });
   const t = date.getTime();
-  return (
-    periods.find(
-      (p) => p.startDate.getTime() <= t && p.endDate.getTime() >= t,
-    ) ?? null
-  );
+  return periods.find((p) => p.startDate.getTime() <= t && p.endDate.getTime() >= t) ?? null;
 }

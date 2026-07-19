@@ -18,6 +18,7 @@ import {
   Package,
   Percent,
   Repeat,
+  ScanSearch,
   Settings,
   Wallet,
 } from "lucide-react";
@@ -54,54 +55,31 @@ export default function FinanceLayout({ company }: { company: Company }) {
           icon={<FileSignature size={14} />}
           label="Estimates"
         />
-        <SidebarLink
-          to={`${base}/invoices`}
-          icon={<FileText size={14} />}
-          label="Invoices"
-        />
+        <SidebarLink to={`${base}/invoices`} icon={<FileText size={14} />} label="Invoices" />
         <SidebarLink
           to={`${base}/recurring-invoices`}
           icon={<Repeat size={14} />}
           label="Recurring"
         />
-        <SidebarLink
-          to={`${base}/bills`}
-          icon={<Inbox size={14} />}
-          label="Bills"
-        />
-        <SidebarLink
-          to={`${base}/vendors`}
-          icon={<Building2 size={14} />}
-          label="Vendors"
-        />
+        <SidebarLink to={`${base}/bills`} icon={<Inbox size={14} />} label="Bills" />
+        <SidebarLink to={`${base}/vendors`} icon={<Building2 size={14} />} label="Vendors" />
         <div className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
           Ledger
         </div>
         <SidebarLink
-          to={`${base}/journal`}
-          icon={<NotebookPen size={14} />}
-          label="Journal"
+          to={`${base}/transactions`}
+          icon={<ScanSearch size={14} />}
+          label="Transactions"
         />
-        <SidebarLink
-          to={`${base}/accounts`}
-          icon={<BookOpen size={14} />}
-          label="Accounts"
-        />
+        <SidebarLink to={`${base}/journal`} icon={<NotebookPen size={14} />} label="Journal" />
+        <SidebarLink to={`${base}/accounts`} icon={<BookOpen size={14} />} label="Accounts" />
         <SidebarLink
           to={`${base}/trial-balance`}
           icon={<Layers size={14} />}
           label="Trial balance"
         />
-        <SidebarLink
-          to={`${base}/reports`}
-          icon={<LineChart size={14} />}
-          label="Reports"
-        />
-        <SidebarLink
-          to={`${base}/reconcile`}
-          icon={<Link2 size={14} />}
-          label="Reconcile"
-        />
+        <SidebarLink to={`${base}/reports`} icon={<LineChart size={14} />} label="Reports" />
+        <SidebarLink to={`${base}/reconcile`} icon={<Link2 size={14} />} label="Reconcile" />
         <SidebarLink
           to={`${base}/card-expenses`}
           icon={<CreditCard size={14} />}
@@ -115,31 +93,15 @@ export default function FinanceLayout({ company }: { company: Company }) {
         <div className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
           Catalog
         </div>
-        <SidebarLink
-          to={`${base}/products`}
-          icon={<Package size={14} />}
-          label="Products"
-        />
-        <SidebarLink
-          to={`${base}/tax-rates`}
-          icon={<Percent size={14} />}
-          label="Tax rates"
-        />
-        <SidebarLink
-          to={`${base}/currencies`}
-          icon={<Coins size={14} />}
-          label="Currencies"
-        />
+        <SidebarLink to={`${base}/products`} icon={<Package size={14} />} label="Products" />
+        <SidebarLink to={`${base}/tax-rates`} icon={<Percent size={14} />} label="Tax rates" />
+        <SidebarLink to={`${base}/currencies`} icon={<Coins size={14} />} label="Currencies" />
         <SidebarLink
           to={`${base}/templates`}
           icon={<LayoutTemplate size={14} />}
           label="Templates"
         />
-        <SidebarLink
-          to={`${base}/settings`}
-          icon={<Settings size={14} />}
-          label="Settings"
-        />
+        <SidebarLink to={`${base}/settings`} icon={<Settings size={14} />} label="Settings" />
       </nav>
     </div>
   );

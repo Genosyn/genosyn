@@ -51,6 +51,10 @@ const SOURCE_BADGE: Record<LedgerEntrySource, { label: string; cls: string }> = 
     label: "Reclassification",
     cls: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-500/15 dark:text-fuchsia-300",
   },
+  ledger_reclass: {
+    label: "Approved category",
+    cls: "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300",
+  },
 };
 
 const UNKNOWN_SOURCE_BADGE = {
@@ -103,30 +107,21 @@ export default function FinanceJournal() {
     }
   }
 
-  const accountById = React.useMemo(
-    () => new Map(accounts.map((a) => [a.id, a])),
-    [accounts],
-  );
+  const accountById = React.useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
 
   return (
     <div className="mx-auto max-w-6xl p-8">
       <div className="mb-6">
         <Breadcrumbs
-          items={[
-            { label: "Finance", to: `/c/${company.slug}/finance` },
-            { label: "Journal" },
-          ]}
+          items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Journal" }]}
         />
       </div>
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-            Journal
-          </h1>
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Journal</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Every double-entry transaction in chronological order. Invoice
-            issue / payment / void rows are auto-posted; manual rows are
-            for accountant adjustments.
+            Every double-entry transaction in chronological order. Invoice issue / payment / void
+            rows are auto-posted; manual rows are for accountant adjustments.
           </p>
         </div>
         <Button onClick={() => setShowNew(true)}>
@@ -333,10 +328,7 @@ function NewEntryModal({
   const { toast } = useToast();
   const [date, setDate] = React.useState(new Date().toISOString().slice(0, 10));
   const [memo, setMemo] = React.useState("");
-  const [lines, setLines] = React.useState<DraftLine[]>([
-    emptyLine("debit"),
-    emptyLine("credit"),
-  ]);
+  const [lines, setLines] = React.useState<DraftLine[]>([emptyLine("debit"), emptyLine("credit")]);
   const [busy, setBusy] = React.useState(false);
 
   const totals = React.useMemo(() => {
@@ -458,9 +450,7 @@ function NewEntryModal({
                   <td className="px-2 py-2">
                     <select
                       value={l.side}
-                      onChange={(e) =>
-                        patch(i, { side: e.target.value as "debit" | "credit" })
-                      }
+                      onChange={(e) => patch(i, { side: e.target.value as "debit" | "credit" })}
                       className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
                     >
                       <option value="debit">Debit</option>

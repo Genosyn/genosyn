@@ -1,10 +1,4 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  Index,
-} from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 /**
  * One row per "thing the recipient should know about" — mentions in
@@ -26,6 +20,7 @@ export type NotificationKind =
   | "mention"
   | "todo_review_requested"
   | "approval_pending"
+  | "finance_review_ready"
   | "mail_handover";
 
 export type NotificationActorKind = "user" | "ai" | "system";
@@ -34,6 +29,7 @@ export type NotificationEntityKind =
   | "channel_message"
   | "todo"
   | "approval"
+  | "ledger_entry"
   | "mail_handover";
 
 @Entity("notifications")

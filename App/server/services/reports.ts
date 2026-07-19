@@ -172,10 +172,7 @@ export type BalanceSheetReport = {
   totalEquity: number;
 };
 
-export async function balanceSheet(
-  companyId: string,
-  asOf: Date,
-): Promise<BalanceSheetReport> {
+export async function balanceSheet(companyId: string, asOf: Date): Promise<BalanceSheetReport> {
   const accounts = await seedChartOfAccounts(companyId);
   const totals = await aggregateLines(companyId, null, asOf);
 
@@ -207,8 +204,7 @@ export async function balanceSheet(
   const currentEarnings = revenueTotal - expenseTotal;
   const totalAssets = assets.reduce((s, r) => s + r.amountCents, 0);
   const totalLiabilities = liabilities.reduce((s, r) => s + r.amountCents, 0);
-  const totalEquity =
-    equity.reduce((s, r) => s + r.amountCents, 0) + currentEarnings;
+  const totalEquity = equity.reduce((s, r) => s + r.amountCents, 0) + currentEarnings;
   return {
     asOf: asOf.toISOString(),
     assets,
@@ -253,11 +249,7 @@ const OPERATING: ReadonlySet<LedgerEntrySource> = new Set([
   "brex_card_payment",
 ]);
 
-export async function cashFlow(
-  companyId: string,
-  from: Date,
-  to: Date,
-): Promise<CashFlowReport> {
+export async function cashFlow(companyId: string, from: Date, to: Date): Promise<CashFlowReport> {
   const accounts = await seedChartOfAccounts(companyId);
   const bank = accounts.find((a) => a.code === "1100");
   if (!bank) {
@@ -345,6 +337,146 @@ export async function cashFlow(
   };
 }
 
+// ─────────────────────── Financial trend charts ──────────────────────
+
+export type FinancialTrendPoint = {
+  label: string;
+  from: string;
+  to: string;
+  revenue: number;
+  expenses: number;
+  netIncome: number;
+  assets: number;
+  liabilities: number;
+  equity: number;
+  operatingCash: number;
+  investingCash: number;
+  financingCash: number;
+  netCash: number;
+  closingCash: number;
+};
+
+export type FinancialTrendsReport = {
+  from: string;
+  to: string;
+  truncated: boolean;
+  points: FinancialTrendPoint[];
+};
+
+/**
+ * Build month-by-month chart data from the same signed-balance and cash-source
+ * conventions used by the statement tables. Accounts, entries, and lines are
+ * loaded once, rather than re-running three reports for every plotted month.
+ * Custom ranges longer than 24 months show the most recent 24 points so labels
+ * remain legible.
+ */
+export async function financialTrends(
+  companyId: string,
+  from: Date,
+  to: Date,
+): Promise<FinancialTrendsReport> {
+  const start = startOfDay(from);
+  const end = endOfDay(to);
+  if (start.getTime() > end.getTime()) {
+    throw new Error("from must be on or before to");
+  }
+  const months: Array<{ from: Date; to: Date; label: string }> = [];
+  const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1));
+  while (cursor.getTime() <= end.getTime()) {
+    const monthStart = new Date(cursor.getTime());
+    const monthEnd = new Date(
+      Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 0, 23, 59, 59, 999),
+    );
+    months.push({
+      from: new Date(Math.max(monthStart.getTime(), start.getTime())),
+      to: new Date(Math.min(monthEnd.getTime(), end.getTime())),
+      label: monthStart.toLocaleDateString("en", {
+        month: "short",
+        year: "2-digit",
+        timeZone: "UTC",
+      }),
+    });
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+  }
+  const visible = months.slice(-24);
+  const [accounts, entries, lines] = await Promise.all([
+    seedChartOfAccounts(companyId),
+    AppDataSource.getRepository(LedgerEntry).find({ where: { companyId } }),
+    AppDataSource.getRepository(LedgerLine).find({ where: { companyId } }),
+  ]);
+  const accountById = new Map(
+    accounts.filter((account) => !account.archivedAt).map((account) => [account.id, account]),
+  );
+  const entryById = new Map(entries.map((entry) => [entry.id, entry]));
+  const bank = accounts.find((account) => account.code === "1100");
+
+  const points = visible.map((month) => {
+    const fromMs = startOfDay(month.from).getTime();
+    const toMs = endOfDay(month.to).getTime();
+    let revenue = 0;
+    let expenses = 0;
+    let cumulativeRevenue = 0;
+    let cumulativeExpenses = 0;
+    let assets = 0;
+    let liabilities = 0;
+    let baseEquity = 0;
+    let operatingCash = 0;
+    let investingCash = 0;
+    const financingCash = 0;
+    let closingCash = 0;
+
+    for (const line of lines) {
+      const entry = entryById.get(line.ledgerEntryId);
+      const account = accountById.get(line.accountId);
+      if (!entry || !account || entry.date.getTime() > toMs) continue;
+      const amount = signedBalance(account.type, line.debitCents, line.creditCents);
+      if (account.type === "asset") assets += amount;
+      else if (account.type === "liability") liabilities += amount;
+      else if (account.type === "equity") baseEquity += amount;
+      else if (account.type === "revenue") cumulativeRevenue += amount;
+      else if (account.type === "expense") cumulativeExpenses += amount;
+
+      if (bank && line.accountId === bank.id) {
+        const cashAmount = line.debitCents - line.creditCents;
+        closingCash += cashAmount;
+        if (entry.date.getTime() >= fromMs) {
+          if (OPERATING.has(entry.source)) operatingCash += cashAmount;
+          else investingCash += cashAmount;
+        }
+      }
+      if (entry.date.getTime() < fromMs) continue;
+      if (account.type === "revenue") revenue += amount;
+      else if (account.type === "expense") expenses += amount;
+    }
+
+    const netIncome = revenue - expenses;
+    const equity = baseEquity + cumulativeRevenue - cumulativeExpenses;
+    const netCash = operatingCash + investingCash + financingCash;
+    return {
+      label: month.label,
+      from: month.from.toISOString(),
+      to: month.to.toISOString(),
+      revenue,
+      expenses,
+      netIncome,
+      assets,
+      liabilities,
+      equity,
+      operatingCash,
+      investingCash,
+      financingCash,
+      netCash,
+      closingCash,
+    } satisfies FinancialTrendPoint;
+  });
+  return {
+    from: start.toISOString(),
+    to: end.toISOString(),
+    truncated: months.length > visible.length,
+    points,
+  };
+}
+
 // ─────────────────── Account activity (drill-through) ────────────────
 
 export type AccountActivityRow = {
@@ -385,11 +517,7 @@ export async function accountActivity(
   const opening = from
     ? signedFromTotals(
         account.type,
-        await aggregateLines(
-          companyId,
-          null,
-          new Date(startOfDay(from).getTime() - 1),
-        ),
+        await aggregateLines(companyId, null, new Date(startOfDay(from).getTime() - 1)),
         accountId,
       )
     : 0;
@@ -400,9 +528,7 @@ export async function accountActivity(
   });
   const fromMs = from ? startOfDay(from).getTime() : -Infinity;
   const toMs = to ? endOfDay(to).getTime() : Infinity;
-  const eligible = entries.filter(
-    (e) => e.date.getTime() >= fromMs && e.date.getTime() <= toMs,
-  );
+  const eligible = entries.filter((e) => e.date.getTime() >= fromMs && e.date.getTime() <= toMs);
   eligible.sort((a, b) => a.date.getTime() - b.date.getTime());
   const eligibleIds = eligible.map((e) => e.id);
   const lines = eligibleIds.length
@@ -427,9 +553,7 @@ export async function accountActivity(
     const entryLines = linesByEntry.get(entry.id) ?? [];
     for (const l of entryLines) {
       const debitNormal = account.type === "asset" || account.type === "expense";
-      const delta = debitNormal
-        ? l.debitCents - l.creditCents
-        : l.creditCents - l.debitCents;
+      const delta = debitNormal ? l.debitCents - l.creditCents : l.creditCents - l.debitCents;
       running += delta;
       rows.push({
         entryId: entry.id,
@@ -459,11 +583,7 @@ export async function accountActivity(
   };
 }
 
-function signedFromTotals(
-  type: AccountType,
-  totals: AccountTotals,
-  accountId: string,
-): number {
+function signedFromTotals(type: AccountType, totals: AccountTotals, accountId: string): number {
   const t = totals.get(accountId);
   if (!t) return 0;
   return signedBalance(type, t.debit, t.credit);
