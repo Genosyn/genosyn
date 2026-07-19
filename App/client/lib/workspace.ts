@@ -114,6 +114,9 @@ export const workspaceApi = {
   archiveChannel: (companyId: string, channelId: string) =>
     api.post(`${base(companyId)}/channels/${channelId}/archive`),
 
+  resetContext: (companyId: string, channelId: string) =>
+    api.post<WorkspaceMessage>(`${base(companyId)}/channels/${channelId}/context/reset`, {}),
+
   addMembers: (
     companyId: string,
     channelId: string,

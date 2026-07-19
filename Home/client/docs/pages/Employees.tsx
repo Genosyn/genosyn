@@ -172,7 +172,9 @@ export function Employees() {
       <UL>
         <LI>
           <Strong>Chat.</Strong> Free-form conversations with the employee.
-          Messages persist; action pills surface tool calls inline.
+          Messages persist; action pills surface tool calls inline. Type{" "}
+          <Code>/new</Code> to open a fresh context, or <Code>#</Code> and a
+          name to tag any company resource you can see.
         </LI>
         <LI>
           <Strong>Workspace.</Strong> File editor scoped to the employee&apos;s

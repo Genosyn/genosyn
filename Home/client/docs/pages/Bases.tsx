@@ -162,6 +162,11 @@ export function Bases() {
         attaching files. See <DocLink to="/docs/integrations" /> for how
         Grants work across products.
       </P>
+      <P>
+        The Base Assistant composer also accepts <Code>#</Code> resource tags,
+        so you can ask it to compare the current Base with a Project, Note,
+        Resource, Customer, or any other company row you can open.
+      </P>
       <Callout kind="info" title="Templates">
         New bases can start from a template — CRM, applicant tracking,
         content calendar, or project tracker — with tables, fields, and

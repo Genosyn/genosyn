@@ -66,6 +66,14 @@ import { useDialog } from "../components/ui/Dialog";
 import { useTasks } from "./TasksLayout";
 import { clsx } from "../components/ui/clsx";
 import { AsyncResourceTagPicker } from "../components/TagPicker";
+import { ChatMarkdown } from "../components/ChatMarkdown";
+import {
+  ChatResourceReference,
+  insertResourceReference,
+  ResourceReferencePicker,
+  resourceQueryAtCaret,
+  useResourceReferences,
+} from "../components/chat/ResourceReferencePicker";
 
 type ProjectTodos = { project: Project; todos: Todo[] };
 
@@ -1113,6 +1121,7 @@ export default function ProjectDetail({ company, me }: { company: Company; me: M
           employees={employees}
           members={members}
           companyId={company.id}
+          companySlug={company.slug}
           canEdit={canEdit}
           onClose={() => setPeekId(null)}
           onPatch={(patch) => patchTodo(peekTodo, patch)}
@@ -2022,6 +2031,7 @@ function TodoPeek({
   employees,
   members,
   companyId,
+  companySlug,
   canEdit,
   onClose,
   onPatch,
@@ -2036,6 +2046,7 @@ function TodoPeek({
   employees: Employee[];
   members: Member[];
   companyId: string;
+  companySlug: string;
   canEdit: boolean;
   onClose: () => void;
   onPatch: (patch: Partial<Todo>) => void;
@@ -2288,7 +2299,13 @@ function TodoPeek({
           />
         )}
 
-        <CommentThread todo={todo} employees={employees} companyId={companyId} canEdit={canEdit} />
+        <CommentThread
+          todo={todo}
+          employees={employees}
+          companyId={companyId}
+          companySlug={companySlug}
+          canEdit={canEdit}
+        />
       </div>
 
       <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 dark:border-slate-700">
@@ -3126,11 +3143,13 @@ function CommentThread({
   todo,
   employees,
   companyId,
+  companySlug,
   canEdit,
 }: {
   todo: Todo;
   employees: Employee[];
   companyId: string;
+  companySlug: string;
   canEdit: boolean;
 }) {
   const { toast, background } = useToast();
@@ -3138,6 +3157,14 @@ function CommentThread({
   const [body, setBody] = React.useState("");
   const [mentionId, setMentionId] = React.useState<string | null>(null);
   const scrollerRef = React.useRef<HTMLDivElement>(null);
+  const composerRef = React.useRef<HTMLTextAreaElement>(null);
+  const [resourceQuery, setResourceQuery] = React.useState<string | null>(null);
+  const [resourceStart, setResourceStart] = React.useState<number | null>(null);
+  const [resourceIndex, setResourceIndex] = React.useState(0);
+  const { references, loading: referencesLoading } = useResourceReferences(
+    companyId,
+    resourceQuery,
+  );
 
   const load = React.useCallback(async () => {
     try {
@@ -3227,6 +3254,32 @@ function CommentThread({
     );
   }
 
+  function refreshResourceState(value: string, caret: number) {
+    const match = resourceQueryAtCaret(value, caret);
+    setResourceQuery(match?.query ?? null);
+    setResourceStart(match?.start ?? null);
+    setResourceIndex(0);
+  }
+
+  function insertReference(reference: ChatResourceReference) {
+    const el = composerRef.current;
+    if (!el || resourceStart === null) return;
+    const inserted = insertResourceReference({
+      value: body,
+      caret: el.selectionStart ?? body.length,
+      start: resourceStart,
+      companySlug,
+      reference,
+    });
+    setBody(inserted.value);
+    setResourceQuery(null);
+    setResourceStart(null);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(inserted.caret, inserted.caret);
+    });
+  }
+
   function remove(c: TodoComment) {
     const originalIndex = comments?.findIndex((comment) => comment.id === c.id) ?? -1;
     setComments((current) => current?.filter((comment) => comment.id !== c.id) ?? current);
@@ -3281,11 +3334,39 @@ function CommentThread({
 
       {/* Posting a comment needs write access — the server 403s otherwise. */}
       {canEdit && (
-        <div className="mt-3 rounded-lg border border-slate-200 bg-white focus-within:border-indigo-400 dark:bg-slate-900 dark:border-slate-700">
+        <div className="relative mt-3 rounded-lg border border-slate-200 bg-white focus-within:border-indigo-400 dark:bg-slate-900 dark:border-slate-700">
           <textarea
+            ref={composerRef}
             value={body}
-            onChange={(e) => setBody(e.target.value)}
+            onChange={(e) => {
+              setBody(e.target.value);
+              refreshResourceState(e.target.value, e.target.selectionStart);
+            }}
+            onSelect={(e) =>
+              refreshResourceState(e.currentTarget.value, e.currentTarget.selectionStart)
+            }
             onKeyDown={(e) => {
+              if (resourceQuery !== null && references.length > 0) {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setResourceIndex((index) => (index + 1) % references.length);
+                  return;
+                }
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setResourceIndex((index) => (index - 1 + references.length) % references.length);
+                  return;
+                }
+                if (e.key === "Enter" || e.key === "Tab") {
+                  e.preventDefault();
+                  insertReference(references[resourceIndex] ?? references[0]);
+                  return;
+                }
+                if (e.key === "Escape") {
+                  setResourceQuery(null);
+                  return;
+                }
+              }
               if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
                 e.preventDefault();
                 submit(!!mentionId);
@@ -3295,8 +3376,21 @@ function CommentThread({
             rows={2}
             className="w-full resize-none rounded-t-lg bg-transparent px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
           />
+          {resourceQuery !== null && (
+            <ResourceReferencePicker
+              references={references}
+              loading={referencesLoading}
+              activeIndex={resourceIndex}
+              onHover={setResourceIndex}
+              onPick={insertReference}
+              className="absolute bottom-full left-2 right-2 z-20 mb-2"
+            />
+          )}
           <div className="flex items-center gap-1 border-t border-slate-100 px-2 py-1.5 dark:border-slate-800">
             <MentionPicker value={mentionId} employees={employees} onChange={setMentionId} />
+            <span className="text-[11px] text-slate-400 dark:text-slate-500">
+              <span className="font-mono">#</span> resource
+            </span>
             <div className="flex-1" />
             {mentionEmp ? (
               <Button
@@ -3377,8 +3471,8 @@ function CommentRow({
             Thinking…
           </div>
         ) : (
-          <div className="mt-0.5 whitespace-pre-wrap break-words text-sm text-slate-800 dark:text-slate-100">
-            {comment.body}
+          <div className="mt-0.5 break-words text-sm text-slate-800 dark:text-slate-100">
+            <ChatMarkdown content={comment.body} />
           </div>
         )}
       </div>

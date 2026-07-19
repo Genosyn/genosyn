@@ -24,6 +24,7 @@ import { registerRoutine } from "../services/cron.js";
 import { deleteEmployeeConversations } from "./employeeSurface.js";
 import { recordAudit } from "../services/audit.js";
 import { findTemplate } from "../services/templates.js";
+import { archiveEmployeeDirectMessages } from "../services/workspaceChat.js";
 import {
   avatarAbsPath,
   avatarUploadMiddleware,
@@ -362,6 +363,7 @@ employeesRouter.delete("/:eid", async (req, res) => {
   await AppDataSource.getRepository(AIModel).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(McpServer).delete({ employeeId: emp.id });
   await deleteEmployeeConversations(emp.id);
+  await archiveEmployeeDirectMessages(emp.id);
   await AppDataSource.getRepository(JournalEntry).delete({ employeeId: emp.id });
   // Access entries are deleted, not nulled — a row whose employee is gone
   // matches nobody and would linger in the project's Access list.
@@ -464,4 +466,3 @@ employeesRouter.delete("/:eid/avatar", async (req, res) => {
   removeAvatarFile(previous);
   res.json({ ok: true });
 });
-

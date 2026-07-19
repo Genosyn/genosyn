@@ -3,6 +3,14 @@ import { Sparkles, Send, X, Bot, AlertTriangle } from "lucide-react";
 import { api, Base, BaseAssistantResult, BaseTable } from "../lib/api";
 import { Spinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
+import { ChatMarkdown } from "../components/ChatMarkdown";
+import {
+  ChatResourceReference,
+  insertResourceReference,
+  ResourceReferencePicker,
+  resourceQueryAtCaret,
+  useResourceReferences,
+} from "../components/chat/ResourceReferencePicker";
 
 type Message =
   | { role: "user"; text: string }
@@ -22,11 +30,13 @@ type Message =
  */
 export function BaseAssistant({
   companyId,
+  companySlug,
   base,
   currentTable,
   onClose,
 }: {
   companyId: string;
+  companySlug: string;
   base: Base;
   currentTable: BaseTable | null;
   onClose: () => void;
@@ -34,11 +44,25 @@ export function BaseAssistant({
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [draft, setDraft] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [resourceQuery, setResourceQuery] = React.useState<string | null>(null);
+  const [resourceStart, setResourceStart] = React.useState<number | null>(null);
+  const [resourceIndex, setResourceIndex] = React.useState(0);
   const scrollerRef = React.useRef<HTMLDivElement>(null);
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const { references, loading: referencesLoading } = useResourceReferences(
+    companyId,
+    resourceQuery,
+  );
 
   async function send() {
     const text = draft.trim();
     if (!text || busy) return;
+    if (text === "/new") {
+      setMessages([]);
+      setDraft("");
+      setResourceQuery(null);
+      return;
+    }
     setBusy(true);
     const userMsg: Message = { role: "user", text };
     setMessages((prev) => [...prev, userMsg]);
@@ -78,6 +102,32 @@ export function BaseAssistant({
         });
       });
     }
+  }
+
+  function refreshResourceState(value: string, caret: number) {
+    const match = resourceQueryAtCaret(value, caret);
+    setResourceQuery(match?.query ?? null);
+    setResourceStart(match?.start ?? null);
+    setResourceIndex(0);
+  }
+
+  function insertReference(reference: ChatResourceReference) {
+    const el = textareaRef.current;
+    if (!el || resourceStart === null) return;
+    const inserted = insertResourceReference({
+      value: draft,
+      caret: el.selectionStart ?? draft.length,
+      start: resourceStart,
+      companySlug,
+      reference,
+    });
+    setDraft(inserted.value);
+    setResourceQuery(null);
+    setResourceStart(null);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(inserted.caret, inserted.caret);
+    });
   }
 
   return (
@@ -124,11 +174,39 @@ export function BaseAssistant({
       </div>
 
       <div className="border-t border-slate-200 p-3 dark:border-slate-700">
-        <div className="flex items-end gap-2 rounded-lg border border-slate-200 bg-white focus-within:border-indigo-400 dark:border-slate-700 dark:bg-slate-900">
+        <div className="relative flex items-end gap-2 rounded-lg border border-slate-200 bg-white focus-within:border-indigo-400 dark:border-slate-700 dark:bg-slate-900">
           <textarea
+            ref={textareaRef}
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              refreshResourceState(e.target.value, e.target.selectionStart);
+            }}
+            onSelect={(e) =>
+              refreshResourceState(e.currentTarget.value, e.currentTarget.selectionStart)
+            }
             onKeyDown={(e) => {
+              if (resourceQuery !== null && references.length > 0) {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setResourceIndex((index) => (index + 1) % references.length);
+                  return;
+                }
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setResourceIndex((index) => (index - 1 + references.length) % references.length);
+                  return;
+                }
+                if (e.key === "Enter" || e.key === "Tab") {
+                  e.preventDefault();
+                  insertReference(references[resourceIndex] ?? references[0]);
+                  return;
+                }
+                if (e.key === "Escape") {
+                  setResourceQuery(null);
+                  return;
+                }
+              }
               if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
                 e.preventDefault();
                 send();
@@ -146,6 +224,20 @@ export function BaseAssistant({
           >
             <Send size={14} />
           </button>
+          {resourceQuery !== null && (
+            <ResourceReferencePicker
+              references={references}
+              loading={referencesLoading}
+              activeIndex={resourceIndex}
+              onHover={setResourceIndex}
+              onPick={insertReference}
+              className="absolute bottom-full left-2 right-2 z-20 mb-2"
+            />
+          )}
+        </div>
+        <div className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+          <span className="font-mono">#</span> resource · <span className="font-mono">/new</span>{" "}
+          clear chat
         </div>
       </div>
     </aside>
@@ -187,8 +279,8 @@ function MessageRow({ message }: { message: Message }) {
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-lg bg-indigo-600 px-3 py-2 text-sm text-white dark:bg-indigo-500">
-          {message.text}
+        <div className="max-w-[85%] rounded-lg bg-indigo-600 px-3 py-2 text-sm text-white dark:bg-indigo-500 [&_a]:text-white [&_a]:underline">
+          <ChatMarkdown content={message.text} />
         </div>
       </div>
     );
@@ -221,7 +313,7 @@ function MessageRow({ message }: { message: Message }) {
                 : "bg-slate-50 text-slate-800 dark:bg-slate-800 dark:text-slate-100",
           )}
         >
-          {message.text}
+          {errored || skipped ? message.text : <ChatMarkdown content={message.text} />}
         </div>
       </div>
     </div>

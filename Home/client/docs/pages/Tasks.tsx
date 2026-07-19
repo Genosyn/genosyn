@@ -57,7 +57,7 @@ export function Tasks() {
           },
           {
             term: "Discussion",
-            def: "A comment thread on every todo. Mention an AI employee and it reads the todo plus the thread and replies inline.",
+            def: "A comment thread on every todo. Mention an AI employee and it reads the todo plus the thread and replies inline; type # to tag another company resource in the brief.",
           },
         ]}
       />

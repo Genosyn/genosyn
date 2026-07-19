@@ -19,6 +19,7 @@ import {
   postMessage,
   removeChannelMember,
   renameChannel,
+  resetDirectMessageContext,
   softDeleteMessage,
   toggleReaction,
   userHasChannelAccess,
@@ -185,6 +186,27 @@ workspaceRouter.post("/channels/:channelId/archive", async (req, res) => {
   await archiveChannel(req.params.channelId);
   res.json({ ok: true });
 });
+
+const resetContextSchema = z.object({}).strict();
+workspaceRouter.post(
+  "/channels/:channelId/context/reset",
+  validateBody(resetContextSchema),
+  async (req, res) => {
+    const co = companyOf(req as unknown as { company?: Company });
+    try {
+      const message = await resetDirectMessageContext({
+        channelId: req.params.channelId,
+        companyId: co.id,
+        userId: req.userId!,
+      });
+      res.json(message);
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : "Context reset failed",
+      });
+    }
+  },
+);
 
 const addMembersSchema = z.object({
   userIds: z.array(z.string().uuid()).optional().default([]),

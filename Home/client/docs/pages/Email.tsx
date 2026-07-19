@@ -112,7 +112,9 @@ export function Email() {
         you want directly — &ldquo;summarize this email&rdquo;, &ldquo;draft a reply&rdquo;,
         &ldquo;make this draft shorter and friendlier&rdquo;, or &ldquo;label and archive
         this&rdquo;. Type <Code>@</Code> when you want to choose a particular AI employee. The
-        employee you tagged stays on that email until you tag somebody else.
+        employee you tagged stays on that email until you tag somebody else. Type{" "}
+        <Code>#</Code> to attach another company resource to the instruction, or{" "}
+        <Code>/new</Code> by itself to clear this email&apos;s AI context.
       </P>
       <P>
         Every email has an independent chat, including each item in the Drafts review queue, so

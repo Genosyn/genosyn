@@ -32,6 +32,13 @@ import { useDialog } from "../components/ui/Dialog";
 import { Spinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
 import { useToast } from "../components/ui/Toast";
+import {
+  ChatResourceReference,
+  insertResourceReference,
+  ResourceReferencePicker,
+  resourceQueryAtCaret,
+  useResourceReferences,
+} from "../components/chat/ResourceReferencePicker";
 
 /**
  * The per-email AI chat — a rail beside one opened mail thread where any AI
@@ -85,6 +92,13 @@ export function MailAssistant({
   // ── mention picker state ──
   const [mentionQuery, setMentionQuery] = React.useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = React.useState(0);
+  const [resourceQuery, setResourceQuery] = React.useState<string | null>(null);
+  const [resourceStart, setResourceStart] = React.useState<number | null>(null);
+  const [resourceIndex, setResourceIndex] = React.useState(0);
+  const { references, loading: referencesLoading } = useResourceReferences(
+    company.id,
+    resourceQuery,
+  );
 
   React.useEffect(() => {
     let cancelled = false;
@@ -92,6 +106,8 @@ export function MailAssistant({
     setTarget(null);
     setDraft("");
     setMentionQuery(null);
+    setResourceQuery(null);
+    setResourceStart(null);
     setStreaming(null);
     setBusy(false);
     mailApi
@@ -142,9 +158,24 @@ export function MailAssistant({
     async (text: string) => {
       const message = text.trim();
       if (!message || busy) return;
+      if (message === "/new") {
+        try {
+          await mailApi.assistantClear(company.id, account.id, threadId);
+          setMessages([]);
+          setTarget(null);
+          setDraft("");
+          setMentionQuery(null);
+          setResourceQuery(null);
+          toast("New context started.", "success");
+        } catch (err) {
+          toast((err as Error).message, "error");
+        }
+        return;
+      }
       setBusy(true);
       setDraft("");
       setMentionQuery(null);
+      setResourceQuery(null);
       // Optimistic bubble; swapped for the persisted row on the `user` event.
       const temp: MailAssistantMessage = {
         id: `temp-${Date.now()}`,
@@ -223,7 +254,7 @@ export function MailAssistant({
         scrollToBottom();
       }
     },
-    [busy, company.id, account.id, threadId, focusedMessageId, target, scrollToBottom],
+    [busy, company.id, account.id, threadId, focusedMessageId, target, scrollToBottom, toast],
   );
 
   const markExecuted = React.useCallback((updated: MailAssistantMessage) => {
@@ -251,8 +282,12 @@ export function MailAssistant({
   const refreshMentionState = (value: string, caret: number) => {
     const upToCaret = value.slice(0, caret);
     const match = /(^|[\s(])@([a-z0-9-]*)$/i.exec(upToCaret);
+    const resource = resourceQueryAtCaret(value, caret);
     setMentionQuery(match ? match[2] : null);
+    setResourceQuery(resource?.query ?? null);
+    setResourceStart(resource?.start ?? null);
     setMentionIndex(0);
+    setResourceIndex(0);
   };
 
   const insertMention = (emp: MailAssistantRosterEntry) => {
@@ -277,7 +312,48 @@ export function MailAssistant({
     });
   };
 
+  const insertReference = (reference: ChatResourceReference) => {
+    const el = textareaRef.current;
+    if (!el || resourceStart === null) return;
+    const inserted = insertResourceReference({
+      value: draft,
+      caret: el.selectionStart ?? draft.length,
+      start: resourceStart,
+      companySlug: company.slug,
+      reference,
+    });
+    setDraft(inserted.value);
+    setMentionQuery(null);
+    setResourceQuery(null);
+    setResourceStart(null);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(inserted.caret, inserted.caret);
+    });
+  };
+
   const onComposerKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (resourceQuery !== null && references.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setResourceIndex((index) => (index + 1) % references.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setResourceIndex((index) => (index - 1 + references.length) % references.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        insertReference(references[resourceIndex] ?? references[0]);
+        return;
+      }
+      if (e.key === "Escape") {
+        setResourceQuery(null);
+        return;
+      }
+    }
     if (mentionQuery !== null && mentionCandidates.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -398,7 +474,7 @@ export function MailAssistant({
 
       {/* Composer */}
       <div className="relative border-t border-slate-200 p-3 dark:border-slate-800">
-        {mentionQuery !== null && mentionCandidates.length > 0 && (
+        {mentionQuery !== null && resourceQuery === null && mentionCandidates.length > 0 && (
           <div className="absolute bottom-full left-3 right-3 z-10 mb-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
             {mentionCandidates.map((r, i) => (
               <button
@@ -437,6 +513,16 @@ export function MailAssistant({
             ))}
           </div>
         )}
+        {resourceQuery !== null && (
+          <ResourceReferencePicker
+            references={references}
+            loading={referencesLoading}
+            activeIndex={resourceIndex}
+            onHover={setResourceIndex}
+            onPick={insertReference}
+            className="absolute bottom-full left-3 right-3 z-10 mb-1"
+          />
+        )}
         <div className="flex items-end gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 focus-within:border-indigo-400 dark:border-slate-700 dark:bg-slate-900">
           <textarea
             ref={textareaRef}
@@ -453,7 +539,10 @@ export function MailAssistant({
               const el = e.currentTarget;
               refreshMentionState(el.value, el.selectionStart);
             }}
-            onBlur={() => setMentionQuery(null)}
+            onBlur={() => {
+              setMentionQuery(null);
+              setResourceQuery(null);
+            }}
             onKeyDown={onComposerKeyDown}
             className="max-h-40 min-h-[2.5rem] flex-1 resize-none bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400 dark:text-slate-100"
           />
@@ -465,6 +554,10 @@ export function MailAssistant({
           >
             <Send size={14} />
           </button>
+        </div>
+        <div className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+          <span className="font-mono">@</span> AI employee · <span className="font-mono">#</span>{" "}
+          resource · <span className="font-mono">/new</span> new context
         </div>
       </div>
     </div>
@@ -551,8 +644,8 @@ function MessageRow({
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-lg bg-indigo-600 px-3 py-2 text-sm text-white">
-          {message.content}
+        <div className="max-w-[85%] break-words rounded-lg bg-indigo-600 px-3 py-2 text-sm text-white [&_a]:text-white [&_a]:underline">
+          <ChatMarkdown content={message.content} />
         </div>
       </div>
     );

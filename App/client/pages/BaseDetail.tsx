@@ -455,6 +455,7 @@ export default function BaseDetail({ company }: { company: Company }) {
       {showAssistant && (
         <BaseAssistant
           companyId={company.id}
+          companySlug={company.slug}
           base={base}
           currentTable={currentTable}
           onClose={() => setShowAssistant(false)}

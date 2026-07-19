@@ -319,8 +319,32 @@ export async function archiveChannel(channelId: string): Promise<void> {
   const { channels } = repos();
   const c = await channels.findOneBy({ id: channelId });
   if (!c) return;
+  if (c.archivedAt) return;
   await channels.update({ id: channelId }, { archivedAt: new Date() });
   broadcastToCompany(c.companyId, { type: "channel.archive", channelId });
+}
+
+/**
+ * Hide every live DM that contains an AI employee before that employee is
+ * deleted. The membership rows intentionally remain so the archived history
+ * stays internally consistent; without this step the live sidebar hydrates a
+ * missing counterparty and renders the orphan as "(empty)".
+ */
+export async function archiveEmployeeDirectMessages(employeeId: string): Promise<void> {
+  const { channels, members } = repos();
+  const memberships = await members.find({
+    where: { memberKind: "ai", employeeId },
+  });
+  if (memberships.length === 0) return;
+  const dms = await channels
+    .createQueryBuilder("c")
+    .where("c.id IN (:...channelIds)", {
+      channelIds: memberships.map((membership) => membership.channelId),
+    })
+    .andWhere("c.kind = 'dm'")
+    .andWhere("c.archivedAt IS NULL")
+    .getMany();
+  for (const dm of dms) await archiveChannel(dm.id);
 }
 
 /**
@@ -484,6 +508,60 @@ export async function postMessage(params: {
     });
   }
 
+  return summary;
+}
+
+/** Marker recognized by `historyForEmployee`; its prose is user-facing. */
+const CONTEXT_RESET_PREFIX = "New context started by ";
+
+function isContextResetMessage(message: ChannelMessage): boolean {
+  return message.authorKind === "system" && message.content.startsWith(CONTEXT_RESET_PREFIX);
+}
+
+/**
+ * Persist a DM context boundary without deleting its visible history. Future
+ * AI replies replay only the messages after this marker, while humans can
+ * still scroll back through the earlier conversation.
+ */
+export async function resetDirectMessageContext(params: {
+  channelId: string;
+  companyId: string;
+  userId: string;
+}): Promise<MessageSummary> {
+  const { channels, messages } = repos();
+  const channel = await channels.findOneBy({
+    id: params.channelId,
+    companyId: params.companyId,
+  });
+  if (!channel || channel.archivedAt) throw new Error("DM not found");
+  if (channel.kind !== "dm") {
+    throw new Error("New context is available in direct messages only");
+  }
+  const member = await repos().members.findOneBy({
+    channelId: channel.id,
+    userId: params.userId,
+  });
+  if (!member) throw new Error("DM not found");
+  const label = await userLabelFor(params.userId);
+  const message = await messages.save(
+    messages.create({
+      channelId: channel.id,
+      authorKind: "system",
+      authorUserId: null,
+      authorEmployeeId: null,
+      content: `${CONTEXT_RESET_PREFIX}${label}.`,
+      parentMessageId: null,
+      editedAt: null,
+      deletedAt: null,
+    }),
+  );
+  await channels.update({ id: channel.id }, { lastMessageAt: message.createdAt });
+  const summary = await hydrateMessage(message, params.userId);
+  broadcastToCompany(params.companyId, {
+    type: "message.new",
+    channelId: channel.id,
+    message: summary,
+  });
   return summary;
 }
 
@@ -960,8 +1038,20 @@ async function handleMentions(args: {
       .getMany();
     recentRows.reverse();
 
+    // `/new` leaves a visible system marker in the DM but deliberately keeps
+    // older messages out of the model replay. If the marker is older than the
+    // 20-message window, the query has already excluded the old context.
+    let resetIndex = -1;
+    for (let i = recentRows.length - 1; i >= 0; i -= 1) {
+      if (isContextResetMessage(recentRows[i])) {
+        resetIndex = i;
+        break;
+      }
+    }
+    const replayRows = resetIndex >= 0 ? recentRows.slice(resetIndex + 1) : recentRows;
+
     const history: ChatTurn[] = await historyForEmployee(
-      recentRows,
+      replayRows,
       emp.id,
       args.channel.id,
       args.message.id,

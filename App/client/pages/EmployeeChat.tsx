@@ -29,6 +29,13 @@ import { ChatMarkdown } from "../components/ChatMarkdown";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { BrowserLivePanel } from "../components/BrowserLivePanel";
+import {
+  ChatResourceReference,
+  insertResourceReference,
+  ResourceReferencePicker,
+  resourceQueryAtCaret,
+  useResourceReferences,
+} from "../components/chat/ResourceReferencePicker";
 import type { EmployeeOutletCtx } from "./EmployeeLayout";
 
 /**
@@ -278,6 +285,8 @@ export default function EmployeeChat() {
           onSubmit={() => send()}
           disabled={sending}
           empName={emp.name}
+          companyId={company.id}
+          companySlug={company.slug}
           attachments={pendingAttachments}
           onUpload={uploadAttachment}
           onRemoveAttachment={removePendingAttachment}
@@ -574,8 +583,8 @@ function TurnBubble({
       <div className="flex justify-end">
         <div className="group flex max-w-[85%] flex-col items-end gap-1.5 sm:max-w-[75%]">
           {message.content.trim() && (
-            <div className="rounded-2xl rounded-br-md bg-indigo-600 px-3.5 py-2 text-sm leading-relaxed text-white shadow-sm">
-              <div className="whitespace-pre-wrap break-words">{message.content}</div>
+            <div className="rounded-2xl rounded-br-md bg-indigo-600 px-3.5 py-2 text-sm leading-relaxed text-white shadow-sm [&_a]:text-white [&_a]:underline">
+              <ChatMarkdown content={message.content} />
             </div>
           )}
           {attachments.length > 0 && (
@@ -781,6 +790,8 @@ function Composer({
   onSubmit,
   disabled,
   empName,
+  companyId,
+  companySlug,
   attachments,
   onUpload,
   onRemoveAttachment,
@@ -791,6 +802,8 @@ function Composer({
   onSubmit: () => void;
   disabled: boolean;
   empName: string;
+  companyId: string;
+  companySlug: string;
   attachments: ChatAttachment[];
   onUpload: (file: File) => Promise<void>;
   onRemoveAttachment: (id: string) => void;
@@ -799,6 +812,39 @@ function Composer({
     (value.trim().length > 0 || attachments.length > 0) && !disabled;
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = React.useState(false);
+  const [resourceQuery, setResourceQuery] = React.useState<string | null>(null);
+  const [resourceStart, setResourceStart] = React.useState<number | null>(null);
+  const [resourceIndex, setResourceIndex] = React.useState(0);
+  const { references, loading: referencesLoading } = useResourceReferences(
+    companyId,
+    resourceQuery,
+  );
+
+  function refreshResourceState(next: string, caret: number) {
+    const match = resourceQueryAtCaret(next, caret);
+    setResourceQuery(match?.query ?? null);
+    setResourceStart(match?.start ?? null);
+    setResourceIndex(0);
+  }
+
+  function pickResource(reference: ChatResourceReference) {
+    const el = inputRef.current;
+    if (!el || resourceStart === null) return;
+    const inserted = insertResourceReference({
+      value,
+      caret: el.selectionStart ?? value.length,
+      start: resourceStart,
+      companySlug,
+      reference,
+    });
+    onChange(inserted.value);
+    setResourceQuery(null);
+    setResourceStart(null);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(inserted.caret, inserted.caret);
+    });
+  }
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -847,7 +893,7 @@ function Composer({
       )}
       <div
         className={
-          "flex items-end gap-2 rounded-2xl border bg-white px-3 py-2 transition dark:bg-slate-900 " +
+          "relative flex items-end gap-2 rounded-2xl border bg-white px-3 py-2 transition dark:bg-slate-900 " +
           "border-slate-300 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 " +
           "dark:border-slate-700 dark:focus-within:border-indigo-500"
         }
@@ -872,8 +918,36 @@ function Composer({
         <textarea
           ref={inputRef}
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            onChange(e.target.value);
+            refreshResourceState(e.target.value, e.target.selectionStart);
+          }}
+          onSelect={(e) =>
+            refreshResourceState(e.currentTarget.value, e.currentTarget.selectionStart)
+          }
           onKeyDown={(e) => {
+            if (resourceQuery !== null && references.length > 0) {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setResourceIndex((index) => (index + 1) % references.length);
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setResourceIndex((index) => (index - 1 + references.length) % references.length);
+                return;
+              }
+              if (e.key === "Enter" || e.key === "Tab") {
+                e.preventDefault();
+                pickResource(references[resourceIndex] ?? references[0]);
+                return;
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setResourceQuery(null);
+                return;
+              }
+            }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               onSubmit();
@@ -898,6 +972,16 @@ function Composer({
         >
           <Send size={14} />
         </button>
+        {resourceQuery !== null && (
+          <ResourceReferencePicker
+            references={references}
+            loading={referencesLoading}
+            activeIndex={resourceIndex}
+            onHover={setResourceIndex}
+            onPick={pickResource}
+            className="absolute bottom-full left-10 right-10 z-20 mb-2"
+          />
+        )}
       </div>
       <div className="mt-1.5 flex items-center justify-between px-1 text-[11px] text-slate-400 dark:text-slate-500">
         <span>
@@ -909,6 +993,9 @@ function Composer({
             Shift+Enter
           </kbd>{" "}
           for newline
+          {" · "}
+          <span className="font-mono">#</span> resources · <span className="font-mono">/new</span>{" "}
+          new context
         </span>
         {uploading ? (
           <span className="italic">Uploading…</span>

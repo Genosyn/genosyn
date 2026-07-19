@@ -112,6 +112,12 @@ export const DOCS_NAV: DocsSection[] = [
     label: "Operations",
     pages: [
       {
+        path: "/docs/workspace-chat",
+        title: "Workspace chat",
+        blurb:
+          "Channels and DMs with AI replies, context resets, and company resource tags.",
+      },
+      {
         path: "/docs/email",
         title: "Email",
         blurb:

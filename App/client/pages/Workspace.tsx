@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import {
+  Archive,
   AtSign,
   Bot,
   CheckCheck,
@@ -41,6 +42,13 @@ import { Modal } from "../components/ui/Modal";
 import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
+import {
+  ChatResourceReference,
+  insertResourceReference,
+  ResourceReferencePicker,
+  resourceQueryAtCaret,
+  useResourceReferences,
+} from "../components/chat/ResourceReferencePicker";
 
 /**
  * Slack-style workspace chat:
@@ -364,6 +372,19 @@ export default function Workspace({ company, me }: WorkspaceProps) {
         });
         return;
       }
+      case "channel.archive": {
+        const remaining = (channels ?? []).filter((channel) => channel.id !== ev.channelId);
+        setChannels(remaining);
+        if (activeChannelIdRef.current === ev.channelId) {
+          const next = remaining[0] ?? null;
+          setActiveChannelId(next?.id ?? null);
+          navigate(
+            next ? `/c/${company.slug}/workspace/${next.id}` : `/c/${company.slug}/workspace`,
+            { replace: true },
+          );
+        }
+        return;
+      }
       default:
         return;
     }
@@ -424,6 +445,25 @@ export default function Workspace({ company, me }: WorkspaceProps) {
     navigate(`/c/${company.slug}/workspace/${id}`);
   }
 
+  async function archiveWorkspaceChannel(channelId: string) {
+    try {
+      await workspaceApi.archiveChannel(company.id, channelId);
+      const remaining = (channels ?? []).filter((channel) => channel.id !== channelId);
+      setChannels(remaining);
+      if (activeChannelIdRef.current === channelId) {
+        const next = remaining[0] ?? null;
+        setActiveChannelId(next?.id ?? null);
+        navigate(
+          next ? `/c/${company.slug}/workspace/${next.id}` : `/c/${company.slug}/workspace`,
+          { replace: true },
+        );
+      }
+      toast("Conversation archived.", "success");
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
+
   const activeChannel = channels?.find((c) => c.id === activeChannelId) ?? null;
 
   // ──────────────── Layout ─────────────────────────────────────────────
@@ -439,6 +479,7 @@ export default function Workspace({ company, me }: WorkspaceProps) {
         onSelect={selectChannel}
         onNewChannel={() => setShowNewChannel(true)}
         onNewDM={() => setShowNewDM(true)}
+        onArchive={archiveWorkspaceChannel}
       />
       <main className="flex min-w-0 flex-1 flex-col bg-white dark:bg-slate-950">
         {activeChannel ? (
@@ -457,6 +498,7 @@ export default function Workspace({ company, me }: WorkspaceProps) {
                 prev ? prev.map((c) => (c.id === updated.id ? updated : c)) : prev,
               );
             }}
+            onArchive={() => archiveWorkspaceChannel(activeChannel.id)}
           />
         ) : (
           <EmptyWorkspace
@@ -507,6 +549,7 @@ function WorkspaceSidebar({
   onSelect,
   onNewChannel,
   onNewDM,
+  onArchive,
 }: {
   me: Me;
   channels: WorkspaceChannel[] | null;
@@ -516,6 +559,7 @@ function WorkspaceSidebar({
   onSelect: (id: string) => void;
   onNewChannel: () => void;
   onNewDM: () => void;
+  onArchive: (id: string) => void;
 }) {
   const publicChannels = (channels ?? []).filter((c) => c.kind === "public");
   const privateChannels = (channels ?? []).filter((c) => c.kind === "private");
@@ -575,6 +619,16 @@ function WorkspaceSidebar({
               active={c.id === activeChannelId}
               unread={c.unreadCount}
               onClick={() => onSelect(c.id)}
+              action={
+                <button
+                  onClick={() => onArchive(c.id)}
+                  className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                  title="Archive direct message"
+                  aria-label={`Archive direct message with ${other?.name ?? "former employee"}`}
+                >
+                  <Archive size={12} />
+                </button>
+              }
             />
           );
         })}
@@ -633,6 +687,7 @@ function ChannelRow({
   active,
   unread,
   right,
+  action,
   onClick,
 }: {
   icon: React.ReactNode;
@@ -640,6 +695,7 @@ function ChannelRow({
   active?: boolean;
   unread?: number;
   right?: React.ReactNode;
+  action?: React.ReactNode;
   onClick: () => void;
 }) {
   const unreadBadge =
@@ -651,10 +707,9 @@ function ChannelRow({
       <span className="ml-auto">{right}</span>
     ) : null;
   return (
-    <button
-      onClick={onClick}
+    <div
       className={
-        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm " +
+        "group flex w-full items-center rounded-md text-sm " +
         (active
           ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
           : unread && unread > 0
@@ -662,10 +717,16 @@ function ChannelRow({
             : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800")
       }
     >
-      <span className="text-slate-400 dark:text-slate-500">{icon}</span>
-      <span className="min-w-0 flex-1 truncate text-left">{label}</span>
-      {unreadBadge}
-    </button>
+      <button
+        onClick={onClick}
+        className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left"
+      >
+        <span className="text-slate-400 dark:text-slate-500">{icon}</span>
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        {unreadBadge}
+      </button>
+      {action && <span className="pr-1">{action}</span>}
+    </div>
   );
 }
 
@@ -697,6 +758,7 @@ function ChannelView({
   typing,
   onAttachmentUrl,
   onChannelUpdated,
+  onArchive,
 }: {
   company: Company;
   me: Me;
@@ -707,6 +769,7 @@ function ChannelView({
   typing: { kind: "user" | "ai"; id: string; name: string; until: number }[];
   onAttachmentUrl: (id: string) => string;
   onChannelUpdated: (c: WorkspaceChannel) => void;
+  onArchive: () => void;
 }) {
   const endRef = React.useRef<HTMLDivElement | null>(null);
   const [showMembers, setShowMembers] = React.useState(false);
@@ -735,7 +798,16 @@ function ChannelView({
             </div>
           )}
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-1">
+          {channel.kind === "dm" && (
+            <button
+              onClick={onArchive}
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+              title="Archive direct message"
+            >
+              <Archive size={12} /> Archive
+            </button>
+          )}
           <button
             onClick={() => setShowMembers(true)}
             className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
@@ -1392,15 +1464,23 @@ function Composer({
   const [mentionOpen, setMentionOpen] = React.useState(false);
   const [mentionQuery, setMentionQuery] = React.useState("");
   const [mentionIndex, setMentionIndex] = React.useState(0);
+  const [resourceQuery, setResourceQuery] = React.useState<string | null>(null);
+  const [resourceStart, setResourceStart] = React.useState<number | null>(null);
   const fileRef = React.useRef<HTMLInputElement | null>(null);
   const textRef = React.useRef<HTMLTextAreaElement | null>(null);
   const { toast } = useToast();
+  const { references, loading: referencesLoading } = useResourceReferences(
+    company.id,
+    resourceQuery,
+  );
 
   // Reset the draft when the active channel changes — prevents leaking a
   // half-written message into the next room.
   React.useEffect(() => {
     setDraft("");
     setAttachments([]);
+    setResourceQuery(null);
+    setResourceStart(null);
   }, [channel.id]);
 
   // Drive the textarea height from the rendered value rather than from the
@@ -1425,6 +1505,14 @@ function Composer({
     if (!trimmed && attachments.length === 0) return;
     setSending(true);
     try {
+      if (channel.kind === "dm" && trimmed === "/new" && attachments.length === 0) {
+        await workspaceApi.resetContext(company.id, channel.id);
+        setDraft("");
+        setMentionOpen(false);
+        setResourceQuery(null);
+        toast("New context started.", "success");
+        return;
+      }
       await workspaceApi.sendMessage(company.id, channel.id, {
         content: draft,
         attachmentIds: attachments.map((a) => a.id),
@@ -1465,6 +1553,7 @@ function Composer({
     const caret = el.selectionStart ?? next.length;
     const head = next.slice(0, caret);
     const m = head.match(/([@#])([a-z0-9/_-]*)$/i);
+    const resource = resourceQueryAtCaret(next, caret);
     if (m) {
       setMentionOpen(true);
       setMentionPrefix(m[1] as "@" | "#");
@@ -1474,6 +1563,8 @@ function Composer({
       setMentionOpen(false);
       setMentionPrefix(null);
     }
+    setResourceQuery(resource?.query ?? null);
+    setResourceStart(resource?.start ?? null);
   }
 
   function insertMention(handle: string) {
@@ -1489,6 +1580,28 @@ function Composer({
       el.focus();
       const pos = replaced.length;
       el.setSelectionRange(pos, pos);
+    });
+  }
+
+  function insertReference(reference: ChatResourceReference) {
+    const el = textRef.current;
+    if (!el || resourceStart === null) return;
+    const caret = el.selectionStart ?? draft.length;
+    const inserted = insertResourceReference({
+      value: draft,
+      caret,
+      start: resourceStart,
+      companySlug: company.slug,
+      reference,
+    });
+    setDraft(inserted.value);
+    setMentionOpen(false);
+    setResourceQuery(null);
+    setResourceStart(null);
+    setMentionIndex(0);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(inserted.caret, inserted.caret);
     });
   }
 
@@ -1515,12 +1628,13 @@ function Composer({
   // shrinks (e.g. the user keeps typing and narrows the matches).
   React.useEffect(() => {
     setMentionIndex((i) => {
-      if (mentionCandidates.length === 0) return 0;
-      if (i >= mentionCandidates.length) return mentionCandidates.length - 1;
+      const length = references.length || mentionCandidates.length;
+      if (length === 0) return 0;
+      if (i >= length) return length - 1;
       if (i < 0) return 0;
       return i;
     });
-  }, [mentionCandidates.length]);
+  }, [mentionCandidates.length, references.length]);
 
   return (
     <div className="shrink-0 border-t border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
@@ -1567,6 +1681,28 @@ function Composer({
           value={draft}
           onChange={(e) => updateDraft(e.target.value)}
           onKeyDown={(e) => {
+            if (resourceQuery !== null && references.length > 0) {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setMentionIndex((i) => (i + 1) % references.length);
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setMentionIndex((i) => (i - 1 + references.length) % references.length);
+                return;
+              }
+              if (e.key === "Enter" || e.key === "Tab") {
+                e.preventDefault();
+                insertReference(references[mentionIndex] ?? references[0]);
+                return;
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setResourceQuery(null);
+                return;
+              }
+            }
             if (mentionOpen && mentionCandidates.length > 0) {
               if (e.key === "ArrowDown") {
                 e.preventDefault();
@@ -1648,7 +1784,9 @@ function Composer({
           Send
         </Button>
 
-        {mentionOpen && mentionCandidates.length > 0 && (
+        {mentionOpen &&
+          mentionCandidates.length > 0 &&
+          (mentionPrefix === "@" || (!referencesLoading && references.length === 0)) && (
           <div className="absolute bottom-full left-12 z-20 mb-2 w-80 rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
             <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
               {mentionPrefix === "@" ? "People" : "Resources"}
@@ -1702,9 +1840,24 @@ function Composer({
             </div>
           </div>
         )}
+        {resourceQuery !== null && (referencesLoading || references.length > 0) && (
+          <ResourceReferencePicker
+            references={references}
+            loading={referencesLoading}
+            activeIndex={mentionIndex}
+            onHover={setMentionIndex}
+            onPick={insertReference}
+            className="absolute bottom-full left-12 z-20 mb-2 w-80"
+          />
+        )}
       </div>
       <div className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-        Press <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">Enter</kbd> to send · <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">Shift+Enter</kbd> newline · <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">↑</kbd> edit last · <span className="font-mono">@</span> for people · <span className="font-mono">#</span> for channels, bases &amp; connections
+        Press <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">Enter</kbd> to send · <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">Shift+Enter</kbd> newline · <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">↑</kbd> edit last · <span className="font-mono">@</span> for people · <span className="font-mono">#</span> for any resource
+        {channel.kind === "dm" ? (
+          <>
+            {" "}· <span className="font-mono">/new</span> for new context
+          </>
+        ) : null}
       </div>
     </div>
   );
