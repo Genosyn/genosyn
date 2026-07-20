@@ -158,6 +158,7 @@ function TopNav({
 
   async function logout() {
     await api.post("/api/auth/logout");
+    await onCompaniesChanged();
     navigate("/login");
   }
 

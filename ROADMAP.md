@@ -111,8 +111,8 @@ genosyn/
 
 ### Entity inventory (by area)
 
-- **Identity & tenancy:** `User`, `Company`, `Membership`, `Invitation`,
-  `Team`
+- **Identity & tenancy:** `User`, `WebAuthnCredential`, `Company`,
+  `Membership`, `Invitation`, `Team`
 - **AI substrate:** `AIEmployee`, `AIModel`, `Skill`, `Routine`, `Run`,
   `EmployeeMemory`, `JournalEntry`, `Handoff`
 - **Conversations:** `Conversation`, `ConversationMessage` (web + Telegram
@@ -781,11 +781,12 @@ Phase B+ (deferred — out of this PR)
 - Native (no-SQL) query builder over a column picker.
 - AI-suggested charts on a new connection.
 
-### M15 — 2FA / TOTP (planned)
+### M15 — 2FA / TOTP + WebAuthn ✅
 
-- [ ] `User` gets `totpSecret` (encrypted), `totpEnabledAt`, `recoveryCodes`
-- [ ] Enroll flow with QR (otpauth://… → render via `qrcode` dep)
-- [ ] Verify on login when enabled; recovery-code path
+- [x] `User` gets `totpSecret` (encrypted), `totpEnabledAt`, `recoveryCodes`
+- [x] Enroll flow with QR (otpauth://… → render via `qrcode` dep)
+- [x] Passkeys + FIDO2 USB security keys (WebAuthn), with multiple named credentials
+- [x] Verify password and SSO logins when enabled; recovery-code path
 - [ ] Per-company "require 2FA" admin policy (later)
 
 ### M16 — SSO login (Google / OIDC) (shipped)
@@ -1140,7 +1141,7 @@ of the original V1 backlog has shipped — what remains is mostly
       directory (Employees roster moved to `/employees`)
 - [x] **SSO / Google login** — instance-wide, Admin → SSO, disabled by
       default; see M16
-- [ ] **2FA (TOTP)** — see M15
+- [x] **2FA (TOTP + passkeys / security keys)** — see M15
 - [x] **Dark mode** — fully covered (1,500+ `dark:` classes)
 - [x] **CLI** — `CLI/genosyn` bash wrapper around Docker, installed via
       `curl -fsSL https://genosyn.com/install.sh | bash`; fresh installs

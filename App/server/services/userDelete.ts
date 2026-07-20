@@ -43,6 +43,7 @@ import { Todo } from "../db/entities/Todo.js";
 import { TodoComment } from "../db/entities/TodoComment.js";
 import { User } from "../db/entities/User.js";
 import { Vendor } from "../db/entities/Vendor.js";
+import { WebAuthnCredential } from "../db/entities/WebAuthnCredential.js";
 
 /** A company the to-be-deleted user is the registered owner of. */
 export interface OwnedCompany {
@@ -122,6 +123,7 @@ export async function deleteUserCascade(args: {
     const notifications = (await m.delete(Notification, { userId })).affected ?? 0;
     const channelMembers = (await m.delete(ChannelMember, { userId })).affected ?? 0;
     const reactions = (await m.delete(MessageReaction, { userId })).affected ?? 0;
+    await m.delete(WebAuthnCredential, { userId });
     // Project access is an entry, not authorship — so it is deleted here rather
     // than NULLed below. A row with a NULL `userId` would match no principal yet
     // still count toward the "last human with write" quorum in

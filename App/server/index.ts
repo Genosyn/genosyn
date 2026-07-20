@@ -19,6 +19,7 @@ import { attachRealtime } from "./services/realtime.js";
 import { errorHandler } from "./middleware/error.js";
 import { authRouter } from "./routes/auth.js";
 import { ssoRouter } from "./routes/sso.js";
+import { twoFactorRouter } from "./routes/twoFactor.js";
 import { companiesRouter } from "./routes/companies.js";
 import { invitationsRouter } from "./routes/invitations.js";
 import { employeesRouter } from "./routes/employees.js";
@@ -146,6 +147,7 @@ async function main() {
   // callback authenticates via the single-use state token, then writes the
   // session cookie itself.
   app.use("/api/auth/sso", ssoRouter);
+  app.use("/api/auth", twoFactorRouter);
   app.use("/api/auth", authRouter);
   // Web Push subscriptions for the PWA — user-scoped, so mounted outside
   // the per-company tree.

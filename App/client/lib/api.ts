@@ -128,6 +128,33 @@ export type Me = {
   /** Instance-level operator flag — gates the install-wide Admin dashboard. */
   isMasterAdmin: boolean;
 };
+export type TwoFactorLoginMethods = {
+  enabled: boolean;
+  totp: boolean;
+  webAuthn: boolean;
+  recovery: boolean;
+};
+export type LoginResponse =
+  | { id: string; email: string; name: string; requiresTwoFactor: false }
+  | { requiresTwoFactor: true; methods: TwoFactorLoginMethods };
+export type TwoFactorLoginStatus =
+  | { requiresTwoFactor: false }
+  | { requiresTwoFactor: true; methods: TwoFactorLoginMethods };
+export type TwoFactorCredential = {
+  id: string;
+  name: string;
+  kind: "passkey" | "security_key";
+  deviceType: "singleDevice" | "multiDevice";
+  backedUp: boolean;
+  createdAt: string;
+  lastUsedAt: string | null;
+};
+export type TwoFactorStatus = {
+  enabled: boolean;
+  totpEnabled: boolean;
+  webAuthnCredentials: TwoFactorCredential[];
+  recoveryCodesRemaining: number;
+};
 export type Company = { id: string; name: string; slug: string; role?: string };
 export type Employee = {
   id: string;

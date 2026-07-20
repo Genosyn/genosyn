@@ -20,6 +20,7 @@ import {
   replaceAvatarFile,
 } from "../services/avatars.js";
 import { config } from "../../config.js";
+import { requireTwoFactorAfterPrimaryAuth } from "./twoFactor.js";
 
 export const authRouter = Router();
 
@@ -91,8 +92,17 @@ authRouter.post("/login", validateBody(loginSchema), async (req, res) => {
   if (!user) return res.status(401).json({ error: "Invalid credentials" });
   const ok = await bcrypt.compare(password, user.passwordHash);
   if (!ok) return res.status(401).json({ error: "Invalid credentials" });
+  const methods = await requireTwoFactorAfterPrimaryAuth(req, user);
+  if (methods.enabled) {
+    return res.json({ requiresTwoFactor: true, methods });
+  }
   req.session = { userId: user.id };
-  res.json({ id: user.id, email: user.email, name: user.name });
+  res.json({
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    requiresTwoFactor: false,
+  });
 });
 
 authRouter.post("/logout", (req, res) => {

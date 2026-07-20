@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { getPublicSsoStatus } from "../services/ssoSettings.js";
 import { finishSsoLogin, startSsoLogin, SsoLoginError } from "../services/ssoLogin.js";
+import { requireTwoFactorAfterPrimaryAuth } from "./twoFactor.js";
 
 /**
  * Public SSO sign-in surface, mounted at `/api/auth/sso` (before the main
@@ -71,6 +72,10 @@ ssoRouter.get("/callback", async (req, res) => {
   }
   try {
     const user = await finishSsoLogin({ code, state });
+    const methods = await requireTwoFactorAfterPrimaryAuth(req, user);
+    if (methods.enabled) {
+      return res.redirect("/login?twoFactor=1");
+    }
     req.session = { userId: user.id };
     res.redirect("/");
   } catch (err) {

@@ -23,9 +23,30 @@ const LoginRequest = z
   })
   .openapi("LoginRequest");
 
-const ErrorResponse = z
-  .object({ error: z.string() })
-  .openapi("Error");
+const TwoFactorMethods = z.object({
+  enabled: z.literal(true),
+  totp: z.boolean(),
+  webAuthn: z.boolean(),
+  recovery: z.boolean(),
+});
+
+const LoginUser = z.object({
+  id: z.string().uuid(),
+  email: z.string().email(),
+  name: z.string(),
+});
+
+const LoginResponse = z
+  .union([
+    LoginUser.extend({ requiresTwoFactor: z.literal(false) }),
+    z.object({
+      requiresTwoFactor: z.literal(true),
+      methods: TwoFactorMethods,
+    }),
+  ])
+  .openapi("LoginResponse");
+
+const ErrorResponse = z.object({ error: z.string() }).openapi("Error");
 
 registry.registerPath({
   method: "get",
@@ -53,8 +74,10 @@ registry.registerPath({
   path: "/api/auth/login",
   summary: "Log in with email + password",
   description:
-    "Sets the `genosyn.sid` session cookie. The cookie is required for the " +
-    "web UI; programmatic clients should mint a Bearer API key instead.",
+    "Verifies the primary password. Accounts without 2FA receive a full " +
+    "session immediately; enrolled accounts receive a short-lived pre-auth " +
+    "session and must complete one of the advertised second-factor methods. " +
+    "Programmatic clients should mint a Bearer API key instead.",
   tags: ["Auth"],
   security: publicSecurity,
   request: {
@@ -64,8 +87,8 @@ registry.registerPath({
   },
   responses: {
     200: {
-      description: "Logged in; sets the session cookie",
-      content: { "application/json": { schema: MeResponse } },
+      description: "Logged in, or primary authentication completed and 2FA is required",
+      content: { "application/json": { schema: LoginResponse } },
     },
     401: {
       description: "Invalid credentials",

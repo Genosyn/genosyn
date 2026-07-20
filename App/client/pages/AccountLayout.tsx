@@ -1,13 +1,13 @@
 import React from "react";
 import { Outlet, useLocation } from "react-router-dom";
-import { CircleUser, User } from "lucide-react";
+import { CircleUser, ShieldCheck, User } from "lucide-react";
 import { Company, Me } from "../lib/api";
 import { Breadcrumbs, ContextualLayout, SidebarLink } from "../components/AppShell";
 
 /**
  * Sidebar + layout for `/c/:slug/account/*`. The Account section holds settings
  * that belong to the signed-in person, not the company they're currently
- * viewing — profile, password, notifications, and (later) security. It mirrors
+ * viewing — profile, password, notifications, and security. It mirrors
  * the company Settings section so the two feel consistent, but its pages are
  * deliberately global to the user's account. Child routes read `me` and the
  * refresh callback from Outlet context.
@@ -21,6 +21,7 @@ export type AccountOutletCtx = {
 
 const ACCOUNT_TAB_LABEL: Record<string, string> = {
   profile: "Profile",
+  security: "Security",
 };
 
 export default function AccountLayout({
@@ -47,6 +48,7 @@ export default function AccountLayout({
           Your account
         </div>
         <SidebarLink to={`${base}/profile`} icon={<User size={14} />} label="Profile" />
+        <SidebarLink to={`${base}/security`} icon={<ShieldCheck size={14} />} label="Security" />
       </nav>
     </div>
   );

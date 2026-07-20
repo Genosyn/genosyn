@@ -11,6 +11,8 @@ export const config = {
 
   // API server
   port: 8471,
+  // Must match the browser-facing origin. WebAuthn uses its hostname as the
+  // relying-party ID, so passkeys/security keys require the deployed HTTPS URL.
   publicUrl: "http://localhost:8471",
   sessionSecret: "change-me-in-production",
 

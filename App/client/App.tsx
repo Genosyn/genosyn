@@ -39,6 +39,7 @@ import SettingsLayout from "./pages/SettingsLayout";
 import { SettingsCompany, SettingsMembers, SettingsSecrets } from "./pages/Settings";
 import AccountLayout from "./pages/AccountLayout";
 import { AccountProfile } from "./pages/AccountProfile";
+import { AccountSecurity } from "./pages/AccountSecurity";
 import AdminLayout from "./pages/AdminLayout";
 import { AdminOverview } from "./pages/AdminOverview";
 import { AdminInstanceHealth } from "./pages/AdminInstanceHealth";
@@ -443,13 +444,14 @@ function CompanyRoutes({
           </Route>
 
           {/* Account — global to the signed-in user, not the current company.
-            Profile, password, and per-device notifications live here. */}
+            Profile, password, 2FA, and per-device notifications live here. */}
           <Route
             path="account"
             element={<AccountLayout company={company} me={me} onCompaniesChanged={onChanged} />}
           >
             <Route index element={<Navigate to="profile" replace />} />
             <Route path="profile" element={<AccountProfile />} />
+            <Route path="security" element={<AccountSecurity />} />
           </Route>
 
           {/* Admin — install-wide operations that span every company: instance

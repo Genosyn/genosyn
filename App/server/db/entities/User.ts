@@ -64,6 +64,24 @@ export class User {
   @Column({ type: "varchar", nullable: true })
   ssoSubject!: string | null;
 
+  /**
+   * Authenticator-app seed, encrypted with the instance secret. A seed may be
+   * present while enrollment is in progress; `totpEnabledAt` is the switch
+   * that makes it a valid second factor.
+   */
+  @Column({ type: "text", nullable: true })
+  totpSecret!: string | null;
+
+  @Column({ type: "datetime", nullable: true })
+  totpEnabledAt!: Date | null;
+
+  /**
+   * JSON array of SHA-256 recovery-code hashes. Plaintext codes are shown only
+   * when generated and are never persisted.
+   */
+  @Column({ type: "text", nullable: true })
+  recoveryCodes!: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

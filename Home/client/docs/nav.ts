@@ -28,6 +28,11 @@ export const DOCS_NAV: DocsSection[] = [
         title: "Install on your phone",
         blurb: "Add Genosyn to your home screen as a PWA — iOS, Android, desktop.",
       },
+      {
+        path: "/docs/security",
+        title: "Account security",
+        blurb: "Optional 2FA with authenticator apps, passkeys, and USB security keys.",
+      },
     ],
   },
   {

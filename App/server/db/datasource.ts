@@ -105,6 +105,7 @@ import { EmployeeMailAccountGrant } from "./entities/EmployeeMailAccountGrant.js
 import { AdSpendEvent } from "./entities/AdSpendEvent.js";
 import { Tag } from "./entities/Tag.js";
 import { TagAssignment } from "./entities/TagAssignment.js";
+import { WebAuthnCredential } from "./entities/WebAuthnCredential.js";
 
 const entities = [
   User,
@@ -128,6 +129,7 @@ const entities = [
   AdSpendEvent,
   Tag,
   TagAssignment,
+  WebAuthnCredential,
   Secret,
   AuditEvent,
   Base,

@@ -3,6 +3,7 @@ import { DocsShell } from "@/docs/DocsShell";
 import { Introduction } from "@/docs/pages/Introduction";
 import { Install } from "@/docs/pages/Install";
 import { MobileApp } from "@/docs/pages/MobileApp";
+import { Security } from "@/docs/pages/Security";
 import { Employees } from "@/docs/pages/Employees";
 import { Soul } from "@/docs/pages/Soul";
 import { Skills } from "@/docs/pages/Skills";
@@ -32,6 +33,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs": Introduction,
   "/docs/install": Install,
   "/docs/mobile": MobileApp,
+  "/docs/security": Security,
   "/docs/employees": Employees,
   "/docs/soul": Soul,
   "/docs/skills": Skills,
