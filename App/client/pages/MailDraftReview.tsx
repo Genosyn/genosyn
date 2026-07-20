@@ -387,6 +387,12 @@ function DraftPreview({
               <dd className="text-slate-700 dark:text-slate-300">{draft.ccEmails}</dd>
             </>
           )}
+          {draft.bccEmails && (
+            <>
+              <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">Bcc</dt>
+              <dd className="text-slate-700 dark:text-slate-300">{draft.bccEmails}</dd>
+            </>
+          )}
         </dl>
       </div>
 

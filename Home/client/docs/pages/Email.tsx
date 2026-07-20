@@ -98,12 +98,12 @@ export function Email() {
       </P>
       <P>
         <Strong>Drafts</Strong> opens as a review queue. Pick a draft on the left to check its
-        recipients, subject, message, attachments, and the previous message for context without
-        leaving the page. Press <Strong>Send &amp; next</Strong> to send it through the connected
-        Gmail mailbox and advance through the queue immediately while Gmail finishes in the
-        background, or <Strong>Edit draft</Strong> to open the full conversation before sending.
-        A progress message follows the send even if you move elsewhere. If Gmail rejects it, the
-        error stays visible and the draft returns to the review queue.
+        To, Cc, and Bcc recipients, subject, message, attachments, and the previous message for
+        context without leaving the page. Press <Strong>Send &amp; next</Strong> to send it through
+        the connected Gmail mailbox and advance through the queue immediately while Gmail finishes
+        in the background, or <Strong>Edit draft</Strong> to open the full conversation before
+        sending. A progress message follows the send even if you move elsewhere. If Gmail rejects
+        it, the error stays visible and the draft returns to the review queue.
       </P>
 
       <H2 id="assistant">AI chat on every email</H2>

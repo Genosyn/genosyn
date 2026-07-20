@@ -603,6 +603,7 @@ function DraftCard({
       subject,
       bodyText: body,
       cc: draft.ccEmails || undefined,
+      bcc: draft.bccEmails || undefined,
     });
     return res.message.id;
   };
@@ -642,9 +643,11 @@ function DraftCard({
         <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
           Draft
         </span>
-        <span className="min-w-0 flex-1 truncate text-xs text-slate-500 dark:text-slate-400">
-          to {draft.toEmails || "(no recipient yet)"}
-        </span>
+        <div className="min-w-0 flex-1 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
+          <div className="break-words">to {draft.toEmails || "(no recipient yet)"}</div>
+          {draft.ccEmails && <div className="break-words">cc {draft.ccEmails}</div>}
+          {draft.bccEmails && <div className="break-words">bcc {draft.bccEmails}</div>}
+        </div>
         {!editing && (
           <>
             <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
