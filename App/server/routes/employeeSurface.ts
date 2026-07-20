@@ -124,6 +124,18 @@ function serializeMessage(
   };
 }
 
+function formatChatInfrastructureError(error: unknown, conversationId: string): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  const detail = raw.replace(/\s+/g, " ").trim().slice(0, 1_000) || "Unknown server error";
+  return [
+    "Genosyn couldn’t complete this chat turn.",
+    "",
+    `Conversation: ${conversationId}`,
+    `Details: ${detail}`,
+    "",
+    "Check the Genosyn server logs for the [chat] entry with this conversation ID. If this employee uses Browser or company MCP servers, confirm those processes and endpoints are reachable, then retry.",
+  ].join("\n");
+}
 
 employeeSurfaceRouter.get("/:eid/conversations", async (req, res) => {
   const { cid, eid } = req.params as Record<string, string>;
@@ -442,11 +454,15 @@ employeeSurfaceRouter.post(
       writeEvent("done", {});
       res.end();
     } catch (e) {
+      console.error(
+        `[chat] turn failed company=${cid} employee=${eid} conversation=${convId}`,
+        e,
+      );
       // If the stream is still open, surface the error over SSE; otherwise
       // fall back to the normal Express error handler.
       if (!res.writableEnded) {
         writeEvent("error", {
-          message: e instanceof Error ? e.message : String(e),
+          message: formatChatInfrastructureError(e, convId),
         });
         writeEvent("done", {});
         res.end();

@@ -3,6 +3,7 @@ import { runAgentLoop } from "./loop.js";
 import { createModelClient } from "./modelClients/index.js";
 import { gatherEmployeeTools } from "./tools/index.js";
 import type { AgentMessage, AgentTool, StreamCallbacks } from "./types.js";
+import { formatModelError } from "./modelError.js";
 import {
   createParallelDelegationTool,
   MAX_DELEGATIONS_PER_TURN,
@@ -132,9 +133,13 @@ export async function runEmployeeAgent(
     });
     return { status: "ok", finalText: result.finalText, steps: result.steps };
   } catch (err) {
+    console.error(
+      `[agent:model] request failed employee=${params.employeeId} model=${params.model.id}`,
+      err,
+    );
     return {
       status: "error",
-      error: err instanceof Error ? err.message : String(err),
+      error: formatModelError(params.model, err),
     };
   } finally {
     await gathered.close();

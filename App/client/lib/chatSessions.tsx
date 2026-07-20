@@ -285,6 +285,8 @@ export function ChatSessionsProvider({
 
       let accumulated = "";
       let gotAssistant = false;
+      let serverEventError = false;
+      let persistedUser: ConversationMessage | null = null;
       let convId = sessionsRef.current[empId]?.activeConvId ?? null;
 
       try {
@@ -316,6 +318,7 @@ export function ChatSessionsProvider({
           (event, data) => {
             if (event === "user") {
               const userMsg = data as ConversationMessage;
+              persistedUser = userMsg;
               update(empId, (s) => {
                 if (s.activeConvId !== streamConvId) return s;
                 return {
@@ -354,6 +357,7 @@ export function ChatSessionsProvider({
                 return { ...s, convs: [conv, ...next] };
               });
             } else if (event === "error") {
+              serverEventError = true;
               throw new Error(
                 (data as { message?: string } | null)?.message ||
                   "Chat stream failed",
@@ -384,17 +388,21 @@ export function ChatSessionsProvider({
         }
         return null;
       } catch (err) {
-        const m = (err as Error).message;
+        const raw = (err as Error).message || "Unknown network error";
+        const m = serverEventError ? raw : formatChatConnectionError(raw);
         update(empId, (s) => {
           if (s.activeConvId !== convId) {
             return { ...s, streamingReply: null };
           }
+          const userMsg = persistedUser ?? tempUser;
           return {
             ...s,
             streamingReply: null,
             messages: [
-              ...s.messages.filter((x) => x.id !== tempId),
-              tempUser,
+              ...s.messages.filter(
+                (x) => x.id !== tempId && x.id !== persistedUser?.id,
+              ),
+              userMsg,
               {
                 id: `err-${Date.now()}`,
                 conversationId: convId ?? "",
@@ -406,7 +414,9 @@ export function ChatSessionsProvider({
             ],
           };
         });
-        return m;
+        return serverEventError
+          ? raw
+          : "Chat connection interrupted. See the conversation for details.";
       } finally {
         update(empId, { sending: false });
       }
@@ -445,6 +455,18 @@ export function ChatSessionsProvider({
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+}
+
+function formatChatConnectionError(detail: string): string {
+  const safeDetail =
+    detail.replace(/\s+/g, " ").trim() || "Unknown network error";
+  return [
+    "The chat connection to Genosyn was interrupted.",
+    "",
+    `Details: ${safeDetail}`,
+    "",
+    "Check that the Genosyn server is still running and reachable from this browser. Review the server logs for the underlying error, then reopen this conversation before retrying.",
+  ].join("\n");
 }
 
 export function useChatSessions(): ChatSessionsCtx {

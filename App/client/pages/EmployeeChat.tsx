@@ -311,6 +311,10 @@ export default function EmployeeChat() {
   );
 }
 
+function isLocalChatError(message: ConversationMessage): boolean {
+  return message.id.startsWith("err-") || message.id.startsWith("local-");
+}
+
 // ───────────────────────────── ConversationList ─────────────────────────────
 
 function ConversationList({
@@ -640,6 +644,14 @@ function TurnBubble({
             <div className="whitespace-pre-wrap break-words">{message.content}</div>
           ) : (
             <ChatMarkdown content={message.content} />
+          )}
+          {isError && !isLocalChatError(message) && (
+            <Link
+              to={`/c/${companySlug}/employees/${employeeSlug}/settings/model`}
+              className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-rose-700 underline-offset-2 hover:underline dark:text-rose-300"
+            >
+              <Plug size={12} /> Review AI Model settings
+            </Link>
           )}
         </div>
         {message.actions && message.actions.length > 0 && (

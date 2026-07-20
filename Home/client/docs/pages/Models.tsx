@@ -198,6 +198,21 @@ export function Models() {
         <Strong>Add model</Strong> to register another.
       </P>
 
+      <H3 id="model-errors">When a chat or Run reports a model error</H3>
+      <P>
+        The error names the active model, shows the safe host-only endpoint,
+        preserves the provider&apos;s detail and request ID when available, and
+        lists checks for that failure type. In chat, use{" "}
+        <Strong>Review AI Model settings</Strong> on the error to jump straight
+        to the active employee&apos;s model roster. A separate{" "}
+        <Strong>chat connection interrupted</Strong> message means the browser
+        lost its stream to the Genosyn server; confirm the server is running and
+        inspect its logs before retrying. A <Strong>Genosyn couldn&apos;t complete
+        this chat turn</Strong> message includes the conversation ID to search
+        for in those logs and usually points to server-side setup such as a
+        Browser or company MCP connection.
+      </P>
+
       <H3 id="removing-a-model">Removing a model</H3>
       <P>
         <Strong>Remove</Strong> on a model card deletes that AIModel row along
