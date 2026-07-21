@@ -46,6 +46,12 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "client"),
+      // epubjs advertises a pre-built browser bundle compiled with Babel 6.
+      // That bundle executes `Function(...)` while it initializes, which is
+      // rejected by our production CSP before React can mount. Bundle the
+      // package's native ES module source instead so the app remains usable
+      // without weakening `script-src` with `unsafe-eval`.
+      epubjs: path.resolve(__dirname, "node_modules/epubjs/src/index.js"),
     },
   },
   define: {
