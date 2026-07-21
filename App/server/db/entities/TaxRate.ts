@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -46,7 +47,7 @@ export class TaxRate {
   @Column({ type: "boolean", default: false })
   inclusive!: boolean;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   archivedAt!: Date | null;
 
   @CreateDateColumn()

@@ -18,6 +18,7 @@ import {
   serializeSchedule,
   updateBackupSchedule,
 } from "../services/backups.js";
+import { config } from "../../config.js";
 
 /**
  * Install-wide backup endpoints. Not company-scoped — a backup covers every
@@ -28,6 +29,15 @@ import {
 export const backupsRouter = Router();
 backupsRouter.use(requireAuth);
 backupsRouter.use(requireMasterAdmin);
+backupsRouter.use((_req, res, next) => {
+  if (config.security.multiTenant) {
+    return res.status(409).json({
+      error:
+        "Built-in archives are unavailable in shared SaaS mode. Back up Postgres and the shared data volume using your platform.",
+    });
+  }
+  next();
+});
 
 backupsRouter.get("/", async (_req, res) => {
   const rows = await listBackups();
@@ -119,24 +129,15 @@ const scheduleSchema = z.object({
   dayOfWeek: z.number().int().min(0).max(6).optional(),
   dayOfMonth: z.number().int().min(1).max(28).optional(),
   retentionEnabled: z.boolean().optional(),
-  retentionDays: z
-    .number()
-    .int()
-    .min(MIN_RETENTION_DAYS)
-    .max(MAX_RETENTION_DAYS)
-    .optional(),
+  retentionDays: z.number().int().min(MIN_RETENTION_DAYS).max(MAX_RETENTION_DAYS).optional(),
 });
 
 /**
  * Saving retention enforces it immediately, so the response carries
  * `prunedNow` — how many archives that save deleted — for the UI to report.
  */
-backupsRouter.put(
-  "/schedule",
-  validateBody(scheduleSchema),
-  async (req, res) => {
-    const body = req.body as z.infer<typeof scheduleSchema>;
-    const { schedule, pruned } = await updateBackupSchedule(body);
-    res.json({ ...serializeSchedule(schedule), prunedNow: pruned });
-  },
-);
+backupsRouter.put("/schedule", validateBody(scheduleSchema), async (req, res) => {
+  const body = req.body as z.infer<typeof scheduleSchema>;
+  const { schedule, pruned } = await updateBackupSchedule(body);
+  res.json({ ...serializeSchedule(schedule), prunedNow: pruned });
+});

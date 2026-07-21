@@ -1,10 +1,4 @@
-import {
-  Column,
-  CreateDateColumn,
-  Entity,
-  Index,
-  PrimaryGeneratedColumn,
-} from "typeorm";
+import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from "typeorm";
 
 /**
  * An emoji reaction on a {@link ChannelMessage}. One row per (message, emoji,
@@ -15,11 +9,11 @@ import {
 @Entity("message_reactions")
 @Index(["messageId", "emoji", "userId"], {
   unique: true,
-  where: "userId IS NOT NULL",
+  where: '"userId" IS NOT NULL',
 })
 @Index(["messageId", "emoji", "employeeId"], {
   unique: true,
-  where: "employeeId IS NOT NULL",
+  where: '"employeeId" IS NOT NULL',
 })
 export class MessageReaction {
   @PrimaryGeneratedColumn("uuid")

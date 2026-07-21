@@ -83,15 +83,12 @@ function trimToProviderCap(
   return kept;
 }
 
-export async function runEmployeeAgent(
-  params: EmployeeAgentParams,
-): Promise<EmployeeAgentResult> {
-  const built = createModelClient(params.model);
+export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<EmployeeAgentResult> {
+  const built = await createModelClient(params.model);
   if ("error" in built) return { status: "error", error: built.error };
 
   const delegationDepth = params.delegationDepth ?? 0;
-  const delegationBudget =
-    params.delegationBudget ?? { remaining: MAX_DELEGATIONS_PER_TURN };
+  const delegationBudget = params.delegationBudget ?? { remaining: MAX_DELEGATIONS_PER_TURN };
   const localTools: AgentTool[] = [];
   if (delegationDepth === 0) {
     localTools.push(

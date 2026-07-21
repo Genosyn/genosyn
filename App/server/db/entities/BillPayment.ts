@@ -1,22 +1,12 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  Index,
-} from "typeorm";
+import { dateTimeColumnType } from "./columnTypes.js";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 /**
  * A payment we made against a `Bill`. Phase G of the Finance milestone
  * (M19). Mirrors `InvoicePayment` — same lifecycle, same auto-post
  * behavior (DR Accounts Payable / CR Bank instead of DR Bank / CR AR).
  */
-export type BillPaymentMethod =
-  | "cash"
-  | "bank_transfer"
-  | "stripe"
-  | "lightning"
-  | "other";
+export type BillPaymentMethod = "cash" | "bank_transfer" | "stripe" | "lightning" | "other";
 
 @Entity("bill_payments")
 @Index(["billId"])
@@ -33,7 +23,7 @@ export class BillPayment {
   @Column({ type: "varchar", default: "USD" })
   currency!: string;
 
-  @Column({ type: "datetime" })
+  @Column({ type: dateTimeColumnType })
   paidAt!: Date;
 
   @Column({ type: "varchar", default: "other" })

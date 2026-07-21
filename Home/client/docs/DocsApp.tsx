@@ -26,6 +26,7 @@ import { Finance } from "@/docs/pages/Finance";
 import { SelfHosting } from "@/docs/pages/SelfHosting";
 import { Cli } from "@/docs/pages/Cli";
 import { Kubernetes } from "@/docs/pages/Kubernetes";
+import { SaasHosting } from "@/docs/pages/SaasHosting";
 import { Vocabulary } from "@/docs/pages/Vocabulary";
 import { NotFound } from "@/docs/pages/NotFound";
 
@@ -56,6 +57,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/self-hosting": SelfHosting,
   "/docs/cli": Cli,
   "/docs/kubernetes": Kubernetes,
+  "/docs/saas-hosting": SaasHosting,
   "/docs/vocabulary": Vocabulary,
 };
 

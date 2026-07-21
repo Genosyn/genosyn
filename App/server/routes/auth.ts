@@ -7,11 +7,11 @@ import { User } from "../db/entities/User.js";
 import { Membership } from "../db/entities/Membership.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { validateBody } from "../middleware/validate.js";
-import { requireAuth } from "../middleware/auth.js";
+import { establishUserSession, requireAuth } from "../middleware/auth.js";
 import { sendEmail } from "../services/email.js";
 import { ensureUserHandle } from "../services/userHandle.js";
 import { areSignupsDisabled } from "../services/signupSettings.js";
-import { generateToken } from "../lib/token.js";
+import { generateToken, hashToken } from "../lib/token.js";
 import {
   avatarAbsPath,
   avatarUploadMiddleware,
@@ -21,17 +21,51 @@ import {
 } from "../services/avatars.js";
 import { config } from "../../config.js";
 import { requireTwoFactorAfterPrimaryAuth } from "./twoFactor.js";
+import {
+  assertAuthAllowed,
+  AuthRateLimitError,
+  authThrottleKeys,
+  clearAuthFailures,
+  consumeAuthAttempt,
+  recordAuthFailure,
+} from "../services/authThrottle.js";
+import {
+  emailVerificationRequired,
+  sendEmailVerification,
+  verifyEmailToken,
+} from "../services/emailVerification.js";
 
 export const authRouter = Router();
+const BCRYPT_ROUNDS = 12;
+const PASSWORD_MIN_LENGTH = 12;
+
+function hashOneTimeToken(token: string): string {
+  return hashToken(token);
+}
+
+async function throttleAllowed(keys: string[], res: import("express").Response): Promise<boolean> {
+  try {
+    await assertAuthAllowed(keys);
+    return true;
+  } catch (error) {
+    if (!(error instanceof AuthRateLimitError)) throw error;
+    res.setHeader("Retry-After", String(error.retryAfterSeconds));
+    res.status(429).json({ error: error.message });
+    return false;
+  }
+}
 
 const signupSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(8),
+  password: z.string().min(PASSWORD_MIN_LENGTH),
   name: z.string().min(1),
 });
 
 authRouter.post("/signup", validateBody(signupSchema), async (req, res) => {
   const { email, password, name } = req.body as z.infer<typeof signupSchema>;
+  const throttleKeys = authThrottleKeys(req, "signup", email);
+  if (!(await throttleAllowed(throttleKeys, res))) return;
+  await consumeAuthAttempt(throttleKeys);
   const repo = AppDataSource.getRepository(User);
   const existing = await repo.findOneBy({ email: email.toLowerCase() });
   if (existing) return res.status(409).json({ error: "Email already registered" });
@@ -39,26 +73,42 @@ authRouter.post("/signup", validateBody(signupSchema), async (req, res) => {
   // admin — the operator who stood the box up. Everyone after signs up as a
   // normal user until an existing master admin promotes them from Admin → Users.
   const isFirstUser = (await repo.count()) === 0;
+  if (
+    isFirstUser &&
+    config.security.multiTenant &&
+    email.trim().toLowerCase() !== config.security.bootstrapMasterAdminEmail.trim().toLowerCase()
+  ) {
+    return res.status(403).json({ error: "This email is not authorized to bootstrap the service" });
+  }
   // Operators can turn off self-service sign-ups from Admin → Sign-ups. The
   // first-user bootstrap is always allowed through so an install with no users
   // can never lock itself out.
-  if (!isFirstUser && (await areSignupsDisabled())) {
+  const bootstrapEmail = config.security.bootstrapMasterAdminEmail.trim().toLowerCase();
+  const isSaasBootstrap =
+    config.security.multiTenant &&
+    email.trim().toLowerCase() === bootstrapEmail &&
+    (await repo.count({ where: { isMasterAdmin: true } })) === 0;
+  if (!isFirstUser && !isSaasBootstrap && (await areSignupsDisabled())) {
     return res.status(403).json({
-      error:
-        "Sign-ups are disabled on this instance. Ask an administrator for an invitation.",
+      error: "Sign-ups are disabled on this instance. Ask an administrator for an invitation.",
     });
   }
   const user = repo.create({
     email: email.toLowerCase(),
     name,
-    passwordHash: await bcrypt.hash(password, 10),
-    isMasterAdmin: isFirstUser,
+    passwordHash: await bcrypt.hash(password, BCRYPT_ROUNDS),
+    isMasterAdmin: isFirstUser || isSaasBootstrap,
     resetToken: null,
     resetExpiresAt: null,
+    emailVerifiedAt: null,
+    emailVerificationTokenHash: null,
+    emailVerificationExpiresAt: null,
+    sessionVersion: 0,
   });
   await repo.save(user);
   await ensureUserHandle(user);
-  req.session = { userId: user.id };
+  establishUserSession(req, user);
+  await sendEmailVerification(user);
   void sendEmail({
     to: user.email,
     subject: "Welcome to Genosyn",
@@ -66,7 +116,12 @@ authRouter.post("/signup", validateBody(signupSchema), async (req, res) => {
     purpose: "welcome",
     triggeredByUserId: user.id,
   });
-  res.json({ id: user.id, email: user.email, name: user.name });
+  res.json({
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    emailVerificationRequired: emailVerificationRequired(user),
+  });
 });
 
 /**
@@ -88,20 +143,30 @@ const loginSchema = z.object({
 
 authRouter.post("/login", validateBody(loginSchema), async (req, res) => {
   const { email, password } = req.body as z.infer<typeof loginSchema>;
+  const throttleKeys = authThrottleKeys(req, "login", email);
+  if (!(await throttleAllowed(throttleKeys, res))) return;
   const user = await AppDataSource.getRepository(User).findOneBy({ email: email.toLowerCase() });
-  if (!user) return res.status(401).json({ error: "Invalid credentials" });
+  if (!user) {
+    await recordAuthFailure(throttleKeys);
+    return res.status(401).json({ error: "Invalid credentials" });
+  }
   const ok = await bcrypt.compare(password, user.passwordHash);
-  if (!ok) return res.status(401).json({ error: "Invalid credentials" });
+  if (!ok) {
+    await recordAuthFailure(throttleKeys);
+    return res.status(401).json({ error: "Invalid credentials" });
+  }
+  await clearAuthFailures(throttleKeys);
   const methods = await requireTwoFactorAfterPrimaryAuth(req, user);
   if (methods.enabled) {
     return res.json({ requiresTwoFactor: true, methods });
   }
-  req.session = { userId: user.id };
+  establishUserSession(req, user);
   res.json({
     id: user.id,
     email: user.email,
     name: user.name,
     requiresTwoFactor: false,
+    emailVerificationRequired: emailVerificationRequired(user),
   });
 });
 
@@ -114,13 +179,17 @@ const forgotSchema = z.object({ email: z.string().email() });
 
 authRouter.post("/forgot", validateBody(forgotSchema), async (req, res) => {
   const { email } = req.body as z.infer<typeof forgotSchema>;
+  const throttleKeys = authThrottleKeys(req, "forgot", email);
+  if (!(await throttleAllowed(throttleKeys, res))) return;
+  await consumeAuthAttempt(throttleKeys);
   const repo = AppDataSource.getRepository(User);
   const user = await repo.findOneBy({ email: email.toLowerCase() });
   if (user) {
-    user.resetToken = generateToken();
+    const token = generateToken();
+    user.resetToken = hashOneTimeToken(token);
     user.resetExpiresAt = new Date(Date.now() + 1000 * 60 * 60);
     await repo.save(user);
-    const link = `${config.publicUrl}/reset/${user.resetToken}`;
+    const link = `${config.publicUrl}/reset/${token}`;
     await sendEmail({
       to: user.email,
       subject: "Reset your Genosyn password",
@@ -134,20 +203,25 @@ authRouter.post("/forgot", validateBody(forgotSchema), async (req, res) => {
 
 const resetSchema = z.object({
   token: z.string().min(1),
-  password: z.string().min(8),
+  password: z.string().min(PASSWORD_MIN_LENGTH),
 });
 
 authRouter.post("/reset", validateBody(resetSchema), async (req, res) => {
   const { token, password } = req.body as z.infer<typeof resetSchema>;
+  const throttleKeys = authThrottleKeys(req, "reset", token);
+  if (!(await throttleAllowed(throttleKeys, res))) return;
   const repo = AppDataSource.getRepository(User);
-  const user = await repo.findOneBy({ resetToken: token });
+  const user = await repo.findOneBy({ resetToken: hashOneTimeToken(token) });
   if (!user || !user.resetExpiresAt || user.resetExpiresAt < new Date()) {
+    await recordAuthFailure(throttleKeys);
     return res.status(400).json({ error: "Invalid or expired token" });
   }
-  user.passwordHash = await bcrypt.hash(password, 10);
+  user.passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
   user.resetToken = null;
   user.resetExpiresAt = null;
+  user.sessionVersion += 1;
   await repo.save(user);
+  await clearAuthFailures(throttleKeys);
   res.json({ ok: true });
 });
 
@@ -160,7 +234,34 @@ authRouter.get("/me", requireAuth, async (req, res) => {
     handle: u.handle ?? null,
     avatarKey: u.avatarKey ?? null,
     isMasterAdmin: u.isMasterAdmin,
+    emailVerified: Boolean(u.emailVerifiedAt),
+    emailVerificationRequired: emailVerificationRequired(u),
   });
+});
+
+const verifyEmailSchema = z.object({ token: z.string().min(1) });
+
+authRouter.post("/verify-email", validateBody(verifyEmailSchema), async (req, res) => {
+  const { token } = req.body as z.infer<typeof verifyEmailSchema>;
+  const throttleKeys = authThrottleKeys(req, "verify-email", token);
+  if (!(await throttleAllowed(throttleKeys, res))) return;
+  const user = await verifyEmailToken(token);
+  if (!user) {
+    await recordAuthFailure(throttleKeys);
+    return res.status(400).json({ error: "Invalid or expired verification link" });
+  }
+  await clearAuthFailures(throttleKeys);
+  res.json({ ok: true });
+});
+
+authRouter.post("/resend-verification", requireAuth, async (req, res) => {
+  const user = req.user!;
+  if (user.emailVerifiedAt) return res.json({ ok: true });
+  const throttleKeys = authThrottleKeys(req, "resend-verification", user.email);
+  if (!(await throttleAllowed(throttleKeys, res))) return;
+  await consumeAuthAttempt(throttleKeys);
+  await sendEmailVerification(user);
+  res.json({ ok: true });
 });
 
 // ─────────────────── Profile avatar (current user) ──────────────────────
@@ -217,11 +318,9 @@ const updateMeSchema = z
     // undefined → leave it alone. Validation of the format below.
     handle: z.string().nullable().optional(),
   })
-  .refine(
-    (v) =>
-      v.name !== undefined || v.email !== undefined || v.handle !== undefined,
-    { message: "Nothing to update" },
-  );
+  .refine((v) => v.name !== undefined || v.email !== undefined || v.handle !== undefined, {
+    message: "Nothing to update",
+  });
 
 authRouter.patch("/me", requireAuth, validateBody(updateMeSchema), async (req, res) => {
   const { name, email, handle } = req.body as z.infer<typeof updateMeSchema>;
@@ -236,6 +335,9 @@ authRouter.patch("/me", requireAuth, validateBody(updateMeSchema), async (req, r
         return res.status(409).json({ error: "Email already registered" });
       }
       user.email = next;
+      user.emailVerifiedAt = null;
+      user.emailVerificationTokenHash = null;
+      user.emailVerificationExpiresAt = null;
     }
   }
   if (handle !== undefined) {
@@ -279,6 +381,9 @@ authRouter.patch("/me", requireAuth, validateBody(updateMeSchema), async (req, r
     }
   }
   await repo.save(user);
+  if (typeof email === "string" && !user.emailVerifiedAt) {
+    await sendEmailVerification(user);
+  }
   res.json({
     id: user.id,
     email: user.email,
@@ -289,7 +394,7 @@ authRouter.patch("/me", requireAuth, validateBody(updateMeSchema), async (req, r
 
 const passwordSchema = z.object({
   currentPassword: z.string().min(1),
-  newPassword: z.string().min(8),
+  newPassword: z.string().min(PASSWORD_MIN_LENGTH),
 });
 
 authRouter.post("/password", requireAuth, validateBody(passwordSchema), async (req, res) => {
@@ -297,9 +402,11 @@ authRouter.post("/password", requireAuth, validateBody(passwordSchema), async (r
   const user = req.user!;
   const ok = await bcrypt.compare(currentPassword, user.passwordHash);
   if (!ok) return res.status(400).json({ error: "Current password is incorrect" });
-  user.passwordHash = await bcrypt.hash(newPassword, 10);
+  user.passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
   user.resetToken = null;
   user.resetExpiresAt = null;
+  user.sessionVersion += 1;
   await AppDataSource.getRepository(User).save(user);
+  establishUserSession(req, user);
   res.json({ ok: true });
 });

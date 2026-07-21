@@ -15,6 +15,7 @@ import {
 import type { ResourceAccessLevel } from "../db/entities/EmployeeResourceGrant.js";
 import { Company } from "../db/entities/Company.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { safeFetchBuffer } from "../lib/outboundUrl.js";
 import { companyDir, ensureDir } from "./paths.js";
 
 /**
@@ -83,10 +84,7 @@ export const resourceUploadMiddleware = multer({
   },
 });
 
-export async function uniqueResourceSlug(
-  companyId: string,
-  base: string,
-): Promise<string> {
+export async function uniqueResourceSlug(companyId: string, base: string): Promise<string> {
   const repo = AppDataSource.getRepository(Resource);
   let slug = base || "resource";
   let n = 1;
@@ -107,9 +105,7 @@ export async function uniqueResourceSlug(
  */
 export function htmlToText(html: string): { title: string; text: string } {
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-  const title = titleMatch
-    ? decodeHtmlEntities(titleMatch[1].trim()).slice(0, 200)
-    : "";
+  const title = titleMatch ? decodeHtmlEntities(titleMatch[1].trim()).slice(0, 200) : "";
 
   // Drop scripts/styles/headers wholesale before anything else so their
   // contents don't bleed into the text body.
@@ -164,9 +160,7 @@ function decodeHtmlEntities(s: string): string {
  * non-2xx response throws with a helpful message — the caller stamps
  * the row as `failed` and surfaces the error.
  */
-export async function fetchUrlAsText(
-  url: string,
-): Promise<{ title: string; text: string }> {
+export async function fetchUrlAsText(url: string): Promise<{ title: string; text: string }> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -176,12 +170,10 @@ export async function fetchUrlAsText(
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error("Only http(s) URLs can be ingested.");
   }
-  const res = await fetch(url, {
-    redirect: "follow",
+  const res = await safeFetchBuffer(url, {
     headers: {
       // Give servers a real-looking UA so a few sites don't refuse us.
-      "User-Agent":
-        "GenosynResourceBot/1.0 (+https://genosyn.com)",
+      "User-Agent": "GenosynResourceBot/1.0 (+https://genosyn.com)",
       Accept: "text/html,application/xhtml+xml,*/*;q=0.8",
     },
   });
@@ -189,10 +181,7 @@ export async function fetchUrlAsText(
     throw new Error(`Fetch failed: HTTP ${res.status}`);
   }
   const contentType = (res.headers.get("content-type") ?? "").toLowerCase();
-  const buf = Buffer.from(await res.arrayBuffer());
-  if (buf.length > RESOURCE_MAX_BYTES) {
-    throw new Error("Response is larger than the 25 MB ingestion cap.");
-  }
+  const buf = res.body;
   if (contentType.startsWith("text/html") || contentType.includes("xhtml")) {
     const html = buf.toString("utf8");
     return htmlToText(html);
@@ -268,10 +257,7 @@ export function summarize(text: string, summary?: string): string {
 
 // ---------- Storage / file helpers ----------
 
-export function resolveResourceFile(
-  companySlug: string,
-  storageKey: string,
-): string | null {
+export function resolveResourceFile(companySlug: string, storageKey: string): string | null {
   const root = resourcesRoot(companySlug);
   const abs = path.join(root, path.basename(storageKey));
   if (!abs.startsWith(root)) return null;
@@ -279,10 +265,7 @@ export function resolveResourceFile(
   return abs;
 }
 
-export async function deleteResourceBytes(
-  storageKey: string,
-  companySlug: string,
-): Promise<void> {
+export async function deleteResourceBytes(storageKey: string, companySlug: string): Promise<void> {
   try {
     const root = resourcesRoot(companySlug);
     const abs = path.join(root, path.basename(storageKey));
@@ -293,19 +276,11 @@ export async function deleteResourceBytes(
   }
 }
 
-export function inferSourceKindFromFilename(
-  filename: string,
-): ResourceSourceKind {
+export function inferSourceKindFromFilename(filename: string): ResourceSourceKind {
   const ext = path.extname(filename).toLowerCase();
   if (ext === ".pdf") return "pdf";
   if (ext === ".epub") return "epub";
-  if (
-    ext === ".mp4" ||
-    ext === ".mov" ||
-    ext === ".webm" ||
-    ext === ".mkv" ||
-    ext === ".avi"
-  ) {
+  if (ext === ".mp4" || ext === ".mov" || ext === ".webm" || ext === ".mkv" || ext === ".avi") {
     return "video";
   }
   return "text";
@@ -341,20 +316,16 @@ export async function listDirectResourceGrants(
   });
 }
 
-export async function deleteGrantsForResource(
-  resourceId: string,
-): Promise<void> {
+export async function deleteGrantsForResource(resourceId: string): Promise<void> {
   await AppDataSource.getRepository(EmployeeResourceGrant).delete({
     resourceId,
   });
 }
 
-export async function listAccessibleResourceIds(
-  employeeId: string,
-): Promise<Set<string>> {
-  const grants = await AppDataSource.getRepository(
-    EmployeeResourceGrant,
-  ).find({ where: { employeeId } });
+export async function listAccessibleResourceIds(employeeId: string): Promise<Set<string>> {
+  const grants = await AppDataSource.getRepository(EmployeeResourceGrant).find({
+    where: { employeeId },
+  });
   return new Set(grants.map((g) => g.resourceId));
 }
 
@@ -363,17 +334,15 @@ export async function hasResourceAccess(
   resourceId: string,
   required: ResourceAccessLevel,
 ): Promise<boolean> {
-  const grant = await AppDataSource.getRepository(
-    EmployeeResourceGrant,
-  ).findOneBy({ employeeId, resourceId });
+  const grant = await AppDataSource.getRepository(EmployeeResourceGrant).findOneBy({
+    employeeId,
+    resourceId,
+  });
   if (!grant) return false;
   return RESOURCE_ACCESS_RANK[grant.accessLevel] >= RESOURCE_ACCESS_RANK[required];
 }
 
-export async function listResourcesByIds(
-  companyId: string,
-  ids: string[],
-): Promise<Resource[]> {
+export async function listResourcesByIds(companyId: string, ids: string[]): Promise<Resource[]> {
   if (ids.length === 0) return [];
   return AppDataSource.getRepository(Resource).find({
     where: { companyId, id: In(ids) },

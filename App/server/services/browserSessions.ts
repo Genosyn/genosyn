@@ -1,11 +1,9 @@
 import crypto from "node:crypto";
 import { WebSocket } from "ws";
 import { AppDataSource } from "../db/datasource.js";
-import {
-  BrowserSession,
-  type BrowserSessionCloseReason,
-} from "../db/entities/BrowserSession.js";
+import { BrowserSession, type BrowserSessionCloseReason } from "../db/entities/BrowserSession.js";
 import { getRuntime, holdRuntime, releaseRuntime, markActivity } from "./browserChromium.js";
+import { withSchedulerLease } from "./schedulerLeases.js";
 
 /**
  * Browser-session lifecycle + in-memory fanout hub.
@@ -45,14 +43,53 @@ const EXPIRE_GRACE_MS = 30_000;
  * avoids the complications of binary WebSocket framing across proxies.
  */
 export type LiveMessage =
-  | { type: "hello"; sessionId: string; viewportWidth: number; viewportHeight: number; pageUrl: string; pageTitle: string | null }
-  | { type: "frame"; frameId: number; data: string; metadata?: { offsetTop?: number; pageScaleFactor?: number; deviceWidth?: number; deviceHeight?: number; scrollOffsetX?: number; scrollOffsetY?: number; timestamp?: number } }
+  | {
+      type: "hello";
+      sessionId: string;
+      viewportWidth: number;
+      viewportHeight: number;
+      pageUrl: string;
+      pageTitle: string | null;
+    }
+  | {
+      type: "frame";
+      frameId: number;
+      data: string;
+      metadata?: {
+        offsetTop?: number;
+        pageScaleFactor?: number;
+        deviceWidth?: number;
+        deviceHeight?: number;
+        scrollOffsetX?: number;
+        scrollOffsetY?: number;
+        timestamp?: number;
+      };
+    }
   | { type: "frame.ack"; frameId: number }
   | { type: "nav"; url: string; title: string | null }
   | { type: "viewers"; count: number }
   | { type: "closed"; reason: BrowserSessionCloseReason }
-  | { type: "input.mouse"; action: "mousePressed" | "mouseReleased" | "mouseMoved" | "mouseWheel"; x: number; y: number; button?: "none" | "left" | "middle" | "right"; buttons?: number; clickCount?: number; deltaX?: number; deltaY?: number; modifiers?: number }
-  | { type: "input.key"; action: "keyDown" | "keyUp" | "char"; key?: string; code?: string; text?: string; modifiers?: number; windowsVirtualKeyCode?: number }
+  | {
+      type: "input.mouse";
+      action: "mousePressed" | "mouseReleased" | "mouseMoved" | "mouseWheel";
+      x: number;
+      y: number;
+      button?: "none" | "left" | "middle" | "right";
+      buttons?: number;
+      clickCount?: number;
+      deltaX?: number;
+      deltaY?: number;
+      modifiers?: number;
+    }
+  | {
+      type: "input.key";
+      action: "keyDown" | "keyUp" | "char";
+      key?: string;
+      code?: string;
+      text?: string;
+      modifiers?: number;
+      windowsVirtualKeyCode?: number;
+    }
   | { type: "viewport.set"; width: number; height: number }
   | { type: "control.takeover"; userId: string; takeover: boolean };
 
@@ -188,7 +225,11 @@ export async function closeBrowserSession(
   if (state) {
     broadcastToViewers(state, { type: "closed", reason });
     for (const v of state.viewers) {
-      try { v.ws.close(1000, "session closed"); } catch { /* best-effort */ }
+      try {
+        v.ws.close(1000, "session closed");
+      } catch {
+        /* best-effort */
+      }
     }
   }
   tokenToSessionId.delete(row.mcpToken);
@@ -223,9 +264,11 @@ let sweepTimer: NodeJS.Timeout | null = null;
 export function bootBrowserSessionSweeper(): void {
   if (sweepTimer) return;
   sweepTimer = setInterval(() => {
-    sweepExpiredBrowserSessions().catch(() => {
-      // best-effort housekeeping
-    });
+    withSchedulerLease("browser-session-sweep", 55_000, () => sweepExpiredBrowserSessions()).catch(
+      () => {
+        // best-effort housekeeping
+      },
+    );
   }, 60_000);
   if (typeof sweepTimer.unref === "function") sweepTimer.unref();
 }
@@ -280,7 +323,10 @@ async function startScreencast(state: SessionState): Promise<void> {
   if (state.screencasting) return;
   const runtime = getRuntime(state.id);
   if (!runtime) return;
-  const cdp = runtime.cdp as { send: (m: string, p?: unknown) => Promise<unknown>; on: (ev: string, cb: (e: unknown) => void) => void } | null;
+  const cdp = runtime.cdp as {
+    send: (m: string, p?: unknown) => Promise<unknown>;
+    on: (ev: string, cb: (e: unknown) => void) => void;
+  } | null;
   if (!cdp) return;
 
   // Wire the frame listener once per runtime; it stays attached for the
@@ -299,7 +345,9 @@ async function startScreencast(state: SessionState): Promise<void> {
       if (state.viewers.size === 0) {
         // No viewers — ack the frame to CDP immediately so Chromium doesn't
         // pile up a backlog on a frame nobody's drawing.
-        cdp.send("Page.screencastFrameAck", { sessionId: ev.sessionId }).catch(() => { /* ignore */ });
+        cdp.send("Page.screencastFrameAck", { sessionId: ev.sessionId }).catch(() => {
+          /* ignore */
+        });
         return;
       }
       state.pendingCdpAcks.set(id, ev.sessionId);
@@ -418,7 +466,11 @@ async function handleViewerMessage(
     if (!runtime) return;
     const cdp = runtime.cdp as { send: (m: string, p?: unknown) => Promise<unknown> } | null;
     if (!cdp) return;
-    try { await cdp.send("Page.screencastFrameAck", { sessionId: cdpSid }); } catch { /* ignore */ }
+    try {
+      await cdp.send("Page.screencastFrameAck", { sessionId: cdpSid });
+    } catch {
+      /* ignore */
+    }
     return;
   }
   if (msg.type === "control.takeover") {
@@ -445,7 +497,9 @@ async function handleViewerMessage(
           deltaY: msg.deltaY ?? 0,
           modifiers: msg.modifiers ?? 0,
         });
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     } else {
       try {
         await cdp.send("Input.dispatchKeyEvent", {
@@ -457,7 +511,9 @@ async function handleViewerMessage(
           modifiers: msg.modifiers ?? 0,
           windowsVirtualKeyCode: msg.windowsVirtualKeyCode,
         });
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
     return;
   }
@@ -495,13 +551,21 @@ function broadcastToViewers(state: SessionState, msg: LiveMessage): void {
   const payload = JSON.stringify(msg);
   for (const v of state.viewers) {
     if (v.ws.readyState !== WebSocket.OPEN) continue;
-    try { v.ws.send(payload); } catch { /* best-effort */ }
+    try {
+      v.ws.send(payload);
+    } catch {
+      /* best-effort */
+    }
   }
 }
 
 function sendToWs(ws: WebSocket, msg: LiveMessage): void {
   if (ws.readyState !== WebSocket.OPEN) return;
-  try { ws.send(JSON.stringify(msg)); } catch { /* best-effort */ }
+  try {
+    ws.send(JSON.stringify(msg));
+  } catch {
+    /* best-effort */
+  }
 }
 
 /** Snapshot used by the live-panel poll endpoint. */

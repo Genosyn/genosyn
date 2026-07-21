@@ -3,7 +3,12 @@ import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { User } from "../db/entities/User.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import {
+  requireAuth,
+  requireCompanyMember,
+  requireCompanyRole,
+  onRoutePaths,
+} from "../middleware/auth.js";
 
 /**
  * Company audit trail. Read-only — events are written by {@link recordAudit}
@@ -13,6 +18,7 @@ import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 export const auditRouter = Router({ mergeParams: true });
 auditRouter.use(requireAuth);
 auditRouter.use(requireCompanyMember);
+auditRouter.use(onRoutePaths(["/audit"], requireCompanyRole("admin")));
 
 auditRouter.get("/audit", async (req, res) => {
   const { cid } = req.params as Record<string, string>;

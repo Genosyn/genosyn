@@ -15,6 +15,9 @@ import type {
 } from "@simplewebauthn/server";
 import { AppDataSource } from "../db/datasource.js";
 import { User } from "../db/entities/User.js";
+import { Company } from "../db/entities/Company.js";
+import { Membership } from "../db/entities/Membership.js";
+import { In } from "typeorm";
 import {
   WebAuthnCredential,
   type WebAuthnCredentialKind,
@@ -137,6 +140,25 @@ export async function getTwoFactorStatus(userId: string): Promise<TwoFactorStatu
   };
 }
 
+export async function hasTwoFactorMethod(userId: string): Promise<boolean> {
+  const user = await AppDataSource.getRepository(User).findOneBy({ id: userId });
+  if (!user) return false;
+  if (user.totpEnabledAt) return true;
+  return (await AppDataSource.getRepository(WebAuthnCredential).countBy({ userId })) > 0;
+}
+
+async function assertMayRemoveLastTwoFactorMethod(userId: string): Promise<void> {
+  const memberships = await AppDataSource.getRepository(Membership).findBy({ userId });
+  if (memberships.length === 0) return;
+  const required = await AppDataSource.getRepository(Company).countBy({
+    id: In(memberships.map((membership) => membership.companyId)),
+    requireTwoFactor: true,
+  });
+  if (required > 0) {
+    throw new TwoFactorError("Two-factor authentication is required by one of your companies", 403);
+  }
+}
+
 export async function getTwoFactorLoginMethods(userId: string): Promise<{
   enabled: boolean;
   totp: boolean;
@@ -179,7 +201,7 @@ export async function beginTotpEnrollment(
     width: 240,
     color: { dark: "#0f172a", light: "#ffffff" },
   });
-  user.totpSecret = encryptSecret(secret);
+  user.totpSecret = encryptSecret(secret, `user:${user.id}`);
   user.totpEnabledAt = null;
   await AppDataSource.getRepository(User).save(user);
   return { secret, otpAuthUri, qrDataUrl };
@@ -221,11 +243,12 @@ export async function verifyTotpLogin(user: User, token: string): Promise<boolea
 
 export async function removeTotp(user: User, password: string): Promise<TwoFactorStatus> {
   await confirmCurrentPassword(user, password);
-  user.totpSecret = null;
-  user.totpEnabledAt = null;
   const credentialCount = await AppDataSource.getRepository(WebAuthnCredential).countBy({
     userId: user.id,
   });
+  if (credentialCount === 0) await assertMayRemoveLastTwoFactorMethod(user.id);
+  user.totpSecret = null;
+  user.totpEnabledAt = null;
   if (credentialCount === 0) user.recoveryCodes = null;
   await AppDataSource.getRepository(User).save(user);
   return getTwoFactorStatus(user.id);
@@ -388,8 +411,11 @@ export async function removeWebAuthnCredential(args: {
   const repo = AppDataSource.getRepository(WebAuthnCredential);
   const row = await repo.findOneBy({ id: args.credentialId, userId: args.user.id });
   if (!row) throw new TwoFactorError("Credential not found", 404);
-  await repo.remove(row);
   const remaining = await repo.countBy({ userId: args.user.id });
+  if (remaining === 1 && !args.user.totpEnabledAt) {
+    await assertMayRemoveLastTwoFactorMethod(args.user.id);
+  }
+  await repo.remove(row);
   if (remaining === 0 && !args.user.totpEnabledAt) {
     args.user.recoveryCodes = null;
     await AppDataSource.getRepository(User).save(args.user);
@@ -427,6 +453,7 @@ export async function regenerateRecoveryCodes(
 
 export async function disableTwoFactor(user: User, password: string): Promise<TwoFactorStatus> {
   await confirmCurrentPassword(user, password);
+  await assertMayRemoveLastTwoFactorMethod(user.id);
   await AppDataSource.transaction(async (manager) => {
     await manager.delete(WebAuthnCredential, { userId: user.id });
     user.totpSecret = null;

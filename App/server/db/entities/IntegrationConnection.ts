@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -84,7 +85,7 @@ export class IntegrationConnection {
   @Column({ type: "varchar", default: "" })
   statusMessage!: string;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   lastCheckedAt!: Date | null;
 
   @CreateDateColumn()

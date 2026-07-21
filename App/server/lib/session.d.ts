@@ -4,6 +4,7 @@ declare module "express-serve-static-core" {
   interface Request {
     session?: {
       userId?: string;
+      sessionVersion?: number;
       twoFactorUserId?: string;
       twoFactorExpiresAt?: number;
       twoFactorAttempts?: number;

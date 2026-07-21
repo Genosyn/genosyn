@@ -33,8 +33,8 @@ export function recordTwoFactorFailure(req: Request): boolean {
   return false;
 }
 
-export function completeTwoFactorLogin(req: Request, userId: string): void {
-  req.session = { userId };
+export function completeTwoFactorLogin(req: Request, userId: string, sessionVersion: number): void {
+  req.session = { userId, sessionVersion };
 }
 
 export function rememberWebAuthnChallenge(

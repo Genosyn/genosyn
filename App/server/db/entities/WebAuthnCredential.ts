@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from "typeorm";
 
 export type WebAuthnCredentialKind = "passkey" | "security_key";
@@ -45,7 +46,7 @@ export class WebAuthnCredential {
   @Column({ type: "boolean", default: false })
   backedUp!: boolean;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   lastUsedAt!: Date | null;
 
   @CreateDateColumn()

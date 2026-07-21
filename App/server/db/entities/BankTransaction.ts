@@ -1,10 +1,5 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  Index,
-} from "typeorm";
+import { dateTimeColumnType } from "./columnTypes.js";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 /**
  * One line off a bank feed. Phase D of the Finance milestone (M19) —
@@ -42,7 +37,7 @@ export class BankTransaction {
   @Column({ type: "varchar", nullable: true })
   externalId!: string | null;
 
-  @Column({ type: "datetime" })
+  @Column({ type: dateTimeColumnType })
   date!: Date;
 
   @Column({ type: "int" })
@@ -66,7 +61,7 @@ export class BankTransaction {
   @Column({ type: "varchar", nullable: true })
   matchedLedgerEntryId!: string | null;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   reconciledAt!: Date | null;
 
   /** Who reconciled this row. Null for auto-matched rows. */

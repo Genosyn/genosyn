@@ -1,17 +1,7 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  Index,
-} from "typeorm";
+import { dateTimeColumnType } from "./columnTypes.js";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
-export type RunStatus =
-  | "running"
-  | "completed"
-  | "failed"
-  | "skipped"
-  | "timeout";
+export type RunStatus = "running" | "completed" | "failed" | "skipped" | "timeout";
 
 // Run history, the Home failed-routines roll-up, and System Health all filter
 // by routineId and a startedAt window; without this the queries full-scan the
@@ -25,10 +15,10 @@ export class Run {
   @Column({ type: "varchar" })
   routineId!: string;
 
-  @Column({ type: "datetime" })
+  @Column({ type: dateTimeColumnType })
   startedAt!: Date;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   finishedAt!: Date | null;
 
   @Column({ type: "varchar" })
@@ -62,7 +52,7 @@ export class Run {
    * has dismissed (the default). The acting member + time are also written
    * to the audit log.
    */
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   dismissedAt!: Date | null;
 
   @CreateDateColumn()

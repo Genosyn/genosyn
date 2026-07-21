@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import {
   Column,
   CreateDateColumn,
@@ -25,7 +26,10 @@ import {
 export type ConversationSource = "web" | "telegram";
 
 @Entity("conversations")
-@Index(["source", "connectionId", "externalKey"], { unique: true, where: "\"externalKey\" IS NOT NULL" })
+@Index(["source", "connectionId", "externalKey"], {
+  unique: true,
+  where: '"externalKey" IS NOT NULL',
+})
 export class Conversation {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -42,7 +46,7 @@ export class Conversation {
    * conversations are hidden from the default list but kept intact so
    * they can be restored without data loss.
    */
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   archivedAt!: Date | null;
 
   /** Origin of the thread. `web` is the Genosyn UI; everything else is an

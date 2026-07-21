@@ -1,10 +1,5 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  Index,
-} from "typeorm";
+import { dateTimeColumnType } from "./columnTypes.js";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 /**
  * A payment recorded against an `Invoice`. Phase A of the Finance
@@ -19,12 +14,7 @@ import {
  * `reference` field so a bank-feed match can be unwound by deleting the
  * payment row.
  */
-export type InvoicePaymentMethod =
-  | "cash"
-  | "bank_transfer"
-  | "stripe"
-  | "lightning"
-  | "other";
+export type InvoicePaymentMethod = "cash" | "bank_transfer" | "stripe" | "lightning" | "other";
 
 @Entity("invoice_payments")
 @Index(["invoiceId"])
@@ -41,7 +31,7 @@ export class InvoicePayment {
   @Column({ type: "varchar", default: "USD" })
   currency!: string;
 
-  @Column({ type: "datetime" })
+  @Column({ type: dateTimeColumnType })
   paidAt!: Date;
 
   @Column({ type: "varchar", default: "other" })

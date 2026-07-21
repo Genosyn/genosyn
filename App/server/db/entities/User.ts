@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 @Entity("users")
@@ -21,15 +22,26 @@ export class User {
    * Globally unique so a mention can resolve without needing a company
    * scope. Nullable until the user picks one in Account → Profile.
    */
-  @Index({ unique: true, where: "handle IS NOT NULL" })
+  @Index({ unique: true, where: '"handle" IS NOT NULL' })
   @Column({ type: "varchar", nullable: true })
   handle!: string | null;
 
   @Column({ type: "varchar", nullable: true })
   resetToken!: string | null;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   resetExpiresAt!: Date | null;
+
+  /** Set after the member proves control of their email address. */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  emailVerifiedAt!: Date | null;
+
+  /** SHA-256 digest of the current single-use email verification token. */
+  @Column({ type: "varchar", nullable: true })
+  emailVerificationTokenHash!: string | null;
+
+  @Column({ type: dateTimeColumnType, nullable: true })
+  emailVerificationExpiresAt!: Date | null;
 
   /**
    * Basename of the profile image on disk (e.g. `<uuid>.jpg`), stored under
@@ -72,7 +84,7 @@ export class User {
   @Column({ type: "text", nullable: true })
   totpSecret!: string | null;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   totpEnabledAt!: Date | null;
 
   /**
@@ -81,6 +93,10 @@ export class User {
    */
   @Column({ type: "text", nullable: true })
   recoveryCodes!: string | null;
+
+  /** Incrementing this invalidates every signed cookie for the account. */
+  @Column({ type: "integer", default: 0 })
+  sessionVersion!: number;
 
   @CreateDateColumn()
   createdAt!: Date;

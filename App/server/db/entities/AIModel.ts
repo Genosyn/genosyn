@@ -1,10 +1,5 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  Index,
-} from "typeorm";
+import { dateTimeColumnType } from "./columnTypes.js";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 export type Provider = "anthropic" | "openai" | "custom";
 export type AuthMode = "apikey" | "customEndpoint";
@@ -65,7 +60,7 @@ export class AIModel {
   @Column({ type: "text", default: "{}" })
   configJson!: string;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   connectedAt!: Date | null;
 
   /**

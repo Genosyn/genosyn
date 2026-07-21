@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -35,7 +36,7 @@ export class CardTransaction {
   @Column({ type: "varchar", nullable: true })
   cardId!: string | null;
 
-  @Column({ type: "datetime" })
+  @Column({ type: dateTimeColumnType })
   postedAt!: Date;
 
   /** Brex convention: purchases are positive; refunds and collections are
@@ -67,7 +68,7 @@ export class CardTransaction {
   @Column({ type: "text", default: "" })
   raw!: string;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   reclassifiedAt!: Date | null;
 
   @CreateDateColumn()

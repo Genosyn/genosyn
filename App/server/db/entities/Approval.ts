@@ -1,10 +1,5 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  Index,
-} from "typeorm";
+import { dateTimeColumnType } from "./columnTypes.js";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
 
@@ -106,7 +101,7 @@ export class Approval {
   @CreateDateColumn()
   requestedAt!: Date;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   decidedAt!: Date | null;
 
   @Column({ type: "varchar", nullable: true })

@@ -1,10 +1,5 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  Index,
-} from "typeorm";
+import { dateTimeColumnType } from "./columnTypes.js";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 /**
  * Exchange rate between two currencies on a given date. Phase E of
@@ -35,7 +30,7 @@ export class ExchangeRate {
   @Column({ type: "varchar" })
   toCurrency!: string;
 
-  @Column({ type: "datetime" })
+  @Column({ type: dateTimeColumnType })
   date!: Date;
 
   @Column({ type: "real" })

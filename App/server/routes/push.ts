@@ -8,6 +8,7 @@ import {
   removeSubscription,
   saveSubscription,
 } from "../services/push.js";
+import { assertSafeOutboundUrl } from "../lib/outboundUrl.js";
 
 /**
  * Web Push subscription management for the PWA. User-scoped (not company-
@@ -46,6 +47,13 @@ pushRouter.post(
   validateBody(subscribeSchema),
   async (req, res) => {
     const body = req.body as z.infer<typeof subscribeSchema>;
+    try {
+      await assertSafeOutboundUrl(body.endpoint);
+    } catch (error) {
+      return res.status(400).json({
+        error: error instanceof Error ? error.message : "Unsafe push endpoint",
+      });
+    }
     await saveSubscription({
       userId: req.userId!,
       endpoint: body.endpoint,

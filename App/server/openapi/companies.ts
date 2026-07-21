@@ -7,6 +7,7 @@ const Company = z
     name: z.string(),
     slug: z.string(),
     role: z.enum(["owner", "admin", "member"]).optional(),
+    requireTwoFactor: z.boolean(),
   })
   .openapi("Company");
 

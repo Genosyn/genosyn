@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -41,12 +42,7 @@ export type RecurringInvoiceStatus = "active" | "paused" | "ended";
 /** The calendar unit a schedule repeats on. Paired with `intervalCount`
  *  ("every N units"). Only consulted when `intervalCount >= 2`; a count of
  *  1 is driven entirely by `cronExpr`. */
-export type RecurringInvoiceFrequency =
-  | "daily"
-  | "weekly"
-  | "monthly"
-  | "quarterly"
-  | "yearly";
+export type RecurringInvoiceFrequency = "daily" | "weekly" | "monthly" | "quarterly" | "yearly";
 
 @Entity("recurring_invoices")
 @Index(["companyId", "slug"], { unique: true })
@@ -91,7 +87,7 @@ export class RecurringInvoice {
   /** Reference instant the interval cadence counts from (the first base cron
    *  occurrence). Null for plain (intervalCount = 1) schedules; seeded by
    *  `registerRecurringInvoice` and re-seeded when the schedule is edited. */
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   anchorAt!: Date | null;
 
   @Column({ type: "varchar", default: "active" })
@@ -120,11 +116,11 @@ export class RecurringInvoice {
   footer!: string;
 
   /** Next scheduled fire. Null when paused / ended / cron unparseable. */
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   nextRunAt!: Date | null;
 
   /** Timestamp of the last generation, or null if it hasn't run yet. */
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   lastRunAt!: Date | null;
 
   /** Slug of the last invoice produced by this schedule — handy for the
@@ -142,7 +138,7 @@ export class RecurringInvoice {
   maxRuns!: number | null;
 
   /** Optional cutoff date. After this, status auto-flips to `ended`. */
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   endsOn!: Date | null;
 
   @Column({ type: "varchar", nullable: true })

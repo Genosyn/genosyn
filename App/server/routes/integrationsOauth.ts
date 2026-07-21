@@ -1,8 +1,5 @@
 import { Router } from "express";
-import {
-  createOauthConnection,
-  updateOauthConnectionConfig,
-} from "../services/integrations.js";
+import { createOauthConnection, updateOauthConnectionConfig } from "../services/integrations.js";
 import { finishOauth, resolveOauthState, type OauthApp } from "../services/oauth.js";
 import { recordAudit } from "../services/audit.js";
 
@@ -62,7 +59,7 @@ integrationsOauthRouter.get("/callback/:app", async (req, res) => {
     });
   }
 
-  const state = resolveOauthState(rawState);
+  const state = await resolveOauthState(rawState);
   if (!state) {
     return renderClose(res, {
       ok: false,
@@ -168,5 +165,8 @@ function renderClose(
     setTimeout(() => { try { window.close(); } catch (_e) {} }, 1500);
   </script>
 </body></html>`;
-  res.status(payload.ok ? 200 : 400).type("html").send(body);
+  res
+    .status(payload.ok ? 200 : 400)
+    .type("html")
+    .send(body);
 }

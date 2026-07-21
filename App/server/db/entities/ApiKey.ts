@@ -1,10 +1,5 @@
-import {
-  Column,
-  CreateDateColumn,
-  Entity,
-  Index,
-  PrimaryGeneratedColumn,
-} from "typeorm";
+import { dateTimeColumnType } from "./columnTypes.js";
+import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from "typeorm";
 
 /**
  * Programmatic-access token for the same REST surface humans use through the
@@ -54,15 +49,15 @@ export class ApiKey {
   tokenHash!: string;
 
   /** NULL until the key has authenticated a request at least once. */
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   lastUsedAt!: Date | null;
 
   /** Optional self-imposed expiry. NULL = never expires. */
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   expiresAt!: Date | null;
 
   /** Set by `DELETE /api-keys/:id`. Soft so audit trails survive. */
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   revokedAt!: Date | null;
 
   @CreateDateColumn()

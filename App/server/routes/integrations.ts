@@ -2,9 +2,13 @@ import { Router } from "express";
 import { z } from "zod";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import {
+  requireAuth,
+  requireCompanyMember,
+  requireCompanyRoleForMutations,
+} from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
-import { getProvider, listCatalog } from "../integrations/index.js";
+import { assertIntegrationAllowed, getProvider, listCatalog } from "../integrations/index.js";
 import {
   createApiKeyConnection,
   createBrowserLoginConnection,
@@ -29,6 +33,7 @@ import {
 } from "../services/integrations.js";
 import { startOauth, startOauthReconnect } from "../services/oauth.js";
 import { recordAudit } from "../services/audit.js";
+import { assertSafeOutboundConfig } from "../lib/outboundUrl.js";
 import {
   readGithubRepos,
   resolveGithubCredentials,
@@ -60,6 +65,7 @@ import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 export const integrationsRouter = Router({ mergeParams: true });
 integrationsRouter.use(requireAuth);
 integrationsRouter.use(requireCompanyMember);
+integrationsRouter.use(requireCompanyRoleForMutations("admin"));
 
 integrationsRouter.get("/catalog", async (_req, res) => {
   res.json(listCatalog());
@@ -77,43 +83,41 @@ const createConnectionSchema = z.object({
   fields: z.record(z.string().max(20_000)),
 });
 
-integrationsRouter.post(
-  "/connections",
-  validateBody(createConnectionSchema),
-  async (req, res) => {
-    const { cid } = req.params as Record<string, string>;
-    const body = req.body as z.infer<typeof createConnectionSchema>;
-    const provider = getProvider(body.provider);
-    if (!provider) return res.status(400).json({ error: "Unknown integration" });
-    if (provider.catalog.authMode !== "apikey") {
-      return res.status(400).json({
-        error: `${provider.catalog.name} must be connected via OAuth — call /oauth/start instead.`,
-      });
-    }
-    try {
-      const row = await createApiKeyConnection({
-        companyId: cid,
-        provider: body.provider,
-        label: body.label,
-        fields: body.fields,
-      });
-      await recordAudit({
-        companyId: cid,
-        actorUserId: req.userId ?? null,
-        action: "connection.create",
-        targetType: "connection",
-        targetId: row.id,
-        targetLabel: `${provider.catalog.name} · ${row.label}`,
-        metadata: { provider: row.provider, authMode: "apikey" },
-      });
-      res.json(serializeConnection(row));
-    } catch (err) {
-      res.status(400).json({
-        error: err instanceof Error ? err.message : "Failed to create connection",
-      });
-    }
-  },
-);
+integrationsRouter.post("/connections", validateBody(createConnectionSchema), async (req, res) => {
+  const { cid } = req.params as Record<string, string>;
+  const body = req.body as z.infer<typeof createConnectionSchema>;
+  const provider = getProvider(body.provider);
+  if (!provider) return res.status(400).json({ error: "Unknown integration" });
+  if (provider.catalog.authMode !== "apikey") {
+    return res.status(400).json({
+      error: `${provider.catalog.name} must be connected via OAuth — call /oauth/start instead.`,
+    });
+  }
+  try {
+    assertIntegrationAllowed(body.provider);
+    await assertSafeOutboundConfig(body.fields);
+    const row = await createApiKeyConnection({
+      companyId: cid,
+      provider: body.provider,
+      label: body.label,
+      fields: body.fields,
+    });
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "connection.create",
+      targetType: "connection",
+      targetId: row.id,
+      targetLabel: `${provider.catalog.name} · ${row.label}`,
+      metadata: { provider: row.provider, authMode: "apikey" },
+    });
+    res.json(serializeConnection(row));
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : "Failed to create connection",
+    });
+  }
+});
 
 const updateConnectionSchema = z.object({
   label: z.string().min(1).max(80),
@@ -176,31 +180,27 @@ const oauthStartSchema = z.object({
   extraFields: z.record(z.string().max(512)).optional(),
 });
 
-integrationsRouter.post(
-  "/oauth/start",
-  validateBody(oauthStartSchema),
-  async (req, res) => {
-    const { cid } = req.params as Record<string, string>;
-    const body = req.body as z.infer<typeof oauthStartSchema>;
-    try {
-      const out = startOauth({
-        companyId: cid,
-        userId: req.userId!,
-        provider: body.provider,
-        label: body.label,
-        clientId: body.clientId.trim(),
-        clientSecret: body.clientSecret.trim(),
-        scopeGroups: body.scopeGroups,
-        extraFields: body.extraFields,
-      });
-      res.json(out);
-    } catch (err) {
-      res.status(400).json({
-        error: err instanceof Error ? err.message : "Failed to start OAuth",
-      });
-    }
-  },
-);
+integrationsRouter.post("/oauth/start", validateBody(oauthStartSchema), async (req, res) => {
+  const { cid } = req.params as Record<string, string>;
+  const body = req.body as z.infer<typeof oauthStartSchema>;
+  try {
+    const out = await startOauth({
+      companyId: cid,
+      userId: req.userId!,
+      provider: body.provider,
+      label: body.label,
+      clientId: body.clientId.trim(),
+      clientSecret: body.clientSecret.trim(),
+      scopeGroups: body.scopeGroups,
+      extraFields: body.extraFields,
+    });
+    res.json(out);
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : "Failed to start OAuth",
+    });
+  }
+});
 
 const serviceAccountSchema = z.object({
   provider: z.string().min(1).max(64),
@@ -413,6 +413,7 @@ integrationsRouter.post(
       });
     }
     try {
+      await assertSafeOutboundConfig(body.fields);
       const row = await createBrowserLoginConnection({
         companyId: cid,
         provider: body.provider,
@@ -448,6 +449,7 @@ integrationsRouter.put(
     const { cid, connId } = req.params as Record<string, string>;
     const body = req.body as z.infer<typeof browserLoginReconnectSchema>;
     try {
+      await assertSafeOutboundConfig(body.fields);
       const updated = await updateBrowserLoginCredentials({
         companyId: cid,
         connectionId: connId,
@@ -516,6 +518,7 @@ integrationsRouter.put(
     const { cid, connId } = req.params as Record<string, string>;
     const body = req.body as z.infer<typeof reconnectApiKeySchema>;
     try {
+      await assertSafeOutboundConfig(body.fields);
       const updated = await updateApiKeyCredentials({
         companyId: cid,
         connectionId: connId,
@@ -686,28 +689,25 @@ integrationsRouter.post(
   },
 );
 
-integrationsRouter.delete(
-  "/employees/:eid/grants/:connId",
-  async (req, res) => {
-    const { cid, eid, connId } = req.params as Record<string, string>;
-    const emp = await loadEmployee(cid, eid);
-    if (!emp) return res.status(404).json({ error: "Employee not found" });
-    const conn = await getConnection(cid, connId);
-    if (!conn) return res.status(404).json({ error: "Connection not found" });
-    const ok = await revokeAccess(emp.id, conn.id);
-    if (!ok) return res.status(404).json({ error: "Grant not found" });
-    await recordAudit({
-      companyId: cid,
-      actorUserId: req.userId ?? null,
-      action: "grant.delete",
-      targetType: "connection",
-      targetId: conn.id,
-      targetLabel: `${conn.provider} · ${conn.label} → ${emp.name}`,
-      metadata: { employeeId: emp.id, connectionId: conn.id },
-    });
-    res.json({ ok: true });
-  },
-);
+integrationsRouter.delete("/employees/:eid/grants/:connId", async (req, res) => {
+  const { cid, eid, connId } = req.params as Record<string, string>;
+  const emp = await loadEmployee(cid, eid);
+  if (!emp) return res.status(404).json({ error: "Employee not found" });
+  const conn = await getConnection(cid, connId);
+  if (!conn) return res.status(404).json({ error: "Connection not found" });
+  const ok = await revokeAccess(emp.id, conn.id);
+  if (!ok) return res.status(404).json({ error: "Grant not found" });
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "grant.delete",
+    targetType: "connection",
+    targetId: conn.id,
+    targetLabel: `${conn.provider} · ${conn.label} → ${emp.name}`,
+    metadata: { employeeId: emp.id, connectionId: conn.id },
+  });
+  res.json({ ok: true });
+});
 
 // ---------- GitHub-specific: repo allowlist ----------
 //
@@ -725,85 +725,82 @@ integrationsRouter.delete(
 // repos will see a search box on the client side that filters within the
 // page (a future "fetch more" pagination is a UI follow-up).
 
-integrationsRouter.get(
-  "/connections/:connId/github/repos",
-  async (req, res) => {
-    const { cid, connId } = req.params as Record<string, string>;
-    const conn = await getConnection(cid, connId);
-    if (!conn) return res.status(404).json({ error: "Connection not found" });
-    if (conn.provider !== "github") {
-      return res.status(400).json({ error: "Connection is not a GitHub Connection" });
-    }
-    let cfg;
-    try {
-      cfg = decryptConnectionConfig(conn);
-    } catch (err) {
-      return res.status(500).json({
-        error: err instanceof Error ? err.message : "Failed to decrypt connection",
+integrationsRouter.get("/connections/:connId/github/repos", async (req, res) => {
+  const { cid, connId } = req.params as Record<string, string>;
+  const conn = await getConnection(cid, connId);
+  if (!conn) return res.status(404).json({ error: "Connection not found" });
+  if (conn.provider !== "github") {
+    return res.status(400).json({ error: "Connection is not a GitHub Connection" });
+  }
+  let cfg;
+  try {
+    cfg = decryptConnectionConfig(conn);
+  } catch (err) {
+    return res.status(500).json({
+      error: err instanceof Error ? err.message : "Failed to decrypt connection",
+    });
+  }
+  const creds = await resolveGithubCredentials(cfg, conn.authMode);
+  if (!creds) {
+    return res.status(400).json({
+      error: "Connection is missing credentials. Reconnect from Settings → Integrations.",
+    });
+  }
+  if (creds.refreshedConfig) {
+    conn.encryptedConfig = encryptConnectionConfig(creds.refreshedConfig, conn.companyId);
+    conn.lastCheckedAt = new Date();
+    conn.status = "connected";
+    conn.statusMessage = "";
+    await AppDataSource.getRepository(IntegrationConnection).save(conn);
+  }
+  let discoverable: Array<{
+    owner: string;
+    name: string;
+    defaultBranch: string;
+    description: string;
+    private: boolean;
+  }> = [];
+  try {
+    const url =
+      "https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member";
+    const ghRes = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "genosyn",
+      },
+    });
+    if (!ghRes.ok) {
+      const text = await ghRes.text();
+      return res.status(ghRes.status).json({
+        error: `GitHub returned ${ghRes.status}: ${text.slice(0, 200)}`,
       });
     }
-    const creds = await resolveGithubCredentials(cfg, conn.authMode);
-    if (!creds) {
-      return res.status(400).json({
-        error: "Connection is missing credentials. Reconnect from Settings → Integrations.",
-      });
-    }
-    if (creds.refreshedConfig) {
-      conn.encryptedConfig = encryptConnectionConfig(creds.refreshedConfig);
-      conn.lastCheckedAt = new Date();
-      conn.status = "connected";
-      conn.statusMessage = "";
-      await AppDataSource.getRepository(IntegrationConnection).save(conn);
-    }
-    let discoverable: Array<{
-      owner: string;
-      name: string;
-      defaultBranch: string;
-      description: string;
-      private: boolean;
-    }> = [];
-    try {
-      const url =
-        "https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member";
-      const ghRes = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${creds.accessToken}`,
-          Accept: "application/vnd.github+json",
-          "X-GitHub-Api-Version": "2022-11-28",
-          "User-Agent": "genosyn",
-        },
-      });
-      if (!ghRes.ok) {
-        const text = await ghRes.text();
-        return res.status(ghRes.status).json({
-          error: `GitHub returned ${ghRes.status}: ${text.slice(0, 200)}`,
-        });
-      }
-      const list = (await ghRes.json()) as Array<{
-        owner?: { login?: string };
-        name?: string;
-        default_branch?: string;
-        description?: string;
-        private?: boolean;
-      }>;
-      discoverable = list
-        .filter((r) => r.owner?.login && r.name)
-        .map((r) => ({
-          owner: r.owner!.login!,
-          name: r.name!,
-          defaultBranch: r.default_branch || "main",
-          description: r.description || "",
-          private: Boolean(r.private),
-        }));
-    } catch (err) {
-      return res.status(502).json({
-        error: err instanceof Error ? err.message : "Failed to reach GitHub",
-      });
-    }
-    const allowed = readGithubRepos(cfg, conn.authMode);
-    res.json({ allowed, discoverable });
-  },
-);
+    const list = (await ghRes.json()) as Array<{
+      owner?: { login?: string };
+      name?: string;
+      default_branch?: string;
+      description?: string;
+      private?: boolean;
+    }>;
+    discoverable = list
+      .filter((r) => r.owner?.login && r.name)
+      .map((r) => ({
+        owner: r.owner!.login!,
+        name: r.name!,
+        defaultBranch: r.default_branch || "main",
+        description: r.description || "",
+        private: Boolean(r.private),
+      }));
+  } catch (err) {
+    return res.status(502).json({
+      error: err instanceof Error ? err.message : "Failed to reach GitHub",
+    });
+  }
+  const allowed = readGithubRepos(cfg, conn.authMode);
+  res.json({ allowed, discoverable });
+});
 
 const updateReposSchema = z.object({
   repos: z
@@ -850,7 +847,7 @@ integrationsRouter.put(
       });
     }
     const next = writeGithubRepos(cfg, conn.authMode, deduped);
-    conn.encryptedConfig = encryptConnectionConfig(next);
+    conn.encryptedConfig = encryptConnectionConfig(next, conn.companyId);
     await AppDataSource.getRepository(IntegrationConnection).save(conn);
     await recordAudit({
       companyId: cid,

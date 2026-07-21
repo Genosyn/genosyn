@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -82,7 +83,7 @@ export class MailMessage {
   labelIds!: string;
 
   /** Gmail internalDate. */
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   sentAt!: Date | null;
 
   /** RFC 822 Message-ID header — needed to thread replies correctly. */

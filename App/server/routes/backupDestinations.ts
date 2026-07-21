@@ -12,6 +12,7 @@ import {
   updateDestination,
   DestinationInput,
 } from "../services/backupDestinations.js";
+import { config } from "../../config.js";
 
 /**
  * Install-wide backup *destination* endpoints — where completed archives are
@@ -24,6 +25,15 @@ import {
 export const backupDestinationsRouter = Router();
 backupDestinationsRouter.use(requireAuth);
 backupDestinationsRouter.use(requireMasterAdmin);
+backupDestinationsRouter.use((_req, res, next) => {
+  if (config.security.multiTenant) {
+    return res.status(409).json({
+      error:
+        "Built-in archive destinations are unavailable in shared SaaS mode. Use your platform backup service for Postgres and shared storage.",
+    });
+  }
+  next();
+});
 
 const sftpAuthMode = z.enum(["password", "key"]);
 
@@ -132,37 +142,26 @@ backupDestinationsRouter.get("/", async (_req, res) => {
   res.json(rows.map(serializeDestination));
 });
 
-backupDestinationsRouter.post(
-  "/",
-  validateBody(createSchema),
-  async (req, res, next) => {
-    try {
-      const body = req.body as z.infer<typeof createSchema>;
-      const row = await createDestination(
-        body as DestinationInput,
-        req.userId ?? null,
-      );
-      res.json(serializeDestination(row));
-    } catch (err) {
-      next(err);
-    }
-  },
-);
+backupDestinationsRouter.post("/", validateBody(createSchema), async (req, res, next) => {
+  try {
+    const body = req.body as z.infer<typeof createSchema>;
+    const row = await createDestination(body as DestinationInput, req.userId ?? null);
+    res.json(serializeDestination(row));
+  } catch (err) {
+    next(err);
+  }
+});
 
-backupDestinationsRouter.put(
-  "/:id",
-  validateBody(updateSchema),
-  async (req, res, next) => {
-    try {
-      const body = req.body as z.infer<typeof updateSchema>;
-      const row = await updateDestination(req.params.id, body);
-      if (!row) return res.status(404).json({ error: "Not found" });
-      res.json(serializeDestination(row));
-    } catch (err) {
-      next(err);
-    }
-  },
-);
+backupDestinationsRouter.put("/:id", validateBody(updateSchema), async (req, res, next) => {
+  try {
+    const body = req.body as z.infer<typeof updateSchema>;
+    const row = await updateDestination(req.params.id, body);
+    if (!row) return res.status(404).json({ error: "Not found" });
+    res.json(serializeDestination(row));
+  } catch (err) {
+    next(err);
+  }
+});
 
 backupDestinationsRouter.delete("/:id", async (req, res) => {
   const ok = await deleteDestination(req.params.id);

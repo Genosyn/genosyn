@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -58,7 +59,7 @@ export class MailRule {
   @Column({ type: "int", default: 0 })
   matchCount!: number;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   lastMatchedAt!: Date | null;
 
   @Column({ type: "varchar", nullable: true })

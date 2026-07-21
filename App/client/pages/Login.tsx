@@ -100,6 +100,7 @@ export default function Login({ onAuth }: { onAuth: () => Promise<void> }) {
         <Input
           label="Email"
           type="email"
+          autoComplete="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
@@ -107,6 +108,7 @@ export default function Login({ onAuth }: { onAuth: () => Promise<void> }) {
         <Input
           label="Password"
           type="password"
+          autoComplete="current-password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required

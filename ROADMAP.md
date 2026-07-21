@@ -23,17 +23,15 @@ don't re-litigate them.
 3. **Home site is fully standalone.** Own package.json, own UI, no shared
    components. Open source, no pricing page.
 4. **AI Models are employee-owned; an employee can hold several with one
-   active.** Each `AIModel` keeps its own credentials on disk under the
-   employee's directory (or encrypted in `configJson`). An employee can
+   active.** Each `AIModel` keeps its credentials encrypted in `configJson`. An employee can
    register multiple models and flip exactly one to active (`AIModel.isActive`,
    newest-added wins by default) — the runner + chat seams always spawn the
-   active one. No shared company pool. Firing an employee revokes every model's
-   credentials in one step (`rm -rf`).
+   active one. No shared company pool. Firing an employee removes every model row.
 5. **Database is the source of truth** for Soul, Skill, and Routine prose
    (`AIEmployee.soulBody`, `Skill.body`, `Routine.body`) and for captured Run
-   logs (`Run.logContent`, 256 KB cap). The filesystem under `data/` only
-   carries provider credentials, materialized `.mcp.json`, repo checkouts,
-   and CLI artifacts.
+   logs (`Run.logContent`, 256 KB cap), model/Connection credentials, and MCP
+   configuration. The filesystem under `data/` only carries repo checkouts,
+   browser state, uploads, and tool artifacts.
 6. **No `.env` file, ever.** All runtime settings live in `App/config.ts` as
    one exported object with commented JSON-shape. Self-hosters edit
    `config.ts` directly.
@@ -100,7 +98,7 @@ genosyn/
 │   │   ├── routes/               # 30+ HTTP routers — auth, companies, …
 │   │   ├── services/             # cron, runner, chat, repoSync, oauth, …
 │   │   ├── integrations/providers/  # Stripe, Gmail, GitHub, Lightning, …
-│   │   ├── mcp-genosyn/          # Built-in stdio MCP server
+│   │   ├── mcp-browser/          # Isolated browser MCP child for self-hosting
 │   │   └── middleware/           # session, auth guard, error, zod validate
 │   ├── client/                   # React + Vite + Tailwind SPA
 │   │   └── pages/                # 40+ pages
@@ -164,6 +162,21 @@ export const config = {
   port: 8471,
   publicUrl: "http://localhost:8471",
   sessionSecret: "change-me-in-production",
+  security: {
+    multiTenant: false,
+    encryptionSecret: "change-me-in-production-too",
+    previousEncryptionSecrets: [],
+    secureCookies: "auto",
+    sessionMaxAgeDays: 7,
+    trustedProxyHops: 0,
+    outboundPrivateHostAllowlist: [],
+    bootstrapMasterAdminEmail: "",
+  },
+  agent: {
+    codingTools: { executionMode: "host", allowNetwork: true },
+    browserEnabledInMultiTenant: false,
+    maxConcurrentRunsPerCompany: 4,
+  },
   smtp: {
     host: "",
     port: 587,
@@ -213,6 +226,32 @@ export const config = {
 - [x] Company switcher in app shell
 - [x] Invite member by email (token link)
 - [x] Roles: owner / admin / member
+
+### M28 — Shared SaaS foundation ✅
+
+- [x] Fail-closed shared-SaaS config profile: Postgres, HTTPS/Secure cookies,
+      independent strong session/encryption secrets, global SMTP, declared
+      bootstrap operator, empty private-host exceptions, and isolated AI shells
+- [x] Verified-email signup and invitation binding; hashed single-use email and
+      password-reset tokens; database-backed authentication throttles; 12-character
+      new-password minimum; account-wide session revocation on reset/change
+- [x] Enforced company roles for sensitive AI, secret, Connection, Pipeline,
+      repository, email-provider, audit, and usage mutations
+- [x] Optional company policy requiring TOTP/WebAuthn, including protection
+      against removing the final method while the policy applies
+- [x] Scoped, rotation-aware AES-256-GCM encryption for tenant/user secrets,
+      with legacy ciphertext read compatibility
+- [x] Public-network egress policy at URL validation and socket DNS lookup time;
+      bounded redirects, timeouts, and response sizes for tenant-controlled HTTP
+- [x] Bubblewrap shell isolation with a private writable employee workspace,
+      cleared server environment, symlink-safe file tools, and no shell network;
+      shared browser and arbitrary stdio MCP disabled in SaaS mode
+- [x] Per-company AI concurrency quota plus single-workload-per-employee leases
+- [x] Horizontal coordination through Postgres: scheduler/worker leases, atomic
+      mail claims, Telegram ownership/failover, encrypted OAuth/OIDC/WebSocket
+      state, and authorized cross-replica realtime fan-out
+- [x] Separate generated SQLite and Postgres migration streams, both verified
+      against their real database engines
 
 ### M3 — AI Employees + Soul ✅
 
@@ -1093,7 +1132,7 @@ of the original V1 backlog has shipped — what remains is mostly
 
 ### Platform
 
-- [ ] **API keys + REST API** — see M14 above
+- [x] **API keys + REST API** — see M14 above
 - [x] **Audit log** (`AuditEvent` with `actorKind: human | ai | webhook`)
 - [x] **Usage & cost** — per-employee / per-routine token spend rollups
 - [x] **Backups** — `Backup` + `BackupSchedule`, restore endpoint,
@@ -1212,8 +1251,10 @@ of the original V1 backlog has shipped — what remains is mostly
         flips into "Take over" mode. Solves captcha / 2FA without an
         external service. The async `browser_submit` Approval flow
         stays as the fallback for unattended routines.
-- [ ] **Genosyn-level sandbox** (docker / lightweight jail around the
-      child process — provider sandboxes don't fully contain the spawn)
+- [x] **Genosyn-level sandbox** — Bubblewrap user/mount/PID/IPC/UTS/cgroup
+      namespaces, a single writable employee workspace, explicit environment,
+      optional network namespace, and realpath/symlink containment. Shared SaaS
+      requires this mode with networking disabled.
 - [x] **Per-run context window budget** — the loop budgets each turn against
       `AIModel.contextWindow` (85% of it, leaving room to reply), and drops the
       oldest tool results to a stub when the next prompt wouldn't fit. Results
@@ -1244,9 +1285,10 @@ of the original V1 backlog has shipped — what remains is mostly
 
 1. **Employee-first, not workflow-first.** The primary noun is the
    employee; routines, skills, and grants hang off them.
-2. **Database as source of truth.** Soul, skills, routines, and run logs
-   live on their DB rows. The filesystem only carries provider runtime
-   surface (credentials, `.mcp.json`, repo checkouts, CLI artifacts).
+2. **Database as source of truth.** Soul, skills, routines, run logs, model
+   credentials, Connection credentials, and MCP configuration live on DB rows.
+   The filesystem only carries working trees, browser state, uploads, and tool
+   artifacts.
 3. **Local-first & self-hostable.** SQLite works offline on a laptop; flip
    `config.db.driver` to Postgres when you outgrow it.
 4. **Human-in-the-loop by default.** Autonomy is opt-in per routine, and

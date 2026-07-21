@@ -5,13 +5,10 @@ import { Router, type Request } from "express";
 import { z } from "zod";
 import { AppDataSource } from "../db/datasource.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import { requireAuth, requireCompanyMember, requireCompanyRole } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { mintWsToken } from "../services/realtime.js";
-import {
-  closeBrowserSession,
-  getSessionSnapshot,
-} from "../services/browserSessions.js";
+import { closeBrowserSession, getSessionSnapshot } from "../services/browserSessions.js";
 
 type ScopedParams = { cid: string; eid: string; id?: string };
 type ScopedReq = Request<ScopedParams>;
@@ -26,6 +23,7 @@ type ScopedReq = Request<ScopedParams>;
 export const browserSessionsRouter = Router({ mergeParams: true });
 browserSessionsRouter.use(requireAuth);
 browserSessionsRouter.use(requireCompanyMember);
+browserSessionsRouter.use(requireCompanyRole("admin"));
 
 function serializeSession(row: BrowserSession) {
   const snap = getSessionSnapshot(row.id);
@@ -53,7 +51,8 @@ function serializeSession(row: BrowserSession) {
 browserSessionsRouter.get("/", async (req: ScopedReq, res) => {
   const cid = req.params.cid;
   const eid = req.params.eid;
-  const conversationId = typeof req.query.conversationId === "string" ? req.query.conversationId : null;
+  const conversationId =
+    typeof req.query.conversationId === "string" ? req.query.conversationId : null;
   const runId = typeof req.query.runId === "string" ? req.query.runId : null;
   const statusFilter = typeof req.query.status === "string" ? req.query.status.split(",") : null;
 
@@ -95,7 +94,7 @@ browserSessionsRouter.post("/:id/ws-token", async (req: ScopedReq, res) => {
   });
   if (!row) return res.status(404).json({ error: "Not found" });
   if (!req.userId) return res.status(401).json({ error: "Unauthorized" });
-  const token = mintWsToken(req.userId, req.params.cid);
+  const token = await mintWsToken(req.userId, req.params.cid);
   res.json({ token });
 });
 
@@ -143,19 +142,14 @@ browserSessionsRouter.get("/:id/view.js", (req, res) => {
 
 const closeSchema = z.object({});
 
-browserSessionsRouter.post(
-  "/:id/close",
-  validateBody(closeSchema),
-  async (req: ScopedReq, res) => {
-    const repo = AppDataSource.getRepository(BrowserSession);
-    const row = await repo.findOneBy({
-      id: req.params.id!,
-      companyId: req.params.cid,
-      employeeId: req.params.eid,
-    });
-    if (!row) return res.status(404).json({ error: "Not found" });
-    await closeBrowserSession(row.id, "manual");
-    res.json({ ok: true });
-  },
-);
-
+browserSessionsRouter.post("/:id/close", validateBody(closeSchema), async (req: ScopedReq, res) => {
+  const repo = AppDataSource.getRepository(BrowserSession);
+  const row = await repo.findOneBy({
+    id: req.params.id!,
+    companyId: req.params.cid,
+    employeeId: req.params.eid,
+  });
+  if (!row) return res.status(404).json({ error: "Not found" });
+  await closeBrowserSession(row.id, "manual");
+  res.json({ ok: true });
+});

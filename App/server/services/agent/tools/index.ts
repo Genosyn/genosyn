@@ -9,6 +9,7 @@ import {
   loadUserServerSpecs,
   type BrowserConfig,
 } from "./mcpSources.js";
+import { config } from "../../../../config.js";
 
 /**
  * Assemble the full tool list an employee's agent can call this turn:
@@ -56,7 +57,9 @@ export async function gatherEmployeeTools(params: {
 
   const tools: AgentTool[] = [
     ...(params.localTools ?? []),
-    ...codingTools(codingCtx),
+    ...(config.agent.codingTools.enabled && config.agent.codingTools.executionMode !== "disabled"
+      ? codingTools(codingCtx)
+      : []),
     ...genosyn,
   ];
   const bridged: BridgedServer[] = [];
@@ -78,9 +81,7 @@ export async function gatherEmployeeTools(params: {
   // Approval instead of executing — the guard closure was bound in
   // loadUserServerSpecs.
   const connections = await Promise.all(
-    userServers.map((s) =>
-      connectMcpServer(s.name, s.spec, s.name, params.signal, s.guard),
-    ),
+    userServers.map((s) => connectMcpServer(s.name, s.spec, s.name, params.signal, s.guard)),
   );
   for (const c of connections) {
     bridged.push(c);

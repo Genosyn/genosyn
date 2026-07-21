@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -62,11 +63,11 @@ export class MailAccount {
   @Column({ type: "varchar", default: "" })
   historyId!: string;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   lastSyncAt!: Date | null;
 
   /** Set once the entire mailbox has been imported. */
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   backfilledAt!: Date | null;
 
   /** Resumable `threads.list` page cursor while the full backfill is in

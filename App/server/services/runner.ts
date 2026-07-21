@@ -12,12 +12,11 @@ import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
 import { materializeReposForEmployee } from "./repoSync.js";
-import {
-  composeCodeReposContext,
-  materializeCodeReposForEmployee,
-} from "./codeRepos.js";
+import { composeCodeReposContext, materializeCodeReposForEmployee } from "./codeRepos.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
 import type { CompactionInfo, ToolTrimInfo, TurnUsage } from "./agent/types.js";
+import { config } from "../../config.js";
+import { acquireWorkloadLease, releaseWorkloadLease } from "./workloadLeases.js";
 
 /**
  * Run seam.
@@ -101,6 +100,14 @@ export async function startRoutineRun(
   // falling back to the employee's active model when it pins none.
   const { model, pinned } = await resolveRoutineModel(routine);
   const skills = await skillRepo.find({ where: { employeeId: emp.id } });
+  const workloadLease = model
+    ? await acquireWorkloadLease(
+        co.id,
+        emp.id,
+        "routine",
+        Math.max(1, routine.timeoutSec) * 1000 + 60_000,
+      )
+    : null;
 
   const now = new Date();
   const run = runRepo.create({
@@ -109,7 +116,13 @@ export async function startRoutineRun(
     status: "running",
     logContent: "",
   });
-  const saved = await runRepo.save(run);
+  let saved: Run;
+  try {
+    saved = await runRepo.save(run);
+  } catch (error) {
+    await releaseWorkloadLease(workloadLease);
+    throw error;
+  }
 
   const log = new LogBuffer(RUN_LOG_MAX_BYTES);
   liveBuffers.set(saved.id, log);
@@ -131,8 +144,9 @@ export async function startRoutineRun(
   );
 
   const completion = (async (): Promise<Run> => {
-    const mcpToken = issueMcpToken(emp.id, co.id);
+    let mcpToken: string | null = null;
     try {
+      mcpToken = issueMcpToken(emp.id, co.id);
       // No model connected → skip cleanly.
       if (!model) {
         log.line(
@@ -164,10 +178,12 @@ export async function startRoutineRun(
       // materializers export. Secrets are validated + reserved-name filtered
       // by loadCompanySecretsEnv, so this can't clobber anything load-bearing.
       const toolEnv: Record<string, string> = {};
-      try {
-        Object.assign(toolEnv, await loadCompanySecretsEnv(co.id));
-      } catch (err) {
-        log.line(`[warn] failed to load company secrets: ${(err as Error).message}`);
+      if (!config.security.multiTenant) {
+        try {
+          Object.assign(toolEnv, await loadCompanySecretsEnv(co.id));
+        } catch (err) {
+          log.line(`[warn] failed to load company secrets: ${(err as Error).message}`);
+        }
       }
 
       // Materialize granted GitHub Connection repos + provider-agnostic Code
@@ -222,8 +238,7 @@ export async function startRoutineRun(
               log.write(delta);
             },
             onToolUse: (name, input) => log.line(`\n[tool] ${name} ${previewArgs(input)}`),
-            onToolResult: (name, r) =>
-              log.line(`[tool:${name}] ${r.isError ? "error" : "ok"}`),
+            onToolResult: (name, r) => log.line(`[tool:${name}] ${r.isError ? "error" : "ok"}`),
             onUsage: (u) => log.line(usageLine(u, model.contextWindow)),
             onCompact: (c) => log.line(compactLine(c)),
             onToolsTrimmed: (t) => log.line(toolTrimLine(t)),
@@ -264,7 +279,8 @@ export async function startRoutineRun(
       await touchRoutine(routine, saved.finishedAt, routineRepo);
       return saved;
     } finally {
-      revokeMcpToken(mcpToken);
+      if (mcpToken) revokeMcpToken(mcpToken);
+      await releaseWorkloadLease(workloadLease);
       // Once the row has the final logContent, the live buffer is no longer the
       // source of truth — drop it so subsequent /log reads hit the DB.
       liveBuffers.delete(saved.id);
@@ -351,11 +367,7 @@ function toolTrimLine(t: ToolTrimInfo): string {
  * what actually happened. We don't journal the `running` state — only the
  * terminal transition, once the status is final.
  */
-async function writeJournalForRun(
-  employeeId: string,
-  routine: Routine,
-  run: Run,
-): Promise<void> {
+async function writeJournalForRun(employeeId: string, routine: Routine, run: Run): Promise<void> {
   const journalRepo = AppDataSource.getRepository(JournalEntry);
   const verb =
     run.status === "completed"
@@ -449,7 +461,7 @@ function toolsBriefing(): string {
     "You have tools available — use them instead of describing what you would do. A tool call leaves a visible audit row; prose-only claims are invisible.",
     "- Coding: `bash` (run shell commands in your working directory), `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep`. Your working directory holds any git repositories you were granted, under `repos/` and `code-repos/`.",
     "- Genosyn: `add_journal_entry` to log what you accomplished, `memory` to capture durable facts, `create_routine`/`create_todo` to follow up on work, `update_routine` to edit or pause an existing Routine in place (never create a duplicate to change one), `get_self`/`list_employees`/`list_routines` to orient, plus Bases (`bases`, `base_rows`), email via the `mail` tool when a mailbox has been granted to you (op: accounts/search/get/draft/update/send — prefer drafts unless the brief explicitly allows sending), chat attachments, and any company integration tools you were granted.",
-    "- Related actions are bundled behind an `op` argument rather than one tool each — `base_rows` takes `op: \"list\" | \"create\" | \"update\" | \"delete\"`, and `memory`, `notes`, `charts` and others work the same way. Each tool's description lists the ops it accepts and what each one requires; read it before calling.",
+    '- Related actions are bundled behind an `op` argument rather than one tool each — `base_rows` takes `op: "list" | "create" | "update" | "delete"`, and `memory`, `notes`, `charts` and others work the same way. Each tool\'s description lists the ops it accepts and what each one requires; read it before calling.',
     "- Parallel delegation: `delegate_parallel_work` runs independent briefs concurrently as temporary copies of you, then returns their results for you to verify and synthesize. Prefer independent research, analysis, and API calls. Workers share your working directory, so partition file-writing briefs explicitly and never overlap git operations.",
     "- Browser (when enabled) and any company-configured MCP servers appear as additional tools.",
   ].join("\n");

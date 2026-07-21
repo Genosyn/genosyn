@@ -8,6 +8,7 @@ import { Approval } from "../db/entities/Approval.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { runRoutine } from "./runner.js";
 import { notifyApprovalPending } from "./notifications.js";
+import { withSchedulerLease } from "./schedulerLeases.js";
 
 /**
  * Heartbeat-based routine scheduler.
@@ -136,22 +137,22 @@ async function tick(): Promise<void> {
   if (ticking) return;
   ticking = true;
   try {
-    const repo = AppDataSource.getRepository(Routine);
-    const now = new Date();
-    const due = await repo.find({
-      where: { enabled: true, nextRunAt: LessThanOrEqual(now) },
-    });
-    for (const r of due) {
-      // Advance BEFORE firing so a long-running routine doesn't re-trigger
-      // on the next heartbeat. Compute from `now` (not r.nextRunAt) so we
-      // collapse missed slots into a single catch-up run.
-      r.nextRunAt = nextRunFor(r.cronExpr, now);
-      await repo.save(r);
-      tickRoutine(r.id).catch((err) => {
-        // eslint-disable-next-line no-console
-        console.error(`[cron] routine ${r.id} failed:`, err);
+    await withSchedulerLease("routines", HEARTBEAT_INTERVAL_MS * 3, async () => {
+      const repo = AppDataSource.getRepository(Routine);
+      const now = new Date();
+      const due = await repo.find({
+        where: { enabled: true, nextRunAt: LessThanOrEqual(now) },
       });
-    }
+      for (const r of due) {
+        // Advance BEFORE firing so a long-running routine doesn't re-trigger.
+        r.nextRunAt = nextRunFor(r.cronExpr, now);
+        await repo.save(r);
+        tickRoutine(r.id).catch((err) => {
+          // eslint-disable-next-line no-console
+          console.error(`[cron] routine ${r.id} failed:`, err);
+        });
+      }
+    });
   } finally {
     ticking = false;
   }

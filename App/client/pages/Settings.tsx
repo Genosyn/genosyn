@@ -40,6 +40,7 @@ export function SettingsCompany() {
   const { company, onCompaniesChanged } = useCtx();
   const [name, setName] = React.useState(company.name);
   const [slug, setSlug] = React.useState(company.slug);
+  const [requireTwoFactor, setRequireTwoFactor] = React.useState(company.requireTwoFactor);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const { toast } = useToast();
@@ -47,12 +48,15 @@ export function SettingsCompany() {
   React.useEffect(() => {
     setName(company.name);
     setSlug(company.slug);
-  }, [company.id, company.name, company.slug]);
+    setRequireTwoFactor(company.requireTwoFactor);
+  }, [company.id, company.name, company.requireTwoFactor, company.slug]);
 
   const normalizedSlug = normalizeSlugInput(slug);
   const dirty =
     name.trim() !== company.name ||
-    (normalizedSlug.length > 0 && normalizedSlug !== company.slug);
+    (normalizedSlug.length > 0 && normalizedSlug !== company.slug) ||
+    requireTwoFactor !== company.requireTwoFactor;
+  const canAdminister = company.role === "owner" || company.role === "admin";
 
   return (
     <>
@@ -61,8 +65,11 @@ export function SettingsCompany() {
         <CardHeader>
           <h2 className="text-sm font-semibold">General</h2>
           <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-            Renaming the slug updates every URL for this company and renames its
-            directory under <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">data/companies/</code>.
+            Renaming the slug updates every URL for this company and renames its directory under{" "}
+            <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
+              data/companies/
+            </code>
+            .
           </p>
         </CardHeader>
         <CardBody>
@@ -71,18 +78,18 @@ export function SettingsCompany() {
             onSubmit={async (e) => {
               e.preventDefault();
               if (!dirty || saving) return;
-              const patch: { name?: string; slug?: string } = {};
+              const patch: { name?: string; slug?: string; requireTwoFactor?: boolean } = {};
               if (name.trim() !== company.name) patch.name = name.trim();
               if (normalizedSlug && normalizedSlug !== company.slug) {
                 patch.slug = normalizedSlug;
               }
+              if (requireTwoFactor !== company.requireTwoFactor) {
+                patch.requireTwoFactor = requireTwoFactor;
+              }
               setError(null);
               setSaving(true);
               try {
-                const updated = await api.patch<Company>(
-                  `/api/companies/${company.id}`,
-                  patch,
-                );
+                const updated = await api.patch<Company>(`/api/companies/${company.id}`, patch);
                 if (updated.slug !== company.slug) {
                   // URL / workspace paths changed — reload at the new slug so
                   // every open tab + route lines up with the renamed company.
@@ -115,8 +122,27 @@ export function SettingsCompany() {
                 URL: <code className="font-mono">/c/{normalizedSlug || "…"}</code>
               </p>
             </div>
+            {canAdminister ? (
+              <label className="flex items-start gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                <input
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  type="checkbox"
+                  checked={requireTwoFactor}
+                  onChange={(event) => setRequireTwoFactor(event.target.checked)}
+                />
+                <span>
+                  <span className="block text-sm font-medium">
+                    Require two-factor authentication
+                  </span>
+                  <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
+                    Members must enroll an authenticator app, passkey, or security key before
+                    accessing this company.
+                  </span>
+                </span>
+              </label>
+            ) : null}
             <div className="flex justify-end pt-1">
-              <Button type="submit" disabled={!dirty || saving}>
+              <Button type="submit" disabled={!canAdminister || !dirty || saving}>
                 {saving ? "Saving…" : "Save"}
               </Button>
             </div>
@@ -164,20 +190,16 @@ function DangerZoneCard() {
     <>
       <Card className="mt-4 border-rose-200 dark:border-rose-500/40">
         <CardHeader>
-          <h2 className="text-sm font-semibold text-rose-700 dark:text-rose-300">
-            Danger zone
-          </h2>
+          <h2 className="text-sm font-semibold text-rose-700 dark:text-rose-300">Danger zone</h2>
           <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-            Permanently delete <strong>{company.name}</strong> and everything
-            inside it — employees, channels, bases, finance data, notes, and
-            uploaded files. This cannot be undone.
+            Permanently delete <strong>{company.name}</strong> and everything inside it — employees,
+            channels, bases, finance data, notes, and uploaded files. This cannot be undone.
           </p>
         </CardHeader>
         <CardBody>
           <div className="flex items-center justify-between gap-3">
             <div className="text-xs text-slate-500 dark:text-slate-400">
-              Signed in as <span className="font-mono">{me.email}</span> ·
-              owner of this company.
+              Signed in as <span className="font-mono">{me.email}</span> · owner of this company.
             </div>
             <Button
               variant="danger"
@@ -199,9 +221,8 @@ function DangerZoneCard() {
       >
         <div className="flex flex-col gap-3">
           <p className="text-sm text-slate-600 dark:text-slate-300">
-            This will permanently remove the company, all AI employees,
-            channels, bases, finance data, notes, attachments, and the on-disk
-            directory at{" "}
+            This will permanently remove the company, all AI employees, channels, bases, finance
+            data, notes, attachments, and the on-disk directory at{" "}
             <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
               data/companies/{company.slug}/
             </code>
@@ -216,11 +237,7 @@ function DangerZoneCard() {
             placeholder={company.name}
           />
           <div className="flex justify-end gap-2 pt-1">
-            <Button
-              variant="secondary"
-              onClick={() => setOpen(false)}
-              disabled={deleting}
-            >
+            <Button variant="secondary" onClick={() => setOpen(false)} disabled={deleting}>
               Cancel
             </Button>
             <Button
@@ -238,11 +255,47 @@ function DangerZoneCard() {
 }
 
 export function SettingsMembers() {
-  const { company } = useCtx();
+  const { company, me } = useCtx();
   const [members, setMembers] = React.useState<Member[] | null>(null);
   const [inviteEmail, setInviteEmail] = React.useState("");
   const [inviteError, setInviteError] = React.useState<string | null>(null);
   const { toast } = useToast();
+  const dialog = useDialog();
+  const canManage = company.role === "owner" || company.role === "admin";
+
+  async function changeRole(member: Member, role: "member" | "admin") {
+    try {
+      await api.patch(`/api/companies/${company.id}/members/${member.userId}`, { role });
+      await reload();
+      toast(`${member.name ?? member.email ?? "Member"} is now ${role}`, "success");
+    } catch (error) {
+      toast((error as Error).message, "error");
+    }
+  }
+
+  async function removeMember(member: Member) {
+    const self = member.userId === me.id;
+    const confirmed = await dialog.confirm({
+      title: self ? "Leave company?" : "Remove member?",
+      message: self
+        ? `You will lose access to ${company.name}.`
+        : `${member.name ?? member.email ?? "This member"} will lose access to ${company.name}.`,
+      confirmLabel: self ? "Leave" : "Remove",
+      variant: "danger",
+    });
+    if (!confirmed) return;
+    try {
+      await api.del(`/api/companies/${company.id}/members/${member.userId}`);
+      if (self) {
+        window.location.assign("/");
+        return;
+      }
+      await reload();
+      toast("Member removed", "success");
+    } catch (error) {
+      toast((error as Error).message, "error");
+    }
+  }
 
   const reload = React.useCallback(async () => {
     try {
@@ -281,17 +334,48 @@ export function SettingsMembers() {
                     />
                     <div className="min-w-0">
                       <div className="truncate font-medium">{m.name ?? "(unknown)"}</div>
-                      <div className="truncate text-xs text-slate-500 dark:text-slate-400">{m.email}</div>
+                      <div className="truncate text-xs text-slate-500 dark:text-slate-400">
+                        {m.email}
+                      </div>
                     </div>
                   </div>
-                  <span className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                    {m.role}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {company.role === "owner" && m.role !== "owner" && m.userId !== me.id ? (
+                      <select
+                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-900"
+                        value={m.role}
+                        onChange={(event) =>
+                          void changeRole(m, event.target.value as "member" | "admin")
+                        }
+                        aria-label={`Role for ${m.name ?? m.email ?? "member"}`}
+                      >
+                        <option value="member">Member</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    ) : (
+                      <span className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                        {m.role}
+                      </span>
+                    )}
+                    {m.role !== "owner" &&
+                    (m.userId === me.id ||
+                      company.role === "owner" ||
+                      (company.role === "admin" && m.role === "member")) ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void removeMember(m)}
+                        aria-label={m.userId === me.id ? "Leave company" : "Remove member"}
+                      >
+                        <Trash2 size={14} />
+                      </Button>
+                    ) : null}
+                  </div>
                 </li>
               ))}
             </ul>
           )}
-          <form
+          {canManage ? <form
             className="flex flex-col gap-3 border-t border-slate-100 pt-4 dark:border-slate-800"
             onSubmit={async (e) => {
               e.preventDefault();
@@ -320,7 +404,7 @@ export function SettingsMembers() {
               </div>
               <Button type="submit">Send invite</Button>
             </div>
-          </form>
+          </form> : null}
         </CardBody>
       </Card>
     </>
@@ -396,10 +480,14 @@ function SecretsCard({ company }: { company: Company }) {
                     <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-800 dark:bg-slate-800 dark:text-slate-100">
                       {s.name}
                     </code>
-                    <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{s.preview}</span>
+                    <span className="font-mono text-xs text-slate-500 dark:text-slate-400">
+                      {s.preview}
+                    </span>
                   </div>
                   {s.description && (
-                    <div className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">{s.description}</div>
+                    <div className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">
+                      {s.description}
+                    </div>
                   )}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
@@ -528,7 +616,12 @@ function SecretModal({
         )}
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
-            Value {isEdit && <span className="text-slate-400 dark:text-slate-500">(leave blank to keep current)</span>}
+            Value{" "}
+            {isEdit && (
+              <span className="text-slate-400 dark:text-slate-500">
+                (leave blank to keep current)
+              </span>
+            )}
           </label>
           <input
             type="password"

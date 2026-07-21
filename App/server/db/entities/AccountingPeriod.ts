@@ -1,10 +1,5 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  Index,
-} from "typeorm";
+import { dateTimeColumnType } from "./columnTypes.js";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 /**
  * A bounded reporting period. Phase F of the Finance milestone (M19) —
@@ -34,16 +29,16 @@ export class AccountingPeriod {
   @Column({ type: "varchar" })
   name!: string;
 
-  @Column({ type: "datetime" })
+  @Column({ type: dateTimeColumnType })
   startDate!: Date;
 
-  @Column({ type: "datetime" })
+  @Column({ type: dateTimeColumnType })
   endDate!: Date;
 
   @Column({ type: "varchar", default: "open" })
   status!: AccountingPeriodStatus;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   closedAt!: Date | null;
 
   @Column({ type: "varchar", nullable: true })

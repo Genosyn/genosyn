@@ -16,6 +16,8 @@ import { materializeReposForEmployee } from "./repoSync.js";
 import { composeCodeReposContext, materializeCodeReposForEmployee } from "./codeRepos.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
 import type { AgentMessage } from "./agent/types.js";
+import { config } from "../../config.js";
+import { acquireWorkloadLease, releaseWorkloadLease } from "./workloadLeases.js";
 
 /**
  * Chat seam.
@@ -123,70 +125,94 @@ export async function streamChatWithEmployee(
     };
   }
 
-  const memoryContext = await composeMemoryContext(emp.id);
-  const codeReposContext = await composeCodeReposContext(emp.id);
-  let system = composeSystemPrompt({ co, emp, skills, memoryContext, codeReposContext });
-  if (options.extraSystem) system += `\n${options.extraSystem}`;
-  const messages = buildMessages(history, message);
-
-  const cwd = employeeDir(co.slug, emp.slug);
-  ensureDir(cwd);
-
-  const toolEnv: Record<string, string> = {};
+  let workloadLease = null;
   try {
-    Object.assign(toolEnv, await loadCompanySecretsEnv(co.id));
-  } catch {
-    // Best-effort: chat still proceeds without secrets if the vault hiccups.
+    workloadLease = await acquireWorkloadLease(
+      co.id,
+      emp.id,
+      "chat",
+      CHAT_HARD_TIMEOUT_MS + 60_000,
+    );
+  } catch (error) {
+    return {
+      status: "error",
+      reply: error instanceof Error ? error.message : "AI workload limit reached.",
+      attachmentIds: [],
+      sidecars: {},
+    };
   }
 
-  // Materialize granted repos into the employee's cwd so the coding tools find
-  // a working tree. Non-fatal — chat still proceeds if a repo fails to sync.
-  const repoSync = await materializeReposForEmployee({ employeeId: emp.id, cwd });
-  Object.assign(toolEnv, repoSync.extraEnv);
-  const codeRepoSync = await materializeCodeReposForEmployee({ employeeId: emp.id, cwd });
-  Object.assign(toolEnv, codeRepoSync.extraEnv);
-
-  const mcpToken = issueMcpToken(emp.id, co.id);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), CHAT_HARD_TIMEOUT_MS);
-  // Buffer everything the model streams. The persisted reply must match what the
-  // human saw over SSE — not just the loop's final-turn text, which drops any
-  // narration the model streamed before calling a tool.
-  let buffered = "";
+  let mcpToken: string | null = null;
   try {
-    const result = await runEmployeeAgent({
-      model,
-      employeeId: emp.id,
-      system,
-      messages,
-      cwd,
-      toolEnv,
-      genosynToken: mcpToken,
-      bashTimeoutMs: 5 * 60 * 1000,
-      maxSteps: CHAT_MAX_STEPS,
-      conversationId: options.conversationId,
-      signal: controller.signal,
-      callbacks: {
-        onText: (delta) => {
-          buffered += delta;
-          try {
-            onChunk(delta);
-          } catch {
-            // never let a consumer callback break the turn
-          }
-        },
-      },
-    });
-    const attachmentIds = drainAttachmentsForToken(mcpToken);
-    const sidecars = drainSidecarsForToken(mcpToken);
-    if (result.status === "error") {
-      return { status: "error", reply: result.error, attachmentIds, sidecars };
+    const memoryContext = await composeMemoryContext(emp.id);
+    const codeReposContext = await composeCodeReposContext(emp.id);
+    let system = composeSystemPrompt({ co, emp, skills, memoryContext, codeReposContext });
+    if (options.extraSystem) system += `\n${options.extraSystem}`;
+    const messages = buildMessages(history, message);
+
+    const cwd = employeeDir(co.slug, emp.slug);
+    ensureDir(cwd);
+
+    const toolEnv: Record<string, string> = {};
+    if (!config.security.multiTenant) {
+      try {
+        Object.assign(toolEnv, await loadCompanySecretsEnv(co.id));
+      } catch {
+        // Best-effort: chat still proceeds without secrets if the vault hiccups.
+      }
     }
-    const reply = buffered.trim() || result.finalText.trim() || "(no reply)";
-    return { status: "ok", reply, attachmentIds, sidecars };
+
+    // Materialize granted repos into the employee's cwd so the coding tools find
+    // a working tree. Non-fatal — chat still proceeds if a repo fails to sync.
+    const repoSync = await materializeReposForEmployee({ employeeId: emp.id, cwd });
+    Object.assign(toolEnv, repoSync.extraEnv);
+    const codeRepoSync = await materializeCodeReposForEmployee({ employeeId: emp.id, cwd });
+    Object.assign(toolEnv, codeRepoSync.extraEnv);
+
+    mcpToken = issueMcpToken(emp.id, co.id);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CHAT_HARD_TIMEOUT_MS);
+    // Buffer everything the model streams. The persisted reply must match what the
+    // human saw over SSE — not just the loop's final-turn text, which drops any
+    // narration the model streamed before calling a tool.
+    let buffered = "";
+    try {
+      const result = await runEmployeeAgent({
+        model,
+        employeeId: emp.id,
+        system,
+        messages,
+        cwd,
+        toolEnv,
+        genosynToken: mcpToken,
+        bashTimeoutMs: 5 * 60 * 1000,
+        maxSteps: CHAT_MAX_STEPS,
+        conversationId: options.conversationId,
+        signal: controller.signal,
+        callbacks: {
+          onText: (delta) => {
+            buffered += delta;
+            try {
+              onChunk(delta);
+            } catch {
+              // never let a consumer callback break the turn
+            }
+          },
+        },
+      });
+      const attachmentIds = drainAttachmentsForToken(mcpToken);
+      const sidecars = drainSidecarsForToken(mcpToken);
+      if (result.status === "error") {
+        return { status: "error", reply: result.error, attachmentIds, sidecars };
+      }
+      const reply = buffered.trim() || result.finalText.trim() || "(no reply)";
+      return { status: "ok", reply, attachmentIds, sidecars };
+    } finally {
+      clearTimeout(timer);
+    }
   } finally {
-    clearTimeout(timer);
-    revokeMcpToken(mcpToken);
+    if (mcpToken) revokeMcpToken(mcpToken);
+    await releaseWorkloadLease(workloadLease);
   }
 }
 

@@ -5,16 +5,22 @@ import { WebSocketServer, WebSocket } from "ws";
 import { AppDataSource } from "../db/datasource.js";
 import { Membership } from "../db/entities/Membership.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
+import { Channel } from "../db/entities/Channel.js";
+import { ChannelMember } from "../db/entities/ChannelMember.js";
 import { attachViewerSocket } from "./browserSessions.js";
+import { createAuthFlowState, consumeAuthFlowState } from "./authFlowState.js";
+import { config } from "../../config.js";
+import { RealtimeEvent } from "../db/entities/RealtimeEvent.js";
+import { Client as PostgresClient } from "pg";
+import { LessThan } from "typeorm";
 
 /**
  * In-process WebSocket hub for the workspace-chat surface.
  *
  * Every authenticated client opens a single socket at `/api/ws` and is
- * subscribed to one "room" — their companyId. The server fans out events
- * (message.new, reaction.add, channel.new, ...) to every socket in that
- * room. Each event carries enough context for the client to decide whether
- * it cares; clients filter by `channelId` locally.
+ * subscribed to one company room. Company-wide events fan out to the room;
+ * channel and user events are authorized server-side for each socket before
+ * any payload is sent. Client-side filtering is presentation only.
  *
  * Auth can't use `cookie-session` directly because session parsing is
  * middleware that needs Express req/res — WebSocket upgrades happen before
@@ -89,6 +95,8 @@ type ConnectedSocket = {
   userId: string;
   companyId: string;
   connectedAt: number;
+  /** Serialized per-socket delivery preserves event ordering across DB checks. */
+  delivery: Promise<void>;
 };
 
 const sockets = new Set<ConnectedSocket>();
@@ -98,33 +106,97 @@ const presenceCounts = new Map<string, Map<string, number>>();
 
 /** token → { userId, companyId, expiresAt } for short-lived WS upgrade auth. */
 type TokenRecord = { userId: string; companyId: string; expiresAt: number };
-const wsTokens = new Map<string, TokenRecord>();
 const WS_TOKEN_TTL_MS = 60_000;
+const REALTIME_EVENT_TTL_MS = 5 * 60_000;
+const REALTIME_CHANNEL = "genosyn_realtime";
+const REALTIME_INSTANCE_ID = crypto.randomUUID();
+let postgresListener: PostgresClient | null = null;
+let reconnectTimer: NodeJS.Timeout | null = null;
+let publishCount = 0;
 
-export function mintWsToken(userId: string, companyId: string): string {
-  pruneTokens();
-  const token = crypto.randomBytes(24).toString("base64url");
-  wsTokens.set(token, {
-    userId,
-    companyId,
-    expiresAt: Date.now() + WS_TOKEN_TTL_MS,
-  });
-  return token;
+export function mintWsToken(userId: string, companyId: string): Promise<string> {
+  return createAuthFlowState(
+    "websocket",
+    {
+      userId,
+      companyId,
+      expiresAt: Date.now() + WS_TOKEN_TTL_MS,
+    } satisfies TokenRecord,
+    WS_TOKEN_TTL_MS,
+  );
 }
 
-function consumeWsToken(token: string): TokenRecord | null {
-  pruneTokens();
-  const rec = wsTokens.get(token);
+async function consumeWsToken(token: string): Promise<TokenRecord | null> {
+  const rec = await consumeAuthFlowState<TokenRecord>("websocket", token);
   if (!rec) return null;
-  wsTokens.delete(token);
   if (rec.expiresAt < Date.now()) return null;
   return rec;
 }
 
-function pruneTokens(): void {
-  const now = Date.now();
-  for (const [k, v] of wsTokens) {
-    if (v.expiresAt < now) wsTokens.delete(k);
+async function publishToOtherReplicas(companyId: string, event: WsEvent): Promise<void> {
+  if (config.db.driver !== "postgres") return;
+  const repo = AppDataSource.getRepository(RealtimeEvent);
+  const row = await repo.save(
+    repo.create({
+      originId: REALTIME_INSTANCE_ID,
+      companyId,
+      eventJson: JSON.stringify(event),
+      expiresAt: new Date(Date.now() + REALTIME_EVENT_TTL_MS),
+    }),
+  );
+  await AppDataSource.query("SELECT pg_notify($1, $2)", [REALTIME_CHANNEL, row.id]);
+  publishCount += 1;
+  if (publishCount % 100 === 0) {
+    await repo.delete({ expiresAt: LessThan(new Date()) });
+  }
+}
+
+async function receiveRealtimeEvent(id: string): Promise<void> {
+  const row = await AppDataSource.getRepository(RealtimeEvent).findOneBy({ id });
+  if (!row || row.originId === REALTIME_INSTANCE_ID || row.expiresAt < new Date()) return;
+  try {
+    broadcastLocally(row.companyId, JSON.parse(row.eventJson) as WsEvent);
+  } catch {
+    // Invalid or stale fan-out rows are ignored; the source write still succeeded.
+  }
+}
+
+function scheduleRealtimeReconnect(): void {
+  if (reconnectTimer || config.db.driver !== "postgres") return;
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    void bootRealtimeBridge();
+  }, 5_000);
+  if (typeof reconnectTimer.unref === "function") reconnectTimer.unref();
+}
+
+/** Start the dedicated Postgres LISTEN connection used by every app replica. */
+export async function bootRealtimeBridge(): Promise<void> {
+  if (config.db.driver !== "postgres" || postgresListener) return;
+  const client = new PostgresClient({ connectionString: config.db.postgresUrl });
+  postgresListener = client;
+  client.on("notification", (message) => {
+    if (message.channel === REALTIME_CHANNEL && message.payload) {
+      void receiveRealtimeEvent(message.payload);
+    }
+  });
+  const disconnected = () => {
+    if (postgresListener === client) postgresListener = null;
+    scheduleRealtimeReconnect();
+  };
+  client.on("error", disconnected);
+  client.on("end", disconnected);
+  try {
+    await client.connect();
+    await client.query(`LISTEN ${REALTIME_CHANNEL}`);
+  } catch (error) {
+    disconnected();
+    await client.end().catch(() => {});
+    if (config.security.multiTenant) {
+      throw new Error("Postgres realtime bridge connection failed", { cause: error });
+    }
+    // eslint-disable-next-line no-console
+    console.error("[realtime] Postgres bridge connection failed:", error);
   }
 }
 
@@ -159,28 +231,73 @@ export function onlineUserIdsFor(companyId: string): string[] {
   return Array.from(inner.keys());
 }
 
-/**
- * Broadcast an event to every socket subscribed to a company's room. Used by
- * the chat service whenever a persisted write needs to reach other clients.
- */
-export function broadcastToCompany(companyId: string, event: WsEvent): void {
+function eventChannelId(event: WsEvent): string | null {
+  if ("channelId" in event && typeof event.channelId === "string") return event.channelId;
+  if (event.type !== "channel.new" || !event.channel || typeof event.channel !== "object") {
+    return null;
+  }
+  const id = (event.channel as Record<string, unknown>).id;
+  return typeof id === "string" ? id : null;
+}
+
+async function userCanReceiveChannelEvent(
+  userId: string,
+  companyId: string,
+  channelId: string,
+): Promise<boolean> {
+  const channel = await AppDataSource.getRepository(Channel).findOneBy({
+    id: channelId,
+    companyId,
+  });
+  if (!channel) return false;
+  if (channel.kind === "public") return true;
+  return (
+    (await AppDataSource.getRepository(ChannelMember).findOneBy({
+      channelId,
+      userId,
+    })) !== null
+  );
+}
+
+async function socketCanReceive(s: ConnectedSocket, event: WsEvent): Promise<boolean> {
+  if (
+    (event.type === "notification.new" || event.type === "notification.read") &&
+    event.userId !== s.userId
+  ) {
+    return false;
+  }
+  const channelId = eventChannelId(event);
+  if (!channelId) return true;
+  return userCanReceiveChannelEvent(s.userId, s.companyId, channelId);
+}
+
+/** Authorize and enqueue an event separately for every connected Member. */
+function broadcastLocally(companyId: string, event: WsEvent): void {
   const payload = JSON.stringify(event);
   for (const s of sockets) {
     if (s.companyId !== companyId) continue;
-    if (s.ws.readyState !== WebSocket.OPEN) continue;
-    try {
-      s.ws.send(payload);
-    } catch {
-      // Client is in a weird state — drop the frame and let the `close`
-      // handler tidy up when the socket finishes closing.
-    }
+    s.delivery = s.delivery
+      .then(async () => {
+        if (s.ws.readyState !== WebSocket.OPEN) return;
+        if (!(await socketCanReceive(s, event))) return;
+        s.ws.send(payload);
+      })
+      .catch(() => {
+        // Drop a failed frame and keep the queue usable. The close handler
+        // removes dead sockets; an authorization lookup must never do so.
+      });
   }
 }
 
-async function userHasMembership(
-  userId: string,
-  companyId: string,
-): Promise<boolean> {
+export function broadcastToCompany(companyId: string, event: WsEvent): void {
+  broadcastLocally(companyId, event);
+  void publishToOtherReplicas(companyId, event).catch((error) => {
+    // eslint-disable-next-line no-console
+    console.error("[realtime] cross-replica publish failed:", error);
+  });
+}
+
+async function userHasMembership(userId: string, companyId: string): Promise<boolean> {
   const m = await AppDataSource.getRepository(Membership).findOneBy({
     userId,
     companyId,
@@ -206,9 +323,10 @@ async function userHasMembership(
  * Match `/api/companies/<cid>/employees/<eid>/browser-sessions/<sid>/ws`.
  */
 function matchViewerWsPath(pathname: string): { cid: string; eid: string; sid: string } | null {
-  const m = /^\/api\/companies\/([0-9a-fA-F-]{36})\/employees\/([0-9a-fA-F-]{36})\/browser-sessions\/([0-9a-fA-F-]{36})\/ws$/.exec(
-    pathname,
-  );
+  const m =
+    /^\/api\/companies\/([0-9a-fA-F-]{36})\/employees\/([0-9a-fA-F-]{36})\/browser-sessions\/([0-9a-fA-F-]{36})\/ws$/.exec(
+      pathname,
+    );
   return m ? { cid: m[1], eid: m[2], sid: m[3] } : null;
 }
 
@@ -233,7 +351,7 @@ export function attachRealtime(httpServer: HttpServer): WebSocketServer {
     if (viewerMatch) {
       try {
         const token = parsed.searchParams.get("token") ?? "";
-        const rec = consumeWsToken(token);
+        const rec = await consumeWsToken(token);
         if (!rec) {
           socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
           socket.destroy();
@@ -285,7 +403,7 @@ export function attachRealtime(httpServer: HttpServer): WebSocketServer {
         socket.destroy();
         return;
       }
-      const rec = consumeWsToken(token);
+      const rec = await consumeWsToken(token);
       if (!rec) {
         socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
         socket.destroy();
@@ -314,6 +432,7 @@ function registerSocket(ws: WebSocket, userId: string, companyId: string): void 
     userId,
     companyId,
     connectedAt: Date.now(),
+    delivery: Promise.resolve(),
   };
   sockets.add(record);
 
@@ -337,10 +456,13 @@ function registerSocket(ws: WebSocket, userId: string, companyId: string): void 
     }
     const m = msg as { type?: string; channelId?: string; name?: string };
     if (m.type === "typing" && m.channelId) {
-      broadcastToCompany(companyId, {
-        type: "typing",
-        channelId: m.channelId,
-        by: { kind: "user", id: userId, name: m.name ?? "" },
+      void userCanReceiveChannelEvent(userId, companyId, m.channelId).then((allowed) => {
+        if (!allowed) return;
+        broadcastToCompany(companyId, {
+          type: "typing",
+          channelId: m.channelId!,
+          by: { kind: "user", id: userId, name: m.name ?? "" },
+        });
       });
     }
   });

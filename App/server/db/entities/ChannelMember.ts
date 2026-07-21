@@ -1,10 +1,5 @@
-import {
-  Column,
-  CreateDateColumn,
-  Entity,
-  Index,
-  PrimaryGeneratedColumn,
-} from "typeorm";
+import { dateTimeColumnType } from "./columnTypes.js";
+import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from "typeorm";
 
 /**
  * A participant in a {@link Channel}. Exactly one of `userId` / `employeeId`
@@ -18,10 +13,10 @@ import {
 export type ChannelMemberKind = "user" | "ai";
 
 @Entity("channel_members")
-@Index(["channelId", "userId"], { unique: true, where: "userId IS NOT NULL" })
+@Index(["channelId", "userId"], { unique: true, where: '"userId" IS NOT NULL' })
 @Index(["channelId", "employeeId"], {
   unique: true,
-  where: "employeeId IS NOT NULL",
+  where: '"employeeId" IS NOT NULL',
 })
 @Index(["userId"])
 @Index(["employeeId"])
@@ -47,7 +42,7 @@ export class ChannelMember {
    * `lastMessageAt` to compute an unread badge on the sidebar without paging
    * through every message row. AI employees don't track read state.
    */
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   lastReadAt!: Date | null;
 
   @CreateDateColumn()

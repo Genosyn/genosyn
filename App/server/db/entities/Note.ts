@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -76,7 +77,7 @@ export class Note {
   lastEditedByEmployeeId!: string | null;
 
   /** Soft-delete marker. Non-null = note is in the trash. */
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   archivedAt!: Date | null;
 
   @CreateDateColumn()

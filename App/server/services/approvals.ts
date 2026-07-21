@@ -4,22 +4,13 @@ import { Routine } from "../db/entities/Routine.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { runRoutine } from "./runner.js";
-import {
-  decryptConnectionConfig,
-  encryptConnectionConfig,
-} from "./integrations.js";
+import { decryptConnectionConfig, encryptConnectionConfig } from "./integrations.js";
 import { getProvider } from "../integrations/index.js";
-import type {
-  IntegrationConfig,
-  IntegrationRuntimeContext,
-} from "../integrations/types.js";
+import type { IntegrationConfig, IntegrationRuntimeContext } from "../integrations/types.js";
 import { notifyApprovalPending } from "./notifications.js";
 import { McpServer } from "../db/entities/McpServer.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import {
-  connectMcpServer,
-  nativeToolName,
-} from "./agent/tools/mcpBridge.js";
+import { connectMcpServer, nativeToolName } from "./agent/tools/mcpBridge.js";
 import { specForMcpServerRow } from "./agent/tools/mcpSources.js";
 import { makeAdSpendLedger } from "./adSpend.js";
 import type { AdSpendApprovalRequest } from "../integrations/types.js";
@@ -247,8 +238,7 @@ export async function createMcpToolApproval(args: {
     employeeId: args.employeeId,
     status: "pending",
     title: `MCP tool · ${args.serverName} · ${args.toolName}`,
-    summary:
-      argsPreview.length > 400 ? argsPreview.slice(0, 397) + "..." : argsPreview,
+    summary: argsPreview.length > 400 ? argsPreview.slice(0, 397) + "..." : argsPreview,
     payloadJson: JSON.stringify({
       mcpServerId: args.mcpServerId,
       serverName: args.serverName,
@@ -396,7 +386,7 @@ async function executeAdSpendApproval(approval: Approval): Promise<void> {
 
   const result = await provider.invokeTool(payload.toolName, payload.args, ctx);
   if (refreshed) {
-    conn.encryptedConfig = encryptConnectionConfig(refreshed);
+    conn.encryptedConfig = encryptConnectionConfig(refreshed, conn.companyId);
     conn.lastCheckedAt = new Date();
     conn.status = "connected";
     conn.statusMessage = "";
@@ -432,9 +422,7 @@ async function executeMcpToolApproval(approval: Approval): Promise<void> {
     const wanted = nativeToolName(payload.toolName);
     const tool = bridged.tools.find((t) => t.name === wanted);
     if (!tool) {
-      throw new Error(
-        `Tool "${payload.toolName}" no longer exists on MCP server "${row.name}"`,
-      );
+      throw new Error(`Tool "${payload.toolName}" no longer exists on MCP server "${row.name}"`);
     }
     const result = await tool.run(payload.args);
     if (result.isError) {
@@ -456,16 +444,11 @@ async function executeRoutineApproval(approval: Approval): Promise<void> {
   // table. The HTTP caller doesn't wait for completion.
   runRoutine(routine).catch((err) => {
     // eslint-disable-next-line no-console
-    console.error(
-      `[approvals] routine ${routine.id} failed post-approval:`,
-      err,
-    );
+    console.error(`[approvals] routine ${routine.id} failed post-approval:`, err);
   });
 }
 
-async function executeLightningPaymentApproval(
-  approval: Approval,
-): Promise<void> {
+async function executeLightningPaymentApproval(approval: Approval): Promise<void> {
   const payload = parsePaymentPayload(approval.payloadJson);
   const conn = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
     id: payload.connectionId,
@@ -494,7 +477,7 @@ async function executeLightningPaymentApproval(
 
   const result = await provider.invokeTool(payload.toolName, payload.args, ctx);
   if (refreshed) {
-    conn.encryptedConfig = encryptConnectionConfig(refreshed);
+    conn.encryptedConfig = encryptConnectionConfig(refreshed, conn.companyId);
     conn.lastCheckedAt = new Date();
     conn.status = "connected";
     conn.statusMessage = "";
@@ -508,9 +491,7 @@ async function executeLightningPaymentApproval(
 // Reject hook
 // --------------------------------------------------------------------------
 
-export async function recordApprovalRejection(
-  approval: Approval,
-): Promise<void> {
+export async function recordApprovalRejection(approval: Approval): Promise<void> {
   switch (approval.kind) {
     case "routine": {
       const routine = await AppDataSource.getRepository(Routine).findOneBy({

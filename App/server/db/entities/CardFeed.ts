@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -43,10 +44,10 @@ export class CardFeed {
   @Column({ type: "varchar" })
   paymentAccountId!: string;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   lastSyncAt!: Date | null;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   archivedAt!: Date | null;
 
   @CreateDateColumn()

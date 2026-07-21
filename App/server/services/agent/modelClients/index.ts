@@ -1,5 +1,6 @@
 import type { AIModel } from "../../../db/entities/AIModel.js";
 import { decryptSecret } from "../../../lib/secret.js";
+import { assertSafeOutboundUrl } from "../../../lib/outboundUrl.js";
 import { readCustomEndpoint } from "../../customEndpoint.js";
 import type { ModelClient } from "../types.js";
 import { createAnthropicClient } from "./anthropic.js";
@@ -22,9 +23,9 @@ import { createOpenAIResponsesClient } from "./openaiResponses.js";
  * borrows OpenAI's wire format: Ollama, vLLM and friends serve
  * `/v1/chat/completions` and would 404 on `/v1/responses`, so they stay put.
  */
-export function createModelClient(
+export async function createModelClient(
   model: AIModel,
-): { client: ModelClient } | { error: string } {
+): Promise<{ client: ModelClient } | { error: string }> {
   if (model.authMode === "customEndpoint") {
     if (model.provider !== "custom") {
       return { error: `${model.provider} does not use a custom endpoint — use an API key.` };
@@ -34,6 +35,15 @@ export function createModelClient(
       return {
         error:
           "Custom endpoint isn't fully configured. Open the model settings and re-enter the base URL.",
+      };
+    }
+    try {
+      await assertSafeOutboundUrl(cfg.baseURL);
+    } catch (error) {
+      return {
+        error: `Custom endpoint was blocked: ${
+          error instanceof Error ? error.message : "unsafe outbound URL"
+        }`,
       };
     }
     return {

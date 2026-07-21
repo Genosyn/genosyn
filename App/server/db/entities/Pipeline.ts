@@ -1,4 +1,12 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index } from "typeorm";
+import { dateTimeColumnType } from "./columnTypes.js";
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  Index,
+} from "typeorm";
 
 /**
  * A Pipeline is a company-scoped DAG of typed nodes — n8n-style automation.
@@ -36,7 +44,7 @@ export class Pipeline {
   enabled!: boolean;
 
   /** Serialized `{ nodes, edges }` document. See PipelineGraph in services/pipelines/types.ts. */
-  @Column({ type: "text", default: "{\"nodes\":[],\"edges\":[]}" })
+  @Column({ type: "text", default: '{"nodes":[],"edges":[]}' })
   graphJson!: string;
 
   /**
@@ -47,10 +55,10 @@ export class Pipeline {
   @Column({ type: "varchar", nullable: true })
   cronExpr!: string | null;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   nextRunAt!: Date | null;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   lastRunAt!: Date | null;
 
   @Column({ type: "varchar", nullable: true })

@@ -6,6 +6,7 @@ import { AIEmployee } from "../../../db/entities/AIEmployee.js";
 import { Routine } from "../../../db/entities/Routine.js";
 import { config } from "../../../../config.js";
 import { createBrowserSession } from "../../browserSessions.js";
+import { assertSafeOutboundUrl } from "../../../lib/outboundUrl.js";
 import type { McpServerSpec, McpToolGuard } from "./mcpBridge.js";
 
 /**
@@ -59,6 +60,9 @@ export async function loadBrowserConfig(
   employeeId: string,
   options: { routineId?: string; conversationId?: string; runId?: string },
 ): Promise<BrowserConfig> {
+  if (config.security.multiTenant && !config.agent.browserEnabledInMultiTenant) {
+    return BROWSER_DISABLED;
+  }
   const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({ id: employeeId });
   if (!employee) return BROWSER_DISABLED;
 
@@ -127,10 +131,7 @@ export function browserEnvFor(
 }
 
 /** The stdio spec for spawning the browser MCP child. */
-export function browserServerSpec(
-  cfg: BrowserConfig,
-  token: string | undefined,
-): McpServerSpec {
+export function browserServerSpec(cfg: BrowserConfig, token: string | undefined): McpServerSpec {
   return {
     transport: "stdio",
     command: process.execPath,
@@ -177,9 +178,15 @@ export async function loadUserServerSpecs(
     if (RESERVED_SERVER_NAMES.has(s.name)) continue;
     const spec = specForMcpServerRow(s);
     if (!spec) continue;
-    const patterns = (parseJsonArray(s.guardedToolsJson) ?? []).filter(
-      (p) => p.trim().length > 0,
-    );
+    if (config.security.multiTenant && spec.transport === "stdio") continue;
+    if (spec.transport === "http") {
+      try {
+        await assertSafeOutboundUrl(spec.url);
+      } catch {
+        continue;
+      }
+    }
+    const patterns = (parseJsonArray(s.guardedToolsJson) ?? []).filter((p) => p.trim().length > 0);
     // Guarded tools queue an Approval instead of executing. The import is
     // dynamic because approvals.ts reaches (via the runner) back into this
     // module — a static import would close the cycle at module-init time.

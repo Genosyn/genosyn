@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import {
   Column,
   CreateDateColumn,
@@ -25,12 +26,7 @@ import {
  * optional. Credentials live encrypted with the same sessionSecret-derived
  * key as Secrets / IntegrationConnections / AIModel apikeys.
  */
-export type EmailProviderKind =
-  | "smtp"
-  | "sendgrid"
-  | "mailgun"
-  | "resend"
-  | "postmark";
+export type EmailProviderKind = "smtp" | "sendgrid" | "mailgun" | "resend" | "postmark";
 
 export type EmailProviderTestStatus = "ok" | "failed";
 
@@ -69,7 +65,7 @@ export class EmailProvider {
   @Column({ type: "boolean", default: true })
   enabled!: boolean;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   lastTestedAt!: Date | null;
 
   @Column({ type: "varchar", nullable: true })

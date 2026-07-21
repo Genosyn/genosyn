@@ -1,18 +1,8 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  Index,
-} from "typeorm";
+import { dateTimeColumnType } from "./columnTypes.js";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 export type BrowserSessionStatus = "pending" | "live" | "closed" | "expired";
-export type BrowserSessionCloseReason =
-  | "idle"
-  | "shutdown"
-  | "error"
-  | "manual"
-  | null;
+export type BrowserSessionCloseReason = "idle" | "shutdown" | "error" | "manual" | null;
 
 /**
  * One live-view session of the built-in `browser` MCP server. Created at
@@ -63,7 +53,7 @@ export class BrowserSession {
   @Column({ type: "varchar" })
   mcpToken!: string;
 
-  @Column({ type: "datetime" })
+  @Column({ type: dateTimeColumnType })
   mcpTokenExpiresAt!: Date;
 
   /**
@@ -94,10 +84,10 @@ export class BrowserSession {
   viewportHeight!: number;
 
   /** Set when the first frame is ingested (status: pending → live). */
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   startedAt!: Date | null;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   closedAt!: Date | null;
 
   @CreateDateColumn()

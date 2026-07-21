@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 export type PipelineRunStatus = "running" | "completed" | "failed" | "skipped";
@@ -19,10 +20,10 @@ export class PipelineRun {
   @Column({ type: "varchar" })
   pipelineId!: string;
 
-  @Column({ type: "datetime" })
+  @Column({ type: dateTimeColumnType })
   startedAt!: Date;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   finishedAt!: Date | null;
 
   @Column({ type: "varchar", default: "running" })

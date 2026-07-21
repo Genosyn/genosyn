@@ -56,7 +56,7 @@ WORKDIR /app
 # or `sftp` kinds pay the layer size but nothing else; the SMB code path
 # reports a clear error if the binary is ever absent.
 RUN apk add --no-cache \
-      bash curl libstdc++ git openssh-client \
+      bash bubblewrap curl libstdc++ git openssh-client \
       chromium nss freetype harfbuzz ca-certificates ttf-freefont \
       samba-client
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser

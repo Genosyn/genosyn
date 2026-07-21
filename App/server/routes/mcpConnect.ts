@@ -1,7 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import { requireAuth, requireCompanyMember, requireCompanyRole } from "../middleware/auth.js";
 import { runMcpBatch, MCP_SERVER_INFO } from "../mcp/protocol.js";
 
 /**
@@ -42,6 +42,7 @@ mcpConnectRouter.use((req: Request, res: Response, next: NextFunction) => {
 
 mcpConnectRouter.use(requireAuth);
 mcpConnectRouter.use(requireCompanyMember);
+mcpConnectRouter.use(requireCompanyRole("admin"));
 
 async function loadEmployee(cid: string, eid: string): Promise<AIEmployee | null> {
   return AppDataSource.getRepository(AIEmployee).findOneBy({ id: eid, companyId: cid });

@@ -127,6 +127,8 @@ export type Me = {
   avatarKey: string | null;
   /** Instance-level operator flag — gates the install-wide Admin dashboard. */
   isMasterAdmin: boolean;
+  emailVerified: boolean;
+  emailVerificationRequired: boolean;
 };
 export type TwoFactorLoginMethods = {
   enabled: boolean;
@@ -135,7 +137,13 @@ export type TwoFactorLoginMethods = {
   recovery: boolean;
 };
 export type LoginResponse =
-  | { id: string; email: string; name: string; requiresTwoFactor: false }
+  | {
+      id: string;
+      email: string;
+      name: string;
+      requiresTwoFactor: false;
+      emailVerificationRequired: boolean;
+    }
   | { requiresTwoFactor: true; methods: TwoFactorLoginMethods };
 export type TwoFactorLoginStatus =
   | { requiresTwoFactor: false }
@@ -155,7 +163,13 @@ export type TwoFactorStatus = {
   webAuthnCredentials: TwoFactorCredential[];
   recoveryCodesRemaining: number;
 };
-export type Company = { id: string; name: string; slug: string; role?: string };
+export type Company = {
+  id: string;
+  name: string;
+  slug: string;
+  role?: "owner" | "admin" | "member";
+  requireTwoFactor: boolean;
+};
 export type Employee = {
   id: string;
   companyId: string;
@@ -425,7 +439,7 @@ export type AIModel = {
 };
 export type Member = {
   userId: string;
-  role: string;
+  role: "owner" | "admin" | "member";
   email: string | null;
   name: string | null;
   avatarKey?: string | null;

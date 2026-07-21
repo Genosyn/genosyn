@@ -25,11 +25,7 @@ import {
   userHasChannelAccess,
 } from "../services/workspaceChat.js";
 import { mintWsToken } from "../services/realtime.js";
-import {
-  recordAttachment,
-  resolveAttachmentFile,
-  uploadMiddleware,
-} from "../services/uploads.js";
+import { recordAttachment, resolveAttachmentFile, uploadMiddleware } from "../services/uploads.js";
 
 /**
  * HTTP surface for the Slack-style workspace chat (channels, DMs, messages,
@@ -85,7 +81,7 @@ workspaceRouter.get("/mentionables", async (req, res) => {
 workspaceRouter.post("/ws-token", async (req, res) => {
   const co = companyOf(req as unknown as { company?: Company });
   if (!req.userId) return res.status(401).json({ error: "Unauthorized" });
-  const token = mintWsToken(req.userId, co.id);
+  const token = await mintWsToken(req.userId, co.id);
   res.json({ token });
 });
 
@@ -117,31 +113,25 @@ const createChannelSchema = z.object({
   memberUserIds: z.array(z.string().uuid()).optional().default([]),
   employeeIds: z.array(z.string().uuid()).optional().default([]),
 });
-workspaceRouter.post(
-  "/channels",
-  validateBody(createChannelSchema),
-  async (req, res) => {
-    const co = companyOf(req as unknown as { company?: Company });
-    const body = req.body as z.infer<typeof createChannelSchema>;
-    try {
-      const channel = await createChannel({
-        companyId: co.id,
-        name: body.name,
-        topic: body.topic,
-        kind: body.kind,
-        createdByUserId: req.userId!,
-        initialMemberUserIds: body.memberUserIds,
-        initialEmployeeIds: body.employeeIds,
-      });
-      const hydrated = await getChannel(channel.id, co.id, req.userId!);
-      res.status(201).json(hydrated);
-    } catch (err) {
-      res
-        .status(400)
-        .json({ error: err instanceof Error ? err.message : "Create failed" });
-    }
-  },
-);
+workspaceRouter.post("/channels", validateBody(createChannelSchema), async (req, res) => {
+  const co = companyOf(req as unknown as { company?: Company });
+  const body = req.body as z.infer<typeof createChannelSchema>;
+  try {
+    const channel = await createChannel({
+      companyId: co.id,
+      name: body.name,
+      topic: body.topic,
+      kind: body.kind,
+      createdByUserId: req.userId!,
+      initialMemberUserIds: body.memberUserIds,
+      initialEmployeeIds: body.employeeIds,
+    });
+    const hydrated = await getChannel(channel.id, co.id, req.userId!);
+    res.status(201).json(hydrated);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Create failed" });
+  }
+});
 
 const renameChannelSchema = z.object({
   name: z.string().min(1).max(80).optional(),
@@ -168,9 +158,7 @@ workspaceRouter.patch(
       const hydrated = await getChannel(req.params.channelId, co.id, req.userId!);
       res.json(hydrated);
     } catch (err) {
-      res
-        .status(400)
-        .json({ error: err instanceof Error ? err.message : "Rename failed" });
+      res.status(400).json({ error: err instanceof Error ? err.message : "Rename failed" });
     }
   },
 );
@@ -234,20 +222,17 @@ workspaceRouter.post(
   },
 );
 
-workspaceRouter.delete(
-  "/channels/:channelId/members/:memberId",
-  async (req, res) => {
-    const co = companyOf(req as unknown as { company?: Company });
-    const ok = await userHasChannelAccess({
-      channelId: req.params.channelId,
-      userId: req.userId!,
-      companyId: co.id,
-    });
-    if (!ok) return res.status(404).json({ error: "Channel not found" });
-    await removeChannelMember(req.params.channelId, req.params.memberId);
-    res.json({ ok: true });
-  },
-);
+workspaceRouter.delete("/channels/:channelId/members/:memberId", async (req, res) => {
+  const co = companyOf(req as unknown as { company?: Company });
+  const ok = await userHasChannelAccess({
+    channelId: req.params.channelId,
+    userId: req.userId!,
+    companyId: co.id,
+  });
+  if (!ok) return res.status(404).json({ error: "Channel not found" });
+  await removeChannelMember(req.params.channelId, req.params.memberId);
+  res.json({ ok: true });
+});
 
 workspaceRouter.post("/channels/:channelId/read", async (req, res) => {
   const co = companyOf(req as unknown as { company?: Company });
@@ -270,30 +255,26 @@ const openDMSchema = z.object({
   targetUserId: z.string().uuid().optional(),
   targetEmployeeId: z.string().uuid().optional(),
 });
-workspaceRouter.post(
-  "/dms",
-  validateBody(openDMSchema),
-  async (req, res) => {
-    const co = companyOf(req as unknown as { company?: Company });
-    const body = req.body as z.infer<typeof openDMSchema>;
-    if (!body.targetUserId && !body.targetEmployeeId) {
-      return res.status(400).json({ error: "Must specify a target" });
-    }
-    if (body.targetUserId === req.userId) {
-      return res.status(400).json({ error: "Cannot DM yourself" });
-    }
-    const target = body.targetUserId
-      ? ({ kind: "user", userId: body.targetUserId } as const)
-      : ({ kind: "ai", employeeId: body.targetEmployeeId! } as const);
-    const channel = await findOrCreateDM({
-      companyId: co.id,
-      from: { kind: "user", userId: req.userId! },
-      target,
-    });
-    const hydrated = await getChannel(channel.id, co.id, req.userId!);
-    res.json(hydrated);
-  },
-);
+workspaceRouter.post("/dms", validateBody(openDMSchema), async (req, res) => {
+  const co = companyOf(req as unknown as { company?: Company });
+  const body = req.body as z.infer<typeof openDMSchema>;
+  if (!body.targetUserId && !body.targetEmployeeId) {
+    return res.status(400).json({ error: "Must specify a target" });
+  }
+  if (body.targetUserId === req.userId) {
+    return res.status(400).json({ error: "Cannot DM yourself" });
+  }
+  const target = body.targetUserId
+    ? ({ kind: "user", userId: body.targetUserId } as const)
+    : ({ kind: "ai", employeeId: body.targetEmployeeId! } as const);
+  const channel = await findOrCreateDM({
+    companyId: co.id,
+    from: { kind: "user", userId: req.userId! },
+    target,
+  });
+  const hydrated = await getChannel(channel.id, co.id, req.userId!);
+  res.json(hydrated);
+});
 
 // ───────────────────────── Messages ──────────────────────────────────────
 
@@ -349,33 +330,25 @@ workspaceRouter.post(
       });
       res.status(201).json(msg);
     } catch (err) {
-      res
-        .status(400)
-        .json({ error: err instanceof Error ? err.message : "Send failed" });
+      res.status(400).json({ error: err instanceof Error ? err.message : "Send failed" });
     }
   },
 );
 
 const editMessageSchema = z.object({ content: z.string().min(1).max(16_000) });
-workspaceRouter.patch(
-  "/messages/:messageId",
-  validateBody(editMessageSchema),
-  async (req, res) => {
-    const body = req.body as z.infer<typeof editMessageSchema>;
-    try {
-      const updated = await editMessage({
-        messageId: req.params.messageId,
-        userId: req.userId!,
-        content: body.content,
-      });
-      res.json(updated);
-    } catch (err) {
-      res
-        .status(400)
-        .json({ error: err instanceof Error ? err.message : "Edit failed" });
-    }
-  },
-);
+workspaceRouter.patch("/messages/:messageId", validateBody(editMessageSchema), async (req, res) => {
+  const body = req.body as z.infer<typeof editMessageSchema>;
+  try {
+    const updated = await editMessage({
+      messageId: req.params.messageId,
+      userId: req.userId!,
+      content: body.content,
+    });
+    res.json(updated);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Edit failed" });
+  }
+});
 
 workspaceRouter.delete("/messages/:messageId", async (req, res) => {
   try {
@@ -385,9 +358,7 @@ workspaceRouter.delete("/messages/:messageId", async (req, res) => {
     });
     res.json({ ok: true });
   } catch (err) {
-    res
-      .status(400)
-      .json({ error: err instanceof Error ? err.message : "Delete failed" });
+    res.status(400).json({ error: err instanceof Error ? err.message : "Delete failed" });
   }
 });
 
@@ -409,37 +380,31 @@ workspaceRouter.post(
       });
       res.json(r);
     } catch (err) {
-      res
-        .status(400)
-        .json({ error: err instanceof Error ? err.message : "Reaction failed" });
+      res.status(400).json({ error: err instanceof Error ? err.message : "Reaction failed" });
     }
   },
 );
 
 // ─────────────────────── Uploads + download ──────────────────────────────
 
-workspaceRouter.post(
-  "/attachments",
-  uploadMiddleware.single("file"),
-  async (req, res) => {
-    const co = companyOf(req as unknown as { company?: Company });
-    const file = (req as unknown as { file?: Express.Multer.File }).file;
-    if (!file) return res.status(400).json({ error: "No file uploaded" });
-    const row = await recordAttachment({
-      companyId: co.id,
-      companySlug: co.slug,
-      file,
-      uploadedByUserId: req.userId!,
-    });
-    res.status(201).json({
-      id: row.id,
-      filename: row.filename,
-      mimeType: row.mimeType,
-      sizeBytes: Number(row.sizeBytes),
-      isImage: row.mimeType.startsWith("image/"),
-    });
-  },
-);
+workspaceRouter.post("/attachments", uploadMiddleware.single("file"), async (req, res) => {
+  const co = companyOf(req as unknown as { company?: Company });
+  const file = (req as unknown as { file?: Express.Multer.File }).file;
+  if (!file) return res.status(400).json({ error: "No file uploaded" });
+  const row = await recordAttachment({
+    companyId: co.id,
+    companySlug: co.slug,
+    file,
+    uploadedByUserId: req.userId!,
+  });
+  res.status(201).json({
+    id: row.id,
+    filename: row.filename,
+    mimeType: row.mimeType,
+    sizeBytes: Number(row.sizeBytes),
+    isImage: row.mimeType.startsWith("image/"),
+  });
+});
 
 workspaceRouter.get("/attachments/:id", async (req, res) => {
   const co = companyOf(req as unknown as { company?: Company });

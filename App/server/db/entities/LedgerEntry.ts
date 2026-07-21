@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 /**
@@ -54,7 +55,7 @@ export class LedgerEntry {
 
   /** Accounting date — when the transaction *happened*, not when it was
    *  recorded. Reports filter on this; `createdAt` is for audit only. */
-  @Column({ type: "datetime" })
+  @Column({ type: dateTimeColumnType })
   date!: Date;
 
   @Column({ type: "varchar", default: "" })
@@ -89,13 +90,13 @@ export class LedgerEntry {
   @Column({ type: "varchar", nullable: true })
   reviewedByEmployeeId!: string | null;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   reviewedAt!: Date | null;
 
   @Column({ type: "varchar", nullable: true })
   approvedById!: string | null;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   approvedAt!: Date | null;
 
   @CreateDateColumn()

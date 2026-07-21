@@ -17,6 +17,7 @@ import {
   deliverBackupToDestinations,
   DeliveryResult,
 } from "./backupDestinations.js";
+import { withSchedulerLease } from "./schedulerLeases.js";
 
 /**
  * Install-wide backup service. Each backup zips `<dataDir>` (excluding the
@@ -160,18 +161,12 @@ export async function updateBackupSchedule(patch: {
   if (typeof patch.enabled === "boolean") current.enabled = patch.enabled;
   if (patch.frequency) current.frequency = patch.frequency;
   if (typeof patch.hour === "number") current.hour = clamp(patch.hour, 0, 23);
-  if (typeof patch.dayOfWeek === "number")
-    current.dayOfWeek = clamp(patch.dayOfWeek, 0, 6);
-  if (typeof patch.dayOfMonth === "number")
-    current.dayOfMonth = clamp(patch.dayOfMonth, 1, 28);
+  if (typeof patch.dayOfWeek === "number") current.dayOfWeek = clamp(patch.dayOfWeek, 0, 6);
+  if (typeof patch.dayOfMonth === "number") current.dayOfMonth = clamp(patch.dayOfMonth, 1, 28);
   if (typeof patch.retentionEnabled === "boolean")
     current.retentionEnabled = patch.retentionEnabled;
   if (typeof patch.retentionDays === "number")
-    current.retentionDays = clamp(
-      patch.retentionDays,
-      MIN_RETENTION_DAYS,
-      MAX_RETENTION_DAYS,
-    );
+    current.retentionDays = clamp(patch.retentionDays, MIN_RETENTION_DAYS, MAX_RETENTION_DAYS);
   await repo.save(current);
   applyBackupSchedule(current);
   applyRetentionSchedule(current);
@@ -207,10 +202,12 @@ export function applyBackupSchedule(sched: BackupSchedule): void {
   scheduledTask = cron.schedule(
     expr,
     () => {
-      runBackup("scheduled").catch((err) => {
-        // eslint-disable-next-line no-console
-        console.error("[backups] scheduled run failed:", err);
-      });
+      withSchedulerLease("backup-scheduled", 6 * 60 * 60_000, () => runBackup("scheduled")).catch(
+        (err) => {
+          // eslint-disable-next-line no-console
+          console.error("[backups] scheduled run failed:", err);
+        },
+      );
     },
     { name: SCHEDULE_TASK_NAME },
   );
@@ -229,7 +226,7 @@ export function applyRetentionSchedule(sched: BackupSchedule): void {
   retentionTask = cron.schedule(
     RETENTION_CRON,
     () => {
-      pruneOldBackups().catch((err) => {
+      withSchedulerLease("backup-retention", 60 * 60_000, () => pruneOldBackups()).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[backups] retention run failed:", err);
       });
@@ -239,17 +236,23 @@ export function applyRetentionSchedule(sched: BackupSchedule): void {
 }
 
 export async function bootBackups(): Promise<void> {
+  // This archive format snapshots SQLite plus dataDir. It is not a valid
+  // backup of a Postgres-backed shared SaaS deployment, whose database and
+  // RWX volume must be protected by the hosting platform.
+  if (config.security.multiTenant) return;
   ensureBackupDir();
-  await reconcileBackupHistory();
+  await withSchedulerLease("backup-boot", 30 * 60_000, async () => {
+    await reconcileBackupHistory();
+  });
   const sched = await getBackupSchedule();
   applyBackupSchedule(sched);
   applyRetentionSchedule(sched);
-  await maybeRunMissedBackup(sched);
+  await withSchedulerLease("backup-missed", 6 * 60 * 60_000, () => maybeRunMissedBackup(sched));
   // Catch up on anything that lapsed while the server was down. Not awaited —
   // index.ts awaits bootBackups() before listening, and unlinking a backlog of
   // large archives shouldn't hold up the port. Must follow the reconcile above,
   // which is what gives on-disk archives their rows.
-  pruneOldBackups().catch((err) => {
+  withSchedulerLease("backup-retention", 60 * 60_000, () => pruneOldBackups()).catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[backups] retention on boot failed:", err);
   });
@@ -311,11 +314,7 @@ async function pruneOldBackupsInner(): Promise<number> {
   const sched = await getBackupSchedule();
   if (!sched.retentionEnabled) return 0;
 
-  const days = clamp(
-    sched.retentionDays,
-    MIN_RETENTION_DAYS,
-    MAX_RETENTION_DAYS,
-  );
+  const days = clamp(sched.retentionDays, MIN_RETENTION_DAYS, MAX_RETENTION_DAYS);
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
 
   const repo = AppDataSource.getRepository(Backup);
@@ -376,9 +375,7 @@ async function pruneOldBackupsInner(): Promise<number> {
 
   if (deleted > 0) {
     // eslint-disable-next-line no-console
-    console.log(
-      `[backups] retention removed ${deleted} archive(s) older than ${days} day(s)`,
-    );
+    console.log(`[backups] retention removed ${deleted} archive(s) older than ${days} day(s)`);
   }
   return deleted;
 }
@@ -474,10 +471,7 @@ async function runBackupInner(kind: "manual" | "scheduled"): Promise<Backup> {
   await repo.save(row);
 
   const outPath = backupFilePath(filename);
-  const stagingDbPath = path.join(
-    backupDir(),
-    `.staging-${row.id}.sqlite`,
-  );
+  const stagingDbPath = path.join(backupDir(), `.staging-${row.id}.sqlite`);
 
   try {
     await snapshotSqlite(stagingDbPath);
@@ -798,9 +792,7 @@ export async function restoreFromBackup(id: string): Promise<{
   // archive we're about to extract. Refuse rather than race it — the flag we
   // set below only stops prunes that haven't started yet.
   if (runningPrune) {
-    throw new Error(
-      "Backup retention is currently running; try again in a moment.",
-    );
+    throw new Error("Backup retention is currently running; try again in a moment.");
   }
   restoreInProgress = true;
   try {
@@ -819,9 +811,7 @@ export async function restoreFromBackup(id: string): Promise<{
     // and this restore is about to delete everything the archive is supposed
     // to replace.
     if (!(await isRestorableArchive(target.filename))) {
-      throw new Error(
-        "Backup archive is incomplete or corrupt and cannot be restored from",
-      );
+      throw new Error("Backup archive is incomplete or corrupt and cannot be restored from");
     }
 
     // Pre-restore safety snapshot. Reuses runBackup so the resulting archive

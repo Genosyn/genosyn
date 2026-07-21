@@ -12,7 +12,11 @@ const MeResponse = z
     id: z.string().uuid(),
     email: z.string().email(),
     name: z.string(),
+    handle: z.string().nullable(),
     avatarKey: z.string().nullable(),
+    isMasterAdmin: z.boolean(),
+    emailVerified: z.boolean(),
+    emailVerificationRequired: z.boolean(),
   })
   .openapi("Me");
 
@@ -34,6 +38,7 @@ const LoginUser = z.object({
   id: z.string().uuid(),
   email: z.string().email(),
   name: z.string(),
+  emailVerificationRequired: z.boolean(),
 });
 
 const LoginResponse = z
@@ -65,6 +70,46 @@ registry.registerPath({
     401: {
       description: "No valid session or Bearer token",
       content: { "application/json": { schema: ErrorResponse } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/auth/verify-email",
+  summary: "Verify a Member email address",
+  description: "Consumes the single-use token sent after signup or an email-address change.",
+  tags: ["Auth"],
+  security: publicSecurity,
+  request: {
+    body: {
+      content: {
+        "application/json": { schema: z.object({ token: z.string().min(1) }) },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Email verified",
+      content: { "application/json": { schema: z.object({ ok: z.literal(true) }) } },
+    },
+    400: {
+      description: "Invalid or expired token",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/auth/resend-verification",
+  summary: "Send a fresh email-verification link",
+  tags: ["Auth"],
+  security: defaultSecurity,
+  responses: {
+    200: {
+      description: "Verification email sent or the account was already verified",
+      content: { "application/json": { schema: z.object({ ok: z.literal(true) }) } },
     },
   },
 });

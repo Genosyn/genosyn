@@ -4,7 +4,12 @@ import { AppDataSource } from "../db/datasource.js";
 import { Pipeline } from "../db/entities/Pipeline.js";
 import { PipelineRun } from "../db/entities/PipelineRun.js";
 import { validateBody } from "../middleware/validate.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import {
+  requireAuth,
+  requireCompanyMember,
+  requireCompanyRoleForMutations,
+  onRoutePaths,
+} from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import {
   parseGraph,
@@ -24,6 +29,9 @@ import { deleteTagAssignments } from "../services/tags.js";
 export const pipelinesRouter = Router({ mergeParams: true });
 pipelinesRouter.use(requireAuth);
 pipelinesRouter.use(requireCompanyMember);
+pipelinesRouter.use(
+  onRoutePaths(["/pipelines", "/pipeline-runs"], requireCompanyRoleForMutations("admin")),
+);
 
 async function uniqueSlug(companyId: string, base: string): Promise<string> {
   const repo = AppDataSource.getRepository(Pipeline);

@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import {
   Column,
   CreateDateColumn,
@@ -23,7 +24,7 @@ import {
 export type ChannelKind = "public" | "private" | "dm";
 
 @Entity("channels")
-@Index(["companyId", "slug"], { unique: true, where: "slug IS NOT NULL" })
+@Index(["companyId", "slug"], { unique: true, where: '"slug" IS NOT NULL' })
 export class Channel {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -48,7 +49,7 @@ export class Channel {
   @Column({ type: "varchar", nullable: true })
   createdByUserId!: string | null;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   archivedAt!: Date | null;
 
   /**
@@ -56,7 +57,7 @@ export class Channel {
    * and channels by recent activity without a subquery. Updated by the chat
    * service on every send.
    */
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   lastMessageAt!: Date | null;
 
   @CreateDateColumn()

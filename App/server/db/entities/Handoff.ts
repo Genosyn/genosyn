@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import {
   Column,
   CreateDateColumn,
@@ -7,11 +8,7 @@ import {
   UpdateDateColumn,
 } from "typeorm";
 
-export type HandoffStatus =
-  | "pending"
-  | "completed"
-  | "declined"
-  | "cancelled";
+export type HandoffStatus = "pending" | "completed" | "declined" | "cancelled";
 
 /**
  * A Handoff is one AI Employee delegating a piece of work to another. It
@@ -62,10 +59,10 @@ export class Handoff {
   @Column({ type: "text", nullable: true })
   resolutionNote!: string | null;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   dueAt!: Date | null;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   completedAt!: Date | null;
 
   @CreateDateColumn()

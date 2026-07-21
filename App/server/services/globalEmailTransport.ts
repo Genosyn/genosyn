@@ -109,10 +109,7 @@ function invalidateCache(): void {
  * Split that shape on read so adding the dedicated From name field is a
  * backwards-compatible settings change rather than a migration.
  */
-function splitSender(
-  rawFrom: string,
-  explicitName = "",
-): { fromName: string; from: string } {
+function splitSender(rawFrom: string, explicitName = ""): { fromName: string; from: string } {
   const trimmed = rawFrom.trim();
   const match = /^(.*)<([^>]+)>\s*$/.exec(trimmed);
   if (!match) return { fromName: explicitName.trim(), from: trimmed };
@@ -128,9 +125,7 @@ function configSender(): { fromName: string; from: string } {
 
 /** Human-readable RFC-style sender used in Email Logs. */
 export function formatGlobalSmtpSender(settings: ResolvedGlobalSmtp): string {
-  return settings.fromName
-    ? `${settings.fromName} <${settings.from}>`
-    : settings.from;
+  return settings.fromName ? `${settings.fromName} <${settings.from}>` : settings.from;
 }
 
 async function readStoredOverride(): Promise<StoredGlobalSmtp | null> {
@@ -168,11 +163,11 @@ function decryptStoredPass(encryptedPass: string): string {
   try {
     return decryptSecret(encryptedPass);
   } catch {
-    // A rotated sessionSecret invalidates stored secrets. Degrade to no auth
+    // A missing encryption-key rotation entry makes old secrets unreadable. Degrade to no auth
     // rather than crashing the send path; the admin page still shows the host.
     // eslint-disable-next-line no-console
     console.warn(
-      "[email] could not decrypt the stored global SMTP password (was sessionSecret rotated?) — sending without auth",
+      "[email] could not decrypt the stored global SMTP password (is the old key in previousEncryptionSecrets?) — sending without auth",
     );
     return "";
   }
@@ -239,10 +234,7 @@ export async function getEffectiveGlobalSmtp(): Promise<EffectiveGlobalSmtp> {
 
 /** Non-secret summary for the admin GET endpoint. */
 export async function describeGlobalSmtp(): Promise<GlobalSmtpDescriptor> {
-  const [override, eff] = await Promise.all([
-    readStoredOverride(),
-    getEffectiveGlobalSmtp(),
-  ]);
+  const [override, eff] = await Promise.all([readStoredOverride(), getEffectiveGlobalSmtp()]);
   return {
     configured: eff.configured,
     source: eff.source,
@@ -269,9 +261,7 @@ export async function describeGlobalSmtp(): Promise<GlobalSmtpDescriptor> {
  * came from a previous DB override or from `config.ts`), so operators can edit
  * the host or port without re-typing the secret.
  */
-export async function resolveGlobalSmtpDraft(
-  input: GlobalSmtpInput,
-): Promise<ResolvedGlobalSmtp> {
+export async function resolveGlobalSmtpDraft(input: GlobalSmtpInput): Promise<ResolvedGlobalSmtp> {
   const current = await getEffectiveGlobalSmtp();
   const pass = input.pass !== "" ? input.pass : current.settings.pass;
   const fallbackSender = configSender();
@@ -291,9 +281,7 @@ export async function resolveGlobalSmtpDraft(
 }
 
 /** Persist (or replace) the DB override and invalidate the transport cache. */
-export async function updateGlobalSmtpOverride(
-  input: GlobalSmtpInput,
-): Promise<void> {
+export async function updateGlobalSmtpOverride(input: GlobalSmtpInput): Promise<void> {
   const resolved = await resolveGlobalSmtpDraft(input);
   if (!resolved.host) {
     throw new Error("SMTP host is required");

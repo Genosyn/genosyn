@@ -25,6 +25,7 @@ import {
   upsertGmailMessage,
 } from "./store.js";
 import { runRulesForNewMessage } from "./rules.js";
+import { withSchedulerLease } from "../schedulerLeases.js";
 
 /**
  * Two-way Gmail sync, poll-based.
@@ -96,30 +97,25 @@ async function tick(): Promise<void> {
   if (ticking) return;
   ticking = true;
   try {
-    const repo = AppDataSource.getRepository(MailAccount);
-    // Include errored accounts so a transient failure self-heals — they are
-    // just retried on a slower cadence than healthy ones.
-    const accounts = await repo.find({
-      where: [{ status: "active" }, { status: "error" }],
-    });
-    const now = Date.now();
-    const intervalMs = config.mail.syncIntervalSec * 1000;
-    for (const account of accounts) {
-      const since = account.lastSyncAt ? now - account.lastSyncAt.getTime() : Infinity;
-      // A mailbox still importing its history is always due — passes run
-      // back-to-back until the whole mailbox is mirrored.
-      const backfilling = !account.backfilledAt;
-      const due =
-        account.status === "error"
-          ? since >= ERROR_RETRY_MS
-          : backfilling || since >= intervalMs;
-      if (!due) continue;
-      // Fire in the background; the `syncing` set stops overlap per account.
-      void syncAccountNow(account.id).catch((err) => {
-        // eslint-disable-next-line no-console
-        console.error(`[mail] sync failed for account ${account.id}:`, err);
+    await withSchedulerLease("mail-sync", HEARTBEAT_INTERVAL_MS * 3, async () => {
+      const repo = AppDataSource.getRepository(MailAccount);
+      const accounts = await repo.find({
+        where: [{ status: "active" }, { status: "error" }],
       });
-    }
+      const now = Date.now();
+      const intervalMs = config.mail.syncIntervalSec * 1000;
+      for (const account of accounts) {
+        const since = account.lastSyncAt ? now - account.lastSyncAt.getTime() : Infinity;
+        const backfilling = !account.backfilledAt;
+        const due =
+          account.status === "error" ? since >= ERROR_RETRY_MS : backfilling || since >= intervalMs;
+        if (!due) continue;
+        void syncAccountNow(account.id).catch((err) => {
+          // eslint-disable-next-line no-console
+          console.error(`[mail] sync failed for account ${account.id}:`, err);
+        });
+      }
+    });
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("[mail] heartbeat pass failed:", err);
@@ -133,6 +129,12 @@ async function tick(): Promise<void> {
  * finds a pass already in flight returns without doing anything.
  */
 export async function syncAccountNow(accountId: string): Promise<void> {
+  await withSchedulerLease(`mail-account:${accountId}`, 5 * 60_000, async () => {
+    await syncAccountNowUnlocked(accountId);
+  });
+}
+
+async function syncAccountNowUnlocked(accountId: string): Promise<void> {
   if (syncing.has(accountId)) return;
   syncing.add(accountId);
   try {

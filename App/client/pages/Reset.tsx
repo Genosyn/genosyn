@@ -39,7 +39,7 @@ export default function Reset() {
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          minLength={8}
+          minLength={12}
           required
         />
         <Button type="submit" disabled={loading}>

@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -7,13 +8,7 @@ import {
   Index,
 } from "typeorm";
 
-export type TodoStatus =
-  | "backlog"
-  | "todo"
-  | "in_progress"
-  | "in_review"
-  | "done"
-  | "cancelled";
+export type TodoStatus = "backlog" | "todo" | "in_progress" | "in_review" | "done" | "cancelled";
 
 export type TodoPriority = "none" | "low" | "medium" | "high" | "urgent";
 
@@ -85,14 +80,14 @@ export class Todo {
   @Column({ type: "varchar", nullable: true })
   createdById!: string | null;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   dueAt!: Date | null;
 
   /** Float sort key for drag-to-reorder within a status column. */
   @Column({ type: "float", default: 0 })
   sortOrder!: number;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   completedAt!: Date | null;
 
   @Column({ type: "varchar", default: "none" })

@@ -9,6 +9,7 @@ import { recordAudit } from "../services/audit.js";
 import { findPipelineByWebhook } from "../services/pipelines/index.js";
 import { runPipeline } from "../services/pipelines/executor.js";
 import { notifyApprovalPending } from "../services/notifications.js";
+import { constantTimeEqual } from "../lib/constantTime.js";
 
 /**
  * Unauthenticated trigger surface. The URL itself is the credential — each
@@ -26,14 +27,11 @@ webhooksRouter.post("/r/:routineId/:token", async (req, res) => {
   const routine = await AppDataSource.getRepository(Routine).findOneBy({
     id: routineId,
   });
-  // Constant-ish comparison: we do a length + equality check. Token is
-  // 48 hex chars so timing leakage of the equality op is not meaningful
-  // against a secret of this size, but we still avoid leaking existence.
   if (
     !routine ||
     !routine.webhookEnabled ||
     !routine.webhookToken ||
-    routine.webhookToken !== token
+    !constantTimeEqual(token, routine.webhookToken)
   ) {
     return res.status(404).json({ error: "Not found" });
   }

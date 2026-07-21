@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from "typeorm";
 
 @Entity("invitations")
@@ -14,10 +15,10 @@ export class Invitation {
   @Column({ type: "varchar", unique: true })
   token!: string;
 
-  @Column({ type: "datetime" })
+  @Column({ type: dateTimeColumnType })
   expiresAt!: Date;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   acceptedAt!: Date | null;
 
   @CreateDateColumn()

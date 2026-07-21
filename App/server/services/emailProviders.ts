@@ -65,19 +65,14 @@ export function serializeProvider(p: EmailProvider): EmailProviderDTO {
   };
 }
 
-export async function listProviders(
-  companyId: string,
-): Promise<EmailProvider[]> {
+export async function listProviders(companyId: string): Promise<EmailProvider[]> {
   return AppDataSource.getRepository(EmailProvider).find({
     where: { companyId },
     order: { isDefault: "DESC", createdAt: "ASC" },
   });
 }
 
-export async function getProvider(
-  companyId: string,
-  id: string,
-): Promise<EmailProvider | null> {
+export async function getProvider(companyId: string, id: string): Promise<EmailProvider | null> {
   return AppDataSource.getRepository(EmailProvider).findOneBy({
     companyId,
     id,
@@ -102,21 +97,21 @@ export async function createProvider(args: {
     kind: args.kind,
     fromAddress: args.fromAddress.trim(),
     replyTo: (args.replyTo ?? "").trim(),
-    encryptedConfig: encryptProviderConfig(validated),
+    encryptedConfig: encryptProviderConfig(validated, args.companyId),
     isDefault: false,
     enabled: args.enabled ?? true,
   });
   await repo.save(row);
   if (args.isDefault) {
     await setDefault(args.companyId, row.id);
-    return (await repo.findOneByOrFail({ id: row.id }));
+    return await repo.findOneByOrFail({ id: row.id });
   }
   // If this is the only provider, auto-default it so callers don't have to
   // tick the box explicitly for the common case.
   const count = await repo.count({ where: { companyId: args.companyId } });
   if (count === 1) {
     await setDefault(args.companyId, row.id);
-    return (await repo.findOneByOrFail({ id: row.id }));
+    return await repo.findOneByOrFail({ id: row.id });
   }
   return row;
 }
@@ -134,12 +129,11 @@ export async function updateProvider(
 ): Promise<EmailProvider> {
   const repo = AppDataSource.getRepository(EmailProvider);
   if (typeof patch.name === "string") row.name = patch.name.trim();
-  if (typeof patch.fromAddress === "string")
-    row.fromAddress = patch.fromAddress.trim();
+  if (typeof patch.fromAddress === "string") row.fromAddress = patch.fromAddress.trim();
   if (typeof patch.replyTo === "string") row.replyTo = patch.replyTo.trim();
   if (patch.rawConfig) {
     const validated = validateProviderConfig(row.kind, patch.rawConfig);
-    row.encryptedConfig = encryptProviderConfig(validated);
+    row.encryptedConfig = encryptProviderConfig(validated, row.companyId);
     // A successful re-save clears stale "failed" test status so the UI
     // stops yelling until the next test.
     row.lastTestStatus = null;
@@ -149,7 +143,7 @@ export async function updateProvider(
   await repo.save(row);
   if (patch.isDefault === true) {
     await setDefault(row.companyId, row.id);
-    return (await repo.findOneByOrFail({ id: row.id }));
+    return await repo.findOneByOrFail({ id: row.id });
   }
   if (patch.isDefault === false && row.isDefault) {
     row.isDefault = false;
@@ -158,10 +152,7 @@ export async function updateProvider(
   return row;
 }
 
-export async function deleteProvider(
-  companyId: string,
-  id: string,
-): Promise<boolean> {
+export async function deleteProvider(companyId: string, id: string): Promise<boolean> {
   const repo = AppDataSource.getRepository(EmailProvider);
   const existing = await repo.findOneBy({ companyId, id });
   if (!existing) return false;
@@ -181,10 +172,7 @@ export async function deleteProvider(
   return true;
 }
 
-export async function setDefault(
-  companyId: string,
-  id: string,
-): Promise<void> {
+export async function setDefault(companyId: string, id: string): Promise<void> {
   const repo = AppDataSource.getRepository(EmailProvider);
   await repo
     .createQueryBuilder()
@@ -211,6 +199,6 @@ export async function recordTestResult(
   return AppDataSource.getRepository(EmailProvider).save(row);
 }
 
-function encryptProviderConfig(cfg: EmailProviderConfig): string {
-  return encryptSecret(JSON.stringify(cfg.config));
+function encryptProviderConfig(cfg: EmailProviderConfig, companyId: string): string {
+  return encryptSecret(JSON.stringify(cfg.config), `company:${companyId}`);
 }

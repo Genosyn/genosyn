@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -60,7 +61,7 @@ export class MailThread {
   hasAttachments!: boolean;
 
   /** internalDate of the newest message — the list sort key. */
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   lastMessageAt!: Date | null;
 
   @CreateDateColumn()

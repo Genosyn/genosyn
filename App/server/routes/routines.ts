@@ -11,7 +11,12 @@ import { Run } from "../db/entities/Run.js";
 import { Approval } from "../db/entities/Approval.js";
 import crypto from "node:crypto";
 import { validateBody } from "../middleware/validate.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import {
+  requireAuth,
+  requireCompanyMember,
+  requireCompanyRoleForMutations,
+  onRoutePaths,
+} from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { routineTemplate } from "../services/files.js";
 import { registerRoutine } from "../services/cron.js";
@@ -28,6 +33,12 @@ import {
 export const routinesRouter = Router({ mergeParams: true });
 routinesRouter.use(requireAuth);
 routinesRouter.use(requireCompanyMember);
+routinesRouter.use(
+  onRoutePaths(
+    ["/routines", "/runs", /^\/employees\/[^/]+\/routines(?:\/|$)/],
+    requireCompanyRoleForMutations("admin"),
+  ),
+);
 
 async function loadEmp(cid: string, eid: string) {
   return AppDataSource.getRepository(AIEmployee).findOneBy({ id: eid, companyId: cid });
@@ -236,7 +247,12 @@ const patchSchema = z.object({
     .refine((v) => cron.validate(v), "Invalid cron expression")
     .optional(),
   enabled: z.boolean().optional(),
-  timeoutSec: z.number().int().min(10).max(6 * 60 * 60).optional(),
+  timeoutSec: z
+    .number()
+    .int()
+    .min(10)
+    .max(6 * 60 * 60)
+    .optional(),
   requiresApproval: z.boolean().optional(),
   // Null inherits the employee's active model; a string pins one of the
   // employee's own models to this routine. Ownership is checked below.
@@ -246,51 +262,47 @@ const patchSchema = z.object({
   browserEnabledOverride: z.boolean().nullable().optional(),
 });
 
-routinesRouter.patch(
-  "/routines/:rid",
-  validateBody(patchSchema),
-  async (req, res) => {
-    const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
-    if (!found) return res.status(404).json({ error: "Not found" });
-    const body = req.body as z.infer<typeof patchSchema>;
-    const r = found.routine;
-    if (body.name !== undefined) {
-      if (await findRoutineByName(r.employeeId, body.name, r.id)) {
-        return res
-          .status(409)
-          .json({ error: "A routine with that name already exists for this employee" });
-      }
-      r.name = body.name;
+routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, res) => {
+  const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
+  if (!found) return res.status(404).json({ error: "Not found" });
+  const body = req.body as z.infer<typeof patchSchema>;
+  const r = found.routine;
+  if (body.name !== undefined) {
+    if (await findRoutineByName(r.employeeId, body.name, r.id)) {
+      return res
+        .status(409)
+        .json({ error: "A routine with that name already exists for this employee" });
     }
-    if (body.cronExpr !== undefined) r.cronExpr = body.cronExpr;
-    if (body.enabled !== undefined) r.enabled = body.enabled;
-    if (body.timeoutSec !== undefined) r.timeoutSec = body.timeoutSec;
-    if (body.requiresApproval !== undefined) r.requiresApproval = body.requiresApproval;
-    if (body.modelId !== undefined) {
-      // A routine may only pin a model its own employee owns — otherwise one
-      // employee's routine could borrow another's credentials.
-      if (body.modelId !== null && !(await employeeOwnsModel(r.employeeId, body.modelId))) {
-        return res.status(400).json({ error: "That model does not belong to this employee" });
-      }
-      r.modelId = body.modelId;
+    r.name = body.name;
+  }
+  if (body.cronExpr !== undefined) r.cronExpr = body.cronExpr;
+  if (body.enabled !== undefined) r.enabled = body.enabled;
+  if (body.timeoutSec !== undefined) r.timeoutSec = body.timeoutSec;
+  if (body.requiresApproval !== undefined) r.requiresApproval = body.requiresApproval;
+  if (body.modelId !== undefined) {
+    // A routine may only pin a model its own employee owns — otherwise one
+    // employee's routine could borrow another's credentials.
+    if (body.modelId !== null && !(await employeeOwnsModel(r.employeeId, body.modelId))) {
+      return res.status(400).json({ error: "That model does not belong to this employee" });
     }
-    if (body.browserEnabledOverride !== undefined) {
-      r.browserEnabledOverride = body.browserEnabledOverride;
-    }
-    registerRoutine(r);
-    await AppDataSource.getRepository(Routine).save(r);
-    await recordAudit({
-      companyId: found.co.id,
-      actorUserId: req.userId ?? null,
-      action: "routine.update",
-      targetType: "routine",
-      targetId: r.id,
-      targetLabel: r.name,
-      metadata: { changes: body },
-    });
-    res.json(r);
-  },
-);
+    r.modelId = body.modelId;
+  }
+  if (body.browserEnabledOverride !== undefined) {
+    r.browserEnabledOverride = body.browserEnabledOverride;
+  }
+  registerRoutine(r);
+  await AppDataSource.getRepository(Routine).save(r);
+  await recordAudit({
+    companyId: found.co.id,
+    actorUserId: req.userId ?? null,
+    action: "routine.update",
+    targetType: "routine",
+    targetId: r.id,
+    targetLabel: r.name,
+    metadata: { changes: body },
+  });
+  res.json(r);
+});
 
 routinesRouter.delete("/routines/:rid", async (req, res) => {
   const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
@@ -338,17 +350,13 @@ routinesRouter.get("/routines/:rid/readme", async (req, res) => {
 
 const readmeSchema = z.object({ content: z.string() });
 
-routinesRouter.put(
-  "/routines/:rid/readme",
-  validateBody(readmeSchema),
-  async (req, res) => {
-    const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
-    if (!found) return res.status(404).json({ error: "Not found" });
-    found.routine.body = (req.body as z.infer<typeof readmeSchema>).content;
-    await AppDataSource.getRepository(Routine).save(found.routine);
-    res.json({ ok: true });
-  },
-);
+routinesRouter.put("/routines/:rid/readme", validateBody(readmeSchema), async (req, res) => {
+  const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
+  if (!found) return res.status(404).json({ error: "Not found" });
+  found.routine.body = (req.body as z.infer<typeof readmeSchema>).content;
+  await AppDataSource.getRepository(Routine).save(found.routine);
+  res.json({ ok: true });
+});
 
 /**
  * Turn webhook on (generates a fresh 48-hex token) or off (clears the token).
@@ -356,28 +364,24 @@ routinesRouter.put(
  * `enabled=false`, then again with `enabled=true`.
  */
 const webhookSchema = z.object({ enabled: z.boolean() });
-routinesRouter.post(
-  "/routines/:rid/webhook",
-  validateBody(webhookSchema),
-  async (req, res) => {
-    const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
-    if (!found) return res.status(404).json({ error: "Not found" });
-    const body = req.body as z.infer<typeof webhookSchema>;
-    const r = found.routine;
-    r.webhookEnabled = body.enabled;
-    r.webhookToken = body.enabled ? crypto.randomBytes(24).toString("hex") : null;
-    await AppDataSource.getRepository(Routine).save(r);
-    await recordAudit({
-      companyId: found.co.id,
-      actorUserId: req.userId ?? null,
-      action: body.enabled ? "routine.webhook.enable" : "routine.webhook.disable",
-      targetType: "routine",
-      targetId: r.id,
-      targetLabel: r.name,
-    });
-    res.json(r);
-  },
-);
+routinesRouter.post("/routines/:rid/webhook", validateBody(webhookSchema), async (req, res) => {
+  const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
+  if (!found) return res.status(404).json({ error: "Not found" });
+  const body = req.body as z.infer<typeof webhookSchema>;
+  const r = found.routine;
+  r.webhookEnabled = body.enabled;
+  r.webhookToken = body.enabled ? crypto.randomBytes(24).toString("hex") : null;
+  await AppDataSource.getRepository(Routine).save(r);
+  await recordAudit({
+    companyId: found.co.id,
+    actorUserId: req.userId ?? null,
+    action: body.enabled ? "routine.webhook.enable" : "routine.webhook.disable",
+    targetType: "routine",
+    targetId: r.id,
+    targetLabel: r.name,
+  });
+  res.json(r);
+});
 
 routinesRouter.post("/routines/:rid/run", async (req, res) => {
   const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
@@ -439,10 +443,7 @@ routinesRouter.get("/runs/:runId/log", async (req, res) => {
   const run = await AppDataSource.getRepository(Run).findOneBy({ id: req.params.runId });
   if (!run) return res.status(404).json({ error: "Not found" });
   // Confirm the caller has access to the parent routine (company scope).
-  const found = await loadRoutine(
-    (req.params as Record<string, string>).cid,
-    run.routineId,
-  );
+  const found = await loadRoutine((req.params as Record<string, string>).cid, run.routineId);
   if (!found) return res.status(404).json({ error: "Not found" });
 
   const live = getLiveRunSnapshot(run.id);
@@ -473,10 +474,7 @@ routinesRouter.post("/runs/:runId/dismiss", async (req, res) => {
   const run = await runRepo.findOneBy({ id: req.params.runId });
   if (!run) return res.status(404).json({ error: "Not found" });
   // Company-scope the run through its owning routine.
-  const found = await loadRoutine(
-    (req.params as Record<string, string>).cid,
-    run.routineId,
-  );
+  const found = await loadRoutine((req.params as Record<string, string>).cid, run.routineId);
   if (!found) return res.status(404).json({ error: "Not found" });
   if (run.status !== "failed" && run.status !== "timeout") {
     return res.status(409).json({ error: "Only failed or timed-out runs can be dismissed" });

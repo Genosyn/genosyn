@@ -3,6 +3,7 @@ import { AppDataSource } from "../db/datasource.js";
 import { AppSetting } from "../db/entities/AppSetting.js";
 import { PushSubscription } from "../db/entities/PushSubscription.js";
 import { config } from "../../config.js";
+import { assertSafeOutboundUrl } from "../lib/outboundUrl.js";
 
 /**
  * Web Push delivery for the PWA. Zero-config by design: the VAPID keypair
@@ -117,6 +118,7 @@ export async function sendPushToUser(
   await Promise.all(
     subs.map(async (sub) => {
       try {
+        await assertSafeOutboundUrl(sub.endpoint);
         await webpush.sendNotification(
           {
             endpoint: sub.endpoint,

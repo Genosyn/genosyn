@@ -1,19 +1,10 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  Index,
-} from "typeorm";
+import { dateTimeColumnType } from "./columnTypes.js";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 /** What the employee is being asked to do with the thread. */
 export type MailHandoverMode = "draft" | "reply" | "triage";
 
-export type MailHandoverStatus =
-  | "pending"
-  | "running"
-  | "completed"
-  | "failed";
+export type MailHandoverStatus = "pending" | "running" | "completed" | "failed";
 
 export type MailHandoverSource = "manual" | "rule";
 
@@ -79,10 +70,10 @@ export class MailHandover {
   @Column({ type: "varchar", nullable: true })
   createdByUserId!: string | null;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   startedAt!: Date | null;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   finishedAt!: Date | null;
 
   @CreateDateColumn()

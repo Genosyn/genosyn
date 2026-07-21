@@ -5,6 +5,7 @@ import os from "node:os";
 import fs from "node:fs";
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
+import { config } from "../../config.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { CodeRepository } from "../db/entities/CodeRepository.js";
 import type { CodeRepoAuthMode } from "../db/entities/CodeRepository.js";
@@ -45,10 +46,7 @@ const exec = promisify(execFile);
 
 // ───────────────────────────── slugs ────────────────────────────────────
 
-export async function uniqueCodeRepoSlug(
-  companyId: string,
-  base: string,
-): Promise<string> {
+export async function uniqueCodeRepoSlug(companyId: string, base: string): Promise<string> {
   const repo = AppDataSource.getRepository(CodeRepository);
   const root = toSlug(base) || "repo";
   let slug = root;
@@ -62,8 +60,8 @@ export async function uniqueCodeRepoSlug(
 
 // ────────────────────────── credentials ─────────────────────────────────
 
-export function encryptRepoSecret(plaintext: string): string {
-  return encryptSecret(plaintext);
+export function encryptRepoSecret(plaintext: string, companyId: string): string {
+  return encryptSecret(plaintext, `company:${companyId}`);
 }
 
 function tryDecrypt(blob: string | null): string | null {
@@ -117,9 +115,7 @@ export async function listDirectCodeRepoGrants(
   });
 }
 
-export async function deleteGrantsForCodeRepo(
-  codeRepositoryId: string,
-): Promise<void> {
+export async function deleteGrantsForCodeRepo(codeRepositoryId: string): Promise<void> {
   await AppDataSource.getRepository(EmployeeCodeRepositoryGrant).delete({
     codeRepositoryId,
   });
@@ -130,9 +126,10 @@ export async function hasCodeRepoAccess(
   codeRepositoryId: string,
   required: CodeRepoAccessLevel,
 ): Promise<boolean> {
-  const grant = await AppDataSource.getRepository(
-    EmployeeCodeRepositoryGrant,
-  ).findOneBy({ employeeId, codeRepositoryId });
+  const grant = await AppDataSource.getRepository(EmployeeCodeRepositoryGrant).findOneBy({
+    employeeId,
+    codeRepositoryId,
+  });
   if (!grant) return false;
   return CODE_REPO_ACCESS_RANK[grant.accessLevel] >= CODE_REPO_ACCESS_RANK[required];
 }
@@ -170,18 +167,12 @@ async function runGit(
     }
     const e = err as { stderr?: string; stdout?: string; message?: string };
     const tail = (e.stderr || e.stdout || e.message || "").toString().trim();
-    throw new Error(
-      `git ${args[0]} failed: ${tail.split("\n").slice(-3).join(" | ")}`,
-    );
+    throw new Error(`git ${args[0]} failed: ${tail.split("\n").slice(-3).join(" | ")}`);
   }
 }
 
 /** Insert `user:token@` into an `https://…` URL. Returns null for non-HTTPS. */
-function injectHttpsCreds(
-  gitUrl: string,
-  username: string,
-  token: string,
-): string | null {
+function injectHttpsCreds(gitUrl: string, username: string, token: string): string | null {
   const m = gitUrl.match(/^https:\/\/(.*)$/i);
   if (!m) return null;
   const enc = encodeURIComponent;
@@ -287,15 +278,16 @@ export async function materializeCodeReposForEmployee(args: {
   cwd: string;
 }): Promise<CodeRepoSyncResult> {
   const result: CodeRepoSyncResult = { extraEnv: {}, repos: [], errors: [] };
+  if (config.security.multiTenant) return result;
 
   const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
     id: args.employeeId,
   });
   if (!employee) return result;
 
-  const grants = await AppDataSource.getRepository(
-    EmployeeCodeRepositoryGrant,
-  ).find({ where: { employeeId: args.employeeId } });
+  const grants = await AppDataSource.getRepository(EmployeeCodeRepositoryGrant).find({
+    where: { employeeId: args.employeeId },
+  });
   if (grants.length === 0) return result;
 
   const repoRepo = AppDataSource.getRepository(CodeRepository);
@@ -376,30 +368,15 @@ async function syncOneRepo(
       // Initial clone: temporarily inline the token in the URL, then strip it
       // immediately so it never persists in `.git/config`. From then on git
       // pulls the token from the credential helper / env var.
-      const tokenUrl = injectHttpsCreds(
-        repo.gitUrl,
-        httpsUsernameOf(repo),
-        token,
-      );
+      const tokenUrl = injectHttpsCreds(repo.gitUrl, httpsUsernameOf(repo), token);
       if (!tokenUrl) {
-        throw new Error(
-          "Auth mode is HTTPS but the clone URL isn't an https:// URL.",
-        );
+        throw new Error("Auth mode is HTTPS but the clone URL isn't an https:// URL.");
       }
-      await runGit(path.dirname(repoPath), [
-        "clone",
-        "--quiet",
-        tokenUrl,
-        repo.slug,
-      ]);
+      await runGit(path.dirname(repoPath), ["clone", "--quiet", tokenUrl, repo.slug]);
       await runGit(repoPath, ["remote", "set-url", "origin", repo.gitUrl]);
     } else {
       // SSH or public: clone the URL as-is (SSH key supplied via env).
-      await runGit(
-        path.dirname(repoPath),
-        ["clone", "--quiet", repo.gitUrl, repo.slug],
-        cloneEnv,
-      );
+      await runGit(path.dirname(repoPath), ["clone", "--quiet", repo.gitUrl, repo.slug], cloneEnv);
     }
   } else {
     // Existing checkout: refresh refs but never touch the working tree.
@@ -413,9 +390,7 @@ async function syncOneRepo(
     await runGit(repoPath, ["config", "--local", "core.sshCommand", sshCommand]);
   } else {
     // Drop any stale sshCommand if the repo flipped away from SSH.
-    await runGit(repoPath, ["config", "--local", "--unset", "core.sshCommand"]).catch(
-      () => {},
-    );
+    await runGit(repoPath, ["config", "--local", "--unset", "core.sshCommand"]).catch(() => {});
   }
   if (repo.authMode === "https" && token) {
     await writeCredentialHelper(repoPath, httpsUsernameOf(repo), envKey);
@@ -432,8 +407,7 @@ async function syncOneRepo(
 
   // Git identity for commits the agent makes.
   const committerName = (repo.committerName ?? "").trim() || employee.name;
-  const committerEmail =
-    (repo.committerEmail ?? "").trim() || `${employee.slug}@genosyn.local`;
+  const committerEmail = (repo.committerEmail ?? "").trim() || `${employee.slug}@genosyn.local`;
   await runGit(repoPath, ["config", "--local", "user.name", committerName]);
   await runGit(repoPath, ["config", "--local", "user.email", committerEmail]);
 
@@ -462,9 +436,7 @@ export type TestConnectionResult = {
  * authenticate, and the remote's default branch, before the operator grants
  * an employee access.
  */
-export async function testCodeRepoConnection(
-  repo: CodeRepository,
-): Promise<TestConnectionResult> {
+export async function testCodeRepoConnection(repo: CodeRepository): Promise<TestConnectionResult> {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-repo-"));
   try {
     let url = repo.gitUrl;
@@ -526,12 +498,11 @@ export const CODE_REPO_AUTH_MODES: CodeRepoAuthMode[] = ["none", "https", "ssh"]
  * and that `git push` is already wired up for it. Returns "" when the
  * employee has no repo grants.
  */
-export async function composeCodeReposContext(
-  employeeId: string,
-): Promise<string> {
-  const grants = await AppDataSource.getRepository(
-    EmployeeCodeRepositoryGrant,
-  ).find({ where: { employeeId } });
+export async function composeCodeReposContext(employeeId: string): Promise<string> {
+  if (config.security.multiTenant) return "";
+  const grants = await AppDataSource.getRepository(EmployeeCodeRepositoryGrant).find({
+    where: { employeeId },
+  });
   if (grants.length === 0) return "";
 
   const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({

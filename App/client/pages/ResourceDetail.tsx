@@ -673,8 +673,9 @@ function EpubViewer({ fileUrl }: { fileUrl: string }) {
       }
     });
 
-    rendition.on("relocated", (loc: { start: { cfi?: string } }) => {
+    rendition.on("relocated", (value: unknown) => {
       try {
+        const loc = value as { start?: { cfi?: string } };
         const cfi = loc?.start?.cfi;
         if (!cfi) return;
         const pct = book.locations.percentageFromCfi(cfi);

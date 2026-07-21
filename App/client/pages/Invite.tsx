@@ -1,5 +1,5 @@
 import React from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { AuthShell } from "./Login";
 import { Button } from "../components/ui/Button";
@@ -10,7 +10,6 @@ export default function Invite() {
   const { token } = useParams();
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const navigate = useNavigate();
   const { toast } = useToast();
 
   async function accept() {
@@ -20,7 +19,10 @@ export default function Invite() {
     try {
       await api.post("/api/invitations/accept", { token });
       toast("Invitation accepted", "success");
-      navigate("/");
+      // The authenticated app caches the caller's memberships. A full
+      // navigation refreshes that state so a first-time invitee lands in the
+      // company they just joined instead of the onboarding screen.
+      window.location.assign("/");
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -31,6 +33,11 @@ export default function Invite() {
     <AuthShell title="Accept invitation">
       <div className="flex flex-col gap-4 text-sm text-slate-600 dark:text-slate-300">
         <FormError message={error} />
+        {error?.includes("two-factor authentication") ? (
+          <Link className="text-indigo-600 hover:underline" to="/security">
+            Enable two-factor authentication
+          </Link>
+        ) : null}
         <p>You&apos;ve been invited to join a company on Genosyn.</p>
         <Button onClick={accept} disabled={loading}>
           {loading ? "Accepting…" : "Accept invitation"}

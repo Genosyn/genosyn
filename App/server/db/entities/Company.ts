@@ -14,6 +14,10 @@ export class Company {
   @Column({ type: "varchar" })
   ownerId!: string;
 
+  /** When enabled, browser members must keep at least one 2FA method enrolled. */
+  @Column({ type: "boolean", default: false })
+  requireTwoFactor!: boolean;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

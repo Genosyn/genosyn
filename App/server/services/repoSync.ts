@@ -10,10 +10,7 @@ import {
   encryptConnectionConfig,
   loadEmployeeConnections,
 } from "./integrations.js";
-import {
-  readGithubRepos,
-  resolveGithubCredentials,
-} from "../integrations/providers/github.js";
+import { readGithubRepos, resolveGithubCredentials } from "../integrations/providers/github.js";
 
 /**
  * Repo sync seam — materializes git checkouts of every allowlisted repo on
@@ -136,7 +133,8 @@ async function syncConnection(
   if (!creds) {
     result.errors.push({
       scope: `connection:${connection.id}`,
-      message: "GitHub Connection is missing credentials. Reconnect it from Settings → Integrations.",
+      message:
+        "GitHub Connection is missing credentials. Reconnect it from Settings → Integrations.",
     });
     return;
   }
@@ -144,7 +142,10 @@ async function syncConnection(
   // Persist refreshed OAuth config (token rotation) before we hand the
   // refreshed token to git.
   if (creds.refreshedConfig) {
-    connection.encryptedConfig = encryptConnectionConfig(creds.refreshedConfig);
+    connection.encryptedConfig = encryptConnectionConfig(
+      creds.refreshedConfig,
+      connection.companyId,
+    );
     connection.lastCheckedAt = new Date();
     connection.status = "connected";
     connection.statusMessage = "";
@@ -204,12 +205,7 @@ async function syncOneRepo(args: {
     // immediately afterward via `remote set-url`, and from this point on
     // git pulls the token from the credential helper instead.
     const tokenUrl = `https://x-access-token:${args.token}@github.com/${args.owner}/${args.name}.git`;
-    await runGit(path.dirname(args.repoPath), [
-      "clone",
-      "--quiet",
-      tokenUrl,
-      args.name,
-    ]);
+    await runGit(path.dirname(args.repoPath), ["clone", "--quiet", tokenUrl, args.name]);
     await runGit(args.repoPath, ["remote", "set-url", "origin", cleanRemote]);
   } else {
     // Existing checkout: fetch fresh refs but never touch the agent's
@@ -253,7 +249,13 @@ async function writeCredentialHelper(repoPath: string, envKey: string): Promise<
   ]);
   // Replace any previous helpers (e.g. an earlier global "store") so the
   // local one wins unambiguously. `--unset-all` is a no-op when nothing's set.
-  await runGit(repoPath, ["config", "--local", "--replace-all", "credential.helper", `!'${helperPath.replace(/'/g, "'\\''")}'`]).catch(() => {
+  await runGit(repoPath, [
+    "config",
+    "--local",
+    "--replace-all",
+    "credential.helper",
+    `!'${helperPath.replace(/'/g, "'\\''")}'`,
+  ]).catch(() => {
     // The replace-all variant errors on freshly-init'd configs; the prior
     // `config` call already established the value, so swallow this.
   });

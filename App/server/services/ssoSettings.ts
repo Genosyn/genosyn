@@ -139,7 +139,7 @@ function decryptStoredSecret(encrypted: string): string {
   try {
     return decryptSecret(encrypted);
   } catch {
-    // A rotated sessionSecret invalidates stored secrets. Treat as missing so
+    // A missing encryption-key rotation entry makes old secrets unreadable. Treat as missing so
     // the admin page reports "not configured" instead of the handshake 500ing.
     // eslint-disable-next-line no-console
     console.warn(
@@ -150,9 +150,7 @@ function decryptStoredSecret(encrypted: string): string {
 }
 
 function isConfigured(stored: StoredSso): boolean {
-  return Boolean(
-    effectiveIssuer(stored) && stored.clientId && stored.encryptedClientSecret,
-  );
+  return Boolean(effectiveIssuer(stored) && stored.clientId && stored.encryptedClientSecret);
 }
 
 /**

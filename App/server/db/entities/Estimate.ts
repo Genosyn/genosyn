@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -28,12 +29,7 @@ import {
  * pre-sale documents, not financial transactions. The journal posting
  * happens only when an accepted estimate is converted to an Invoice.
  */
-export type EstimateStatus =
-  | "draft"
-  | "sent"
-  | "accepted"
-  | "declined"
-  | "void";
+export type EstimateStatus = "draft" | "sent" | "accepted" | "declined" | "void";
 
 /**
  * An Estimate is a quotation issued to a `Customer` before a sale is
@@ -80,13 +76,13 @@ export class Estimate {
   @Column({ type: "varchar", default: "draft" })
   status!: EstimateStatus;
 
-  @Column({ type: "datetime" })
+  @Column({ type: dateTimeColumnType })
   issueDate!: Date;
 
   /** The day this quote stops being valid. Past `validUntil` + status
    *  `sent` is rendered as "expired" in the UI without changing the
    *  stored status. */
-  @Column({ type: "datetime" })
+  @Column({ type: dateTimeColumnType })
   validUntil!: Date;
 
   @Column({ type: "varchar", default: "USD" })
@@ -109,16 +105,16 @@ export class Estimate {
   @Column({ type: "text", default: "" })
   footer!: string;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   sentAt!: Date | null;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   acceptedAt!: Date | null;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   declinedAt!: Date | null;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   voidedAt!: Date | null;
 
   /** Set when this estimate has been converted to an invoice. The UI
@@ -128,7 +124,7 @@ export class Estimate {
   @Column({ type: "varchar", nullable: true })
   invoiceId!: string | null;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   convertedAt!: Date | null;
 
   @Column({ type: "varchar", nullable: true })

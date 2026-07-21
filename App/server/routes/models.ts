@@ -5,16 +5,18 @@ import { AIModel } from "../db/entities/AIModel.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { validateBody } from "../middleware/validate.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import {
+  requireAuth,
+  requireCompanyMember,
+  requireCompanyRoleForMutations,
+} from "../middleware/auth.js";
 import { PROVIDERS, isModelConnected } from "../services/providers.js";
 import { clearRoutinePins, effectiveActiveId, setActiveModel } from "../services/models.js";
 import { encryptSecret, maskSecret } from "../lib/secret.js";
 import { previewBaseURL, readCustomEndpoint } from "../services/customEndpoint.js";
-import {
-  canProbeContextWindow,
-  probeContextWindow,
-} from "../services/agent/contextWindow.js";
+import { canProbeContextWindow, probeContextWindow } from "../services/agent/contextWindow.js";
 import { recordAudit } from "../services/audit.js";
+import { assertSafeOutboundUrl } from "../lib/outboundUrl.js";
 
 /**
  * Per-employee Model routes, mounted at
@@ -30,6 +32,7 @@ import { recordAudit } from "../services/audit.js";
 export const modelsRouter = Router({ mergeParams: true });
 modelsRouter.use(requireAuth);
 modelsRouter.use(requireCompanyMember);
+modelsRouter.use(requireCompanyRoleForMutations("admin"));
 
 const providerSchema = z.enum(["anthropic", "openai", "custom"]);
 const authModeSchema = z.enum(["apikey", "customEndpoint"]);
@@ -103,8 +106,7 @@ function toPublic(m: AIModel, isActive: boolean): PublicModel {
     typeof cfg.apiKeyEncrypted === "string" ? (cfg.apiKeyEncrypted as string) : null;
   const customEndpointHost =
     typeof cfg.baseURLPreview === "string" ? (cfg.baseURLPreview as string) : null;
-  const customEndpointModelId =
-    typeof cfg.modelId === "string" ? (cfg.modelId as string) : null;
+  const customEndpointModelId = typeof cfg.modelId === "string" ? (cfg.modelId as string) : null;
   const spec = PROVIDERS[m.provider];
   const connected = isModelConnected(m);
   return {
@@ -314,7 +316,7 @@ modelsRouter.post("/:id/apikey", validateBody(apiKeySchema), async (req, res) =>
   }
   const { apiKey } = req.body as z.infer<typeof apiKeySchema>;
   const cfg = safeParseConfig(m.configJson);
-  cfg.apiKeyEncrypted = encryptSecret(apiKey);
+  cfg.apiKeyEncrypted = encryptSecret(apiKey, ctx.co.id);
   cfg.apiKeyPreview = maskSecret(apiKey);
   m.configJson = JSON.stringify(cfg);
   m.connectedAt = new Date();
@@ -359,71 +361,73 @@ const customEndpointSchema = z.object({
   apiKey: z.string().trim().min(1).max(500).optional(),
 });
 
-modelsRouter.post(
-  "/:id/custom-endpoint",
-  validateBody(customEndpointSchema),
-  async (req, res) => {
-    const p = req.params as Record<string, string>;
-    const ctx = await loadModelContext(p.cid, p.eid, p.id);
-    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-    const m = ctx.m;
-    if (m.authMode !== "customEndpoint") {
-      return res.status(400).json({ error: "Model is not in custom-endpoint mode" });
-    }
-    if (!PROVIDERS[m.provider].supportsCustomEndpoint) {
-      return res.status(400).json({
-        error: `${m.provider} can't host a custom OpenAI-compatible endpoint.`,
-      });
-    }
-    const { baseURL, modelId, apiKey } = req.body as z.infer<typeof customEndpointSchema>;
-    // Read the old target before we overwrite it: whether this save points the
-    // model somewhere new decides whether the window we knew is still true.
-    const previous = readCustomEndpoint(m);
-    const targetChanged =
-      !previous || previous.baseURL !== baseURL || previous.modelId !== modelId;
-    const cfg = safeParseConfig(m.configJson);
-    cfg.baseURLEncrypted = encryptSecret(baseURL);
-    cfg.baseURLPreview = previewBaseURL(baseURL);
-    cfg.modelId = modelId;
-    if (apiKey) {
-      cfg.apiKeyEncrypted = encryptSecret(apiKey);
-      cfg.apiKeyPreview = maskSecret(apiKey);
-    } else {
-      // Clear any previously-set key so toggling apiKey off actually unsets it.
-      delete cfg.apiKeyEncrypted;
-      delete cfg.apiKeyPreview;
-    }
-    m.configJson = JSON.stringify(cfg);
-    // Mirror the model id onto the row so the in-process client uses it directly.
-    m.model = modelId;
-    m.connectedAt = new Date();
-    // Only drop the window when this save actually re-points the model. Pointed
-    // at new weights, the old number is stale by definition — but a save that
-    // merely rotates the API key shouldn't silently discard a number an operator
-    // typed in, which is the one case where we can't get it back by asking.
-    if (targetChanged) {
-      m.contextWindow = null;
-      m.contextWindowSource = null;
-    }
-    await AppDataSource.getRepository(AIModel).save(m);
-    await refreshContextWindow(m);
-    await recordAudit({
-      companyId: ctx.co.id,
-      actorUserId: req.userId ?? null,
-      action: "model.customEndpoint.set",
-      targetType: "employee",
-      targetId: ctx.emp.id,
-      targetLabel: ctx.emp.name,
-      metadata: {
-        provider: m.provider,
-        host: cfg.baseURLPreview,
-        modelId,
-        hasApiKey: Boolean(apiKey),
-      },
+modelsRouter.post("/:id/custom-endpoint", validateBody(customEndpointSchema), async (req, res) => {
+  const p = req.params as Record<string, string>;
+  const ctx = await loadModelContext(p.cid, p.eid, p.id);
+  if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+  const m = ctx.m;
+  if (m.authMode !== "customEndpoint") {
+    return res.status(400).json({ error: "Model is not in custom-endpoint mode" });
+  }
+  if (!PROVIDERS[m.provider].supportsCustomEndpoint) {
+    return res.status(400).json({
+      error: `${m.provider} can't host a custom OpenAI-compatible endpoint.`,
     });
-    res.json(await publicModel(m, ctx.emp));
-  },
-);
+  }
+  const { baseURL, modelId, apiKey } = req.body as z.infer<typeof customEndpointSchema>;
+  try {
+    await assertSafeOutboundUrl(baseURL);
+  } catch (error) {
+    return res.status(400).json({
+      error: error instanceof Error ? error.message : "Unsafe custom endpoint URL",
+    });
+  }
+  // Read the old target before we overwrite it: whether this save points the
+  // model somewhere new decides whether the window we knew is still true.
+  const previous = readCustomEndpoint(m);
+  const targetChanged = !previous || previous.baseURL !== baseURL || previous.modelId !== modelId;
+  const cfg = safeParseConfig(m.configJson);
+  cfg.baseURLEncrypted = encryptSecret(baseURL, ctx.co.id);
+  cfg.baseURLPreview = previewBaseURL(baseURL);
+  cfg.modelId = modelId;
+  if (apiKey) {
+    cfg.apiKeyEncrypted = encryptSecret(apiKey, ctx.co.id);
+    cfg.apiKeyPreview = maskSecret(apiKey);
+  } else {
+    // Clear any previously-set key so toggling apiKey off actually unsets it.
+    delete cfg.apiKeyEncrypted;
+    delete cfg.apiKeyPreview;
+  }
+  m.configJson = JSON.stringify(cfg);
+  // Mirror the model id onto the row so the in-process client uses it directly.
+  m.model = modelId;
+  m.connectedAt = new Date();
+  // Only drop the window when this save actually re-points the model. Pointed
+  // at new weights, the old number is stale by definition — but a save that
+  // merely rotates the API key shouldn't silently discard a number an operator
+  // typed in, which is the one case where we can't get it back by asking.
+  if (targetChanged) {
+    m.contextWindow = null;
+    m.contextWindowSource = null;
+  }
+  await AppDataSource.getRepository(AIModel).save(m);
+  await refreshContextWindow(m);
+  await recordAudit({
+    companyId: ctx.co.id,
+    actorUserId: req.userId ?? null,
+    action: "model.customEndpoint.set",
+    targetType: "employee",
+    targetId: ctx.emp.id,
+    targetLabel: ctx.emp.name,
+    metadata: {
+      provider: m.provider,
+      host: cfg.baseURLPreview,
+      modelId,
+      hasApiKey: Boolean(apiKey),
+    },
+  });
+  res.json(await publicModel(m, ctx.emp));
+});
 
 // POST /api/companies/:cid/employees/:eid/models/:id/refresh
 // Recompute connection status. Cheap; kept for the client to reconcile after a
@@ -462,46 +466,42 @@ const contextWindowSchema = z.object({
   contextWindow: z.number().int().min(1_024).max(20_000_000).nullable(),
 });
 
-modelsRouter.put(
-  "/:id/context-window",
-  validateBody(contextWindowSchema),
-  async (req, res) => {
-    const p = req.params as Record<string, string>;
-    const ctx = await loadModelContext(p.cid, p.eid, p.id);
-    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
-    const m = ctx.m;
-    const { contextWindow } = req.body as z.infer<typeof contextWindowSchema>;
+modelsRouter.put("/:id/context-window", validateBody(contextWindowSchema), async (req, res) => {
+  const p = req.params as Record<string, string>;
+  const ctx = await loadModelContext(p.cid, p.eid, p.id);
+  if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+  const m = ctx.m;
+  const { contextWindow } = req.body as z.infer<typeof contextWindowSchema>;
 
-    if (contextWindow === null) {
-      // Clearing hands the field back to the probe rather than just blanking it,
-      // so an operator who set a number by mistake lands on the real one.
-      m.contextWindow = null;
-      m.contextWindowSource = null;
-      await AppDataSource.getRepository(AIModel).save(m);
-      if (isModelConnected(m)) await refreshContextWindow(m);
-    } else {
-      m.contextWindow = contextWindow;
-      m.contextWindowSource = "manual";
-      await AppDataSource.getRepository(AIModel).save(m);
-    }
+  if (contextWindow === null) {
+    // Clearing hands the field back to the probe rather than just blanking it,
+    // so an operator who set a number by mistake lands on the real one.
+    m.contextWindow = null;
+    m.contextWindowSource = null;
+    await AppDataSource.getRepository(AIModel).save(m);
+    if (isModelConnected(m)) await refreshContextWindow(m);
+  } else {
+    m.contextWindow = contextWindow;
+    m.contextWindowSource = "manual";
+    await AppDataSource.getRepository(AIModel).save(m);
+  }
 
-    await recordAudit({
-      companyId: ctx.co.id,
-      actorUserId: req.userId ?? null,
-      action: "model.configure",
-      targetType: "employee",
-      targetId: ctx.emp.id,
-      targetLabel: ctx.emp.name,
-      metadata: {
-        provider: m.provider,
-        model: m.model,
-        contextWindow: m.contextWindow,
-        contextWindowSource: m.contextWindowSource,
-      },
-    });
-    res.json(await publicModel(m, ctx.emp));
-  },
-);
+  await recordAudit({
+    companyId: ctx.co.id,
+    actorUserId: req.userId ?? null,
+    action: "model.configure",
+    targetType: "employee",
+    targetId: ctx.emp.id,
+    targetLabel: ctx.emp.name,
+    metadata: {
+      provider: m.provider,
+      model: m.model,
+      contextWindow: m.contextWindow,
+      contextWindowSource: m.contextWindowSource,
+    },
+  });
+  res.json(await publicModel(m, ctx.emp));
+});
 
 // DELETE /api/companies/:cid/employees/:eid/models/:id — remove one model
 modelsRouter.delete("/:id", async (req, res) => {

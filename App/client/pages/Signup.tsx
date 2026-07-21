@@ -66,9 +66,8 @@ export default function Signup({ onAuth }: { onAuth: () => Promise<void> }) {
             <Lock size={22} />
           </span>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            This Genosyn instance isn&apos;t accepting new sign-ups. Ask an
-            administrator for an invitation, or sign in if you already have an
-            account.
+            This Genosyn instance isn&apos;t accepting new sign-ups. Ask an administrator for an
+            invitation, or sign in if you already have an account.
           </p>
           <Link
             to="/login"
@@ -87,6 +86,7 @@ export default function Signup({ onAuth }: { onAuth: () => Promise<void> }) {
         <FormError message={error} />
         <Input
           label="Name"
+          autoComplete="name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           required
@@ -94,6 +94,7 @@ export default function Signup({ onAuth }: { onAuth: () => Promise<void> }) {
         <Input
           label="Email"
           type="email"
+          autoComplete="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
@@ -101,9 +102,10 @@ export default function Signup({ onAuth }: { onAuth: () => Promise<void> }) {
         <Input
           label="Password"
           type="password"
+          autoComplete="new-password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          minLength={8}
+          minLength={12}
           required
         />
         <Button type="submit" disabled={loading}>

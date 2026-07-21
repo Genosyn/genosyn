@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import {
   Column,
   CreateDateColumn,
@@ -34,7 +35,7 @@ export class Team {
   @Column({ type: "text", default: "" })
   description!: string;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   archivedAt!: Date | null;
 
   @CreateDateColumn()

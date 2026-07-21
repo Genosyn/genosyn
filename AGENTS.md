@@ -95,7 +95,8 @@ has shipped. Do not use "Task" for scheduled AI work, ever.
 
 - **Language:** TypeScript everywhere. No plain JS files.
 - **Backend:** Express. Do **not** introduce Nest, Fastify, tRPC, etc.
-- **ORM:** **TypeORM**. SQLite driver today, Postgres driver later via config.
+- **ORM:** **TypeORM**. SQLite is the self-hosted default; shared SaaS uses
+  Postgres via config and the dedicated Postgres migration stream.
   Do not add a second ORM or raw SQL query builder.
 - **Frontend:** React 18 + Vite + TailwindCSS + React Router + lucide-react.
   Do **not** introduce Next.js, Remix, Redux, MUI, Chakra, shadcn-as-a-dep

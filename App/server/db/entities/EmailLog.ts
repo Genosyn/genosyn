@@ -1,10 +1,4 @@
-import {
-  Column,
-  CreateDateColumn,
-  Entity,
-  Index,
-  PrimaryGeneratedColumn,
-} from "typeorm";
+import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from "typeorm";
 
 /**
  * Append-only record of every notification email the platform attempted to
@@ -37,6 +31,7 @@ export type EmailLogTransport =
  */
 export type EmailLogPurpose =
   | "invitation"
+  | "email_verification"
   | "password_reset"
   | "welcome"
   | "test"

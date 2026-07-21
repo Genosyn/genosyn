@@ -11,20 +11,18 @@ import { ChannelMessage } from "../../db/entities/ChannelMessage.js";
 import { Channel } from "../../db/entities/Channel.js";
 import { findChannelBySlugOrId } from "../workspaceChat.js";
 import { broadcastToCompany } from "../realtime.js";
+import {
+  assertSafeOutboundConfig,
+  safeFetchBuffer,
+} from "../../lib/outboundUrl.js";
 import { chatWithEmployee } from "../chat.js";
 import { recordAudit } from "../audit.js";
 import { toSlug } from "../../lib/slug.js";
-import {
-  decryptConnectionConfig,
-  encryptConnectionConfig,
-} from "../integrations.js";
-import { getProvider } from "../../integrations/index.js";
+import { decryptConnectionConfig, encryptConnectionConfig } from "../integrations.js";
+import { assertIntegrationAllowed, getProvider } from "../../integrations/index.js";
 import { unrestrictedCapabilityGate } from "../connectionCapabilities.js";
 import { makeAdSpendLedger } from "../adSpend.js";
-import type {
-  IntegrationConfig,
-  IntegrationRuntimeContext,
-} from "../../integrations/types.js";
+import type { IntegrationConfig, IntegrationRuntimeContext } from "../../integrations/types.js";
 import { PipelineNodeKind, NodeContext, NodeResult } from "./types.js";
 
 /**
@@ -184,14 +182,15 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
       slug = `${baseSlug}-${n}`;
     }
     const description = String(ctx.config.description ?? "");
-    const key = name
-      .toUpperCase()
-      .replace(/[^A-Z0-9 ]/g, "")
-      .split(/\s+/)
-      .filter(Boolean)
-      .map((w) => w[0])
-      .join("")
-      .slice(0, 4) || "PRJ";
+    const key =
+      name
+        .toUpperCase()
+        .replace(/[^A-Z0-9 ]/g, "")
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((w) => w[0])
+        .join("")
+        .slice(0, 4) || "PRJ";
     const project = repo.create({
       companyId: ctx.companyId,
       name,
@@ -302,16 +301,15 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
     const bodyRaw = ctx.config.body;
     const init: RequestInit = { method, headers: headers as HeadersInit };
     if (method !== "GET" && method !== "HEAD" && bodyRaw !== undefined && bodyRaw !== "") {
-      init.body =
-        typeof bodyRaw === "string" ? bodyRaw : JSON.stringify(bodyRaw);
+      init.body = typeof bodyRaw === "string" ? bodyRaw : JSON.stringify(bodyRaw);
       if (!Object.keys(headers).some((k) => k.toLowerCase() === "content-type")) {
         (init.headers as Record<string, string>)["content-type"] =
           typeof bodyRaw === "string" ? "text/plain" : "application/json";
       }
     }
     ctx.log(`${method} ${url}`);
-    const res = await fetch(url, init);
-    const text = await res.text();
+    const res = await safeFetchBuffer(url, init, { maxBytes: 2 * 1024 * 1024 });
+    const text = res.body.toString("utf8");
     let body: unknown = text;
     try {
       body = JSON.parse(text);
@@ -379,12 +377,14 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
       companyId: ctx.companyId,
     });
     if (!conn) throw new Error(`Connection ${connectionId} not found`);
+    assertIntegrationAllowed(conn.provider);
     const provider = getProvider(conn.provider);
     if (!provider) throw new Error(`Unknown provider: ${conn.provider}`);
     const tool = provider.tools.find((t) => t.name === toolName);
     if (!tool) throw new Error(`Unknown tool: ${toolName}`);
 
     const cfg = decryptConnectionConfig(conn);
+    await assertSafeOutboundConfig(cfg);
     let refreshed: IntegrationConfig | null = null;
     const runtimeCtx: IntegrationRuntimeContext = {
       authMode: conn.authMode,
@@ -409,7 +409,7 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
     ctx.log(`integration ${conn.provider}.${toolName} ${JSON.stringify(args).slice(0, 200)}`);
     const result = await provider.invokeTool(toolName, args, runtimeCtx);
     if (refreshed) {
-      conn.encryptedConfig = encryptConnectionConfig(refreshed);
+      conn.encryptedConfig = encryptConnectionConfig(refreshed, conn.companyId);
       conn.lastCheckedAt = new Date();
       conn.status = "connected";
       conn.statusMessage = "";

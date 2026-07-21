@@ -23,17 +23,12 @@ const PATH_TO_SOURCE: Record<string, string> = {
   "/docs/marketing": "Marketing.tsx",
   "/docs/workspace-chat": "WorkspaceChat.tsx",
   "/docs/self-hosting": "SelfHosting.tsx",
+  "/docs/saas-hosting": "SaasHosting.tsx",
   "/docs/cli": "Cli.tsx",
   "/docs/vocabulary": "Vocabulary.tsx",
 };
 
-export function DocsShell({
-  pathname,
-  children,
-}: {
-  pathname: string;
-  children: ReactNode;
-}) {
+export function DocsShell({ pathname, children }: { pathname: string; children: ReactNode }) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => setOpen(false), [pathname]);
@@ -126,13 +121,7 @@ function SidebarTree({ pathname }: { pathname: string }) {
   );
 }
 
-function PrevNext({
-  prev,
-  next,
-}: {
-  prev: DocsPageMeta | null;
-  next: DocsPageMeta | null;
-}) {
+function PrevNext({ prev, next }: { prev: DocsPageMeta | null; next: DocsPageMeta | null }) {
   if (!prev && !next) return null;
   return (
     <div className="grid grid-cols-1 gap-3 border-t border-zinc-100 pt-8 sm:grid-cols-2">
@@ -145,9 +134,7 @@ function PrevNext({
             <ArrowLeft className="h-3 w-3" />
             Previous
           </span>
-          <span className="mt-2 text-[15px] font-semibold text-zinc-950">
-            {prev.title}
-          </span>
+          <span className="mt-2 text-[15px] font-semibold text-zinc-950">{prev.title}</span>
         </Link>
       ) : (
         <span />
@@ -161,9 +148,7 @@ function PrevNext({
             Next
             <ArrowRight className="h-3 w-3" />
           </span>
-          <span className="mt-2 text-[15px] font-semibold text-zinc-950">
-            {next.title}
-          </span>
+          <span className="mt-2 text-[15px] font-semibold text-zinc-950">{next.title}</span>
         </Link>
       ) : (
         <span />
@@ -201,12 +186,7 @@ function DocsFooter() {
           <Link href="/docs" className="hover:text-zinc-900">
             Docs
           </Link>
-          <a
-            href={GITHUB_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="hover:text-zinc-900"
-          >
+          <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="hover:text-zinc-900">
             GitHub
           </a>
           <a href="/install.sh" className="hover:text-zinc-900">

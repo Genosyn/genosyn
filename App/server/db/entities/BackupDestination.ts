@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -75,11 +76,11 @@ export class BackupDestination {
   lastError!: string;
 
   /** When a backup was last successfully delivered here. */
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   lastSyncedAt!: Date | null;
 
   /** When "Test connection" last ran (success or failure). */
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   lastCheckedAt!: Date | null;
 
   @Column({ type: "varchar", nullable: true })

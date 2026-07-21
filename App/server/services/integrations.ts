@@ -4,7 +4,7 @@ import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { EmployeeConnectionGrant } from "../db/entities/EmployeeConnectionGrant.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { encryptSecret, decryptSecret } from "../lib/secret.js";
-import { getProvider } from "../integrations/index.js";
+import { assertIntegrationAllowed, getProvider } from "../integrations/index.js";
 import {
   ApprovalRequiredError,
   type IntegrationConfig,
@@ -15,13 +15,14 @@ import { createAdSpendApproval, createPaymentApproval } from "./approvals.js";
 import { makeResourceAttachmentResolver } from "./resourceAttachments.js";
 import { makeConnectionCapabilityGate } from "./connectionCapabilities.js";
 import { makeAdSpendLedger } from "./adSpend.js";
+import { assertSafeOutboundConfig } from "../lib/outboundUrl.js";
 
 /**
  * Service layer for Integration Connections + Grants.
  *
  * Wraps the two entities with:
  *  - Encrypt / decrypt of the JSON config blob (reusing the same
- *    sessionSecret-derived AES-256-GCM key as `secrets` and AIModel apikeys).
+ *    scoped, rotation-aware AES-256-GCM key as `secrets` and AI Model API keys).
  *  - Status refresh via the provider's `checkStatus` hook.
  *  - Tool invocation with automatic re-persist if the provider refreshes
  *    tokens inside the handler (Gmail's OAuth flow depends on this).
@@ -107,11 +108,13 @@ export function decryptConnectionConfig(c: IntegrationConnection): IntegrationCo
   } catch {
     // fall through
   }
-  throw new Error("Integration config is corrupted or was encrypted with a different sessionSecret.");
+  throw new Error(
+    "Integration config is corrupted or was encrypted with a different sessionSecret.",
+  );
 }
 
-export function encryptConnectionConfig(cfg: IntegrationConfig): string {
-  return encryptSecret(JSON.stringify(cfg));
+export function encryptConnectionConfig(cfg: IntegrationConfig, companyId = "instance"): string {
+  return encryptSecret(JSON.stringify(cfg), `company:${companyId}`);
 }
 
 /**
@@ -139,7 +142,7 @@ export async function createApiKeyConnection(args: {
     provider: args.provider,
     label: args.label.trim() || provider.catalog.name,
     authMode: "apikey",
-    encryptedConfig: encryptConnectionConfig(config),
+    encryptedConfig: encryptConnectionConfig(config, args.companyId),
     accountHint,
     status: "connected",
     statusMessage: "",
@@ -172,7 +175,7 @@ export async function createOauthConnection(args: {
     provider: args.provider,
     label: args.label.trim() || provider.catalog.name,
     authMode: "oauth2",
-    encryptedConfig: encryptConnectionConfig(args.config),
+    encryptedConfig: encryptConnectionConfig(args.config, args.companyId),
     accountHint: args.accountHint,
     status: "connected",
     statusMessage: "",
@@ -218,7 +221,7 @@ export async function createServiceAccountConnection(args: {
     provider: args.provider,
     label: args.label.trim() || provider.catalog.name,
     authMode: "service_account",
-    encryptedConfig: encryptConnectionConfig(config),
+    encryptedConfig: encryptConnectionConfig(config, args.companyId),
     accountHint,
     status: "connected",
     statusMessage: "",
@@ -250,9 +253,7 @@ export async function createBrowserLoginConnection(args: {
     throw new Error(`${provider.catalog.name} does not support browser login`);
   }
   if (!provider.buildBrowserLoginConfig) {
-    throw new Error(
-      `${provider.catalog.name} declared browser-login support but has no validator`,
-    );
+    throw new Error(`${provider.catalog.name} declared browser-login support but has no validator`);
   }
   const { config, accountHint } = await provider.buildBrowserLoginConfig(args.fields);
   const repo = AppDataSource.getRepository(IntegrationConnection);
@@ -261,7 +262,7 @@ export async function createBrowserLoginConnection(args: {
     provider: args.provider,
     label: args.label.trim() || provider.catalog.name,
     authMode: "browser",
-    encryptedConfig: encryptConnectionConfig(config),
+    encryptedConfig: encryptConnectionConfig(config, args.companyId),
     accountHint,
     status: "connected",
     statusMessage: "",
@@ -293,7 +294,7 @@ export async function updateBrowserLoginCredentials(args: {
     throw new Error(`Unknown integration: ${existing.provider}`);
   }
   const { config, accountHint } = await provider.buildBrowserLoginConfig(args.fields);
-  existing.encryptedConfig = encryptConnectionConfig(config);
+  existing.encryptedConfig = encryptConnectionConfig(config, existing.companyId);
   existing.accountHint = accountHint;
   existing.status = "connected";
   existing.statusMessage = "";
@@ -348,7 +349,7 @@ export async function updateApiKeyCredentials(args: {
     throw new Error(`Unknown integration: ${existing.provider}`);
   }
   const { config, accountHint } = await provider.validateApiKey(args.fields);
-  existing.encryptedConfig = encryptConnectionConfig(config);
+  existing.encryptedConfig = encryptConnectionConfig(config, existing.companyId);
   existing.accountHint = accountHint;
   existing.status = "connected";
   existing.statusMessage = "";
@@ -385,7 +386,7 @@ export async function updateServiceAccountCredentials(args: {
     impersonationEmail: args.impersonationEmail,
     scopeGroups: args.scopeGroups,
   });
-  existing.encryptedConfig = encryptConnectionConfig(config);
+  existing.encryptedConfig = encryptConnectionConfig(config, existing.companyId);
   existing.accountHint = accountHint;
   existing.status = "connected";
   existing.statusMessage = "";
@@ -418,7 +419,7 @@ export async function updateOauthConnectionConfig(args: {
       `Connection is ${existing.authMode}, not OAuth — use the matching reconnect flow.`,
     );
   }
-  existing.encryptedConfig = encryptConnectionConfig(args.config);
+  existing.encryptedConfig = encryptConnectionConfig(args.config, existing.companyId);
   existing.accountHint = args.accountHint;
   existing.status = "connected";
   existing.statusMessage = "";
@@ -447,9 +448,7 @@ export async function createGithubAppConnection(args: {
     throw new Error(`${provider.catalog.name} does not support GitHub Apps`);
   }
   if (!provider.buildGithubAppConfig) {
-    throw new Error(
-      `${provider.catalog.name} declared GitHub App support but has no validator`,
-    );
+    throw new Error(`${provider.catalog.name} declared GitHub App support but has no validator`);
   }
   const { config, accountHint } = await provider.buildGithubAppConfig({
     appId: args.appId,
@@ -462,7 +461,7 @@ export async function createGithubAppConnection(args: {
     provider: args.provider,
     label: args.label.trim() || provider.catalog.name,
     authMode: "github_app",
-    encryptedConfig: encryptConnectionConfig(config),
+    encryptedConfig: encryptConnectionConfig(config, args.companyId),
     accountHint,
     status: "connected",
     statusMessage: "",
@@ -500,7 +499,7 @@ export async function updateGithubAppCredentials(args: {
     privateKey: args.privateKey,
     installationId: args.installationId,
   });
-  existing.encryptedConfig = encryptConnectionConfig(config);
+  existing.encryptedConfig = encryptConnectionConfig(config, existing.companyId);
   existing.accountHint = accountHint;
   existing.status = "connected";
   existing.statusMessage = "";
@@ -510,10 +509,7 @@ export async function updateGithubAppCredentials(args: {
   return existing;
 }
 
-export async function deleteConnection(
-  companyId: string,
-  id: string,
-): Promise<boolean> {
+export async function deleteConnection(companyId: string, id: string): Promise<boolean> {
   const repo = AppDataSource.getRepository(IntegrationConnection);
   const existing = await repo.findOneBy({ companyId, id });
   if (!existing) return false;
@@ -553,6 +549,7 @@ function notifyConnectionChanged(
 export async function refreshConnectionStatus(
   conn: IntegrationConnection,
 ): Promise<IntegrationConnection> {
+  assertIntegrationAllowed(conn.provider);
   const provider = getProvider(conn.provider);
   if (!provider || !provider.checkStatus) {
     conn.lastCheckedAt = new Date();
@@ -564,6 +561,7 @@ export async function refreshConnectionStatus(
   let cfg: IntegrationConfig;
   try {
     cfg = decryptConnectionConfig(conn);
+    await assertSafeOutboundConfig(cfg);
   } catch (err) {
     conn.status = "error";
     conn.statusMessage = err instanceof Error ? err.message : String(err);
@@ -581,7 +579,7 @@ export async function refreshConnectionStatus(
   };
   const result = await provider.checkStatus(ctx);
   if (refreshed) {
-    conn.encryptedConfig = encryptConnectionConfig(refreshed);
+    conn.encryptedConfig = encryptConnectionConfig(refreshed, conn.companyId);
   }
   conn.lastCheckedAt = new Date();
   if (result.ok) {
@@ -656,10 +654,7 @@ export async function grantAccess(
   return row;
 }
 
-export async function revokeAccess(
-  employeeId: string,
-  connectionId: string,
-): Promise<boolean> {
+export async function revokeAccess(employeeId: string, connectionId: string): Promise<boolean> {
   const repo = AppDataSource.getRepository(EmployeeConnectionGrant);
   const existing = await repo.findOneBy({ employeeId, connectionId });
   if (!existing) return false;
@@ -670,17 +665,15 @@ export async function revokeAccess(
 export async function getGrantWithConnection(
   employeeId: string,
   connectionId: string,
-): Promise<
-  { grant: EmployeeConnectionGrant; connection: IntegrationConnection } | null
-> {
+): Promise<{ grant: EmployeeConnectionGrant; connection: IntegrationConnection } | null> {
   const grant = await AppDataSource.getRepository(EmployeeConnectionGrant).findOneBy({
     employeeId,
     connectionId,
   });
   if (!grant) return null;
-  const connection = await AppDataSource.getRepository(IntegrationConnection).findOneBy(
-    { id: connectionId },
-  );
+  const connection = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
+    id: connectionId,
+  });
   if (!connection) return null;
   return { grant, connection };
 }
@@ -689,9 +682,7 @@ export async function getGrantWithConnection(
  * Load every {connection, provider} pair an employee has been granted. The
  * MCP dispatcher uses this to advertise tools to the AI CLI.
  */
-export async function loadEmployeeConnections(
-  employee: AIEmployee,
-): Promise<
+export async function loadEmployeeConnections(employee: AIEmployee): Promise<
   Array<{
     grant: EmployeeConnectionGrant;
     connection: IntegrationConnection;
@@ -731,12 +722,14 @@ export async function invokeConnectionTool(args: {
   if (pair.connection.companyId !== args.employee.companyId) {
     throw new Error("Connection belongs to a different company.");
   }
+  assertIntegrationAllowed(pair.connection.provider);
   const provider = getProvider(pair.connection.provider);
   if (!provider) throw new Error(`Unknown provider: ${pair.connection.provider}`);
   const tool = provider.tools.find((t) => t.name === args.toolName);
   if (!tool) throw new Error(`Unknown tool: ${args.toolName}`);
 
   const cfg = decryptConnectionConfig(pair.connection);
+  await assertSafeOutboundConfig(cfg);
   let refreshed: IntegrationConfig | null = null;
   const ctx: IntegrationRuntimeContext = {
     authMode: pair.connection.authMode,
@@ -800,7 +793,7 @@ export async function invokeConnectionTool(args: {
     throw err;
   }
   if (refreshed) {
-    pair.connection.encryptedConfig = encryptConnectionConfig(refreshed);
+    pair.connection.encryptedConfig = encryptConnectionConfig(refreshed, pair.connection.companyId);
     pair.connection.lastCheckedAt = new Date();
     pair.connection.status = "connected";
     pair.connection.statusMessage = "";

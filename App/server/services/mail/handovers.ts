@@ -1,4 +1,4 @@
-import { In } from "typeorm";
+import { In, LessThan } from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
 import { Company } from "../../db/entities/Company.js";
@@ -21,6 +21,7 @@ import { recordAudit } from "../audit.js";
 import { createNotifications } from "../notifications.js";
 import { broadcastToCompany } from "../realtime.js";
 import { columnHasLabel } from "./store.js";
+import { config } from "../../../config.js";
 
 /**
  * The handover runner: takes one email thread + one AI employee + an
@@ -42,6 +43,7 @@ const RESULT_SUMMARY_CAP = 8_000;
 
 const queue: string[] = [];
 let running = 0;
+let discoveryTimer: NodeJS.Timeout | null = null;
 
 /** Grant pre-flight shared by routes and rules: null when allowed, else a
  * human-readable reason. `reply` needs `send`; `draft`/`triage` need `draft`. */
@@ -51,9 +53,10 @@ export async function handoverGrantError(
   mode: MailHandoverMode,
 ): Promise<string | null> {
   const needed: MailAccessLevel = mode === "reply" ? "send" : "draft";
-  const grant = await AppDataSource.getRepository(
-    EmployeeMailAccountGrant,
-  ).findOneBy({ employeeId, accountId });
+  const grant = await AppDataSource.getRepository(EmployeeMailAccountGrant).findOneBy({
+    employeeId,
+    accountId,
+  });
   if (grant && MAIL_ACCESS_RANK[grant.accessLevel] >= MAIL_ACCESS_RANK[needed]) {
     return null;
   }
@@ -69,10 +72,7 @@ export async function handoverGrantError(
  * (thread, rule) — that is how a rule storms an employee. Manual handovers
  * are never deduped (a human asking twice means twice).
  */
-export async function hasActiveRuleHandover(
-  threadId: string,
-  ruleId: string,
-): Promise<boolean> {
+export async function hasActiveRuleHandover(threadId: string, ruleId: string): Promise<boolean> {
   return AppDataSource.getRepository(MailHandover).existsBy([
     { threadId, ruleId, status: "pending" },
     { threadId, ruleId, status: "running" },
@@ -144,16 +144,31 @@ export async function retryMailHandover(handover: MailHandover): Promise<void> {
   enqueue(handover.id);
 }
 
-/** Restart recovery: anything `running` died with the old process. */
+/** Recover stale work and continuously discover pending rows across replicas. */
 export async function bootMailHandovers(): Promise<void> {
   const repo = AppDataSource.getRepository(MailHandover);
-  const stale = await repo.find({ where: { status: "running" } });
+  const stale = await repo.find({
+    where: {
+      status: "running",
+      startedAt: LessThan(new Date(Date.now() - 30 * 60_000)),
+    },
+  });
   for (const h of stale) {
     h.status = "failed";
-    h.errorMessage = "The server restarted while this handover was running.";
+    h.errorMessage = "The handover stopped responding before it completed.";
     h.finishedAt = new Date();
     await repo.save(h);
   }
+  if (discoveryTimer) clearInterval(discoveryTimer);
+  discoveryTimer = setInterval(() => {
+    void enqueuePendingHandovers();
+  }, 30_000);
+  if (typeof discoveryTimer.unref === "function") discoveryTimer.unref();
+  await enqueuePendingHandovers();
+}
+
+async function enqueuePendingHandovers(): Promise<void> {
+  const repo = AppDataSource.getRepository(MailHandover);
   const pending = await repo.find({
     where: { status: "pending" },
     order: { createdAt: "ASC" },
@@ -191,8 +206,21 @@ function pump(): void {
 
 async function runHandover(id: string): Promise<void> {
   const repo = AppDataSource.getRepository(MailHandover);
-  const handover = await repo.findOneBy({ id });
-  if (!handover || handover.status !== "pending") return;
+  const handover = await AppDataSource.transaction(async (manager) => {
+    const txRepo = manager.getRepository(MailHandover);
+    const row =
+      config.db.driver === "postgres"
+        ? await txRepo.findOne({
+            where: { id },
+            lock: { mode: "pessimistic_write" },
+          })
+        : await txRepo.findOneBy({ id });
+    if (!row || row.status !== "pending") return null;
+    row.status = "running";
+    row.startedAt = new Date();
+    return txRepo.save(row);
+  });
+  if (!handover) return;
 
   const account = await AppDataSource.getRepository(MailAccount).findOneBy({
     id: handover.accountId,
@@ -219,9 +247,6 @@ async function runHandover(id: string): Promise<void> {
     return;
   }
 
-  handover.status = "running";
-  handover.startedAt = new Date();
-  await repo.save(handover);
   broadcastToCompany(account.companyId, {
     type: "mail.updated",
     accountId: account.id,
@@ -233,12 +258,7 @@ async function runHandover(id: string): Promise<void> {
   // at a spinner.
   try {
     const prompt = await composeHandoverPrompt(handover, account, thread);
-    const result = await chatWithEmployee(
-      account.companyId,
-      employee.id,
-      prompt,
-      [],
-    );
+    const result = await chatWithEmployee(account.companyId, employee.id, prompt, []);
     if (result.status === "ok") {
       handover.status = "completed";
       handover.resultSummary = result.reply.slice(0, RESULT_SUMMARY_CAP);
@@ -258,10 +278,7 @@ async function runHandover(id: string): Promise<void> {
   await recordAudit({
     companyId: account.companyId,
     actorEmployeeId: employee.id,
-    action:
-      handover.status === "completed"
-        ? "mail.handover.complete"
-        : "mail.handover.fail",
+    action: handover.status === "completed" ? "mail.handover.complete" : "mail.handover.fail",
     targetType: "mail_handover",
     targetId: handover.id,
     targetLabel: thread.subject || "(no subject)",
@@ -293,10 +310,12 @@ async function composeHandoverPrompt(
   parts.push(
     `Mailbox: ${account.address}. Thread id: ${thread.id} (pass this as \`threadId\` to the \`mail\` tool).`,
   );
-  parts.push(`Instruction: ${handover.instruction || "(none given — use the mode guidance below)"}`);
+  parts.push(
+    `Instruction: ${handover.instruction || "(none given — use the mode guidance below)"}`,
+  );
   parts.push(modeGuidance(handover.mode));
   parts.push(
-    "The full thread is below, oldest first. Use the `mail` tool (`op: \"get\"`, threadId as above) if you need to re-read it, check labels, or fetch anything the transcript truncated.",
+    'The full thread is below, oldest first. Use the `mail` tool (`op: "get"`, threadId as above) if you need to re-read it, check labels, or fetch anything the transcript truncated.',
   );
   parts.push("");
   parts.push(`=== Email thread: "${thread.subject || "(no subject)"}" ===`);
@@ -375,9 +394,7 @@ async function notifyHandoverFinished(handover: MailHandover): Promise<void> {
   const title = failed
     ? `${empName} could not finish an email handover`
     : `${empName} finished with "${subject}"`;
-  const body = failed
-    ? handover.errorMessage.slice(0, 300)
-    : handover.resultSummary.slice(0, 300);
+  const body = failed ? handover.errorMessage.slice(0, 300) : handover.resultSummary.slice(0, 300);
   await createNotifications(
     userIds.map((userId) => ({
       companyId: company.id,

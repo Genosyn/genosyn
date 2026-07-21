@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import {
   Column,
   CreateDateColumn,
@@ -46,14 +47,14 @@ export class ChannelMessage {
   parentMessageId!: string | null;
 
   /** Set when a human edits their own message. Null means "original". */
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   editedAt!: Date | null;
 
   /**
    * Soft-delete timestamp. We keep the row so reactions/threads don't
    * dangle — the UI renders "this message was deleted" placeholder text.
    */
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   deletedAt!: Date | null;
 
   @CreateDateColumn()

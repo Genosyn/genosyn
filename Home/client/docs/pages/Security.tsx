@@ -8,12 +8,19 @@ export function Security() {
         title="Account security"
         lead={
           <>
-            Two-factor authentication is optional and belongs to each human Member&apos;s account.
-            Protect sign-in with an authenticator app, a passkey, or a FIDO2 USB security key such
-            as YubiKey.
+            Protect each human Member account with verified email, revocable sessions, and an
+            authenticator app, passkey, or FIDO2 USB security key such as YubiKey.
           </>
         }
       />
+
+      <H2 id="email-verification">Email verification and passwords</H2>
+      <P>
+        Shared SaaS mode sends a single-use verification link after signup. A Member must verify
+        that address before creating a company or accepting an invitation, and the signed-in address
+        must exactly match the invitation recipient. New and reset passwords require at least 12
+        characters. A password change or reset invalidates every older signed-in session.
+      </P>
 
       <H2 id="enable">Enable two-factor authentication</H2>
       <OL>
@@ -64,8 +71,8 @@ export function Security() {
 
       <H2 id="https">HTTPS and publicUrl</H2>
       <P>
-        Browsers allow WebAuthn only on secure origins. <Code>localhost</Code>{" "}
-        is the development exception; every remote deployment needs HTTPS. The hostname in{" "}
+        Browsers allow WebAuthn only on secure origins. <Code>localhost</Code> is the development
+        exception; every remote deployment needs HTTPS. The hostname in{" "}
         <Code>config.publicUrl</Code> is the WebAuthn relying-party ID and its origin is used to
         verify every registration and sign-in, so it must exactly match the URL Members use to open
         Genosyn. See <DocLink to="/docs/self-hosting">Configuration</DocLink>.
@@ -84,7 +91,8 @@ export function Security() {
         <LI>Add more than one passkey or security key so a spare device can get you back in.</LI>
         <LI>
           Remove individual methods from <Strong>Account → Security</Strong>. Removing the last
-          method turns 2FA off and clears recovery codes.
+          method turns 2FA off and clears recovery codes unless a company you belong to requires
+          2FA.
         </LI>
         <LI>
           <Strong>Generate new codes</Strong> invalidates every existing recovery code immediately
@@ -96,10 +104,19 @@ export function Security() {
         </LI>
       </UL>
 
+      <H2 id="company-policy">Require 2FA for a company</H2>
+      <P>
+        An owner or admin who already has 2FA can open <Strong>Settings → Company</Strong> and turn
+        on <Strong>Require two-factor authentication</Strong>. Members without a method must enroll
+        one under <Strong>Account → Security</Strong> before they can access or join that company.
+        Genosyn then prevents them from removing their final method. See the full hosted baseline in{" "}
+        <DocLink to="/docs/saas-hosting">Shared SaaS mode</DocLink>.
+      </P>
+
       <Callout kind="tip" title="SSO-only account?">
         Security changes require your current Genosyn password. If SSO created the account with no
-        known password, use <Strong>Forgot password</Strong>{" "}
-        once to set one, then return to <Strong>Account → Security</Strong>.
+        known password, use <Strong>Forgot password</Strong> once to set one, then return to{" "}
+        <Strong>Account → Security</Strong>.
       </Callout>
     </>
   );

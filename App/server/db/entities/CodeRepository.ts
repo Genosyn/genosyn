@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -92,7 +93,7 @@ export class CodeRepository {
   @Column({ type: "varchar", nullable: true })
   committerEmail!: string | null;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   lastSyncedAt!: Date | null;
 
   @Column({ type: "varchar", default: "unknown" })

@@ -6,6 +6,8 @@ import { AppDataSource } from "../../db/datasource.js";
 import { Pipeline } from "../../db/entities/Pipeline.js";
 import { runPipeline } from "./executor.js";
 import { PipelineGraph, PipelineNode, PipelineNodeKind } from "./types.js";
+import { withSchedulerLease } from "../schedulerLeases.js";
+import { constantTimeEqual } from "../../lib/constantTime.js";
 
 /**
  * Public pipeline service surface. Glues the executor to the rest of the app:
@@ -151,7 +153,7 @@ export async function findPipelineByWebhook(
   for (const node of graph.nodes) {
     if (node.type !== "trigger.webhook") continue;
     const t = (node.config?.token as string) ?? "";
-    if (t && t === token) {
+    if (t && constantTimeEqual(token, t)) {
       return { pipeline, nodeId: node.id };
     }
   }
@@ -186,35 +188,36 @@ async function tickPipelines(): Promise<void> {
   if (ticking) return;
   ticking = true;
   try {
-    const repo = AppDataSource.getRepository(Pipeline);
-    const now = new Date();
-    const due = await repo.find({
-      where: {
-        enabled: true,
-        nextRunAt: LessThanOrEqual(now),
-        cronExpr: Not(IsNull()),
-      },
-    });
-    for (const p of due) {
-      // Advance schedule before firing so a slow run doesn't double-fire.
-      const next = p.cronExpr ? nextRunFor(p.cronExpr, now) : null;
-      p.nextRunAt = next;
-      await repo.save(p);
-      const graph = parseGraph(p.graphJson);
-      const scheduleNode = graph.nodes.find(
-        (n) => n.type === "trigger.schedule" && n.config?.cronExpr === p.cronExpr,
-      );
-      if (!scheduleNode) continue;
-      runPipeline({
-        pipeline: p,
-        triggerKind: "schedule",
-        triggerNodeId: scheduleNode.id,
-        payload: { firedAt: now.toISOString() },
-      }).catch((err) => {
-        // eslint-disable-next-line no-console
-        console.error(`[pipelines] ${p.id} failed:`, err);
+    await withSchedulerLease("pipelines", PIPELINE_HEARTBEAT_INTERVAL_MS * 3, async () => {
+      const repo = AppDataSource.getRepository(Pipeline);
+      const now = new Date();
+      const due = await repo.find({
+        where: {
+          enabled: true,
+          nextRunAt: LessThanOrEqual(now),
+          cronExpr: Not(IsNull()),
+        },
       });
-    }
+      for (const p of due) {
+        const next = p.cronExpr ? nextRunFor(p.cronExpr, now) : null;
+        p.nextRunAt = next;
+        await repo.save(p);
+        const graph = parseGraph(p.graphJson);
+        const scheduleNode = graph.nodes.find(
+          (n) => n.type === "trigger.schedule" && n.config?.cronExpr === p.cronExpr,
+        );
+        if (!scheduleNode) continue;
+        runPipeline({
+          pipeline: p,
+          triggerKind: "schedule",
+          triggerNodeId: scheduleNode.id,
+          payload: { firedAt: now.toISOString() },
+        }).catch((err) => {
+          // eslint-disable-next-line no-console
+          console.error(`[pipelines] ${p.id} failed:`, err);
+        });
+      }
+    });
   } finally {
     ticking = false;
   }

@@ -25,6 +25,7 @@ import { googleAdsProvider } from "./providers/google-ads.js";
 import { metaAdsProvider } from "./providers/meta-ads.js";
 import { microsoftAdsProvider } from "./providers/microsoft-ads.js";
 import { redditAdsProvider } from "./providers/reddit-ads.js";
+import { config } from "../../config.js";
 
 /**
  * Provider registry. Adding a new integration means:
@@ -61,6 +62,16 @@ const PROVIDERS: Record<string, IntegrationProvider> = {
   [redditAdsProvider.catalog.provider]: redditAdsProvider,
 };
 
+const SHARED_SAAS_BLOCKED_PROVIDERS = new Set(["postgres", "mysql", "redis"]);
+
+export function assertIntegrationAllowed(providerId: string): void {
+  if (config.security.multiTenant && SHARED_SAAS_BLOCKED_PROVIDERS.has(providerId)) {
+    throw new Error(
+      `${providerId} Connections are disabled in shared SaaS mode until raw TCP integrations run in a dedicated egress worker`,
+    );
+  }
+}
+
 export function getProvider(id: string): IntegrationProvider | null {
   return PROVIDERS[id] ?? null;
 }
@@ -76,7 +87,15 @@ export function listProviderIds(): string[] {
  * key, so Google is always available to add.
  */
 export function listCatalog(): IntegrationCatalogEntry[] {
-  return Object.values(PROVIDERS).map((p) => ({ ...p.catalog }));
+  return Object.values(PROVIDERS).map((p) =>
+    config.security.multiTenant && SHARED_SAAS_BLOCKED_PROVIDERS.has(p.catalog.provider)
+      ? {
+          ...p.catalog,
+          enabled: false,
+          disabledReason: "Unavailable in shared SaaS until isolated raw-TCP egress is configured.",
+        }
+      : { ...p.catalog },
+  );
 }
 
 export type { IntegrationProvider, IntegrationCatalogEntry } from "./types.js";

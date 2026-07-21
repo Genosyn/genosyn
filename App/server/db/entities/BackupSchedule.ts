@@ -1,9 +1,5 @@
-import {
-  Entity,
-  PrimaryColumn,
-  Column,
-  UpdateDateColumn,
-} from "typeorm";
+import { dateTimeColumnType } from "./columnTypes.js";
+import { Entity, PrimaryColumn, Column, UpdateDateColumn } from "typeorm";
 
 export type BackupFrequency = "daily" | "weekly" | "monthly";
 
@@ -38,7 +34,7 @@ export class BackupSchedule {
   @Column({ type: "integer", default: 1 })
   dayOfMonth!: number;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   lastRunAt!: Date | null;
 
   /**

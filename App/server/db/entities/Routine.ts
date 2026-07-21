@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 @Entity("routines")
@@ -21,7 +22,7 @@ export class Routine {
   @Column({ type: "boolean", default: true })
   enabled!: boolean;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   lastRunAt!: Date | null;
 
   /**
@@ -31,7 +32,7 @@ export class Routine {
    * expression fails to parse, or briefly on fresh rows before the schedule is
    * computed. See `registerRoutine()` / `nextRunFor()` for the write seam.
    */
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   nextRunAt!: Date | null;
 
   /**

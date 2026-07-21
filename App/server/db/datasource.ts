@@ -106,6 +106,11 @@ import { AdSpendEvent } from "./entities/AdSpendEvent.js";
 import { Tag } from "./entities/Tag.js";
 import { TagAssignment } from "./entities/TagAssignment.js";
 import { WebAuthnCredential } from "./entities/WebAuthnCredential.js";
+import { AuthRateLimit } from "./entities/AuthRateLimit.js";
+import { WorkloadLease } from "./entities/WorkloadLease.js";
+import { SchedulerLease } from "./entities/SchedulerLease.js";
+import { AuthFlowState } from "./entities/AuthFlowState.js";
+import { RealtimeEvent } from "./entities/RealtimeEvent.js";
 
 const entities = [
   User,
@@ -130,6 +135,11 @@ const entities = [
   Tag,
   TagAssignment,
   WebAuthnCredential,
+  AuthRateLimit,
+  WorkloadLease,
+  SchedulerLease,
+  AuthFlowState,
+  RealtimeEvent,
   Secret,
   AuditEvent,
   Base,
@@ -215,7 +225,11 @@ const entities = [
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)
 // and the compiled .js files under dist/server/db/migrations in production.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const migrations = [path.join(__dirname, "migrations", "*.{ts,js}")];
+const migrations = [
+  config.db.driver === "postgres"
+    ? path.join(__dirname, "migrations", "postgres", "*.{ts,js}")
+    : path.join(__dirname, "migrations", "*.{ts,js}"),
+];
 
 function buildDataSource(): DataSource {
   if (config.db.driver === "postgres") {

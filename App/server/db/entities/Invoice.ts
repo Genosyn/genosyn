@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -68,10 +69,10 @@ export class Invoice {
   @Column({ type: "varchar", default: "draft" })
   status!: InvoiceStatus;
 
-  @Column({ type: "datetime" })
+  @Column({ type: dateTimeColumnType })
   issueDate!: Date;
 
-  @Column({ type: "datetime" })
+  @Column({ type: dateTimeColumnType })
   dueDate!: Date;
 
   @Column({ type: "varchar", default: "USD" })
@@ -102,13 +103,13 @@ export class Invoice {
   @Column({ type: "text", default: "" })
   footer!: string;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   sentAt!: Date | null;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   paidAt!: Date | null;
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   voidedAt!: Date | null;
 
   @Column({ type: "varchar", nullable: true })

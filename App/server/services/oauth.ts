@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import { getProvider } from "../integrations/index.js";
 import {
   buildGoogleAuthorizeUrl,
@@ -45,13 +44,14 @@ import {
   type MicrosoftOauthConfig,
 } from "../integrations/providers/microsoft-ads.js";
 import { decryptConnectionConfig, getConnection } from "./integrations.js";
+import { createAuthFlowState, consumeAuthFlowState } from "./authFlowState.js";
 
 /**
  * OAuth state store + provider dispatch.
  *
  * Each Connection carries its own `clientId` + `clientSecret`, so the start
- * handshake takes them as parameters, stashes them in the in-memory state
- * map, and the callback uses them to (a) exchange the auth code and
+ * handshake takes them as parameters, stores an encrypted single-use state
+ * row, and the callback uses it to (a) exchange the auth code and
  * (b) embed them in the persisted Connection so future refreshes work
  * without reaching back to config.ts.
  *
@@ -64,10 +64,8 @@ import { decryptConnectionConfig, getConnection } from "./integrations.js";
  *      the provider to shape them into a config blob, and creates the
  *      Connection.
  *
- * State tokens are kept in-process — same philosophy as the short-lived MCP
- * tokens. 10-minute TTL is plenty for a human to click "Allow"; if they
- * take longer we'd rather make them start again than widen the blast radius
- * of a leaked state string.
+ * Database-backed state means a callback may land on any replica. The row is
+ * encrypted because it temporarily carries provider client credentials.
  */
 
 export type OauthState = {
@@ -96,16 +94,8 @@ export type OauthState = {
 };
 
 const STATE_TTL_MS = 10 * 60 * 1000;
-const states = new Map<string, OauthState>();
 
-function sweep(): void {
-  const now = Date.now();
-  for (const [k, v] of states) {
-    if (v.expiresAt < now) states.delete(k);
-  }
-}
-
-export function startOauth(args: {
+export async function startOauth(args: {
   companyId: string;
   userId: string;
   provider: string;
@@ -115,8 +105,7 @@ export function startOauth(args: {
   scopeGroups: string[];
   extraFields?: Record<string, string>;
   existingConnectionId?: string;
-}): { authorizeUrl: string } {
-  sweep();
+}): Promise<{ authorizeUrl: string }> {
   const provider = getProvider(args.provider);
   if (!provider) throw new Error(`Unknown integration: ${args.provider}`);
   const oauth = provider.catalog.oauth;
@@ -125,7 +114,6 @@ export function startOauth(args: {
     throw new Error("clientId and clientSecret are required");
   }
 
-  const state = crypto.randomBytes(24).toString("hex");
   // PKCE code_verifier — only emitted for providers that need it (X). For
   // Google's and GitHub's plain auth-code flows this is undefined and the
   // callback skips passing it.
@@ -141,8 +129,9 @@ export function startOauth(args: {
     if (value) extraFields[field.key] = value;
   }
 
-  states.set(state, {
-    state,
+  const expiresAt = Date.now() + STATE_TTL_MS;
+  const statePayload: OauthState = {
+    state: "",
     userId: args.userId,
     companyId: args.companyId,
     provider: args.provider,
@@ -151,10 +140,11 @@ export function startOauth(args: {
     clientSecret: args.clientSecret,
     scopeGroups: args.scopeGroups,
     extraFields,
-    expiresAt: Date.now() + STATE_TTL_MS,
+    expiresAt,
     existingConnectionId: args.existingConnectionId,
     codeVerifier,
-  });
+  };
+  const state = await createAuthFlowState("integration-oauth", statePayload, STATE_TTL_MS);
 
   let authorizeUrl: string;
   switch (oauth.app) {
@@ -318,13 +308,10 @@ export async function startOauthReconnect(args: {
 }
 
 /** Pop a state record — single-use. */
-export function resolveOauthState(state: string): OauthState | null {
-  sweep();
-  const info = states.get(state);
-  if (!info) return null;
-  states.delete(state);
-  if (info.expiresAt < Date.now()) return null;
-  return info;
+export async function resolveOauthState(state: string): Promise<OauthState | null> {
+  const info = await consumeAuthFlowState<OauthState>("integration-oauth", state);
+  if (!info || info.expiresAt < Date.now()) return null;
+  return { ...info, state };
 }
 
 export type OauthApp = "google" | "x" | "github" | "reddit" | "linkedin" | "microsoft";

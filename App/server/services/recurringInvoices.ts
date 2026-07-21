@@ -12,11 +12,8 @@ import {
 import { RecurringInvoiceLineItem } from "../db/entities/RecurringInvoiceLineItem.js";
 import { TaxRate } from "../db/entities/TaxRate.js";
 import { computeLineTotals } from "../lib/money.js";
-import {
-  issueInvoice,
-  recomputeInvoiceTotals,
-  sendInvoiceEmail,
-} from "./finance.js";
+import { issueInvoice, recomputeInvoiceTotals, sendInvoiceEmail } from "./finance.js";
+import { withSchedulerLease } from "./schedulerLeases.js";
 
 /**
  * Recurring invoices — schedule-driven invoice templates.
@@ -43,10 +40,7 @@ let ticking = false;
  * Compute the next scheduled fire time for a cron expression, or null
  * if the expression is invalid.
  */
-export function nextRunForRecurring(
-  cronExpr: string,
-  from: Date = new Date(),
-): Date | null {
+export function nextRunForRecurring(cronExpr: string, from: Date = new Date()): Date | null {
   try {
     const interval = parser.parseExpression(cronExpr, { currentDate: from });
     return interval.next().toDate();
@@ -88,8 +82,7 @@ function intervalOccurrence(
     d.setDate(d.getDate() + j * intervalCount * 7);
     return d;
   }
-  const monthsPer =
-    frequency === "yearly" ? 12 : frequency === "quarterly" ? 3 : 1;
+  const monthsPer = frequency === "yearly" ? 12 : frequency === "quarterly" ? 3 : 1;
   const day = anchor.getDate();
   // Move to the 1st first so shifting the month never rolls into the next
   // one, then re-apply the day once we know the target month's length.
@@ -121,11 +114,9 @@ function nextIntervalRun(
     } else if (frequency === "weekly") {
       j = Math.floor(elapsedMs / (86_400_000 * 7 * intervalCount));
     } else {
-      const monthsPer =
-        frequency === "yearly" ? 12 : frequency === "quarterly" ? 3 : 1;
+      const monthsPer = frequency === "yearly" ? 12 : frequency === "quarterly" ? 3 : 1;
       const elapsedMonths =
-        (from.getFullYear() - anchor.getFullYear()) * 12 +
-        (from.getMonth() - anchor.getMonth());
+        (from.getFullYear() - anchor.getFullYear()) * 12 + (from.getMonth() - anchor.getMonth());
       j = Math.floor(elapsedMonths / (intervalCount * monthsPer));
     }
     j = Math.max(0, j - 2); // back off to absorb estimate error
@@ -150,10 +141,7 @@ type SchedulableFields = Pick<
  * step from `anchorAt`. Falls back to the cron path if the anchor is missing
  * so a half-populated row still schedules something sane.
  */
-export function computeNextRun(
-  ri: SchedulableFields,
-  from: Date = new Date(),
-): Date | null {
+export function computeNextRun(ri: SchedulableFields, from: Date = new Date()): Date | null {
   const n = ri.intervalCount ?? 1;
   if (!Number.isFinite(n) || n <= 1 || !ri.anchorAt) {
     return nextRunForRecurring(ri.cronExpr, from);
@@ -351,9 +339,7 @@ export async function duplicateRecurringInvoice(
   registerRecurringInvoice(copy); // paused → nextRunAt stays null
   await repo.save(copy);
 
-  const sourceLines = await AppDataSource.getRepository(
-    RecurringInvoiceLineItem,
-  ).find({
+  const sourceLines = await AppDataSource.getRepository(RecurringInvoiceLineItem).find({
     where: { recurringInvoiceId: source.id },
     order: { sortOrder: "ASC" },
   });
@@ -403,9 +389,7 @@ export async function generateInvoiceFromRecurring(
   if (!customer) {
     throw new Error("Customer for this recurring schedule no longer exists");
   }
-  const templateLines = await AppDataSource.getRepository(
-    RecurringInvoiceLineItem,
-  ).find({
+  const templateLines = await AppDataSource.getRepository(RecurringInvoiceLineItem).find({
     where: { recurringInvoiceId: ri.id },
     order: { sortOrder: "ASC" },
   });
@@ -416,9 +400,7 @@ export async function generateInvoiceFromRecurring(
   const invRepo = AppDataSource.getRepository(Invoice);
   const slug = await uniqueDraftInvoiceSlug(ri.companyId);
   const issueDate = new Date();
-  const dueDate = new Date(
-    issueDate.getTime() + ri.daysUntilDue * 24 * 60 * 60 * 1000,
-  );
+  const dueDate = new Date(issueDate.getTime() + ri.daysUntilDue * 24 * 60 * 60 * 1000);
   let draft = invRepo.create({
     companyId: ri.companyId,
     customerId: ri.customerId,
@@ -487,8 +469,7 @@ export async function generateInvoiceFromRecurring(
   // Walk through the same lifecycle the user would. `autoSend` implies
   // "issue and email"; otherwise the invoice stays as a fresh draft and
   // the user can review before sending.
-  let emailStatus: "sent" | "skipped" | "failed" | "not_attempted" =
-    "not_attempted";
+  let emailStatus: "sent" | "skipped" | "failed" | "not_attempted" = "not_attempted";
   let emailError = "";
   if (ri.autoSend) {
     invoice = await issueInvoice(invoice, actorUserId);
@@ -544,23 +525,22 @@ async function tick(): Promise<void> {
   if (ticking) return;
   ticking = true;
   try {
-    const repo = AppDataSource.getRepository(RecurringInvoice);
-    const now = new Date();
-    const due = await repo.find({
-      where: { status: "active", nextRunAt: LessThanOrEqual(now) },
-    });
-    for (const r of due) {
-      // Advance BEFORE firing so a slow generation doesn't re-trigger
-      // on the next heartbeat. Compute from `now` (not r.nextRunAt) so
-      // missed slots collapse into a single catch-up run.
-      const next = computeNextRun(r, now);
-      r.nextRunAt = next;
-      await repo.save(r);
-      tickRecurringInvoice(r.id).catch((err) => {
-        // eslint-disable-next-line no-console
-        console.error(`[recurring-invoices] ${r.id} failed:`, err);
+    await withSchedulerLease("recurring-invoices", HEARTBEAT_INTERVAL_MS * 3, async () => {
+      const repo = AppDataSource.getRepository(RecurringInvoice);
+      const now = new Date();
+      const due = await repo.find({
+        where: { status: "active", nextRunAt: LessThanOrEqual(now) },
       });
-    }
+      for (const r of due) {
+        const next = computeNextRun(r, now);
+        r.nextRunAt = next;
+        await repo.save(r);
+        tickRecurringInvoice(r.id).catch((err) => {
+          // eslint-disable-next-line no-console
+          console.error(`[recurring-invoices] ${r.id} failed:`, err);
+        });
+      }
+    });
   } finally {
     ticking = false;
   }

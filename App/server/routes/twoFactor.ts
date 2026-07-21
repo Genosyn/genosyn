@@ -93,7 +93,7 @@ twoFactorRouter.get("/login/two-factor", async (req, res, next) => {
     }
     const methods = await getTwoFactorLoginMethods(user.id);
     if (!methods.enabled) {
-      completeTwoFactorLogin(req, user.id);
+      completeTwoFactorLogin(req, user.id, user.sessionVersion);
       return res.json({ requiresTwoFactor: false });
     }
     res.json({ requiresTwoFactor: true, methods });
@@ -112,7 +112,7 @@ twoFactorRouter.post("/login/two-factor/totp", validateBody(totpSchema), async (
     if (!(await verifyTotpLogin(user, code))) {
       return invalidLoginFactor(req, res, "That verification code is invalid or expired");
     }
-    completeTwoFactorLogin(req, user.id);
+    completeTwoFactorLogin(req, user.id, user.sessionVersion);
     res.json(loginResponse(user));
   } catch (err) {
     sendError(err, res, next);
@@ -132,7 +132,7 @@ twoFactorRouter.post(
       if (!(await useRecoveryCode(user, code))) {
         return invalidLoginFactor(req, res, "That recovery code is invalid or has been used");
       }
-      completeTwoFactorLogin(req, user.id);
+      completeTwoFactorLogin(req, user.id, user.sessionVersion);
       res.json(loginResponse(user));
     } catch (err) {
       sendError(err, res, next);
@@ -181,7 +181,7 @@ twoFactorRouter.post(
         clearWebAuthnChallenge(req);
         return invalidLoginFactor(req, res, "The passkey or security key could not be verified");
       }
-      completeTwoFactorLogin(req, user.id);
+      completeTwoFactorLogin(req, user.id, user.sessionVersion);
       res.json(loginResponse(user));
     } catch (err) {
       sendError(err, res, next);

@@ -6,7 +6,12 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Skill } from "../db/entities/Skill.js";
 import { validateBody } from "../middleware/validate.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import {
+  requireAuth,
+  requireCompanyMember,
+  requireCompanyRoleForMutations,
+  onRoutePaths,
+} from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { skillTemplate } from "../services/files.js";
 import {
@@ -19,6 +24,12 @@ import {
 export const skillsRouter = Router({ mergeParams: true });
 skillsRouter.use(requireAuth);
 skillsRouter.use(requireCompanyMember);
+skillsRouter.use(
+  onRoutePaths(
+    ["/skills", /^\/employees\/[^/]+\/skills(?:\/|$)/],
+    requireCompanyRoleForMutations("admin"),
+  ),
+);
 
 async function loadEmp(cid: string, eid: string) {
   return AppDataSource.getRepository(AIEmployee).findOneBy({ id: eid, companyId: cid });
@@ -173,17 +184,13 @@ skillsRouter.get("/skills/:sid/readme", async (req, res) => {
 
 const readmeSchema = z.object({ content: z.string() });
 
-skillsRouter.put(
-  "/skills/:sid/readme",
-  validateBody(readmeSchema),
-  async (req, res) => {
-    const found = await loadSkill((req.params as Record<string, string>).cid, req.params.sid);
-    if (!found) return res.status(404).json({ error: "Not found" });
-    found.skill.body = (req.body as z.infer<typeof readmeSchema>).content;
-    await AppDataSource.getRepository(Skill).save(found.skill);
-    res.json({ ok: true });
-  },
-);
+skillsRouter.put("/skills/:sid/readme", validateBody(readmeSchema), async (req, res) => {
+  const found = await loadSkill((req.params as Record<string, string>).cid, req.params.sid);
+  if (!found) return res.status(404).json({ error: "Not found" });
+  found.skill.body = (req.body as z.infer<typeof readmeSchema>).content;
+  await AppDataSource.getRepository(Skill).save(found.skill);
+  res.json({ ok: true });
+});
 
 const patchSchema = z.object({ name: z.string().min(1).max(80).optional() });
 

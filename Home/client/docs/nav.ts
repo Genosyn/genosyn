@@ -119,8 +119,7 @@ export const DOCS_NAV: DocsSection[] = [
       {
         path: "/docs/workspace-chat",
         title: "Workspace chat",
-        blurb:
-          "Channels and DMs with AI replies, context resets, and company resource tags.",
+        blurb: "Channels and DMs with AI replies, context resets, and company resource tags.",
       },
       {
         path: "/docs/email",
@@ -160,6 +159,11 @@ export const DOCS_NAV: DocsSection[] = [
   {
     label: "Self-hosting",
     pages: [
+      {
+        path: "/docs/saas-hosting",
+        title: "Shared SaaS mode",
+        blurb: "Multi-tenant production requirements, isolation, and replica coordination.",
+      },
       {
         path: "/docs/self-hosting",
         title: "Configuration",

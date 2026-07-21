@@ -1,6 +1,10 @@
 import { Router } from "express";
 import { z } from "zod";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import {
+  requireAuth,
+  requireCompanyMember,
+  requireCompanyRoleForMutations,
+} from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
 import { decryptProviderConfig, sendTestEmail } from "../services/email.js";
@@ -34,6 +38,7 @@ import {
 export const emailProvidersRouter = Router({ mergeParams: true });
 emailProvidersRouter.use(requireAuth);
 emailProvidersRouter.use(requireCompanyMember);
+emailProvidersRouter.use(requireCompanyRoleForMutations("admin"));
 
 const KIND_VALUES = ["smtp", "sendgrid", "mailgun", "resend", "postmark"] as const;
 const kindSchema = z.enum(KIND_VALUES);
@@ -98,9 +103,7 @@ const patchSchema = z
     name: z.string().min(1).max(120).optional(),
     fromAddress: z.string().min(3).max(254).optional(),
     replyTo: z.string().max(254).optional(),
-    rawConfig: z
-      .record(z.union([z.string(), z.number(), z.boolean()]))
-      .optional(),
+    rawConfig: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
     isDefault: z.boolean().optional(),
     enabled: z.boolean().optional(),
   })
@@ -115,31 +118,27 @@ const patchSchema = z
     { message: "Nothing to update" },
   );
 
-emailProvidersRouter.patch(
-  "/:pid",
-  validateBody(patchSchema),
-  async (req, res) => {
-    const { cid, pid } = req.params as Record<string, string>;
-    const row = await getProvider(cid, pid);
-    if (!row) return res.status(404).json({ error: "Provider not found" });
-    try {
-      const updated = await updateProvider(row, req.body as z.infer<typeof patchSchema>);
-      await recordAudit({
-        companyId: cid,
-        actorUserId: req.userId ?? null,
-        action: "email_provider.update",
-        targetType: "email_provider",
-        targetId: updated.id,
-        targetLabel: `${updated.kind} · ${updated.name}`,
-      });
-      res.json(serializeProvider(updated));
-    } catch (err) {
-      res.status(400).json({
-        error: err instanceof Error ? err.message : "Failed to update provider",
-      });
-    }
-  },
-);
+emailProvidersRouter.patch("/:pid", validateBody(patchSchema), async (req, res) => {
+  const { cid, pid } = req.params as Record<string, string>;
+  const row = await getProvider(cid, pid);
+  if (!row) return res.status(404).json({ error: "Provider not found" });
+  try {
+    const updated = await updateProvider(row, req.body as z.infer<typeof patchSchema>);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "email_provider.update",
+      targetType: "email_provider",
+      targetId: updated.id,
+      targetLabel: `${updated.kind} · ${updated.name}`,
+    });
+    res.json(serializeProvider(updated));
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : "Failed to update provider",
+    });
+  }
+});
 
 emailProvidersRouter.post("/:pid/default", async (req, res) => {
   const { cid, pid } = req.params as Record<string, string>;
@@ -178,30 +177,59 @@ const testSavedSchema = z.object({
   to: z.string().email(),
 });
 
-emailProvidersRouter.post(
-  "/:pid/test",
-  validateBody(testSavedSchema),
-  async (req, res) => {
-    const { cid, pid } = req.params as Record<string, string>;
-    const row = await getProvider(cid, pid);
-    if (!row) return res.status(404).json({ error: "Provider not found" });
-    const { to } = req.body as z.infer<typeof testSavedSchema>;
+emailProvidersRouter.post("/:pid/test", validateBody(testSavedSchema), async (req, res) => {
+  const { cid, pid } = req.params as Record<string, string>;
+  const row = await getProvider(cid, pid);
+  if (!row) return res.status(404).json({ error: "Provider not found" });
+  const { to } = req.body as z.infer<typeof testSavedSchema>;
 
-    const cfg = decryptProviderConfig(row);
+  const cfg = decryptProviderConfig(row);
+  const result = await sendTestEmail({
+    companyId: cid,
+    kind: row.kind,
+    fromAddress: row.fromAddress,
+    replyTo: row.replyTo,
+    rawConfig: cfg.config as Record<string, unknown>,
+    to,
+    triggeredByUserId: req.userId ?? null,
+  });
+  await recordTestResult(row, result.status === "sent" ? "ok" : "failed", result.errorMessage);
+  if (result.status === "sent") {
+    res.json({
+      ok: true,
+      logId: result.logId,
+      messageId: result.messageId,
+    });
+  } else {
+    res.status(400).json({
+      ok: false,
+      error: result.errorMessage,
+      logId: result.logId,
+    });
+  }
+});
+
+const testInlineSchema = z.object({
+  kind: kindSchema,
+  fromAddress: z.string().min(3).max(254),
+  replyTo: z.string().max(254).optional(),
+  rawConfig: z.record(z.union([z.string(), z.number(), z.boolean()])),
+  to: z.string().email(),
+});
+
+emailProvidersRouter.post("/test", validateBody(testInlineSchema), async (req, res) => {
+  const { cid } = req.params as Record<string, string>;
+  const body = req.body as z.infer<typeof testInlineSchema>;
+  try {
     const result = await sendTestEmail({
       companyId: cid,
-      kind: row.kind,
-      fromAddress: row.fromAddress,
-      replyTo: row.replyTo,
-      rawConfig: cfg.config as Record<string, unknown>,
-      to,
+      kind: body.kind,
+      fromAddress: body.fromAddress,
+      replyTo: body.replyTo,
+      rawConfig: body.rawConfig,
+      to: body.to,
       triggeredByUserId: req.userId ?? null,
     });
-    await recordTestResult(
-      row,
-      result.status === "sent" ? "ok" : "failed",
-      result.errorMessage,
-    );
     if (result.status === "sent") {
       res.json({
         ok: true,
@@ -215,51 +243,10 @@ emailProvidersRouter.post(
         logId: result.logId,
       });
     }
-  },
-);
-
-const testInlineSchema = z.object({
-  kind: kindSchema,
-  fromAddress: z.string().min(3).max(254),
-  replyTo: z.string().max(254).optional(),
-  rawConfig: z.record(z.union([z.string(), z.number(), z.boolean()])),
-  to: z.string().email(),
+  } catch (err) {
+    res.status(400).json({
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 });
-
-emailProvidersRouter.post(
-  "/test",
-  validateBody(testInlineSchema),
-  async (req, res) => {
-    const { cid } = req.params as Record<string, string>;
-    const body = req.body as z.infer<typeof testInlineSchema>;
-    try {
-      const result = await sendTestEmail({
-        companyId: cid,
-        kind: body.kind,
-        fromAddress: body.fromAddress,
-        replyTo: body.replyTo,
-        rawConfig: body.rawConfig,
-        to: body.to,
-        triggeredByUserId: req.userId ?? null,
-      });
-      if (result.status === "sent") {
-        res.json({
-          ok: true,
-          logId: result.logId,
-          messageId: result.messageId,
-        });
-      } else {
-        res.status(400).json({
-          ok: false,
-          error: result.errorMessage,
-          logId: result.logId,
-        });
-      }
-    } catch (err) {
-      res.status(400).json({
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  },
-);

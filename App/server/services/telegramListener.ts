@@ -6,6 +6,7 @@ import { ConversationMessage } from "../db/entities/ConversationMessage.js";
 import { decryptConnectionConfig } from "./integrations.js";
 import { chatWithEmployee } from "./chat.js";
 import { telegramFetch } from "../integrations/providers/telegram.js";
+import { withSchedulerLease } from "./schedulerLeases.js";
 
 /**
  * Inbound Telegram seam.
@@ -97,9 +98,19 @@ type Worker = {
 };
 
 const WORKERS = new Map<string, Worker>();
+let discoveryTimer: NodeJS.Timeout | null = null;
 
 /** Boot every Telegram connection at server startup. */
 export async function bootTelegramListeners(): Promise<void> {
+  if (discoveryTimer) clearInterval(discoveryTimer);
+  discoveryTimer = setInterval(() => {
+    void discoverTelegramConnections();
+  }, 30_000);
+  if (typeof discoveryTimer.unref === "function") discoveryTimer.unref();
+  await discoverTelegramConnections();
+}
+
+async function discoverTelegramConnections(): Promise<void> {
   const conns = await AppDataSource.getRepository(IntegrationConnection).find({
     where: { provider: "telegram" },
   });
@@ -143,14 +154,23 @@ function startWorker(conn: IntegrationConnection): void {
     },
     finished: Promise.resolve(),
   };
-  worker.finished = runPollLoop(conn.id, () => cancelled);
+  worker.finished = runOwnedPollLoop(conn.id, () => cancelled).finally(() => {
+    if (WORKERS.get(conn.id) === worker) WORKERS.delete(conn.id);
+  });
   WORKERS.set(conn.id, worker);
 }
 
-async function runPollLoop(
-  connectionId: string,
-  isCancelled: () => boolean,
-): Promise<void> {
+async function runOwnedPollLoop(connectionId: string, isCancelled: () => boolean): Promise<void> {
+  while (!isCancelled()) {
+    const owned = await withSchedulerLease(`telegram:${connectionId}`, 90_000, () =>
+      runPollLoop(connectionId, isCancelled),
+    );
+    if (owned !== null || isCancelled()) return;
+    await sleepCancellable(ERROR_BACKOFF_MS, isCancelled);
+  }
+}
+
+async function runPollLoop(connectionId: string, isCancelled: () => boolean): Promise<void> {
   let offset = 0;
   while (!isCancelled()) {
     let cfg: TelegramConfig;

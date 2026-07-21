@@ -11,6 +11,7 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Forgot from "./pages/Forgot";
 import Reset from "./pages/Reset";
+import { VerifyEmailLink, VerifyEmailRequired } from "./pages/VerifyEmail";
 import Onboarding from "./pages/Onboarding";
 import EmployeesLayout from "./pages/EmployeesLayout";
 import EmployeesIndex from "./pages/EmployeesIndex";
@@ -173,11 +174,30 @@ export default function App() {
               <Route path="/signup" element={<Signup onAuth={refresh} />} />
               <Route path="/forgot" element={<Forgot />} />
               <Route path="/reset/:token" element={<Reset />} />
+              <Route
+                path="/verify-email/:token"
+                element={<VerifyEmailLink onVerified={refresh} />}
+              />
               <Route path="/invite/:token" element={<Navigate to="/login" replace />} />
               <Route path="*" element={<Navigate to="/login" replace />} />
             </Routes>
           ) : (
-            <AuthedRoutes me={auth.me} companies={auth.companies} onChanged={refresh} />
+            <Routes>
+              <Route
+                path="/verify-email/:token"
+                element={<VerifyEmailLink onVerified={refresh} />}
+              />
+              <Route
+                path="*"
+                element={
+                  auth.me.emailVerificationRequired ? (
+                    <VerifyEmailRequired email={auth.me.email} />
+                  ) : (
+                    <AuthedRoutes me={auth.me} companies={auth.companies} onChanged={refresh} />
+                  )
+                }
+              />
+            </Routes>
           )}
         </DialogProvider>
       </ToastProvider>
@@ -199,6 +219,14 @@ function AuthedRoutes({
       <Routes>
         <Route path="/onboarding" element={<Onboarding onDone={onChanged} />} />
         <Route path="/invite/:token" element={<Invite />} />
+        <Route
+          path="/security"
+          element={
+            <div className="mx-auto min-h-full max-w-4xl p-8">
+              <AccountSecurity />
+            </div>
+          }
+        />
         <Route path="*" element={<Navigate to="/onboarding" replace />} />
       </Routes>
     );

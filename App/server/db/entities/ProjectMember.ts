@@ -1,10 +1,4 @@
-import {
-  Column,
-  CreateDateColumn,
-  Entity,
-  Index,
-  PrimaryGeneratedColumn,
-} from "typeorm";
+import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from "typeorm";
 
 /**
  * Authorizes one principal — a human {@link Membership} or an
@@ -55,10 +49,10 @@ export const PROJECT_ACCESS_RANK: Record<ProjectAccessLevel, number> = {
 };
 
 @Entity("project_members")
-@Index(["projectId", "userId"], { unique: true, where: "userId IS NOT NULL" })
+@Index(["projectId", "userId"], { unique: true, where: '"userId" IS NOT NULL' })
 @Index(["projectId", "employeeId"], {
   unique: true,
-  where: "employeeId IS NOT NULL",
+  where: '"employeeId" IS NOT NULL',
 })
 @Index(["userId"])
 @Index(["employeeId"])

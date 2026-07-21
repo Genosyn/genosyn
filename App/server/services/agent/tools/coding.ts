@@ -3,6 +3,7 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import type { AgentTool, ToolResult } from "../types.js";
+import { config } from "../../../../config.js";
 
 /**
  * The built-in coding toolset — bash + file read/write/edit + glob/grep — that
@@ -10,11 +11,9 @@ import type { AgentTool, ToolResult } from "../types.js";
  * running on any provider (Anthropic, OpenAI, a local model) can still do real
  * work: edit repos, run commands, grep a codebase.
  *
- * Everything is rooted at the employee's working directory (`cwd`). File tools
- * refuse to touch paths that resolve outside it; `bash` inherits `cwd` and the
- * company-secret + repo env, matching the autonomous posture the harnesses ran
- * with (they used `--dangerously-skip-permissions` / `--sandbox workspace-write`
- * — Genosyn is the trust boundary, the employee is confined to its own dir).
+ * Everything is rooted at the employee's working directory (`cwd`). In shared
+ * SaaS mode bash runs through bubblewrap with only that workspace writable;
+ * process environment is explicit and never inherits the API server's secrets.
  */
 
 export type CodingToolContext = {
@@ -52,6 +51,27 @@ function resolveInside(cwd: string, p: string): { path: string } | { error: stri
   const root = path.resolve(cwd);
   if (target !== root && !target.startsWith(root + path.sep)) {
     return { error: `Path escapes the working directory: ${p}` };
+  }
+  try {
+    const realRoot = fs.realpathSync(root);
+    let existing = target;
+    while (!fs.existsSync(existing)) {
+      const parent = path.dirname(existing);
+      if (parent === existing) break;
+      existing = parent;
+    }
+    const realExisting = fs.realpathSync(existing);
+    if (realExisting !== realRoot && !realExisting.startsWith(realRoot + path.sep)) {
+      return { error: `Path traverses a symlink outside the working directory: ${p}` };
+    }
+    if (fs.existsSync(target)) {
+      const realTarget = fs.realpathSync(target);
+      if (realTarget !== realRoot && !realTarget.startsWith(realRoot + path.sep)) {
+        return { error: `Path resolves outside the working directory: ${p}` };
+      }
+    }
+  } catch {
+    return { error: `Could not safely resolve path: ${p}` };
   }
   return { path: target };
 }
@@ -94,11 +114,7 @@ function bashTool(ctx: CodingToolContext): AgentTool {
   };
 }
 
-function runBash(
-  command: string,
-  ctx: CodingToolContext,
-  timeoutMs: number,
-): Promise<ToolResult> {
+function runBash(command: string, ctx: CodingToolContext, timeoutMs: number): Promise<ToolResult> {
   return new Promise((resolve) => {
     // Already cancelled before we start — bail without spawning. addEventListener
     // never fires for an already-aborted signal, so this guard is load-bearing.
@@ -106,9 +122,19 @@ function runBash(
       resolve(fail("Command aborted before it started."));
       return;
     }
-    const child = spawn("bash", ["-lc", command], {
+    const safePath = process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin";
+    const env = {
+      PATH: safePath,
+      HOME: ctx.cwd,
+      LANG: "C.UTF-8",
+      ...ctx.env,
+    };
+    const sandbox = config.agent.codingTools.executionMode;
+    const executable = sandbox === "bubblewrap" ? config.agent.codingTools.bubblewrapPath : "bash";
+    const args = sandbox === "bubblewrap" ? bubblewrapArgs(command, ctx, env) : ["-lc", command];
+    const child = spawn(executable, args, {
       cwd: ctx.cwd,
-      env: { ...process.env, ...ctx.env },
+      env,
       // Own process group so a SIGKILL can reach bash's forked/backgrounded
       // children (pipelines, `cmd &`, dev servers) instead of orphaning them.
       detached: true,
@@ -168,6 +194,58 @@ function runBash(
   });
 }
 
+function bubblewrapArgs(
+  command: string,
+  ctx: CodingToolContext,
+  env: Record<string, string>,
+): string[] {
+  const args = [
+    "--die-with-parent",
+    "--new-session",
+    "--unshare-user",
+    "--unshare-pid",
+    "--unshare-ipc",
+    "--unshare-uts",
+    "--unshare-cgroup",
+    "--proc",
+    "/proc",
+    "--dev",
+    "/dev",
+    "--tmpfs",
+    "/tmp",
+    "--ro-bind",
+    "/bin",
+    "/bin",
+    "--ro-bind",
+    "/usr",
+    "/usr",
+    "--ro-bind-try",
+    "/lib",
+    "/lib",
+    "--ro-bind-try",
+    "/lib64",
+    "/lib64",
+    "--ro-bind-try",
+    "/etc/ssl",
+    "/etc/ssl",
+    "--ro-bind-try",
+    "/etc/ca-certificates",
+    "/etc/ca-certificates",
+    "--bind",
+    path.resolve(ctx.cwd),
+    "/workspace",
+    "--chdir",
+    "/workspace",
+    "--clearenv",
+  ];
+  if (!config.agent.codingTools.allowNetwork) args.push("--unshare-net");
+  for (const [name, value] of Object.entries(env)) {
+    args.push("--setenv", name, value);
+  }
+  args.push("--", "bash", "-lc", command);
+  return args;
+}
+
 // ---------- read ----------
 
 function readFileTool(ctx: CodingToolContext): AgentTool {
@@ -197,7 +275,9 @@ function readFileTool(ctx: CodingToolContext): AgentTool {
       }
       if (stat.isDirectory()) return fail(`${rel} is a directory — use list_dir.`);
       if (stat.size > MAX_READ_BYTES) {
-        return fail(`File too large (${stat.size} bytes). Read a slice with offset/limit or use bash.`);
+        return fail(
+          `File too large (${stat.size} bytes). Read a slice with offset/limit or use bash.`,
+        );
       }
       let text: string;
       try {
@@ -206,7 +286,8 @@ function readFileTool(ctx: CodingToolContext): AgentTool {
         return fail(`Could not read ${rel}: ${err instanceof Error ? err.message : String(err)}`);
       }
       const offset = typeof input.offset === "number" ? Math.max(1, Math.floor(input.offset)) : 1;
-      const limit = typeof input.limit === "number" ? Math.max(1, Math.floor(input.limit)) : undefined;
+      const limit =
+        typeof input.limit === "number" ? Math.max(1, Math.floor(input.limit)) : undefined;
       if (offset === 1 && limit === undefined) return ok(text);
       const lines = text.split("\n");
       const slice = lines.slice(offset - 1, limit ? offset - 1 + limit : undefined);
@@ -282,7 +363,9 @@ function editFileTool(ctx: CodingToolContext): AgentTool {
       const count = text.split(oldStr).length - 1;
       if (count === 0) return fail(`old_string not found in ${rel}.`);
       if (count > 1 && !replaceAll) {
-        return fail(`old_string appears ${count} times in ${rel}. Make it unique or set replace_all.`);
+        return fail(
+          `old_string appears ${count} times in ${rel}. Make it unique or set replace_all.`,
+        );
       }
       // split/join for both paths — in the single case count === 1 so it
       // replaces exactly one occurrence, and unlike String.replace it never
@@ -294,7 +377,9 @@ function editFileTool(ctx: CodingToolContext): AgentTool {
       } catch (err) {
         return fail(`Could not write ${rel}: ${err instanceof Error ? err.message : String(err)}`);
       }
-      return ok(`Edited ${rel} (${replaceAll ? count : 1} replacement${count > 1 && replaceAll ? "s" : ""}).`);
+      return ok(
+        `Edited ${rel} (${replaceAll ? count : 1} replacement${count > 1 && replaceAll ? "s" : ""}).`,
+      );
     },
   };
 }
@@ -308,7 +393,10 @@ function listDirTool(ctx: CodingToolContext): AgentTool {
     inputSchema: {
       type: "object",
       properties: {
-        path: { type: "string", description: "Directory path relative to the working directory (default '.')." },
+        path: {
+          type: "string",
+          description: "Directory path relative to the working directory (default '.').",
+        },
       },
       additionalProperties: false,
     },
@@ -379,7 +467,10 @@ function grepTool(ctx: CodingToolContext): AgentTool {
       properties: {
         pattern: { type: "string", description: "A regular expression to search for." },
         path: { type: "string", description: "Directory to search within (default '.')." },
-        glob: { type: "string", description: "Optional file glob to restrict the search (e.g. '*.ts')." },
+        glob: {
+          type: "string",
+          description: "Optional file glob to restrict the search (e.g. '*.ts').",
+        },
         ignore_case: { type: "boolean", description: "Case-insensitive match (default false)." },
       },
       required: ["pattern"],
@@ -397,8 +488,7 @@ function grepTool(ctx: CodingToolContext): AgentTool {
       const rel = typeof input.path === "string" && input.path ? input.path : ".";
       const r = resolveInside(ctx.cwd, rel);
       if ("error" in r) return fail(r.error);
-      const fileRe =
-        typeof input.glob === "string" && input.glob ? globToRegExp(input.glob) : null;
+      const fileRe = typeof input.glob === "string" && input.glob ? globToRegExp(input.glob) : null;
       const matches: string[] = [];
       await walk(r.path, ctx.cwd, async (relPath, absPath) => {
         if (fileRe && !fileRe.test(path.basename(relPath)) && !fileRe.test(relPath)) return true;

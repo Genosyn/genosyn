@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import type { AIModel } from "../../db/entities/AIModel.js";
 import { decryptSecret } from "../../lib/secret.js";
+import { assertSafeOutboundUrl } from "../../lib/outboundUrl.js";
 import { readCustomEndpoint } from "../customEndpoint.js";
 import { normalizeBaseURL } from "./modelClients/index.js";
 
@@ -85,6 +86,7 @@ const WINDOW_FIELDS = [
 async function probeOpenAICompatible(model: AIModel): Promise<number | null> {
   const cfg = readCustomEndpoint(model);
   if (!cfg) return null;
+  await assertSafeOutboundUrl(cfg.baseURL);
   const client = new OpenAI({
     apiKey: cfg.apiKey || "not-needed",
     baseURL: normalizeBaseURL(cfg.baseURL),

@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import {
   Column,
   CreateDateColumn,
@@ -55,7 +56,7 @@ export class CustomerContract {
 
   /** When the contract was signed, as entered by the user. Independent of
    *  `createdAt` (the upload time). Null when unknown. */
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   signedAt!: Date | null;
 
   @Column({ type: "text", default: "" })

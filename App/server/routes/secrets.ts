@@ -2,7 +2,12 @@ import { Router } from "express";
 import { z } from "zod";
 import { AppDataSource } from "../db/datasource.js";
 import { Secret } from "../db/entities/Secret.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import {
+  requireAuth,
+  requireCompanyMember,
+  requireCompanyRoleForMutations,
+  onRoutePaths,
+} from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { decryptSecret, encryptSecret, maskSecret } from "../lib/secret.js";
 import { recordAudit } from "../services/audit.js";
@@ -20,6 +25,7 @@ import { recordAudit } from "../services/audit.js";
 export const secretsRouter = Router({ mergeParams: true });
 secretsRouter.use(requireAuth);
 secretsRouter.use(requireCompanyMember);
+secretsRouter.use(onRoutePaths(["/secrets"], requireCompanyRoleForMutations("admin")));
 
 const RESERVED_NAMES = new Set([
   // The model providers' conventional key names — reserved so a company secret
@@ -37,7 +43,10 @@ const nameSchema = z
   .string()
   .min(1)
   .max(64)
-  .regex(/^[A-Z_][A-Z0-9_]*$/, "Uppercase letters, digits, and underscores only; must start with a letter or underscore");
+  .regex(
+    /^[A-Z_][A-Z0-9_]*$/,
+    "Uppercase letters, digits, and underscores only; must start with a letter or underscore",
+  );
 
 function serialize(s: Secret) {
   let preview = "••••";
@@ -76,9 +85,9 @@ secretsRouter.post("/secrets", validateBody(createSchema), async (req, res) => {
   const { cid } = req.params as Record<string, string>;
   const body = req.body as z.infer<typeof createSchema>;
   if (RESERVED_NAMES.has(body.name)) {
-    return res
-      .status(400)
-      .json({ error: `"${body.name}" is reserved by the runner and can't be used as a secret name.` });
+    return res.status(400).json({
+      error: `"${body.name}" is reserved by the runner and can't be used as a secret name.`,
+    });
   }
   const repo = AppDataSource.getRepository(Secret);
   const existing = await repo.findOneBy({ companyId: cid, name: body.name });
@@ -88,7 +97,7 @@ secretsRouter.post("/secrets", validateBody(createSchema), async (req, res) => {
   const s = repo.create({
     companyId: cid,
     name: body.name,
-    encryptedValue: encryptSecret(body.value),
+    encryptedValue: encryptSecret(body.value, cid),
     description: body.description ?? "",
   });
   await repo.save(s);
@@ -115,7 +124,7 @@ secretsRouter.patch("/secrets/:sid", validateBody(patchSchema), async (req, res)
   const s = await repo.findOneBy({ id: sid, companyId: cid });
   if (!s) return res.status(404).json({ error: "Not found" });
   const rotated = typeof body.value === "string";
-  if (rotated) s.encryptedValue = encryptSecret(body.value as string);
+  if (rotated) s.encryptedValue = encryptSecret(body.value as string, cid);
   if (typeof body.description === "string") s.description = body.description;
   await repo.save(s);
   await recordAudit({

@@ -4,7 +4,12 @@ import { AppDataSource } from "../db/datasource.js";
 import { Run } from "../db/entities/Run.js";
 import { Routine } from "../db/entities/Routine.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import {
+  requireAuth,
+  requireCompanyMember,
+  requireCompanyRole,
+  onRoutePaths,
+} from "../middleware/auth.js";
 
 /**
  * Compute-time + run-count rollups. We don't have provider-emitted token/cost
@@ -18,6 +23,7 @@ import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 export const usageRouter = Router({ mergeParams: true });
 usageRouter.use(requireAuth);
 usageRouter.use(requireCompanyMember);
+usageRouter.use(onRoutePaths(["/usage"], requireCompanyRole("admin")));
 
 type RunBucket = {
   runs: number;

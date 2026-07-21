@@ -18,10 +18,7 @@ import {
   currentGoogleGrantedScope,
   ensureFreshGoogleToken,
 } from "../../integrations/providers/google/auth.js";
-import type {
-  IntegrationConfig,
-  IntegrationRuntimeContext,
-} from "../../integrations/types.js";
+import type { IntegrationConfig, IntegrationRuntimeContext } from "../../integrations/types.js";
 import { getProfile } from "./gmailClient.js";
 
 /**
@@ -40,9 +37,7 @@ const GMAIL_SCOPE_MARKER = "auth/gmail.";
 /** Get a fresh Gmail-capable access token for a connection, persisting any
  * rotated token back onto the row. Throws with a human-readable message when
  * the connection is unusable (wrong provider, Gmail scope not granted). */
-export async function freshGmailAccessToken(
-  conn: IntegrationConnection,
-): Promise<string> {
+export async function freshGmailAccessToken(conn: IntegrationConnection): Promise<string> {
   if (conn.provider !== "google") {
     throw new Error("Mail accounts require a Google connection.");
   }
@@ -64,16 +59,14 @@ export async function freshGmailAccessToken(
   await ensureFreshGoogleToken(ctx);
   const token = currentGoogleAccessToken(ctx);
   if (rotated) {
-    conn.encryptedConfig = encryptConnectionConfig(rotated);
+    conn.encryptedConfig = encryptConnectionConfig(rotated, conn.companyId);
     await AppDataSource.getRepository(IntegrationConnection).save(conn);
   }
   return token;
 }
 
 /** Resolve the account's connection and return a fresh access token. */
-export async function accessTokenForAccount(
-  account: MailAccount,
-): Promise<string> {
+export async function accessTokenForAccount(account: MailAccount): Promise<string> {
   const conn = await getConnection(account.companyId, account.connectionId);
   if (!conn) {
     throw new Error(

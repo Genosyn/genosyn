@@ -3,8 +3,13 @@ import { z } from "zod";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { McpServer } from "../db/entities/McpServer.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import {
+  requireAuth,
+  requireCompanyMember,
+  requireCompanyRoleForMutations,
+} from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
+import { assertSafeOutboundUrl } from "../lib/outboundUrl.js";
 
 /**
  * Per-employee MCP servers. Mounted under /companies/:cid/employees/:eid/.
@@ -14,6 +19,7 @@ import { validateBody } from "../middleware/validate.js";
 export const mcpRouter = Router({ mergeParams: true });
 mcpRouter.use(requireAuth);
 mcpRouter.use(requireCompanyMember);
+mcpRouter.use(requireCompanyRoleForMutations("admin"));
 
 async function loadEmp(cid: string, eid: string) {
   return AppDataSource.getRepository(AIEmployee).findOneBy({
@@ -100,21 +106,29 @@ mcpRouter.post("/", validateBody(createSchema), async (req, res) => {
   const emp = await loadEmp(cid, eid);
   if (!emp) return res.status(404).json({ error: "Employee not found" });
   const body = req.body as z.infer<typeof createSchema>;
+  if (body.transport === "http" && body.url) {
+    try {
+      await assertSafeOutboundUrl(body.url);
+    } catch (error) {
+      return res.status(400).json({
+        error: error instanceof Error ? error.message : "Unsafe MCP server URL",
+      });
+    }
+  }
   const repo = AppDataSource.getRepository(McpServer);
   const existing = await repo.findOneBy({ employeeId: emp.id, name: body.name });
-  if (existing) return res.status(409).json({ error: "An MCP server with that name already exists" });
+  if (existing)
+    return res.status(409).json({ error: "An MCP server with that name already exists" });
   const s = repo.create({
     employeeId: emp.id,
     name: body.name,
     transport: body.transport,
-    command: body.transport === "stdio" ? body.command ?? null : null,
+    command: body.transport === "stdio" ? (body.command ?? null) : null,
     argsJson: body.transport === "stdio" && body.args ? JSON.stringify(body.args) : null,
     envJson: body.env ? JSON.stringify(body.env) : null,
-    url: body.transport === "http" ? body.url ?? null : null,
+    url: body.transport === "http" ? (body.url ?? null) : null,
     guardedToolsJson:
-      body.guardedTools && body.guardedTools.length > 0
-        ? JSON.stringify(body.guardedTools)
-        : null,
+      body.guardedTools && body.guardedTools.length > 0 ? JSON.stringify(body.guardedTools) : null,
     enabled: body.enabled ?? true,
   });
   await repo.save(s);

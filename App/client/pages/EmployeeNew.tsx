@@ -51,9 +51,7 @@ const TEMPLATE_ICONS: Record<string, React.ReactNode> = {
  * picker. The server already returns them grouped in the canonical section
  * order, so a Map (insertion-ordered) preserves that order here.
  */
-function groupTemplatesByCategory(
-  templates: EmployeeTemplate[],
-): [string, EmployeeTemplate[]][] {
+function groupTemplatesByCategory(templates: EmployeeTemplate[]): [string, EmployeeTemplate[]][] {
   const groups = new Map<string, EmployeeTemplate[]>();
   for (const t of templates) {
     const key = t.category || "Other";
@@ -265,10 +263,7 @@ export default function EmployeeNew({ company }: { company: Company }) {
     <>
       <div className="mb-3">
         <Breadcrumbs
-          items={[
-            { label: "Employees", to: `/c/${companySlug}/employees` },
-            { label: "Hire" },
-          ]}
+          items={[{ label: "Employees", to: `/c/${companySlug}/employees` }, { label: "Hire" }]}
         />
       </div>
       <TopBar title="Hire an AI Employee" />
@@ -319,9 +314,7 @@ export default function EmployeeNew({ company }: { company: Company }) {
           soul={soul}
           error={finishError}
           onChange={setSoul}
-          onRegenerate={() =>
-            setSoul(generateSoul(name, role, selectedTemplate, answers))
-          }
+          onRegenerate={() => setSoul(generateSoul(name, role, selectedTemplate, answers))}
           onBack={() => setStep("about")}
           onFinish={finish}
           finishing={finishing}
@@ -445,8 +438,8 @@ function BasicsStep({
           <div>
             <h2 className="text-sm font-semibold">Pick a template</h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Templates come with a pre-written Soul, starter skills, and sometimes a routine.
-              Start blank if you&apos;d rather author everything yourself.
+              Templates come with a pre-written Soul, starter skills, and sometimes a routine. Start
+              blank if you&apos;d rather author everything yourself.
             </p>
           </div>
         </CardHeader>
@@ -514,9 +507,7 @@ function BasicsStep({
                 {selectedTemplate.routines.map((r) => (
                   <li key={r.name}>
                     Routine ·{" "}
-                    <span className="font-medium text-slate-800 dark:text-slate-100">
-                      {r.name}
-                    </span>{" "}
+                    <span className="font-medium text-slate-800 dark:text-slate-100">{r.name}</span>{" "}
                     <code className="rounded bg-white px-1 py-0.5 text-[11px] dark:bg-slate-900">
                       {r.cronExpr}
                     </code>
@@ -641,8 +632,9 @@ function AboutStep({
           <div>
             <h2 className="text-sm font-semibold">A few questions about {name}</h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              These answers shape the Soul — {name}&apos;s constitution. Everything is optional; leave
-              a field blank and we&apos;ll use a sensible default. You can rewrite any of this later.
+              These answers shape the Soul — {name}&apos;s constitution. Everything is optional;
+              leave a field blank and we&apos;ll use a sensible default. You can rewrite any of this
+              later.
             </p>
           </div>
         </CardHeader>
@@ -755,8 +747,8 @@ function SoulStep({
             <div>
               <h2 className="text-sm font-semibold">Review {name}&apos;s Soul</h2>
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                This becomes {name}&apos;s constitution — the markdown {name} reads
-                before every task. Edit freely now, or later from settings.
+                This becomes {name}&apos;s constitution — the markdown {name} reads before every
+                task. Edit freely now, or later from settings.
               </p>
             </div>
             <Button size="sm" variant="secondary" onClick={onRegenerate}>
@@ -896,7 +888,7 @@ function generateSoul(
   return `# ${name}'s Soul
 
 > This is **${name}**'s constitution. Edit it whenever the brief changes — the
-> markdown in this file is the source of truth ${name} reads before every task.
+> Soul markdown is the source of truth ${name} reads before each run and conversation.
 
 ## Who you are
 ${identity}

@@ -14,7 +14,12 @@ import { McpServer } from "../db/entities/McpServer.js";
 import { Team } from "../db/entities/Team.js";
 import { Membership } from "../db/entities/Membership.js";
 import { validateBody } from "../middleware/validate.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import {
+  requireAuth,
+  requireCompanyMember,
+  requireCompanyRoleForMutations,
+  onRoutePaths,
+} from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { employeeDir, ensureDir } from "../services/paths.js";
 import { isModelConnected } from "../services/providers.js";
@@ -36,6 +41,9 @@ import {
 export const employeesRouter = Router({ mergeParams: true });
 employeesRouter.use(requireAuth);
 employeesRouter.use(requireCompanyMember);
+employeesRouter.use(
+  onRoutePaths([/^\/$/, /^\/[^/]+(?:\/soul|\/avatar)?$/], requireCompanyRoleForMutations("admin")),
+);
 
 async function loadCompany(cid: string): Promise<Company | null> {
   return AppDataSource.getRepository(Company).findOneBy({ id: cid });
@@ -112,9 +120,7 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
   const co = await loadCompany((req.params as Record<string, string>).cid);
   if (!co) return res.status(404).json({ error: "Company not found" });
   if (await findEmployeeByName(co.id, body.name)) {
-    return res
-      .status(409)
-      .json({ error: "An employee with that name already exists" });
+    return res.status(409).json({ error: "An employee with that name already exists" });
   }
   const repo = AppDataSource.getRepository(AIEmployee);
   const slug = await uniqueEmpSlug(co.id, toSlug(body.name));
@@ -215,16 +221,17 @@ const patchSchema = z.object({
 employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
   const body = req.body as z.infer<typeof patchSchema>;
   const repo = AppDataSource.getRepository(AIEmployee);
-  const emp = await repo.findOneBy({ id: req.params.eid, companyId: (req.params as Record<string, string>).cid });
+  const emp = await repo.findOneBy({
+    id: req.params.eid,
+    companyId: (req.params as Record<string, string>).cid,
+  });
   if (!emp) return res.status(404).json({ error: "Not found" });
   const co = await loadCompany(emp.companyId);
   if (!co) return res.status(404).json({ error: "Company not found" });
   const before = { name: emp.name, role: emp.role, slug: emp.slug };
   if (body.name !== undefined) {
     if (await findEmployeeByName(emp.companyId, body.name, emp.id)) {
-      return res
-        .status(409)
-        .json({ error: "An employee with that name already exists" });
+      return res.status(409).json({ error: "An employee with that name already exists" });
     }
     emp.name = body.name;
   }
@@ -248,18 +255,14 @@ employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
       emp.reportsToEmployeeId = null;
     } else {
       if (body.reportsToEmployeeId === emp.id) {
-        return res
-          .status(400)
-          .json({ error: "An employee cannot report to themselves" });
+        return res.status(400).json({ error: "An employee cannot report to themselves" });
       }
       const manager = await repo.findOneBy({
         id: body.reportsToEmployeeId,
         companyId: emp.companyId,
       });
       if (!manager) {
-        return res
-          .status(400)
-          .json({ error: "Manager not found in this company" });
+        return res.status(400).json({ error: "Manager not found in this company" });
       }
       emp.reportsToEmployeeId = manager.id;
       // The two reporting fields are mutually exclusive — picking an AI
@@ -276,9 +279,7 @@ employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
         companyId: emp.companyId,
       });
       if (!human) {
-        return res
-          .status(400)
-          .json({ error: "Manager not found in this company" });
+        return res.status(400).json({ error: "Manager not found in this company" });
       }
       emp.reportsToUserId = human.userId;
       emp.reportsToEmployeeId = null;
@@ -297,9 +298,7 @@ employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
   if (body.slug !== undefined) {
     const normalized = toSlug(body.slug);
     if (!normalized) {
-      return res
-        .status(400)
-        .json({ error: "Slug must contain at least one letter or digit" });
+      return res.status(400).json({ error: "Slug must contain at least one letter or digit" });
     }
     if (normalized !== emp.slug) {
       const taken = await repo.findOneBy({ companyId: emp.companyId, slug: normalized });
@@ -312,9 +311,7 @@ employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
       const oldDir = employeeDir(co.slug, emp.slug);
       const newDir = employeeDir(co.slug, normalized);
       if (fs.existsSync(newDir)) {
-        return res
-          .status(409)
-          .json({ error: "A data directory for that slug already exists" });
+        return res.status(409).json({ error: "A data directory for that slug already exists" });
       }
       if (fs.existsSync(oldDir)) {
         try {
@@ -346,16 +343,16 @@ employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
 
 employeesRouter.delete("/:eid", async (req, res) => {
   const empRepo = AppDataSource.getRepository(AIEmployee);
-  const emp = await empRepo.findOneBy({ id: req.params.eid, companyId: (req.params as Record<string, string>).cid });
+  const emp = await empRepo.findOneBy({
+    id: req.params.eid,
+    companyId: (req.params as Record<string, string>).cid,
+  });
   if (!emp) return res.status(404).json({ error: "Not found" });
   const co = await loadCompany((req.params as Record<string, string>).cid);
 
   // Clear reporting lines that pointed at this employee so subordinates
   // don't carry a dangling manager reference.
-  await empRepo.update(
-    { reportsToEmployeeId: emp.id },
-    { reportsToEmployeeId: null },
-  );
+  await empRepo.update({ reportsToEmployeeId: emp.id }, { reportsToEmployeeId: null });
 
   await AppDataSource.getRepository(Approval).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(Routine).delete({ employeeId: emp.id });
@@ -429,29 +426,25 @@ employeesRouter.get("/:eid/avatar", async (req, res) => {
   res.sendFile(abs);
 });
 
-employeesRouter.post(
-  "/:eid/avatar",
-  avatarUploadMiddleware.single("file"),
-  async (req, res) => {
-    const file = (req as unknown as { file?: Express.Multer.File }).file;
-    if (!file) return res.status(400).json({ error: "No file uploaded" });
-    const repo = AppDataSource.getRepository(AIEmployee);
-    const emp = await repo.findOneBy({
-      id: req.params.eid,
-      companyId: (req.params as Record<string, string>).cid,
-    });
-    if (!emp) {
-      // Row missing — drop the freshly-written file so we don't orphan it.
-      removeAvatarFile(file.filename);
-      return res.status(404).json({ error: "Not found" });
-    }
-    const previousKey = emp.avatarKey;
-    emp.avatarKey = file.filename;
-    await repo.save(emp);
-    replaceAvatarFile(previousKey, file.filename);
-    res.json({ avatarKey: emp.avatarKey });
-  },
-);
+employeesRouter.post("/:eid/avatar", avatarUploadMiddleware.single("file"), async (req, res) => {
+  const file = (req as unknown as { file?: Express.Multer.File }).file;
+  if (!file) return res.status(400).json({ error: "No file uploaded" });
+  const repo = AppDataSource.getRepository(AIEmployee);
+  const emp = await repo.findOneBy({
+    id: req.params.eid,
+    companyId: (req.params as Record<string, string>).cid,
+  });
+  if (!emp) {
+    // Row missing — drop the freshly-written file so we don't orphan it.
+    removeAvatarFile(file.filename);
+    return res.status(404).json({ error: "Not found" });
+  }
+  const previousKey = emp.avatarKey;
+  emp.avatarKey = file.filename;
+  await repo.save(emp);
+  replaceAvatarFile(previousKey, file.filename);
+  res.json({ avatarKey: emp.avatarKey });
+});
 
 employeesRouter.delete("/:eid/avatar", async (req, res) => {
   const repo = AppDataSource.getRepository(AIEmployee);

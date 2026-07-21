@@ -15,7 +15,7 @@ import { bootRecurringInvoices } from "./services/recurringInvoices.js";
 import { bootTelegramListeners } from "./services/telegramListener.js";
 import { bootMailSync } from "./services/mail/sync.js";
 import { bootMailHandovers } from "./services/mail/handovers.js";
-import { attachRealtime } from "./services/realtime.js";
+import { attachRealtime, bootRealtimeBridge } from "./services/realtime.js";
 import { errorHandler } from "./middleware/error.js";
 import { authRouter } from "./routes/auth.js";
 import { ssoRouter } from "./routes/sso.js";
@@ -71,12 +71,23 @@ import { browserRpcRouter } from "./routes/browserRpc.js";
 import { bootBrowserSessionSweeper } from "./services/browserSessions.js";
 import { tagsRouter } from "./routes/tags.js";
 import { backfillLegacyResourceTags, backfillTagColors } from "./services/tags.js";
+import { requireTrustedOrigin, securityHeaders } from "./middleware/httpSecurity.js";
+import {
+  secureSessionCookies,
+  validateRuntimeDependencies,
+  validateRuntimeSecurity,
+} from "./services/runtimeSecurity.js";
+import { installOutboundNetworkPolicy } from "./services/outboundNetworkPolicy.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function main() {
+  installOutboundNetworkPolicy();
+  validateRuntimeSecurity();
   await initDb();
+  await validateRuntimeDependencies();
+  await bootRealtimeBridge();
   await backfillTagColors();
   await backfillLegacyResourceTags();
   // Never leave the install without an operator: if the master-admin column
@@ -105,14 +116,19 @@ async function main() {
   });
 
   const app = express();
+  if (config.security.trustedProxyHops > 0) {
+    app.set("trust proxy", config.security.trustedProxyHops);
+  }
+  app.use(securityHeaders);
   app.use(express.json({ limit: "1mb" }));
   app.use(
     cookieSession({
       name: "genosyn.sid",
       secret: config.sessionSecret,
-      maxAge: 1000 * 60 * 60 * 24 * 30,
+      maxAge: 1000 * 60 * 60 * 24 * config.security.sessionMaxAgeDays,
       httpOnly: true,
       sameSite: "lax",
+      secure: secureSessionCookies(),
     }),
   );
 
@@ -141,6 +157,10 @@ async function main() {
   // so the docs page works for unauthenticated visitors — the spec describes
   // shapes, not data, and any documented endpoint still enforces its own auth.
   app.use("/api", openapiRouter);
+
+  // Public machine endpoints above authenticate with one-shot or bearer
+  // tokens. Everything below also rejects cross-origin browser mutations.
+  app.use(requireTrustedOrigin);
 
   // SSO sign-in (status probe, IdP redirect, callback). Mounted before the
   // main auth router so its more-specific `/api/auth/sso/*` paths win; the
@@ -209,10 +229,7 @@ async function main() {
 
   // Live browser-view sessions — the iframe-able viewer + WS plumbing for
   // the headless Chromium the AI employee drives. See `services/browserSessions.ts`.
-  app.use(
-    "/api/companies/:cid/employees/:eid/browser-sessions",
-    browserSessionsRouter,
-  );
+  app.use("/api/companies/:cid/employees/:eid/browser-sessions", browserSessionsRouter);
 
   // Integrations + Connections. Company-scoped because connections belong
   // to the company and are granted out to employees.

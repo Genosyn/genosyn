@@ -1,3 +1,4 @@
+import { dateTimeColumnType } from "./columnTypes.js";
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 /**
@@ -78,7 +79,7 @@ export class Notification {
   entityId!: string | null;
 
   /** Null = unread. Set when the user opens / dismisses the row. */
-  @Column({ type: "datetime", nullable: true })
+  @Column({ type: dateTimeColumnType, nullable: true })
   readAt!: Date | null;
 
   @CreateDateColumn()

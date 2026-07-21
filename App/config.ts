@@ -16,6 +16,60 @@ export const config = {
   publicUrl: "http://localhost:8471",
   sessionSecret: "change-me-in-production",
 
+  // Security posture. `multiTenant` is intentionally false for existing
+  // self-hosted installs; hosted operators must turn it on. In that mode the
+  // server refuses to boot unless the database, cookie, encryption, and agent
+  // isolation settings below meet the shared-SaaS baseline.
+  security: {
+    multiTenant: false,
+    // Separate from sessionSecret. New ciphertexts derive a distinct key per
+    // company (or per user for account secrets). Keep old values in
+    // previousEncryptionSecrets while rotating so existing rows stay readable.
+    encryptionSecret: "change-me-in-production-too",
+    previousEncryptionSecrets: [] as string[],
+    // "auto" sets Secure whenever publicUrl is https. Multi-tenant mode
+    // requires https + Secure cookies and rejects an explicit false value.
+    secureCookies: "auto" as "auto" | boolean,
+    sessionMaxAgeDays: 7,
+    // Number of trusted reverse-proxy hops in front of Express. Keep 0 when
+    // Genosyn is directly reachable; the common ingress/reverse-proxy setup is 1.
+    trustedProxyHops: 0,
+    // Hosts in this exact, case-insensitive list may resolve to loopback,
+    // private, link-local, or other non-public addresses. Leave empty for a
+    // public SaaS. Add an internal hostname only when the operator explicitly
+    // intends tenants to reach it.
+    outboundPrivateHostAllowlist: [] as string[],
+    outboundRequestTimeoutMs: 15_000,
+    outboundMaxResponseBytes: 25 * 1024 * 1024,
+    authRateLimit: {
+      windowMinutes: 15,
+      maxAttempts: 10,
+      blockMinutes: 15,
+    },
+    // Shared SaaS must predeclare the only email allowed to claim the first
+    // master-admin account. This prevents an internet race during bootstrap.
+    bootstrapMasterAdminEmail: "",
+  },
+
+  // AI Employee execution controls. `bubblewrap` runs every shell invocation
+  // in a Linux user/mount/PID namespace with only the employee workspace
+  // writable. The runtime image includes bwrap. Shared SaaS mode requires it
+  // and disables network access inside the coding sandbox; networked work goes
+  // through governed Integration, browser, and HTTP surfaces instead.
+  agent: {
+    codingTools: {
+      enabled: true,
+      executionMode: "host" as "host" | "bubblewrap" | "disabled",
+      bubblewrapPath: "/usr/bin/bwrap",
+      allowNetwork: true,
+    },
+    // The current app-owned Chromium process shares the API container. Keep it
+    // off in multi-tenant mode until a separately isolated browser worker is
+    // configured; startup validation enforces this boundary.
+    browserEnabledInMultiTenant: false,
+    maxConcurrentRunsPerCompany: 4,
+  },
+
   // Global SMTP fallback for system-level sends (password resets, invites).
   // Leave host empty to disable — reset links then log to the console instead.
   // This block is the file-based default; operators can override it at runtime
