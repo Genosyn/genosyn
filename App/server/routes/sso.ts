@@ -4,6 +4,7 @@ import { getPublicSsoStatus } from "../services/ssoSettings.js";
 import { finishSsoLogin, startSsoLogin, SsoLoginError } from "../services/ssoLogin.js";
 import { requireTwoFactorAfterPrimaryAuth } from "./twoFactor.js";
 import { establishUserSession } from "../middleware/auth.js";
+import { capturePublicUrlFromMasterAdminRequest } from "../services/publicUrl.js";
 
 /**
  * Public SSO sign-in surface, mounted at `/api/auth/sso` (before the main
@@ -73,6 +74,7 @@ ssoRouter.get("/callback", async (req, res) => {
   }
   try {
     const user = await finishSsoLogin({ code, state });
+    if (user.isMasterAdmin) await capturePublicUrlFromMasterAdminRequest(req);
     const methods = await requireTwoFactorAfterPrimaryAuth(req, user);
     if (methods.enabled) {
       return res.redirect("/login?twoFactor=1");

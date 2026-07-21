@@ -9,6 +9,7 @@ import {
   Layers,
   LayoutDashboard,
   Mail,
+  Settings,
   ServerCog,
   UserPlus,
   Users,
@@ -35,6 +36,7 @@ export type AdminOutletCtx = {
 
 const ADMIN_TAB_LABEL: Record<string, string> = {
   overview: "Overview",
+  general: "General",
   "instance-health": "Instance Health",
   db: "Database",
   migrations: "Migrations",
@@ -73,6 +75,11 @@ export default function AdminLayout({
           to={`${base}/overview`}
           icon={<LayoutDashboard size={14} />}
           label="Overview"
+        />
+        <SidebarLink
+          to={`${base}/general`}
+          icon={<Settings size={14} />}
+          label="General"
         />
         <SidebarLink
           to={`${base}/instance-health`}

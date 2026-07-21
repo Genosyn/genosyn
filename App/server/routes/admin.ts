@@ -44,6 +44,10 @@ import {
   resolveGlobalSmtpDraft,
   updateGlobalSmtpOverride,
 } from "../services/globalEmailTransport.js";
+import {
+  getPublicUrlSettings,
+  setPublicUrl,
+} from "../services/publicUrl.js";
 
 /**
  * Instance-wide admin endpoints. Not company-scoped — these describe and manage
@@ -68,6 +72,36 @@ adminRouter.get("/instance-health", async (_req, res, next) => {
     next(err);
   }
 });
+
+// ─────────────────────── instance-wide settings ───────────────────────────
+
+adminRouter.get("/instance-settings", async (_req, res, next) => {
+  try {
+    res.json(await getPublicUrlSettings());
+  } catch (err) {
+    next(err);
+  }
+});
+
+const instanceSettingsSchema = z.object({
+  publicUrl: z.string().min(1).max(2048),
+});
+
+adminRouter.put(
+  "/instance-settings",
+  validateBody(instanceSettingsSchema),
+  async (req, res, next) => {
+    try {
+      const { publicUrl } = req.body as z.infer<typeof instanceSettingsSchema>;
+      res.json(await setPublicUrl(publicUrl));
+    } catch (err) {
+      if (err instanceof Error) {
+        return res.status(400).json({ error: err.message });
+      }
+      next(err);
+    }
+  },
+);
 
 /**
  * The per-migration detail behind the Instance Health "schema migrations"

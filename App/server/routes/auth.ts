@@ -20,6 +20,10 @@ import {
   replaceAvatarFile,
 } from "../services/avatars.js";
 import { config } from "../../config.js";
+import {
+  capturePublicUrlFromMasterAdminRequest,
+  getPublicUrl,
+} from "../services/publicUrl.js";
 import { requireTwoFactorAfterPrimaryAuth } from "./twoFactor.js";
 import {
   assertAuthAllowed,
@@ -108,6 +112,7 @@ authRouter.post("/signup", validateBody(signupSchema), async (req, res) => {
   await repo.save(user);
   await ensureUserHandle(user);
   establishUserSession(req, user);
+  if (user.isMasterAdmin) await capturePublicUrlFromMasterAdminRequest(req);
   await sendEmailVerification(user);
   void sendEmail({
     to: user.email,
@@ -156,6 +161,7 @@ authRouter.post("/login", validateBody(loginSchema), async (req, res) => {
     return res.status(401).json({ error: "Invalid credentials" });
   }
   await clearAuthFailures(throttleKeys);
+  if (user.isMasterAdmin) await capturePublicUrlFromMasterAdminRequest(req);
   const methods = await requireTwoFactorAfterPrimaryAuth(req, user);
   if (methods.enabled) {
     return res.json({ requiresTwoFactor: true, methods });
@@ -189,7 +195,7 @@ authRouter.post("/forgot", validateBody(forgotSchema), async (req, res) => {
     user.resetToken = hashOneTimeToken(token);
     user.resetExpiresAt = new Date(Date.now() + 1000 * 60 * 60);
     await repo.save(user);
-    const link = `${config.publicUrl}/reset/${token}`;
+    const link = `${getPublicUrl()}/reset/${token}`;
     await sendEmail({
       to: user.email,
       subject: "Reset your Genosyn password",

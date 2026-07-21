@@ -16,6 +16,7 @@ import { ensureDefaultNotebook } from "../services/notebooks.js";
 import { deleteCompanyCascade } from "../services/companyDelete.js";
 import { companyDir } from "../services/paths.js";
 import { avatarAbsPath, mimeFromKey } from "../services/avatars.js";
+import { getPublicUrl } from "../services/publicUrl.js";
 import { config } from "../../config.js";
 import { hasTwoFactorMethod } from "../services/twoFactor.js";
 import { recordAudit } from "../services/audit.js";
@@ -201,7 +202,7 @@ companiesRouter.post(
       acceptedAt: null,
     });
     await repo.save(inv);
-    const link = `${config.publicUrl}/invite/${token}`;
+    const link = `${getPublicUrl()}/invite/${token}`;
     await sendEmail({
       to: email,
       subject: "You're invited to a Genosyn company",

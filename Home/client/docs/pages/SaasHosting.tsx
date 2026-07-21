@@ -67,7 +67,6 @@ db: {
   sqlitePath: "",
   postgresUrl: "postgresql://…",
 },
-publicUrl: "https://app.example.com",
 sessionSecret: "<different 32+ character random secret>",`}</Pre>
       <P>
         A working global SMTP transport is also mandatory because new Members must verify their
@@ -75,11 +74,16 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
         <Strong>Admin → Email transport</Strong> or the <Code>smtp</Code> block before enabling
         shared SaaS mode.
       </P>
+      <P>
+        On the first operator sign-in, Genosyn detects the same-origin browser URL. Review and save
+        the canonical HTTPS origin at <Strong>Admin → General</Strong> before configuring SSO,
+        WebAuthn, or OAuth integrations. It is stored in Postgres and propagated across replicas.
+      </P>
 
       <H2 id="startup">What startup checks</H2>
       <UL>
         <LI>Postgres is selected and has a connection URL.</LI>
-        <LI>The public URL is HTTPS and session cookies are Secure.</LI>
+        <LI>Session cookies are Secure.</LI>
         <LI>The session-signing and encryption secrets are strong and different.</LI>
         <LI>
           The Bubblewrap binary exists, shell networking is off, and the shared browser is off.

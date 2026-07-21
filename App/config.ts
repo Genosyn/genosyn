@@ -11,9 +11,6 @@ export const config = {
 
   // API server
   port: 8471,
-  // Must match the browser-facing origin. WebAuthn uses its hostname as the
-  // relying-party ID, so passkeys/security keys require the deployed HTTPS URL.
-  publicUrl: "http://localhost:8471",
   sessionSecret: "change-me-in-production",
 
   // Security posture. `multiTenant` is intentionally false for existing
@@ -27,8 +24,8 @@ export const config = {
     // previousEncryptionSecrets while rotating so existing rows stay readable.
     encryptionSecret: "change-me-in-production-too",
     previousEncryptionSecrets: [] as string[],
-    // "auto" sets Secure whenever publicUrl is https. Multi-tenant mode
-    // requires https + Secure cookies and rejects an explicit false value.
+    // "auto" sets Secure whenever the Admin → General public URL is https,
+    // and always in multi-tenant mode. Multi-tenant mode rejects false.
     secureCookies: "auto" as "auto" | boolean,
     sessionMaxAgeDays: 7,
     // Number of trusted reverse-proxy hops in front of Express. Keep 0 when
@@ -96,8 +93,8 @@ export const config = {
   // secret registered with the provider, because the user's browser
   // redirects through *our* server on its way back from Google.
   //
-  // Redirect URI to register with the provider:
-  //   `${publicUrl}/api/integrations/oauth/callback/google`
+  // The redirect URI is shown in Settings → Integrations and follows the
+  // public URL saved under Admin → General.
   integrations: {
     google: {
       // Google Cloud OAuth client — leave empty to disable Gmail etc.

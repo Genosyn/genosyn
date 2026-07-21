@@ -21,17 +21,17 @@ export function SelfHosting() {
         title="Configuration"
         lead={
           <>
-            One file: <Code>App/config.ts</Code>. No <Code>.env</Code>, no YAML stack, no secret
-            loader. Self-hosters edit one TypeScript object with commented JSON shape — and
-            that&apos;s the whole story.
+            Boot settings live in <Code>App/config.ts</Code>. Settings that are safe to change
+            while Genosyn is running, including its public URL, live in the database and are
+            managed from Admin.
           </>
         }
       />
 
       <Callout kind="warn" title="No .env, ever.">
         Genosyn doesn&apos;t use <Code>dotenv</Code>, per-environment files, or a config service. If
-        a tutorial or PR adds one, it&apos;s wrong. There is one config object; users override
-        values in-place.
+        a tutorial or PR adds one, it&apos;s wrong. Override boot settings in the one config object;
+        use Admin for live instance settings.
       </Callout>
 
       <H2 id="config-ts">config.ts</H2>
@@ -47,9 +47,8 @@ export function SelfHosting() {
     postgresUrl: "",
   },
 
-  // HTTP port + the URL the app should think it lives at.
+  // HTTP port.
   port: 8471,
-  publicUrl: "http://localhost:8471",
 
   // 32+ random bytes. Rotate to log everyone out.
   sessionSecret: "change-me-in-production",
@@ -91,6 +90,20 @@ export function SelfHosting() {
     // ...
   },
 } as const;`}</Pre>
+
+      <H2 id="public-url">Public URL</H2>
+      <P>
+        Sign in as a master admin and open <Code>Admin → General</Code>. Set the exact origin
+        Members use to reach Genosyn, for example <Code>https://genosyn.example.com</Code>. Genosyn
+        stores it in the database and uses it for OAuth callbacks, WebAuthn, invitation and reset
+        links, push notifications, and API documentation. A path, query, or fragment is not
+        allowed.
+      </P>
+      <Callout kind="tip" title="Fresh installs detect it automatically.">
+        The first successful master-admin browser sign-in or sign-up saves the same-origin URL it
+        arrived on. Review the value in <Code>Admin → General</Code> after putting Genosyn behind a
+        reverse proxy; you can replace it without restarting the app.
+      </Callout>
 
       <H2 id="db-driver">Switching to Postgres</H2>
       <P>
@@ -304,8 +317,8 @@ export function SelfHosting() {
       <UL>
         <LI>
           Register an OAuth client at your identity provider and set its authorized redirect URI to
-          the <Strong>Callback URL</Strong> shown on the page (it follows <Code>publicUrl</Code>{" "}
-          from <Code>config.ts</Code>).
+          the <Strong>Callback URL</Strong> shown on the page (it follows the public URL saved at{" "}
+          <Code>Admin → General</Code>).
         </LI>
         <LI>
           Paste the <Strong>Client ID</Strong> and <Strong>Client secret</Strong> into the form —
@@ -502,9 +515,9 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
       <H3 id="ports-and-reverse-proxies">Ports and reverse proxies</H3>
       <P>
         The container listens on <Code>8471</Code>. Stick a reverse proxy (Caddy, nginx, Traefik) in
-        front of it for TLS and a real hostname. Update <Code>publicUrl</Code> in{" "}
-        <Code>config.ts</Code> so the app generates absolute links correctly (invite emails, OAuth
-        callbacks).
+        front of it for TLS and a real hostname. Then save that HTTPS origin at{" "}
+        <Code>Admin → General</Code> so the app generates absolute links and OAuth callbacks
+        correctly.
       </P>
     </>
   );

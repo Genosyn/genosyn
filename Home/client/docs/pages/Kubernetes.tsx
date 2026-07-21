@@ -123,7 +123,6 @@ data:
         postgresUrl: process.env.GENOSYN_POSTGRES_URL,
       },
       port: 8471,
-      publicUrl: "https://genosyn.example.com",
       sessionSecret: process.env.GENOSYN_SESSION_SECRET,
       smtp: {
         host: "smtp.example.com", port: 587, secure: false,
@@ -140,6 +139,11 @@ data:
         JavaScript reading a variable. Keep credentials in a <Code>Secret</Code> and inject them
         with <Code>env:</Code> or <Code>envFrom:</Code> on the pod.
       </Callout>
+      <P>
+        The public URL is not part of this mounted file. After the first master admin signs in,
+        review and save <Code>https://genosyn.example.com</Code> at{" "}
+        <Code>Admin → General</Code>. The value is stored in Postgres and shared by every replica.
+      </P>
       <P>
         Sensitive values go in a separate <Code>Secret</Code>:
       </P>

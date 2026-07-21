@@ -10,6 +10,7 @@ import { config } from "../../config.js";
 import { dataRoot } from "./paths.js";
 import { getBackupSchedule } from "./backups.js";
 import { getEffectiveGlobalSmtp } from "./globalEmailTransport.js";
+import { getPublicUrl } from "./publicUrl.js";
 
 /**
  * Instance Health — an install-wide "is the deployment itself healthy?" probe,
@@ -380,7 +381,7 @@ async function gatherInstanceInfo(): Promise<InstanceInfo> {
     uptimeSeconds: process.uptime(),
     dbDriver: config.db.driver,
     dataDir: dataRoot(),
-    publicUrl: config.publicUrl,
+    publicUrl: getPublicUrl(),
     memory: {
       rssBytes: mem.rss,
       heapUsedBytes: mem.heapUsed,

@@ -1812,6 +1812,14 @@ export type GlobalEmailTransport = {
   };
 };
 
+// ───────────────────────── Admin instance settings ─────────────────────────
+// Installation-wide browser origin, persisted in app_settings and served by
+// /api/admin/instance-settings.
+export type InstanceSettings = {
+  publicUrl: string;
+  configured: boolean;
+};
+
 // ───────────────────────── Admin sign-up policy ─────────────────────────────
 // Instance-wide toggle for self-service registration, served by
 // /api/admin/signup-settings. The public sign-up page reads /api/auth/signup-status.

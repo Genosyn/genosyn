@@ -6,7 +6,7 @@ import type {
   IntegrationTool,
   OauthTokenSet,
 } from "../types.js";
-import { config as appConfig } from "../../../config.js";
+import { getPublicUrl } from "../../services/publicUrl.js";
 import {
   ADS_SAFETY_FIELDS,
   adsClampInt,
@@ -116,7 +116,7 @@ type MicrosoftAdsConfig = MicrosoftOauthConfig &
 // ---------- OAuth helpers (used by services/oauth.ts) ----------
 
 export function microsoftRedirectUri(): string {
-  const base = appConfig.publicUrl.replace(/\/+$/, "");
+  const base = getPublicUrl();
   return `${base}/api/integrations/oauth/callback/microsoft`;
 }
 

@@ -69,13 +69,13 @@ export function Security() {
         credential.
       </P>
 
-      <H2 id="https">HTTPS and publicUrl</H2>
+      <H2 id="https">HTTPS and the public URL</H2>
       <P>
         Browsers allow WebAuthn only on secure origins. <Code>localhost</Code> is the development
-        exception; every remote deployment needs HTTPS. The hostname in{" "}
-        <Code>config.publicUrl</Code> is the WebAuthn relying-party ID and its origin is used to
-        verify every registration and sign-in, so it must exactly match the URL Members use to open
-        Genosyn. See <DocLink to="/docs/self-hosting">Configuration</DocLink>.
+        exception; every remote deployment needs HTTPS. The public URL saved at{" "}
+        <Code>Admin → General</Code> supplies the WebAuthn relying-party ID and origin, so it must
+        exactly match the URL Members use to open Genosyn. See{" "}
+        <DocLink to="/docs/self-hosting#public-url">Configuration</DocLink>.
       </P>
 
       <H2 id="sign-in">Sign in with 2FA</H2>

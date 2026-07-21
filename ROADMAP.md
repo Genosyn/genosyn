@@ -32,9 +32,10 @@ don't re-litigate them.
    logs (`Run.logContent`, 256 KB cap), model/Connection credentials, and MCP
    configuration. The filesystem under `data/` only carries repo checkouts,
    browser state, uploads, and tool artifacts.
-6. **No `.env` file, ever.** All runtime settings live in `App/config.ts` as
-   one exported object with commented JSON-shape. Self-hosters edit
-   `config.ts` directly.
+6. **No `.env` file, ever.** Boot-critical runtime settings live in
+   `App/config.ts` as one exported object with commented JSON-shape.
+   Operator-editable live settings (including the public URL) live in the
+   database and are managed from Admin.
 
 ---
 
@@ -160,7 +161,6 @@ export const config = {
     postgresUrl: "",
   },
   port: 8471,
-  publicUrl: "http://localhost:8471",
   sessionSecret: "change-me-in-production",
   security: {
     multiTenant: false,
@@ -252,6 +252,9 @@ export const config = {
       state, and authorized cross-replica realtime fan-out
 - [x] Separate generated SQLite and Postgres migration streams, both verified
       against their real database engines
+- [x] Database-backed public URL at **Admin → General**, with automatic
+      first-operator detection, same-host browser request protection, and
+      runtime propagation to OAuth, WebAuthn, email links, push, and OpenAPI
 
 ### M3 — AI Employees + Soul ✅
 

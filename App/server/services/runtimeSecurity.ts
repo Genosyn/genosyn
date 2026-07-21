@@ -2,6 +2,10 @@ import { config } from "../../config.js";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { getEffectiveGlobalSmtp } from "./globalEmailTransport.js";
+import {
+  getPublicUrl,
+  isPublicUrlConfigured,
+} from "./publicUrl.js";
 
 const PLACEHOLDERS = new Set(["change-me-in-production", "change-me-in-production-too"]);
 
@@ -43,7 +47,7 @@ export function secureSessionCookies(): boolean {
   if (config.security.secureCookies !== "auto") {
     return config.security.secureCookies;
   }
-  return new URL(config.publicUrl).protocol === "https:";
+  return config.security.multiTenant || getPublicUrl().startsWith("https://");
 }
 
 /**
@@ -52,15 +56,6 @@ export function secureSessionCookies(): boolean {
  * but prints actionable warnings for weak production settings.
  */
 export function validateRuntimeSecurity(): void {
-  let publicUrl: URL;
-  try {
-    publicUrl = new URL(config.publicUrl);
-  } catch {
-    throw new Error("config.publicUrl must be an absolute http(s) URL");
-  }
-  if (publicUrl.protocol !== "http:" && publicUrl.protocol !== "https:") {
-    throw new Error("config.publicUrl must use http or https");
-  }
   if (!Number.isInteger(config.security.trustedProxyHops) || config.security.trustedProxyHops < 0) {
     throw new Error("config.security.trustedProxyHops must be a non-negative integer");
   }
@@ -74,7 +69,6 @@ export function validateRuntimeSecurity(): void {
   const problems: string[] = [];
   if (config.db.driver !== "postgres") problems.push("config.db.driver must be postgres");
   if (!config.db.postgresUrl.trim()) problems.push("config.db.postgresUrl is required");
-  if (publicUrl.protocol !== "https:") problems.push("config.publicUrl must use https");
   if (!secureSessionCookies()) problems.push("Secure session cookies must be enabled");
   if (!strongSecret(config.sessionSecret)) {
     problems.push("config.sessionSecret must be a unique secret of at least 32 characters");
@@ -134,6 +128,16 @@ export function validateRuntimeSecurity(): void {
         `[security] self-hosted production is using relaxed settings:\n- ${warnings.join("\n- ")}`,
       );
     }
+  }
+
+  if (process.env.NODE_ENV === "production" && !isPublicUrlConfigured()) {
+    // The request-origin guard keeps login safe and the first successful
+    // master-admin sign-in captures the browser origin automatically. Warn so
+    // operators still know to review the persisted value in Admin → General.
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[security] public URL is not configured; using ${getPublicUrl()} until a master admin signs in`,
+    );
   }
 }
 

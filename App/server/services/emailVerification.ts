@@ -1,8 +1,9 @@
+import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { User } from "../db/entities/User.js";
 import { generateToken, hashToken } from "../lib/token.js";
-import { config } from "../../config.js";
 import { sendEmail } from "./email.js";
+import { getPublicUrl } from "./publicUrl.js";
 
 const VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -17,7 +18,7 @@ export async function sendEmailVerification(user: User): Promise<void> {
   user.emailVerificationExpiresAt = new Date(Date.now() + VERIFICATION_TTL_MS);
   await AppDataSource.getRepository(User).save(user);
 
-  const link = `${config.publicUrl}/verify-email/${token}`;
+  const link = `${getPublicUrl()}/verify-email/${token}`;
   await sendEmail({
     to: user.email,
     subject: "Verify your Genosyn email",

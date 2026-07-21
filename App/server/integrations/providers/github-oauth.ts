@@ -3,7 +3,7 @@ import type {
   IntegrationScopeGroup,
   OauthTokenSet,
 } from "../types.js";
-import { config as appConfig } from "../../../config.js";
+import { getPublicUrl } from "../../services/publicUrl.js";
 
 /**
  * GitHub — OAuth 2.0 helpers.
@@ -124,7 +124,7 @@ export type GithubRepoRef = {
 };
 
 export function githubRedirectUri(): string {
-  const base = appConfig.publicUrl.replace(/\/+$/, "");
+  const base = getPublicUrl();
   return `${base}/api/integrations/oauth/callback/github`;
 }
 

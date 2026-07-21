@@ -1,7 +1,7 @@
 import { AppDataSource } from "../db/datasource.js";
 import { AppSetting } from "../db/entities/AppSetting.js";
-import { config } from "../../config.js";
 import { decryptSecret, encryptSecret } from "../lib/secret.js";
+import { getPublicUrl } from "./publicUrl.js";
 
 /**
  * Instance-wide single sign-on (SSO) settings.
@@ -95,7 +95,7 @@ const DEFAULTS: StoredSso = {
 
 /** The redirect URI the identity provider bounces the browser back to. */
 export function ssoCallbackUrl(): string {
-  const base = config.publicUrl.replace(/\/+$/, "");
+  const base = getPublicUrl();
   return `${base}/api/auth/sso/callback`;
 }
 

@@ -5,8 +5,8 @@ import type {
   IntegrationScopeGroup,
   OauthTokenSet,
 } from "../../types.js";
-import { config } from "../../../../config.js";
 import { safeJson } from "./util.js";
+import { getPublicUrl } from "../../../services/publicUrl.js";
 
 /**
  * Provider-agnostic Google OAuth + Service-Account machinery.
@@ -82,7 +82,7 @@ export type GoogleServiceAccountConfig = {
 /** Shared OAuth callback URI — keyed on the OAuth *app* ("google"), so every
  * Google-backed integration completes its handshake at the same endpoint. */
 export function googleRedirectUri(): string {
-  const base = config.publicUrl.replace(/\/+$/, "");
+  const base = getPublicUrl();
   return `${base}/api/integrations/oauth/callback/google`;
 }
 

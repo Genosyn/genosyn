@@ -2,8 +2,8 @@ import webpush from "web-push";
 import { AppDataSource } from "../db/datasource.js";
 import { AppSetting } from "../db/entities/AppSetting.js";
 import { PushSubscription } from "../db/entities/PushSubscription.js";
-import { config } from "../../config.js";
 import { assertSafeOutboundUrl } from "../lib/outboundUrl.js";
+import { getPublicUrl } from "./publicUrl.js";
 
 /**
  * Web Push delivery for the PWA. Zero-config by design: the VAPID keypair
@@ -48,8 +48,9 @@ async function ensureVapid(): Promise<{ publicKey: string; privateKey: string }>
   // Push services require a contact on every request. An https publicUrl
   // doubles as one; otherwise fall back to a mailto so localhost installs
   // still work without config.
-  const subject = config.publicUrl.startsWith("https://")
-    ? config.publicUrl
+  const publicUrl = getPublicUrl();
+  const subject = publicUrl.startsWith("https://")
+    ? publicUrl
     : "mailto:admin@genosyn.local";
   webpush.setVapidDetails(subject, pub.value, priv.value);
   vapidKeys = { publicKey: pub.value, privateKey: priv.value };

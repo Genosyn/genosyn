@@ -124,10 +124,10 @@ export type XOauthConfig = {
 
 // ---------- OAuth helpers (used by services/oauth.ts) ----------
 
-import { config as appConfig } from "../../../config.js";
+import { getPublicUrl } from "../../services/publicUrl.js";
 
 export function xRedirectUri(): string {
-  const base = appConfig.publicUrl.replace(/\/+$/, "");
+  const base = getPublicUrl();
   return `${base}/api/integrations/oauth/callback/x`;
 }
 

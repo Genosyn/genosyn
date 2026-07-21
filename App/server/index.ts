@@ -78,14 +78,16 @@ import {
   validateRuntimeSecurity,
 } from "./services/runtimeSecurity.js";
 import { installOutboundNetworkPolicy } from "./services/outboundNetworkPolicy.js";
+import { bootPublicUrl } from "./services/publicUrl.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function main() {
   installOutboundNetworkPolicy();
-  validateRuntimeSecurity();
   await initDb();
+  await bootPublicUrl();
+  validateRuntimeSecurity();
   await validateRuntimeDependencies();
   await bootRealtimeBridge();
   await backfillTagColors();
@@ -121,16 +123,21 @@ async function main() {
   }
   app.use(securityHeaders);
   app.use(express.json({ limit: "1mb" }));
-  app.use(
-    cookieSession({
-      name: "genosyn.sid",
-      secret: config.sessionSecret,
-      maxAge: 1000 * 60 * 60 * 24 * config.security.sessionMaxAgeDays,
-      httpOnly: true,
-      sameSite: "lax",
-      secure: secureSessionCookies(),
-    }),
-  );
+  const sessionMiddleware = cookieSession({
+    name: "genosyn.sid",
+    secret: config.sessionSecret,
+    maxAge: 1000 * 60 * 60 * 24 * config.security.sessionMaxAgeDays,
+    httpOnly: true,
+    sameSite: "lax",
+  });
+  app.use((req, res, next) => {
+    sessionMiddleware(req, res, () => {
+      // `cookie-session` reads this again when it writes the response. Resolve
+      // it per request so saving an HTTPS public URL takes effect immediately.
+      req.sessionOptions.secure = secureSessionCookies();
+      next();
+    });
+  });
 
   // Public webhooks (token in URL is the credential). Mounted before auth
   // so session-less POSTs from external systems aren't gated.

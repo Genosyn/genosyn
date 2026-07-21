@@ -22,8 +22,8 @@ import {
   WebAuthnCredential,
   type WebAuthnCredentialKind,
 } from "../db/entities/WebAuthnCredential.js";
-import { config } from "../../config.js";
 import { decryptSecret, encryptSecret } from "../lib/secret.js";
+import { getPublicUrl } from "./publicUrl.js";
 
 const RECOVERY_CODE_COUNT = 10;
 const RECOVERY_CODE_BYTES = 10;
@@ -56,7 +56,7 @@ export type TwoFactorStatus = {
 };
 
 function webAuthnConfig(): { origin: string; rpID: string } {
-  const publicUrl = new URL(config.publicUrl);
+  const publicUrl = new URL(getPublicUrl());
   return { origin: publicUrl.origin, rpID: publicUrl.hostname };
 }
 

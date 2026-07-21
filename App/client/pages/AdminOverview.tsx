@@ -14,6 +14,7 @@ import {
   Mail,
   MemoryStick,
   RefreshCw,
+  Settings,
   Tag,
   UserPlus,
   Users,
@@ -236,6 +237,12 @@ export function AdminOverview() {
 
         {/* Quick actions */}
         <div className="grid gap-3 sm:grid-cols-2">
+          <NavCard
+            to={`${base}/general`}
+            icon={Settings}
+            title="General"
+            description="Set the browser-facing public URL for this instance."
+          />
           <NavCard
             to={`${base}/users`}
             icon={Users}

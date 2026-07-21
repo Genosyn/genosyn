@@ -125,11 +125,17 @@ not, flag the addition in the PR description.
 
 ## 5. Config
 
-All runtime settings live in `App/config.ts` as a single exported object with
-**commented JSON-shape**. There is **no `.env` file** in this project — do not
-introduce `dotenv`, `config-yaml`, `.env.*`, or per-environment config files.
-One file (`config.ts`), one object, comments above each field. Users who want
-to override values edit `config.ts` directly.
+Boot-critical runtime settings live in `App/config.ts` as a single exported
+object with **commented JSON-shape**. There is **no `.env` file** in this
+project — do not introduce `dotenv`, `config-yaml`, `.env.*`, or
+per-environment config files. One file (`config.ts`), one object, comments
+above each field. Users who want to override boot settings edit `config.ts`
+directly.
+
+Settings that an operator can safely change while the app is running live in
+the `AppSetting` table and are managed by a master admin. The browser-facing
+public URL is stored under `instance.publicUrl` and edited at **Admin →
+General**; do not reintroduce it in `config.ts`.
 
 Users flip `config.db.driver` from `"sqlite"` to `"postgres"` to upgrade.
 Entities and migrations must work on both.
