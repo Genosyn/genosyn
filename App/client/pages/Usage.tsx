@@ -87,8 +87,8 @@ function TotalsCards({ summary }: { summary: UsageSummary }) {
       <StatCard label="Completed" value={`${t.completed}`} sub={`${successRate}% success`} />
       <StatCard
         label="Problems"
-        value={String(t.failed + t.timeout)}
-        sub={`${t.failed} failed · ${t.timeout} timed out · ${t.skipped} skipped`}
+        value={String(t.failed + t.timeout + t.interrupted)}
+        sub={`${t.failed} failed · ${t.timeout} timed out · ${t.interrupted} interrupted · ${t.skipped} skipped`}
       />
     </div>
   );
@@ -170,7 +170,8 @@ function ByRoutineTable({ summary, company }: { summary: UsageSummary; company: 
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
             {rows.map((r) => {
-              const finished = r.completed + r.failed + r.timeout;
+              // Every status that produced a duration, or the average is wrong.
+              const finished = r.completed + r.failed + r.timeout + r.interrupted;
               const avg = finished > 0 ? r.durationMs / finished : 0;
               return (
                 <tr key={r.routineId}>

@@ -1,5 +1,5 @@
 import React from "react";
-import { Loader2, RotateCcw } from "lucide-react";
+import { Ban, Loader2, RotateCcw } from "lucide-react";
 import { api, Company, Routine, Run, RunLog, RunStatus } from "../../lib/api";
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
@@ -22,12 +22,15 @@ const RUN_STATUS_STYLE: Record<RunStatus, string> = {
     "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/30",
   timeout:
     "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-500/10 dark:text-orange-300 dark:border-orange-500/30",
+  interrupted:
+    "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-500/10 dark:text-violet-300 dark:border-violet-500/30",
 };
 
 /**
- * The status word itself is the label — no display-name map. `skipped` is the
- * one that reads oddly at first: it means the routine fired but had no model
- * connected, so nothing ran.
+ * The status word itself is the label — no display-name map. Two read oddly at
+ * first: `skipped` means the routine fired but had no model connected, so
+ * nothing ran; `interrupted` means the server stopped mid-run, so we know what
+ * the transcript captured and nothing about what happened after.
  */
 export function RunStatusChip({
   status,
@@ -89,6 +92,23 @@ export function timeUntil(iso: string): string {
   if (h < 24) return `in ${h}h`;
   const d = Math.round(h / 24);
   return `in ${d}d`;
+}
+
+/**
+ * How late a schedule is, or null if it isn't late. The counterpart to
+ * {@link timeUntil}, which flattens every past instant to a quiet "due now" —
+ * so a routine that missed twelve occurrences reads identically to one firing
+ * in a second. `graceMs` keeps the ordinary gap between a slot coming due and
+ * the heartbeat picking it up from looking like a problem.
+ */
+export function overdueFor(iso: string, graceMs = 5 * 60_000): string | null {
+  const late = Date.now() - new Date(iso).getTime();
+  if (late <= graceMs) return null;
+  const m = Math.round(late / 60_000);
+  if (m < 60) return `${m}m`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.round(h / 24)}d`;
 }
 
 /**
@@ -213,6 +233,17 @@ export function RunLiveModal({
     userScrolledRef.current = !atBottom;
   }
 
+  // Stop an automatic re-attempt without pausing the whole routine — the way
+  // out when a human has decided to fix this failure by hand.
+  async function cancelRetry() {
+    try {
+      await api.post(`/api/companies/${company.id}/runs/${initialRun.id}/cancel-retry`, {});
+      setLog((cur) => (cur ? { ...cur, retryAt: null } : cur));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
   return (
     <Modal open onClose={onClose} title={`Run: ${routine.name}`} size="xl">
       <div className="flex flex-col gap-3" style={{ minHeight: 420 }}>
@@ -230,6 +261,14 @@ export function RunLiveModal({
             </span>
           )}
           {log?.live && <span className="text-slate-400 dark:text-slate-500">live</span>}
+          {log?.attempt !== undefined && log.attempt > 1 && (
+            <span className="text-slate-500 dark:text-slate-400">attempt {log.attempt}</span>
+          )}
+          {log?.retryAt && (
+            <span className="text-slate-500 dark:text-slate-400">
+              retry {timeUntil(log.retryAt)}
+            </span>
+          )}
           {error && <span className="text-rose-500 dark:text-rose-400">{error}</span>}
         </div>
         <RunLogPane
@@ -240,11 +279,18 @@ export function RunLiveModal({
           className="max-h-[60vh] min-h-[360px]"
         />
         <div className="flex justify-end gap-2">
-          {onRetry && isTerminal && (status === "failed" || status === "timeout") && (
-            <Button variant="secondary" onClick={onRetry}>
-              <RotateCcw size={14} /> Retry
+          {log?.retryAt && (
+            <Button variant="secondary" onClick={cancelRetry}>
+              <Ban size={14} /> Cancel retry
             </Button>
           )}
+          {onRetry &&
+            isTerminal &&
+            (status === "failed" || status === "timeout" || status === "interrupted") && (
+              <Button variant="secondary" onClick={onRetry}>
+                <RotateCcw size={14} /> Retry
+              </Button>
+            )}
           <Button variant={isTerminal ? "primary" : "secondary"} onClick={onClose}>
             {isTerminal ? "Close" : "Close (run continues)"}
           </Button>

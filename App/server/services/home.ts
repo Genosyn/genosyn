@@ -251,10 +251,13 @@ export async function getHomeData(params: {
     const [rows, count] = await AppDataSource.getRepository(Run).findAndCount({
       where: {
         routineId: In([...compRoutineById.keys()]),
-        status: In(["failed", "timeout"]),
+        status: In(["failed", "timeout", "interrupted"]),
         startedAt: MoreThanOrEqual(since),
         // Runs a member has already acknowledged drop off the panel.
         dismissedAt: IsNull(),
+        // So does a run with a retry already scheduled — it isn't a failure
+        // the company needs to act on until the last attempt has been spent.
+        retryAt: IsNull(),
       },
       order: { startedAt: "DESC" },
       take: 6,

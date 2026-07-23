@@ -4,6 +4,7 @@ import {
   IsNull,
   LessThan,
   MoreThanOrEqual,
+  Not,
   ObjectLiteral,
   Repository,
 } from "typeorm";
@@ -192,6 +193,7 @@ async function computeChecks(
 
   const [
     failed,
+    pendingRetries,
     stuck,
     skipped,
     staleApprovals,
@@ -205,13 +207,27 @@ async function computeChecks(
           {
             where: {
               routineId: In(routineIds),
-              status: In(["failed", "timeout"]),
+              status: In(["failed", "timeout", "interrupted"]),
               startedAt: MoreThanOrEqual(recentSince),
+              // A retry is already scheduled — not yet something to act on.
+              retryAt: IsNull(),
               // Stay in step with the Home "Failed routines" panel: a run a
               // member dismissed there shouldn't keep this check red.
               dismissedAt: IsNull(),
             },
             order: { startedAt: "DESC" },
+          },
+          itemLimit,
+        )
+      : Promise.resolve([[], 0] as [Run[], number]),
+    // Not windowed: a retry chain with a six-hour backoff can outlive the
+    // 24-hour window it started in, and a pending retry stays actionable.
+    routineIds.length
+      ? sampleOrCount(
+          runRepo,
+          {
+            where: { routineId: In(routineIds), retryAt: Not(IsNull()) },
+            order: { retryAt: "ASC" },
           },
           itemLimit,
         )
@@ -285,6 +301,7 @@ async function computeChecks(
   ]);
 
   const [failedRows, failedCount] = failed;
+  const [retryRows, retryCount] = pendingRetries;
   const [stuckRows, stuckCount] = stuck;
   const [skippedRows, skippedCount] = skipped;
   const [staleRows, staleCount] = staleApprovals;
@@ -306,7 +323,9 @@ async function computeChecks(
   checks.push({
     id: "failed_runs",
     title: "Failed routine runs",
-    description: `Routine runs that failed or timed out in the last ${RECENT_WINDOW_HOURS} hours.`,
+    description:
+      `Routine runs that failed, timed out, or were interrupted by a restart in the last ` +
+      `${RECENT_WINDOW_HOURS} hours, and are not scheduled for a retry.`,
     severity: failedCount > 0 ? "error" : "ok",
     count: failedCount,
     summary:
@@ -319,9 +338,31 @@ async function computeChecks(
       badge:
         r.status === "timeout"
           ? "timeout"
-          : r.exitCode !== null
-            ? `exit ${r.exitCode}`
-            : "failed",
+          : r.status === "interrupted"
+            ? "interrupted"
+            : r.exitCode !== null
+              ? `exit ${r.exitCode}`
+              : "failed",
+      link: routineLink(r.routineId, r.id),
+    })),
+  });
+
+  checks.push({
+    id: "pending_retries",
+    title: "Runs waiting to retry",
+    description:
+      "Failed runs the scheduler will automatically re-attempt. Nothing to do — this is " +
+      "here so an in-progress retry chain is visible rather than silent.",
+    severity: retryCount > 0 ? "warn" : "ok",
+    count: retryCount,
+    summary:
+      retryCount > 0
+        ? `${plural(retryCount, "run", "runs")} waiting to be retried automatically.`
+        : "No runs are waiting to retry.",
+    items: retryRows.map((r) => ({
+      label: routineById.get(r.routineId)?.name ?? "Unknown routine",
+      sublabel: `${empName(r.routineId)} · failed ${relativeTime(r.startedAt)}`,
+      badge: `retry #${r.attempt + 1}`,
       link: routineLink(r.routineId, r.id),
     })),
   });
@@ -329,7 +370,12 @@ async function computeChecks(
   checks.push({
     id: "stuck_runs",
     title: "Stuck runs",
-    description: `Runs still executing after ${STUCK_RUN_HOURS} hours — usually orphaned by a restart.`,
+    // Crash recovery now clears orphaned rows within a heartbeat, so this is
+    // no longer the normal aftermath of a restart — it means recovery itself
+    // isn't running.
+    description:
+      `Runs still executing after ${STUCK_RUN_HOURS} hours. Crash recovery clears these ` +
+      `within a heartbeat, so anything here means the scheduler is not running.`,
     severity: stuckCount > 0 ? "warn" : "ok",
     count: stuckCount,
     summary:

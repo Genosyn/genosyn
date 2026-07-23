@@ -31,19 +31,31 @@ type RunBucket = {
   failed: number;
   skipped: number;
   timeout: number;
+  interrupted: number;
   durationMs: number;
 };
 
 function emptyBucket(): RunBucket {
-  return { runs: 0, completed: 0, failed: 0, skipped: 0, timeout: 0, durationMs: 0 };
+  return {
+    runs: 0,
+    completed: 0,
+    failed: 0,
+    skipped: 0,
+    timeout: 0,
+    interrupted: 0,
+    durationMs: 0,
+  };
 }
 
+// No compiler help here: a status missing from this chain still increments
+// `runs`, so it silently skews the success rate rather than failing a build.
 function accumulate(b: RunBucket, run: Run): void {
   b.runs += 1;
   if (run.status === "completed") b.completed += 1;
   else if (run.status === "failed") b.failed += 1;
   else if (run.status === "skipped") b.skipped += 1;
   else if (run.status === "timeout") b.timeout += 1;
+  else if (run.status === "interrupted") b.interrupted += 1;
   if (run.finishedAt && run.startedAt) {
     const ms = run.finishedAt.getTime() - run.startedAt.getTime();
     if (ms > 0) b.durationMs += ms;

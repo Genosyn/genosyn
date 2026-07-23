@@ -287,6 +287,9 @@ function failedRunLink(company: Company, r: HomeFailedRun): string {
 
 function failedRunBadge(r: HomeFailedRun): string {
   if (r.status === "timeout") return "timeout";
+  // A run the server died in the middle of. Shares the panel with outright
+  // failures — all three are work that didn't get done.
+  if (r.status === "interrupted") return "interrupted";
   return r.exitCode !== null ? `exit ${r.exitCode}` : "failed";
 }
 

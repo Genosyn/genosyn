@@ -11,7 +11,7 @@ import { Backup } from "../db/entities/Backup.js";
 import { BackupSchedule, BackupFrequency } from "../db/entities/BackupSchedule.js";
 import { config } from "../../config.js";
 import { dataRoot } from "./paths.js";
-import { bootCron } from "./cron.js";
+import { bootCron, resetSchedulesAfterRestore, stopCron } from "./cron.js";
 import {
   deliverArchive,
   deliverBackupToDestinations,
@@ -830,6 +830,9 @@ export async function restoreFromBackup(id: string): Promise<{
       retentionTask.stop();
       retentionTask = null;
     }
+    // Same reasoning for the routine heartbeat: it polls every 30s and would
+    // otherwise keep firing — and starting runs — across the wipe window.
+    stopCron();
     await AppDataSource.destroy();
 
     // Last look before the point of no return. The checks above ran before the
@@ -854,6 +857,12 @@ export async function restoreFromBackup(id: string): Promise<{
     // taken). Stitch every zip in `Backup/` back into the `backups` table so
     // the History view reflects what's actually on disk.
     await reconcileBackupHistory();
+
+    // Restored routines carry the `nextRunAt` frozen when the archive was
+    // written — by definition in the past — so re-anchor every schedule to a
+    // future slot before the heartbeat comes back, or the first tick fires the
+    // whole company at once.
+    await resetSchedulesAfterRestore();
 
     // Rebuild in-memory schedules from the restored DB rows.
     await bootCron();

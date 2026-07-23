@@ -6,8 +6,10 @@ import {
   Clock,
   Copy,
   Globe,
+  History,
   Pause,
   Play,
+  RefreshCw,
   ShieldCheck,
   Timer,
   Trash2,
@@ -16,6 +18,7 @@ import {
 import {
   AIModel,
   api,
+  CatchUpPolicy,
   Company,
   Routine,
   RoutineWithMeta,
@@ -39,6 +42,7 @@ import {
   RunLogPane,
   RunStatusChip,
   formatDuration,
+  overdueFor,
   timeAgo,
   timeUntil,
 } from "../components/routines/RunViews";
@@ -182,9 +186,18 @@ export default function RoutineDetail({ company }: { company: Company }) {
             {routine.enabled && routine.nextRunAt && (
               <>
                 <span aria-hidden="true">·</span>
-                <span title={new Date(routine.nextRunAt).toLocaleString()}>
-                  next {timeUntil(routine.nextRunAt)}
-                </span>
+                {overdueFor(routine.nextRunAt) ? (
+                  <span
+                    className="text-amber-600 dark:text-amber-400"
+                    title={new Date(routine.nextRunAt).toLocaleString()}
+                  >
+                    overdue by {overdueFor(routine.nextRunAt)}
+                  </span>
+                ) : (
+                  <span title={new Date(routine.nextRunAt).toLocaleString()}>
+                    next {timeUntil(routine.nextRunAt)}
+                  </span>
+                )}
               </>
             )}
           </div>
@@ -373,6 +386,13 @@ function OverviewTab({
           <Row icon={<Clock size={14} />} label="Next run">
             {!routine.enabled ? (
               <span className="text-slate-400 dark:text-slate-500">Paused</span>
+            ) : routine.nextRunAt && overdueFor(routine.nextRunAt) ? (
+              <span
+                className="text-amber-600 dark:text-amber-400"
+                title={new Date(routine.nextRunAt).toLocaleString()}
+              >
+                Overdue by {overdueFor(routine.nextRunAt)}
+              </span>
             ) : routine.nextRunAt ? (
               <span title={new Date(routine.nextRunAt).toLocaleString()}>
                 {new Date(routine.nextRunAt).toLocaleString()} ({timeUntil(routine.nextRunAt)})
@@ -404,6 +424,18 @@ function OverviewTab({
               : routine.browserEnabledOverride === false
                 ? "Forced off for this routine"
                 : "Inherits the employee setting"}
+          </Row>
+          <Row icon={<History size={14} />} label="Catch-up">
+            {routine.catchUpPolicy === "skip"
+              ? "Skips a catch-up that is already late"
+              : "Fires once after downtime"}
+          </Row>
+          <Row icon={<RefreshCw size={14} />} label="Retries">
+            {(routine.maxAttempts ?? 1) <= 1
+              ? "Off"
+              : `Up to ${routine.maxAttempts} attempts, from ${formatTimeout(
+                  routine.retryBackoffSec ?? 60,
+                )}`}
           </Row>
           <Row icon={<Webhook size={14} />} label="Webhook">
             {routine.webhookEnabled ? "Enabled" : "Off"}
@@ -492,6 +524,19 @@ function formatTimeout(sec: number): string {
   if (sec % 3600 === 0) return `${sec / 3600}h`;
   if (sec % 60 === 0) return `${sec / 60}m`;
   return `${sec}s`;
+}
+
+/**
+ * The upper edge of each retry's jitter band, so the operator sees what
+ * "backoff 60s, 3 attempts" actually costs in wall-clock before saving. The
+ * real delay is uniform in [0, this), and the server caps it at 6 hours.
+ */
+function backoffPreview(baseSec: number, attempts: number): string {
+  const steps: string[] = [];
+  for (let i = 0; i < Math.max(0, attempts - 1) && i < 4; i += 1) {
+    steps.push(formatTimeout(Math.min(6 * 3600, baseSec * 2 ** i)));
+  }
+  return steps.length ? `up to ${steps.join(", then ")}` : "no retries";
 }
 
 // ─────────────────────────────── Brief ──────────────────────────────────
@@ -662,6 +707,24 @@ function RunsTab({
                         exit {r.exitCode}
                       </span>
                     )}
+                    {(r.attempt ?? 1) > 1 && (
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                        attempt {r.attempt}
+                      </span>
+                    )}
+                    {r.retryAt && (
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                        retry {timeUntil(r.retryAt)}
+                      </span>
+                    )}
+                    {(r.missedSlots ?? 0) > 0 && (
+                      <span
+                        className="text-[10px] text-amber-600 dark:text-amber-400"
+                        title="Scheduled occurrences missed while the server was unavailable"
+                      >
+                        +{r.missedSlots} missed
+                      </span>
+                    )}
                   </div>
                   <div className="text-slate-700 dark:text-slate-200">
                     {new Date(r.startedAt).toLocaleString()}
@@ -683,9 +746,11 @@ function RunsTab({
       </div>
       <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
         <div className="text-xs text-slate-500 dark:text-slate-400">
-          {activeRun && (activeRun.status === "failed" || activeRun.status === "timeout")
-            ? "This run didn't finish cleanly. Retry to run the routine again now."
-            : "Showing the 50 most recent runs."}
+          {activeRun?.status === "interrupted"
+            ? "The server stopped while this run was executing. Retry to run it again now."
+            : activeRun && (activeRun.status === "failed" || activeRun.status === "timeout")
+              ? "This run didn't finish cleanly. Retry to run the routine again now."
+              : "Showing the 50 most recent runs."}
         </div>
         <Button variant="secondary" onClick={onRetry}>
           <Play size={14} /> Run now
@@ -722,6 +787,12 @@ function SettingsTab({
   const [modelId, setModelId] = React.useState(routine.modelId ?? "");
   const [models, setModels] = React.useState<AIModel[] | null>(null);
   // Tri-state: "inherit" reads as null, "on"/"off" force a boolean override.
+  const [catchUpPolicy, setCatchUpPolicy] = React.useState<CatchUpPolicy>(
+    routine.catchUpPolicy ?? "once",
+  );
+  const [maxAttempts, setMaxAttempts] = React.useState(routine.maxAttempts ?? 1);
+  const [retryBackoffSec, setRetryBackoffSec] = React.useState(routine.retryBackoffSec ?? 60);
+  const [retryOnTimeout, setRetryOnTimeout] = React.useState(routine.retryOnTimeout ?? false);
   const [browserOverride, setBrowserOverride] = React.useState<"inherit" | "on" | "off">(
     routine.browserEnabledOverride === true
       ? "on"
@@ -771,6 +842,10 @@ function SettingsTab({
         modelId: modelId || null,
         browserEnabledOverride:
           browserOverride === "on" ? true : browserOverride === "off" ? false : null,
+        catchUpPolicy,
+        maxAttempts,
+        retryBackoffSec,
+        retryOnTimeout,
       });
       await onSaved();
       toast("Routine saved", "success");
@@ -919,6 +994,95 @@ function SettingsTab({
             <div className="text-xs text-slate-500 dark:text-slate-400">
               Inherit uses the employee&apos;s Browser access setting. An override applies
               only to this routine&apos;s runs.
+            </div>
+          </div>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardBody className="flex flex-col gap-4">
+          <SectionLabel>Reliability</SectionLabel>
+
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+              After downtime
+            </span>
+            <div className="flex gap-1 rounded-md border border-slate-200 p-0.5 text-xs dark:border-slate-700">
+              {(
+                [
+                  ["once", "Run once"],
+                  ["skip", "Skip"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setCatchUpPolicy(value)}
+                  className={
+                    "flex-1 rounded px-2 py-1 transition " +
+                    (catchUpPolicy === value
+                      ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
+                      : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800")
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              A routine fires once after an outage, never once per missed slot. Skip
+              suppresses that catch-up run when the slot is already more than a minute late
+              — for work that&apos;s only useful on time.
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <Input
+              label="Attempts"
+              type="number"
+              min={1}
+              max={5}
+              value={String(maxAttempts)}
+              onChange={(e) => setMaxAttempts(Math.min(5, Math.max(1, Number(e.target.value) || 1)))}
+            />
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              Counting the first. 1 means no retry. A retry re-runs the whole brief, so only
+              raise this on routines whose actions are safe to repeat — an interrupted run may
+              already have sent the email.
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <Input
+              label="Retry backoff (seconds)"
+              type="number"
+              min={10}
+              max={21600}
+              disabled={maxAttempts <= 1}
+              value={String(retryBackoffSec)}
+              onChange={(e) =>
+                setRetryBackoffSec(Math.max(10, Number(e.target.value) || 60))
+              }
+            />
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              {maxAttempts <= 1
+                ? "Inert while attempts is 1."
+                : `Doubles each attempt with jitter — roughly ${backoffPreview(retryBackoffSec, maxAttempts)}.`}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+              <input
+                type="checkbox"
+                disabled={maxAttempts <= 1}
+                checked={retryOnTimeout}
+                onChange={(e) => setRetryOnTimeout(e.target.checked)}
+              />
+              Retry runs that timed out
+            </label>
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              Off by default: a timed-out run re-burns its full time budget on the retry.
             </div>
           </div>
         </CardBody>

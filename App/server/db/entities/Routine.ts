@@ -1,8 +1,17 @@
 import { dateTimeColumnType } from "./columnTypes.js";
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
+/**
+ * See {@link Routine.catchUpPolicy}. A string union rather than a boolean so a
+ * future replay-every-missed-slot policy can be added without a column change.
+ */
+export type CatchUpPolicy = "once" | "skip";
+
 @Entity("routines")
 @Index(["employeeId", "slug"], { unique: true })
+// The heartbeat's hot query — `enabled = true AND nextRunAt <= now`, every 30
+// seconds. Both sibling schedulers already index their equivalent column.
+@Index(["enabled", "nextRunAt"])
 export class Routine {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -106,6 +115,52 @@ export class Routine {
    */
   @Column({ type: "boolean", nullable: true })
   browserEnabledOverride!: boolean | null;
+
+  /**
+   * What to do when the server was unavailable across one or more of this
+   * routine's scheduled slots.
+   *
+   *   * `"once"` (default) — fire exactly one catch-up run however many slots
+   *     were missed, and record the count on the Run. This is the historical
+   *     behaviour; only the count is new.
+   *   * `"skip"` — don't fire at all when the due slot is already more than a
+   *     minute stale; just re-anchor to the next future slot. For work that is
+   *     only meaningful on time — a 09:00 standup digest arriving at 16:00 is
+   *     noise, not a catch-up.
+   *
+   * Missed slots are never replayed one-for-one. A routine produces at most
+   * one scheduled run per heartbeat pass, whatever the outage length.
+   */
+  @Column({ type: "varchar", default: "once" })
+  catchUpPolicy!: CatchUpPolicy;
+
+  /**
+   * Total attempts for one scheduled occurrence, counting the first. `1`
+   * (default) means no retry — the historical behaviour. Capped at 5 by the
+   * API.
+   *
+   * Retries are **at-least-once** for side effects: a run that sent an email
+   * and then died will send it again. Only raise this on routines whose work
+   * is safe to repeat.
+   */
+  @Column({ type: "integer", default: 1 })
+  maxAttempts!: number;
+
+  /**
+   * Base for full-jitter exponential backoff between attempts: the wait before
+   * attempt N is a random slice of `retryBackoffSec * 2^(N-1)`, capped at six
+   * hours. Inert while `maxAttempts` is 1.
+   */
+  @Column({ type: "integer", default: 60 })
+  retryBackoffSec!: number;
+
+  /**
+   * Whether a `timeout` is retryable. Separate from failed/interrupted because
+   * retrying a timeout re-burns the routine's whole `timeoutSec` of model
+   * spend — up to six hours — so it is opted into on its own.
+   */
+  @Column({ type: "boolean", default: false })
+  retryOnTimeout!: boolean;
 
   @CreateDateColumn()
   createdAt!: Date;

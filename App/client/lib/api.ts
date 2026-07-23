@@ -332,8 +332,25 @@ export type Routine = {
    *   * `false` — force-disable browser access for this routine only.
    */
   browserEnabledOverride?: boolean | null;
+  /**
+   * What to do about slots missed while the server was unavailable.
+   *   * `"once"` (default) — one catch-up run however many were missed.
+   *   * `"skip"` — decline a catch-up that is already more than a minute late.
+   * Missed slots are never replayed one-for-one.
+   */
+  catchUpPolicy?: CatchUpPolicy;
+  /** Total attempts per occurrence, counting the first. 1 means no retry. */
+  maxAttempts?: number;
+  /** Base for full-jitter exponential backoff. Inert while `maxAttempts` is 1. */
+  retryBackoffSec?: number;
+  /**
+   * Whether a `timeout` is retryable. Off by default — a retry re-burns the
+   * routine's whole time budget.
+   */
+  retryOnTimeout?: boolean;
   tags: CompanyTag[];
 };
+export type CatchUpPolicy = "once" | "skip";
 
 /**
  * The slice of an AI employee a company-wide list shows as "assigned to" —
@@ -396,7 +413,15 @@ export type Approval = {
   routine: { id: string; name: string; slug: string } | null;
   employee: { id: string; name: string; slug: string } | null;
 };
-export type RunStatus = "running" | "completed" | "failed" | "skipped" | "timeout";
+export type RunStatus =
+  | "running"
+  | "completed"
+  | "failed"
+  | "skipped"
+  | "timeout"
+  /** The server stopped while this run was executing. */
+  | "interrupted";
+export type RunTrigger = "schedule" | "manual" | "webhook" | "approval" | "retry";
 export type Run = {
   id: string;
   routineId: string;
@@ -405,6 +430,13 @@ export type Run = {
   status: RunStatus;
   exitCode: number | null;
   createdAt: string;
+  triggerKind?: RunTrigger;
+  /** 1-based attempt within a retry chain. */
+  attempt?: number;
+  /** When the scheduler will start the next attempt. Null when none is owed. */
+  retryAt?: string | null;
+  /** Occurrences missed during downtime that this run stands in for. */
+  missedSlots?: number;
 };
 export type RunLog = {
   content: string;
@@ -415,6 +447,8 @@ export type RunLog = {
   exitCode?: number | null;
   startedAt?: string;
   finishedAt?: string | null;
+  retryAt?: string | null;
+  attempt?: number;
 };
 export type Provider = "anthropic" | "openai" | "custom";
 export type AuthMode = "apikey" | "customEndpoint";
@@ -579,6 +613,7 @@ export type UsageBucket = {
   failed: number;
   skipped: number;
   timeout: number;
+  interrupted: number;
   durationMs: number;
 };
 export type UsageEmployeeRow = UsageBucket & {

@@ -62,6 +62,11 @@ jobs:
         if: steps.exists.outputs.ready == 'true'
         run: npm run typecheck
 
+      # Only App has a test script; Home would fail on a missing one.
+      - name: Test
+        if: steps.exists.outputs.ready == 'true' && matrix.project == 'App'
+        run: npm test
+
   fresh-boot:
     name: Fresh-DB boot (App)
     runs-on: ubuntu-latest

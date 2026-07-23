@@ -442,7 +442,7 @@ async function executeRoutineApproval(approval: Approval): Promise<void> {
   if (!routine) throw new Error("Routine no longer exists");
   // Fire-and-forget — the routine runner persists progress to the Run
   // table. The HTTP caller doesn't wait for completion.
-  runRoutine(routine).catch((err) => {
+  runRoutine(routine, { triggerKind: "approval" }).catch((err) => {
     // eslint-disable-next-line no-console
     console.error(`[approvals] routine ${routine.id} failed post-approval:`, err);
   });

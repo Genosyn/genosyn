@@ -111,6 +111,31 @@ export function Routines() {
             ),
           },
           {
+            term: "catchUpPolicy",
+            def: (
+              <>
+                What to do about slots missed while the server was down.{" "}
+                <Strong>Run once</Strong> (the default) fires a single catch-up
+                run; <Strong>Skip</Strong> declines it when the slot is already
+                more than a minute late. See{" "}
+                <DocLink to="/docs/routines#recovery">
+                  Downtime and recovery
+                </DocLink>
+                .
+              </>
+            ),
+          },
+          {
+            term: "maxAttempts",
+            def: (
+              <>
+                Total attempts per scheduled occurrence, counting the first.{" "}
+                <Strong>1</Strong> by default — no retry. Paired with{" "}
+                <Code>retryBackoffSec</Code> and <Code>retryOnTimeout</Code>.
+              </>
+            ),
+          },
+          {
             term: "browserEnabledOverride",
             def: (
               <>
@@ -268,23 +293,24 @@ Verify the three results, resolve any disagreement, then post one concise brief 
       </P>
       <UL>
         <LI>
-          <Strong>Status</Strong> moves <Code>queued → running → succeeded</Code>{" "}
-          or <Code>failed</Code>.
+          <Strong>Status</Strong> starts at <Code>running</Code> and ends at one
+          of <Code>completed</Code>, <Code>failed</Code>, <Code>skipped</Code>{" "}
+          (no model was connected), <Code>timeout</Code>, or{" "}
+          <Code>interrupted</Code> (the server stopped mid-run).
         </LI>
         <LI>
-          The Run detail view streams the transcript over WebSocket while
-          it&apos;s running, then renders the full transcript when it&apos;s
-          done.
+          The Run detail view tails the transcript while it&apos;s running, then
+          renders the full transcript when it&apos;s done.
         </LI>
         <LI>
           Manual Runs from the &quot;Run now&quot; button live in the same
           table as scheduled Runs.
         </LI>
         <LI>
-          <Strong>Retry</Strong> a Run that <Code>failed</Code> or{" "}
-          <Code>timed out</Code> straight from its run history. It re-triggers
-          the routine immediately, outside the schedule, and opens the live log
-          for the new Run.
+          <Strong>Retry</Strong> a Run that <Code>failed</Code>,{" "}
+          <Code>timed out</Code>, or was <Code>interrupted</Code> straight from
+          its run history. It re-triggers the routine immediately, outside the
+          schedule, and opens the live log for the new Run.
         </LI>
       </UL>
       <P>
@@ -299,6 +325,88 @@ Verify the three results, resolve any disagreement, then post one concise brief 
         team.
       </P>
 
+      <H2 id="recovery">Downtime and recovery</H2>
+      <P>
+        Servers restart, containers get rescheduled, laptops go to sleep. Two
+        things can go wrong, and Genosyn handles them differently.
+      </P>
+
+      <H3 id="crash-mid-run">The server stopped mid-run</H3>
+      <P>
+        A Run that was executing when the process died can&apos;t report its own
+        outcome — nobody was left to write the row. The scheduler notices on its
+        next heartbeat and marks it <Code>interrupted</Code>, appending a line to
+        the transcript saying so. Nothing is known about work the employee did
+        after the last captured line, which is exactly why the status is its own
+        word and not <Code>failed</Code>.
+      </P>
+      <P>
+        The same pass releases the <Strong>workload lease</Strong> the dead run
+        was holding. That matters more than the status: without it the AI
+        employee reads as busy and refuses chat until the lease expires — up to
+        an hour on the default timeout.
+      </P>
+
+      <H3 id="missed-slots">The server was off across scheduled slots</H3>
+      <P>
+        A routine fires <Strong>once</Strong> when the server comes back, never
+        once per missed slot. An hourly digest that was down overnight produces
+        one run, not twelve. The catch-up run records how many occurrences it
+        stands in for — you&apos;ll see <Code>+11 missed</Code> on the run row —
+        and its brief tells the employee to cover the whole period rather than
+        just the last interval.
+      </P>
+      <P>
+        Set <Strong>After downtime</Strong> to <Strong>Skip</Strong> in the
+        routine&apos;s Settings when a late run is worse than no run — a 09:00
+        standup digest arriving at 16:00 is noise. The skipped occurrences are
+        recorded in the employee&apos;s Journal so the gap is still visible.
+      </P>
+      <Callout kind="info" title="Missed slots are never replayed one-for-one.">
+        There is no setting that re-runs every occurrence you missed. A week of
+        downtime on a 15-minute routine would be 672 runs and a very large model
+        bill, so the ceiling is deliberately one catch-up run per routine.
+      </Callout>
+
+      <H3 id="retries">Retries</H3>
+      <P>
+        <Strong>Off by default.</Strong> Raise <Strong>Attempts</Strong> above 1
+        in the routine&apos;s Settings and a run that <Code>failed</Code> or was{" "}
+        <Code>interrupted</Code> is re-attempted automatically, up to 5 attempts,
+        waiting a randomized, doubling interval between each (from{" "}
+        <Strong>Retry backoff</Strong>, capped at six hours). Timeouts are opted
+        in separately, because retrying one re-burns the routine&apos;s whole
+        time budget.
+      </P>
+      <Callout kind="warn" title="Retries are at-least-once.">
+        An interrupted run may already have sent the email, posted the update, or
+        moved the money before the process died — Genosyn can&apos;t know. The
+        retry will do it again. Only raise Attempts on routines whose actions are
+        safe to repeat.
+      </Callout>
+      <UL>
+        <LI>
+          Only <Strong>scheduled</Strong> runs retry. A manual &quot;Run
+          now,&quot; a webhook, or an approved run had someone present who saw the
+          outcome, so nothing respawns behind their back.
+        </LI>
+        <LI>
+          A run with a retry pending stays out of the Home{" "}
+          <Strong>Failed routines</Strong> panel until its last attempt is spent
+          — it isn&apos;t something to act on yet. It shows under{" "}
+          <Strong>Runs waiting to retry</Strong> in System Health instead.
+        </LI>
+        <LI>
+          <Strong>Cancel retry</Strong> from the run&apos;s log view stops the
+          chain without pausing the whole routine — the escape hatch when
+          you&apos;ve decided to fix the failure by hand.
+        </LI>
+        <LI>
+          These are operator settings. AI employees managing their own routines
+          through <Code>update_routine</Code> cannot change them.
+        </LI>
+      </UL>
+
       <H2 id="system-health">System Health</H2>
       <P>
         <Strong>Settings → System Health</Strong> (also a card on the Home page)
@@ -307,9 +415,17 @@ Verify the three results, resolve any disagreement, then post one concise brief 
       </P>
       <UL>
         <LI>
-          <Strong>Failed</Strong> and <Strong>stuck</Strong> runs — failures,
-          timeouts, and runs still <Code>running</Code> long after their timeout
-          (orphaned by a restart).
+          <Strong>Failed</Strong> runs — failures, timeouts, and restarts that
+          interrupted a run, excluding anything already scheduled for a retry.
+        </LI>
+        <LI>
+          <Strong>Runs waiting to retry</Strong> — an in-progress retry chain,
+          so it&apos;s visible rather than silent. Nothing to do.
+        </LI>
+        <LI>
+          <Strong>Stuck</Strong> runs — still <Code>running</Code> after 8 hours.
+          Crash recovery clears orphans within a heartbeat now, so anything here
+          means the scheduler itself isn&apos;t running.
         </LI>
         <LI>
           <Strong>Skipped runs</Strong> and{" "}

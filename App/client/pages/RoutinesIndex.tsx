@@ -8,7 +8,13 @@ import { Button } from "../components/ui/Button";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
-import { RunLiveModal, RunStatusChip, timeAgo, timeUntil } from "../components/routines/RunViews";
+import {
+  RunLiveModal,
+  RunStatusChip,
+  overdueFor,
+  timeAgo,
+  timeUntil,
+} from "../components/routines/RunViews";
 import { cronHuman } from "../lib/cron";
 import { RoutinesContext } from "./RoutinesLayout";
 import { TagChips, TagFilterBar } from "../components/TagPicker";
@@ -27,14 +33,20 @@ type Health = "all" | "active" | "paused" | "attention";
 
 /**
  * Anything an operator would want to notice: a run that didn't finish
- * cleanly, or an enabled routine whose schedule will never fire. The latter
- * happens when a cron expression passes `node-cron`'s validation on save but
- * `cron-parser` can't compute a next occurrence from it, leaving `nextRunAt`
- * null — the routine looks fine and silently never runs.
+ * cleanly, an enabled routine whose schedule will never fire, or one whose
+ * next run came due a while ago and still hasn't happened.
+ *
+ * "Never fires" happens when a cron expression passes `node-cron`'s validation
+ * on save but `cron-parser` can't compute a next occurrence from it, leaving
+ * `nextRunAt` null — the routine looks fine and silently never runs. Overdue
+ * usually means the server was down, or the scheduler isn't running.
  */
 function needsAttention(r: RoutineWithMeta): boolean {
-  if (r.lastRun?.status === "failed" || r.lastRun?.status === "timeout") return true;
-  return r.enabled && r.nextRunAt === null;
+  const status = r.lastRun?.status;
+  if (status === "failed" || status === "timeout" || status === "interrupted") return true;
+  if (!r.enabled) return false;
+  if (r.nextRunAt === null) return true;
+  return overdueFor(r.nextRunAt) !== null;
 }
 
 export default function RoutinesIndex({ company }: { company: Company }) {
@@ -321,6 +333,13 @@ function RoutineRow({
             </span>
           ) : !r.enabled ? (
             "paused"
+          ) : r.nextRunAt && overdueFor(r.nextRunAt) ? (
+            <span
+              className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400"
+              title={new Date(r.nextRunAt).toLocaleString()}
+            >
+              <AlertTriangle size={10} /> overdue by {overdueFor(r.nextRunAt)}
+            </span>
           ) : r.nextRunAt ? (
             <span title={new Date(r.nextRunAt).toLocaleString()}>
               next {timeUntil(r.nextRunAt)}

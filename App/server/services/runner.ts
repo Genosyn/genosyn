@@ -1,12 +1,14 @@
 import { AppDataSource } from "../db/datasource.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
+import type { RunTrigger } from "../db/entities/Run.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Skill } from "../db/entities/Skill.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { employeeDir, ensureDir } from "./paths.js";
 import { nextRunFor } from "./cron.js";
+import { backoffDelayMs, shouldRetry } from "./cronMath.js";
 import { resolveRoutineModel } from "./models.js";
 import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
@@ -72,10 +74,25 @@ export function getLiveRunSnapshot(
  * full completion, returns the final Run row. Manual UI runs use
  * {@link startRoutineRun} so the request can return before execution finishes.
  */
-export async function runRoutine(routine: Routine): Promise<Run> {
-  const { completion } = await startRoutineRun(routine);
+export async function runRoutine(routine: Routine, opts: StartRunOptions = {}): Promise<Run> {
+  const { completion } = await startRoutineRun(routine, opts);
   return completion;
 }
+
+/**
+ * Provenance for a run. Defaults deliberately describe a human-triggered run
+ * (`manual`, first attempt, nothing missed), so the "Run now" path needs no
+ * argument and is correctly excluded from automatic retry — someone was there
+ * and saw what happened.
+ */
+export type StartRunOptions = {
+  triggerKind?: RunTrigger;
+  /** 1-based attempt within a retry chain. */
+  attempt?: number;
+  parentRunId?: string | null;
+  /** Occurrences this run is catching up for. See `Run.missedSlots`. */
+  missedSlots?: number;
+};
 
 /**
  * Begin a run and return the saved Run row immediately (status `running`),
@@ -86,9 +103,9 @@ export async function runRoutine(routine: Routine): Promise<Run> {
  */
 export async function startRoutineRun(
   routine: Routine,
+  opts: StartRunOptions = {},
 ): Promise<{ run: Run; completion: Promise<Run> }> {
   const runRepo = AppDataSource.getRepository(Run);
-  const routineRepo = AppDataSource.getRepository(Routine);
   const empRepo = AppDataSource.getRepository(AIEmployee);
   const coRepo = AppDataSource.getRepository(Company);
   const skillRepo = AppDataSource.getRepository(Skill);
@@ -111,11 +128,16 @@ export async function startRoutineRun(
     : null;
 
   const now = new Date();
+  const missedSlots = opts.missedSlots ?? 0;
   const run = runRepo.create({
     routineId: routine.id,
     startedAt: now,
     status: "running",
     logContent: "",
+    triggerKind: opts.triggerKind ?? "manual",
+    attempt: opts.attempt ?? 1,
+    parentRunId: opts.parentRunId ?? null,
+    missedSlots,
   });
   let saved: Run;
   try {
@@ -140,6 +162,13 @@ export async function startRoutineRun(
           : "not connected"
       }`,
       `cron=${routine.cronExpr}`,
+      `trigger=${saved.triggerKind}` +
+        (saved.attempt > 1
+          ? ` (attempt ${saved.attempt} of ${routine.maxAttempts}, retry of ${saved.parentRunId})`
+          : ""),
+      ...(missedSlots > 0
+        ? [`missed=${missedSlots} scheduled occurrence(s) while the server was unavailable`]
+        : []),
       "",
     ].join("\n") + "\n",
   );
@@ -157,7 +186,7 @@ export async function startRoutineRun(
         saved.status = "skipped";
         saved.logContent = log.value();
         await runRepo.save(saved);
-        await touchRoutine(routine, saved.finishedAt, routineRepo);
+        await settleAfterRun(routine.id, saved.finishedAt);
         return saved;
       }
 
@@ -172,7 +201,7 @@ export async function startRoutineRun(
         codeReposContext,
         financeContext,
       });
-      const userMessage = composeRoutineMessage(routine);
+      const userMessage = composeRoutineMessage(routine, missedSlots);
 
       const cwd = employeeDir(co.slug, emp.slug);
       ensureDir(cwd);
@@ -267,19 +296,26 @@ export async function startRoutineRun(
         saved.status = "completed";
         saved.exitCode = 0;
       }
+      // Before log.value(): stampRetry writes its own transcript line.
+      stampRetry(saved, routine, log);
       saved.logContent = log.value();
       await runRepo.save(saved);
-      await touchRoutine(routine, saved.finishedAt, routineRepo);
-      await writeJournalForRun(emp.id, routine, saved);
+      // Deliberately not inside the try that owns the status: a throw from
+      // either of these used to fall into the catch below, which unconditionally
+      // rewrote an already-persisted `completed` run to `failed`. That matters
+      // far more now that `failed` can mean "retry this", i.e. spend money.
+      await settleAfterRun(routine.id, saved.finishedAt);
+      await journalQuietly(emp.id, routine, saved);
       return saved;
     } catch (err) {
       log.line(`\n[error] ${err instanceof Error ? err.message : String(err)}`);
       saved.finishedAt = new Date();
       saved.status = "failed";
       saved.exitCode = null;
+      stampRetry(saved, routine, log);
       saved.logContent = log.value();
       await runRepo.save(saved);
-      await touchRoutine(routine, saved.finishedAt, routineRepo);
+      await settleAfterRun(routine.id, saved.finishedAt);
       return saved;
     } finally {
       if (mcpToken) revokeMcpToken(mcpToken);
@@ -381,7 +417,9 @@ async function writeJournalForRun(employeeId: string, routine: Routine, run: Run
           ? "was skipped"
           : run.status === "timeout"
             ? "timed out"
-            : "finished";
+            : run.status === "interrupted"
+              ? "was interrupted"
+              : "finished";
   const title = `Routine "${routine.name}" ${verb}`;
   const bodyLines: string[] = [];
   if (run.exitCode !== null) bodyLines.push(`exit code: ${run.exitCode}`);
@@ -397,19 +435,70 @@ async function writeJournalForRun(employeeId: string, routine: Routine, run: Run
   await journalRepo.save(entry);
 }
 
-async function touchRoutine(
-  routine: Routine,
-  at: Date | null,
-  repo: ReturnType<typeof AppDataSource.getRepository<Routine>>,
-) {
-  routine.lastRunAt = at;
+/**
+ * Record that a run finished and re-anchor the schedule.
+ *
+ * Re-reads the routine rather than saving back the entity captured when the
+ * run started: with runs allowed to last six hours, saving the stale copy
+ * silently resurrects a routine a human disabled mid-run — exactly what an
+ * operator does while reacting to a problem. Writing only the two columns this
+ * owns also keeps a concurrent settings edit from being clobbered.
+ */
+async function touchRoutine(routineId: string, at: Date | null): Promise<void> {
+  const repo = AppDataSource.getRepository(Routine);
+  const fresh = await repo.findOneBy({ id: routineId });
+  if (!fresh) return;
   // Recompute nextRunAt from the moment the run finished. Collapses any missed
   // slots that elapsed during a long-running invocation into a single future
   // tick, so the heartbeat doesn't immediately refire the stale slot.
-  if (routine.enabled) {
-    routine.nextRunAt = nextRunFor(routine.cronExpr, at ?? new Date());
+  const next = fresh.enabled ? nextRunFor(fresh.cronExpr, at ?? new Date()) : fresh.nextRunAt;
+  await repo.update({ id: routineId }, { lastRunAt: at, nextRunAt: next });
+}
+
+/**
+ * Post-run bookkeeping that must never be able to change the run's verdict.
+ * Failures here are logged and swallowed — the run already happened.
+ */
+async function settleAfterRun(routineId: string, at: Date | null): Promise<void> {
+  try {
+    await touchRoutine(routineId, at);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(`[runner] failed to re-anchor routine ${routineId}:`, err);
   }
-  await repo.save(routine);
+}
+
+async function journalQuietly(employeeId: string, routine: Routine, run: Run): Promise<void> {
+  try {
+    await writeJournalForRun(employeeId, routine, run);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(`[runner] failed to journal run ${run.id}:`, err);
+  }
+}
+
+/**
+ * Schedule the next attempt on the run row itself, in the same save as its
+ * terminal status, so an owed retry survives a crash. Writes a transcript line
+ * so the reason a run reappears an hour later is legible from the log alone.
+ */
+function stampRetry(run: Run, routine: Routine, log: LogBuffer): void {
+  if (
+    !shouldRetry({
+      status: run.status,
+      triggerKind: run.triggerKind,
+      attempt: run.attempt,
+      maxAttempts: routine.maxAttempts,
+      retryOnTimeout: routine.retryOnTimeout,
+    })
+  ) {
+    return;
+  }
+  const delay = backoffDelayMs(run.attempt, { baseMs: routine.retryBackoffSec * 1000 });
+  run.retryAt = new Date(Date.now() + delay);
+  log.line(
+    `\n[retry] attempt ${run.attempt + 1} of ${routine.maxAttempts} scheduled in ~${Math.round(delay / 1000)}s`,
+  );
 }
 
 /**
@@ -443,7 +532,7 @@ function composeSystemPrompt(args: {
   return parts.join("\n");
 }
 
-function composeRoutineMessage(routine: Routine): string {
+function composeRoutineMessage(routine: Routine, missedSlots: number): string {
   return [
     `## Routine: ${routine.name}`,
     "",
@@ -451,6 +540,16 @@ function composeRoutineMessage(routine: Routine): string {
     "",
     "---",
     "Run this routine now. Produce the expected output.",
+    // Without this a catch-up digest silently reports on the wrong window —
+    // the last interval rather than the whole period nobody covered.
+    ...(missedSlots > 0
+      ? [
+          "",
+          `This run is catching up: ${missedSlots} scheduled occurrence(s) were missed while ` +
+            "the server was unavailable. Cover the whole period since the last run rather than " +
+            "only the most recent interval, and say so in your output.",
+        ]
+      : []),
   ].join("\n");
 }
 

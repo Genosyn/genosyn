@@ -84,7 +84,7 @@ webhooksRouter.post("/r/:routineId/:token", async (req, res) => {
   }
 
   // Fire and forget. The Run row is persisted by the runner regardless.
-  runRoutine(routine).catch((err) => {
+  runRoutine(routine, { triggerKind: "webhook" }).catch((err) => {
     // eslint-disable-next-line no-console
     console.error(`[webhook] routine ${routine.id} failed:`, err);
   });

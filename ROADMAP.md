@@ -256,6 +256,22 @@ export const config = {
       first-operator detection, same-host browser request protection, and
       runtime propagation to OAuth, WebAuthn, email links, push, and OpenAPI
 
+### M29 — Routine crash recovery & retries ✅
+
+- [x] Every heartbeat reconciles Runs orphaned by a crash — a new `interrupted`
+      status, a marker in the transcript, and the stranded `WorkloadLease`
+      cleared so the employee stops reading as busy
+- [x] Missed occurrences recorded on the catch-up Run (`Run.missedSlots`) and
+      folded into its brief; per-routine catch-up policy (`once` — the existing
+      default — or `skip` for work that is only useful on time)
+- [x] Per-routine bounded retries with full-jitter exponential backoff, off by
+      default, opt-in separately for timeouts, cancellable per run
+- [x] Fair capped dispatch (oldest slot first) instead of an unbounded burst,
+      and lease contention re-arms the schedule instead of dropping the
+      occurrence silently
+- [x] Cron expressions validated against the scheduler that actually runs them,
+      so a routine can no longer save with a 200 and never fire
+
 ### M3 — AI Employees + Soul ✅
 
 - [x] Create employee with template selection

@@ -28,10 +28,27 @@ const Run = z
   .object({
     id: z.string().uuid(),
     routineId: z.string().uuid(),
-    status: z.enum(["running", "completed", "failed", "skipped", "timeout"]),
+    status: z.enum(["running", "completed", "failed", "skipped", "timeout", "interrupted"]),
     exitCode: z.number().nullable(),
     startedAt: z.string().datetime(),
     finishedAt: z.string().datetime().nullable(),
+    triggerKind: z
+      .enum(["schedule", "manual", "webhook", "approval", "retry"])
+      .describe("What started this run. Only `schedule` and `retry` runs are ever retried."),
+    attempt: z.number().int().describe("1-based attempt number within a retry chain."),
+    parentRunId: z.string().uuid().nullable().describe("The run this one is a retry of."),
+    retryAt: z
+      .string()
+      .datetime()
+      .nullable()
+      .describe("When the scheduler will start the next attempt. Null when none is owed."),
+    missedSlots: z
+      .number()
+      .int()
+      .describe(
+        "Scheduled occurrences that elapsed while the server was unavailable and are " +
+          "collapsed into this catch-up run. 0 normally.",
+      ),
   })
   .openapi("Run");
 
@@ -114,6 +131,33 @@ const RoutineColumns = z.object({
     .describe(
       "Three-valued: null inherits the employee's `browserEnabled`; an explicit " +
         "boolean overrides it for this routine only.",
+    ),
+  catchUpPolicy: z
+    .enum(["once", "skip"])
+    .describe(
+      "What to do about slots missed while the server was down. `once` (default) fires " +
+        "one catch-up run however many were missed; `skip` declines a catch-up that is " +
+        "already more than a minute late. Missed slots are never replayed one-for-one.",
+    ),
+  maxAttempts: z
+    .number()
+    .int()
+    .describe(
+      "Total attempts per scheduled occurrence, counting the first. 1 (default) means no " +
+        "retry. Retries are at-least-once for side effects.",
+    ),
+  retryBackoffSec: z
+    .number()
+    .int()
+    .describe(
+      "Base for full-jitter exponential backoff between attempts, capped at 6 hours. " +
+        "Inert while `maxAttempts` is 1.",
+    ),
+  retryOnTimeout: z
+    .boolean()
+    .describe(
+      "Whether a `timeout` is retryable. Off by default — retrying one re-burns the " +
+        "routine's whole time budget.",
     ),
   createdAt: z.string().datetime(),
 });

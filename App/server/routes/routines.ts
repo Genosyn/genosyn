@@ -19,7 +19,7 @@ import {
 } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { routineTemplate } from "../services/files.js";
-import { registerRoutine } from "../services/cron.js";
+import { nextRunFor, registerRoutine } from "../services/cron.js";
 import { startRoutineRun, getLiveRunSnapshot, RUN_LOG_MAX_BYTES } from "../services/runner.js";
 import { recordAudit } from "../services/audit.js";
 import {
@@ -109,6 +109,9 @@ async function lastRunByRoutine(routineIds: string[]): Promise<Map<string, Run>>
       "run.startedAt",
       "run.finishedAt",
       "run.exitCode",
+      "run.attempt",
+      "run.retryAt",
+      "run.missedSlots",
     ])
     .where("run.routineId IN (:...routineIds)", { routineIds })
     .andWhere(
@@ -178,9 +181,18 @@ routinesRouter.get("/employees/:eid/routines", async (req, res) => {
   res.json(routines.map((routine) => ({ ...routine, tags: tags.get(routine.id) ?? [] })));
 });
 
+// node-cron validates and cron-parser schedules, and the two do not agree —
+// node-cron accepts expressions like "5-1 9 * * *" that cron-parser throws on,
+// which used to produce a routine that saved with a 200 and then never fired.
+// Both checks, so what we accept is exactly what we can schedule.
+const cronExprSchema = z
+  .string()
+  .refine((v) => cron.validate(v), "Invalid cron expression")
+  .refine((v) => nextRunFor(v) !== null, "That cron expression cannot be scheduled");
+
 const createSchema = z.object({
   name: z.string().min(1).max(80),
-  cronExpr: z.string().refine((v) => cron.validate(v), "Invalid cron expression"),
+  cronExpr: cronExprSchema,
   tagIds: z.array(z.string().uuid()).max(20).optional(),
 });
 
@@ -242,10 +254,7 @@ async function loadRoutine(cid: string, rid: string) {
 
 const patchSchema = z.object({
   name: z.string().min(1).max(80).optional(),
-  cronExpr: z
-    .string()
-    .refine((v) => cron.validate(v), "Invalid cron expression")
-    .optional(),
+  cronExpr: cronExprSchema.optional(),
   enabled: z.boolean().optional(),
   timeoutSec: z
     .number()
@@ -260,6 +269,17 @@ const patchSchema = z.object({
   // Three-valued: null inherits the employee's `browserEnabled`; explicit
   // boolean overrides for this routine only.
   browserEnabledOverride: z.boolean().nullable().optional(),
+  // Reliability. Defaults reproduce the historical behaviour exactly: catch up
+  // once after downtime, never retry.
+  catchUpPolicy: z.enum(["once", "skip"]).optional(),
+  maxAttempts: z.number().int().min(1).max(5).optional(),
+  retryBackoffSec: z
+    .number()
+    .int()
+    .min(10)
+    .max(6 * 60 * 60)
+    .optional(),
+  retryOnTimeout: z.boolean().optional(),
 });
 
 routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, res) => {
@@ -290,7 +310,14 @@ routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, re
   if (body.browserEnabledOverride !== undefined) {
     r.browserEnabledOverride = body.browserEnabledOverride;
   }
-  registerRoutine(r);
+  if (body.catchUpPolicy !== undefined) r.catchUpPolicy = body.catchUpPolicy;
+  if (body.maxAttempts !== undefined) r.maxAttempts = body.maxAttempts;
+  if (body.retryBackoffSec !== undefined) r.retryBackoffSec = body.retryBackoffSec;
+  if (body.retryOnTimeout !== undefined) r.retryOnTimeout = body.retryOnTimeout;
+  // Only re-derive the pending fire time when the schedule itself changed —
+  // renaming a routine or nudging its timeout shouldn't throw away the slot it
+  // was already waiting on.
+  if (body.cronExpr !== undefined || body.enabled !== undefined) registerRoutine(r);
   await AppDataSource.getRepository(Routine).save(r);
   await recordAudit({
     companyId: found.co.id,
@@ -423,6 +450,10 @@ routinesRouter.get("/routines/:rid/runs", async (req, res) => {
       "run.status",
       "run.exitCode",
       "run.createdAt",
+      "run.triggerKind",
+      "run.attempt",
+      "run.retryAt",
+      "run.missedSlots",
     ])
     .where("run.routineId = :rid", { rid: found.routine.id })
     .orderBy("run.startedAt", "DESC")
@@ -460,6 +491,9 @@ routinesRouter.get("/runs/:runId/log", async (req, res) => {
     exitCode: run.exitCode,
     startedAt: run.startedAt,
     finishedAt: run.finishedAt,
+    // So the live-log modal can say "retrying in 2m" without a second request.
+    retryAt: run.retryAt,
+    attempt: run.attempt,
   });
 });
 
@@ -476,8 +510,10 @@ routinesRouter.post("/runs/:runId/dismiss", async (req, res) => {
   // Company-scope the run through its owning routine.
   const found = await loadRoutine((req.params as Record<string, string>).cid, run.routineId);
   if (!found) return res.status(404).json({ error: "Not found" });
-  if (run.status !== "failed" && run.status !== "timeout") {
-    return res.status(409).json({ error: "Only failed or timed-out runs can be dismissed" });
+  if (run.status !== "failed" && run.status !== "timeout" && run.status !== "interrupted") {
+    return res
+      .status(409)
+      .json({ error: "Only failed, timed-out, or interrupted runs can be dismissed" });
   }
   if (!run.dismissedAt) {
     run.dismissedAt = new Date();
@@ -494,3 +530,38 @@ routinesRouter.post("/runs/:runId/dismiss", async (req, res) => {
   }
   res.json(run);
 });
+
+const cancelRetrySchema = z.object({}).strict();
+
+/**
+ * Cancel a pending automatic retry without disabling the whole routine —
+ * the escape hatch for a failure a human has decided to fix by hand. Clearing
+ * `retryAt` also un-suppresses the run in the Home failed-routines panel,
+ * since it is now a failure nobody is going to re-attempt.
+ */
+routinesRouter.post(
+  "/runs/:runId/cancel-retry",
+  validateBody(cancelRetrySchema),
+  async (req, res) => {
+    const runRepo = AppDataSource.getRepository(Run);
+    const run = await runRepo.findOneBy({ id: req.params.runId });
+    if (!run) return res.status(404).json({ error: "Not found" });
+    const found = await loadRoutine((req.params as Record<string, string>).cid, run.routineId);
+    if (!found) return res.status(404).json({ error: "Not found" });
+    if (run.retryAt === null) {
+      return res.status(409).json({ error: "This run has no retry scheduled" });
+    }
+    run.retryAt = null;
+    await runRepo.save(run);
+    await recordAudit({
+      companyId: found.co.id,
+      actorUserId: req.userId ?? null,
+      action: "routine.run.cancelRetry",
+      targetType: "run",
+      targetId: run.id,
+      targetLabel: found.routine.name,
+      metadata: { routineId: found.routine.id, attempt: run.attempt },
+    });
+    res.json(run);
+  },
+);
