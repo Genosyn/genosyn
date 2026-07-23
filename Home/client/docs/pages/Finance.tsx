@@ -294,6 +294,18 @@ export function Finance() {
         $50.00. An employee with no grant gets no finance tool at all.
       </P>
 
+      <H3 id="ai-invoice-email">Emailing an invoice PDF</H3>
+      <P>
+        An employee that also has an <DocLink to="/docs/email">Email</DocLink> grant can attach an
+        invoice&apos;s PDF straight to a message — no need to dig the file out of a past email. The{" "}
+        <Code>create_mail_draft</Code> and <Code>send_mail</Code> tools (and the Gmail integration&apos;s{" "}
+        <Code>gmail_create_draft</Code> / <Code>gmail_send_message</Code>) take an{" "}
+        <Code>attachments</Code> list; name an invoice by <Code>invoiceSlug</Code> and Genosyn renders
+        the PDF on the fly and attaches it. So a routine can reply on the original billing thread —
+        preserving the recipient and CCs — with the invoice attached. Rendering the PDF needs at
+        least <Strong>Read</Strong> finance access; sending needs the matching mailbox grant.
+      </P>
+
       <H3 id="ai-transaction-review">AI transaction review</H3>
       <P>
         At the <Strong>Full accounting</Strong> level an employee can also inspect posted

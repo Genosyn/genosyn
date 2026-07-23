@@ -19,6 +19,7 @@ import {
   untrashThread,
   updateDraft as apiUpdateDraft,
   parseAddress,
+  type MimeAttachment,
 } from "./gmailClient.js";
 import { drainAttachments } from "./outbox.js";
 import {
@@ -151,8 +152,12 @@ export type ComposeFields = {
   subject?: string;
   bodyText: string;
   bodyHtml?: string;
-  /** Tokens for files staged via the outbox before send/draft. */
+  /** Tokens for files staged via the outbox before send/draft (human uploads). */
   attachmentIds?: string[];
+  /** Pre-resolved attachment bytes (AI employees, whose files come from
+   *  Resources / rendered invoices rather than the staging outbox). Takes
+   *  precedence over `attachmentIds`; the two are never mixed on one call. */
+  attachments?: MimeAttachment[];
 };
 
 /** Reply-threading headers + default subject, derived from the newest
@@ -349,9 +354,11 @@ async function composeMime(
   }
   if (!to) throw new Error("Recipient (to) is required");
   const attachments =
-    fields.attachmentIds && fields.attachmentIds.length > 0
-      ? drainAttachments(account.id, fields.attachmentIds)
-      : undefined;
+    fields.attachments && fields.attachments.length > 0
+      ? fields.attachments
+      : fields.attachmentIds && fields.attachmentIds.length > 0
+        ? drainAttachments(account.id, fields.attachmentIds)
+        : undefined;
   return {
     raw: buildMime({
       to,

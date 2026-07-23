@@ -78,6 +78,11 @@ import {
   updateMailDraft,
 } from "../services/mail/actions.js";
 import { columnToLabelIds } from "../services/mail/store.js";
+import type { MimeAttachment } from "../services/mail/gmailClient.js";
+import {
+  makeResourceAttachmentResolver,
+  resourceAttachmentSpecsSchema,
+} from "../services/resourceAttachments.js";
 import { Base } from "../db/entities/Base.js";
 import { BaseTable } from "../db/entities/BaseTable.js";
 import { BaseField, BaseFieldType } from "../db/entities/BaseField.js";
@@ -5986,6 +5991,30 @@ mcpInternalRouter.post(
   },
 );
 
+/**
+ * Resolve an AI employee's attachment specs — Resources by slug and/or
+ * invoices by slug (rendered to PDF, finance-grant-gated) — into MIME parts
+ * for the mail compose path. Returns undefined when there are none; throws on
+ * a bad spec, a missing grant, or an over-size total (the caller turns that
+ * into a 400 the model can read).
+ */
+async function resolveMailAttachments(
+  req: McpRequest,
+  specs: unknown,
+): Promise<MimeAttachment[] | undefined> {
+  if (!Array.isArray(specs) || specs.length === 0) return undefined;
+  const resolve = makeResourceAttachmentResolver({
+    companyId: req.mcpCompany!.id,
+    employeeId: req.mcpEmployee!.id,
+  });
+  const resolved = await resolve(specs);
+  return resolved.map((a) => ({
+    filename: a.filename,
+    mimeType: a.contentType,
+    content: a.content,
+  }));
+}
+
 const createMailDraftSchema = z
   .object({
     threadId: z.string().uuid().optional(),
@@ -5995,6 +6024,7 @@ const createMailDraftSchema = z
     bcc: z.string().max(2000).optional(),
     subject: z.string().max(1000).optional(),
     bodyText: z.string().min(1).max(200_000),
+    attachments: resourceAttachmentSpecsSchema.optional(),
   })
   .strict();
 
@@ -6024,6 +6054,7 @@ mcpInternalRouter.post(
     }
 
     try {
+      const attachments = await resolveMailAttachments(req, body.attachments);
       const message = await createMailDraft(
         account,
         {
@@ -6032,6 +6063,7 @@ mcpInternalRouter.post(
           bcc: body.bcc,
           subject: body.subject,
           bodyText: body.bodyText,
+          attachments,
         },
         thread,
       );
@@ -6241,6 +6273,7 @@ const sendMailSchema = z
     bcc: z.string().max(2000).optional(),
     subject: z.string().max(1000).optional(),
     bodyText: z.string().max(200_000).optional(),
+    attachments: resourceAttachmentSpecsSchema.optional(),
   })
   .strict();
 
@@ -6251,6 +6284,15 @@ mcpInternalRouter.post(
     const self = req.mcpEmployee!;
     const co = req.mcpCompany!;
     const body = req.body as z.infer<typeof sendMailSchema>;
+
+    // Sending an existing draft ships whatever is already attached to it; a
+    // fresh `attachments` list here would be silently dropped, so reject it.
+    if (body.draftMessageId && body.attachments && body.attachments.length > 0) {
+      return res.status(400).json({
+        error:
+          "Attachments can't be added when sending an existing draft. Attach them with create_mail_draft (or edit the draft), then send it.",
+      });
+    }
 
     try {
       if (body.draftMessageId) {
@@ -6302,6 +6344,7 @@ mcpInternalRouter.post(
           });
         }
       }
+      const attachments = await resolveMailAttachments(req, body.attachments);
       const sent = await sendMailMessage(
         account,
         {
@@ -6310,6 +6353,7 @@ mcpInternalRouter.post(
           bcc: body.bcc,
           subject: body.subject,
           bodyText: body.bodyText,
+          attachments,
         },
         thread,
       );

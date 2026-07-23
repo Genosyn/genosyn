@@ -42,19 +42,24 @@ const ATTACHMENTS_PROPERTY = {
   type: "array",
   maxItems: 10,
   description:
-    "Optional files to attach, taken from Resources you have been granted. The server reads the bytes itself — do NOT call `export_resource` first and do NOT paste base64 here; just name the resource by slug. Total attachment size is capped at 3 MB; past that, link the resource page instead.",
+    "Optional files to attach. Give each item exactly one of `resourceSlug` (a Resource you have been granted) or `invoiceSlug` (an invoice rendered as a PDF, from `list_invoices` — needs finance access). The server reads the bytes itself — do NOT call `export_resource` first and do NOT paste base64 here; just name it by slug. Total attachment size is capped at 3 MB; past that, link the resource page instead.",
   items: {
     type: "object",
     properties: {
       resourceSlug: {
         type: "string",
-        description: "Slug from `list_resources` / `search_resources`.",
+        description: "Attach a Resource: its slug from `list_resources` / `search_resources`.",
+      },
+      invoiceSlug: {
+        type: "string",
+        description:
+          "Attach an invoice as a PDF: its slug from `list_invoices`. Useful to reply to a billing thread with the invoice attached.",
       },
       format: {
         type: "string",
         enum: ["original", "pdf", "html", "md", "txt"],
         description:
-          "Defaults to 'original' — the file the human uploaded, byte for byte, which is what you want for an existing PDF or EPUB. The other four render the resource's extracted text into a new document, and are the only options for url/text resources (which have no original file). Do not pass 'pdf' for a resource that is already a PDF: you would send a plain-text reflow of it, losing scans, signatures, and layout.",
+          "For `resourceSlug` only. Defaults to 'original' — the file the human uploaded, byte for byte, which is what you want for an existing PDF or EPUB. The other four render the resource's extracted text into a new document, and are the only options for url/text resources (which have no original file). Do not pass 'pdf' for a resource that is already a PDF: you would send a plain-text reflow of it, losing scans, signatures, and layout.",
       },
       filename: {
         type: "string",
@@ -62,7 +67,6 @@ const ATTACHMENTS_PROPERTY = {
           "Optional. Overrides the filename the recipient sees. Defaults to the original upload's name, or '<slug>.<format>'.",
       },
     },
-    required: ["resourceSlug"],
     additionalProperties: false,
   },
 };

@@ -6,6 +6,8 @@ import { Resource } from "../db/entities/Resource.js";
 import { Company } from "../db/entities/Company.js";
 import { hasResourceAccess, resolveResourceFile } from "./resources.js";
 import { exportResource } from "./resourceExport.js";
+import { renderInvoicePdfBySlug } from "./invoiceHtml.js";
+import { hasFinanceAccess } from "./financeGrants.js";
 import type { ResolvedAttachment } from "../integrations/types.js";
 
 /**
@@ -41,24 +43,33 @@ export const ATTACHMENT_FORMATS = [
 ] as const;
 export type AttachmentFormat = (typeof ATTACHMENT_FORMATS)[number];
 
+/** A file from the company's Resources, named by slug. */
+const resourceSpecSchema = z
+  .object({
+    resourceSlug: z.string().min(1),
+    format: z.enum(ATTACHMENT_FORMATS).default("original"),
+    filename: z.string().min(1).max(200).optional(),
+  })
+  .strict();
+
+/** An invoice, rendered to a PDF on the fly and attached. Needs finance access. */
+const invoiceSpecSchema = z
+  .object({
+    invoiceSlug: z.string().min(1),
+    filename: z.string().min(1).max(200).optional(),
+  })
+  .strict();
+
 export const resourceAttachmentSpecsSchema = z
-  .array(
-    z
-      .object({
-        resourceSlug: z.string().min(1),
-        format: z.enum(ATTACHMENT_FORMATS).default("original"),
-        filename: z.string().min(1).max(200).optional(),
-      })
-      .strict(),
-  )
+  .array(z.union([resourceSpecSchema, invoiceSpecSchema]))
   .max(
     ATTACHMENT_MAX_COUNT,
     `At most ${ATTACHMENT_MAX_COUNT} attachments per message.`,
   );
 
-export type ResourceAttachmentSpec = z.infer<
-  typeof resourceAttachmentSpecsSchema
->[number];
+type ResourceSpec = z.infer<typeof resourceSpecSchema>;
+type InvoiceSpec = z.infer<typeof invoiceSpecSchema>;
+export type ResourceAttachmentSpec = ResourceSpec | InvoiceSpec;
 
 /** Content types for original uploads, keyed off the stored filename.
  *  Uploads only ever land as pdf / epub / video (`inferSourceKindFromFilename`). */
@@ -119,7 +130,10 @@ export function makeResourceAttachmentResolver(args: {
     // Sequential on purpose: a rendered format forks Chromium, and running
     // several of those at once is worse than running them one at a time.
     for (const spec of parsed.data) {
-      const resolved = await resolveOne(spec, company, args.employeeId);
+      const resolved =
+        "invoiceSlug" in spec
+          ? await resolveInvoicePdf(spec, company, args.employeeId)
+          : await resolveOne(spec, company, args.employeeId);
       total += resolved.content.length;
       if (total > ATTACHMENT_TOTAL_MAX_BYTES) {
         const mb = Math.floor(ATTACHMENT_TOTAL_MAX_BYTES / (1024 * 1024));
@@ -133,8 +147,37 @@ export function makeResourceAttachmentResolver(args: {
   };
 }
 
+/**
+ * Render an invoice to a PDF and hand it back as an attachment. Gated on the
+ * caller's finance grant (read is enough to export), not the resource grants —
+ * finance is a company-wide subsystem, so any finance-granted employee may
+ * attach any of the company's invoices.
+ */
+async function resolveInvoicePdf(
+  spec: InvoiceSpec,
+  company: Company,
+  employeeId: string,
+): Promise<ResolvedAttachment> {
+  if (!(await hasFinanceAccess(employeeId, "read"))) {
+    throw new Error(
+      "You do not have finance access, so you cannot attach invoices. Ask an owner or admin to grant it under Finance → AI access.",
+    );
+  }
+  const rendered = await renderInvoicePdfBySlug(company.id, spec.invoiceSlug);
+  if (!rendered) {
+    throw new Error(
+      `Invoice "${spec.invoiceSlug}" not found. Use the finance tool (op: list_invoices) to find the slug.`,
+    );
+  }
+  return {
+    filename: safeFilename(spec.filename ?? rendered.filename, rendered.filename),
+    contentType: "application/pdf",
+    content: rendered.buffer,
+  };
+}
+
 async function resolveOne(
-  spec: ResourceAttachmentSpec,
+  spec: ResourceSpec,
   company: Company,
   employeeId: string,
 ): Promise<ResolvedAttachment> {

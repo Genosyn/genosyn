@@ -1,11 +1,12 @@
-import type { Customer } from "../db/entities/Customer.js";
-import type { Invoice } from "../db/entities/Invoice.js";
-import type { InvoiceLineItem } from "../db/entities/InvoiceLineItem.js";
-import type { InvoicePayment } from "../db/entities/InvoicePayment.js";
+import { Customer } from "../db/entities/Customer.js";
+import { Invoice } from "../db/entities/Invoice.js";
+import { InvoiceLineItem } from "../db/entities/InvoiceLineItem.js";
+import { InvoicePayment } from "../db/entities/InvoicePayment.js";
 import { Company } from "../db/entities/Company.js";
 import { AppDataSource } from "../db/datasource.js";
 import { formatMoney } from "../lib/money.js";
 import { getFinanceSettings } from "./fx.js";
+import { htmlToPdf } from "./htmlToPdf.js";
 
 /**
  * Render an Invoice as a self-contained HTML document. Used as both the
@@ -390,4 +391,38 @@ export async function renderInvoiceHtmlForCompany(
     defaultFromBlock: settings.defaultFromBlock,
     defaultFooter: settings.defaultFooter,
   });
+}
+
+/**
+ * Render an invoice to a PDF buffer from its slug, loading the customer, line
+ * items, and payments in one place. Shared by the human `GET /invoices/:slug/pdf`
+ * route and the AI attachment resolver so both produce byte-identical PDFs.
+ * Returns null when the invoice (or its customer) can't be found. Forks
+ * Chromium via `htmlToPdf`, so callers should bound how often they call it.
+ */
+export async function renderInvoicePdfBySlug(
+  companyId: string,
+  slug: string,
+): Promise<{ buffer: Buffer; filename: string; number: string } | null> {
+  const invoice = await AppDataSource.getRepository(Invoice).findOneBy({ companyId, slug });
+  if (!invoice) return null;
+  const customer = await AppDataSource.getRepository(Customer).findOneBy({
+    id: invoice.customerId,
+    companyId,
+  });
+  if (!customer) return null;
+  const [lines, payments] = await Promise.all([
+    AppDataSource.getRepository(InvoiceLineItem).find({
+      where: { invoiceId: invoice.id },
+      order: { sortOrder: "ASC" },
+    }),
+    AppDataSource.getRepository(InvoicePayment).find({
+      where: { invoiceId: invoice.id },
+      order: { paidAt: "ASC" },
+    }),
+  ]);
+  const html = await renderInvoiceHtmlForCompany(companyId, invoice, customer, lines, payments);
+  const buffer = await htmlToPdf(html);
+  const number = invoice.number || "draft";
+  return { buffer, filename: `${number}.pdf`, number };
 }

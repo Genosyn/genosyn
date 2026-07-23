@@ -428,8 +428,14 @@ sends system mail); this is the company's real inbox. Internal namespace is
       with no `MailAccount` is ungoverned and still passes — there is no
       level to enforce until a human connects the mailbox.
 - [ ] Retire the `gmail_*` compose tools in favour of `send_mail` /
-      `create_mail_draft`, once the latter accept Resource attachments.
-      Two compose surfaces over one mailbox is a standing drift risk; the
+      `create_mail_draft`. The blocker is cleared: both native tools now take an
+      `attachments` list resolved through `makeResourceAttachmentResolver`
+      (Resources by slug, plus **invoices rendered to PDF** by slug, gated on
+      the finance grant), so an employee can reply on a billing thread —
+      recipient and CCs preserved — with the invoice attached. The `gmail_*`
+      compose tools keep working (they share the same resolver, so invoice
+      attachments reached them too); merging the two surfaces is the remaining
+      step. Two compose surfaces over one mailbox is a standing drift risk; the
       gate above keeps them consistent but does not merge them.
 - [ ] Approval-gated `send_mail` (Approval kind `mail_send`) — deferred;
       the `draft` grant level is the human gate today

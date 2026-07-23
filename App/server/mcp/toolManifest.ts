@@ -35,6 +35,45 @@ export type McpToolSpec = {
   inputSchema: McpToolInputSchema;
 };
 
+/**
+ * Shared attachment schema for the native mail compose tools (`create_mail_draft`,
+ * `send_mail`). Files are named by slug — the server reads the bytes itself, so no
+ * base64 ever crosses the model. Each item is exactly one of: a Resource
+ * (`resourceSlug`, optionally reformatted) or an invoice (`invoiceSlug`, rendered
+ * to a PDF on the fly, gated on the caller's finance access).
+ */
+const MAIL_ATTACHMENTS_PROPERTY = {
+  type: "array",
+  maxItems: 10,
+  description:
+    "Optional files to attach. Give each item exactly one of `resourceSlug` (a Resource, from list_resources) or `invoiceSlug` (an invoice rendered as a PDF, from the finance tool's list_invoices — needs finance access). The server reads the bytes; do not paste base64. Total attachment size is capped around 3 MB.",
+  items: {
+    type: "object",
+    properties: {
+      resourceSlug: {
+        type: "string",
+        description: "Attach this Resource, by slug from list_resources / search_resources.",
+      },
+      invoiceSlug: {
+        type: "string",
+        description:
+          "Attach this invoice as a PDF, by slug from the finance tool (op list_invoices). Handy for replying to a billing thread with the invoice attached.",
+      },
+      format: {
+        type: "string",
+        enum: ["original", "pdf", "html", "md", "txt"],
+        description:
+          "For `resourceSlug` only. Defaults to 'original' (the uploaded file byte-for-byte). Do not pass 'pdf' for a resource that is already a PDF.",
+      },
+      filename: {
+        type: "string",
+        description: "Optional. Overrides the filename the recipient sees.",
+      },
+    },
+    additionalProperties: false,
+  },
+} as const;
+
 export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "get_self",
@@ -1880,7 +1919,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "create_mail_draft",
     description:
-      "Write a Gmail draft — the human-in-the-loop way to answer email: the draft lands in the thread (and the owner's Gmail Drafts) for a human to review and send. Pass `threadId` to draft a reply (recipients and subject are inferred from the thread when omitted); omit it for a fresh compose, which requires `to` and an `accountId` when you hold more than one grant. Requires the `draft` access level.",
+      "Write a Gmail draft — the human-in-the-loop way to answer email: the draft lands in the thread (and the owner's Gmail Drafts) for a human to review and send. Pass `threadId` to draft a reply (recipients and subject are inferred from the thread when omitted); omit it for a fresh compose, which requires `to` and an `accountId` when you hold more than one grant. Attach files with `attachments` — a Resource by slug, or an invoice as a PDF by slug (e.g. to reply to a billing thread with the invoice PDF). Requires the `draft` access level.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1894,6 +1933,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         bcc: { type: "string" },
         subject: { type: "string", description: "Inferred (Re: …) for replies." },
         bodyText: { type: "string", description: "Plain-text body of the draft." },
+        attachments: MAIL_ATTACHMENTS_PROPERTY,
       },
       required: ["bodyText"],
       additionalProperties: false,
@@ -1952,7 +1992,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "send_mail",
     description:
-      "Send email from a granted mailbox — this goes out immediately under the company's address, so only use it when the instruction explicitly allows sending; otherwise prefer `create_mail_draft`. Three forms: pass `draftMessageId` to send an existing draft; pass `threadId` (+ `bodyText`) to compose and send a reply; or pass `to` + `subject` + `bodyText` for a fresh message. Requires the `send` access level.",
+      "Send email from a granted mailbox — this goes out immediately under the company's address, so only use it when the instruction explicitly allows sending; otherwise prefer `create_mail_draft`. Three forms: pass `draftMessageId` to send an existing draft; pass `threadId` (+ `bodyText`) to compose and send a reply; or pass `to` + `subject` + `bodyText` for a fresh message. Attach files with `attachments` (a Resource or an invoice PDF by slug) on the compose/reply forms. Requires the `send` access level.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1970,6 +2010,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         bcc: { type: "string" },
         subject: { type: "string", description: "Inferred (Re: …) for replies." },
         bodyText: { type: "string", description: "Plain-text body." },
+        attachments: MAIL_ATTACHMENTS_PROPERTY,
       },
       additionalProperties: false,
     },
