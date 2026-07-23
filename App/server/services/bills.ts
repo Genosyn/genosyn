@@ -8,6 +8,7 @@ import { TaxRate } from "../db/entities/TaxRate.js";
 import { computeLineTotals, reconcilePartsToTotal } from "../lib/money.js";
 import { convertCents, getFinanceSettings } from "./fx.js";
 import {
+  findClosedPeriodCovering,
   hasEntryFor,
   postLedgerEntry,
   requireAccountsByCode,
@@ -415,20 +416,32 @@ export async function voidBill(
   if (bill.status === "draft") {
     throw new Error("Drafts cannot be voided — delete them instead");
   }
+  // The AP mirror of the invoice-void rule. Voiding a settled bill used
+  // to reverse its payments too, posting DR Bank and inventing cash that
+  // never came back from the vendor. Refusing a paid bill is also what
+  // makes the narrowed reversal below safe: otherwise the payment's
+  // DR AP / CR Bank would outlive the AP credit it was settling.
+  if (bill.paidCents > 0) {
+    throw new Error(
+      "This bill has payments recorded against it and can't be voided. Reverse the payment first.",
+    );
+  }
+  const closed = await findClosedPeriodCovering(bill.companyId, bill.issueDate);
+  if (closed) {
+    throw new Error(
+      `This bill was issued in the closed period "${closed.name}" and can't be voided. Reopen the period first.`,
+    );
+  }
   bill.status = "void";
   bill.voidedAt = new Date();
   await AppDataSource.getRepository(Bill).save(bill);
-  const payments = await AppDataSource.getRepository(BillPayment).find({
-    where: { billId: bill.id },
-    select: ["id"],
-  });
+  // Reverse ONLY the issue posting — see the note in voidInvoice: passing
+  // several sourceRefIds alongside several sources resolves as an
+  // unpaired cross product and would sweep every bill payment in too.
   await reverseLedgerEntriesForSources({
     companyId: bill.companyId,
     sources: ["manual"],
-    sourceRefIds: [
-      `bill_issue:${bill.id}`,
-      ...payments.map((p) => `bill_payment:${p.id}`),
-    ],
+    sourceRefIds: [`bill_issue:${bill.id}`],
     reverseAs: "manual",
     reverseRefId: `bill_void:${bill.id}`,
     date: new Date(),

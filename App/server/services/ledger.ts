@@ -271,6 +271,18 @@ export async function hasEntryFor(
  * Returns the count of entries reversed. Idempotent: if the source has
  * already been reversed (an entry with `source=reverseAs` exists), the
  * function returns 0 without writing anything new.
+ *
+ * ⚠️ `sources` and `sourceRefIds` are matched as an UNPAIRED CROSS
+ * PRODUCT — `WHERE source IN (…) AND sourceRefId IN (…)`. They are not
+ * zipped. Passing several of each therefore reverses every combination
+ * that happens to exist, not the pairs you had in mind. Voiding an
+ * invoice once passed `["invoice_issue","invoice_payment"]` together
+ * with `[invoice.id, ...paymentIds]`, which swept in every payment and
+ * posted CR Bank for money that had genuinely been collected.
+ *
+ * Call this with ONE source and ONE refId unless you have positively
+ * confirmed that every combination in the cross product is something you
+ * intend to reverse.
  */
 export async function reverseLedgerEntriesForSources(args: {
   companyId: string;

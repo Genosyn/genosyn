@@ -19,6 +19,7 @@ import { renderPdfAttachment } from "./htmlToPdf.js";
 import { renderInvoiceHtml } from "./invoiceHtml.js";
 import { Company } from "../db/entities/Company.js";
 import {
+  findClosedPeriodCovering,
   hasEntryFor,
   postLedgerEntry,
   requireAccountsByCode,
@@ -522,21 +523,41 @@ export async function voidInvoice(
   if (invoice.status === "draft") {
     throw new Error("Drafts cannot be voided — delete them instead");
   }
+  // A void means "this invoice should never have been issued", so it may
+  // only unwind the *issue* posting. Refusing a settled invoice is not
+  // optional bookkeeping politeness: without it, the narrowed reversal
+  // below would leave the payment's DR Bank / CR AR live while its
+  // offsetting AR debit disappeared, stranding 1200 credit-negative for
+  // this invoice. Money that genuinely arrived is given back with a
+  // refund or a credit note — never by rewriting history.
+  if (invoice.paidCents > 0) {
+    throw new Error(
+      "This invoice has payments recorded against it and can't be voided. Refund or credit it instead.",
+    );
+  }
+  // The reversal is dated today, so voiding an invoice that was issued
+  // inside a closed period would smear that period's revenue into the
+  // current one and silently change numbers the books were closed on.
+  const closed = await findClosedPeriodCovering(invoice.companyId, invoice.issueDate);
+  if (closed) {
+    throw new Error(
+      `This invoice was issued in the closed period "${closed.name}" and can't be voided. Reopen the period first.`,
+    );
+  }
   invoice.status = "void";
   invoice.voidedAt = new Date();
   await AppDataSource.getRepository(Invoice).save(invoice);
-  // Reverse the issue + every payment posting tied to this invoice. Use
-  // `invoice_void` as the new source so the audit trail makes the void
-  // story obvious; the reversal is keyed off the invoice id (not a
-  // payment id) so re-voiding the same invoice is a no-op.
-  const payments = await AppDataSource.getRepository(InvoicePayment).find({
-    where: { invoiceId: invoice.id },
-    select: ["id"],
-  });
+  // Reverse ONLY the issue posting, and key it off the invoice id so
+  // re-voiding is a no-op. `reverseLedgerEntriesForSources` resolves
+  // `sources` against `sourceRefIds` as an UNPAIRED CROSS PRODUCT, so
+  // naming "invoice_payment" here alongside the payment ids used to
+  // reverse every payment too — posting CR Bank and driving cash down by
+  // money that was actually collected, with no refund anywhere. One
+  // source, one refId: keep it that way.
   await reverseLedgerEntriesForSources({
     companyId: invoice.companyId,
-    sources: ["invoice_issue", "invoice_payment"],
-    sourceRefIds: [invoice.id, ...payments.map((p) => p.id)],
+    sources: ["invoice_issue"],
+    sourceRefIds: [invoice.id],
     reverseAs: "invoice_void",
     reverseRefId: invoice.id,
     date: new Date(),

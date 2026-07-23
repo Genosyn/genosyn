@@ -155,6 +155,23 @@ export function Finance() {
         until you issue it.
       </P>
 
+      <H3 id="invoices-void">Voiding an invoice</H3>
+      <P>
+        <Code>Void</Code> means <em>this invoice should never have been issued</em>. It posts a
+        reversing entry that unwinds the original{" "}
+        <Code>DR Accounts Receivable / CR Revenue + Tax Payable</Code>, keeping both the original
+        and the reversal in the journal so the audit trail stays intact.
+      </P>
+      <P>
+        Two things it deliberately will not do. Voiding an invoice that already has{" "}
+        <Strong>payments recorded against it</Strong> is refused — money that genuinely arrived is
+        given back with a refund or a credit note, never by rewriting history. And voiding an
+        invoice issued inside a <Strong>closed accounting period</Strong> is refused too, because
+        the reversal carries today&apos;s date and would pull a closed period&apos;s revenue into
+        the current one; reopen the period first. Both rules apply identically to{" "}
+        <Code>Void</Code> on a bill.
+      </P>
+
       <H2 id="recurring-invoices">Recurring invoices</H2>
       <P>
         Open <Code>Finance → Recurring</Code> and click <Code>New schedule</Code> to set up a
