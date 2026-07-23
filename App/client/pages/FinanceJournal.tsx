@@ -25,6 +25,38 @@ const SOURCE_BADGE: Record<LedgerEntrySource, { label: string; cls: string }> = 
     label: "Manual",
     cls: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
   },
+  credit_note_issue: {
+    label: "Credit note",
+    cls: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300",
+  },
+  credit_note_apply: {
+    label: "Credit applied",
+    cls: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
+  },
+  credit_note_unapply: {
+    label: "Credit unapplied",
+    cls: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
+  },
+  credit_note_void: {
+    label: "Credit voided",
+    cls: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
+  },
+  customer_refund: {
+    label: "Refund",
+    cls: "bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300",
+  },
+  customer_refund_void: {
+    label: "Refund reversed",
+    cls: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
+  },
+  invoice_writeoff: {
+    label: "Write-off",
+    cls: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
+  },
+  invoice_writeoff_reversal: {
+    label: "Write-off reversed",
+    cls: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
+  },
   invoice_issue: {
     label: "Invoice issued",
     cls: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",

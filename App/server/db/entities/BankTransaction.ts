@@ -61,6 +61,17 @@ export class BankTransaction {
   @Column({ type: "varchar", nullable: true })
   matchedLedgerEntryId!: string | null;
 
+  /** A customer deposit or overpayment arriving on the bank feed, matched
+   *  to the `CustomerCredit` it created. */
+  @Column({ type: "varchar", nullable: true })
+  matchedCreditId!: string | null;
+
+  /** Money leaving on the bank feed, matched to the `CustomerRefund` that
+   *  sent it. Refunds are the money-out side the reconciler previously had
+   *  no way to match at all. */
+  @Column({ type: "varchar", nullable: true })
+  matchedRefundId!: string | null;
+
   @Column({ type: dateTimeColumnType, nullable: true })
   reconciledAt!: Date | null;
 

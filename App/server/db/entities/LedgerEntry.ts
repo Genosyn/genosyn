@@ -26,6 +26,21 @@ export type LedgerEntrySource =
   | "invoice_issue"
   | "invoice_payment"
   | "invoice_void"
+  // Customer credits (Phase H). A credit note never touches 1200 AR on
+  // issue — it parks the obligation in 2400 Customer Credits, and only an
+  // *application* relieves the receivable. `customer_refund` is the only
+  // source in this family that credits 1100 Bank.
+  | "credit_note_issue"
+  | "credit_note_apply"
+  | "credit_note_unapply"
+  | "credit_note_void"
+  | "customer_refund"
+  | "customer_refund_void"
+  // Uncollectible / immaterial receivables. Deliberately NOT a credit
+  // note: this debits 6100 Bad Debt Expense so the original revenue stays
+  // recognized in the period it was earned.
+  | "invoice_writeoff"
+  | "invoice_writeoff_reversal"
   | "brex_card_expense"
   | "brex_card_refund"
   | "brex_card_payment"

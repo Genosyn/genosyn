@@ -1023,6 +1023,33 @@ Phased so each phase ships behind its own PR:
       JournalEntry; the grant level is injected into the employee prompt; an
       ungated employee is handed no finance tool at all (`grantDead`).
 
+- **Phase H — Customer credits, refunds and write-offs.** Closes the
+  "money only flows one way" gap. `CustomerCredit` (credit memo /
+  deposit / overpayment), `CustomerCreditApplication`, `CustomerRefund`
+  and `InvoiceWriteOff`. A credit note never touches `1200` AR — it parks
+  the obligation in `2400 Customer Credits`, and only an *application*
+  relieves a receivable, capped at `min(credit.open, invoice.balance)` so
+  a negative receivable is structurally unreachable. A refund is the only
+  operation that credits `1100 Bank`. A write-off is deliberately **not**
+  a credit note: `DR 6100 Bad Debt Expense / CR 1200` leaves the original
+  revenue recognized in the period it was earned. New system accounts
+  `2400`, `2500 Customer Deposits` (unearned revenue — deposits post
+  `DR 1100 / CR 2500` with no tax leg, correct for US sales tax; a VAT
+  tax-point rule would need the deferred tax engine), `4100 Sales Returns
+  & Allowances` (contra-revenue, typed `revenue` so the income statement
+  nets it down with no report changes) and `6100`. Also fixes the void
+  bug where `reverseLedgerEntriesForSources`' unpaired cross product let
+  voiding a paid invoice reverse its payments and destroy collected cash.
+  The AP mirror (vendor credits) is a follow-up.
+  - [x] Void narrowed to the issue posting; settled and closed-period
+        invoices and bills refused (shipped in 1.47.0).
+  - [x] Foundations: the four system accounts, eight `LedgerEntrySource`
+        members, `Invoice.creditedCents` / `writtenOffCents`,
+        `BankTransaction.matchedCreditId` / `matchedRefundId`, and the
+        cash-touching sources added to the cash-flow OPERATING set.
+  - Write-offs, credit notes + applications, then refunds / deposits /
+    overpayment split.
+
 MCP surface (shipped): reads — `list_invoices`, `get_invoice`,
 `list_customers`, `get_customer`, `list_finance_accounts`,
 `list_finance_transactions`, `get_finance_transaction`, `get_finance_report`

@@ -45,12 +45,31 @@ export const SYSTEM_ACCOUNTS: ReadonlyArray<{
   { code: "2100", name: "Tax Payable", type: "liability" },
   { code: "2200", name: "Accounts Payable", type: "liability" },
   { code: "2300", name: "Corporate Card Payable", type: "liability" },
+  // A refund obligation: issued credit notes and customer overpayments —
+  // money we owe back. Kept separate from 2500 because netting a refund
+  // obligation into unearned revenue misstates the contract liability.
+  { code: "2400", name: "Customer Credits", type: "liability" },
+  // Unearned revenue: deposits, retainers and prepayments taken before any
+  // invoice exists. Revenue is recognized only when the eventual invoice is
+  // issued and the deposit is applied — never on receipt.
+  { code: "2500", name: "Customer Deposits", type: "liability" },
   { code: "3000", name: "Owner's Equity", type: "equity" },
   { code: "3100", name: "Retained Earnings", type: "equity" },
   { code: "4000", name: "Sales Revenue", type: "revenue" },
+  // CONTRA-REVENUE — carries a debit balance, and the type MUST stay
+  // `revenue`. `signedBalance` computes revenue as credit − debit and the
+  // income statement buckets purely on `Account.type`, so a debit-balance
+  // revenue account nets down total revenue with no report changes while
+  // leaving gross 4000 separately visible. Typing it `expense` would
+  // overstate both gross revenue and operating expenses by the same amount:
+  // correct net income, wrong income statement.
+  { code: "4100", name: "Sales Returns & Allowances", type: "revenue" },
   { code: "4900", name: "Other Income", type: "revenue" },
   { code: "5000", name: "Cost of Goods Sold", type: "expense" },
   { code: "6000", name: "General & Administrative", type: "expense" },
+  // Debiting this rather than reversing 4000 is what leaves recognized
+  // revenue in the period it was actually earned when a debt goes bad.
+  { code: "6100", name: "Bad Debt Expense", type: "expense" },
 ];
 
 /**

@@ -247,6 +247,15 @@ const OPERATING: ReadonlySet<LedgerEntrySource> = new Set([
   "invoice_void",
   "manual",
   "brex_card_payment",
+  // Every source below can move 1100 Bank. The bucketing further down is a
+  // bare `OPERATING.has(entry.source) ? operating : investing` with no
+  // financing branch, so ANY cash-touching source left out of this set
+  // silently files real operating cash under Investing activities. Add new
+  // bank-touching sources here at the same time you introduce them.
+  "credit_note_issue",
+  "credit_note_void",
+  "customer_refund",
+  "customer_refund_void",
 ]);
 
 export async function cashFlow(companyId: string, from: Date, to: Date): Promise<CashFlowReport> {

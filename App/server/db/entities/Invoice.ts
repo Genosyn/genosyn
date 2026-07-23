@@ -90,8 +90,20 @@ export class Invoice {
   @Column({ type: "int", default: 0 })
   paidCents!: number;
 
-  /** `totalCents - paidCents`. Stored so list views can sort/filter on it
-   *  without recomputing. */
+  /** Sum of non-reversed customer-credit applications against this
+   *  invoice, in document currency. A credit relieves the receivable
+   *  without cash moving, so it settles the invoice but is deliberately
+   *  kept out of `paidCents` — "paid" must keep meaning "cash arrived". */
+  @Column({ type: "int", default: 0 })
+  creditedCents!: number;
+
+  /** Sum of non-reversed write-offs against this invoice, in document
+   *  currency. Also settles the invoice without cash. */
+  @Column({ type: "int", default: 0 })
+  writtenOffCents!: number;
+
+  /** `totalCents - paidCents - creditedCents - writtenOffCents`. Stored so
+   *  list views can sort/filter on it without recomputing. */
   @Column({ type: "int", default: 0 })
   balanceCents!: number;
 

@@ -237,10 +237,18 @@ export async function recomputeInvoiceTotals(invoice: Invoice): Promise<Invoice>
   invoice.taxCents = tax;
   invoice.totalCents = total;
   invoice.paidCents = paid;
-  invoice.balanceCents = total - paid;
+  // Credits and write-offs settle an invoice without any cash arriving.
+  // They live in their own columns (written by the credit / write-off
+  // services) so `paidCents` keeps meaning "cash actually collected".
+  const settled = paid + invoice.creditedCents + invoice.writtenOffCents;
+  invoice.balanceCents = total - settled;
   if (invoice.status !== "draft" && invoice.status !== "void") {
-    if (paid >= total && total > 0) {
-      if (invoice.status !== "paid") invoice.paidAt = new Date();
+    if (settled >= total && total > 0) {
+      // Stamp `paidAt` only when cash was genuinely involved. The finance
+      // dashboard buckets "paid this month" on this column, so an invoice
+      // cleared purely by a write-off or a credit must never surface there
+      // as money collected.
+      if (invoice.status !== "paid" && paid > 0) invoice.paidAt = new Date();
       invoice.status = "paid";
     } else {
       invoice.status = "sent";
