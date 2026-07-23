@@ -1,5 +1,6 @@
 import { config } from "../../../../config.js";
 import { collapseStaticTools } from "./genosynFamilies.js";
+import { buildFamilyAliases } from "./familyAliases.js";
 import type { AgentTool, ToolResult } from "../types.js";
 
 /**
@@ -14,11 +15,15 @@ import type { AgentTool, ToolResult } from "../types.js";
  * loopback internal API with a minted MCP token — reusing every tool's zod
  * validation, audit trail, journal write, and attachment staging unchanged.
  *
- * The model does not see all 84 static tools: the CRUD and domain families are collapsed
- * into `op`-dispatched tools first (see {@link collapseStaticTools}), which
- * takes the static surface to 34 and buys back the slots an employee's
- * integrations need under OpenAI's 128-tool cap. The collapse is a view, not a
- * rewrite — every call still lands on the same `/tools/<name>` endpoint.
+ * The model is not shown all of these at once. `tools/index.ts` splits them into
+ * a small resident working set and a deferred catalogue reached through
+ * `find_tools` / `call_tool` (see {@link ./discovery.js}), which is what keeps
+ * the per-step prompt flat as the product grows. One family (`memory`) is still
+ * collapsed (see {@link collapseStaticTools}), and the fifteen retired families
+ * survive as hidden aliases (see {@link ./familyAliases.js}).
+ *
+ * All of that is a *view*. Every call still lands on the same `/tools/<name>`
+ * endpoint with the same zod validation, grant check and audit row.
  */
 
 function internalApiBase(): string {
@@ -41,7 +46,8 @@ type IntegrationTool = {
 export async function loadGenosynTools(
   token: string,
   signal?: AbortSignal,
-): Promise<AgentTool[]> {
+  onDeprecatedFamily?: (family: string, target: string) => void,
+): Promise<{ tools: AgentTool[]; aliases: AgentTool[] }> {
   const { collapsed, passthrough } = collapseStaticTools();
 
   const familyTools: AgentTool[] = collapsed.map((family) => ({
@@ -76,6 +82,16 @@ export async function loadGenosynTools(
 
   const staticTools: AgentTool[] = [...familyTools, ...passthroughTools];
 
+  // The retired family names, resolvable but never advertised. They dispatch
+  // through the very same granular closures built above, so a Skill that still
+  // says `mail` with `op: "draft"` takes the identical path a direct
+  // `create_mail_draft` call would.
+  const byStaticName = new Map(staticTools.map((t) => [t.name, t]));
+  const aliases = buildFamilyAliases({
+    resolveGranular: (name) => byStaticName.get(name),
+    onDeprecatedUse: onDeprecatedFamily,
+  });
+
   const integrationTools = await loadIntegrationTools(token);
   const integration: AgentTool[] = integrationTools.map((t) => ({
     name: t.name,
@@ -94,7 +110,7 @@ export async function loadGenosynTools(
       ),
   }));
 
-  return [...staticTools, ...integration];
+  return { tools: [...staticTools, ...integration], aliases };
 }
 
 /** Discover integration-backed tools for the acting employee over loopback. */

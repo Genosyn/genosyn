@@ -2,7 +2,7 @@
   "name": "genosyn-app",
   "version": "0.1.0",
   "private": true,
-  "description": "Genosyn App — run companies autonomously with AI employees",
+  "description": "Genosyn App \u2014 run companies autonomously with AI employees",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -13,7 +13,7 @@
     "start": "node dist/server/index.js",
     "lint": "eslint . --ext .ts,.tsx",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit",
-    "test": "tsx --test server/**/*.test.ts",
+    "test": "tsx --test \"server/**/*.test.ts\"",
     "typeorm": "tsx ./node_modules/typeorm/cli.js",
     "migration:generate": "npm run typeorm -- migration:generate -d ormconfig.ts",
     "migration:create": "npm run typeorm -- migration:create",

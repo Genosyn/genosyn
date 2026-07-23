@@ -50,6 +50,8 @@ export type EmployeeAgentParams = {
   delegationDepth?: number;
   /** Internal shared cap across every delegation call in this top-level turn. */
   delegationBudget?: DelegationBudget;
+  /** Model-facing tool names the employee's active Skills asked to keep loaded. */
+  skillToolset?: string[];
 };
 
 export type EmployeeAgentResult =
@@ -107,20 +109,36 @@ export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<Emp
     localTools,
     toolEnv: params.toolEnv,
     bashTimeoutMs: params.bashTimeoutMs,
+    skillToolset: params.skillToolset,
     routineId: params.routineId,
     conversationId: params.conversationId,
     runId: params.runId,
     signal: params.signal,
+    onDeprecatedFamily: (family, target) => {
+      console.warn(
+        `[genosyn] employee=${params.employeeId} used the deprecated family tool "${family}" ` +
+          `(-> ${target}). Update the Skill or Soul that names it.`,
+      );
+    },
   });
 
-  const tools = trimToProviderCap(gathered.tools, built.client.maxTools, params.callbacks);
+  params.callbacks?.onToolsDeferred?.(gathered.registry.stats);
+
+  // Kept as a backstop even though the resident set is now far under any
+  // provider cap: it is the only guard against a 400 that kills the whole run,
+  // and a bridged MCP server could still hand us a hundred tools.
+  gathered.registry.resident = trimToProviderCap(
+    gathered.registry.resident,
+    built.client.maxTools,
+    params.callbacks,
+  );
 
   try {
     const result = await runAgentLoop({
       client: built.client,
       system: params.system,
       messages: params.messages,
-      tools,
+      registry: gathered.registry,
       maxSteps: params.maxSteps,
       // Read off the model row rather than taking it as a param: it's the only
       // source, and every seam that can run an agent already holds the row.

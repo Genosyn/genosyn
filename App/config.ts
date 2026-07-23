@@ -65,6 +65,17 @@ export const config = {
     // configured; startup validation enforces this boundary.
     browserEnabledInMultiTenant: false,
     maxConcurrentRunsPerCompany: 4,
+    // Show the model a working set of tools and let it reach the rest through
+    // `find_tools` / `call_tool`, instead of sending every schema on every
+    // step. Off is exactly the pre-1.43 behaviour: one branch, everything
+    // resident. Keep the switch — first-turn recall is the risk this design
+    // carries, and an operator who hits it needs a way back that does not
+    // involve a downgrade.
+    toolDiscovery: {
+      enabled: true,
+      // Below this many tools the round-trip costs more than the schemas do.
+      minCatalogueSize: 40,
+    },
   },
 
   // Global SMTP fallback for system-level sends (password resets, invites).

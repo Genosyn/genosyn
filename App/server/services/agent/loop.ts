@@ -7,12 +7,12 @@ import {
 } from "./contextBudget.js";
 import type {
   AgentMessage,
-  AgentTool,
   ModelClient,
   StreamCallbacks,
   ToolResult,
   ToolResultBlock,
 } from "./types.js";
+import type { ToolRegistry } from "./tools/toolRegistry.js";
 
 /**
  * The agentic loop — the thing the harness CLIs used to own.
@@ -56,22 +56,23 @@ export async function runAgentLoop(params: {
   client: ModelClient;
   system: string;
   messages: AgentMessage[];
-  tools: AgentTool[];
+  registry: ToolRegistry;
   maxSteps: number;
   /** The model's context window in tokens, or null when we don't know it. */
   contextWindow?: number | null;
   signal?: AbortSignal;
   callbacks?: StreamCallbacks;
 }): Promise<AgentLoopResult> {
-  const { client, system, tools, maxSteps, signal, callbacks } = params;
+  const { client, system, registry, maxSteps, signal, callbacks } = params;
   const contextWindow = params.contextWindow ?? null;
   const messages = [...params.messages];
-  const toolDefs = tools.map((t) => ({
+  // Derived once, above the loop, from an array the registry never mutates —
+  // so the provider sees a byte-identical `tools` payload on every step.
+  const toolDefs = registry.resident.map((t) => ({
     name: t.name,
     description: t.description,
     inputSchema: t.inputSchema,
   }));
-  const byName = new Map(tools.map((t) => [t.name, t]));
   const resultCap = toolResultCap(contextWindow);
 
   let finalText = "";
@@ -151,24 +152,37 @@ export async function runAgentLoop(params: {
         });
         continue;
       }
-      callbacks?.onToolUse?.(tu.name, tu.input);
-      const tool = byName.get(tu.name);
+      // Lenient dispatch: `resolve` reads the whole registry, not just what we
+      // advertised. A model naming a deferred tool directly — from a Skill,
+      // from find_tools, or from memory — is right, and answering "unknown
+      // tool" would punish it for being right.
+      const tool = registry.resolve(tu.name);
+      // A dispatching tool (`call_tool`, a retired family alias) reports the
+      // target it is really running, so the transcript names the tool the model
+      // reached for rather than the door it came through.
+      const described = tool?.describeCall?.(tu.input);
+      const reportedName = described?.name ?? tu.name;
+      callbacks?.onToolUse?.(reportedName, described?.input ?? tu.input);
+
       let result: ToolResult;
       if (!tool) {
-        result = { content: `Unknown tool: ${tu.name}`, isError: true };
+        result = {
+          content: `Unknown tool: ${tu.name}. Call find_tools to see what is available.`,
+          isError: true,
+        };
       } else {
         try {
           result = await tool.run(tu.input);
         } catch (err) {
           result = {
-            content: `Tool ${tu.name} threw: ${err instanceof Error ? err.message : String(err)}`,
+            content: `Tool ${reportedName} threw: ${err instanceof Error ? err.message : String(err)}`,
             isError: true,
           };
         }
       }
       const clipped = clip(result.content, resultCap);
       const images = result.images;
-      callbacks?.onToolResult?.(tu.name, { content: clipped, isError: result.isError, images });
+      callbacks?.onToolResult?.(reportedName, { content: clipped, isError: result.isError, images });
       results.push({
         type: "tool_result",
         toolUseId: tu.id,
@@ -238,9 +252,9 @@ async function streamTurnWithRecovery(params: {
     if (evicted === 0) {
       throw new Error(
         "The prompt is too long for this model's context window, and there is nothing " +
-          "left to drop — the system prompt (Soul + skills + tool catalog) and a single " +
-          "turn already exceed it. Trim the employee's skills, or move it to a model " +
-          "with a larger window. Original error: " +
+          `left to drop — the system prompt (Soul + skills) plus ${toolDefs.length} resident ` +
+          "tools and a single turn already exceed it. Trim the employee's skills, or move it " +
+          "to a model with a larger window. Original error: " +
           (err instanceof Error ? err.message : String(err)),
       );
     }

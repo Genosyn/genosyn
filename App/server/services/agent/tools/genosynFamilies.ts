@@ -5,17 +5,29 @@ import {
 } from "../../../mcp/toolManifest.js";
 
 /**
- * Regroups the granular {@link STATIC_TOOLS} catalogue into a smaller set of
+ * Regroups part of the granular {@link STATIC_TOOLS} catalogue into
  * `op`-dispatched family tools **for the agent only**.
  *
- * ## Why this exists
+ * ## What's left here, and why it shrank
  *
- * Providers cap how many tools one request may carry — OpenAI's Chat Completions
- * rejects anything over 128 with a 400 that kills the whole turn. The built-in
- * floor (7 coding + 84 genosyn + 9 browser) leaves barely 30 slots for an
- * employee's integrations, and a sales employee with a few CRM connections blows
- * straight through it. Collapsing the CRUD families takes the genosyn static
- * surface from 84 tools to 34.
+ * This module used to collapse sixteen families, because the whole genosyn
+ * surface had to fit under OpenAI's 128-tool cap and 84 granular tools left no
+ * room for an employee's integrations. Progressive disclosure removed that
+ * pressure: the model is now shown a working set of ~20 tools and reaches the
+ * rest through `find_tools` / `call_tool` (see `discovery.ts`), so the cap stops
+ * binding long before the catalogue does.
+ *
+ * With the cap gone, collapsing is a net loss almost everywhere. A family's ops
+ * rarely declare the same arguments, so {@link unionSchema} has to intersect
+ * their `required` sets — and for most families that collapsed to just `["op"]`,
+ * leaving the model a tool with twenty optional properties and the real
+ * requirements buried in prose. Granular `send_invoice` advertises exactly what
+ * `send_invoice` needs.
+ *
+ * So exactly one family survives: **`memory`**. Four small ops over one row
+ * shape, genuinely cheaper merged than split, and resident on every step — the
+ * one place the trade still pays. The other fifteen live on as hidden aliases
+ * (see `familyAliases.ts`) so customer Skills that name them keep working.
  *
  * ## Why only the agent's view collapses
  *
@@ -27,21 +39,13 @@ import {
  * zod validation, audit trail and grant checks all unchanged — and this module
  * only regroups it on the way to the model.
  *
- * That split is the codebase's existing idiom rather than a new one: integration
- * tools already carry a model-facing `name` distinct from the `providerToolName`
- * they dispatch to, and `dedupeToolNames` renames exposed names on the same
- * principle — the real target lives in the `run` closure, not in the name.
- *
  * ## Why the schemas are widened rather than picked
  *
  * A family's ops rarely declare identical arguments, so the union has to merge
  * two schemas for the same property. Merging by "take the first" is silently
- * destructive: `update_note.parentSlug` accepts null (that's how a page gets
- * un-nested) where `list_notes.parentSlug` does not, and
- * `update_base_field.options` carries an `id` per option that
- * `add_base_field.options` has no notion of — and dropping it would make the
- * model recreate options on every update, orphaning the cell values that point
- * at them. Both losses would be invisible at the call site.
+ * destructive: `update_memory` and `add_memory` disagree on which fields are
+ * required, and dropping either side's shape would be invisible at the call
+ * site.
  *
  * So {@link widen} takes the *permissive* side of every disagreement: union the
  * types, union the nested properties, intersect the nested `required`. Widening
@@ -60,29 +64,17 @@ type FamilySpec = {
 };
 
 /**
- * The CRUD families, keyed by model-facing tool name.
+ * The surviving collapsed family, keyed by model-facing tool name.
  *
- * Ops use plain CRUD verbs (`list`/`get`/`create`/`update`/`delete`/`search`)
- * wherever the action is CRUD, so the vocabulary is predictable across families;
- * anything that isn't CRUD keeps a verb that says what it does (`rename`,
- * `archive`, `complete`, `add_card`).
+ * Ops use plain CRUD verbs so the vocabulary stays predictable.
  *
- * Deliberately absent: `create_routine`, `create_project`, `create_todo` and
- * `add_journal_entry` stay standalone. `toolsBriefing()` exists precisely
- * because models like to *say* they scheduled a routine without calling the
- * tool, and burying the call behind `routines(op:"create")` works against the
- * one thing that briefing is there to counter.
+ * Adding to this map is almost always the wrong move now — the cap that
+ * justified collapsing is gone, and a new family costs the model a schema whose
+ * `required` is the intersection of its ops. Defer the granular tools instead.
+ * `memory` earns its place by being four small ops over one row shape *and*
+ * resident on every step, so the merge is paid back on every request.
  */
 const FAMILIES: Record<string, FamilySpec> = {
-  skills: {
-    blurb: "Read and edit the Skill playbooks attached to an AI employee.",
-    ops: {
-      list: "list_skills",
-      create: "create_skill",
-      update: "update_skill",
-      delete: "delete_skill",
-    },
-  },
   memory: {
     blurb: "Curate your durable memory — the facts auto-injected into every prompt.",
     ops: {
@@ -90,152 +82,6 @@ const FAMILIES: Record<string, FamilySpec> = {
       create: "add_memory",
       update: "update_memory",
       delete: "delete_memory",
-    },
-  },
-  bases: {
-    blurb: "Work with Bases (the structured data store) at the base level.",
-    ops: { list: "list_bases", get: "get_base", create: "create_base" },
-  },
-  base_tables: {
-    blurb: "Manage the tables inside a Base.",
-    ops: {
-      create: "create_base_table",
-      update: "update_base_table",
-      delete: "delete_base_table",
-    },
-  },
-  base_fields: {
-    blurb: "Manage the fields (columns) on a Base table.",
-    ops: {
-      create: "add_base_field",
-      update: "update_base_field",
-      delete: "delete_base_field",
-    },
-  },
-  base_rows: {
-    blurb: "Read and write the rows inside a Base table.",
-    ops: {
-      list: "list_base_rows",
-      create: "create_base_row",
-      update: "update_base_row",
-      delete: "delete_base_row",
-    },
-  },
-  workspace_channels: {
-    blurb: "Manage workspace channels. Use `send_workspace_message` to post.",
-    ops: {
-      list: "list_workspace_channels",
-      create: "create_workspace_channel",
-      rename: "rename_workspace_channel",
-      archive: "archive_workspace_channel",
-    },
-  },
-  handoffs: {
-    blurb: "Hand work to a teammate, and resolve handoffs sent to you.",
-    ops: {
-      list: "list_handoffs",
-      create: "create_handoff",
-      complete: "complete_handoff",
-      decline: "decline_handoff",
-      cancel: "cancel_handoff",
-    },
-  },
-  notes: {
-    blurb: "Read and write Notes — the company's long-form pages.",
-    ops: {
-      list: "list_notes",
-      search: "search_notes",
-      get: "get_note",
-      create: "create_note",
-      update: "update_note",
-      delete: "delete_note",
-    },
-  },
-  resources: {
-    blurb: "Read and write Resources — the company's reference library.",
-    ops: {
-      list: "list_resources",
-      search: "search_resources",
-      get: "get_resource",
-      export: "export_resource",
-      create: "create_resource",
-      update: "update_resource",
-      delete: "delete_resource",
-    },
-  },
-  record_comments: {
-    blurb: "Read and write the comment thread on a Base record.",
-    ops: {
-      list: "list_record_comments",
-      create: "create_record_comment",
-      delete: "delete_record_comment",
-    },
-  },
-  record_attachments: {
-    blurb: "Manage the files attached to a Base record.",
-    ops: {
-      list: "list_record_attachments",
-      attach: "attach_file_to_record",
-      read: "read_record_attachment",
-      delete: "delete_record_attachment",
-    },
-  },
-  charts: {
-    blurb: "Read, run and edit saved SQL charts.",
-    ops: {
-      list: "list_charts",
-      get: "get_chart",
-      run: "run_chart",
-      create: "create_chart",
-      update: "update_chart",
-      delete: "delete_chart",
-    },
-  },
-  dashboards: {
-    blurb: "Read and assemble dashboards out of saved charts.",
-    ops: {
-      list: "list_dashboards",
-      get: "get_dashboard",
-      create: "create_dashboard",
-      add_card: "add_dashboard_card",
-    },
-  },
-  finance: {
-    blurb:
-      "Work the company's finance system: invoices, customers, payments, and the books. Access is granted per employee at read < invoice < full (Finance → AI access). `read` ops view; the invoice/customer/payment ops need `invoice`; `review` needs `full`. Money is in integer minor units (cents) with a 3-letter ISO currency code.",
-    ops: {
-      // read
-      list_invoices: "list_invoices",
-      get_invoice: "get_invoice",
-      list_customers: "list_customers",
-      get_customer: "get_customer",
-      accounts: "list_finance_accounts",
-      transactions: "list_finance_transactions",
-      get: "get_finance_transaction",
-      report: "get_finance_report",
-      // invoice (accounts receivable)
-      create_invoice: "create_invoice",
-      send_invoice: "send_invoice",
-      record_payment: "record_payment",
-      void_invoice: "void_invoice",
-      create_customer: "create_customer",
-      update_customer: "update_customer",
-      // full (accounting review)
-      review: "review_finance_transaction",
-    },
-  },
-  mail: {
-    blurb:
-      "Work with the company's Gmail mailboxes (the Email section). Access is granted per mailbox at read < draft < send; prefer `draft` over `send` unless explicitly told to send.",
-    ops: {
-      accounts: "list_mail_accounts",
-      search: "search_mail",
-      get: "get_mail_thread",
-      draft: "create_mail_draft",
-      edit: "edit_mail_draft",
-      update: "update_mail_thread",
-      send: "send_mail",
-      suggest: "suggest_mail_actions",
     },
   },
 };

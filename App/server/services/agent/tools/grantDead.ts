@@ -1,4 +1,5 @@
 import { AppDataSource } from "../../../db/datasource.js";
+import { STATIC_TOOLS } from "../../../mcp/toolManifest.js";
 import { EmployeeBaseGrant } from "../../../db/entities/EmployeeBaseGrant.js";
 import { EmployeeMailAccountGrant } from "../../../db/entities/EmployeeMailAccountGrant.js";
 import { EmployeeFinanceGrant } from "../../../db/entities/EmployeeFinanceGrant.js";
@@ -8,59 +9,124 @@ import { EmployeeFinanceGrant } from "../../../db/entities/EmployeeFinanceGrant.
  *
  * Grants are enforced when a tool is *called*, not when it's offered: an
  * employee with no Base grants still gets handed every `base_*` tool, and
- * `loadGrantedBase` in `routes/mcpInternal.ts` turns each call into a 403. Those
- * tools cost a slot under the provider's tool cap and a slice of every prompt,
- * and can never do anything. When something has to be dropped to fit, they are
- * what should go — before a tool the employee can actually use.
+ * `loadGrantedBase` in `routes/mcpInternal.ts` turns each call into a 403.
  *
- * ## Why this set is so much smaller than it looks
+ * ## Two consumers, one source
  *
- * Most families survive a total absence of grants because they carry an
- * ungated `create` op: `create_base` auto-grants its creator, `create_note` only
- * checks access when you name a parent, and `create_resource` / `create_chart`
- * don't check at all. Collapsing the CRUD families (see `genosynFamilies.ts`)
- * folds those creates in with the grant-gated reads, so `bases`, `notes`,
- * `resources`, `charts` and `dashboards` all stay live on a bare employee.
+ * 1. `sinkGrantDeadTools` in `tools/index.ts` sorts these to the back, so that
+ *    if `trimToProviderCap` ever has to cut, it cuts the tools that could only
+ *    have returned 403 anyway.
+ * 2. `find_tools` (see `discovery.ts`) applies the same set as a **rank
+ *    penalty and an annotation**. That is the consumer that matters now: once
+ *    the catalogue is deferred, ordering an array is nearly a no-op, but
+ *    telling the model "you hold no grant for this today" before it spends a
+ *    call is not.
  *
- * Integration tools never appear here either: `/integrations/_list` only
- * discovers tools for connections the employee already holds a grant on, so they
- * are grant-scoped before they reach us.
+ * ## Never a filter
  *
- * What's left is the Base-record surface, where every op needs a Base grant to
- * do anything at all. That's a modest six tools, and only for an employee with
- * no Bases — which is the honest size of this optimization, not a hedge.
+ * Demote, annotate, deprioritise — never remove. `create_base` auto-grants its
+ * creator, so an employee with no Bases at assembly time can hold one two steps
+ * later, and a tool filtered out at build time would stay gone for the rest of
+ * the run. Wrongly calling a live tool dead loses a capability; wrongly calling
+ * a dead tool live costs a rank position. When in doubt, live.
+ *
+ * Integration tools never appear here: `/integrations/_list` only discovers
+ * tools for connections the employee already holds a grant on, so they are
+ * grant-scoped before they reach us.
  */
 
 /**
- * Tools whose every op routes through `loadGrantedBase` / `loadGrantedRecord`.
+ * Tools whose every path routes through `loadGrantedBase` / `loadGrantedRecord`.
  *
- * Names are the *model-facing* ones — the collapsed families from
- * `genosynFamilies.ts` plus the one passthrough that is Base-scoped. Deliberately
- * excludes `bases` itself: its `create` and `list` ops work without any grant.
+ * Manifest names, now that the collapsed families are retired. Deliberately
+ * excludes `list_bases` (it filters to what you hold), `get_base` and
+ * `create_base` (which auto-grants its creator) — those work on a bare
+ * employee, which is exactly why the old family-level set was so small.
  */
 const BASE_GATED_TOOLS = new Set([
-  "base_tables",
-  "base_fields",
-  "base_rows",
-  "record_comments",
-  "record_attachments",
+  "create_base_table",
+  "update_base_table",
+  "delete_base_table",
+  "add_base_field",
+  "update_base_field",
+  "delete_base_field",
+  "list_base_rows",
+  "create_base_row",
+  "update_base_row",
+  "delete_base_row",
   "get_base_record",
+  "list_record_comments",
+  "create_record_comment",
+  "delete_record_comment",
+  "list_record_attachments",
+  "attach_file_to_record",
+  "read_record_attachment",
+  "delete_record_attachment",
 ]);
 
 /**
- * The `mail` family (Email section, M25) is the second grant-dead surface:
- * every op needs an `EmployeeMailAccountGrant` — there is no ungated create
- * to keep it alive, and even `accounts`/`search` can only answer "no grant"
- * for an employee with zero mailboxes.
+ * The mail surface (Email section, M25): every tool needs an
+ * `EmployeeMailAccountGrant`. There is no ungated create to keep it alive, so
+ * even `list_mail_accounts` and `search_mail` can only answer "no grant" for an
+ * employee with zero mailboxes.
  */
-const MAIL_GATED_TOOLS = new Set(["mail"]);
+const MAIL_GATED_TOOLS = new Set([
+  "list_mail_accounts",
+  "search_mail",
+  "get_mail_thread",
+  "create_mail_draft",
+  "edit_mail_draft",
+  "update_mail_thread",
+  "send_mail",
+  "suggest_mail_actions",
+]);
 
 /**
- * The `finance` family (Finance section, M19) is the third grant-dead surface:
- * every op — reads included — now answers to an `EmployeeFinanceGrant`, so an
- * employee with no finance grant can only ever get a "No grant" 403 from it.
+ * The finance surface (Finance section, M19): every tool — reads included —
+ * answers to an `EmployeeFinanceGrant`.
  */
-const FINANCE_GATED_TOOLS = new Set(["finance"]);
+const FINANCE_GATED_TOOLS = new Set([
+  "list_finance_accounts",
+  "list_finance_transactions",
+  "get_finance_transaction",
+  "review_finance_transaction",
+  "get_finance_report",
+  "list_invoices",
+  "get_invoice",
+  "list_customers",
+  "get_customer",
+  "create_customer",
+  "update_customer",
+  "create_invoice",
+  "send_invoice",
+  "record_payment",
+  "void_invoice",
+]);
+
+/**
+ * Fail at boot if any gated name has drifted away from the manifest.
+ *
+ * This module's own doc comment used to admit that nothing linked these sets to
+ * the tools they name, so a rename would silently stop demoting a dead tool.
+ * That mattered little when the sets held eight family names; it matters now
+ * that they hold forty-one granular ones and feed `find_tools`' rank penalty as
+ * well as the trim ordering.
+ */
+export function assertGrantSetsResolve(): void {
+  const known = new Set(STATIC_TOOLS.map((t) => t.name));
+  const unknown = [...BASE_GATED_TOOLS, ...MAIL_GATED_TOOLS, ...FINANCE_GATED_TOOLS].filter(
+    (n) => !known.has(n),
+  );
+  if (unknown.length > 0) {
+    throw new Error(
+      `grantDead.ts names ${unknown.length} tool(s) that are not in STATIC_TOOLS: ` +
+        `${unknown.join(", ")}. Fix the rename — a stale entry here means a tool that can ` +
+        `only answer 403 is never demoted, and one that works may be.`,
+    );
+  }
+}
+
+assertGrantSetsResolve();
 
 /**
  * The model-facing names that are dead weight for this employee right now.
