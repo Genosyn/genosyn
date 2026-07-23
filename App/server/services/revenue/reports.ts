@@ -241,6 +241,17 @@ export type CacSection = {
    * the payload rather than in a comment so the UI is forced to say so too.
    */
   spendIsProxy: boolean;
+  /**
+   * Currencies the underlying ad-spend events were denominated in.
+   *
+   * More than one means `spendCents` and every CAC below it are the arithmetic
+   * sum of different units, which is not a number. When that happens the CAC
+   * figures are nulled out rather than rendered under a single symbol — see
+   * `collectSpendByChannel`.
+   */
+  spendCurrencies: string[];
+  /** True when `spendCurrencies.length > 1` and the CAC figures were withheld. */
+  spendCurrencyMismatch: boolean;
 };
 
 /**
@@ -256,10 +267,15 @@ export type CacSection = {
 function buildCac(args: {
   spendByChannel: ReadonlyMap<string, number>;
   wonByChannel: ReadonlyMap<string, number>;
+  spendCurrencies: string[];
   arpaCents: number | null;
   monthlyChurnPct: number | null;
   grossMarginPct?: number;
 }): CacSection {
+  // Spend across two currencies added together is not a smaller number, it is
+  // a meaningless one. Withhold rather than mislead: the wins and the currency
+  // list still ship, so the UI can explain exactly what is missing and why.
+  const spendCurrencyMismatch = args.spendCurrencies.length > 1;
   const channels = computeCacByChannel(args.spendByChannel, args.wonByChannel);
   const blendedCacCents = computeBlendedCac(args.spendByChannel, args.wonByChannel);
 
@@ -285,16 +301,20 @@ function buildCac(args: {
       : null;
 
   return {
-    channels,
-    blendedCacCents,
-    spendCents,
+    channels: spendCurrencyMismatch
+      ? channels.map((c) => ({ ...c, spendCents: 0, cacCents: null, note: "no-wins" as const }))
+      : channels,
+    blendedCacCents: spendCurrencyMismatch ? null : blendedCacCents,
+    spendCents: spendCurrencyMismatch ? 0 : spendCents,
     wonCount,
     arpaCents: args.arpaCents,
     monthlyChurnPct: args.monthlyChurnPct,
     ltvCents,
     ltvToCac: computeLtvToCac(ltvCents, blendedCacCents),
-    paybackMonths,
+    paybackMonths: spendCurrencyMismatch ? null : paybackMonths,
     spendIsProxy: true,
+    spendCurrencies: args.spendCurrencies,
+    spendCurrencyMismatch,
   };
 }
 
@@ -367,7 +387,8 @@ export async function getRevenueOverview(
     funnel: buildFunnel(deals, stages, period),
     coverage: computePipelineCoverage(deals, stages, safeTargetCents(opts.targetCents)),
     cac: buildCac({
-      spendByChannel,
+      spendByChannel: spendByChannel.byChannel,
+      spendCurrencies: spendByChannel.currencies,
       wonByChannel,
       arpaCents: arpaCents(latest),
       monthlyChurnPct: averageMonthlyChurnPct(mrr.section.series),
@@ -498,7 +519,8 @@ export async function getCacReport(
   return {
     period: { from, to },
     ...buildCac({
-      spendByChannel,
+      spendByChannel: spendByChannel.byChannel,
+      spendCurrencies: spendByChannel.currencies,
       wonByChannel,
       arpaCents: arpaCents(latest),
       monthlyChurnPct: averageMonthlyChurnPct(mrr.section.series),

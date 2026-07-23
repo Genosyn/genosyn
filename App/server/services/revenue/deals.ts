@@ -1,4 +1,4 @@
-import { Brackets, In, IsNull, type SelectQueryBuilder } from "typeorm";
+import { Brackets, In, type SelectQueryBuilder } from "typeorm";
 
 import { AppDataSource } from "../../db/datasource.js";
 import { Contact } from "../../db/entities/Contact.js";
@@ -365,20 +365,67 @@ export async function archiveDeal(
   return repo.save(deal);
 }
 
-/** The board: open deals grouped by stage, in board order. */
-export async function dealBoard(companyId: string): Promise<
+/**
+ * Un-archive. Exists because `?includeArchived=true` will happily list rows,
+ * and a list that shows you something with no way to act on it is a dead end —
+ * contacts already had the pair, deals did not.
+ */
+export async function restoreDeal(companyId: string, id: string): Promise<Deal | null> {
+  const repo = AppDataSource.getRepository(Deal);
+  const deal = await repo.findOneBy({ id, companyId });
+  if (!deal) return null;
+  deal.archivedAt = null;
+  return repo.save(deal);
+}
+
+/**
+ * How far back the won and lost columns look. Long enough that a deal you
+ * closed this morning is still visible where you dropped it; short enough that
+ * two years of history does not make the board unusable.
+ */
+export const BOARD_CLOSED_WINDOW_DAYS = 30;
+
+/**
+ * The board: deals grouped by stage, in board order.
+ *
+ * Open stages carry every open deal. The won and lost stages carry deals closed
+ * within {@link BOARD_CLOSED_WINDOW_DAYS} — **not** nothing, which is what a
+ * naive `status: "open"` filter gives you. That version rendered two permanently
+ * empty columns, and worse, a card dragged into one of them disappeared on the
+ * next refetch: the move had succeeded, but the board could not show the result,
+ * so it looked like data loss.
+ */
+export async function dealBoard(
+  companyId: string,
+  now = new Date(),
+): Promise<
   Array<{
     stage: DealStage;
     deals: HydratedDeal[];
     totalCents: number;
     weightedCents: number;
+    /** True for the won/lost columns, so the UI can label the time window. */
+    windowed: boolean;
   }>
 > {
   const stages = await listDealStages(companyId);
-  const deals = await AppDataSource.getRepository(Deal).find({
-    where: { companyId, archivedAt: IsNull(), status: "open" },
-    order: { updatedAt: "DESC" },
-  });
+  const cutoff = new Date(now.getTime() - BOARD_CLOSED_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+
+  const deals = await AppDataSource.getRepository(Deal)
+    .createQueryBuilder("d")
+    .where("d.companyId = :companyId", { companyId })
+    .andWhere("d.archivedAt IS NULL")
+    .andWhere(
+      new Brackets((w) => {
+        w.where("d.status = :open", { open: "open" }).orWhere(
+          "d.closedAt >= :cutoff",
+          { cutoff },
+        );
+      }),
+    )
+    .orderBy("d.updatedAt", "DESC")
+    .getMany();
+
   const hydrated = await hydrateDeals(companyId, deals);
 
   return stages.map((stage) => {
@@ -388,6 +435,7 @@ export async function dealBoard(companyId: string): Promise<
       deals: inStage,
       totalCents: inStage.reduce((sum, d) => sum + d.amountCents, 0),
       weightedCents: inStage.reduce((sum, d) => sum + d.weightedValueCents, 0),
+      windowed: stage.kind !== "open",
     };
   });
 }

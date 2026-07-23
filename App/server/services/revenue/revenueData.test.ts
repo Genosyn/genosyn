@@ -479,7 +479,7 @@ describe("collectSpendByChannel", () => {
     await makeSpend({ platform: "google-ads", amountMinor: 50_00 });
     await makeSpend({ platform: "meta-ads", amountMinor: 25_00 });
     const spend = await collectSpendByChannel(CO, from, to);
-    assert.deepEqual([...spend].sort(), [
+    assert.deepEqual([...spend.byChannel].sort(), [
       ["google-ads", 150_00],
       ["meta-ads", 25_00],
     ]);
@@ -490,24 +490,40 @@ describe("collectSpendByChannel", () => {
     await makeSpend({ amountMinor: 1_000_00 });
     await makeSpend({ amountMinor: -1_000_00, mutationKind: "budget_decrease" });
     const spend = await collectSpendByChannel(CO, from, to);
-    assert.deepEqual([...spend], [["google-ads", 1_000_00]]);
+    assert.deepEqual([...spend.byChannel], [["google-ads", 1_000_00]]);
   });
 
   test("events outside the half-open period are excluded", async () => {
     await makeSpend({ createdAt: at("2025-12-31T23:59:59Z") });
     await makeSpend({ createdAt: to });
-    assert.equal((await collectSpendByChannel(CO, from, to)).size, 0);
+    assert.equal((await collectSpendByChannel(CO, from, to)).byChannel.size, 0);
   });
 
   test("a platform-less event lands in the unattributed bucket", async () => {
     await makeSpend({ platform: "", amountMinor: 700 });
     const spend = await collectSpendByChannel(CO, from, to);
-    assert.deepEqual([...spend], [[UNATTRIBUTED_CHANNEL, 700]]);
+    assert.deepEqual([...spend.byChannel], [[UNATTRIBUTED_CHANNEL, 700]]);
   });
 
   test("scoped to the company", async () => {
     await makeSpend({ companyId: OTHER_CO });
-    assert.equal((await collectSpendByChannel(CO, from, to)).size, 0);
+    assert.equal((await collectSpendByChannel(CO, from, to)).byChannel.size, 0);
+  });
+
+  test("reports every currency the events were denominated in", async () => {
+    // AdSpendEvent.amountMinor is in the ad account's own currency, and this
+    // sums across accounts. Two currencies means the total is not a number, so
+    // the caller has to be able to find out.
+    await makeSpend({ platform: "google-ads", amountMinor: 100_00, currency: "USD" });
+    await makeSpend({ platform: "meta-ads", amountMinor: 90_00, currency: "EUR" });
+    const spend = await collectSpendByChannel(CO, from, to);
+    assert.deepEqual(spend.currencies, ["EUR", "USD"]);
+  });
+
+  test("a single currency reports exactly one, normalized to upper case", async () => {
+    await makeSpend({ amountMinor: 100_00, currency: "usd" });
+    await makeSpend({ amountMinor: 50_00, currency: "USD" });
+    assert.deepEqual((await collectSpendByChannel(CO, from, to)).currencies, ["USD"]);
   });
 });
 

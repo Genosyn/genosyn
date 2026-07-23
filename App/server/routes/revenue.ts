@@ -58,6 +58,7 @@ import {
 } from "../services/revenue/contacts.js";
 import {
   InvalidStageError,
+  MAX_DEAL_AMOUNT_CENTS,
   addDealContact,
   archiveDeal,
   createDeal,
@@ -67,6 +68,7 @@ import {
   listDeals,
   moveDealToStage,
   removeDealContact,
+  restoreDeal,
   updateDeal,
 } from "../services/revenue/deals.js";
 import {
@@ -583,7 +585,10 @@ const dealCreateSchema = z.object({
   customerId: z.string().uuid().nullable().optional(),
   primaryContactId: z.string().uuid().nullable().optional(),
   stageId: z.string().uuid().nullable().optional(),
-  amountCents: z.number().int().min(0).optional(),
+  // Capped, not clamped. The service clamps defensively, but a request that
+  // silently stores a different number than it was sent is worse than a 400 —
+  // the caller believes it worked. Matches Deal.ts's own documented ceiling.
+  amountCents: z.number().int().min(0).max(MAX_DEAL_AMOUNT_CENTS).optional(),
   currency: z.string().length(3).optional(),
   probabilityOverride: z.number().int().min(0).max(100).nullable().optional(),
   expectedCloseDate: z.coerce.date().nullable().optional(),
@@ -703,6 +708,20 @@ revenueRouter.post(
     const deal = await archiveDeal(cidOf(req), req.params.id);
     if (!deal) return res.status(404).json({ error: "Deal not found" });
     await audit(req, "revenue.deal.archive", {
+      type: "deal",
+      id: deal.id,
+      label: deal.title,
+    });
+    return res.json(deal);
+  }),
+);
+
+revenueRouter.post(
+  "/revenue/deals/:id/restore",
+  h(async (req, res) => {
+    const deal = await restoreDeal(cidOf(req), req.params.id);
+    if (!deal) return res.status(404).json({ error: "Deal not found" });
+    await audit(req, "revenue.deal.restore", {
       type: "deal",
       id: deal.id,
       label: deal.title,

@@ -560,11 +560,12 @@ function serializeInvoiceFull(h: HydratedInvoiceRow) {
   };
 }
 
-const emptyFinanceSchema = z.object({}).strict();
+/** Shared by every tool that takes no arguments at all. */
+const emptyToolSchema = z.object({}).strict();
 
 mcpInternalRouter.post(
   "/tools/list_finance_accounts",
-  validateBody(emptyFinanceSchema),
+  validateBody(emptyToolSchema),
   async (req: McpRequest, res) => {
     if (!(await requireFinance(req, res, "read"))) return;
     const accounts = await seedChartOfAccounts(req.mcpCompany!.id);
@@ -1616,11 +1617,9 @@ mcpInternalRouter.post(
   },
 );
 
-const emptyRevenueSchema = z.object({}).strict();
-
 mcpInternalRouter.post(
   "/tools/get_deal_board",
-  validateBody(emptyRevenueSchema),
+  validateBody(emptyToolSchema),
   async (req: McpRequest, res) => {
     if (!(await requireRevenue(req, res, "read"))) return;
     const columns = await dealBoard(req.mcpCompany!.id);
@@ -1637,7 +1636,7 @@ mcpInternalRouter.post(
 
 mcpInternalRouter.post(
   "/tools/list_deal_stages",
-  validateBody(emptyRevenueSchema),
+  validateBody(emptyToolSchema),
   async (req: McpRequest, res) => {
     if (!(await requireRevenue(req, res, "read"))) return;
     // Seeds the default ladder on first read, so an employee asking about the
@@ -1786,7 +1785,9 @@ mcpInternalRouter.post(
       if (err instanceof DuplicateContactError) {
         return res.status(409).json({ error: err.message, existingId: err.existingId });
       }
-      throw err;
+      // Never rethrow: Express 4 does not await a handler, so a rejection here
+      // escapes to the process instead of reaching an error middleware.
+      res.status(400).json({ error: (err as Error).message });
     }
   },
 );
@@ -1825,7 +1826,7 @@ mcpInternalRouter.post(
       if (err instanceof DuplicateContactError) {
         return res.status(409).json({ error: err.message, existingId: err.existingId });
       }
-      throw err;
+      res.status(400).json({ error: (err as Error).message });
     }
   },
 );
@@ -1848,6 +1849,16 @@ const createDealSchema = dealWritableSchema
     stageId: z.string().uuid().nullable().optional(),
   })
   .strict();
+
+/**
+ * `expectedCloseDate` off the wire: `undefined` means "leave it alone",
+ * `null` means "clear it", a string is parsed and throws when unusable.
+ */
+function parseExpectedCloseDate(value: string | null | undefined): Date | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  return parseOptionalToolDate(value, "expectedCloseDate") ?? null;
+}
 
 /** Company-scope every id a deal write links to, so a bare uuid can't reach another tenant. */
 async function checkDealLinks(
@@ -1875,7 +1886,7 @@ mcpInternalRouter.post(
     try {
       const deal = await createDeal(
         cid,
-        { ...body, expectedCloseDate: parseOptionalToolDate(body.expectedCloseDate ?? undefined, "expectedCloseDate") ?? null },
+        { ...body, expectedCloseDate: parseExpectedCloseDate(body.expectedCloseDate) ?? null },
         revenueActor(req),
       );
       const hydrated = await getHydratedDeal(cid, deal.id);
@@ -1917,33 +1928,30 @@ mcpInternalRouter.post(
     const { dealId, ...patch } = req.body as z.infer<typeof updateDealSchema>;
     const badLink = await checkDealLinks(cid, patch);
     if (badLink) return res.status(400).json({ error: badLink });
-    // No `stageId` here on purpose: a stage move carries the status invariant
-    // and writes the activity every funnel report reads, so it goes through
-    // move_deal_stage and nowhere else.
-    const deal = await updateDeal(
-      cid,
-      dealId,
-      {
-        ...patch,
-        expectedCloseDate:
-          patch.expectedCloseDate === undefined
-            ? undefined
-            : (parseOptionalToolDate(patch.expectedCloseDate ?? undefined, "expectedCloseDate") ??
-              null),
-      },
-      revenueActor(req),
-    );
-    if (!deal) return res.status(404).json({ error: "Deal not found" });
-    await aiWriteTrail(req, {
-      action: "revenue.deal.update",
-      targetType: "deal",
-      targetId: deal.id,
-      targetLabel: deal.title,
-      journalTitle: `${req.mcpEmployee!.name} updated deal ${deal.title}`,
-      metadata: { changes: Object.keys(patch) },
-    });
-    const hydrated = await getHydratedDeal(cid, deal.id);
-    res.json({ deal: hydrated ? serializeDealFull(hydrated) : null });
+    try {
+      // No `stageId` here on purpose: a stage move carries the status invariant
+      // and writes the activity every funnel report reads, so it goes through
+      // move_deal_stage and nowhere else.
+      const deal = await updateDeal(
+        cid,
+        dealId,
+        { ...patch, expectedCloseDate: parseExpectedCloseDate(patch.expectedCloseDate) },
+        revenueActor(req),
+      );
+      if (!deal) return res.status(404).json({ error: "Deal not found" });
+      await aiWriteTrail(req, {
+        action: "revenue.deal.update",
+        targetType: "deal",
+        targetId: deal.id,
+        targetLabel: deal.title,
+        journalTitle: `${req.mcpEmployee!.name} updated deal ${deal.title}`,
+        metadata: { changes: Object.keys(patch) },
+      });
+      const hydrated = await getHydratedDeal(cid, deal.id);
+      res.json({ deal: hydrated ? serializeDealFull(hydrated) : null });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
   },
 );
 

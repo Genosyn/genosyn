@@ -293,17 +293,51 @@ describe("hydration and the board", () => {
     assert.equal(board.find((c) => c.stage.name === "New")?.deals.length, 0);
   });
 
-  test("closed and archived deals are off the board", async () => {
-    const byName = await stages();
-    const won = await createDeal(CO, { title: "Won" });
-    await moveDealToStage(CO, won.id, byName.get("Closed Won")!.id);
+  test("archived deals are off the board entirely", async () => {
     const archived = await createDeal(CO, { title: "Archived" });
     await archiveDeal(CO, archived.id);
     await createDeal(CO, { title: "Open" });
 
     const board = await dealBoard(CO);
-    const total = board.reduce((sum, col) => sum + col.deals.length, 0);
-    assert.equal(total, 1);
+    const titles = board.flatMap((col) => col.deals.map((d) => d.title));
+    assert.deepEqual(titles, ["Open"]);
+  });
+
+  test("a just-won deal stays visible in the won column", async () => {
+    // The naive `status: "open"` filter left the won and lost columns
+    // permanently empty, so a card dragged into one vanished on the next
+    // refetch — the move had worked, but it looked like data loss.
+    const byName = await stages();
+    const won = await createDeal(CO, { title: "Won today" });
+    await moveDealToStage(CO, won.id, byName.get("Closed Won")!.id);
+
+    const board = await dealBoard(CO);
+    const wonColumn = board.find((c) => c.stage.name === "Closed Won");
+    assert.deepEqual(wonColumn?.deals.map((d) => d.title), ["Won today"]);
+    assert.equal(wonColumn?.windowed, true);
+    assert.equal(board.find((c) => c.stage.name === "New")?.windowed, false);
+  });
+
+  test("a deal closed long ago drops out of the won column", async () => {
+    const byName = await stages();
+    const old = await createDeal(CO, { title: "Won last year" });
+    await moveDealToStage(CO, old.id, byName.get("Closed Won")!.id, {}, {
+      now: new Date("2025-01-01T00:00:00Z"),
+    });
+
+    const board = await dealBoard(CO, new Date("2026-07-23T00:00:00Z"));
+    assert.deepEqual(board.find((c) => c.stage.name === "Closed Won")?.deals, []);
+  });
+
+  test("the closed window is inclusive at its edge", async () => {
+    const byName = await stages();
+    const now = new Date("2026-07-23T12:00:00Z");
+    const justInside = new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000);
+    const d = await createDeal(CO, { title: "Edge" });
+    await moveDealToStage(CO, d.id, byName.get("Closed Won")!.id, {}, { now: justInside });
+
+    const board = await dealBoard(CO, now);
+    assert.equal(board.find((c) => c.stage.name === "Closed Won")?.deals.length, 1);
   });
 });
 

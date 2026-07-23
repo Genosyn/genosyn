@@ -510,31 +510,57 @@ export async function collectStages(companyId: string): Promise<StageLike[]> {
  * platform currency belongs on the connection, and converting it is a separate
  * job with `ExchangeRate`.
  */
+export type ChannelSpend = {
+  byChannel: Map<string, number>;
+  /**
+   * Every distinct currency the underlying events were denominated in.
+   *
+   * `AdSpendEvent.amountMinor` is in the ad account's own currency, and this
+   * query sums across accounts. If a company runs a EUR account and a USD one,
+   * the totals above are the arithmetic sum of two different units — a number
+   * with no meaning. Callers must check this before rendering a currency
+   * symbol next to it; `buildCac` refuses to compute CAC when it has more than
+   * one entry rather than printing a confidently wrong figure.
+   *
+   * The real fix is converting through the FX rates M19 Phase E introduced.
+   * Until then, reporting honestly beats reporting precisely.
+   */
+  currencies: string[];
+};
+
 export async function collectSpendByChannel(
   companyId: string,
   from: Date,
   to: Date,
-): Promise<Map<string, number>> {
+): Promise<ChannelSpend> {
   const qb = AppDataSource.getRepository(AdSpendEvent)
     .createQueryBuilder("e")
     .select("e.platform", "platform")
+    .addSelect("e.currency", "currency")
     .addSelect("SUM(e.amountMinor)", "total")
     .where("e.companyId = :companyId", { companyId })
     .andWhere("e.amountMinor > 0")
-    .groupBy("e.platform");
+    .groupBy("e.platform")
+    .addGroupBy("e.currency");
   applyPeriod(qb, "e.createdAt", from, to);
 
-  const rows = await qb.getRawMany<{ platform: string | null; total: string | number | null }>();
+  const rows = await qb.getRawMany<{
+    platform: string | null;
+    currency: string | null;
+    total: string | number | null;
+  }>();
 
-  const out = new Map<string, number>();
+  const byChannel = new Map<string, number>();
+  const currencies = new Set<string>();
   for (const row of rows) {
     // Postgres returns SUM(int) as a bigint string; sqlite returns a number.
     const total = Number(row.total ?? 0);
     if (!Number.isFinite(total) || total <= 0) continue;
     const channel = row.platform || UNATTRIBUTED_CHANNEL;
-    out.set(channel, (out.get(channel) ?? 0) + total);
+    byChannel.set(channel, (byChannel.get(channel) ?? 0) + total);
+    if (row.currency) currencies.add(row.currency.toUpperCase());
   }
-  return out;
+  return { byChannel, currencies: [...currencies].sort() };
 }
 
 /**
