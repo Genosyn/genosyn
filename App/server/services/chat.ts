@@ -17,7 +17,12 @@ import { composeCodeReposContext, materializeCodeReposForEmployee } from "./code
 import { runEmployeeAgent } from "./agent/runEmployee.js";
 import type { AgentMessage } from "./agent/types.js";
 import { config } from "../../config.js";
-import { acquireWorkloadLease, releaseWorkloadLease } from "./workloadLeases.js";
+import {
+  acquireWorkloadLease,
+  describeEmployeeWorkload,
+  EmployeeWorkloadBusyError,
+  releaseWorkloadLease,
+} from "./workloadLeases.js";
 
 /**
  * Chat seam.
@@ -59,6 +64,12 @@ export type ChatResult =
       sidecars: Record<string, unknown[]>;
     }
   | {
+      status: "busy";
+      reply: string;
+      attachmentIds: string[];
+      sidecars: Record<string, unknown[]>;
+    }
+  | {
       status: "error";
       reply: string;
       attachmentIds: string[];
@@ -69,6 +80,39 @@ export type ChatResult =
 const CHAT_HARD_TIMEOUT_MS = 60 * 60_000;
 /** Max model turns before the loop stops itself. */
 const CHAT_MAX_STEPS = 60;
+
+/**
+ * Human-facing "still working" notice for a chat turn that lost the race for
+ * the employee's workload slot. Names the employee and, when they're mid-Run,
+ * links the routine so the teammate can open it and watch the progress.
+ * Returned as the `busy` reply and rendered as markdown, so the link is live.
+ */
+async function formatBusyReply(co: Company, emp: AIEmployee): Promise<string> {
+  let info: Awaited<ReturnType<typeof describeEmployeeWorkload>> = null;
+  try {
+    info = await describeEmployeeWorkload(emp.id);
+  } catch {
+    // Best-effort — a lookup hiccup shouldn't downgrade this to a hard error.
+  }
+  if (info?.kind === "routine" && info.routine) {
+    const href = `/c/${co.slug}/routines/${emp.slug}/${info.routine.slug}`;
+    return (
+      `${emp.name} is busy running the routine [${info.routine.name}](${href}) right now. ` +
+      `Open it to watch the progress, then send your message again once the run ` +
+      `finishes and ${emp.name} will pick it up.`
+    );
+  }
+  if (info?.kind === "routine") {
+    return (
+      `${emp.name} is busy running a scheduled routine right now. Send your ` +
+      `message again once it finishes and ${emp.name} will pick it up.`
+    );
+  }
+  return (
+    `${emp.name} is still finishing another message. Send yours again in a ` +
+    `moment and ${emp.name} will pick it up.`
+  );
+}
 
 export type ChatOptions = {
   conversationId?: string;
@@ -134,8 +178,22 @@ export async function streamChatWithEmployee(
       CHAT_HARD_TIMEOUT_MS + 60_000,
     );
   } catch (error) {
+    // The employee is already mid-Run or mid-chat. That's not an error — it's
+    // a "come back in a moment" — so report what they're working on by name
+    // and let the teammate watch the progress, rather than a red failure.
+    if (error instanceof EmployeeWorkloadBusyError) {
+      return {
+        status: "busy",
+        reply: await formatBusyReply(co, emp),
+        attachmentIds: [],
+        sidecars: {},
+      };
+    }
+    // Company-wide concurrency ceiling (or any other lease failure). Also
+    // transient and not a model/config problem, so render it as "not
+    // available" instead of an error with a misleading model-settings link.
     return {
-      status: "error",
+      status: "skipped",
       reply: error instanceof Error ? error.message : "AI workload limit reached.",
       attachmentIds: [],
       sidecars: {},

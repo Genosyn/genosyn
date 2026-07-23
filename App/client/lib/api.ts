@@ -470,7 +470,7 @@ export type ConversationSummary = {
   lastMessageAt: string | null;
 };
 export type ConversationMessageRole = "user" | "assistant";
-export type ConversationMessageStatus = "ok" | "skipped" | "error";
+export type ConversationMessageStatus = "ok" | "skipped" | "error" | "busy";
 /** Tool-driven write the AI employee performed during this chat turn. */
 export type MessageAction = {
   action: string;

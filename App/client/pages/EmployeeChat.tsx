@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleSlash,
+  Clock,
   MessageSquarePlus,
   Paperclip,
   Plug,
@@ -608,6 +609,9 @@ function TurnBubble({
 
   const isError = message.status === "error";
   const isSkipped = message.status === "skipped";
+  // The employee was already mid-Run/mid-chat. Not a failure — an in-progress
+  // notice that names them and (for a routine) links the run to watch.
+  const isBusy = message.status === "busy";
 
   return (
     <div className="flex justify-start gap-2.5">
@@ -628,6 +632,11 @@ function TurnBubble({
                 <CircleSlash size={10} /> not available
               </span>
             )}
+            {isBusy && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
+                <Clock size={10} /> working
+              </span>
+            )}
           </div>
         )}
         <div
@@ -637,7 +646,9 @@ function TurnBubble({
               ? "border border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100"
               : isSkipped
                 ? "border border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"
-                : "border border-slate-200 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100")
+                : isBusy
+                  ? "border border-indigo-200 bg-indigo-50 text-indigo-900 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-100"
+                  : "border border-slate-200 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100")
           }
         >
           {isError || isSkipped ? (

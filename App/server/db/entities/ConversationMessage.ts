@@ -9,11 +9,13 @@ import {
 /**
  * One turn in a {@link Conversation}. `role` is `user` for humans and
  * `assistant` for the AI employee. `status` mirrors the chat service's result
- * shape so the UI can render skipped/error turns distinctly — NULL on user
- * messages, one of `ok`/`skipped`/`error` on assistant replies.
+ * shape so the UI can render skipped/error/busy turns distinctly — NULL on
+ * user messages, one of `ok`/`skipped`/`error`/`busy` on assistant replies.
+ * `busy` means the employee was already mid-Run or mid-chat, so the turn
+ * didn't start — it renders as an in-progress notice, not an error.
  */
 export type ConversationMessageRole = "user" | "assistant";
-export type ConversationMessageStatus = "ok" | "skipped" | "error";
+export type ConversationMessageStatus = "ok" | "skipped" | "error" | "busy";
 
 @Entity("conversation_messages")
 export class ConversationMessage {

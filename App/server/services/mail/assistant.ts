@@ -493,7 +493,10 @@ export async function runAssistantTurn(args: {
   const row = await saveAssistant({
     employeeId: employee.id,
     content: result.reply,
-    status: result.status,
+    // The mail panel has no dedicated "working" state, so a busy employee
+    // (mid-Run or mid-chat elsewhere) collapses to "skipped" — same "didn't
+    // run, not a failure" meaning. The reply text still names what they're on.
+    status: result.status === "busy" ? "skipped" : result.status,
     actionsJson: actions.length > 0 ? JSON.stringify(actions) : "",
     suggestionsJson: suggestions.length > 0 ? JSON.stringify(suggestions) : "",
   });
