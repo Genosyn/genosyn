@@ -9,6 +9,7 @@ import "./companies.js";
 import "./apiKeys.js";
 import "./employees.js";
 import "./routines.js";
+import "./revenue.js";
 
 /**
  * Assembles the final OpenAPI 3.0 document from the shared registry. The
