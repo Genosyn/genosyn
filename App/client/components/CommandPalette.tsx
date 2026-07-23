@@ -17,6 +17,7 @@ import {
   Table2,
   Users,
   Wrench,
+  Zap,
 } from "lucide-react";
 import { api, CompanySearchResult, Me, SearchResultKind } from "../lib/api";
 import {
@@ -29,6 +30,7 @@ import {
   activeSection,
   searchSections,
 } from "../lib/sections";
+import { type Command, searchCommands, useCommandSnapshot } from "./CommandRegistry";
 import { clsx } from "./ui/clsx";
 
 /**
@@ -302,12 +304,14 @@ function useEntitySearch(companyId: string, query: string) {
 
 // ───────────────────────────────── palette ─────────────────────────────────
 
-/** One keyboard-walkable row — a section match or an entity hit. */
+/** One keyboard-walkable row — an action, a section match, or an entity hit. */
 type PaletteEntry =
+  | { type: "command"; command: Command }
   | { type: "section"; match: SectionMatch }
   | { type: "entity"; hit: CompanySearchResult };
 
 function entryId(entry: PaletteEntry): string {
+  if (entry.type === "command") return `command-palette-opt-cmd-${entry.command.id}`;
   return entry.type === "section"
     ? `command-palette-opt-${entry.match.item.key}`
     : `command-palette-opt-ent-${entry.hit.kind}-${entry.hit.id}`;
@@ -344,6 +348,15 @@ function CommandPalette({
     query,
   );
 
+  // Actions the page on screen published. They lead the list: someone who hits
+  // ⌘K while staring at a selection almost always means "do something to this",
+  // and there are only ever a handful, so navigation stays a keystroke away.
+  const registered = useCommandSnapshot();
+  const commandMatches = React.useMemo(
+    () => searchCommands(registered, query),
+    [registered, query],
+  );
+
   // Entity hits arrive score-ordered; the palette files each under its kind's
   // header, first-hit order deciding which group comes first. Flattening the
   // groups back out gives the keyboard index in exactly the rendered order.
@@ -368,19 +381,20 @@ function CommandPalette({
   // primarily how you move between sections — then entity groups in order.
   const entries = React.useMemo<PaletteEntry[]>(
     () => [
+      ...commandMatches.map((command): PaletteEntry => ({ type: "command", command })),
       ...matches.map((match): PaletteEntry => ({ type: "section", match })),
       ...entityGroups.flatMap((g) =>
         g.hits.map((hit): PaletteEntry => ({ type: "entity", hit })),
       ),
     ],
-    [matches, entityGroups],
+    [commandMatches, matches, entityGroups],
   );
 
-  // With an empty query `searchSections` returns the catalog untouched, so the
-  // grouped view and the flat keyboard index stay in lockstep either way.
-  const indexByKey = React.useMemo(
-    () => new Map(matches.map((m, i) => [m.item.key, i])),
-    [matches],
+  // One id → position map keeps the rendered order and the keyboard index in
+  // lockstep no matter which groups are present.
+  const indexByEntryId = React.useMemo(
+    () => new Map(entries.map((entry, i) => [entryId(entry), i])),
+    [entries],
   );
 
   React.useEffect(() => {
@@ -408,6 +422,12 @@ function CommandPalette({
       // pill, which survives the navigation, so the keyboard lands somewhere
       // sensible.
       onClose();
+      if (entry.type === "command") {
+        // Closed first: a command may open its own dialog, and two modals
+        // fighting over focus is worse than either.
+        entry.command.run();
+        return;
+      }
       const path =
         entry.type === "section" ? entry.match.item.path : entry.hit.path;
       navigate(`/c/${companySlug}${path}`);
@@ -441,7 +461,7 @@ function CommandPalette({
   // "Nothing at all" only counts once the entity request has answered too —
   // until then the sections may be empty while a hit is milliseconds away.
   const empty = entries.length === 0 && !entityPending;
-  let entryIdx = matches.length;
+  const idxOf = (entry: PaletteEntry) => indexByEntryId.get(entryId(entry)) ?? 0;
 
   return (
     <div
@@ -495,71 +515,96 @@ function CommandPalette({
                 No matches for {`“${query.trim()}”`}
               </p>
             </div>
-          ) : searching ? (
+          ) : (
             <>
-              {matches.length > 0 && (
+              {commandMatches.length > 0 && (
                 <div className="mb-1">
-                  <GroupHeader>Sections</GroupHeader>
-                  {matches.map((m, i) => (
-                    <PaletteRow
-                      key={m.item.key}
-                      match={m}
-                      index={i}
-                      active={i === active}
-                      isCurrent={m.item.key === currentKey}
-                      onHover={setActive}
-                      onSelect={() => select({ type: "section", match: m })}
-                    />
-                  ))}
-                </div>
-              )}
-              {entityGroups.map((g) => (
-                <div key={g.label} className="mb-1 last:mb-0">
-                  <GroupHeader>{g.label}</GroupHeader>
-                  {g.hits.map((hit) => {
-                    const i = entryIdx++;
+                  <GroupHeader>Actions</GroupHeader>
+                  {commandMatches.map((command) => {
+                    const i = idxOf({ type: "command", command });
                     return (
-                      <EntityRow
-                        key={`${hit.kind}-${hit.id}`}
-                        hit={hit}
-                        query={query}
+                      <CommandRow
+                        key={command.id}
+                        command={command}
                         index={i}
                         active={i === active}
                         onHover={setActive}
-                        onSelect={() => select({ type: "entity", hit })}
+                        onSelect={() => select({ type: "command", command })}
                       />
                     );
                   })}
                 </div>
-              ))}
-              {entityPending && entityHits.length === 0 && (
-                <div className="px-2 py-2 text-xs text-slate-400 dark:text-slate-500">
-                  Searching your company…
-                </div>
+              )}
+              {searching ? (
+                <>
+                  {matches.length > 0 && (
+                    <div className="mb-1">
+                      <GroupHeader>Sections</GroupHeader>
+                      {matches.map((m) => {
+                        const i = idxOf({ type: "section", match: m });
+                        return (
+                          <PaletteRow
+                            key={m.item.key}
+                            match={m}
+                            index={i}
+                            active={i === active}
+                            isCurrent={m.item.key === currentKey}
+                            onHover={setActive}
+                            onSelect={() => select({ type: "section", match: m })}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+                  {entityGroups.map((g) => (
+                    <div key={g.label} className="mb-1 last:mb-0">
+                      <GroupHeader>{g.label}</GroupHeader>
+                      {g.hits.map((hit) => {
+                        const i = idxOf({ type: "entity", hit });
+                        return (
+                          <EntityRow
+                            key={`${hit.kind}-${hit.id}`}
+                            hit={hit}
+                            query={query}
+                            index={i}
+                            active={i === active}
+                            onHover={setActive}
+                            onSelect={() => select({ type: "entity", hit })}
+                          />
+                        );
+                      })}
+                    </div>
+                  ))}
+                  {entityPending && entityHits.length === 0 && (
+                    <div className="px-2 py-2 text-xs text-slate-400 dark:text-slate-500">
+                      Searching your company…
+                    </div>
+                  )}
+                </>
+              ) : (
+                groups.map((g) => (
+                  <div key={g.label} className="mb-1 last:mb-0">
+                    <GroupHeader>{g.label}</GroupHeader>
+                    {g.items.map((item) => {
+                      const i = idxOf({ type: "section", match: { item, hit: null } });
+                      return (
+                        <PaletteRow
+                          key={item.key}
+                          match={{ item, hit: null }}
+                          index={i}
+                          active={i === active}
+                          isCurrent={item.key === currentKey}
+                          onHover={setActive}
+                          onSelect={() =>
+                            select({ type: "section", match: { item, hit: null } })
+                          }
+                        />
+                      );
+                    })}
+                  </div>
+                ))
               )}
             </>
-          ) : (
-            groups.map((g) => (
-              <div key={g.label} className="mb-1 last:mb-0">
-                <GroupHeader>{g.label}</GroupHeader>
-                {g.items.map((item) => {
-                  const i = indexByKey.get(item.key) ?? 0;
-                  return (
-                    <PaletteRow
-                      key={item.key}
-                      match={{ item, hit: null }}
-                      index={i}
-                      active={i === active}
-                      isCurrent={item.key === currentKey}
-                      onHover={setActive}
-                      onSelect={() =>
-                        select({ type: "section", match: { item, hit: null } })
-                      }
-                    />
-                  );
-                })}
-              </div>
-            ))
           )}
         </div>
 
@@ -591,6 +636,59 @@ function GroupHeader({ children }: { children: React.ReactNode }) {
     <div className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
       {children}
     </div>
+  );
+}
+
+/** An action published by the page on screen, rather than a place to go. */
+function CommandRow({
+  command,
+  index,
+  active,
+  onHover,
+  onSelect,
+}: {
+  command: Command;
+  index: number;
+  active: boolean;
+  onHover: (i: number) => void;
+  onSelect: () => void;
+}) {
+  const Icon = command.icon ?? Zap;
+  return (
+    <button
+      id={`command-palette-opt-cmd-${command.id}`}
+      role="option"
+      aria-selected={active}
+      data-idx={index}
+      onMouseMove={() => onHover(index)}
+      onClick={onSelect}
+      className={clsx(
+        "flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors",
+        active ? "bg-slate-100 dark:bg-slate-800" : "bg-transparent",
+      )}
+    >
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
+        <Icon size={18} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+          {command.label}
+        </span>
+        {command.group && (
+          <span className="block truncate text-xs text-slate-500 dark:text-slate-400">
+            {command.group}
+          </span>
+        )}
+      </span>
+      {command.hint && <Kbd className="shrink-0">{command.hint}</Kbd>}
+      {active && (
+        <CornerDownLeft
+          size={14}
+          className="shrink-0 text-slate-400 dark:text-slate-500"
+          aria-hidden="true"
+        />
+      )}
+    </button>
   );
 }
 

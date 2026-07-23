@@ -9,6 +9,7 @@ import {
   Inbox,
   Mail,
   PenSquare,
+  RefreshCw,
   Send,
   Settings as SettingsIcon,
   ShieldAlert,
@@ -16,6 +17,7 @@ import {
   Star,
   Tag,
   Trash2,
+  type LucideIcon,
 } from "lucide-react";
 import { Company } from "../lib/api";
 import {
@@ -26,6 +28,8 @@ import {
   MailLabelInfo,
   mailApi,
 } from "../lib/mail";
+import { shouldIgnoreShortcut } from "../lib/keyboard";
+import { type Command, useRegisterCommands } from "../components/CommandRegistry";
 import { ContextualLayout, SidebarLink } from "../components/AppShell";
 import { AttachmentBar, useMailAttachments } from "../components/MailAttachments";
 import { useComposerFileDrop } from "../lib/fileDrop";
@@ -68,6 +72,17 @@ export type MailOutletCtx = {
 };
 
 const activeAccountKey = (companyId: string) => `genosyn.mail.account.${companyId}`;
+
+/** Folders offered as ⌘K commands, in the order the sidebar lists them. */
+const MAIL_COMMAND_VIEWS: Array<{ view: string; label: string; icon: LucideIcon }> = [
+  { view: "inbox", label: "Inbox", icon: Inbox },
+  { view: "starred", label: "Starred", icon: Star },
+  { view: "drafts", label: "Drafts", icon: FileText },
+  { view: "sent", label: "Sent", icon: Send },
+  { view: "all", label: "All mail", icon: Archive },
+  { view: "spam", label: "Spam", icon: ShieldAlert },
+  { view: "trash", label: "Trash", icon: Trash2 },
+];
 
 export default function MailLayout({ company }: { company: Company }) {
   const { toast } = useToast();
@@ -238,6 +253,54 @@ export default function MailLayout({ company }: { company: Company }) {
     setComposeSession((current) => current + 1);
     setComposeOpen(true);
   }, []);
+
+  // `c` composes from anywhere in the mail section. It is the one mail shortcut
+  // that is not list-scoped, so it belongs to the layout that owns the composer
+  // rather than to whichever list happens to be on screen.
+  React.useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (shouldIgnoreShortcut(event) || event.key !== "c") return;
+      event.preventDefault();
+      openCompose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openCompose]);
+
+  // Section-wide ⌘K actions. Verbs that depend on what is selected belong to
+  // the lists themselves; these are the ones that make sense anywhere in mail.
+  const paletteNavigate = useNavigate();
+  const mailCommands = React.useMemo<Command[]>(
+    () => [
+      {
+        id: "mail.compose",
+        label: "Compose email",
+        hint: "C",
+        icon: PenSquare,
+        group: "Email",
+        keywords: ["new", "write", "message", "send"],
+        run: () => openCompose(),
+      },
+      {
+        id: "mail.sync",
+        label: "Sync mailbox now",
+        icon: RefreshCw,
+        group: "Email",
+        keywords: ["refresh", "fetch", "update"],
+        run: () => void syncNow(),
+      },
+      ...MAIL_COMMAND_VIEWS.map((entry) => ({
+        id: `mail.go.${entry.view}`,
+        label: `Go to ${entry.label}`,
+        icon: entry.icon,
+        group: "Email",
+        keywords: ["mail", "folder", entry.label.toLowerCase()],
+        run: () => paletteNavigate(`/c/${company.slug}/mail?view=${entry.view}`),
+      })),
+    ],
+    [openCompose, syncNow, paletteNavigate, company.slug],
+  );
+  useRegisterCommands(mailCommands);
 
   if (loading) {
     return (

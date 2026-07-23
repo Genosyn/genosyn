@@ -1,6 +1,6 @@
 import React from "react";
 import { CornerDownLeft, Keyboard, Search, X } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   ACCOUNT_SECTION,
   ADMIN_SECTION,
@@ -8,6 +8,7 @@ import {
   SectionGroup,
   SectionItem,
 } from "../lib/sections";
+import { anotherDialogIsOpen, isTypingTarget, setChordPending } from "../lib/keyboard";
 import { PALETTE_SHORTCUT } from "./CommandPalette";
 import { clsx } from "./ui/clsx";
 
@@ -25,19 +26,6 @@ export function useKeyboardShortcuts(): KeyboardShortcutsState {
   return ctx;
 }
 
-function isTypingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return Boolean(
-    target.closest(
-      'input, textarea, select, [contenteditable="true"], [role="textbox"], [role="combobox"]',
-    ),
-  );
-}
-
-function anotherDialogIsOpen(): boolean {
-  return Boolean(document.querySelector('[role="dialog"][aria-modal="true"]'));
-}
-
 function guideGroups(isMasterAdmin: boolean): SectionGroup[] {
   return [
     ...SECTION_GROUPS,
@@ -49,6 +37,24 @@ function guideGroups(isMasterAdmin: boolean): SectionGroup[] {
 }
 
 const CHORD_TIMEOUT_MS = 3_000;
+
+/**
+ * Keys the Email section binds on its lists. Documented here so `?` stays the
+ * one place to learn the keyboard, but only surfaced while someone is actually
+ * in mail — a Finance page listing "archive" would just be noise.
+ */
+const MAIL_SHORTCUTS: Array<{ key: string; label: string }> = [
+  { key: "J", label: "Move down" },
+  { key: "K", label: "Move up" },
+  { key: "X", label: "Select / deselect" },
+  { key: "E", label: "Archive — or send, in Drafts" },
+  { key: "#", label: "Move to trash" },
+  { key: "S", label: "Star" },
+  { key: "U", label: "Mark read / unread" },
+  { key: "O", label: "Open a draft for review" },
+  { key: "C", label: "Compose" },
+  { key: "Esc", label: "Clear the selection" },
+];
 
 /**
  * Company-aware, global navigation shortcuts.
@@ -83,6 +89,9 @@ export function KeyboardShortcutsProvider({
 
   const closeChord = React.useCallback(() => {
     chordOpenRef.current = false;
+    // Page-level single-key handlers consult this so the chord's second key
+    // reaches navigation instead of being eaten by, say, mail's `c`.
+    setChordPending(false);
     setChordOpen(false);
     if (chordTimerRef.current) clearTimeout(chordTimerRef.current);
     chordTimerRef.current = null;
@@ -90,6 +99,7 @@ export function KeyboardShortcutsProvider({
 
   const openChord = React.useCallback(() => {
     chordOpenRef.current = true;
+    setChordPending(true);
     setChordOpen(true);
     if (chordTimerRef.current) clearTimeout(chordTimerRef.current);
     chordTimerRef.current = setTimeout(closeChord, CHORD_TIMEOUT_MS);
@@ -235,6 +245,8 @@ function ShortcutGuide({
 }) {
   const dialogRef = React.useRef<HTMLDivElement>(null);
   const closeRef = React.useRef<HTMLButtonElement>(null);
+  const location = useLocation();
+  const inMail = /\/mail(\/|$|\?)/.test(location.pathname);
 
   React.useEffect(() => {
     closeRef.current?.focus();
@@ -330,6 +342,28 @@ function ShortcutGuide({
               <ShortcutCard icon={<Keyboard size={15} />} label="Show this guide" keys={["?"]} />
             </div>
           </section>
+
+          {inMail && (
+            <section className="mt-6" aria-labelledby="mail-shortcuts">
+              <h3
+                id="mail-shortcuts"
+                className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500"
+              >
+                In Email
+              </h3>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {MAIL_SHORTCUTS.map((shortcut) => (
+                  <div
+                    key={shortcut.key}
+                    className="flex items-center gap-2 rounded-lg border border-slate-100 p-2.5 text-sm text-slate-700 dark:border-slate-800 dark:text-slate-200"
+                  >
+                    <span className="min-w-0 flex-1">{shortcut.label}</span>
+                    <Kbd>{shortcut.key}</Kbd>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           <section className="mt-6" aria-labelledby="page-shortcuts">
             <h3

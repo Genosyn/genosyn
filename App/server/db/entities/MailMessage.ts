@@ -103,6 +103,32 @@ export class MailMessage {
   @Column({ type: "int", default: 0 })
   sizeEstimate!: number;
 
+  /**
+   * Who authored this message inside Genosyn. Exactly one of `createdByUserId`
+   * (a human Member) and `createdByEmployeeId` (an AI Employee) is ever set —
+   * the same "authored by a human or by an AI employee, never both" convention
+   * Note and Chart use. Both stay null for mail Gmail synced in from the
+   * outside world, and for drafts written before attribution shipped.
+   */
+  @Column({ type: "varchar", nullable: true })
+  createdByUserId!: string | null;
+
+  @Column({ type: "varchar", nullable: true })
+  createdByEmployeeId!: string | null;
+
+  /**
+   * Set only when an AI Employee wrote this while executing a Routine — the
+   * MCP token carries the run/routine down from the runner. Null for drafts
+   * written from employee chat or a mail handover, where no Run is in play.
+   * The Drafts review queue reads these to say which Routine produced a draft
+   * and to link back to its Run.
+   */
+  @Column({ type: "varchar", nullable: true })
+  createdByRoutineId!: string | null;
+
+  @Column({ type: "varchar", nullable: true })
+  createdByRunId!: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 
