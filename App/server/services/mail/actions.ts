@@ -22,6 +22,7 @@ import {
   type MimeAttachment,
 } from "./gmailClient.js";
 import { drainAttachments } from "./outbox.js";
+import { assertRecipientsAllowed } from "./suppression.js";
 import {
   columnHasLabel,
   recomputeThread,
@@ -313,6 +314,11 @@ export async function sendMailMessage(
   fields: ComposeFields,
   thread: MailThread | null,
 ): Promise<MailMessage> {
+  // The do-not-email gate. Deliberately here rather than in the callers: every
+  // compose path — a human pressing Send, an AI employee calling `send_mail`,
+  // a sequence step — funnels through this function, so there is no way to
+  // send that skips the check. See services/mail/suppression.ts.
+  await assertRecipientsAllowed(account.companyId, fields);
   const token = await accessTokenForAccount(account);
   const mime = await composeMime(account, fields, thread);
   const sent = await apiSendMessage(token, mime.raw, thread?.gmailThreadId);
@@ -399,6 +405,15 @@ export async function sendMailDraft(
   opts: { silent?: boolean } = {},
 ): Promise<MailMessage> {
   if (!draftRow.gmailDraftId) throw new Error("Not a draft");
+  // The second send path, and the one bulk send drives. A draft may have been
+  // written days before it is approved, and the recipient can have
+  // unsubscribed in between — so the gate is re-run here at send time, not
+  // inherited from whenever the draft was composed.
+  await assertRecipientsAllowed(account.companyId, {
+    to: draftRow.toEmails,
+    cc: draftRow.ccEmails,
+    bcc: draftRow.bccEmails,
+  });
   const token = await accessTokenForAccount(account);
   const sent = await apiSendDraft(token, draftRow.gmailDraftId);
   // Ingest the sent message before removing the draft row, so a fetch failure
