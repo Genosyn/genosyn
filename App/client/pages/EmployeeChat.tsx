@@ -884,10 +884,13 @@ function Composer({
   }
 
   // Paste a screenshot or drag a file straight onto the composer — same
-  // upload path as the paperclip, no save-to-disk detour.
-  const { dragActive, onPaste, dragProps } = useComposerFileDrop((files) => {
-    if (!disabled && !uploading) void handleFiles(files);
-  });
+  // upload path as the paperclip, no save-to-disk detour. Disabled in lockstep
+  // with the paperclip button so the "Drop to attach" overlay never promises a
+  // drop the composer would silently swallow mid-reply.
+  const { dragActive, onPaste, dragProps } = useComposerFileDrop(
+    (files) => void handleFiles(files),
+    { disabled: disabled || uploading },
+  );
 
   return (
     <form

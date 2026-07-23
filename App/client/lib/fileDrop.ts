@@ -64,12 +64,55 @@ export function dataTransferHasFiles(
 }
 
 /**
+ * A composer's drop zone is a small target inside a much larger page. Without
+ * a page-wide guard, a file released even a few pixels outside it hits the
+ * browser default — navigating the tab to the file and tearing down the whole
+ * SPA (losing the half-typed draft). Because drag-to-attach actively invites
+ * the gesture, near-misses are routine, so we swallow any stray file drag
+ * across the window while a composer is mounted. Refcounted so N composers
+ * share one pair of listeners and the last unmount cleans them up.
+ */
+let globalGuardRefs = 0;
+
+function fileDragGuard(e: DragEvent) {
+  if (dataTransferHasFiles(e.dataTransfer)) e.preventDefault();
+}
+
+function acquireGlobalFileDropGuard(): () => void {
+  if (globalGuardRefs === 0) {
+    window.addEventListener("dragover", fileDragGuard);
+    window.addEventListener("drop", fileDragGuard);
+  }
+  globalGuardRefs += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    globalGuardRefs -= 1;
+    if (globalGuardRefs === 0) {
+      window.removeEventListener("dragover", fileDragGuard);
+      window.removeEventListener("drop", fileDragGuard);
+    }
+  };
+}
+
+/**
  * Wire a composer up for paste- and drag-to-attach. Returns an `onPaste`
  * handler for the textarea, a `dragProps` bundle for the surrounding drop
  * zone, and a `dragActive` flag the zone can use to highlight itself. The
  * caller supplies a single `onFiles` sink — its own upload function.
+ *
+ * Pass `disabled` when the composer can't currently accept files (a reply is
+ * streaming, an upload is already in flight). While disabled the paste and
+ * drop paths no-op and `dragActive` never turns on, so the highlight/overlay
+ * doesn't promise a drop the composer will silently swallow. The window-level
+ * guard still runs, so a stray drop is dropped on the floor rather than
+ * navigating the page away.
  */
-export function useComposerFileDrop(onFiles: (files: File[]) => void): {
+export function useComposerFileDrop(
+  onFiles: (files: File[]) => void,
+  options?: { disabled?: boolean },
+): {
   dragActive: boolean;
   onPaste: (e: React.ClipboardEvent) => void;
   dragProps: {
@@ -78,24 +121,39 @@ export function useComposerFileDrop(onFiles: (files: File[]) => void): {
     onDrop: (e: React.DragEvent) => void;
   };
 } {
+  const disabled = options?.disabled ?? false;
   const [dragActive, setDragActive] = React.useState(false);
+
+  // Keep the page-wide anti-navigation guard alive while this composer exists.
+  React.useEffect(() => acquireGlobalFileDropGuard(), []);
+
+  // A composer that flips to disabled mid-drag shouldn't keep a stale
+  // highlight painted.
+  React.useEffect(() => {
+    if (disabled) setDragActive(false);
+  }, [disabled]);
 
   const onPaste = React.useCallback(
     (e: React.ClipboardEvent) => {
+      if (disabled) return;
       const files = pastedUploadFiles(e.clipboardData);
       if (files.length === 0) return;
       e.preventDefault();
       onFiles(files);
     },
-    [onFiles],
+    [onFiles, disabled],
   );
 
-  const onDragOver = React.useCallback((e: React.DragEvent) => {
-    if (!dataTransferHasFiles(e.dataTransfer)) return;
-    // Announce we'll accept the drop; without this the browser rejects it.
-    e.preventDefault();
-    setDragActive(true);
-  }, []);
+  const onDragOver = React.useCallback(
+    (e: React.DragEvent) => {
+      if (disabled) return;
+      if (!dataTransferHasFiles(e.dataTransfer)) return;
+      // Announce we'll accept the drop; without this the browser rejects it.
+      e.preventDefault();
+      setDragActive(true);
+    },
+    [disabled],
+  );
 
   const onDragLeave = React.useCallback((e: React.DragEvent) => {
     // Ignore leaves that only cross into a child element — the drag is still
@@ -106,13 +164,14 @@ export function useComposerFileDrop(onFiles: (files: File[]) => void): {
 
   const onDrop = React.useCallback(
     (e: React.DragEvent) => {
+      if (disabled) return;
       if (!dataTransferHasFiles(e.dataTransfer)) return;
       e.preventDefault();
       setDragActive(false);
       const files = filesFromDataTransfer(e.dataTransfer);
       if (files.length > 0) onFiles(files);
     },
-    [onFiles],
+    [onFiles, disabled],
   );
 
   return {
