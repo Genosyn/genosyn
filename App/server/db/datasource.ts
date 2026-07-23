@@ -114,6 +114,19 @@ import { WorkloadLease } from "./entities/WorkloadLease.js";
 import { SchedulerLease } from "./entities/SchedulerLease.js";
 import { AuthFlowState } from "./entities/AuthFlowState.js";
 import { RealtimeEvent } from "./entities/RealtimeEvent.js";
+import { Contact } from "./entities/Contact.js";
+import { DealStage } from "./entities/DealStage.js";
+import { Deal } from "./entities/Deal.js";
+import { DealContact } from "./entities/DealContact.js";
+import { Activity } from "./entities/Activity.js";
+import { Suppression } from "./entities/Suppression.js";
+import { Sequence } from "./entities/Sequence.js";
+import { SequenceStep } from "./entities/SequenceStep.js";
+import { SequenceEnrollment } from "./entities/SequenceEnrollment.js";
+import { SequenceStepRun } from "./entities/SequenceStepRun.js";
+import { Signal } from "./entities/Signal.js";
+import { SignalEvent } from "./entities/SignalEvent.js";
+import { EmployeeRevenueGrant } from "./entities/EmployeeRevenueGrant.js";
 
 const entities = [
   User,
@@ -225,6 +238,20 @@ const entities = [
   MailSavedSearch,
   MailChatMessage,
   EmployeeMailAccountGrant,
+  // Revenue (M32) — contacts, deals, activities, outbound, signals.
+  Contact,
+  DealStage,
+  Deal,
+  DealContact,
+  Activity,
+  Suppression,
+  Sequence,
+  SequenceStep,
+  SequenceEnrollment,
+  SequenceStepRun,
+  Signal,
+  SignalEvent,
+  EmployeeRevenueGrant,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

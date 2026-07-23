@@ -110,6 +110,26 @@ const REGISTRY: Record<string, Mapping> = {
   CustomerContact: { kind: "customer", company: "direct", scopeFk: "customerId" },
   CustomerContract: { kind: "contract", company: "direct" },
 
+  // ── Revenue (M32) ────────────────────────────────────────────────────────
+  // Every one of these is `direct`: each carries its own companyId, including
+  // the child rows, so no parent hop is needed. Activities are the highest
+  // frequency writer here (mail sync emits them per ingested message) — the
+  // per-(company, kind) debounce in resourceEvents.ts is what keeps a large
+  // mailbox import from fanning out one frame per email.
+  Contact: { kind: "contact", company: "direct" },
+  DealStage: { kind: "dealstage", company: "direct" },
+  Deal: { kind: "deal", company: "direct" },
+  DealContact: { kind: "deal", company: "direct", scopeFk: "dealId" },
+  Activity: { kind: "activity", company: "direct" },
+  Suppression: { kind: "suppression", company: "direct" },
+  Sequence: { kind: "sequence", company: "direct" },
+  SequenceStep: { kind: "sequence", company: "direct", scopeFk: "sequenceId" },
+  SequenceEnrollment: { kind: "enrollment", company: "direct", scopeFk: "sequenceId" },
+  SequenceStepRun: { kind: "enrollment", company: "direct", scopeFk: "sequenceId" },
+  Signal: { kind: "signal", company: "direct" },
+  SignalEvent: { kind: "signalevent", company: "direct", scopeFk: "signalId" },
+  EmployeeRevenueGrant: { kind: "grant", company: "direct", scopeFk: "employeeId" },
+
   // ── Finance ──────────────────────────────────────────────────────────────
   Product: { kind: "product", company: "direct" },
   TaxRate: { kind: "taxrate", company: "direct" },

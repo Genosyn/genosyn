@@ -38,6 +38,19 @@ import { ConversationMessage } from "../db/entities/ConversationMessage.js";
 import { Currency } from "../db/entities/Currency.js";
 import { Customer } from "../db/entities/Customer.js";
 import { CustomerContact } from "../db/entities/CustomerContact.js";
+import { Contact } from "../db/entities/Contact.js";
+import { DealStage } from "../db/entities/DealStage.js";
+import { Deal } from "../db/entities/Deal.js";
+import { DealContact } from "../db/entities/DealContact.js";
+import { Activity } from "../db/entities/Activity.js";
+import { Suppression } from "../db/entities/Suppression.js";
+import { Sequence } from "../db/entities/Sequence.js";
+import { SequenceStep } from "../db/entities/SequenceStep.js";
+import { SequenceEnrollment } from "../db/entities/SequenceEnrollment.js";
+import { SequenceStepRun } from "../db/entities/SequenceStepRun.js";
+import { Signal } from "../db/entities/Signal.js";
+import { SignalEvent } from "../db/entities/SignalEvent.js";
+import { EmployeeRevenueGrant } from "../db/entities/EmployeeRevenueGrant.js";
 import { CustomerContract } from "../db/entities/CustomerContract.js";
 import { Dashboard } from "../db/entities/Dashboard.js";
 import { DashboardCard } from "../db/entities/DashboardCard.js";
@@ -332,6 +345,22 @@ export async function deleteCompanyCascade(args: {
     await m.delete(RecurringInvoice, { companyId });
     await m.delete(CustomerContract, { companyId });
     await m.delete(CustomerContact, { companyId });
+    // Revenue (M32). Children first so a partial failure never strands a row
+    // whose parent is already gone: step runs → enrollments → steps →
+    // sequences, and signal events → signals.
+    await m.delete(SequenceStepRun, { companyId });
+    await m.delete(SequenceEnrollment, { companyId });
+    await m.delete(SequenceStep, { companyId });
+    await m.delete(Sequence, { companyId });
+    await m.delete(SignalEvent, { companyId });
+    await m.delete(Signal, { companyId });
+    await m.delete(Activity, { companyId });
+    await m.delete(DealContact, { companyId });
+    await m.delete(Deal, { companyId });
+    await m.delete(DealStage, { companyId });
+    await m.delete(Contact, { companyId });
+    await m.delete(Suppression, { companyId });
+    await m.delete(EmployeeRevenueGrant, { companyId });
     await m.delete(Chart, { companyId });
     await m.delete(Dashboard, { companyId });
     await m.delete(CodeRepository, { companyId });
