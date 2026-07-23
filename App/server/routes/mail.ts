@@ -15,6 +15,7 @@ import { MailHandover } from "../db/entities/MailHandover.js";
 import { MailLabel } from "../db/entities/MailLabel.js";
 import { MailMessage } from "../db/entities/MailMessage.js";
 import { MailRule } from "../db/entities/MailRule.js";
+import { MailSavedSearch } from "../db/entities/MailSavedSearch.js";
 import { MailThread } from "../db/entities/MailThread.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
@@ -856,6 +857,125 @@ mailRouter.delete("/mail/drafts/:mid", async (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : "Discard failed" });
   }
+});
+
+// ───────────────────────────── saved searches ─────────────────────────────
+
+/** Enough for anyone; a bound stops a scripted client filling the table. */
+const MAX_SAVED_SEARCHES = 50;
+
+const savedSearchCreateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(80),
+    query: z.string().trim().min(1).max(500),
+  })
+  .strict();
+
+const savedSearchPatchSchema = z
+  .object({
+    name: z.string().trim().min(1).max(80).optional(),
+    query: z.string().trim().min(1).max(500).optional(),
+    sortOrder: z.number().finite().optional(),
+  })
+  .strict();
+
+function serializeSavedSearch(row: MailSavedSearch) {
+  return {
+    id: row.id,
+    accountId: row.accountId,
+    name: row.name,
+    query: row.query,
+    sortOrder: row.sortOrder,
+  };
+}
+
+/**
+ * Saved searches belong to one Member, so every query here is scoped by
+ * `userId` as well as company — a shared mailbox must not turn into a shared
+ * list of everybody's shortcuts.
+ */
+mailRouter.get("/mail/accounts/:aid/saved-searches", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const userId = req.userId;
+  if (!userId) return res.status(401).json({ error: "Not signed in" });
+  const account = await loadAccount(cid, req.params.aid as string);
+  if (!account) return res.status(404).json({ error: "Mail account not found" });
+
+  const rows = await AppDataSource.getRepository(MailSavedSearch).find({
+    where: { companyId: cid, userId, accountId: account.id },
+    order: { sortOrder: "ASC", createdAt: "ASC" },
+  });
+  res.json({ savedSearches: rows.map(serializeSavedSearch) });
+});
+
+mailRouter.post(
+  "/mail/accounts/:aid/saved-searches",
+  validateBody(savedSearchCreateSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const userId = req.userId;
+    if (!userId) return res.status(401).json({ error: "Not signed in" });
+    const account = await loadAccount(cid, req.params.aid as string);
+    if (!account) return res.status(404).json({ error: "Mail account not found" });
+
+    const repo = AppDataSource.getRepository(MailSavedSearch);
+    const scope = { companyId: cid, userId, accountId: account.id };
+    const existing = await repo.find({ where: scope, order: { sortOrder: "DESC" }, take: 1 });
+    const count = await repo.countBy(scope);
+    if (count >= MAX_SAVED_SEARCHES) {
+      return res
+        .status(400)
+        .json({ error: `You can keep up to ${MAX_SAVED_SEARCHES} saved searches.` });
+    }
+
+    const body = req.body as z.infer<typeof savedSearchCreateSchema>;
+    const saved = await repo.save(
+      repo.create({ ...scope, ...body, sortOrder: (existing[0]?.sortOrder ?? 0) + 1 }),
+    );
+    res.json({ savedSearch: serializeSavedSearch(saved) });
+  },
+);
+
+/** Load one, refusing anything that is not this member's own. */
+async function loadSavedSearch(
+  cid: string,
+  userId: string,
+  id: string,
+): Promise<MailSavedSearch | null> {
+  return AppDataSource.getRepository(MailSavedSearch).findOneBy({
+    id,
+    companyId: cid,
+    userId,
+  });
+}
+
+mailRouter.patch(
+  "/mail/saved-searches/:sid",
+  validateBody(savedSearchPatchSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const userId = req.userId;
+    if (!userId) return res.status(401).json({ error: "Not signed in" });
+    const row = await loadSavedSearch(cid, userId, req.params.sid as string);
+    if (!row) return res.status(404).json({ error: "Saved search not found" });
+
+    const body = req.body as z.infer<typeof savedSearchPatchSchema>;
+    if (body.name !== undefined) row.name = body.name;
+    if (body.query !== undefined) row.query = body.query;
+    if (body.sortOrder !== undefined) row.sortOrder = body.sortOrder;
+    const saved = await AppDataSource.getRepository(MailSavedSearch).save(row);
+    res.json({ savedSearch: serializeSavedSearch(saved) });
+  },
+);
+
+mailRouter.delete("/mail/saved-searches/:sid", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const userId = req.userId;
+  if (!userId) return res.status(401).json({ error: "Not signed in" });
+  const row = await loadSavedSearch(cid, userId, req.params.sid as string);
+  if (!row) return res.status(404).json({ error: "Saved search not found" });
+  await AppDataSource.getRepository(MailSavedSearch).delete({ id: row.id });
+  res.json({ ok: true });
 });
 
 // ───────────────────────────── attachments ─────────────────────────────

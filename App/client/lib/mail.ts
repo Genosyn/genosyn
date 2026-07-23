@@ -172,6 +172,15 @@ export type MailConnectCandidate = {
   linkedAccountId: string | null;
 };
 
+/** A member's pinned search. `query` is raw search grammar, same as typed. */
+export type MailSavedSearch = {
+  id: string;
+  accountId: string;
+  name: string;
+  query: string;
+  sortOrder: number;
+};
+
 export type MailThreadView = "inbox" | "starred" | "sent" | "drafts" | "all" | "spam" | "trash";
 
 export type ThreadActionName =
@@ -462,6 +471,23 @@ export const mailApi = {
         attachment: StagedAttachment;
       }>(`${base(cid)}/accounts/${aid}/outbox-attachments`, file)
       .then((r) => r.attachment),
+
+  savedSearches: (cid: string, aid: string) =>
+    api.get<{ savedSearches: MailSavedSearch[] }>(
+      `${base(cid)}/accounts/${aid}/saved-searches`,
+    ),
+  createSavedSearch: (cid: string, aid: string, input: { name: string; query: string }) =>
+    api.post<{ savedSearch: MailSavedSearch }>(
+      `${base(cid)}/accounts/${aid}/saved-searches`,
+      input,
+    ),
+  patchSavedSearch: (
+    cid: string,
+    sid: string,
+    input: Partial<{ name: string; query: string; sortOrder: number }>,
+  ) => api.patch<{ savedSearch: MailSavedSearch }>(`${base(cid)}/saved-searches/${sid}`, input),
+  deleteSavedSearch: (cid: string, sid: string) =>
+    api.del<{ ok: true }>(`${base(cid)}/saved-searches/${sid}`),
 
   rules: (cid: string, aid: string) =>
     api.get<{ rules: MailRule[] }>(`${base(cid)}/accounts/${aid}/rules`),

@@ -160,6 +160,22 @@ export function Email() {
         queue it offers <Strong>Send all drafts</Strong> directly.
       </P>
 
+      <H3 id="saved-searches">Quick filters and saved searches</H3>
+      <P>
+        Above the thread list, one-click chips narrow what you are looking at —{" "}
+        <Strong>Unread</Strong>, <Strong>Starred</Strong>, <Strong>Has attachment</Strong> — scoped
+        to the folder you are standing in. They are not a separate filtering system: each chip
+        writes the same operators you could have typed, so <Code>is:unread</Code> from a chip and{" "}
+        <Code>is:unread</Code> from the box are the same query.
+      </P>
+      <P>
+        Any search you can type, you can keep. With a query in the box, press{" "}
+        <Strong>Save search</Strong>, give it a name, and it becomes a chip you can click from then
+        on. Saved searches are <Strong>yours alone</Strong> — they are stored per person, so a
+        shared mailbox does not turn into a shared list of everybody&apos;s shortcuts — and hovering
+        one reveals an × to remove it.
+      </P>
+
       <H2 id="assistant">AI chat on every email</H2>
       <P>
         Open any email and its <Strong>Ask AI</Strong> chat is already docked beside it. Type what

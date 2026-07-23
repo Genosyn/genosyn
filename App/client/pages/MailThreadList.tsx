@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  MailSavedSearch,
   MailThread,
   MailThreadView,
   THREAD_BULK_CHUNK,
@@ -27,6 +28,7 @@ import { MailOutletCtx } from "./MailLayout";
 import { MailDraftReview } from "./MailDraftReview";
 import { Button } from "../components/ui/Button";
 import { Checkbox } from "../components/ui/Checkbox";
+import { useDialog } from "../components/ui/Dialog";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
@@ -53,6 +55,7 @@ export default function MailThreadList() {
   const { company, account, labels, changeTick, syncing, syncNow, openCompose } =
     useOutletContext<MailOutletCtx>();
   const { toast, background } = useToast();
+  const dialog = useDialog();
   const [params, setParams] = useSearchParams();
   const view = (params.get("view") ?? "inbox") as MailThreadView;
   const label = params.get("label") ?? "";
@@ -300,6 +303,59 @@ export default function MailThreadList() {
   }, [selectedCount, runBulk]);
   useRegisterCommands(threadCommands);
 
+  // ───────────────────────── saved searches ─────────────────────────
+
+  const [saved, setSaved] = React.useState<MailSavedSearch[]>([]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    mailApi
+      .savedSearches(company.id, account.id)
+      .then((res) => {
+        if (!cancelled) setSaved(res.savedSearches);
+      })
+      // A missing shortcut list is not worth a toast — the search box still works.
+      .catch(() => {
+        if (!cancelled) setSaved([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [company.id, account.id]);
+
+  const saveCurrentSearch = async () => {
+    const query = search.trim();
+    if (!query) return;
+    const name = await dialog.prompt({
+      title: "Save this search",
+      message: <span className="font-mono text-xs">{query}</span>,
+      placeholder: "e.g. Unread from customers",
+      confirmLabel: "Save",
+      validate: (value) => (value.length > 80 ? "Keep it under 80 characters" : null),
+    });
+    if (!name) return;
+    try {
+      const res = await mailApi.createSavedSearch(company.id, account.id, { name, query });
+      setSaved((prev) => [...prev, res.savedSearch]);
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  };
+
+  const removeSavedSearch = async (entry: MailSavedSearch) => {
+    const ok = await dialog.confirm({
+      title: `Delete “${entry.name}”?`,
+      message: "The search itself is not affected — only this shortcut.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
+    setSaved((prev) => prev.filter((row) => row.id !== entry.id));
+    mailApi.deleteSavedSearch(company.id, entry.id).catch((err: unknown) => {
+      toast(err instanceof Error ? err.message : "Could not delete that shortcut", "error");
+    });
+  };
+
   React.useEffect(() => {
     // The drafts queue owns its own keys while it is on screen.
     if (draftsReview) return;
@@ -436,7 +492,16 @@ export default function MailThreadList() {
         </div>
       )}
 
-      {!draftsReview && <QuickFilters query={search} view={view} onChange={setSearch} />}
+      {!draftsReview && (
+        <FilterBar
+          query={search}
+          view={view}
+          onChange={setSearch}
+          saved={saved}
+          onSave={() => void saveCurrentSearch()}
+          onDelete={(entry) => void removeSavedSearch(entry)}
+        />
+      )}
 
       {draftsReview ? (
         <MailDraftReview
@@ -607,16 +672,25 @@ const QUICK_FILTERS: Array<{ token: string; label: string }> = [
   { token: "has:attachment", label: "Has attachment" },
 ];
 
-function QuickFilters({
+function FilterBar({
   query,
   view,
   onChange,
+  saved,
+  onSave,
+  onDelete,
 }: {
   query: string;
   view: MailThreadView;
   onChange: (next: string) => void;
+  saved: MailSavedSearch[];
+  onSave: () => void;
+  onDelete: (entry: MailSavedSearch) => void;
 }) {
   const tokens = query.split(/\s+/).filter(Boolean);
+  const current = query.trim();
+  // Saving the same query twice would just make two chips that do one thing.
+  const alreadySaved = saved.some((entry) => entry.query.trim() === current);
 
   const toggle = (token: string) => {
     if (tokens.includes(token)) {
@@ -652,6 +726,52 @@ function QuickFilters({
           </button>
         );
       })}
+
+      {saved.length > 0 && (
+        <span className="mx-0.5 h-4 w-px bg-slate-200 dark:bg-slate-700" aria-hidden="true" />
+      )}
+
+      {saved.map((entry) => {
+        const active = entry.query.trim() === current;
+        return (
+          <span
+            key={entry.id}
+            className={clsx(
+              "group inline-flex items-center gap-0.5 rounded-full border py-0.5 pl-2.5 pr-1 text-xs font-medium transition",
+              active
+                ? "border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-300"
+                : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800",
+            )}
+          >
+            <button
+              type="button"
+              onClick={() => onChange(entry.query)}
+              title={entry.query}
+              className="max-w-[10rem] truncate"
+            >
+              {entry.name}
+            </button>
+            <button
+              type="button"
+              onClick={() => onDelete(entry)}
+              aria-label={`Delete saved search ${entry.name}`}
+              className="rounded-full p-0.5 text-slate-400 opacity-0 transition hover:text-red-600 focus:opacity-100 group-hover:opacity-100 dark:hover:text-red-400"
+            >
+              <X size={11} />
+            </button>
+          </span>
+        );
+      })}
+
+      {current && !alreadySaved && (
+        <button
+          type="button"
+          onClick={onSave}
+          className="inline-flex items-center gap-1 rounded-full border border-dashed border-slate-300 px-2.5 py-0.5 text-xs font-medium text-slate-500 transition hover:border-indigo-300 hover:text-indigo-600 dark:border-slate-600 dark:text-slate-400 dark:hover:border-indigo-500/40 dark:hover:text-indigo-300"
+        >
+          <Star size={11} /> Save search
+        </button>
+      )}
     </div>
   );
 }
