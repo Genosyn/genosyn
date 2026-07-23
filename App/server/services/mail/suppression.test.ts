@@ -3,13 +3,7 @@ import { after, before, beforeEach, describe, test } from "node:test";
 
 import { Contact } from "../../db/entities/Contact.js";
 import { Suppression } from "../../db/entities/Suppression.js";
-import {
-  closeTestDb,
-  initTestDb,
-  insert,
-  resetTestDb,
-  testCompanyId,
-} from "../../test/dbHarness.js";
+import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
 import {
   SuppressedRecipientError,
   addSuppression,

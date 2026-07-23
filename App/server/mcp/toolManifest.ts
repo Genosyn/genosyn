@@ -2188,4 +2188,480 @@ export const STATIC_TOOLS: McpToolSpec[] = [
       additionalProperties: false,
     },
   },
+  // ---------- Revenue (M32) — contacts, deals, activities, sequences, signals ----------
+  //
+  // Granular on purpose. The `op`-dispatched family shape is retired (see
+  // `services/agent/tools/genosynFamilies.ts`): these tools disagree on their
+  // required arguments, so a merged schema would demand nothing and bury the
+  // real requirements in prose. They are all deferred — reached through
+  // `find_tools` / `call_tool` — so the count costs nothing on the hot path.
+  {
+    name: "list_contacts",
+    description:
+      "List Contacts — people in the revenue system, as opposed to the billable accounts `list_customers` returns. Ordered by most recently touched, so the top of the list is who you last spoke to. Filter with `q` (name / email / employer / job title), `lifecycleStage`, `customerId`, or `ownedByMe`. Archived rows are hidden unless `includeArchived`. Call `get_contact` for one person in full, or `get_contact_timeline` for their history. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        q: {
+          type: "string",
+          description: "Substring match over name, email, employer and job title.",
+        },
+        lifecycleStage: {
+          type: "string",
+          enum: [
+            "subscriber",
+            "lead",
+            "qualified",
+            "opportunity",
+            "customer",
+            "churned",
+            "unqualified",
+          ],
+        },
+        customerId: {
+          type: "string",
+          description: "Only contacts attached to this billable account (a Customer id).",
+        },
+        ownedByMe: {
+          type: "boolean",
+          description: "Only contacts a human put you down as the owner of.",
+        },
+        includeArchived: { type: "boolean" },
+        limit: { type: "integer", minimum: 1, maximum: 200 },
+        offset: { type: "integer", minimum: 0 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "search_contacts",
+    description:
+      "Find a Contact by free text — name, email, employer, or job title, case-insensitive substring. Use this when a teammate names somebody and you need their id before doing anything else; `list_contacts` is the one to reach for when you want to browse or filter. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "What to look for, e.g. 'ana@' or 'Northwind' or 'VP Eng'.",
+        },
+        includeArchived: { type: "boolean" },
+        limit: { type: "integer", minimum: 1, maximum: 200 },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_contact",
+    description:
+      "Fetch one Contact in full, plus the deals still open with them. `doNotContact`, `unsubscribedAt` and `bouncedAt` on the row are the answer to 'may I email this person' — read them before drafting anything. Call `get_contact_timeline` for the conversation history. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        contactId: { type: "string", description: "Contact id from list/search_contacts." },
+      },
+      required: ["contactId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_contact_timeline",
+    description:
+      "Read everything that has happened with a Contact — emails in and out (written by mail sync on their own, so this is populated even if nobody typed anything), calls, meetings, notes, stage changes and sequence touches, newest first. By default it also folds in activity on that contact's deals, which is what a human means by 'our history with them'. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        contactId: { type: "string" },
+        kinds: {
+          type: "array",
+          items: {
+            type: "string",
+            enum: [
+              "email_in",
+              "email_out",
+              "call",
+              "meeting",
+              "note",
+              "task",
+              "deal_created",
+              "stage_change",
+              "deal_won",
+              "deal_lost",
+              "enrollment",
+              "sequence_step",
+              "unsubscribe",
+              "bounce",
+              "signal",
+            ],
+          },
+          description: "Only these kinds. Omit for the whole timeline.",
+        },
+        includeRelatedDeals: {
+          type: "boolean",
+          description: "Include activity on this contact's deals. Defaults to true.",
+        },
+        limit: { type: "integer", minimum: 1, maximum: 200 },
+        offset: { type: "integer", minimum: 0 },
+      },
+      required: ["contactId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_deals",
+    description:
+      "List Deals — one opportunity each, newest-updated first. Filter by `q` (title / description), `status` (open / won / lost), `stageId`, `customerId`, `contactId`, or `ownedByMe`. A deal's status always follows the stage it sits in; `weightedValueCents` is the amount times the stage probability. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        q: { type: "string" },
+        status: { type: "string", enum: ["open", "won", "lost"] },
+        stageId: { type: "string", description: "Stage id from list_deal_stages." },
+        customerId: { type: "string" },
+        contactId: {
+          type: "string",
+          description: "Deals whose primary contact is this person.",
+        },
+        ownedByMe: { type: "boolean", description: "Only deals you are the owner of." },
+        includeArchived: { type: "boolean" },
+        limit: { type: "integer", minimum: 1, maximum: 200 },
+        offset: { type: "integer", minimum: 0 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_deal",
+    description:
+      "Fetch one Deal with its stage, amount, weighted value, timeline and buying committee (every contact linked to it, with their role). Use this before proposing a next step so you are working from what actually happened rather than the title. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dealId: { type: "string", description: "Deal id from list_deals / get_deal_board." },
+        activityLimit: { type: "integer", minimum: 1, maximum: 200 },
+      },
+      required: ["dealId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_deal_board",
+    description:
+      "Read the pipeline as the board a human sees: every stage in order, the open deals sitting in it, and the stage's total and probability-weighted value. This is the one call for 'what does the pipeline look like'. Needs `read` revenue access.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "list_deal_stages",
+    description:
+      "List the company's deal stages in board order, with each stage's `kind` (open / won / lost) and default probability. You need a stage id to open a deal in a specific column or to move one — get it here. Moving a deal into a `won` or `lost` stage closes it. Needs `read` revenue access.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "list_sequences",
+    description:
+      "List outbound Sequences — multi-step campaigns where each touch is drafted individually by a named AI employee from that contact's real context, not merged from a template. Rows carry the step count, per-status enrolment counts, the owning employee, the mailbox, and `autoSend` (off means every drafted touch waits in the review queue for a human). Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        q: { type: "string", description: "Substring match over name and description." },
+        status: { type: "string", enum: ["draft", "active", "paused", "archived"] },
+        includeArchived: { type: "boolean" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_signals",
+    description:
+      "List Signals — product-usage triggers that run a query against a connected database on a schedule and fire an action (log an activity, notify, open a deal, enrol in a sequence, or hand the payload to an AI employee). Read these to understand what is already watching the product before proposing new outreach. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        enabled: {
+          type: "boolean",
+          description: "Filter on the enabled flag. Omit for both.",
+        },
+        includeArchived: { type: "boolean" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_revenue_report",
+    description:
+      "Read a live revenue report: `overview` (MRR movement, ARR, retention, funnel, pipeline coverage, CAC and cash collected in one call), `mrr` (the monthly series — the current month is included and still moving), `funnel` (stage conversion, win rate, cycle length, coverage), or `cac` (spend, wins and unit economics per channel). `from`/`to` default to the trailing twelve months; `mrr` uses `months` instead. CAC spend is authorized budget rather than realized spend — the payload says so via `spendIsProxy`, and you should say so too when you quote it. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        report: { type: "string", enum: ["overview", "mrr", "funnel", "cac"] },
+        from: { type: "string", description: "ISO date/datetime period start." },
+        to: { type: "string", description: "ISO date/datetime period end." },
+        months: {
+          type: "integer",
+          minimum: 1,
+          maximum: 60,
+          description: "For `mrr` only. How many months back. Defaults to 12.",
+        },
+        targetCents: {
+          type: "integer",
+          minimum: 0,
+          description:
+            "Sales target for the period, in minor units. Drives pipeline coverage on `overview` / `funnel`; omit and coverage multiples come back null rather than invented.",
+        },
+        grossMarginPct: {
+          type: "integer",
+          minimum: 0,
+          maximum: 100,
+          description:
+            "0-100. Needed for LTV, LTV:CAC and payback on `overview` / `cac`; omit and they come back null.",
+        },
+      },
+      required: ["report"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_contact",
+    description:
+      "Add a person to the revenue system. `name` is the only required field, but an email is what lets mail sync attach their whole conversation history to them automatically. Emails are unique per company — creating one that already exists is refused with the existing contact's id so you can update that row instead of forking it. Needs `write` revenue access; the write is recorded against your name.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "The person's name." },
+        email: { type: "string", description: "Normalized and de-duplicated on write." },
+        phone: { type: "string" },
+        title: { type: "string", description: "Job title, as they would write it." },
+        linkedinUrl: { type: "string" },
+        websiteUrl: { type: "string" },
+        customerId: {
+          type: ["string", "null"],
+          description: "The billable account they belong to, if one exists yet.",
+        },
+        companyName: {
+          type: "string",
+          description: "Free-text employer, for somebody with no Customer row yet.",
+        },
+        lifecycleStage: {
+          type: "string",
+          enum: [
+            "subscriber",
+            "lead",
+            "qualified",
+            "opportunity",
+            "customer",
+            "churned",
+            "unqualified",
+          ],
+          description: "Defaults to 'lead'.",
+        },
+        source: {
+          type: "string",
+          description: "Where they came from, e.g. 'referral' or 'google-ads'.",
+        },
+        sourceDetail: { type: "string" },
+        score: { type: "integer", minimum: 0, maximum: 100, description: "0 means unscored." },
+        notes: { type: "string" },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_contact",
+    description:
+      "Update a Contact. Only the fields you pass change. Use this to correct or enrich a row rather than creating a second one for the same person. `doNotContact: true` is a permanent human-style opt-out — it blocks every send to them, and clearing it is a decision for a human, so do not set it back to false on your own. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        contactId: { type: "string" },
+        name: { type: "string" },
+        email: { type: "string" },
+        phone: { type: "string" },
+        title: { type: "string" },
+        linkedinUrl: { type: "string" },
+        websiteUrl: { type: "string" },
+        customerId: { type: ["string", "null"] },
+        companyName: { type: "string" },
+        lifecycleStage: {
+          type: "string",
+          enum: [
+            "subscriber",
+            "lead",
+            "qualified",
+            "opportunity",
+            "customer",
+            "churned",
+            "unqualified",
+          ],
+        },
+        source: { type: "string" },
+        sourceDetail: { type: "string" },
+        score: { type: "integer", minimum: 0, maximum: 100 },
+        notes: { type: "string" },
+        doNotContact: { type: "boolean" },
+      },
+      required: ["contactId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_deal",
+    description:
+      "Open a Deal — one opportunity. Lands in the first open stage unless you name a `stageId` from `list_deal_stages`. `amountCents` is integer minor units (500000 is $5,000.00). Naming a `primaryContactId` is what puts the deal on that person's timeline, and a `customerId` is what ties it to the billable account. A `deal_created` activity is written so the timeline starts at the beginning. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Short name, e.g. 'Northwind — 20 seats'." },
+        description: { type: "string" },
+        customerId: { type: ["string", "null"] },
+        primaryContactId: {
+          type: ["string", "null"],
+          description: "The main person on the other side (a Contact id).",
+        },
+        stageId: {
+          type: ["string", "null"],
+          description: "From list_deal_stages. Omit for the first open stage.",
+        },
+        amountCents: {
+          type: "integer",
+          minimum: 0,
+          description: "Deal value in minor units (cents).",
+        },
+        currency: { type: "string", description: "ISO 4217 code. Defaults to USD." },
+        probabilityOverride: {
+          type: ["integer", "null"],
+          minimum: 0,
+          maximum: 100,
+          description: "Override the stage's default probability for this one deal.",
+        },
+        expectedCloseDate: { type: ["string", "null"], description: "ISO date/datetime." },
+        source: { type: "string" },
+        nextStep: { type: "string", description: "The concrete next action, in one line." },
+      },
+      required: ["title"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_deal",
+    description:
+      "Update a Deal's title, description, amount, links, expected close date or next step. Only the fields you pass change. This deliberately cannot move a deal between stages — that carries the status invariant and writes the activity every funnel report reads, so it has its own tool, `move_deal_stage`. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dealId: { type: "string" },
+        title: { type: "string" },
+        description: { type: "string" },
+        customerId: { type: ["string", "null"] },
+        primaryContactId: { type: ["string", "null"] },
+        amountCents: { type: "integer", minimum: 0 },
+        currency: { type: "string" },
+        probabilityOverride: { type: ["integer", "null"], minimum: 0, maximum: 100 },
+        expectedCloseDate: { type: ["string", "null"] },
+        source: { type: "string" },
+        nextStep: { type: "string" },
+      },
+      required: ["dealId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "move_deal_stage",
+    description:
+      "Move a Deal to another stage. This is how a deal advances — and how it closes: a stage whose `kind` is `won` or `lost` sets the deal's status and stamps `closedAt`, which every revenue report then counts. Do that deliberately, and pass `lostReason` when the stage is a lost one so the funnel report can say why. The move writes a `stage_change` / `deal_won` / `deal_lost` activity. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dealId: { type: "string" },
+        stageId: { type: "string", description: "Target stage id from list_deal_stages." },
+        lostReason: {
+          type: "string",
+          description: "Why it was lost. Only meaningful when moving into a lost stage.",
+        },
+      },
+      required: ["dealId", "stageId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "log_activity",
+    description:
+      "Write a note, call, meeting or task onto a Contact's and/or Deal's timeline. Use it after you actually did something — summarising a call, recording what a teammate told you, capturing a commitment — so the next person to open that record sees it. Emails, stage changes and sequence touches are written for you by the systems that perform them and cannot be logged here: a hand-written 'deal_won' would be a conversion no report could tell from a real one. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        kind: { type: "string", enum: ["note", "call", "meeting", "task"] },
+        subject: { type: "string", description: "One-line headline for the timeline row." },
+        bodyText: { type: "string", description: "The detail. Markdown is fine." },
+        occurredAt: {
+          type: "string",
+          description: "ISO datetime it actually happened. Defaults to now.",
+        },
+        contactId: { type: ["string", "null"] },
+        dealId: { type: ["string", "null"] },
+        customerId: { type: ["string", "null"] },
+      },
+      required: ["kind"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "add_deal_contact",
+    description:
+      "Put a Contact on a Deal's buying committee, with an optional role ('champion', 'economic buyer', 'legal'). Idempotent — adding somebody already on it just updates their role. Use this as you learn who else is involved; the committee is what tells the next person who to copy. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dealId: { type: "string" },
+        contactId: { type: "string" },
+        role: { type: "string", description: "Their part in the decision." },
+      },
+      required: ["dealId", "contactId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "enroll_in_sequence",
+    description:
+      "Enrol contacts in an outbound Sequence. Partial success by design: a suppressed address, a do-not-contact flag, a missing email, an archived row or somebody already enrolled is skipped with a reason and the rest still go in — read `skipped` in the result and do not retry a refusal. Enrolling does not send anything itself; the sequence tick drafts each touch, and unless the sequence is marked auto-send a human presses Send. At most 500 contacts per call. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sequenceId: { type: "string", description: "Sequence id from list_sequences." },
+        contactIds: {
+          type: "array",
+          items: { type: "string" },
+          minItems: 1,
+          maxItems: 500,
+          description: "Contact ids to enrol.",
+        },
+        dealId: {
+          type: "string",
+          description: "Optional deal to attribute the enrolment and its touches to.",
+        },
+      },
+      required: ["sequenceId", "contactIds"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "suppress_email",
+    description:
+      "Add an address to the company's do-not-mail list. Enforced at the single outbound choke-point, so it covers every path — a human pressing Send, a sequence step, your own `send_mail`. Call this the moment somebody asks to be removed, replies 'unsubscribe', or hard-bounces: mailing someone who already said no is the cheapest way to get the sending domain blocklisted. Idempotent — re-suppressing an address returns the existing row and leaves its original reason alone. Removing an address from the list is a human's decision and there is no tool for it. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        email: { type: "string", description: "The address to suppress." },
+        reason: {
+          type: "string",
+          enum: ["unsubscribe", "bounce", "complaint", "manual"],
+          description:
+            "Why. Use `unsubscribe` only when they actually asked, `bounce` for a hard bounce, `complaint` for a spam report. Defaults to `manual`.",
+        },
+        notes: { type: "string", description: "Where the request came from, for the record." },
+      },
+      required: ["email"],
+      additionalProperties: false,
+    },
+  },
 ];

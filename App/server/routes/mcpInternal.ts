@@ -177,6 +177,59 @@ import { CustomerContact } from "../db/entities/CustomerContact.js";
 import { Invoice } from "../db/entities/Invoice.js";
 import { InvoicePayment } from "../db/entities/InvoicePayment.js";
 import { TaxRate } from "../db/entities/TaxRate.js";
+import type { Activity } from "../db/entities/Activity.js";
+import { ACTIVITY_KINDS, type ActivityKind } from "../db/entities/Activity.js";
+import {
+  CONTACT_LIFECYCLE_STAGES,
+  type Contact,
+  type ContactLifecycleStage,
+} from "../db/entities/Contact.js";
+import type { DealStage } from "../db/entities/DealStage.js";
+import type { Signal } from "../db/entities/Signal.js";
+import type { Suppression } from "../db/entities/Suppression.js";
+import {
+  EmployeeRevenueGrant,
+  REVENUE_ACCESS_RANK,
+  type RevenueAccessLevel,
+} from "../db/entities/EmployeeRevenueGrant.js";
+import { normalizeEmail } from "../lib/emailAddress.js";
+import { addSuppression, isSuppressed } from "../services/mail/suppression.js";
+import { listActivities, recordActivity } from "../services/revenue/activities.js";
+import {
+  DuplicateContactError,
+  createContact,
+  findContactByEmail,
+  getContact,
+  listContacts,
+  updateContact,
+} from "../services/revenue/contacts.js";
+import {
+  InvalidStageError,
+  addDealContact,
+  createDeal,
+  dealBoard,
+  getHydratedDeal,
+  listDealContacts,
+  listDeals,
+  moveDealToStage,
+  updateDeal,
+  type HydratedDeal,
+} from "../services/revenue/deals.js";
+import {
+  getCacReport,
+  getFunnelReport,
+  getMrrSeries,
+  getRevenueOverview,
+} from "../services/revenue/reports.js";
+import {
+  bulkEnroll,
+  getSequence,
+  listSequences,
+  parseSendWindow,
+  type HydratedSequence,
+} from "../services/revenue/sequences.js";
+import { listSignals } from "../services/revenue/signals.js";
+import { listDealStages } from "../services/revenue/stages.js";
 import {
   EmployeeFinanceGrant,
   FINANCE_ACCESS_RANK,
@@ -398,8 +451,15 @@ async function requireFinance(
   return true;
 }
 
-/** Record the audit + journal trail for a finance write by an AI employee. */
-async function financeWriteTrail(
+/**
+ * Record the audit + journal trail for a write by an AI employee.
+ *
+ * Every grant-gated write surface in this file owes the same two rows — an
+ * AuditEvent naming the acting employee and a JournalEntry on its diary — so
+ * this is shared rather than reimplemented per section. Finance and Revenue
+ * both go through it; the `action` string is what says which.
+ */
+async function aiWriteTrail(
   req: McpRequest,
   args: {
     action: string;
@@ -425,7 +485,7 @@ async function financeWriteTrail(
   await journal(employee.id, args.journalTitle, args.journalBody ?? "");
 }
 
-const financeCurrency = z
+const isoCurrency = z
   .string()
   .regex(/^[A-Za-z]{3}$/)
   .transform((s) => s.toUpperCase());
@@ -530,7 +590,7 @@ const financeTransactionsSchema = z
   })
   .strict();
 
-function parseOptionalFinanceDate(value: string | undefined, label: string): Date | undefined {
+function parseOptionalToolDate(value: string | undefined, label: string): Date | undefined {
   if (!value) return undefined;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) throw new Error(`Invalid ${label} date`);
@@ -548,8 +608,8 @@ mcpInternalRouter.post(
         companyId: req.mcpCompany!.id,
         reviewStatus: body.reviewStatus,
         source: body.source,
-        from: parseOptionalFinanceDate(body.from, "from"),
-        to: parseOptionalFinanceDate(body.to, "to"),
+        from: parseOptionalToolDate(body.from, "from"),
+        to: parseOptionalToolDate(body.to, "to"),
         limit: body.limit ?? 50,
       });
       res.json({ transactions });
@@ -648,15 +708,15 @@ mcpInternalRouter.post(
     const companyId = req.mcpCompany!.id;
     try {
       if (body.report === "balance_sheet" || body.report === "trial_balance") {
-        const asOf = parseOptionalFinanceDate(body.asOf, "asOf") ?? new Date();
+        const asOf = parseOptionalToolDate(body.asOf, "asOf") ?? new Date();
         const report =
           body.report === "balance_sheet"
             ? await balanceSheet(companyId, asOf)
             : { asOf: asOf.toISOString(), rows: await trialBalance(companyId, asOf) };
         return res.json({ report: body.report, data: report });
       }
-      const from = parseOptionalFinanceDate(body.from, "from");
-      const to = parseOptionalFinanceDate(body.to, "to");
+      const from = parseOptionalToolDate(body.from, "from");
+      const to = parseOptionalToolDate(body.to, "to");
       if (!from || !to) {
         return res.status(400).json({ error: "from and to are required for this report" });
       }
@@ -790,7 +850,7 @@ const createCustomerSchema = z
     billingAddress: z.string().max(2000).optional(),
     shippingAddress: z.string().max(2000).optional(),
     taxNumber: z.string().max(60).optional(),
-    currency: financeCurrency.optional(),
+    currency: isoCurrency.optional(),
     notes: z.string().max(2000).optional(),
   })
   .strict();
@@ -817,7 +877,7 @@ mcpInternalRouter.post(
       createdById: null,
     });
     await repo.save(c);
-    await financeWriteTrail(req, {
+    await aiWriteTrail(req, {
       action: "finance.customer.create",
       targetType: "customer",
       targetId: c.id,
@@ -837,7 +897,7 @@ const updateCustomerSchema = z
     billingAddress: z.string().max(2000).optional(),
     shippingAddress: z.string().max(2000).optional(),
     taxNumber: z.string().max(60).optional(),
-    currency: financeCurrency.optional(),
+    currency: isoCurrency.optional(),
     notes: z.string().max(2000).optional(),
   })
   .strict();
@@ -862,7 +922,7 @@ mcpInternalRouter.post(
     if (body.currency !== undefined) c.currency = body.currency;
     if (body.notes !== undefined) c.notes = body.notes;
     await AppDataSource.getRepository(Customer).save(c);
-    await financeWriteTrail(req, {
+    await aiWriteTrail(req, {
       action: "finance.customer.update",
       targetType: "customer",
       targetId: c.id,
@@ -884,7 +944,7 @@ const invoiceLineSchema = z.object({
 const createInvoiceSchema = z
   .object({
     customerSlug: z.string().min(1).max(200),
-    currency: financeCurrency.optional(),
+    currency: isoCurrency.optional(),
     issueDate: z.string().datetime().optional(),
     dueDate: z.string().datetime().optional(),
     notes: z.string().max(4000).optional(),
@@ -957,7 +1017,7 @@ mcpInternalRouter.post(
     await replaceInvoiceLines(inv, body.lines);
     const recomputed = await recomputeInvoiceTotals(inv);
     const [hydrated] = await hydrateInvoices(cid, [recomputed]);
-    await financeWriteTrail(req, {
+    await aiWriteTrail(req, {
       action: "finance.invoice.create",
       targetType: "invoice",
       targetId: inv.id,
@@ -1012,7 +1072,7 @@ mcpInternalRouter.post(
         cc: body.cc ?? [],
       });
       const [hydrated] = await hydrateInvoices(cid, [inv]);
-      await financeWriteTrail(req, {
+      await aiWriteTrail(req, {
         action: "finance.invoice.send",
         targetType: "invoice",
         targetId: inv.id,
@@ -1045,7 +1105,7 @@ const recordPaymentSchema = z
   .object({
     invoiceSlug: z.string().min(1).max(200),
     amountCents: z.number().int().min(1).max(2_000_000_000),
-    currency: financeCurrency.optional(),
+    currency: isoCurrency.optional(),
     paidAt: z.string().datetime().optional(),
     method: z.enum(["cash", "bank_transfer", "stripe", "lightning", "other"]).optional(),
     reference: z.string().max(200).optional(),
@@ -1114,7 +1174,7 @@ mcpInternalRouter.post(
       // cover the total.
       const recomputed = await recomputeInvoiceTotals(inv);
       const [hydrated] = await hydrateInvoices(cid, [recomputed]);
-      await financeWriteTrail(req, {
+      await aiWriteTrail(req, {
         action: "finance.invoice.payment",
         targetType: "invoice",
         targetId: inv.id,
@@ -1147,7 +1207,7 @@ mcpInternalRouter.post(
     try {
       const voided = await voidInvoice(inv, null);
       const [hydrated] = await hydrateInvoices(cid, [voided]);
-      await financeWriteTrail(req, {
+      await aiWriteTrail(req, {
         action: "finance.invoice.void",
         targetType: "invoice",
         targetId: inv.id,
@@ -1158,6 +1218,985 @@ mcpInternalRouter.post(
     } catch (err) {
       res.status(400).json({ error: (err as Error).message });
     }
+  },
+);
+
+// ----- Revenue -----
+//
+// The revenue tools are grant-gated per employee via `EmployeeRevenueGrant`
+// (Revenue → AI access), the same one-row-per-employee shape as finance:
+// read < write < send. Reads need `read` and every write needs `write`.
+// `send` buys nothing extra at this surface on purpose — what it governs is
+// whether a sequence's drafted touches may go out without a human, and that is
+// enforced at the outbound choke-point in `services/mail/actions.ts`, not here.
+//
+// Every rule these handlers could get wrong — the deal status invariant,
+// duplicate-email detection, suppression semantics, enrolment skips — lives in
+// `services/revenue/*` and is shared with the human HTTP routes, so an AI
+// employee and a member cannot end up with two different sets of guarantees.
+
+/**
+ * Enforce the acting employee's revenue grant. Writes the 403 itself and
+ * returns false, so callers do `if (!(await requireRevenue(...))) return;`.
+ */
+async function requireRevenue(
+  req: McpRequest,
+  res: Response,
+  required: RevenueAccessLevel,
+): Promise<boolean> {
+  const self = req.mcpEmployee!;
+  const grant = await AppDataSource.getRepository(EmployeeRevenueGrant).findOneBy({
+    employeeId: self.id,
+  });
+  if (!grant || REVENUE_ACCESS_RANK[grant.accessLevel] < REVENUE_ACCESS_RANK[required]) {
+    res.status(403).json({
+      error: grant
+        ? `No grant: this needs the "${required}" revenue access level; yours is "${grant.accessLevel}". Ask an owner or admin to raise it under Revenue → AI access.`
+        : "No grant: you do not have access to the revenue system. Ask an owner or admin to grant it under Revenue → AI access.",
+    });
+    return false;
+  }
+  return true;
+}
+
+/**
+ * The principal behind an MCP call, in the shape the revenue services expect.
+ *
+ * Always an employee here — the human path into these services is
+ * `routes/revenue.ts`, which supplies `userId`. Passing both would make the
+ * activity trail ambiguous about who actually did it.
+ */
+function revenueActor(req: McpRequest): { userId: null; employeeId: string } {
+  return { userId: null, employeeId: req.mcpEmployee!.id };
+}
+
+const contactLifecycleEnum = z.enum(
+  CONTACT_LIFECYCLE_STAGES as [ContactLifecycleStage, ...ContactLifecycleStage[]],
+);
+const activityKindEnum = z.enum(ACTIVITY_KINDS as [ActivityKind, ...ActivityKind[]]);
+
+function serializeContactRow(c: Contact & { customerName?: string | null }) {
+  return {
+    id: c.id,
+    name: c.name,
+    email: c.email,
+    phone: c.phone,
+    title: c.title,
+    companyName: c.companyName,
+    customerId: c.customerId,
+    customerName: c.customerName ?? null,
+    lifecycleStage: c.lifecycleStage,
+    ownerId: c.ownerId,
+    ownerEmployeeId: c.ownerEmployeeId,
+    source: c.source,
+    score: c.score,
+    // The three fields that answer "may I email this person". Always on the
+    // row, including list rows, so the answer is never one call away.
+    doNotContact: c.doNotContact,
+    unsubscribedAt: c.unsubscribedAt,
+    bouncedAt: c.bouncedAt,
+    lastActivityAt: c.lastActivityAt,
+    archived: !!c.archivedAt,
+  };
+}
+
+function serializeContactFull(c: Contact & { customerName?: string | null }) {
+  return {
+    ...serializeContactRow(c),
+    linkedinUrl: c.linkedinUrl,
+    websiteUrl: c.websiteUrl,
+    sourceDetail: c.sourceDetail,
+    notes: c.notes,
+    createdAt: c.createdAt,
+  };
+}
+
+function serializeDealRow(d: HydratedDeal) {
+  return {
+    id: d.id,
+    title: d.title,
+    status: d.status,
+    stageId: d.stageId,
+    stageName: d.stageName,
+    stageKind: d.stageKind,
+    amountCents: d.amountCents,
+    currency: d.currency,
+    weightedValueCents: d.weightedValueCents,
+    customerId: d.customerId,
+    customerName: d.customerName,
+    primaryContactId: d.primaryContactId,
+    contactName: d.contactName,
+    expectedCloseDate: d.expectedCloseDate,
+    closedAt: d.closedAt,
+    lostReason: d.lostReason,
+    nextStep: d.nextStep,
+    ownerId: d.ownerId,
+    ownerEmployeeId: d.ownerEmployeeId,
+    lastActivityAt: d.lastActivityAt,
+    archived: !!d.archivedAt,
+  };
+}
+
+function serializeDealFull(d: HydratedDeal) {
+  return {
+    ...serializeDealRow(d),
+    description: d.description,
+    source: d.source,
+    probabilityOverride: d.probabilityOverride,
+    createdAt: d.createdAt,
+  };
+}
+
+function serializeActivity(a: Activity) {
+  return {
+    id: a.id,
+    kind: a.kind,
+    subject: a.subject,
+    bodyText: a.bodyText,
+    occurredAt: a.occurredAt,
+    contactId: a.contactId,
+    dealId: a.dealId,
+    customerId: a.customerId,
+    mailThreadId: a.mailThreadId,
+    actorUserId: a.actorUserId,
+    actorEmployeeId: a.actorEmployeeId,
+  };
+}
+
+function serializeDealStage(s: DealStage) {
+  return {
+    id: s.id,
+    name: s.name,
+    slug: s.slug,
+    sortOrder: s.sortOrder,
+    kind: s.kind,
+    probability: s.probability,
+    description: s.description,
+    archived: !!s.archivedAt,
+  };
+}
+
+function serializeSequence(s: HydratedSequence) {
+  return {
+    id: s.id,
+    name: s.name,
+    slug: s.slug,
+    description: s.description,
+    status: s.status,
+    mailAccountId: s.mailAccountId,
+    employeeId: s.employeeId,
+    autoSend: s.autoSend,
+    stopOnReply: s.stopOnReply,
+    dailyCap: s.dailyCap,
+    sendWindow: parseSendWindow(s),
+    stepCount: s.stepCount,
+    activeCount: s.activeCount,
+    totalEnrolled: s.totalEnrolled,
+    enrollmentCounts: s.enrollmentCounts,
+    archived: !!s.archivedAt,
+  };
+}
+
+/**
+ * A Signal row, without its `sql`.
+ *
+ * The query runs against the company's own production database, and nothing an
+ * employee does with this list — deciding whether outreach is already covered,
+ * reading what fired — needs the statement itself. Omitting it keeps a
+ * production schema out of a model's context for no loss of capability.
+ */
+function serializeSignal(s: Signal) {
+  return {
+    id: s.id,
+    name: s.name,
+    slug: s.slug,
+    description: s.description,
+    sourceKind: s.sourceKind,
+    cron: s.cron,
+    enabled: s.enabled,
+    actionKind: s.actionKind,
+    employeeId: s.employeeId,
+    lastRunAt: s.lastRunAt,
+    lastEventCount: s.lastEventCount,
+    lastError: s.lastError,
+    archived: !!s.archivedAt,
+  };
+}
+
+function serializeSuppression(s: Suppression) {
+  return {
+    id: s.id,
+    email: s.email,
+    reason: s.reason,
+    source: s.source,
+    contactId: s.contactId,
+    notes: s.notes,
+    createdAt: s.createdAt,
+  };
+}
+
+/** 404 unless the id names a Customer in this company. Blocks cross-tenant ids. */
+async function revenueCustomerExists(companyId: string, customerId: string): Promise<boolean> {
+  return AppDataSource.getRepository(Customer).existsBy({ id: customerId, companyId });
+}
+
+// ---- Revenue reads ----
+
+const listContactsSchema = z
+  .object({
+    q: z.string().max(200).optional(),
+    lifecycleStage: contactLifecycleEnum.optional(),
+    customerId: z.string().uuid().optional(),
+    ownedByMe: z.boolean().optional(),
+    includeArchived: z.boolean().optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+    offset: z.number().int().min(0).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/list_contacts",
+  validateBody(listContactsSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    const body = req.body as z.infer<typeof listContactsSchema>;
+    const { rows, total } = await listContacts(req.mcpCompany!.id, {
+      q: body.q,
+      lifecycleStage: body.lifecycleStage,
+      customerId: body.customerId,
+      ownerEmployeeId: body.ownedByMe ? req.mcpEmployee!.id : undefined,
+      includeArchived: body.includeArchived,
+      limit: body.limit,
+      offset: body.offset,
+    });
+    res.json({ contacts: rows.map(serializeContactRow), total });
+  },
+);
+
+const searchContactsSchema = z
+  .object({
+    query: z.string().min(1).max(200),
+    includeArchived: z.boolean().optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/search_contacts",
+  validateBody(searchContactsSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    const body = req.body as z.infer<typeof searchContactsSchema>;
+    const { rows, total } = await listContacts(req.mcpCompany!.id, {
+      q: body.query,
+      includeArchived: body.includeArchived,
+      limit: body.limit ?? 25,
+    });
+    res.json({ contacts: rows.map(serializeContactRow), total });
+  },
+);
+
+const contactIdSchema = z.object({ contactId: z.string().uuid() }).strict();
+
+mcpInternalRouter.post(
+  "/tools/get_contact",
+  validateBody(contactIdSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    const cid = req.mcpCompany!.id;
+    const { contactId } = req.body as z.infer<typeof contactIdSchema>;
+    const contact = await getContact(cid, contactId);
+    if (!contact) return res.status(404).json({ error: "Contact not found" });
+    const { rows } = await listDeals(cid, { contactId: contact.id, status: "open", limit: 50 });
+    res.json({
+      contact: serializeContactFull(contact),
+      openDeals: rows.map(serializeDealRow),
+      note: "Call get_contact_timeline for the conversation history.",
+    });
+  },
+);
+
+const contactTimelineSchema = z
+  .object({
+    contactId: z.string().uuid(),
+    kinds: z.array(activityKindEnum).max(ACTIVITY_KINDS.length).optional(),
+    includeRelatedDeals: z.boolean().optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+    offset: z.number().int().min(0).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/get_contact_timeline",
+  validateBody(contactTimelineSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof contactTimelineSchema>;
+    const contact = await getContact(cid, body.contactId);
+    if (!contact) return res.status(404).json({ error: "Contact not found" });
+    const { rows, total } = await listActivities(cid, {
+      contactId: contact.id,
+      kinds: body.kinds,
+      // Defaulting on matches what a human means by "our history with them" —
+      // the contact page composes the same way.
+      includeRelatedDeals: body.includeRelatedDeals ?? true,
+      limit: body.limit ?? 50,
+      offset: body.offset,
+    });
+    res.json({ activities: rows.map(serializeActivity), total });
+  },
+);
+
+const listDealsSchema = z
+  .object({
+    q: z.string().max(200).optional(),
+    status: z.enum(["open", "won", "lost"]).optional(),
+    stageId: z.string().uuid().optional(),
+    customerId: z.string().uuid().optional(),
+    contactId: z.string().uuid().optional(),
+    ownedByMe: z.boolean().optional(),
+    includeArchived: z.boolean().optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+    offset: z.number().int().min(0).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/list_deals",
+  validateBody(listDealsSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    const body = req.body as z.infer<typeof listDealsSchema>;
+    const { rows, total } = await listDeals(req.mcpCompany!.id, {
+      q: body.q,
+      status: body.status,
+      stageId: body.stageId,
+      customerId: body.customerId,
+      contactId: body.contactId,
+      ownerEmployeeId: body.ownedByMe ? req.mcpEmployee!.id : undefined,
+      includeArchived: body.includeArchived,
+      limit: body.limit,
+      offset: body.offset,
+    });
+    res.json({ deals: rows.map(serializeDealRow), total });
+  },
+);
+
+const getDealSchema = z
+  .object({
+    dealId: z.string().uuid(),
+    activityLimit: z.number().int().min(1).max(200).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/get_deal",
+  validateBody(getDealSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof getDealSchema>;
+    const deal = await getHydratedDeal(cid, body.dealId);
+    if (!deal) return res.status(404).json({ error: "Deal not found" });
+    const [timeline, committee] = await Promise.all([
+      listActivities(cid, { dealId: deal.id, limit: body.activityLimit ?? 50 }),
+      listDealContacts(cid, deal.id),
+    ]);
+    res.json({
+      deal: serializeDealFull(deal),
+      activities: timeline.rows.map(serializeActivity),
+      activityTotal: timeline.total,
+      contacts: committee.map((l) => ({
+        contactId: l.contactId,
+        role: l.role,
+        contact: l.contact ? serializeContactRow(l.contact) : null,
+      })),
+    });
+  },
+);
+
+const emptyRevenueSchema = z.object({}).strict();
+
+mcpInternalRouter.post(
+  "/tools/get_deal_board",
+  validateBody(emptyRevenueSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    const columns = await dealBoard(req.mcpCompany!.id);
+    res.json({
+      columns: columns.map((c) => ({
+        stage: serializeDealStage(c.stage),
+        totalCents: c.totalCents,
+        weightedCents: c.weightedCents,
+        deals: c.deals.map(serializeDealRow),
+      })),
+    });
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/list_deal_stages",
+  validateBody(emptyRevenueSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    // Seeds the default ladder on first read, so an employee asking about the
+    // pipeline before any human has opened Revenue still gets real stage ids.
+    const stages = await listDealStages(req.mcpCompany!.id);
+    res.json({ stages: stages.map(serializeDealStage) });
+  },
+);
+
+const listSequencesSchema = z
+  .object({
+    q: z.string().max(200).optional(),
+    status: z.enum(["draft", "active", "paused", "archived"]).optional(),
+    includeArchived: z.boolean().optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/list_sequences",
+  validateBody(listSequencesSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    const body = req.body as z.infer<typeof listSequencesSchema>;
+    const rows = await listSequences(req.mcpCompany!.id, body);
+    res.json({ sequences: rows.map(serializeSequence) });
+  },
+);
+
+const listSignalsSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    includeArchived: z.boolean().optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/list_signals",
+  validateBody(listSignalsSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    const body = req.body as z.infer<typeof listSignalsSchema>;
+    const rows = await listSignals(req.mcpCompany!.id, body);
+    res.json({ signals: rows.map(serializeSignal) });
+  },
+);
+
+const revenueReportSchema = z
+  .object({
+    report: z.enum(["overview", "mrr", "funnel", "cac"]),
+    from: z.string().max(40).optional(),
+    to: z.string().max(40).optional(),
+    months: z.number().int().min(1).max(60).optional(),
+    targetCents: z.number().int().min(0).max(2_000_000_000).optional(),
+    grossMarginPct: z.number().int().min(0).max(100).optional(),
+  })
+  .strict();
+
+/** Trailing twelve months when the caller states no window — see routes/revenue.ts. */
+const DEFAULT_REVENUE_REPORT_MONTHS = 12;
+
+function resolveRevenuePeriod(body: { from?: string; to?: string }): { from: Date; to: Date } {
+  const to = parseOptionalToolDate(body.to, "to") ?? new Date();
+  const stated = parseOptionalToolDate(body.from, "from");
+  if (stated) return { from: stated, to };
+  const from = new Date(to.getTime());
+  from.setUTCMonth(from.getUTCMonth() - DEFAULT_REVENUE_REPORT_MONTHS);
+  return { from, to };
+}
+
+mcpInternalRouter.post(
+  "/tools/get_revenue_report",
+  validateBody(revenueReportSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof revenueReportSchema>;
+    try {
+      if (body.report === "mrr") {
+        const data = await getMrrSeries(cid, body.months ?? DEFAULT_REVENUE_REPORT_MONTHS);
+        return res.json({ report: body.report, data });
+      }
+      const period = resolveRevenuePeriod(body);
+      const data =
+        body.report === "overview"
+          ? await getRevenueOverview(cid, {
+              ...period,
+              targetCents: body.targetCents,
+              grossMarginPct: body.grossMarginPct,
+            })
+          : body.report === "funnel"
+            ? await getFunnelReport(cid, period, { targetCents: body.targetCents })
+            : await getCacReport(cid, period, { grossMarginPct: body.grossMarginPct });
+      res.json({ report: body.report, data });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+// ---- Revenue writes (all need `write`; all leave an audit + journal trail) ----
+
+const contactWritableSchema = z.object({
+  email: z.string().max(320).optional(),
+  phone: z.string().max(60).optional(),
+  title: z.string().max(200).optional(),
+  linkedinUrl: z.string().max(500).optional(),
+  websiteUrl: z.string().max(500).optional(),
+  customerId: z.string().uuid().nullable().optional(),
+  companyName: z.string().max(200).optional(),
+  lifecycleStage: contactLifecycleEnum.optional(),
+  source: z.string().max(100).optional(),
+  sourceDetail: z.string().max(500).optional(),
+  score: z.number().int().min(0).max(100).optional(),
+  notes: z.string().max(20_000).optional(),
+});
+
+const createContactSchema = contactWritableSchema
+  .extend({ name: z.string().min(1).max(200) })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/create_contact",
+  validateBody(createContactSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof createContactSchema>;
+    if (body.customerId && !(await revenueCustomerExists(cid, body.customerId))) {
+      return res.status(400).json({ error: "Unknown customer" });
+    }
+    try {
+      const contact = await createContact(cid, body, revenueActor(req));
+      await aiWriteTrail(req, {
+        action: "revenue.contact.create",
+        targetType: "contact",
+        targetId: contact.id,
+        targetLabel: contact.name,
+        journalTitle: `${req.mcpEmployee!.name} added contact ${contact.name}`,
+        metadata: { email: contact.email, lifecycleStage: contact.lifecycleStage },
+      });
+      res.json({ contact: serializeContactFull(contact) });
+    } catch (err) {
+      // The service refuses rather than merging, and hands back the id of the
+      // row that already holds the address so the model updates that one
+      // instead of forking the person into two records.
+      if (err instanceof DuplicateContactError) {
+        return res.status(409).json({ error: err.message, existingId: err.existingId });
+      }
+      throw err;
+    }
+  },
+);
+
+const updateContactSchema = contactWritableSchema
+  .extend({
+    contactId: z.string().uuid(),
+    name: z.string().min(1).max(200).optional(),
+    doNotContact: z.boolean().optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/update_contact",
+  validateBody(updateContactSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const cid = req.mcpCompany!.id;
+    const { contactId, ...patch } = req.body as z.infer<typeof updateContactSchema>;
+    if (patch.customerId && !(await revenueCustomerExists(cid, patch.customerId))) {
+      return res.status(400).json({ error: "Unknown customer" });
+    }
+    try {
+      const contact = await updateContact(cid, contactId, patch);
+      if (!contact) return res.status(404).json({ error: "Contact not found" });
+      await aiWriteTrail(req, {
+        action: "revenue.contact.update",
+        targetType: "contact",
+        targetId: contact.id,
+        targetLabel: contact.name,
+        journalTitle: `${req.mcpEmployee!.name} updated contact ${contact.name}`,
+        metadata: { changes: Object.keys(patch) },
+      });
+      res.json({ contact: serializeContactFull(contact) });
+    } catch (err) {
+      if (err instanceof DuplicateContactError) {
+        return res.status(409).json({ error: err.message, existingId: err.existingId });
+      }
+      throw err;
+    }
+  },
+);
+
+const dealWritableSchema = z.object({
+  description: z.string().max(20_000).optional(),
+  customerId: z.string().uuid().nullable().optional(),
+  primaryContactId: z.string().uuid().nullable().optional(),
+  amountCents: z.number().int().min(0).max(2_000_000_000).optional(),
+  currency: isoCurrency.optional(),
+  probabilityOverride: z.number().int().min(0).max(100).nullable().optional(),
+  expectedCloseDate: z.string().max(40).nullable().optional(),
+  source: z.string().max(100).optional(),
+  nextStep: z.string().max(500).optional(),
+});
+
+const createDealSchema = dealWritableSchema
+  .extend({
+    title: z.string().min(1).max(200),
+    stageId: z.string().uuid().nullable().optional(),
+  })
+  .strict();
+
+/** Company-scope every id a deal write links to, so a bare uuid can't reach another tenant. */
+async function checkDealLinks(
+  companyId: string,
+  links: { customerId?: string | null; primaryContactId?: string | null },
+): Promise<string | null> {
+  if (links.customerId && !(await revenueCustomerExists(companyId, links.customerId))) {
+    return "Unknown customer";
+  }
+  if (links.primaryContactId && !(await getContact(companyId, links.primaryContactId))) {
+    return "Unknown contact";
+  }
+  return null;
+}
+
+mcpInternalRouter.post(
+  "/tools/create_deal",
+  validateBody(createDealSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof createDealSchema>;
+    const badLink = await checkDealLinks(cid, body);
+    if (badLink) return res.status(400).json({ error: badLink });
+    try {
+      const deal = await createDeal(
+        cid,
+        { ...body, expectedCloseDate: parseOptionalToolDate(body.expectedCloseDate ?? undefined, "expectedCloseDate") ?? null },
+        revenueActor(req),
+      );
+      const hydrated = await getHydratedDeal(cid, deal.id);
+      await aiWriteTrail(req, {
+        action: "revenue.deal.create",
+        targetType: "deal",
+        targetId: deal.id,
+        targetLabel: deal.title,
+        journalTitle: `${req.mcpEmployee!.name} opened deal ${deal.title}`,
+        metadata: {
+          stageId: deal.stageId,
+          amountCents: deal.amountCents,
+          currency: deal.currency,
+        },
+      });
+      res.json({ deal: hydrated ? serializeDealFull(hydrated) : null });
+    } catch (err) {
+      if (err instanceof InvalidStageError) {
+        return res.status(400).json({ error: err.message });
+      }
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+const updateDealSchema = dealWritableSchema
+  .extend({
+    dealId: z.string().uuid(),
+    title: z.string().min(1).max(200).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/update_deal",
+  validateBody(updateDealSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const cid = req.mcpCompany!.id;
+    const { dealId, ...patch } = req.body as z.infer<typeof updateDealSchema>;
+    const badLink = await checkDealLinks(cid, patch);
+    if (badLink) return res.status(400).json({ error: badLink });
+    // No `stageId` here on purpose: a stage move carries the status invariant
+    // and writes the activity every funnel report reads, so it goes through
+    // move_deal_stage and nowhere else.
+    const deal = await updateDeal(
+      cid,
+      dealId,
+      {
+        ...patch,
+        expectedCloseDate:
+          patch.expectedCloseDate === undefined
+            ? undefined
+            : (parseOptionalToolDate(patch.expectedCloseDate ?? undefined, "expectedCloseDate") ??
+              null),
+      },
+      revenueActor(req),
+    );
+    if (!deal) return res.status(404).json({ error: "Deal not found" });
+    await aiWriteTrail(req, {
+      action: "revenue.deal.update",
+      targetType: "deal",
+      targetId: deal.id,
+      targetLabel: deal.title,
+      journalTitle: `${req.mcpEmployee!.name} updated deal ${deal.title}`,
+      metadata: { changes: Object.keys(patch) },
+    });
+    const hydrated = await getHydratedDeal(cid, deal.id);
+    res.json({ deal: hydrated ? serializeDealFull(hydrated) : null });
+  },
+);
+
+const moveDealStageSchema = z
+  .object({
+    dealId: z.string().uuid(),
+    stageId: z.string().uuid(),
+    lostReason: z.string().max(500).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/move_deal_stage",
+  validateBody(moveDealStageSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof moveDealStageSchema>;
+    try {
+      const deal = await moveDealToStage(cid, body.dealId, body.stageId, revenueActor(req), {
+        lostReason: body.lostReason,
+      });
+      if (!deal) return res.status(404).json({ error: "Deal not found" });
+      await aiWriteTrail(req, {
+        action: "revenue.deal.stage",
+        targetType: "deal",
+        targetId: deal.id,
+        targetLabel: deal.title,
+        journalTitle: `${req.mcpEmployee!.name} moved deal ${deal.title} (now ${deal.status})`,
+        metadata: {
+          stageId: deal.stageId,
+          status: deal.status,
+          lostReason: deal.lostReason,
+        },
+      });
+      const hydrated = await getHydratedDeal(cid, deal.id);
+      res.json({ deal: hydrated ? serializeDealFull(hydrated) : null });
+    } catch (err) {
+      if (err instanceof InvalidStageError) {
+        return res.status(400).json({ error: err.message });
+      }
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+/**
+ * Kinds an AI employee may log by hand — the same four the human route allows.
+ *
+ * Deliberately narrower than `ACTIVITY_KINDS`. `stage_change`, `deal_won`,
+ * `email_out` and friends are *derived* records the funnel and MRR reports read
+ * as evidence that something happened, so a hand-written one would be a
+ * conversion no report could tell from a real one. Those kinds are written only
+ * by the service that performs the underlying act.
+ */
+const logActivitySchema = z
+  .object({
+    kind: z.enum(["note", "call", "meeting", "task"]),
+    subject: z.string().max(500).optional(),
+    bodyText: z.string().max(20_000).optional(),
+    occurredAt: z.string().max(40).optional(),
+    contactId: z.string().uuid().nullable().optional(),
+    dealId: z.string().uuid().nullable().optional(),
+    customerId: z.string().uuid().nullable().optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/log_activity",
+  validateBody(logActivitySchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof logActivitySchema>;
+    if (body.contactId && !(await getContact(cid, body.contactId))) {
+      return res.status(400).json({ error: "Unknown contact" });
+    }
+    if (body.dealId && !(await getHydratedDeal(cid, body.dealId))) {
+      return res.status(400).json({ error: "Unknown deal" });
+    }
+    if (body.customerId && !(await revenueCustomerExists(cid, body.customerId))) {
+      return res.status(400).json({ error: "Unknown customer" });
+    }
+    let occurredAt: Date | undefined;
+    try {
+      occurredAt = parseOptionalToolDate(body.occurredAt, "occurredAt");
+    } catch (err) {
+      return res.status(400).json({ error: (err as Error).message });
+    }
+    const activity = await recordActivity(
+      cid,
+      { ...body, occurredAt },
+      revenueActor(req),
+    );
+    await aiWriteTrail(req, {
+      action: "revenue.activity.create",
+      targetType: "activity",
+      targetId: activity.id,
+      targetLabel: activity.subject,
+      journalTitle: `${req.mcpEmployee!.name} logged a ${activity.kind}`,
+      journalBody: activity.subject,
+      metadata: { kind: activity.kind, contactId: activity.contactId, dealId: activity.dealId },
+    });
+    res.json({ activity: serializeActivity(activity) });
+  },
+);
+
+const addDealContactSchema = z
+  .object({
+    dealId: z.string().uuid(),
+    contactId: z.string().uuid(),
+    role: z.string().max(100).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/add_deal_contact",
+  validateBody(addDealContactSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof addDealContactSchema>;
+    const deal = await getHydratedDeal(cid, body.dealId);
+    if (!deal) return res.status(404).json({ error: "Deal not found" });
+    const contact = await getContact(cid, body.contactId);
+    if (!contact) return res.status(400).json({ error: "Unknown contact" });
+
+    const link = await addDealContact(cid, deal.id, contact.id, body.role ?? "");
+    await aiWriteTrail(req, {
+      action: "revenue.deal.contact.add",
+      targetType: "deal",
+      targetId: deal.id,
+      targetLabel: deal.title,
+      journalTitle: `${req.mcpEmployee!.name} put ${contact.name} on deal ${deal.title}`,
+      metadata: { contactId: contact.id, role: link.role },
+    });
+    res.json({
+      dealId: deal.id,
+      contact: serializeContactRow(contact),
+      role: link.role,
+    });
+  },
+);
+
+const enrollInSequenceSchema = z
+  .object({
+    sequenceId: z.string().uuid(),
+    contactIds: z.array(z.string().uuid()).min(1).max(500),
+    dealId: z.string().uuid().optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/enroll_in_sequence",
+  validateBody(enrollInSequenceSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof enrollInSequenceSchema>;
+    const sequence = await getSequence(cid, body.sequenceId);
+    if (!sequence) return res.status(404).json({ error: "Sequence not found" });
+    if (body.dealId && !(await getHydratedDeal(cid, body.dealId))) {
+      return res.status(400).json({ error: "Unknown deal" });
+    }
+    // Partial success by design: a suppressed or do-not-contact address inside
+    // a large selection skips that one person rather than refusing the rest.
+    // The service reports what it skipped and why.
+    const result = await bulkEnroll(cid, sequence.id, body.contactIds, {
+      dealId: body.dealId ?? null,
+      actor: revenueActor(req),
+    });
+    await aiWriteTrail(req, {
+      action: "revenue.sequence.enroll",
+      targetType: "sequence",
+      targetId: sequence.id,
+      targetLabel: sequence.name,
+      journalTitle: `${req.mcpEmployee!.name} enrolled ${result.enrolled} contact(s) in ${sequence.name}`,
+      journalBody:
+        result.skipped.length > 0 ? `${result.skipped.length} skipped — see the audit metadata.` : "",
+      metadata: {
+        requested: body.contactIds.length,
+        enrolled: result.enrolled,
+        skipped: result.skipped,
+        autoSend: sequence.autoSend,
+      },
+    });
+    res.json({
+      sequenceId: sequence.id,
+      enrolled: result.enrolled,
+      skipped: result.skipped,
+      note: sequence.autoSend
+        ? "This sequence is marked auto-send: drafted touches may go out without a human pressing Send."
+        : "Each drafted touch waits in the review queue for a human to send.",
+    });
+  },
+);
+
+const suppressEmailSchema = z
+  .object({
+    email: z.string().min(3).max(320),
+    // `imported` is excluded: it is a provenance marker for a bulk opt-out list
+    // carried in from another system, which an employee suppressing one address
+    // at a time can never honestly claim.
+    reason: z.enum(["unsubscribe", "bounce", "complaint", "manual"]).optional(),
+    notes: z.string().max(2_000).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/suppress_email",
+  validateBody(suppressEmailSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof suppressEmailSchema>;
+    const email = normalizeEmail(body.email);
+    if (!email) return res.status(400).json({ error: "That is not a usable email address" });
+
+    const [already, contact] = await Promise.all([
+      isSuppressed(cid, email),
+      findContactByEmail(cid, email),
+    ]);
+    const row = await addSuppression({
+      companyId: cid,
+      email,
+      reason: body.reason ?? "manual",
+      source: "mcp",
+      contactId: contact?.id ?? null,
+      notes: body.notes,
+      createdById: null,
+    });
+    if (!row) return res.status(400).json({ error: "That is not a usable email address" });
+
+    // Only trail a real insert. Re-suppressing an address that was already on
+    // the list changes nothing, and an audit row saying otherwise would put a
+    // second "who suppressed this and when" answer into the record the list is
+    // there to defend.
+    if (!already) {
+      await aiWriteTrail(req, {
+        action: "revenue.suppression.create",
+        targetType: "suppression",
+        targetId: row.id,
+        targetLabel: row.email,
+        journalTitle: `${req.mcpEmployee!.name} suppressed ${row.email}`,
+        journalBody: row.notes,
+        metadata: { reason: row.reason, contactId: row.contactId },
+      });
+    }
+    res.json({
+      suppression: serializeSuppression(row),
+      created: !already,
+      note: "Removing an address from the do-not-mail list is a human's decision — there is no tool for it.",
+    });
   },
 );
 

@@ -3,6 +3,7 @@ import { STATIC_TOOLS } from "../../../mcp/toolManifest.js";
 import { EmployeeBaseGrant } from "../../../db/entities/EmployeeBaseGrant.js";
 import { EmployeeMailAccountGrant } from "../../../db/entities/EmployeeMailAccountGrant.js";
 import { EmployeeFinanceGrant } from "../../../db/entities/EmployeeFinanceGrant.js";
+import { EmployeeRevenueGrant } from "../../../db/entities/EmployeeRevenueGrant.js";
 
 /**
  * Which of an employee's tools can only ever answer "No grant".
@@ -104,19 +105,51 @@ const FINANCE_GATED_TOOLS = new Set([
 ]);
 
 /**
+ * The revenue surface (Revenue section, M32): every tool — reads included —
+ * answers to an `EmployeeRevenueGrant`. Same shape as finance: one grant row
+ * per employee over one company-wide subsystem, and no ungated create that
+ * could bring the surface to life for an employee holding nothing.
+ */
+const REVENUE_GATED_TOOLS = new Set([
+  "list_contacts",
+  "search_contacts",
+  "get_contact",
+  "get_contact_timeline",
+  "list_deals",
+  "get_deal",
+  "get_deal_board",
+  "list_deal_stages",
+  "list_sequences",
+  "list_signals",
+  "get_revenue_report",
+  "create_contact",
+  "update_contact",
+  "create_deal",
+  "update_deal",
+  "move_deal_stage",
+  "log_activity",
+  "add_deal_contact",
+  "enroll_in_sequence",
+  "suppress_email",
+]);
+
+/**
  * Fail at boot if any gated name has drifted away from the manifest.
  *
  * This module's own doc comment used to admit that nothing linked these sets to
  * the tools they name, so a rename would silently stop demoting a dead tool.
  * That mattered little when the sets held eight family names; it matters now
- * that they hold forty-one granular ones and feed `find_tools`' rank penalty as
+ * that they hold sixty-one granular ones and feed `find_tools`' rank penalty as
  * well as the trim ordering.
  */
 export function assertGrantSetsResolve(): void {
   const known = new Set(STATIC_TOOLS.map((t) => t.name));
-  const unknown = [...BASE_GATED_TOOLS, ...MAIL_GATED_TOOLS, ...FINANCE_GATED_TOOLS].filter(
-    (n) => !known.has(n),
-  );
+  const unknown = [
+    ...BASE_GATED_TOOLS,
+    ...MAIL_GATED_TOOLS,
+    ...FINANCE_GATED_TOOLS,
+    ...REVENUE_GATED_TOOLS,
+  ].filter((n) => !known.has(n));
   if (unknown.length > 0) {
     throw new Error(
       `grantDead.ts names ${unknown.length} tool(s) that are not in STATIC_TOOLS: ` +
@@ -150,6 +183,10 @@ export async function deadToolNames(employeeId: string): Promise<Set<string>> {
       EmployeeFinanceGrant,
     ).count({ where: { employeeId } });
     if (finance === 0) for (const t of FINANCE_GATED_TOOLS) dead.add(t);
+    const revenue = await AppDataSource.getRepository(
+      EmployeeRevenueGrant,
+    ).count({ where: { employeeId } });
+    if (revenue === 0) for (const t of REVENUE_GATED_TOOLS) dead.add(t);
     return dead;
   } catch {
     return new Set();

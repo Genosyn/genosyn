@@ -34,13 +34,15 @@ export function composeEmployeeSystemPrompt(args: {
   memoryContext: string;
   codeReposContext: string;
   financeContext: string;
+  revenueContext: string;
   /** The one line the two seams genuinely disagree on. */
   opening: string;
   surface: PromptSurface;
   /** Per-skill declared toolsets, keyed by skill id, for the Skill headings. */
   skillToolsets?: Map<string, string[]>;
 }): string {
-  const { co, emp, skills, memoryContext, codeReposContext, financeContext } = args;
+  const { co, emp, skills, memoryContext, codeReposContext, financeContext, revenueContext } =
+    args;
   void co;
   const parts: string[] = [];
 
@@ -51,6 +53,7 @@ export function composeEmployeeSystemPrompt(args: {
   if (memoryContext) parts.push(memoryContext);
   if (codeReposContext) parts.push(codeReposContext);
   if (financeContext) parts.push(financeContext);
+  if (revenueContext) parts.push(revenueContext);
 
   for (const s of skills) {
     parts.push(`\n## Skill: ${s.name}\n`);

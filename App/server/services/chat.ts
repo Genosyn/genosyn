@@ -15,6 +15,7 @@ import { composeMemoryContext } from "./employeeMemory.js";
 import { materializeReposForEmployee } from "./repoSync.js";
 import { composeCodeReposContext, materializeCodeReposForEmployee } from "./codeRepos.js";
 import { composeFinanceContext } from "./financeGrants.js";
+import { composeRevenueContext } from "./revenue/grants.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
 import type { AgentMessage } from "./agent/types.js";
 import { config } from "../../config.js";
@@ -215,6 +216,7 @@ export async function streamChatWithEmployee(
     const memoryContext = await composeMemoryContext(emp.id);
     const codeReposContext = await composeCodeReposContext(emp.id);
     const financeContext = await composeFinanceContext(emp.id);
+    const revenueContext = await composeRevenueContext(emp.id);
     let system = composeEmployeeSystemPrompt({
       co,
       emp,
@@ -222,6 +224,7 @@ export async function streamChatWithEmployee(
       memoryContext,
       codeReposContext,
       financeContext,
+      revenueContext,
       surface: "chat",
       opening:
         `You are ${emp.name}, ${emp.role} at ${co.name}. A teammate is chatting with you ` +

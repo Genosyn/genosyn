@@ -16,6 +16,7 @@ import { composeMemoryContext } from "./employeeMemory.js";
 import { materializeReposForEmployee } from "./repoSync.js";
 import { composeCodeReposContext, materializeCodeReposForEmployee } from "./codeRepos.js";
 import { composeFinanceContext } from "./financeGrants.js";
+import { composeRevenueContext } from "./revenue/grants.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
 import type { CompactionInfo, ToolDeferralInfo, ToolTrimInfo, TurnUsage } from "./agent/types.js";
 import { config } from "../../config.js";
@@ -198,6 +199,7 @@ export async function startRoutineRun(
       const memoryContext = await composeMemoryContext(emp.id);
       const codeReposContext = await composeCodeReposContext(emp.id);
       const financeContext = await composeFinanceContext(emp.id);
+      const revenueContext = await composeRevenueContext(emp.id);
       const system = composeEmployeeSystemPrompt({
         co,
         emp,
@@ -205,6 +207,7 @@ export async function startRoutineRun(
         memoryContext,
         codeReposContext,
         financeContext,
+        revenueContext,
         surface: "routine",
         opening:
           `You are ${emp.name}, ${emp.role} at ${co.name}. The following documents are yours — ` +

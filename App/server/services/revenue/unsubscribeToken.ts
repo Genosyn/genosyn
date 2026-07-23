@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 
+import { config } from "../../../config.js";
 import { normalizeEmail } from "../../lib/emailAddress.js";
 
 /**
@@ -157,4 +158,22 @@ export function listUnsubscribeHeaders(
 /** The browser-facing URL a recipient clicks. */
 export function unsubscribeUrl(publicUrl: string, token: string): string {
   return `${publicUrl.replace(/\/+$/, "")}/u/${token}`;
+}
+
+/**
+ * The real signing key for this installation.
+ *
+ * Deliberately a function rather than a module-level constant: a constant would
+ * bind the derived key at import time, and `routes/unsubscribe.ts` is imported
+ * during module graph construction — before anything that may still be settling
+ * configuration. Deriving per call also keeps the value out of a heap dump that
+ * merely imported the module.
+ *
+ * Not memoized. It is one HMAC over a 26-byte string; the send path signs one
+ * token per outbound message and the endpoint verifies one per click, so the
+ * cache would save nothing measurable and add mutable module state that tests
+ * would then have to reset.
+ */
+export function unsubscribeSecret(): string {
+  return deriveUnsubscribeSecret(config.security.encryptionSecret);
 }

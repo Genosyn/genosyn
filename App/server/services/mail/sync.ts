@@ -26,6 +26,7 @@ import {
 } from "./store.js";
 import { runRulesForNewMessage } from "./rules.js";
 import { withSchedulerLease } from "../schedulerLeases.js";
+import { linkAccountMessagesSafely } from "../revenue/mailLink.js";
 
 /**
  * Two-way Gmail sync, poll-based.
@@ -148,6 +149,9 @@ async function syncAccountNowUnlocked(accountId: string): Promise<void> {
     }
     if (account.status === "paused") return;
 
+    // Stamped before any fetching so the revenue pass below can find exactly
+    // the messages this pass mirrored (see linkAccountMessagesSince).
+    const passStartedAt = new Date();
     let changed = false;
     try {
       const token = await accessTokenForAccount(account);
@@ -173,6 +177,13 @@ async function syncAccountNowUnlocked(accountId: string): Promise<void> {
       account.statusMessage = err instanceof Error ? err.message : String(err);
       changed = true;
     }
+    // Revenue auto-linking: put this pass's messages on the timelines of the
+    // Contacts they involve, stop a sequence that just got a reply, and read
+    // bounce reports. `...Safely` logs and swallows its own failures — this is
+    // enrichment layered on top of the mirror, and a bug in the CRM must never
+    // stop mail syncing.
+    if (changed) await linkAccountMessagesSafely(account, passStartedAt);
+
     account.lastSyncAt = new Date();
     await repo.save(account);
     // A completed no-op pass still advances lastSyncAt. Always notify clients
