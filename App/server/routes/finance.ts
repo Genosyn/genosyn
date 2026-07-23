@@ -881,6 +881,14 @@ financeRouter.post("/invoices/:slug/issue", async (req, res) => {
   if (inv.status !== "draft") {
     return res.status(409).json({ error: "Already issued" });
   }
+  // A non-positive total books no Accounts Receivable at issue
+  // (postInvoiceIssue skips the ledger when totalCents <= 0), which would
+  // later strand any payment against a receivable that was never debited.
+  if (inv.totalCents <= 0) {
+    return res.status(400).json({
+      error: `Cannot issue an invoice with a non-positive total (${inv.totalCents} ${inv.currency}). Add positive line items first.`,
+    });
+  }
   try {
     const issued = await issueInvoice(inv, req.userId ?? null);
     const [hydrated] = await hydrateInvoices(cid, [issued]);
@@ -910,6 +918,14 @@ financeRouter.post("/invoices/:slug/send", validateBody(invoiceSendSchema), asyn
   if (!inv) return res.status(404).json({ error: "Invoice not found" });
   if (inv.status === "void") {
     return res.status(409).json({ error: "Voided invoices cannot be sent" });
+  }
+  // Sending a draft auto-issues it first; a non-positive total books no AR at
+  // issue, so refuse rather than strand a later payment against it. Issued
+  // invoices being resent are already valid and skip this check.
+  if (inv.status === "draft" && inv.totalCents <= 0) {
+    return res.status(400).json({
+      error: `Cannot issue an invoice with a non-positive total (${inv.totalCents} ${inv.currency}). Add positive line items first.`,
+    });
   }
   const isResend = inv.status !== "draft";
   if (inv.status === "draft") {
@@ -1080,6 +1096,15 @@ financeRouter.post(
       return res.status(409).json({ error: "Voided invoices cannot be paid" });
     }
     const body = req.body as z.infer<typeof paymentCreateSchema>;
+    // The ledger applies the payment in the invoice's currency
+    // (postInvoicePayment never reads payment.currency), so a mismatched code
+    // would silently misbook cash and the paid/balance math. Refuse it rather
+    // than corrupt the books.
+    if (body.currency && body.currency !== inv.currency) {
+      return res.status(400).json({
+        error: `Record the payment in the invoice's currency (${inv.currency}). Multi-currency payments aren't supported — the amount is always applied in ${inv.currency}.`,
+      });
+    }
     const repo = AppDataSource.getRepository(InvoicePayment);
     const p = await repo.save(
       repo.create({
