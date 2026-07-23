@@ -1,6 +1,26 @@
 import { z } from "zod";
 import { defaultSecurity, registry } from "./registry.js";
 
+/**
+ * A company tag attached to a routine. Tags are not a Routine column — they
+ * live in a shared, company-scoped catalog (the same one skills, resources,
+ * projects, etc. draw from) and are linked to a routine through assignment
+ * rows. That is why the routine read endpoints carry a resolved `tags` array
+ * rather than a plain string field.
+ */
+const Tag = z
+  .object({
+    id: z.string().uuid(),
+    name: z.string(),
+    color: z
+      .string()
+      .nullable()
+      .describe(
+        "Palette key rendered on the tag chip. Null on tags created before colors shipped.",
+      ),
+  })
+  .openapi("Tag");
+
 const Routine = z
   .object({
     id: z.string().uuid(),
@@ -10,6 +30,7 @@ const Routine = z
     cronExpr: z.string(),
     enabled: z.boolean(),
     body: z.string().describe("Markdown brief that describes what the routine should do."),
+    tags: z.array(Tag).describe("Company tags attached to this routine."),
     modelId: z
       .string()
       .uuid()
@@ -159,6 +180,7 @@ const RoutineColumns = z.object({
       "Whether a `timeout` is retryable. Off by default — retrying one re-burns the " +
         "routine's whole time budget.",
     ),
+  tags: z.array(Tag).describe("Company tags attached to this routine."),
   createdAt: z.string().datetime(),
 });
 
@@ -234,8 +256,14 @@ registry.registerPath({
       description: "OK",
       content: { "application/json": { schema: z.array(RoutineListItem) } },
     },
-    401: { description: "Not authenticated", content: { "application/json": { schema: ErrorResponse } } },
-    403: { description: "Not a member of this company", content: { "application/json": { schema: ErrorResponse } } },
+    401: {
+      description: "Not authenticated",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    403: {
+      description: "Not a member of this company",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
   },
 });
 
@@ -260,8 +288,14 @@ registry.registerPath({
       description: "OK",
       content: { "application/json": { schema: RoutineDetail } },
     },
-    401: { description: "Not authenticated", content: { "application/json": { schema: ErrorResponse } } },
-    403: { description: "Not a member of this company", content: { "application/json": { schema: ErrorResponse } } },
+    401: {
+      description: "Not authenticated",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    403: {
+      description: "Not a member of this company",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
     404: {
       description: "Routine not found, or it belongs to another company",
       content: { "application/json": { schema: ErrorResponse } },
@@ -286,7 +320,10 @@ registry.registerPath({
       description: "OK",
       content: { "application/json": { schema: z.array(Routine) } },
     },
-    404: { description: "Employee not found", content: { "application/json": { schema: ErrorResponse } } },
+    404: {
+      description: "Employee not found",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
   },
 });
 
@@ -308,7 +345,10 @@ registry.registerPath({
   },
   responses: {
     200: { description: "Run started", content: { "application/json": { schema: Run } } },
-    404: { description: "Routine not found", content: { "application/json": { schema: ErrorResponse } } },
+    404: {
+      description: "Routine not found",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
     409: {
       description: "A run is already in progress for this routine",
       content: { "application/json": { schema: ErrorResponse } },
@@ -333,7 +373,10 @@ registry.registerPath({
       description: "OK",
       content: { "application/json": { schema: z.array(Run) } },
     },
-    404: { description: "Routine not found", content: { "application/json": { schema: ErrorResponse } } },
+    404: {
+      description: "Routine not found",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
   },
 });
 
@@ -355,6 +398,9 @@ registry.registerPath({
   },
   responses: {
     200: { description: "OK", content: { "application/json": { schema: RunLog } } },
-    404: { description: "Run not found", content: { "application/json": { schema: ErrorResponse } } },
+    404: {
+      description: "Run not found",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
   },
 });

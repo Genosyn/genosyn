@@ -141,7 +141,12 @@ import {
   upsertResourceGrant,
 } from "../services/resources.js";
 import { EXPORT_FORMATS, exportResource, isExportFormat } from "../services/resourceExport.js";
-import { deleteTagAssignments, replaceResourceTagNames } from "../services/tags.js";
+import {
+  deleteTagAssignments,
+  replaceResourceTagNames,
+  tagsByResourceIds,
+  tagsForResource,
+} from "../services/tags.js";
 import { Chart } from "../db/entities/Chart.js";
 import { Dashboard } from "../db/entities/Dashboard.js";
 import { DashboardCard } from "../db/entities/DashboardCard.js";
@@ -281,7 +286,7 @@ function serializeEmployee(e: AIEmployee) {
   return { id: e.id, slug: e.slug, name: e.name, role: e.role };
 }
 
-function serializeRoutine(r: Routine) {
+function serializeRoutine(r: Routine, tags: string[] = []) {
   return {
     id: r.id,
     employeeId: r.employeeId,
@@ -291,6 +296,7 @@ function serializeRoutine(r: Routine) {
     enabled: r.enabled,
     lastRunAt: r.lastRunAt,
     brief: r.body,
+    tags,
   };
 }
 
@@ -1362,15 +1368,26 @@ mcpInternalRouter.post(
   validateBody(employeeRefSchema),
   async (req: McpRequest, res) => {
     const body = req.body as z.infer<typeof employeeRefSchema>;
-    const target = await resolveEmployee(req.mcpCompany!, req.mcpEmployee!, body.employeeSlug);
+    const co = req.mcpCompany!;
+    const target = await resolveEmployee(co, req.mcpEmployee!, body.employeeSlug);
     if (!target) return res.status(404).json({ error: "Employee not found" });
     const routines = await AppDataSource.getRepository(Routine).find({
       where: { employeeId: target.id },
       order: { createdAt: "ASC" },
     });
+    const tagsById = await tagsByResourceIds(
+      co.id,
+      "routine",
+      routines.map((r) => r.id),
+    );
     res.json({
       employee: serializeEmployee(target),
-      routines: routines.map(serializeRoutine),
+      routines: routines.map((r) =>
+        serializeRoutine(
+          r,
+          (tagsById.get(r.id) ?? []).map((tag) => tag.name),
+        ),
+      ),
     });
   },
 );
@@ -1381,6 +1398,7 @@ const createRoutineSchema = z
     name: z.string().min(1).max(80),
     cronExpr: z.string().refine((v) => cron.validate(v), "Invalid cron expression"),
     brief: z.string().max(20_000).optional(),
+    tags: z.string().max(500).optional(),
   })
   .strict();
 
@@ -1424,6 +1442,11 @@ mcpInternalRouter.post(
     });
     registerRoutine(r);
     await repo.save(r);
+    // Tags live in the shared TagAssignment catalog, not on the Routine row —
+    // names auto-create any tags the company doesn't have yet.
+    const tags = body.tags?.trim()
+      ? (await replaceResourceTagNames(co.id, "routine", r.id, body.tags)).map((tag) => tag.name)
+      : [];
 
     await recordAudit({
       companyId: co.id,
@@ -1440,7 +1463,7 @@ mcpInternalRouter.post(
       `Cron: \`${r.cronExpr}\`\n\nCreated via the built-in MCP tool.`,
     );
 
-    res.json({ routine: serializeRoutine(r) });
+    res.json({ routine: serializeRoutine(r, tags) });
   },
 );
 
@@ -1454,6 +1477,7 @@ const updateRoutineSchema = z
       .optional(),
     brief: z.string().max(20_000).optional(),
     enabled: z.boolean().optional(),
+    tags: z.string().max(500).optional(),
   })
   .strict();
 
@@ -1493,6 +1517,13 @@ mcpInternalRouter.post(
     if (body.enabled !== undefined) routine.enabled = body.enabled;
     registerRoutine(routine);
     await repo.save(routine);
+    // Tags aren't a Routine column — they're assignments in the shared catalog.
+    // Passing `tags` replaces the whole set (empty string clears them); omitting
+    // it leaves the existing assignments untouched.
+    const tags =
+      body.tags !== undefined
+        ? await replaceResourceTagNames(co.id, "routine", routine.id, body.tags)
+        : await tagsForResource(co.id, "routine", routine.id);
 
     await recordAudit({
       companyId: co.id,
@@ -1503,7 +1534,12 @@ mcpInternalRouter.post(
       targetLabel: routine.name,
       metadata: { via: "mcp", employeeId: owner.id, changes: body },
     });
-    res.json({ routine: serializeRoutine(routine) });
+    res.json({
+      routine: serializeRoutine(
+        routine,
+        tags.map((tag) => tag.name),
+      ),
+    });
   },
 );
 

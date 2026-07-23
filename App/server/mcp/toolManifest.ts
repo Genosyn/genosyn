@@ -121,7 +121,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           type: "array",
           items: { type: "string" },
           description:
-            "Optional. Model-facing tool names this playbook uses (e.g. [\"send_invoice\", \"record_payment\"]). Declared tools are loaded up-front for any turn where this Skill applies, so you never have to look them up. Declaring a tool does not grant access to it — Grants are still checked when it is called.",
+            'Optional. Model-facing tool names this playbook uses (e.g. ["send_invoice", "record_payment"]). Declared tools are loaded up-front for any turn where this Skill applies, so you never have to look them up. Declaring a tool does not grant access to it — Grants are still checked when it is called.',
         },
         body: {
           type: "string",
@@ -146,7 +146,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           type: "array",
           items: { type: "string" },
           description:
-            "Optional. Model-facing tool names this playbook uses (e.g. [\"send_invoice\", \"record_payment\"]). Declared tools are loaded up-front for any turn where this Skill applies, so you never have to look them up. Declaring a tool does not grant access to it — Grants are still checked when it is called.",
+            'Optional. Model-facing tool names this playbook uses (e.g. ["send_invoice", "record_payment"]). Declared tools are loaded up-front for any turn where this Skill applies, so you never have to look them up. Declaring a tool does not grant access to it — Grants are still checked when it is called.',
         },
         body: { type: "string", description: "Replacement markdown playbook." },
       },
@@ -207,6 +207,11 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           description:
             "Optional markdown brief describing what the routine should do on each run. If omitted a starter template is written in.",
         },
+        tags: {
+          type: "string",
+          description:
+            "Optional comma-separated tags, e.g. 'finance, weekly'. Tags are shared across the company; any that don't exist yet are created.",
+        },
       },
       required: ["name", "cronExpr"],
       additionalProperties: false,
@@ -215,7 +220,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "update_routine",
     description:
-      "Update an existing Routine's name, cron schedule, brief, or enabled state. Use this to edit or pause a routine in place — never create a duplicate routine to work around an outdated one. Pass the `routineId` UUID from `list_routines`; only the fields you pass change.",
+      "Update an existing Routine's name, cron schedule, brief, tags, or enabled state. Use this to edit or pause a routine in place — never create a duplicate routine to work around an outdated one. Pass the `routineId` UUID from `list_routines`; only the fields you pass change.",
     inputSchema: {
       type: "object",
       properties: {
@@ -229,6 +234,11 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         brief: {
           type: "string",
           description: "Replacement markdown brief describing what the routine does on each run.",
+        },
+        tags: {
+          type: "string",
+          description:
+            "Comma-separated tags, e.g. 'finance, weekly'. Replaces the routine's whole tag set — pass an empty string to clear them, omit to leave them unchanged. Any tags that don't exist yet are created.",
         },
         enabled: {
           type: "boolean",
@@ -1703,7 +1713,10 @@ export const STATIC_TOOLS: McpToolSpec[] = [
       type: "object",
       properties: {
         status: { type: "string", enum: ["draft", "sent", "paid", "void"] },
-        customerSlug: { type: "string", description: "Filter to one customer (from list_customers)." },
+        customerSlug: {
+          type: "string",
+          description: "Filter to one customer (from list_customers).",
+        },
         limit: { type: "integer", minimum: 1, maximum: 100 },
       },
       additionalProperties: false,
@@ -1737,8 +1750,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   },
   {
     name: "get_customer",
-    description:
-      "Fetch one customer with its contacts. Needs `read` finance access.",
+    description: "Fetch one customer with its contacts. Needs `read` finance access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1756,7 +1768,10 @@ export const STATIC_TOOLS: McpToolSpec[] = [
       type: "object",
       properties: {
         name: { type: "string", description: "Customer / company name." },
-        email: { type: "string", description: "Primary email — the default recipient for invoice emails." },
+        email: {
+          type: "string",
+          description: "Primary email — the default recipient for invoice emails.",
+        },
         phone: { type: "string" },
         billingAddress: { type: "string" },
         shippingAddress: { type: "string" },
@@ -1796,8 +1811,14 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     inputSchema: {
       type: "object",
       properties: {
-        customerSlug: { type: "string", description: "Who to bill (from list_customers / create_customer)." },
-        currency: { type: "string", description: "ISO 4217 code; defaults to the customer's currency." },
+        customerSlug: {
+          type: "string",
+          description: "Who to bill (from list_customers / create_customer).",
+        },
+        currency: {
+          type: "string",
+          description: "ISO 4217 code; defaults to the customer's currency.",
+        },
         issueDate: { type: "string", description: "ISO datetime; defaults to now." },
         dueDate: { type: "string", description: "ISO datetime; defaults to 14 days after issue." },
         notes: { type: "string" },
@@ -1812,8 +1833,14 @@ export const STATIC_TOOLS: McpToolSpec[] = [
             properties: {
               description: { type: "string" },
               quantity: { type: "number" },
-              unitPriceCents: { type: "integer", description: "Unit price in minor units (cents)." },
-              taxRateId: { type: "string", description: "Optional tax-rate id configured by a human." },
+              unitPriceCents: {
+                type: "integer",
+                description: "Unit price in minor units (cents).",
+              },
+              taxRateId: {
+                type: "string",
+                description: "Optional tax-rate id configured by a human.",
+              },
               productId: { type: "string", description: "Optional catalog product id." },
             },
             required: ["description", "quantity", "unitPriceCents"],
@@ -1854,9 +1881,19 @@ export const STATIC_TOOLS: McpToolSpec[] = [
       type: "object",
       properties: {
         invoiceSlug: { type: "string" },
-        amountCents: { type: "integer", minimum: 1, description: "Amount received in minor units (cents)." },
-        currency: { type: "string", description: "ISO 4217 code; defaults to the invoice currency." },
-        paidAt: { type: "string", description: "ISO datetime the payment was received; defaults to now." },
+        amountCents: {
+          type: "integer",
+          minimum: 1,
+          description: "Amount received in minor units (cents).",
+        },
+        currency: {
+          type: "string",
+          description: "ISO 4217 code; defaults to the invoice currency.",
+        },
+        paidAt: {
+          type: "string",
+          description: "ISO datetime the payment was received; defaults to now.",
+        },
         method: { type: "string", enum: ["cash", "bank_transfer", "stripe", "lightning", "other"] },
         reference: { type: "string", description: "Payment reference / transaction id." },
         notes: { type: "string" },

@@ -280,6 +280,12 @@ const patchSchema = z.object({
     .max(6 * 60 * 60)
     .optional(),
   retryOnTimeout: z.boolean().optional(),
+  // Tags aren't a Routine column — they're assignments in the shared catalog,
+  // so the create route already accepts these. Editing them here keeps the
+  // routine's own endpoint symmetric instead of forcing a second call to the
+  // generic PUT /tags/resources/routine/:rid. Passing the array replaces the
+  // whole set; omitting it leaves existing assignments untouched.
+  tagIds: z.array(z.string().uuid()).max(20).optional(),
 });
 
 routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, res) => {
@@ -287,6 +293,16 @@ routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, re
   if (!found) return res.status(404).json({ error: "Not found" });
   const body = req.body as z.infer<typeof patchSchema>;
   const r = found.routine;
+  // Validate tag ownership before mutating the routine so a bad tag id fails
+  // the whole request rather than leaving a half-applied edit.
+  if (body.tagIds !== undefined) {
+    try {
+      await validateCompanyTagIds(found.co.id, body.tagIds);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return res.status(400).json({ error: message });
+    }
+  }
   if (body.name !== undefined) {
     if (await findRoutineByName(r.employeeId, body.name, r.id)) {
       return res
@@ -319,6 +335,10 @@ routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, re
   // was already waiting on.
   if (body.cronExpr !== undefined || body.enabled !== undefined) registerRoutine(r);
   await AppDataSource.getRepository(Routine).save(r);
+  const tags =
+    body.tagIds !== undefined
+      ? await replaceResourceTags(found.co.id, "routine", r.id, body.tagIds)
+      : await tagsForResource(found.co.id, "routine", r.id);
   await recordAudit({
     companyId: found.co.id,
     actorUserId: req.userId ?? null,
@@ -328,7 +348,7 @@ routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, re
     targetLabel: r.name,
     metadata: { changes: body },
   });
-  res.json(r);
+  res.json({ ...r, tags });
 });
 
 routinesRouter.delete("/routines/:rid", async (req, res) => {
