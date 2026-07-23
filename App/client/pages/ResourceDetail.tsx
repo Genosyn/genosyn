@@ -46,7 +46,7 @@ import {
   ResourceGrantsResponse,
 } from "../lib/api";
 import { ResourceTagPicker } from "../components/TagPicker";
-import { SourceKindIcon, formatBodyLength } from "./ResourcesIndex";
+import { SourceKindIcon, formatBodyLength, formatBytes, timeAgo } from "./ResourcesIndex";
 
 /**
  * Resource detail — opinionated per source kind. The rule of thumb is
@@ -187,6 +187,18 @@ export default function ResourceDetail({ company }: { company: Company }) {
                 <span className="tabular-nums">{formatBodyLength(row.bodyLength)}</span>
                 <span aria-hidden>·</span>
                 <span className="tabular-nums">{formatBytes(row.bytes)}</span>
+                <span aria-hidden>·</span>
+                <span className="tabular-nums" title={new Date(row.createdAt).toLocaleString()}>
+                  Added {timeAgo(row.createdAt)}
+                </span>
+                {row.createdBy && (
+                  <>
+                    <span aria-hidden>·</span>
+                    <span className="inline-flex items-center gap-1">
+                      <Users size={12} /> {row.createdBy.name}
+                    </span>
+                  </>
+                )}
                 {row.status !== "ready" && (
                   <>
                     <span aria-hidden>·</span>
@@ -891,13 +903,6 @@ function StatusBadge({ status }: { status: Resource["status"] }) {
 }
 
 // ─────────────────────────── Helpers ───────────────────────────────────
-
-function formatBytes(n: number): string {
-  if (n <= 0) return "0 B";
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(2)} MB`;
-}
 
 function hostnameOf(url: string): string {
   try {
