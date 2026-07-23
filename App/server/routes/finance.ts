@@ -25,6 +25,7 @@ import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import {
+  draftInvoiceSlug,
   duplicateInvoice,
   getInvoiceEmailDetails,
   hydrateInvoices,
@@ -38,9 +39,21 @@ import {
   replaceInvoiceLines,
   reverseInvoicePayment,
   sendInvoiceEmail,
+  uniqueCustomerSlug,
   voidInvoice,
 } from "../services/finance.js";
 import { recordAudit } from "../services/audit.js";
+import { AIEmployee } from "../db/entities/AIEmployee.js";
+import {
+  FINANCE_ACCESS_LEVELS,
+  type FinanceAccessLevel,
+} from "../db/entities/EmployeeFinanceGrant.js";
+import {
+  deleteFinanceGrant,
+  listFinanceGrantCandidates,
+  listFinanceGrants,
+  upsertFinanceGrant,
+} from "../services/financeGrants.js";
 import {
   applyRecurringInvoiceStatus,
   duplicateRecurringInvoice,
@@ -150,17 +163,8 @@ const currencySchema = z
   .transform((s) => s.toUpperCase());
 
 // ──────────────────────────── Customers ────────────────────────────────
-
-async function uniqueCustomerSlug(companyId: string, base: string): Promise<string> {
-  const repo = AppDataSource.getRepository(Customer);
-  let slug = base || "customer";
-  let n = 1;
-  while (await repo.findOneBy({ companyId, slug })) {
-    n += 1;
-    slug = `${base}-${n}`;
-  }
-  return slug;
-}
+// `uniqueCustomerSlug` lives in services/finance.ts now (shared with the
+// AI `create_customer` tool).
 
 // ─────────────────────── Customer contacts ────────────────────────────
 
@@ -700,16 +704,8 @@ financeRouter.delete("/tax-rates/:id", async (req, res) => {
 });
 
 // ───────────────────────────── Invoices ────────────────────────────────
-
-async function draftInvoiceSlug(companyId: string): Promise<string> {
-  const repo = AppDataSource.getRepository(Invoice);
-  for (let i = 0; i < 16; i += 1) {
-    const slug = `draft-${Math.random().toString(36).slice(2, 8)}`;
-    if (!(await repo.findOneBy({ companyId, slug }))) return slug;
-  }
-  // Fall back to a timestamp-based slug if we hit 16 collisions in a row.
-  return `draft-${Date.now().toString(36)}`;
-}
+// `draftInvoiceSlug` lives in services/finance.ts now (shared with the AI
+// `create_invoice` tool).
 
 const lineDraftSchema = z.object({
   productId: z.string().uuid().nullable().optional(),
@@ -2149,6 +2145,102 @@ financeRouter.post("/bank-transactions/:id/unmatch", async (req, res) => {
   const fresh = await unmatch(t);
   const [hydrated] = await hydrateBankTxns(cid, [fresh]);
   res.json(hydrated);
+});
+
+// ─────────────────────── AI access (finance grants) ────────────────────
+//
+// Which AI employees may touch the finance system, and at what level
+// (read < invoice < full). This governs the AI surface only — human members
+// still reach Finance through company membership. Reading the grant list is
+// open to any member; changing grants is owner/admin, like transaction
+// approvals (`canApproveFinance`).
+
+financeRouter.get("/finance/grants", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  res.json({ direct: await listFinanceGrants(cid) });
+});
+
+financeRouter.get("/finance/grant-candidates", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  res.json(await listFinanceGrantCandidates(cid));
+});
+
+const financeGrantCreateSchema = z.object({
+  employeeId: z.string().uuid(),
+  accessLevel: z
+    .enum(FINANCE_ACCESS_LEVELS as [FinanceAccessLevel, ...FinanceAccessLevel[]])
+    .default("read"),
+});
+
+financeRouter.post("/finance/grants", validateBody(financeGrantCreateSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  if (!canApproveFinance(req)) {
+    return res.status(403).json({ error: "Only owners and admins can change finance access" });
+  }
+  const body = req.body as z.infer<typeof financeGrantCreateSchema>;
+  const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
+    id: body.employeeId,
+    companyId: cid,
+  });
+  if (!employee) return res.status(404).json({ error: "Employee not found" });
+  await upsertFinanceGrant(cid, employee.id, body.accessLevel);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "finance.grant.create",
+    targetType: "employee",
+    targetId: employee.id,
+    targetLabel: employee.name,
+    metadata: { accessLevel: body.accessLevel },
+  });
+  const [grant] = (await listFinanceGrants(cid)).filter((g) => g.employeeId === employee.id);
+  res.json({ grant: grant ?? null });
+});
+
+const financeGrantPatchSchema = z.object({
+  accessLevel: z.enum(FINANCE_ACCESS_LEVELS as [FinanceAccessLevel, ...FinanceAccessLevel[]]),
+});
+
+financeRouter.patch("/finance/grants/:gid", validateBody(financeGrantPatchSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  if (!canApproveFinance(req)) {
+    return res.status(403).json({ error: "Only owners and admins can change finance access" });
+  }
+  const grants = await listFinanceGrants(cid);
+  const existing = grants.find((g) => g.id === req.params.gid);
+  if (!existing) return res.status(404).json({ error: "Grant not found" });
+  const body = req.body as z.infer<typeof financeGrantPatchSchema>;
+  await upsertFinanceGrant(cid, existing.employeeId, body.accessLevel);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "finance.grant.update",
+    targetType: "employee",
+    targetId: existing.employeeId,
+    targetLabel: existing.employee?.name ?? "",
+    metadata: { accessLevel: body.accessLevel },
+  });
+  const [grant] = (await listFinanceGrants(cid)).filter((g) => g.employeeId === existing.employeeId);
+  res.json({ grant: grant ?? null });
+});
+
+financeRouter.delete("/finance/grants/:gid", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  if (!canApproveFinance(req)) {
+    return res.status(403).json({ error: "Only owners and admins can change finance access" });
+  }
+  const removed = await deleteFinanceGrant(cid, req.params.gid);
+  if (!removed) return res.status(404).json({ error: "Grant not found" });
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "finance.grant.delete",
+    targetType: "employee",
+    targetId: removed.employeeId,
+    targetLabel: "",
+    metadata: { accessLevel: removed.accessLevel },
+  });
+  res.json({ ok: true });
 });
 
 // ─────────────────────── Multi-currency (Phase E) ──────────────────────

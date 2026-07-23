@@ -20,6 +20,7 @@ import {
   Repeat,
   ScanSearch,
   Settings,
+  Users,
   Wallet,
 } from "lucide-react";
 import { Company } from "../lib/api";
@@ -102,6 +103,7 @@ export default function FinanceLayout({ company }: { company: Company }) {
           label="Templates"
         />
         <SidebarLink to={`${base}/settings`} icon={<Settings size={14} />} label="Settings" />
+        <SidebarLink to={`${base}/ai-access`} icon={<Users size={14} />} label="AI access" />
       </nav>
     </div>
   );

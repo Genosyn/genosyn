@@ -1645,6 +1645,189 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "list_invoices",
+    description:
+      "List invoices, newest first. Optionally filter by `status` (draft/sent/paid/void) or `customerSlug`. Returns compact rows (number, status, customer, totals, balance, dates); call get_invoice for line items and payments. Needs `read` finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["draft", "sent", "paid", "void"] },
+        customerSlug: { type: "string", description: "Filter to one customer (from list_customers)." },
+        limit: { type: "integer", minimum: 1, maximum: 100 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_invoice",
+    description:
+      "Fetch one invoice in full: header, customer, line items, payments, and displayed status. Needs `read` finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        invoiceSlug: { type: "string", description: "The invoice slug (from list_invoices)." },
+      },
+      required: ["invoiceSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_customers",
+    description:
+      "List the company's customers with ids, slugs, contact details, and default currency. Archived customers are hidden unless `includeArchived` is true. Needs `read` finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        includeArchived: { type: "boolean" },
+        limit: { type: "integer", minimum: 1, maximum: 200 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_customer",
+    description:
+      "Fetch one customer with its contacts. Needs `read` finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        customerSlug: { type: "string", description: "The customer slug (from list_customers)." },
+      },
+      required: ["customerSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_customer",
+    description:
+      "Create a customer to bill. Returns the new customer including its slug (use it for create_invoice). Needs `invoice` finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Customer / company name." },
+        email: { type: "string", description: "Primary email — the default recipient for invoice emails." },
+        phone: { type: "string" },
+        billingAddress: { type: "string" },
+        shippingAddress: { type: "string" },
+        taxNumber: { type: "string" },
+        currency: { type: "string", description: "ISO 4217 code (defaults to USD)." },
+        notes: { type: "string" },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_customer",
+    description:
+      "Update a customer's details. Only the fields you pass change; the slug never changes on rename. Needs `invoice` finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        customerSlug: { type: "string", description: "Which customer to update." },
+        name: { type: "string" },
+        email: { type: "string" },
+        phone: { type: "string" },
+        billingAddress: { type: "string" },
+        shippingAddress: { type: "string" },
+        taxNumber: { type: "string" },
+        currency: { type: "string", description: "ISO 4217 code." },
+        notes: { type: "string" },
+      },
+      required: ["customerSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_invoice",
+    description:
+      "Create a DRAFT invoice for a customer with one or more line items. Amounts are integer minor units (cents); `unitPriceCents` of 5000 is $50.00. Optionally attach a `taxRateId` per line (from list_finance_accounts is NOT it — tax rates are configured by a human; omit for no tax). This does not issue or email anything — call send_invoice next. Needs `invoice` finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        customerSlug: { type: "string", description: "Who to bill (from list_customers / create_customer)." },
+        currency: { type: "string", description: "ISO 4217 code; defaults to the customer's currency." },
+        issueDate: { type: "string", description: "ISO datetime; defaults to now." },
+        dueDate: { type: "string", description: "ISO datetime; defaults to 14 days after issue." },
+        notes: { type: "string" },
+        footer: { type: "string" },
+        lines: {
+          type: "array",
+          minItems: 1,
+          maxItems: 200,
+          description: "Invoice line items.",
+          items: {
+            type: "object",
+            properties: {
+              description: { type: "string" },
+              quantity: { type: "number" },
+              unitPriceCents: { type: "integer", description: "Unit price in minor units (cents)." },
+              taxRateId: { type: "string", description: "Optional tax-rate id configured by a human." },
+              productId: { type: "string", description: "Optional catalog product id." },
+            },
+            required: ["description", "quantity", "unitPriceCents"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["customerSlug", "lines"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "send_invoice",
+    description:
+      "Issue the invoice if it is still a draft (mints its number and posts it to the ledger) and email it to the customer on file. Use this to actually bill someone. `to`/`cc` override the recipients; `attachPdf` defaults to true. Needs `invoice` finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        invoiceSlug: { type: "string" },
+        message: { type: "string", description: "Optional note included in the email body." },
+        attachPdf: { type: "boolean", description: "Attach the invoice PDF (default true)." },
+        to: {
+          type: "array",
+          items: { type: "string" },
+          description: "Override recipients (defaults to the customer email).",
+        },
+        cc: { type: "array", items: { type: "string" }, description: "Extra CC recipients." },
+      },
+      required: ["invoiceSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "record_payment",
+    description:
+      "Record a payment received against an issued invoice — this is how you mark an invoice paid. Auto-posts DR Bank / CR Accounts Receivable and flips the invoice to `paid` once payments cover the total. `amountCents` is in minor units. Needs `invoice` finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        invoiceSlug: { type: "string" },
+        amountCents: { type: "integer", minimum: 1, description: "Amount received in minor units (cents)." },
+        currency: { type: "string", description: "ISO 4217 code; defaults to the invoice currency." },
+        paidAt: { type: "string", description: "ISO datetime the payment was received; defaults to now." },
+        method: { type: "string", enum: ["cash", "bank_transfer", "stripe", "lightning", "other"] },
+        reference: { type: "string", description: "Payment reference / transaction id." },
+        notes: { type: "string" },
+      },
+      required: ["invoiceSlug", "amountCents"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "void_invoice",
+    description:
+      "Void an issued invoice. Reverses every ledger posting tied to it (the issue and any payments) and marks it `void` — terminal. Drafts cannot be voided (delete them instead). Needs `invoice` finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        invoiceSlug: { type: "string" },
+      },
+      required: ["invoiceSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_mail_accounts",
     description:
       "List the company mailboxes (Email section) you have been granted access to, with your access level on each: `read` (browse threads), `draft` (also write drafts, apply labels, archive, mark read), or `send` (also send mail). Call this first when asked to work with email — the account id it returns is optional for the other mail tools when you hold exactly one grant.",

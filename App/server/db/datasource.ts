@@ -59,6 +59,7 @@ import { Resource } from "./entities/Resource.js";
 import { EmployeeResourceGrant } from "./entities/EmployeeResourceGrant.js";
 import { CodeRepository } from "./entities/CodeRepository.js";
 import { EmployeeCodeRepositoryGrant } from "./entities/EmployeeCodeRepositoryGrant.js";
+import { EmployeeFinanceGrant } from "./entities/EmployeeFinanceGrant.js";
 import { Customer } from "./entities/Customer.js";
 import { CustomerContact } from "./entities/CustomerContact.js";
 import { CustomerContract } from "./entities/CustomerContract.js";
@@ -177,6 +178,7 @@ const entities = [
   EmployeeResourceGrant,
   CodeRepository,
   EmployeeCodeRepositoryGrant,
+  EmployeeFinanceGrant,
   Customer,
   CustomerContact,
   CustomerContract,

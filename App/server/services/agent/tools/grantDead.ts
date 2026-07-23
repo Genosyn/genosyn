@@ -1,6 +1,7 @@
 import { AppDataSource } from "../../../db/datasource.js";
 import { EmployeeBaseGrant } from "../../../db/entities/EmployeeBaseGrant.js";
 import { EmployeeMailAccountGrant } from "../../../db/entities/EmployeeMailAccountGrant.js";
+import { EmployeeFinanceGrant } from "../../../db/entities/EmployeeFinanceGrant.js";
 
 /**
  * Which of an employee's tools can only ever answer "No grant".
@@ -55,6 +56,13 @@ const BASE_GATED_TOOLS = new Set([
 const MAIL_GATED_TOOLS = new Set(["mail"]);
 
 /**
+ * The `finance` family (Finance section, M19) is the third grant-dead surface:
+ * every op — reads included — now answers to an `EmployeeFinanceGrant`, so an
+ * employee with no finance grant can only ever get a "No grant" 403 from it.
+ */
+const FINANCE_GATED_TOOLS = new Set(["finance"]);
+
+/**
  * The model-facing names that are dead weight for this employee right now.
  *
  * Fails safe: any error means we return an empty set and treat everything as
@@ -72,6 +80,10 @@ export async function deadToolNames(employeeId: string): Promise<Set<string>> {
       EmployeeMailAccountGrant,
     ).count({ where: { employeeId } });
     if (mailboxes === 0) for (const t of MAIL_GATED_TOOLS) dead.add(t);
+    const finance = await AppDataSource.getRepository(
+      EmployeeFinanceGrant,
+    ).count({ where: { employeeId } });
+    if (finance === 0) for (const t of FINANCE_GATED_TOOLS) dead.add(t);
     return dead;
   } catch {
     return new Set();

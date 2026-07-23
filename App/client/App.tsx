@@ -121,6 +121,7 @@ import FinanceEstimateNew from "./pages/FinanceEstimateNew";
 import FinanceEstimateDetail from "./pages/FinanceEstimateDetail";
 import FinanceTemplates from "./pages/FinanceTemplates";
 import FinanceSettings from "./pages/FinanceSettings";
+import FinanceAiAccess from "./pages/FinanceAiAccess";
 import FinanceAccounts from "./pages/FinanceAccounts";
 import FinanceJournal from "./pages/FinanceJournal";
 import FinanceTransactions from "./pages/FinanceTransactions";
@@ -425,6 +426,7 @@ function CompanyRoutes({
             <Route path="currencies" element={<FinanceCurrencies />} />
             <Route path="templates" element={<FinanceTemplates />} />
             <Route path="settings" element={<FinanceSettings />} />
+            <Route path="ai-access" element={<FinanceAiAccess />} />
             <Route path="periods" element={<FinancePeriods />} />
             <Route path="vendors" element={<FinanceVendors />} />
             <Route path="bills" element={<FinanceBills />} />

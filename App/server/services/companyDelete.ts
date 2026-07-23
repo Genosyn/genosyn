@@ -56,6 +56,7 @@ import { EmployeeChartGrant } from "../db/entities/EmployeeChartGrant.js";
 import { EmployeeCodeRepositoryGrant } from "../db/entities/EmployeeCodeRepositoryGrant.js";
 import { EmployeeConnectionGrant } from "../db/entities/EmployeeConnectionGrant.js";
 import { EmployeeDashboardGrant } from "../db/entities/EmployeeDashboardGrant.js";
+import { EmployeeFinanceGrant } from "../db/entities/EmployeeFinanceGrant.js";
 import { EmployeeMemory } from "../db/entities/EmployeeMemory.js";
 import { EmployeeNoteGrant } from "../db/entities/EmployeeNoteGrant.js";
 import { EmployeeNotebookGrant } from "../db/entities/EmployeeNotebookGrant.js";
@@ -268,6 +269,7 @@ export async function deleteCompanyCascade(args: {
       await m.delete(EmployeeResourceGrant, { employeeId: In(employeeIds) });
       await m.delete(EmployeeChartGrant, { employeeId: In(employeeIds) });
       await m.delete(EmployeeCodeRepositoryGrant, { employeeId: In(employeeIds) });
+      await m.delete(EmployeeFinanceGrant, { employeeId: In(employeeIds) });
       await m.delete(EmployeeDashboardGrant, { employeeId: In(employeeIds) });
       await m.delete(McpServer, { employeeId: In(employeeIds) });
       await m.delete(JournalEntry, { employeeId: In(employeeIds) });

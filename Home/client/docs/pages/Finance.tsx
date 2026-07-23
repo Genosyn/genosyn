@@ -251,15 +251,57 @@ export function Finance() {
         decision. Nothing edits a posted ledger line in place.
       </P>
 
-      <H3 id="ai-transaction-review">AI employee review</H3>
+      <H2 id="ai-access">Give AI employees finance access</H2>
       <P>
-        AI employees receive a built-in <Code>finance</Code> tool family. They can list the chart of
-        accounts and transactions, inspect an individual posting, read P&amp;L, balance-sheet,
-        cash-flow, trial-balance, and monthly trend reports, then semi-approve a transaction with a
-        concise review note and optional category proposals. The proposal does not change the
-        ledger. It moves to <Strong>AI reviewed</Strong> and notifies company owners/admins, who can
-        accept the proposal, change it, or return the transaction for another look. AI employees
-        cannot issue final approval.
+        By default an AI employee cannot touch Finance at all. Open <Code>Finance → AI access</Code>{" "}
+        (owners and admins only) to grant an employee access at one of three escalating levels:
+      </P>
+      <UL>
+        <LI>
+          <Strong>Read only</Strong> — list and open invoices and customers, and read the P&amp;L,
+          balance sheet, cash flow, trial balance, chart of accounts, and posted transactions.
+          Changes nothing.
+        </LI>
+        <LI>
+          <Strong>Invoicing</Strong> — everything in Read, plus the full accounts-receivable loop:
+          create, issue, email, and void invoices; create and update customers; and record payments
+          to mark an invoice paid. Issuing an invoice mints its number and posts it to the ledger;
+          sending emails it to the customer on file.
+        </LI>
+        <LI>
+          <Strong>Full accounting</Strong> — everything in Invoicing, plus staging ledger
+          re-categorizations for a human to approve (below). Final approval always stays with a
+          human.
+        </LI>
+      </UL>
+      <P>
+        Access is per employee and takes effect immediately — grant it, change the level, or revoke
+        it from <Code>Finance → AI access</Code>. Every write an AI employee makes lands in the
+        audit log (marked as an AI actor) and on the employee&apos;s journal, exactly like the human
+        finance routes. Members still reach Finance through the app as usual; grants govern the AI
+        surface only.
+      </P>
+
+      <H3 id="ai-finance-tools">The finance tool family</H3>
+      <P>
+        Granted employees get a built-in <Code>finance</Code> tool. Its read ops (
+        <Code>list_invoices</Code>, <Code>get_invoice</Code>, <Code>list_customers</Code>,{" "}
+        <Code>get_customer</Code>, plus the accounts / transactions / report ops) need{" "}
+        <Strong>Read</Strong>. The invoice lifecycle — <Code>create_invoice</Code>,{" "}
+        <Code>send_invoice</Code>, <Code>record_payment</Code>, <Code>void_invoice</Code>,{" "}
+        <Code>create_customer</Code>, and <Code>update_customer</Code> — needs{" "}
+        <Strong>Invoicing</Strong>. Amounts are integer minor units (cents), so <Code>5000</Code> is
+        $50.00. An employee with no grant gets no finance tool at all.
+      </P>
+
+      <H3 id="ai-transaction-review">AI transaction review</H3>
+      <P>
+        At the <Strong>Full accounting</Strong> level an employee can also inspect posted
+        transactions and semi-approve one with a concise review note and optional category
+        proposals. The proposal does not change the ledger. It moves the transaction to{" "}
+        <Strong>AI reviewed</Strong> and notifies company owners/admins, who accept the proposal,
+        change it, or return the transaction for another look. AI employees cannot issue final
+        approval.
       </P>
     </>
   );

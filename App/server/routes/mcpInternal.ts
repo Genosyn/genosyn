@@ -142,6 +142,30 @@ import {
   stageAiLedgerReview,
 } from "../services/transactionReviews.js";
 import {
+  displayStatus,
+  draftInvoiceSlug,
+  hydrateInvoices,
+  issueInvoice,
+  loadCustomerBySlug,
+  loadInvoiceBySlug,
+  postInvoicePayment,
+  recomputeInvoiceTotals,
+  replaceInvoiceLines,
+  sendInvoiceEmail,
+  uniqueCustomerSlug,
+  voidInvoice,
+} from "../services/finance.js";
+import { Customer } from "../db/entities/Customer.js";
+import { CustomerContact } from "../db/entities/CustomerContact.js";
+import { Invoice } from "../db/entities/Invoice.js";
+import { InvoicePayment } from "../db/entities/InvoicePayment.js";
+import { TaxRate } from "../db/entities/TaxRate.js";
+import {
+  EmployeeFinanceGrant,
+  FINANCE_ACCESS_RANK,
+  type FinanceAccessLevel,
+} from "../db/entities/EmployeeFinanceGrant.js";
+import {
   deleteGrantsForChart,
   grantChartToAllEmployees,
   grantDashboardToAllEmployees,
@@ -310,6 +334,140 @@ mcpInternalRouter.post("/tools/list_employees", async (req: McpRequest, res) => 
 });
 
 // ----- Finance -----
+//
+// The finance tools are grant-gated per employee via `EmployeeFinanceGrant`
+// (Finance → AI access), mirroring the mail slice: read < invoice < full.
+// Reads need `read`, the invoice/customer/payment lifecycle needs `invoice`,
+// and staging a ledger review needs `full`. Every write records an
+// AuditEvent (actorKind "ai") + a JournalEntry, like the rest of this file.
+
+/**
+ * Enforce the acting employee's finance grant. Writes the 403 itself and
+ * returns false on failure, so callers do `if (!(await requireFinance(...)))
+ * return;`. The message names the level shortfall so the model (and the human
+ * reading its transcript) knows exactly what to ask for.
+ */
+async function requireFinance(
+  req: McpRequest,
+  res: Response,
+  required: FinanceAccessLevel,
+): Promise<boolean> {
+  const self = req.mcpEmployee!;
+  const grant = await AppDataSource.getRepository(EmployeeFinanceGrant).findOneBy({
+    employeeId: self.id,
+  });
+  if (!grant || FINANCE_ACCESS_RANK[grant.accessLevel] < FINANCE_ACCESS_RANK[required]) {
+    res.status(403).json({
+      error: grant
+        ? `No grant: this needs the "${required}" finance access level; yours is "${grant.accessLevel}". Ask an owner or admin to raise it under Finance → AI access.`
+        : "No grant: you do not have access to the finance system. Ask an owner or admin to grant it under Finance → AI access.",
+    });
+    return false;
+  }
+  return true;
+}
+
+/** Record the audit + journal trail for a finance write by an AI employee. */
+async function financeWriteTrail(
+  req: McpRequest,
+  args: {
+    action: string;
+    targetType: string;
+    targetId: string;
+    targetLabel: string;
+    journalTitle: string;
+    journalBody?: string;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<void> {
+  const company = req.mcpCompany!;
+  const employee = req.mcpEmployee!;
+  await recordAudit({
+    companyId: company.id,
+    actorEmployeeId: employee.id,
+    action: args.action,
+    targetType: args.targetType,
+    targetId: args.targetId,
+    targetLabel: args.targetLabel,
+    metadata: { ...(args.metadata ?? {}), via: "mcp" },
+  });
+  await journal(employee.id, args.journalTitle, args.journalBody ?? "");
+}
+
+const financeCurrency = z
+  .string()
+  .regex(/^[A-Za-z]{3}$/)
+  .transform((s) => s.toUpperCase());
+
+type HydratedInvoiceRow = Awaited<ReturnType<typeof hydrateInvoices>>[number];
+
+function serializeToolCustomer(c: Customer) {
+  return {
+    id: c.id,
+    slug: c.slug,
+    name: c.name,
+    email: c.email,
+    phone: c.phone,
+    currency: c.currency,
+    taxNumber: c.taxNumber,
+    billingAddress: c.billingAddress,
+    shippingAddress: c.shippingAddress,
+    notes: c.notes,
+    annualContractValueCents: c.annualContractValueCents,
+    archived: !!c.archivedAt,
+  };
+}
+
+function serializeInvoiceRow(h: HydratedInvoiceRow) {
+  return {
+    id: h.id,
+    slug: h.slug,
+    number: h.number || null,
+    status: displayStatus(h),
+    currency: h.currency,
+    customer: h.customer ? { name: h.customer.name, slug: h.customer.slug } : null,
+    subtotalCents: h.subtotalCents,
+    taxCents: h.taxCents,
+    totalCents: h.totalCents,
+    paidCents: h.paidCents,
+    balanceCents: h.balanceCents,
+    issueDate: h.issueDate,
+    dueDate: h.dueDate,
+  };
+}
+
+function serializeInvoiceFull(h: HydratedInvoiceRow) {
+  return {
+    ...serializeInvoiceRow(h),
+    customerId: h.customerId,
+    notes: h.notes,
+    footer: h.footer,
+    sentAt: h.sentAt,
+    paidAt: h.paidAt,
+    voidedAt: h.voidedAt,
+    lines: h.lines.map((l) => ({
+      id: l.id,
+      description: l.description,
+      quantity: l.quantity,
+      unitPriceCents: l.unitPriceCents,
+      taxRateId: l.taxRateId,
+      taxName: l.taxName,
+      taxPercent: l.taxPercent,
+      lineSubtotalCents: l.lineSubtotalCents,
+      lineTaxCents: l.lineTaxCents,
+      lineTotalCents: l.lineTotalCents,
+    })),
+    payments: h.payments.map((p) => ({
+      id: p.id,
+      amountCents: p.amountCents,
+      currency: p.currency,
+      paidAt: p.paidAt,
+      method: p.method,
+      reference: p.reference,
+      notes: p.notes,
+    })),
+  };
+}
 
 const emptyFinanceSchema = z.object({}).strict();
 
@@ -317,6 +475,7 @@ mcpInternalRouter.post(
   "/tools/list_finance_accounts",
   validateBody(emptyFinanceSchema),
   async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "read"))) return;
     const accounts = await seedChartOfAccounts(req.mcpCompany!.id);
     res.json({
       accounts: accounts.map((account) => ({
@@ -351,6 +510,7 @@ mcpInternalRouter.post(
   "/tools/list_finance_transactions",
   validateBody(financeTransactionsSchema),
   async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "read"))) return;
     const body = req.body as z.infer<typeof financeTransactionsSchema>;
     try {
       const transactions = await listLedgerEntriesForReview({
@@ -374,6 +534,7 @@ mcpInternalRouter.post(
   "/tools/get_finance_transaction",
   validateBody(financeTransactionSchema),
   async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "read"))) return;
     const body = req.body as z.infer<typeof financeTransactionSchema>;
     const transaction = await getLedgerEntryForReview(req.mcpCompany!.id, body.transactionId);
     if (!transaction) return res.status(404).json({ error: "Transaction not found" });
@@ -401,6 +562,7 @@ mcpInternalRouter.post(
   "/tools/review_finance_transaction",
   validateBody(financeReviewSchema),
   async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "full"))) return;
     const body = req.body as z.infer<typeof financeReviewSchema>;
     const company = req.mcpCompany!;
     const employee = req.mcpEmployee!;
@@ -450,6 +612,7 @@ mcpInternalRouter.post(
   "/tools/get_finance_report",
   validateBody(financeReportSchema),
   async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "read"))) return;
     const body = req.body as z.infer<typeof financeReportSchema>;
     const companyId = req.mcpCompany!.id;
     try {
@@ -473,6 +636,475 @@ mcpInternalRouter.post(
             ? await cashFlow(companyId, from, to)
             : await financialTrends(companyId, from, to);
       res.json({ report: body.report, data: report });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+// ---- Invoices + customers (read: view; invoice: run accounts receivable) ----
+
+const listInvoicesSchema = z
+  .object({
+    status: z.enum(["draft", "sent", "paid", "void"]).optional(),
+    customerSlug: z.string().min(1).max(200).optional(),
+    limit: z.number().int().min(1).max(100).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/list_invoices",
+  validateBody(listInvoicesSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "read"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof listInvoicesSchema>;
+    const where: Record<string, unknown> = { companyId: cid };
+    if (body.status) where.status = body.status;
+    if (body.customerSlug) {
+      const customer = await loadCustomerBySlug(cid, body.customerSlug);
+      if (!customer) {
+        return res.status(404).json({ error: `Customer "${body.customerSlug}" not found` });
+      }
+      where.customerId = customer.id;
+    }
+    const invoices = await AppDataSource.getRepository(Invoice).find({
+      where,
+      order: { createdAt: "DESC" },
+      take: body.limit ?? 50,
+    });
+    const hydrated = await hydrateInvoices(cid, invoices);
+    res.json({ invoices: hydrated.map(serializeInvoiceRow) });
+  },
+);
+
+const getInvoiceSchema = z.object({ invoiceSlug: z.string().min(1).max(200) }).strict();
+
+mcpInternalRouter.post(
+  "/tools/get_invoice",
+  validateBody(getInvoiceSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "read"))) return;
+    const cid = req.mcpCompany!.id;
+    const { invoiceSlug } = req.body as z.infer<typeof getInvoiceSchema>;
+    const inv = await loadInvoiceBySlug(cid, invoiceSlug);
+    if (!inv) return res.status(404).json({ error: "Invoice not found" });
+    const [hydrated] = await hydrateInvoices(cid, [inv]);
+    res.json({ invoice: serializeInvoiceFull(hydrated) });
+  },
+);
+
+const listCustomersSchema = z
+  .object({
+    includeArchived: z.boolean().optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/list_customers",
+  validateBody(listCustomersSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "read"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof listCustomersSchema>;
+    const rows = await AppDataSource.getRepository(Customer).find({
+      where: { companyId: cid },
+      order: { createdAt: "DESC" },
+    });
+    const filtered = (body.includeArchived ? rows : rows.filter((c) => !c.archivedAt)).slice(
+      0,
+      body.limit ?? 100,
+    );
+    res.json({ customers: filtered.map(serializeToolCustomer) });
+  },
+);
+
+const getCustomerSchema = z.object({ customerSlug: z.string().min(1).max(200) }).strict();
+
+mcpInternalRouter.post(
+  "/tools/get_customer",
+  validateBody(getCustomerSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "read"))) return;
+    const cid = req.mcpCompany!.id;
+    const { customerSlug } = req.body as z.infer<typeof getCustomerSchema>;
+    const customer = await loadCustomerBySlug(cid, customerSlug);
+    if (!customer) return res.status(404).json({ error: "Customer not found" });
+    const contacts = await AppDataSource.getRepository(CustomerContact).find({
+      where: { companyId: cid, customerId: customer.id },
+      order: { sortOrder: "ASC", createdAt: "ASC" },
+    });
+    res.json({
+      customer: {
+        ...serializeToolCustomer(customer),
+        contacts: contacts.map((ct) => ({
+          id: ct.id,
+          name: ct.name,
+          email: ct.email,
+          phone: ct.phone,
+          role: ct.role,
+          isPrimary: ct.isPrimary,
+        })),
+      },
+    });
+  },
+);
+
+const createCustomerSchema = z
+  .object({
+    name: z.string().min(1).max(120),
+    email: z.string().email().max(200).or(z.literal("")).optional(),
+    phone: z.string().max(60).optional(),
+    billingAddress: z.string().max(2000).optional(),
+    shippingAddress: z.string().max(2000).optional(),
+    taxNumber: z.string().max(60).optional(),
+    currency: financeCurrency.optional(),
+    notes: z.string().max(2000).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/create_customer",
+  validateBody(createCustomerSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "invoice"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof createCustomerSchema>;
+    const repo = AppDataSource.getRepository(Customer);
+    const c = repo.create({
+      companyId: cid,
+      name: body.name,
+      slug: await uniqueCustomerSlug(cid, toSlug(body.name)),
+      email: body.email ?? "",
+      phone: body.phone ?? "",
+      billingAddress: body.billingAddress ?? "",
+      shippingAddress: body.shippingAddress ?? "",
+      taxNumber: body.taxNumber ?? "",
+      currency: body.currency ?? "USD",
+      notes: body.notes ?? "",
+      createdById: null,
+    });
+    await repo.save(c);
+    await financeWriteTrail(req, {
+      action: "finance.customer.create",
+      targetType: "customer",
+      targetId: c.id,
+      targetLabel: c.name,
+      journalTitle: `${req.mcpEmployee!.name} created customer ${c.name}`,
+    });
+    res.json({ customer: serializeToolCustomer(c) });
+  },
+);
+
+const updateCustomerSchema = z
+  .object({
+    customerSlug: z.string().min(1).max(200),
+    name: z.string().min(1).max(120).optional(),
+    email: z.string().email().max(200).or(z.literal("")).optional(),
+    phone: z.string().max(60).optional(),
+    billingAddress: z.string().max(2000).optional(),
+    shippingAddress: z.string().max(2000).optional(),
+    taxNumber: z.string().max(60).optional(),
+    currency: financeCurrency.optional(),
+    notes: z.string().max(2000).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/update_customer",
+  validateBody(updateCustomerSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "invoice"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof updateCustomerSchema>;
+    const c = await loadCustomerBySlug(cid, body.customerSlug);
+    if (!c) return res.status(404).json({ error: "Customer not found" });
+    // Renames change the display name but not the slug, so links stay stable —
+    // same rule the human customer routes follow.
+    if (body.name !== undefined) c.name = body.name;
+    if (body.email !== undefined) c.email = body.email;
+    if (body.phone !== undefined) c.phone = body.phone;
+    if (body.billingAddress !== undefined) c.billingAddress = body.billingAddress;
+    if (body.shippingAddress !== undefined) c.shippingAddress = body.shippingAddress;
+    if (body.taxNumber !== undefined) c.taxNumber = body.taxNumber;
+    if (body.currency !== undefined) c.currency = body.currency;
+    if (body.notes !== undefined) c.notes = body.notes;
+    await AppDataSource.getRepository(Customer).save(c);
+    await financeWriteTrail(req, {
+      action: "finance.customer.update",
+      targetType: "customer",
+      targetId: c.id,
+      targetLabel: c.name,
+      journalTitle: `${req.mcpEmployee!.name} updated customer ${c.name}`,
+    });
+    res.json({ customer: serializeToolCustomer(c) });
+  },
+);
+
+const invoiceLineSchema = z.object({
+  description: z.string().min(1).max(500),
+  quantity: z.number().min(0).max(1_000_000),
+  unitPriceCents: z.number().int().min(-2_000_000_000).max(2_000_000_000),
+  taxRateId: z.string().uuid().nullable().optional(),
+  productId: z.string().uuid().nullable().optional(),
+});
+
+const createInvoiceSchema = z
+  .object({
+    customerSlug: z.string().min(1).max(200),
+    currency: financeCurrency.optional(),
+    issueDate: z.string().datetime().optional(),
+    dueDate: z.string().datetime().optional(),
+    notes: z.string().max(4000).optional(),
+    footer: z.string().max(1000).optional(),
+    lines: z.array(invoiceLineSchema).min(1).max(200),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/create_invoice",
+  validateBody(createInvoiceSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "invoice"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof createInvoiceSchema>;
+    const customer = await loadCustomerBySlug(cid, body.customerSlug);
+    if (!customer) {
+      return res.status(404).json({ error: `Customer "${body.customerSlug}" not found` });
+    }
+    // A non-positive invoice never books an Accounts Receivable entry at issue
+    // time (postInvoiceIssue skips the ledger when totalCents <= 0), which would
+    // later strand any payment against a receivable that was never debited.
+    // Refuse it before we persist anything. Tax only ever adds, so a positive
+    // pre-tax gross is sufficient to guarantee a positive total.
+    const grossCents = body.lines.reduce(
+      (sum, l) => sum + Math.round(l.quantity * l.unitPriceCents),
+      0,
+    );
+    if (grossCents <= 0) {
+      return res
+        .status(400)
+        .json({ error: "Invoice line items must total more than zero before tax." });
+    }
+    // Reject unknown tax-rate ids up front — snapshotTax would otherwise treat
+    // a stray id as "no tax" and silently under-bill.
+    const taxRateIds = [
+      ...new Set(body.lines.map((l) => l.taxRateId).filter((x): x is string => !!x)),
+    ];
+    if (taxRateIds.length) {
+      const found = await AppDataSource.getRepository(TaxRate).find({
+        where: { companyId: cid, id: In(taxRateIds) },
+        select: ["id"],
+      });
+      const known = new Set(found.map((t) => t.id));
+      const missing = taxRateIds.filter((id) => !known.has(id));
+      if (missing.length) {
+        return res.status(400).json({ error: `Unknown tax rate id(s): ${missing.join(", ")}` });
+      }
+    }
+    const repo = AppDataSource.getRepository(Invoice);
+    const issueDate = body.issueDate ? new Date(body.issueDate) : new Date();
+    const dueDate = body.dueDate
+      ? new Date(body.dueDate)
+      : new Date(issueDate.getTime() + 14 * 24 * 60 * 60 * 1000);
+    const inv = repo.create({
+      companyId: cid,
+      customerId: customer.id,
+      slug: await draftInvoiceSlug(cid),
+      numberSeq: 0,
+      number: "",
+      status: "draft",
+      issueDate,
+      dueDate,
+      currency: body.currency ?? customer.currency ?? "USD",
+      notes: body.notes ?? "",
+      footer: body.footer ?? "",
+      createdById: null,
+    });
+    await repo.save(inv);
+    await replaceInvoiceLines(inv, body.lines);
+    const recomputed = await recomputeInvoiceTotals(inv);
+    const [hydrated] = await hydrateInvoices(cid, [recomputed]);
+    await financeWriteTrail(req, {
+      action: "finance.invoice.create",
+      targetType: "invoice",
+      targetId: inv.id,
+      targetLabel: `Draft for ${customer.name}`,
+      journalTitle: `${req.mcpEmployee!.name} drafted an invoice for ${customer.name}`,
+      metadata: { totalCents: recomputed.totalCents, currency: recomputed.currency },
+    });
+    res.json({
+      invoice: serializeInvoiceFull(hydrated),
+      note: "Draft created. Call send_invoice to issue and email it to the customer.",
+    });
+  },
+);
+
+const sendInvoiceMcpSchema = z
+  .object({
+    invoiceSlug: z.string().min(1).max(200),
+    message: z.string().max(4000).optional(),
+    attachPdf: z.boolean().optional(),
+    to: z.array(z.string().trim().email().max(320)).min(1).max(25).optional(),
+    cc: z.array(z.string().trim().email().max(320)).max(25).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/send_invoice",
+  validateBody(sendInvoiceMcpSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "invoice"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof sendInvoiceMcpSchema>;
+    let inv = await loadInvoiceBySlug(cid, body.invoiceSlug);
+    if (!inv) return res.status(404).json({ error: "Invoice not found" });
+    if (inv.status === "void") {
+      return res.status(409).json({ error: "Voided invoices cannot be sent" });
+    }
+    // Defense in depth for drafts created outside create_invoice: a
+    // non-positive total skips the AR posting at issue, so refuse to issue it.
+    if (inv.status === "draft" && inv.totalCents <= 0) {
+      return res.status(400).json({
+        error: `Cannot issue an invoice with a non-positive total (${inv.totalCents} ${inv.currency}). Add positive line items first.`,
+      });
+    }
+    try {
+      // Auto-issue drafts first (mints the number, posts DR AR / CR Revenue),
+      // matching the human "Send" button.
+      if (inv.status === "draft") inv = await issueInvoice(inv, null);
+      const result = await sendInvoiceEmail(cid, inv, null, {
+        message: body.message,
+        attachPdf: body.attachPdf ?? true,
+        to: body.to,
+        cc: body.cc ?? [],
+      });
+      const [hydrated] = await hydrateInvoices(cid, [inv]);
+      await financeWriteTrail(req, {
+        action: "finance.invoice.send",
+        targetType: "invoice",
+        targetId: inv.id,
+        targetLabel: inv.number || "Invoice",
+        journalTitle: `${req.mcpEmployee!.name} sent invoice ${inv.number || inv.slug}`,
+        journalBody: `Delivery: ${result.status} → ${result.toAddress || "(no address on file)"}`,
+        metadata: {
+          sendStatus: result.status,
+          toAddress: result.toAddress,
+          transport: result.transport,
+        },
+      });
+      res.json({
+        invoice: serializeInvoiceFull(hydrated),
+        send: {
+          status: result.status,
+          toAddress: result.toAddress,
+          ccAddress: result.ccAddress,
+          transport: result.transport,
+          errorMessage: result.errorMessage,
+        },
+      });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+const recordPaymentSchema = z
+  .object({
+    invoiceSlug: z.string().min(1).max(200),
+    amountCents: z.number().int().min(1).max(2_000_000_000),
+    currency: financeCurrency.optional(),
+    paidAt: z.string().datetime().optional(),
+    method: z.enum(["cash", "bank_transfer", "stripe", "lightning", "other"]).optional(),
+    reference: z.string().max(200).optional(),
+    notes: z.string().max(2000).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/record_payment",
+  validateBody(recordPaymentSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "invoice"))) return;
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof recordPaymentSchema>;
+    const inv = await loadInvoiceBySlug(cid, body.invoiceSlug);
+    if (!inv) return res.status(404).json({ error: "Invoice not found" });
+    if (inv.status === "draft") {
+      return res.status(409).json({ error: "Issue the invoice before recording payments" });
+    }
+    if (inv.status === "void") {
+      return res.status(409).json({ error: "Voided invoices cannot be paid" });
+    }
+    // The ledger applies the payment in the invoice's currency (postInvoicePayment
+    // never reads payment.currency), so a mismatched code would silently misbook
+    // cash and the paid/balance math. Refuse it rather than corrupt the books.
+    if (body.currency && body.currency !== inv.currency) {
+      return res.status(400).json({
+        error: `Record the payment in the invoice's currency (${inv.currency}). Multi-currency payments aren't supported — the amount is always applied in ${inv.currency}.`,
+      });
+    }
+    try {
+      const repo = AppDataSource.getRepository(InvoicePayment);
+      const payment = await repo.save(
+        repo.create({
+          invoiceId: inv.id,
+          amountCents: body.amountCents,
+          currency: body.currency ?? inv.currency,
+          paidAt: body.paidAt ? new Date(body.paidAt) : new Date(),
+          method: body.method ?? "other",
+          reference: body.reference ?? "",
+          notes: body.notes ?? "",
+          createdById: null,
+        }),
+      );
+      // Auto-post DR Bank / CR AR (FX-aware). recomputeInvoiceTotals flips the
+      // invoice to `paid` once payments cover the total.
+      await postInvoicePayment(inv, payment, null);
+      const recomputed = await recomputeInvoiceTotals(inv);
+      const [hydrated] = await hydrateInvoices(cid, [recomputed]);
+      await financeWriteTrail(req, {
+        action: "finance.invoice.payment",
+        targetType: "invoice",
+        targetId: inv.id,
+        targetLabel: inv.number || "Invoice",
+        journalTitle: `${req.mcpEmployee!.name} recorded a payment on invoice ${inv.number || inv.slug}`,
+        metadata: {
+          amountCents: body.amountCents,
+          currency: payment.currency,
+          status: recomputed.status,
+        },
+      });
+      res.json({ invoice: serializeInvoiceFull(hydrated) });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+const voidInvoiceMcpSchema = z.object({ invoiceSlug: z.string().min(1).max(200) }).strict();
+
+mcpInternalRouter.post(
+  "/tools/void_invoice",
+  validateBody(voidInvoiceMcpSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "invoice"))) return;
+    const cid = req.mcpCompany!.id;
+    const { invoiceSlug } = req.body as z.infer<typeof voidInvoiceMcpSchema>;
+    const inv = await loadInvoiceBySlug(cid, invoiceSlug);
+    if (!inv) return res.status(404).json({ error: "Invoice not found" });
+    try {
+      const voided = await voidInvoice(inv, null);
+      const [hydrated] = await hydrateInvoices(cid, [voided]);
+      await financeWriteTrail(req, {
+        action: "finance.invoice.void",
+        targetType: "invoice",
+        targetId: inv.id,
+        targetLabel: inv.number || "Invoice",
+        journalTitle: `${req.mcpEmployee!.name} voided invoice ${inv.number || inv.slug}`,
+      });
+      res.json({ invoice: serializeInvoiceFull(hydrated) });
     } catch (err) {
       res.status(400).json({ error: (err as Error).message });
     }

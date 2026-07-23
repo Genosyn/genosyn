@@ -1603,6 +1603,33 @@ export type CodeRepoTestResult = {
   defaultBranch?: string;
 };
 
+// ───────────────────────── Finance AI access ────────────────────────────
+
+/** read < invoice < full — see EmployeeFinanceGrant on the server. */
+export type FinanceAccessLevel = "read" | "invoice" | "full";
+
+export type FinanceGrantEmployee = {
+  id: string;
+  name: string;
+  slug: string;
+  role: string;
+  avatarKey: string | null;
+};
+
+export type FinanceGrant = {
+  id: string;
+  employeeId: string;
+  accessLevel: FinanceAccessLevel;
+  createdAt: string;
+  employee: FinanceGrantEmployee | null;
+};
+
+export type FinanceGrantsResponse = { direct: FinanceGrant[] };
+
+export type FinanceGrantCandidate = FinanceGrantEmployee & {
+  alreadyGranted: boolean;
+};
+
 // ───────────────────────── Notifications ────────────────────────────────
 
 export type NotificationKind =

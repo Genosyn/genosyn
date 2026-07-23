@@ -978,12 +978,29 @@ Phased so each phase ships behind its own PR:
       In-app view at `/customers/:slug/statement`, served as printable HTML and
       a downloadable PDF via the same `htmlToPdf` path invoices use
       (`services/customerStatement.ts` + `customerStatementHtml.ts`).
+- [x] **AI finance access — grants + invoice tools.** `EmployeeFinanceGrant`
+      gates the whole finance MCP surface per employee at `read` < `invoice`
+      < `full`, managed from **Finance → AI access** (owners/admins only,
+      `services/financeGrants.ts`). Previously the read/review `finance` tools
+      were ungated (every employee could read the books); they now answer to
+      the grant, and the family runs accounts receivable end to end:
+      `create_invoice`, `send_invoice` (auto-issues drafts then emails the
+      customer), `record_payment` (mark paid), `void_invoice`,
+      `create_customer`, `update_customer`, `list_invoices`, `get_invoice`,
+      `list_customers`, `get_customer`. Reads need `read`; the AR lifecycle
+      needs `invoice`; staging a ledger review (`review_finance_transaction`)
+      needs `full`. Each write records an AuditEvent (`actorKind: ai`) +
+      JournalEntry; the grant level is injected into the employee prompt; an
+      ungated employee is handed no finance tool at all (`grantDead`).
 
-MCP surface (added phase by phase): `list_invoices`, `get_invoice`,
-`create_invoice`, `send_invoice`, `record_payment`, `void_invoice`,
-`list_customers`, `create_customer`, `get_pl`, `get_balance_sheet`,
-`post_journal_entry`, etc. Read-only tools land first; mutating tools
-gate behind the existing approval-by-amount pattern Lightning uses.
+MCP surface (shipped): reads — `list_invoices`, `get_invoice`,
+`list_customers`, `get_customer`, `list_finance_accounts`,
+`list_finance_transactions`, `get_finance_transaction`, `get_finance_report`
+(`read`); accounts receivable — `create_invoice`, `send_invoice`,
+`record_payment`, `void_invoice`, `create_customer`, `update_customer`
+(`invoice`); accounting review — `review_finance_transaction` (`full`).
+Manual general-journal posting (`post_journal_entry`) over MCP is still
+deferred — humans post manual journals from Finance → Journal.
 
 ### M26 — Paid Marketing (ad-platform Integrations + spend guardrails)
 

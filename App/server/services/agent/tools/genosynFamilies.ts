@@ -202,13 +202,26 @@ const FAMILIES: Record<string, FamilySpec> = {
   },
   finance: {
     blurb:
-      "Inspect the company's books, read financial statements, and prepare accounting transactions for final human approval.",
+      "Work the company's finance system: invoices, customers, payments, and the books. Access is granted per employee at read < invoice < full (Finance → AI access). `read` ops view; the invoice/customer/payment ops need `invoice`; `review` needs `full`. Money is in integer minor units (cents) with a 3-letter ISO currency code.",
     ops: {
+      // read
+      list_invoices: "list_invoices",
+      get_invoice: "get_invoice",
+      list_customers: "list_customers",
+      get_customer: "get_customer",
       accounts: "list_finance_accounts",
       transactions: "list_finance_transactions",
       get: "get_finance_transaction",
-      review: "review_finance_transaction",
       report: "get_finance_report",
+      // invoice (accounts receivable)
+      create_invoice: "create_invoice",
+      send_invoice: "send_invoice",
+      record_payment: "record_payment",
+      void_invoice: "void_invoice",
+      create_customer: "create_customer",
+      update_customer: "update_customer",
+      // full (accounting review)
+      review: "review_finance_transaction",
     },
   },
   mail: {

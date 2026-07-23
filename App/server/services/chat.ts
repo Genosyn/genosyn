@@ -14,6 +14,7 @@ import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
 import { materializeReposForEmployee } from "./repoSync.js";
 import { composeCodeReposContext, materializeCodeReposForEmployee } from "./codeRepos.js";
+import { composeFinanceContext } from "./financeGrants.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
 import type { AgentMessage } from "./agent/types.js";
 import { config } from "../../config.js";
@@ -204,7 +205,15 @@ export async function streamChatWithEmployee(
   try {
     const memoryContext = await composeMemoryContext(emp.id);
     const codeReposContext = await composeCodeReposContext(emp.id);
-    let system = composeSystemPrompt({ co, emp, skills, memoryContext, codeReposContext });
+    const financeContext = await composeFinanceContext(emp.id);
+    let system = composeSystemPrompt({
+      co,
+      emp,
+      skills,
+      memoryContext,
+      codeReposContext,
+      financeContext,
+    });
     if (options.extraSystem) system += `\n${options.extraSystem}`;
     const messages = buildMessages(history, message);
 
@@ -294,8 +303,9 @@ function composeSystemPrompt(args: {
   skills: Skill[];
   memoryContext: string;
   codeReposContext: string;
+  financeContext: string;
 }): string {
-  const { co, emp, skills, memoryContext, codeReposContext } = args;
+  const { co, emp, skills, memoryContext, codeReposContext, financeContext } = args;
   const parts: string[] = [];
   parts.push(
     `You are ${emp.name}, ${emp.role} at ${co.name}. A teammate is chatting with you directly. Reply in your own voice, guided by your Soul, Memory, and Skills below. Keep replies focused and grounded — ask clarifying questions when needed.`,
@@ -305,6 +315,7 @@ function composeSystemPrompt(args: {
   parts.push(emp.soulBody);
   if (memoryContext) parts.push(memoryContext);
   if (codeReposContext) parts.push(codeReposContext);
+  if (financeContext) parts.push(financeContext);
   for (const s of skills) {
     parts.push(`\n## Skill: ${s.name}\n`);
     parts.push(s.body);

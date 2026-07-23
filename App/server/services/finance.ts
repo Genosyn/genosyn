@@ -48,6 +48,37 @@ import {
 
 // ───────────────────────────── Customers ──────────────────────────────
 
+/**
+ * A company-unique customer slug derived from `base`, suffixing `-2`, `-3`, …
+ * on collision. Shared by the human customer-create route and the AI
+ * `create_customer` tool so both mint slugs the same way.
+ */
+export async function uniqueCustomerSlug(companyId: string, base: string): Promise<string> {
+  const repo = AppDataSource.getRepository(Customer);
+  const root = base || "customer";
+  let slug = root;
+  let n = 1;
+  while (await repo.findOneBy({ companyId, slug })) {
+    n += 1;
+    slug = `${root}-${n}`;
+  }
+  return slug;
+}
+
+/**
+ * A throwaway slug for a fresh draft invoice (the real display number is
+ * minted at issue time). Shared by the human create route and the AI
+ * `create_invoice` tool.
+ */
+export async function draftInvoiceSlug(companyId: string): Promise<string> {
+  const repo = AppDataSource.getRepository(Invoice);
+  for (let i = 0; i < 16; i += 1) {
+    const slug = `draft-${Math.random().toString(36).slice(2, 8)}`;
+    if (!(await repo.findOneBy({ companyId, slug }))) return slug;
+  }
+  return `draft-${Date.now().toString(36)}`;
+}
+
 export async function findCustomerByName(
   companyId: string,
   name: string,

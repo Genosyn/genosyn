@@ -13,6 +13,7 @@ import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
 import { materializeReposForEmployee } from "./repoSync.js";
 import { composeCodeReposContext, materializeCodeReposForEmployee } from "./codeRepos.js";
+import { composeFinanceContext } from "./financeGrants.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
 import type { CompactionInfo, ToolTrimInfo, TurnUsage } from "./agent/types.js";
 import { config } from "../../config.js";
@@ -162,12 +163,14 @@ export async function startRoutineRun(
 
       const memoryContext = await composeMemoryContext(emp.id);
       const codeReposContext = await composeCodeReposContext(emp.id);
+      const financeContext = await composeFinanceContext(emp.id);
       const system = composeSystemPrompt({
         co,
         emp,
         skills,
         memoryContext,
         codeReposContext,
+        financeContext,
       });
       const userMessage = composeRoutineMessage(routine);
 
@@ -420,8 +423,9 @@ function composeSystemPrompt(args: {
   skills: Skill[];
   memoryContext: string;
   codeReposContext: string;
+  financeContext: string;
 }): string {
-  const { co, emp, skills, memoryContext, codeReposContext } = args;
+  const { co, emp, skills, memoryContext, codeReposContext, financeContext } = args;
   const parts: string[] = [];
   parts.push(
     `You are ${emp.name}, ${emp.role} at ${co.name}. The following documents are yours — your Soul, your Memory, and your Skills.`,
@@ -431,6 +435,7 @@ function composeSystemPrompt(args: {
   parts.push(emp.soulBody);
   if (memoryContext) parts.push(memoryContext);
   if (codeReposContext) parts.push(codeReposContext);
+  if (financeContext) parts.push(financeContext);
   for (const s of skills) {
     parts.push(`\n## Skill: ${s.name}\n`);
     parts.push(s.body);
