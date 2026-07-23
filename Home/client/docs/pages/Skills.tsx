@@ -47,7 +47,12 @@ export function Skills() {
         human would skim a runbook: by the title and the first paragraph.
       </P>
       <P>
-        Skills are not tools. Tools live in <DocLink to="/docs/integrations">Integrations</DocLink>.
+        A Skill is prose, not code — it tells the employee <Strong>how</Strong> to work, while the tools it
+        uses live in <DocLink to="/docs/integrations">Integrations</DocLink> and the built-in
+        catalogue. A Skill may <Strong>declare</Strong> which tools its procedure uses, under
+        Settings → Tools, so those are loaded up-front instead of looked up (see{" "}
+        <DocLink to="/docs/tool-discovery">How tools reach the model</DocLink>). Declaring is not
+        granting: access is still decided by Grants.
         A Skill is the prose around the tool: <em>when</em> to reach for it, <em>how</em> to use it,
         and what good output looks like.
       </P>

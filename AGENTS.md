@@ -168,7 +168,9 @@ data/
       `edit_file`, `list_dir`, `glob`, `grep`), rooted at the employee cwd;
     * the built-in **genosyn** tools, dispatched in-process to the loopback
       internal API (`server/mcp/toolManifest.ts` + `routes/mcpInternal.ts`)
-      with a short-lived MCP token;
+      with a short-lived MCP token. The model is shown a **working set** of
+      ~20 tools and reaches the rest through `find_tools` / `call_tool` — see
+      `server/services/agent/tools/` and ROADMAP M30;
     * the built-in **browser** tools — a stdio MCP child at
       `server/mcp-browser/` that the agent connects to as an MCP client — when
       `AIEmployee.browserEnabled` is true;
@@ -345,6 +347,10 @@ Don't tag manually, don't edit version numbers in `package.json` files.
   `routes/mcpInternal.ts`); `browser` is a stdio binary at `server/mcp-browser/`.
   User-configured servers with those names are dropped when the agent assembles
   its tool list.
+- Adding a tool to the agent's resident working set without a reason that
+  survives `toolBudget.test.ts`, or collapsing new tools into an
+  `op`-dispatched family. Families are retired (ROADMAP M30) — defer the
+  granular tools instead.
 - Skipping the zod schema on a new endpoint.
 - Hand-writing a migration file. Always run
   `npm run migration:generate -- server/db/migrations/<Name>` and commit

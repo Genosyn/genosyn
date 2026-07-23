@@ -80,8 +80,8 @@ export function Models() {
 
       <H2 id="context-window">Context window</H2>
       <P>
-        Every turn sends the employee&apos;s Soul, their Skills, and the whole tool catalog, and
-        each tool call adds its result on top. A long routine therefore grows until it reaches
+        Every turn sends the employee&apos;s Soul, their Skills, and their working set of tools,
+        and each tool call adds its result on top. A long routine therefore grows until it reaches
         whatever the model will accept — so Genosyn needs to know how much room there is. When a
         model connects, it asks the provider and shows the answer on the model card.
       </P>
@@ -109,8 +109,11 @@ export function Models() {
 
       <H2 id="built-in-tools">Built-in agent tools</H2>
       <P>
-        The runner and chat both run an in-process agent loop that hands the model tools directly —
-        no matter which provider kind you pick, every model gets the same toolset:
+        The runner and chat both run an in-process agent loop that hands the model tools directly.
+        No matter which provider kind you pick, every model gets the same <Strong>catalogue</Strong>
+        — but not all of it at once. An employee is shown a small working set every turn and looks
+        the rest up on demand; see{" "}
+        <DocLink to="/docs/tool-discovery">How tools reach the model</DocLink>. The catalogue is:
       </P>
       <UL>
         <LI>
@@ -120,8 +123,14 @@ export function Models() {
         </LI>
         <LI>
           <Code>genosyn</Code> — the tools the employee calls to run Routines and Todos, write
-          journal notes, save Memory, work with Bases and attachments, and reach{" "}
-          <Strong>any registered Integration tool</Strong>. Always on.
+          journal notes, save Memory, work with Bases, Notes, Resources, charts, mail, finance and
+          attachments, and reach <Strong>any registered Integration tool</Strong>. Always
+          available; the frequently-used ones are loaded up-front and the rest are a{" "}
+          <Code>find_tools</Code> call away.
+        </LI>
+        <LI>
+          <Code>find_tools</Code> and <Code>call_tool</Code> — how the employee searches the
+          catalogue and runs anything in it. Always on.
         </LI>
         <LI>
           <Code>browser</Code> — browser tools backed by a headless Chromium when{" "}
@@ -141,22 +150,19 @@ export function Models() {
       <H3 id="tool-limit">How many tools an employee can hold</H3>
       <P>
         OpenAI accepts at most <Strong>128 tools</Strong> on a request and rejects the whole turn if
-        you send more. Anthropic publishes no such limit, and a custom endpoint sets its own — so
-        this only constrains employees whose active model is an OpenAI one.
+        you send more. Anthropic publishes no such limit, and a custom endpoint sets its own.
       </P>
       <P>
-        The built-ins take up roughly 49 of those slots (coding, the <Code>genosyn</Code> tools, and
-        the browser tools when enabled), which leaves about 79 for Integration tools and company MCP
-        servers. That is a lot — but a single Integration can register a dozen or more tools, so an
-        employee granted many Connections at once can reach the ceiling.
+        In practice this no longer binds. Only the working set goes on the request — around{" "}
+        <Strong>20 tools</Strong> — so the catalogue behind it can grow without approaching any
+        provider&apos;s ceiling. An employee with a dozen Connections is fine.
       </P>
       <P>
-        If it happens, the run doesn&apos;t fail. Genosyn drops the lowest-value tools until the
-        list fits, preferring to cut ones the employee holds no{" "}
-        <DocLink to="/docs/integrations">Grant</DocLink> for and therefore couldn&apos;t have used
-        anyway, and writes a <Code>[tools]</Code> line into the run log naming exactly what it
-        dropped. If you see that line, remove a Connection or an MCP server from the employee — or
-        move it to an Anthropic or custom model, which have no cap.
+        The old trimming behaviour is still there as a backstop: if the working set somehow did
+        exceed a cap, Genosyn drops the lowest-value tools until it fits, preferring ones the
+        employee holds no <DocLink to="/docs/integrations">Grant</DocLink> for, and writes a{" "}
+        <Code>[tools]</Code> line into the run log naming exactly what it dropped. Every run also
+        logs how the catalogue was split, so you can always see what the employee was shown.
       </P>
 
       <H2 id="multiple-models">Multiple models &amp; the active one</H2>

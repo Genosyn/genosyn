@@ -370,7 +370,7 @@ llama-server \\
         <LI>
           <Strong>Model loops or hallucinates tool names.</Strong>{" "}
           Context window. Genosyn injects the Soul + every Skill + the MCP
-          tool catalog at each turn; that&apos;s often 8k–16k tokens before
+          working set of tools at each turn; that&apos;s roughly 4k–5k tokens before
           the first user message. Run models with at least 32k context for
           serious work.
         </LI>

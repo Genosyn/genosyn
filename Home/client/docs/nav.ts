@@ -66,6 +66,11 @@ export const DOCS_NAV: DocsSection[] = [
         blurb: "Connect Anthropic, OpenAI, or a custom OpenAI-compatible endpoint.",
       },
       {
+        path: "/docs/tool-discovery",
+        title: "How tools reach the model",
+        blurb: "Why an employee is shown a working set of tools and finds the rest on demand.",
+      },
+      {
         path: "/docs/open-source-models",
         title: "Open-source LLMs",
         blurb: "Run Ollama, vLLM, or llama.cpp and point an employee at it.",

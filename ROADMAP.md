@@ -32,7 +32,15 @@ don't re-litigate them.
    logs (`Run.logContent`, 256 KB cap), model/Connection credentials, and MCP
    configuration. The filesystem under `data/` only carries repo checkouts,
    browser state, uploads, and tool artifacts.
-6. **No `.env` file, ever.** Boot-critical runtime settings live in
+6. **An employee is shown a working set of tools, not all of them.** The
+   catalogue is reached through `find_tools` / `call_tool`; only ~20 tools ride
+   on every request. Collapsing tools into `op`-dispatched families was the
+   *previous* answer to the same problem and is now retired — it bought slots
+   under a provider cap at the cost of schemas whose `required` decayed to
+   `["op"]`. Don't add a new family; defer the granular tools instead. The
+   fifteen retired family names remain callable forever as hidden aliases,
+   because customer Skills name them in prose we cannot migrate.
+7. **No `.env` file, ever.** Boot-critical runtime settings live in
    `App/config.ts` as one exported object with commented JSON-shape.
    Operator-editable live settings (including the public URL) live in the
    database and are managed from Admin.
@@ -1099,6 +1107,49 @@ fallback documented), FX conversion for caps (caps are denominated in the
 ad account's currency).
 
 ---
+
+### M30 — Tool surface (progressive disclosure) ✅
+
+The agent-facing tool list grew by a family per feature and was re-sent on every
+step: ~21,600 tokens per request before an employee had a single Integration.
+Adding a feature made every unrelated turn more expensive and gave the model
+more to sift through. Tools are now split into a working set the model is shown
+and a catalogue it searches, which takes the per-step cost to ~4,500 tokens and
+decouples it from how many features Genosyn has.
+
+- [x] Resident/deferred partition, built once per run and never mutated, so the
+      tool payload stays byte-identical across a run's steps
+- [x] `find_tools` (search the catalogue, get exact schemas) and `call_tool`
+      (run anything in it), with an always-on catalogue footer on every result
+      so a missed search still shows the employee what exists
+- [x] Curated keyword index (`toolIndex.ts`) — descriptions alone are not a
+      retrieval surface: "spreadsheet" matched none of the 104 tools
+- [x] Lenient dispatch — resolution reads the whole registry, only advertising
+      reads the working set, so naming a deferred tool directly just works
+- [x] Collapsed CRUD families retired; the model sees the 101 granular tools
+      with their real schemas instead of unions whose `required` had decayed
+      to `["op"]`. `finance` and `mail` were the two heaviest tools in the
+      whole surface
+- [x] The 15 retired family names survive as hidden aliases — free, invisible,
+      and load-bearing, because customer Skills have been told to call
+      `base_rows` with an `op` for the product's whole life
+- [x] Grant-dead tools ranked down and annotated in search results, never
+      filtered (`create_base` auto-grants its creator mid-run)
+- [x] Per-Skill declared toolsets — `Skill.toolsetJson`, picker under
+      Settings → Tools, loaded up-front so a known procedure never searches
+- [x] One `composeEmployeeSystemPrompt` / `toolsBriefing` for both seams, with
+      the tool enumeration generated from the domain index rather than typed
+      out twice and left to drift
+- [x] Budget ceiling test on the working set (count, total chars, per-tool
+      chars) wired into CI, plus a 30-query recall gate on the keyword index
+- [x] `config.agent.toolDiscovery.enabled` as the revert path
+- [ ] Small-model eval (7–13B behind Ollama) that `args_json` survives Jinja
+      template rendering and grammar-constrained decoding without arriving
+      empty — the recall risk this design carries is unmeasured against a model
+- [ ] Anthropic prompt caching on the now-stable per-run tool prefix
+- [ ] Anthropic-native `tool_search_tool_regex` as a second rendering on
+      Anthropic models, once the billing question for deferred definitions is
+      settled
 
 ## V1 backlog (post-MVP)
 

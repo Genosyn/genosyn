@@ -105,7 +105,10 @@ export function Integrations() {
       <P>
         Every run, the in-process agent regenerates the MCP server list. The built-in{" "}
         <Code>genosyn</Code> server lists every integration tool the employee has a Grant for; the
-        agent sees a flat catalog of tools and never has to know anything about Connections.
+        agent reaches every one of them the same way and never has to know anything about
+        Connections. Integration tools live in the searchable catalogue rather than the
+        up-front working set — see{" "}
+        <DocLink to="/docs/tool-discovery">How tools reach the model</DocLink>.
       </P>
 
       <H2 id="external-mcp">Connecting an external MCP client</H2>
