@@ -85,9 +85,24 @@ code, UI copy, commits, and docs.
 | **Connection** (one authenticated account inside an Integration; DB row) | Account, Instance, Integration (of the DB row) |
 | **Grant** (an AI employee's access to a resource — a Connection, Note, Chart, Repo, …) | Permission, Attachment, Binding |
 | **Project member** (a human Member *or* an AI Employee authorized on a Project — `ProjectMember`) | Grant, Permission, Collaborator |
+| **Contact** (a person in the Revenue section) | Lead, Person, Prospect |
+| **Deal** (one revenue opportunity) | Opportunity, Pipeline item |
+| **Deal Stage** (a step in the sales process) | Pipeline stage — see the warning below |
+| **Sequence** (multi-step outbound outreach) | Campaign, Drip, Cadence |
+| **Signal** (a product-usage trigger) | Alert, Trigger, Event |
+| **Activity** (one event on a Contact / Deal timeline) | Event, Log, Interaction |
+| **Suppression** (an address we must never email) | Blocklist, Blacklist |
 
 **"Tasks" is reserved** for the task-manager feature (Projects + Todos), which
 has shipped. Do not use "Task" for scheduled AI work, ever.
+
+**"Pipeline" is reserved** for the DAG automation primitive (M10). The sales
+pipeline is a flat, ordered list of **Deal Stages** — there is no container
+entity, and no UI label anywhere says "pipeline" to mean the sales process. The
+word survives only as prose inside metric names ("pipeline coverage", "open
+pipeline value"). Introducing a `DealPipeline` entity would put two unrelated
+meanings on one word in the same codebase, which is exactly what this table
+exists to prevent.
 
 ---
 

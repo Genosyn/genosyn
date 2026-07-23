@@ -44,6 +44,18 @@ don't re-litigate them.
    `App/config.ts` as one exported object with commented JSON-shape.
    Operator-editable live settings (including the public URL) live in the
    database and are managed from Admin.
+8. **The sales pipeline is a flat list of Deal Stages, not a `Pipeline`.**
+   `Pipeline` already means the DAG automation primitive (M10). Deal stages are
+   company-scoped and ordered, with no container entity — a company has one
+   sales process until it very much does not, and a second one is a nullable
+   `processId` whenever somebody actually asks. "Pipeline coverage" survives as
+   a metric name only.
+9. **`Customer` stays the account; `Contact` is the person.** M32 did not
+   introduce a pre-revenue Account object. A Customer is simply not billable
+   until it has an invoice, which means Contracts, Statements, ACV and the whole
+   invoice chain work for prospects for free. `Contact.customerId` and
+   `Deal.customerId` are both nullable so the relationship can start with
+   neither.
 
 ---
 
@@ -148,6 +160,9 @@ genosyn/
 - **Secrets:** `Secret`
 - **Organization:** `Tag`, `TagAssignment` (company-scoped labels attached to
   taggable resources)
+- **Revenue (M32):** `Contact`, `DealStage`, `Deal`, `DealContact`, `Activity`,
+  `Suppression`, `Sequence`, `SequenceStep`, `SequenceEnrollment`,
+  `SequenceStepRun`, `Signal`, `SignalEvent`, `EmployeeRevenueGrant`
 
 ### Stack
 
@@ -1228,6 +1243,72 @@ that already exists rather than adding polling.
       the Mail mirror keep their existing, richer events; the subscriber skips
       those entities so nothing double-fires. Instance-scoped Admin pages
       (`/api/admin/*`) are out of scope — the socket is per-company.
+
+### M32 — Revenue (AI-native go-to-market)
+
+Genosyn already tracked what a company spends to get attention (M26 paid
+marketing) and what it collects once somebody signs (M19 finance). The middle
+was missing: `Customer` is an accounts-receivable object and `CustomerContact`
+requires a `customerId`, so a person who was not yet an account had nowhere to
+live, and money you were still trying to win had nowhere at all.
+
+This milestone is that middle, and it closes the loop — **ad click → contact →
+deal → invoice → collected cash → ledger entry, in one database, worked by AI
+employees, with humans approving what matters.** No other tool has the whole
+chain in one place: CRMs do not have the ledger, ledgers do not have the
+pipeline, and the PQL tools have neither.
+
+- [x] **The spine.** `Contact` (a person, with a nullable `customerId` so they
+      can exist long before an account does), `DealStage` (a flat ordered list —
+      *not* a "pipeline", see AGENTS.md), `Deal`, `DealContact` (the buying
+      committee), and `Activity` (the unified timeline). `Customer` stays the
+      account, so contracts, statements and the invoice chain keep working
+      untouched. Existing `customer_contacts` rows are copied into `contacts` by
+      an idempotent boot backfill; no data is destroyed.
+- [x] **The timeline fills itself.** Mail sync matches thread participants
+      against known contacts and writes `email_in` / `email_out` activities, so
+      opening a Contact shows every conversation you have ever had with that
+      person without anybody doing data entry. It links only to contacts that
+      *already exist* — auto-creating one per stranger would bury the list in
+      newsletters and receipts within a week.
+- [x] **Deliverability and compliance, before volume.** `Suppression` enforced
+      at the mail send choke-point (both `sendMailMessage` and `sendMailDraft`,
+      re-checked at send rather than at draft time), RFC 8058 `List-Unsubscribe`
+      + one-click POST, a public unauthenticated unsubscribe endpoint, and
+      per-account send throttling. Bulk send without this burns a customer's
+      sending domain, and the damage is not reversible.
+- [x] **Sequences.** Multi-step outbound where each touch is drafted
+      individually by a named AI Employee from that contact's real context —
+      prior threads, the open deal, the signal that triggered enrolment — rather
+      than interpolated from a template. Drafts land in the existing review
+      queue and a human presses Send; `autoSend` requires the revenue grant at
+      `send` **and** the mail account grant at `send`. Suppression, send windows
+      and daily caps apply either way. Replies stop an enrolment within a
+      heartbeat, because mail sync already ingests them.
+- [x] **Signals — the SaaS-specific piece.** A saved query over a connected
+      product database or Stripe, evaluated on a cron, deduplicated by a unique
+      `(signalId, dedupeKey)` index so a trigger fires once per account rather
+      than every tick. Firing routes to an activity, a notification, a new deal,
+      a sequence enrolment, or an AI employee. Built on the Explore executor and
+      the existing scheduler rather than a new engine.
+- [x] **Revenue metrics.** MRR movement (new / expansion / contraction / churn /
+      reactivation), ARR, NRR and GRR cohorts, CAC by channel, LTV:CAC, payback,
+      pipeline coverage, win rate, sales-cycle length and stage conversion. All
+      arithmetic is pure and property-tested; the waterfall is guaranteed to add
+      up. CAC currently reads `AdSpendEvent`, which records *authorized budget
+      changes* rather than settled spend — that is a documented proxy, and
+      reading real spend from the ad platforms is the obvious follow-up.
+- [x] **`EmployeeRevenueGrant`** at `read` < `write` < `send`, managed from
+      **Revenue → AI access**. An employee with no grant gets no revenue tool at
+      all, matching the finance default.
+- [x] **Revenue section** at `/c/<co>/revenue` — the board, contacts, deals with
+      their timeline, sequences, signals, and an insights page.
+- [ ] Real ad-platform spend for CAC (replacing the `AdSpendEvent` proxy)
+- [ ] Meeting booking and calendar-based activities — deferred; Google Calendar
+      is already connected and a native scheduler earns its complexity later
+- [ ] Enrichment — deliberately bring-your-own-key through the Integration
+      framework rather than a bundled provider
+- [ ] A second sales process per company (one nullable `processId` when asked)
 
 ## V1 backlog (post-MVP)
 
