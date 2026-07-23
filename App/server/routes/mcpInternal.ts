@@ -3,6 +3,12 @@ import fs from "node:fs";
 import { Router, Request, Response, NextFunction } from "express";
 import cron from "node-cron";
 import { z } from "zod";
+import {
+  MAX_TOOLSET_ENTRIES,
+  parseToolset,
+  serializeToolset,
+  validateToolset,
+} from "../services/skillToolset.js";
 import { In, IsNull } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -288,7 +294,13 @@ function serializeRoutine(r: Routine) {
 }
 
 function serializeSkill(s: Skill) {
-  return { id: s.id, slug: s.slug, name: s.name, body: s.body };
+  return {
+    id: s.id,
+    slug: s.slug,
+    name: s.name,
+    body: s.body,
+    toolset: parseToolset(s.toolsetJson),
+  };
 }
 
 function serializeProject(p: Project) {
@@ -1156,6 +1168,7 @@ const createSkillSchema = z
     employeeSlug: z.string().min(1).max(120).optional(),
     name: z.string().min(1).max(80),
     body: z.string().max(20_000).optional(),
+    toolset: z.array(z.string().min(1).max(64)).max(MAX_TOOLSET_ENTRIES).optional(),
   })
   .strict();
 
@@ -1188,11 +1201,15 @@ mcpInternalRouter.post(
       slug = `${baseSlug}-${n}`;
     }
 
+    const checkedToolset = validateToolset(body.toolset ?? []);
+    if (!checkedToolset.ok) return res.status(400).json({ error: checkedToolset.error });
+
     const s = repo.create({
       employeeId: target.id,
       name: body.name,
       slug,
       body: body.body?.trim() ? body.body : skillTemplate(body.name),
+      toolsetJson: serializeToolset(checkedToolset.names),
     });
     await repo.save(s);
 
@@ -1220,6 +1237,7 @@ const updateSkillSchema = z
     skillId: z.string().uuid(),
     name: z.string().min(1).max(80).optional(),
     body: z.string().max(20_000).optional(),
+    toolset: z.array(z.string().min(1).max(64)).max(MAX_TOOLSET_ENTRIES).optional(),
   })
   .strict();
 
@@ -1255,6 +1273,11 @@ mcpInternalRouter.post(
       skill.name = body.name;
     }
     if (body.body !== undefined) skill.body = body.body;
+    if (body.toolset !== undefined) {
+      const checked = validateToolset(body.toolset);
+      if (!checked.ok) return res.status(400).json({ error: checked.error });
+      skill.toolsetJson = serializeToolset(checked.names);
+    }
     await repo.save(skill);
 
     await recordAudit({
@@ -1289,6 +1312,9 @@ mcpInternalRouter.post(
     });
     if (!owner) return res.status(404).json({ error: "Skill not found" });
 
+    // Matches the REST delete, which has always done this. Skipping it here
+    // orphaned a tag assignment row per tagged skill.
+    await deleteTagAssignments("skill", skill.id);
     await repo.delete({ id: skill.id });
 
     await recordAudit({

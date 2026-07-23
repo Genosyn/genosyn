@@ -24,6 +24,7 @@ import { companiesRouter } from "./routes/companies.js";
 import { invitationsRouter } from "./routes/invitations.js";
 import { employeesRouter } from "./routes/employees.js";
 import { skillsRouter } from "./routes/skills.js";
+import { toolCatalogueRouter } from "./routes/toolCatalogue.js";
 import { routinesRouter } from "./routes/routines.js";
 import { modelsRouter } from "./routes/models.js";
 import { employeeSurfaceRouter } from "./routes/employeeSurface.js";
@@ -194,6 +195,7 @@ async function main() {
   // just the DB.
   app.use("/api/companies/:cid/employees", employeeSurfaceRouter);
   app.use("/api/companies/:cid", skillsRouter);
+  app.use("/api/companies/:cid", toolCatalogueRouter);
   app.use("/api/companies/:cid", routinesRouter);
   // Org chart + Handoffs (Phase B). Teams group employees; Handoffs are
   // formal AI→AI delegation with status workflow.

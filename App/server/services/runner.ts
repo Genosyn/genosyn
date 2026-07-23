@@ -17,8 +17,10 @@ import { materializeReposForEmployee } from "./repoSync.js";
 import { composeCodeReposContext, materializeCodeReposForEmployee } from "./codeRepos.js";
 import { composeFinanceContext } from "./financeGrants.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
-import type { CompactionInfo, ToolTrimInfo, TurnUsage } from "./agent/types.js";
+import type { CompactionInfo, ToolDeferralInfo, ToolTrimInfo, TurnUsage } from "./agent/types.js";
 import { config } from "../../config.js";
+import { composeEmployeeSystemPrompt } from "./agent/systemPrompt.js";
+import { residentNamesForSkills, skillToolsetMap } from "./skillToolset.js";
 import { acquireWorkloadLease, releaseWorkloadLease } from "./workloadLeases.js";
 
 /**
@@ -193,13 +195,18 @@ export async function startRoutineRun(
       const memoryContext = await composeMemoryContext(emp.id);
       const codeReposContext = await composeCodeReposContext(emp.id);
       const financeContext = await composeFinanceContext(emp.id);
-      const system = composeSystemPrompt({
+      const system = composeEmployeeSystemPrompt({
         co,
         emp,
         skills,
         memoryContext,
         codeReposContext,
         financeContext,
+        surface: "routine",
+        opening:
+          `You are ${emp.name}, ${emp.role} at ${co.name}. The following documents are yours — ` +
+          `your Soul, your Memory, and your Skills.`,
+        skillToolsets: skillToolsetMap(skills),
       });
       const userMessage = composeRoutineMessage(routine, missedSlots);
 
@@ -261,6 +268,7 @@ export async function startRoutineRun(
           genosynToken: mcpToken,
           bashTimeoutMs: Math.min(timeoutMs, 5 * 60 * 1000),
           maxSteps: RUN_MAX_STEPS,
+          skillToolset: residentNamesForSkills(skills),
           routineId: routine.id,
           runId: saved.id,
           signal: controller.signal,
@@ -274,6 +282,7 @@ export async function startRoutineRun(
             onUsage: (u) => log.line(usageLine(u, model.contextWindow)),
             onCompact: (c) => log.line(compactLine(c)),
             onToolsTrimmed: (t) => log.line(toolTrimLine(t)),
+            onToolsDeferred: (d) => log.line(toolDeferLine(d)),
           },
         });
       } finally {
@@ -402,6 +411,26 @@ function toolTrimLine(t: ToolTrimInfo): string {
 }
 
 /**
+ * How the tool catalogue was split for this run.
+ *
+ * Worth a line in the transcript for the same reason the trim and compaction
+ * lines are: from the outside, "the employee never used the tool" and "the
+ * employee was never shown the tool" look identical. This is what tells them
+ * apart when someone is reading a run that went wrong.
+ */
+function toolDeferLine(d: ToolDeferralInfo): string {
+  if (d.deferred === 0) {
+    return `[tools] ${d.resident} tools, all loaded up-front (discovery off or catalogue small).`;
+  }
+  const skills =
+    d.fromSkills.length > 0 ? ` (${d.fromSkills.length} from Skills: ${d.fromSkills.join(", ")})` : "";
+  return (
+    `[tools] ${d.resident} loaded${skills}, ${d.deferred} in the catalogue behind find_tools ` +
+    `— ${d.domains.join(", ")}.`
+  );
+}
+
+/**
  * Emit a journal entry for every terminal run so the employee's diary shows
  * what actually happened. We don't journal the `running` state — only the
  * terminal transition, once the status is final.
@@ -501,36 +530,6 @@ function stampRetry(run: Run, routine: Routine, log: LogBuffer): void {
   );
 }
 
-/**
- * Compose the system prompt: who the employee is, the tools they have, and
- * their Soul + Memory + Skills + repo context — everything except the specific
- * task, which goes in the user message.
- */
-function composeSystemPrompt(args: {
-  co: Company;
-  emp: AIEmployee;
-  skills: Skill[];
-  memoryContext: string;
-  codeReposContext: string;
-  financeContext: string;
-}): string {
-  const { co, emp, skills, memoryContext, codeReposContext, financeContext } = args;
-  const parts: string[] = [];
-  parts.push(
-    `You are ${emp.name}, ${emp.role} at ${co.name}. The following documents are yours — your Soul, your Memory, and your Skills.`,
-  );
-  parts.push(toolsBriefing());
-  parts.push("\n## Soul\n");
-  parts.push(emp.soulBody);
-  if (memoryContext) parts.push(memoryContext);
-  if (codeReposContext) parts.push(codeReposContext);
-  if (financeContext) parts.push(financeContext);
-  for (const s of skills) {
-    parts.push(`\n## Skill: ${s.name}\n`);
-    parts.push(s.body);
-  }
-  return parts.join("\n");
-}
 
 function composeRoutineMessage(routine: Routine, missedSlots: number): string {
   return [
@@ -553,23 +552,6 @@ function composeRoutineMessage(routine: Routine, missedSlots: number): string {
   ].join("\n");
 }
 
-/**
- * Short briefing so the model knows the tools it holds are real and should be
- * used rather than narrated. Covers the coding toolset and the built-in genosyn
- * tools; the model discovers the full schema for each from the tool list.
- */
-function toolsBriefing(): string {
-  return [
-    "",
-    "## Tools",
-    "You have tools available — use them instead of describing what you would do. A tool call leaves a visible audit row; prose-only claims are invisible.",
-    "- Coding: `bash` (run shell commands in your working directory), `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep`. Your working directory holds any git repositories you were granted, under `repos/` and `code-repos/`.",
-    "- Genosyn: `add_journal_entry` to log what you accomplished, `memory` to capture durable facts, `create_routine`/`create_todo` to follow up on work, `update_routine` to edit or pause an existing Routine in place (never create a duplicate to change one), `get_self`/`list_employees`/`list_routines` to orient, plus Bases (`bases`, `base_rows`), email via the `mail` tool when a mailbox has been granted to you (op: accounts/search/get/draft/update/send — prefer drafts unless the brief explicitly allows sending), chat attachments, and any company integration tools you were granted.",
-    '- Related actions are bundled behind an `op` argument rather than one tool each — `base_rows` takes `op: "list" | "create" | "update" | "delete"`, and `memory`, `notes`, `charts` and others work the same way. Each tool\'s description lists the ops it accepts and what each one requires; read it before calling.',
-    "- Parallel delegation: `delegate_parallel_work` runs independent briefs concurrently as temporary copies of you, then returns their results for you to verify and synthesize. Prefer independent research, analysis, and API calls. Workers share your working directory, so partition file-writing briefs explicitly and never overlap git operations.",
-    "- Browser (when enabled) and any company-configured MCP servers appear as additional tools.",
-  ].join("\n");
-}
 
 /**
  * Bounded transcript buffer. Keeps the first `cap` bytes; everything after is

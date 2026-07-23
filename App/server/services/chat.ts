@@ -18,6 +18,8 @@ import { composeFinanceContext } from "./financeGrants.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
 import type { AgentMessage } from "./agent/types.js";
 import { config } from "../../config.js";
+import { composeEmployeeSystemPrompt } from "./agent/systemPrompt.js";
+import { residentNamesForSkills, skillToolsetMap } from "./skillToolset.js";
 import {
   acquireWorkloadLease,
   describeEmployeeWorkload,
@@ -206,13 +208,19 @@ export async function streamChatWithEmployee(
     const memoryContext = await composeMemoryContext(emp.id);
     const codeReposContext = await composeCodeReposContext(emp.id);
     const financeContext = await composeFinanceContext(emp.id);
-    let system = composeSystemPrompt({
+    let system = composeEmployeeSystemPrompt({
       co,
       emp,
       skills,
       memoryContext,
       codeReposContext,
       financeContext,
+      surface: "chat",
+      opening:
+        `You are ${emp.name}, ${emp.role} at ${co.name}. A teammate is chatting with you ` +
+        `directly. Reply in your own voice, guided by your Soul, Memory, and Skills below. ` +
+        `Keep replies focused and grounded — ask clarifying questions when needed.`,
+      skillToolsets: skillToolsetMap(skills),
     });
     if (options.extraSystem) system += `\n${options.extraSystem}`;
     const messages = buildMessages(history, message);
@@ -254,9 +262,18 @@ export async function streamChatWithEmployee(
         genosynToken: mcpToken,
         bashTimeoutMs: 5 * 60 * 1000,
         maxSteps: CHAT_MAX_STEPS,
+        skillToolset: residentNamesForSkills(skills),
         conversationId: options.conversationId,
         signal: controller.signal,
         callbacks: {
+          // A chat turn that lost a capability should not be invisible either.
+          onToolsDeferred: (d) => {
+            if (d.deferred > 0) {
+              console.info(
+                `[chat] employee=${emp.id} tools: ${d.resident} loaded, ${d.deferred} deferred`,
+              );
+            }
+          },
           onText: (delta) => {
             buffered += delta;
             try {
@@ -297,52 +314,3 @@ function buildMessages(history: ChatTurn[], message: string): AgentMessage[] {
   return messages;
 }
 
-function composeSystemPrompt(args: {
-  co: Company;
-  emp: AIEmployee;
-  skills: Skill[];
-  memoryContext: string;
-  codeReposContext: string;
-  financeContext: string;
-}): string {
-  const { co, emp, skills, memoryContext, codeReposContext, financeContext } = args;
-  const parts: string[] = [];
-  parts.push(
-    `You are ${emp.name}, ${emp.role} at ${co.name}. A teammate is chatting with you directly. Reply in your own voice, guided by your Soul, Memory, and Skills below. Keep replies focused and grounded — ask clarifying questions when needed.`,
-  );
-  parts.push(toolsBriefing());
-  parts.push("\n## Soul\n");
-  parts.push(emp.soulBody);
-  if (memoryContext) parts.push(memoryContext);
-  if (codeReposContext) parts.push(codeReposContext);
-  if (financeContext) parts.push(financeContext);
-  for (const s of skills) {
-    parts.push(`\n## Skill: ${s.name}\n`);
-    parts.push(s.body);
-  }
-  return parts.join("\n");
-}
-
-/**
- * Short briefing so the model knows the built-in tools are real and should be
- * used. Without this, models tend to acknowledge requests in prose ("Done — I'll
- * run a revenue check every Monday") without actually calling `create_routine`.
- */
-function toolsBriefing(): string {
-  return [
-    "",
-    "## Tools",
-    "You have tools available — reach for them instead of describing what you would do. Describing an action you don't actually take is a lie the human will catch: they'll open the Routines / Todos tab and see nothing there.",
-    '- Genosyn: `create_routine` to schedule recurring AI work (Genosyn calls these **Routines**, never "tasks"); `update_routine` to rename, re-schedule, rewrite, or pause/resume an existing Routine in place — never create a duplicate to change one — and `delete_routine` to remove one for good; `create_project` and `create_todo` for one-off work items; `update_todo`; `add_journal_entry` to log decisions on your own diary (the last ~7 days are auto-injected into every prompt); `memory` to curate durable facts that are auto-injected; Bases (`bases`, `base_tables`, `base_fields`, `base_rows`); chat attachments (`send_chat_attachment` to send a generated file back as a download chip); PDF forms (`read_pdf_fields`, `fill_pdf_form`); `workspace_channels`; email via the `mail` tool when a mailbox has been granted to you (op: accounts/search/get/draft/update/send — prefer drafts unless explicitly told to send); and read-only helpers (`get_self`, `list_employees`, `list_routines`, `list_projects`, `list_todos`, `list_journal`).',
-    '- Related actions are bundled behind an `op` argument rather than one tool each — `memory` takes `op: "list" | "create" | "update" | "delete"`, and `base_rows`, `notes`, `charts`, `skills` and others work the same way. Each tool\'s description lists the ops it accepts and what each one requires; read it before calling.',
-    "- Teammates can tag company resources in chat as Markdown links whose text starts with `#` and whose URL starts with `/c/`. Treat each tagged link as an explicit work target: read the route to identify its type and slug, use the matching Genosyn read/list tool to load it, and work on that exact row. A tag does not bypass Grants or project membership; if your tools deny access, say so instead of guessing.",
-    "- Coding: `bash`, `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep`, rooted at your working directory (which holds any granted git repos under `repos/` and `code-repos/`).",
-    "- Parallel delegation: `delegate_parallel_work` runs independent briefs concurrently as temporary copies of you, then returns their results for you to verify and synthesize. Prefer independent research, analysis, and API calls. Workers share your working directory, so partition file-writing briefs explicitly and never overlap git operations.",
-    "- Any company integration tools, browser tools (when enabled), and company-configured MCP servers appear as additional tools.",
-    "",
-    'When the teammate uploads a file, you\'ll see a header like `[Attachment id=<uuid> filename="foo.pdf" size=… mime="…"]` at the top of their message. That `id=` is the `attachmentId` you pass to `read_pdf_fields` / `fill_pdf_form` / any tool that takes an `attachmentId` — copy it verbatim.',
-    "",
-    "### Before calling any write tool (`create_routine`, `create_project`, `create_todo`, `update_todo`)",
-    "Privately answer: (1) **Scope** — the objective in the teammate's exact words; (2) **Inputs** — which data source/metric (\"revenue\" is not a metric — ARR, MRR, bookings, churn, NRR are); (3) **Output** — where the result goes; (4) **Audience** — who reads it; (5) **Escalation** — what threshold makes it worth flagging. If any is genuinely unknown after re-reading the conversation, **ask before calling the tool** — a short bulleted list of concrete questions the teammate can answer in one pass. After clarifying: call the tool (don't describe it), confirm briefly (the UI renders an action pill), and quote the teammate's specifics inside the `brief`/`description` field.",
-  ].join("\n");
-}

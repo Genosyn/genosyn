@@ -1,5 +1,11 @@
 import { Router } from "express";
 import { z } from "zod";
+import {
+  MAX_TOOLSET_ENTRIES,
+  parseToolset,
+  serializeToolset,
+  validateToolset,
+} from "../services/skillToolset.js";
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -26,7 +32,10 @@ skillsRouter.use(requireAuth);
 skillsRouter.use(requireCompanyMember);
 skillsRouter.use(
   onRoutePaths(
-    ["/skills", /^\/employees\/[^/]+\/skills(?:\/|$)/],
+    // `/skills/:sid` was not previously matched, so PATCH/DELETE on a single
+    // skill escaped the admin gate. A declared toolset decides what an employee
+    // loads, so it should be no looser than creating the skill in the first place.
+    ["/skills", /^\/skills\/[^/]+$/, /^\/employees\/[^/]+\/skills(?:\/|$)/],
     requireCompanyRoleForMutations("admin"),
   ),
 );
@@ -100,8 +109,10 @@ skillsRouter.get("/skills", async (req, res) => {
 
   const rows = skills.map(({ body: _body, ...skill }) => {
     const emp = byId.get(skill.employeeId);
+    const { toolsetJson: _toolsetJson, ...rest } = skill;
     return {
-      ...skill,
+      ...rest,
+      toolset: parseToolset(skill.toolsetJson),
       employee: emp ? employeeSummary(emp) : null,
       tags: tags.get(skill.id) ?? [],
     };
@@ -133,6 +144,7 @@ skillsRouter.get("/employees/:eid/skills", async (req, res) => {
 const createSchema = z.object({
   name: z.string().min(1).max(80),
   tagIds: z.array(z.string().uuid()).max(20).optional(),
+  toolset: z.array(z.string().min(1).max(64)).max(MAX_TOOLSET_ENTRIES).optional(),
 });
 
 skillsRouter.post("/employees/:eid/skills", validateBody(createSchema), async (req, res) => {
@@ -140,7 +152,9 @@ skillsRouter.post("/employees/:eid/skills", validateBody(createSchema), async (r
   if (!emp) return res.status(404).json({ error: "Employee not found" });
   const co = await loadCo((req.params as Record<string, string>).cid);
   if (!co) return res.status(404).json({ error: "Company not found" });
-  const { name, tagIds } = req.body as z.infer<typeof createSchema>;
+  const { name, tagIds, toolset } = req.body as z.infer<typeof createSchema>;
+  const checkedToolset = validateToolset(toolset ?? []);
+  if (!checkedToolset.ok) return res.status(400).json({ error: checkedToolset.error });
   if (await findSkillByName(emp.id, name)) {
     return res.status(409).json({ error: "A skill with that name already exists" });
   }
@@ -157,6 +171,7 @@ skillsRouter.post("/employees/:eid/skills", validateBody(createSchema), async (r
     name,
     slug,
     body: skillTemplate(name),
+    toolsetJson: serializeToolset(checkedToolset.names),
   });
   await repo.save(s);
   const tags = await replaceResourceTags(co.id, "skill", s.id, tagIds ?? []);
@@ -192,11 +207,16 @@ skillsRouter.put("/skills/:sid/readme", validateBody(readmeSchema), async (req, 
   res.json({ ok: true });
 });
 
-const patchSchema = z.object({ name: z.string().min(1).max(80).optional() });
+const patchSchema = z.object({
+  name: z.string().min(1).max(80).optional(),
+  toolset: z.array(z.string().min(1).max(64)).max(MAX_TOOLSET_ENTRIES).optional(),
+});
 
 /**
- * Rename a skill. The slug is deliberately left alone — it is derived once at
- * create time so the URL for a skill stays stable across renames.
+ * Rename a skill, or change the tools its playbook declares.
+ *
+ * The slug is deliberately left alone — it is derived once at create time so
+ * the URL for a skill stays stable across renames.
  */
 skillsRouter.patch("/skills/:sid", validateBody(patchSchema), async (req, res) => {
   const found = await loadSkill((req.params as Record<string, string>).cid, req.params.sid);
@@ -211,8 +231,15 @@ skillsRouter.patch("/skills/:sid", validateBody(patchSchema), async (req, res) =
     }
     s.name = body.name;
   }
+  if (body.toolset !== undefined) {
+    // A typo here would otherwise surface as "the model didn't use the tool",
+    // at 3am, inside a routine — so reject it while a human is looking.
+    const checked = validateToolset(body.toolset);
+    if (!checked.ok) return res.status(400).json({ error: checked.error });
+    s.toolsetJson = serializeToolset(checked.names);
+  }
   await AppDataSource.getRepository(Skill).save(s);
-  res.json(s);
+  res.json({ ...s, toolset: parseToolset(s.toolsetJson) });
 });
 
 skillsRouter.delete("/skills/:sid", async (req, res) => {

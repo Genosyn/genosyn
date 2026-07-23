@@ -117,6 +117,12 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           type: "string",
           description: "Short human-readable name, e.g. 'Record Revenue'.",
         },
+        toolset: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Optional. Model-facing tool names this playbook uses (e.g. [\"send_invoice\", \"record_payment\"]). Declared tools are loaded up-front for any turn where this Skill applies, so you never have to look them up. Declaring a tool does not grant access to it — Grants are still checked when it is called.",
+        },
         body: {
           type: "string",
           description:
@@ -136,6 +142,12 @@ export const STATIC_TOOLS: McpToolSpec[] = [
       properties: {
         skillId: { type: "string", description: "UUID from `list_skills`." },
         name: { type: "string" },
+        toolset: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Optional. Model-facing tool names this playbook uses (e.g. [\"send_invoice\", \"record_payment\"]). Declared tools are loaded up-front for any turn where this Skill applies, so you never have to look them up. Declaring a tool does not grant access to it — Grants are still checked when it is called.",
+        },
         body: { type: "string", description: "Replacement markdown playbook." },
       },
       required: ["skillId"],

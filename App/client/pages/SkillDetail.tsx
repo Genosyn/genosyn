@@ -3,6 +3,7 @@ import { Link, useNavigate, useOutletContext, useParams, useSearchParams } from 
 import { Trash2 } from "lucide-react";
 import { api, Company, SkillWithMeta } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { ToolsetPicker } from "../components/ToolsetPicker";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
@@ -227,6 +228,7 @@ function SettingsTab({
   onSaved: () => Promise<void>;
 }) {
   const [name, setName] = React.useState(skill.name);
+  const [toolset, setToolset] = React.useState<string[]>(skill.toolset ?? []);
   const [saving, setSaving] = React.useState(false);
   const { toast } = useToast();
   const dialog = useDialog();
@@ -237,6 +239,7 @@ function SettingsTab({
     try {
       await api.patch(`/api/companies/${company.id}/skills/${skill.id}`, {
         name: name.trim(),
+        toolset,
       });
       await onSaved();
       toast("Skill saved", "success");
@@ -256,6 +259,21 @@ function SettingsTab({
             The address stays <code className="font-mono">@{skill.slug}</code> when you
             rename — links to this skill keep working.
           </p>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardBody className="flex flex-col gap-3">
+          <div>
+            <h3 className="text-sm font-medium text-slate-900 dark:text-slate-100">Tools</h3>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Employees see a working set of tools and look the rest up as they need them.
+              Tools you name here are loaded up-front whenever this skill applies, so the
+              employee never has to search for them. This doesn&apos;t grant access — Grants
+              are still checked when the tool runs.
+            </p>
+          </div>
+          <ToolsetPicker companyId={company.id} value={toolset} onChange={setToolset} />
         </CardBody>
       </Card>
 

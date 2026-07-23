@@ -31,6 +31,21 @@ const MAX_BASH_OUTPUT = 100 * 1024;
 const MAX_GREP_MATCHES = 200;
 const MAX_GLOB_RESULTS = 500;
 
+/**
+ * The coding tool names, for callers that need to validate a name without
+ * building the tools (which needs a working directory). Kept next to the
+ * builder so the two can't drift.
+ */
+export const CODING_TOOL_NAMES = [
+  "bash",
+  "read_file",
+  "write_file",
+  "edit_file",
+  "list_dir",
+  "glob",
+  "grep",
+] as const;
+
 export function codingTools(ctx: CodingToolContext): AgentTool[] {
   return [
     bashTool(ctx),

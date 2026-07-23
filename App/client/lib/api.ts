@@ -299,6 +299,8 @@ export type Skill = {
   slug: string;
   createdAt: string;
   tags: CompanyTag[];
+  /** Tool names this playbook declares; loaded up-front when it applies. */
+  toolset: string[];
 };
 export type Routine = {
   id: string;
