@@ -17,6 +17,7 @@ import {
   Settings as SettingsIcon,
   ShieldCheck,
   Table2,
+  TrendingUp,
   Users,
   Wallet,
   Wrench,
@@ -45,6 +46,7 @@ export type SectionKey =
   | "resources"
   | "explore"
   | "code"
+  | "revenue"
   | "customers"
   | "finance"
   | "pipelines"
@@ -244,6 +246,38 @@ export const SECTION_GROUPS: SectionGroup[] = [
     label: "Money",
     items: [
       {
+        key: "revenue",
+        label: "Revenue",
+        description: "Deals, contacts, outbound, and signals.",
+        icon: TrendingUp,
+        shortcut: "V",
+        path: "/revenue",
+        iconBg:
+          "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300",
+        // "crm", "pipeline" and "leads" are here precisely because they are
+        // words we do NOT use in product copy — somebody typing them should
+        // land here and learn the real names. "pipeline" especially: it means
+        // the DAG primitive everywhere else, so the palette has to carry the
+        // sales-pipeline reading without the nav ever printing it.
+        keywords: [
+          "crm",
+          "pipeline",
+          "sales",
+          "deals",
+          "leads",
+          "prospects",
+          "contacts",
+          "outbound",
+          "sequences",
+          "signals",
+          "mrr",
+          "arr",
+          "churn",
+          "forecast",
+          "gtm",
+        ],
+      },
+      {
         key: "customers",
         label: "Customers",
         description: "Accounts and signed contracts.",
@@ -381,6 +415,7 @@ export function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/resources(\/|$)/.test(pathname)) return "resources";
   if (/\/c\/[^/]+\/explore(\/|$)/.test(pathname)) return "explore";
   if (/\/c\/[^/]+\/code(\/|$)/.test(pathname)) return "code";
+  if (/\/c\/[^/]+\/revenue(\/|$)/.test(pathname)) return "revenue";
   if (/\/c\/[^/]+\/customers(\/|$)/.test(pathname)) return "customers";
   if (/\/c\/[^/]+\/finance(\/|$)/.test(pathname)) return "finance";
   if (/\/c\/[^/]+\/pipelines(\/|$)/.test(pathname)) return "pipelines";

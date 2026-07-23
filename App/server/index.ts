@@ -12,6 +12,7 @@ import { bootCron } from "./services/cron.js";
 import { bootBackups } from "./services/backups.js";
 import { bootPipelineCron } from "./services/pipelines/index.js";
 import { bootRecurringInvoices } from "./services/recurringInvoices.js";
+import { bootRevenue } from "./services/revenue/boot.js";
 import { bootTelegramListeners } from "./services/telegramListener.js";
 import { bootMailSync } from "./services/mail/sync.js";
 import { bootMailHandovers } from "./services/mail/handovers.js";
@@ -61,6 +62,8 @@ import { teamsRouter } from "./routes/teams.js";
 import { handoffsRouter } from "./routes/handoffs.js";
 import { inboxRouter } from "./routes/inbox.js";
 import { mailRouter } from "./routes/mail.js";
+import { revenueRouter } from "./routes/revenue.js";
+import { unsubscribeRouter } from "./routes/unsubscribe.js";
 import { apiKeysRouter } from "./routes/apiKeys.js";
 import { openapiRouter } from "./routes/openapi.js";
 import { homeRouter } from "./routes/home.js";
@@ -101,6 +104,10 @@ async function main() {
   await bootBackups();
   await bootPipelineCron();
   await bootRecurringInvoices();
+  // Revenue (M32): the sequence and signal heartbeats, plus the two callbacks
+  // that let them reach the agent runtime. Synchronous — it only installs
+  // timers; the first pass of each runs on its own interval.
+  bootRevenue();
   bootBrowserSessionSweeper();
   // Long-polling Telegram listener — one outbound HTTP loop per Telegram
   // Connection. Fires asynchronously so a slow Telegram API doesn't gate
@@ -143,6 +150,13 @@ async function main() {
   // Public webhooks (token in URL is the credential). Mounted before auth
   // so session-less POSTs from external systems aren't gated.
   app.use("/api/webhooks", webhooksRouter);
+
+  // Unsubscribe (M32). Deliberately NOT under /api and deliberately
+  // unauthenticated: RFC 8058 one-click means Gmail's servers POST this URL
+  // directly, with no session, no CSRF token and no JavaScript. It must also
+  // still work years after the message was sent, so the token carries
+  // everything it needs and never expires.
+  app.use(unsubscribeRouter);
 
   // Public OAuth callback surface. Google redirects the browser here after
   // the user clicks "Allow"; auth is the single-use `state` token minted
@@ -293,6 +307,10 @@ async function main() {
   // threads, drafts, rules, AI handovers, and per-employee grants. Distinct
   // from the transactional /email/* surface above; see services/mail/.
   app.use("/api/companies/:cid", mailRouter);
+
+  // Revenue section (M32) — contacts, deals, activities, sequences, signals,
+  // suppressions and the revenue reports.
+  app.use("/api/companies/:cid", revenueRouter);
 
   // Client. Dev: mount Vite as middleware so API + UI share one port and
   // HMR still works. Prod: serve the built SPA from dist/client.
