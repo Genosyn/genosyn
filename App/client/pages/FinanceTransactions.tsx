@@ -1,7 +1,25 @@
 import React from "react";
 import { useOutletContext, useSearchParams } from "react-router-dom";
-import { CheckCircle2, ChevronRight, Clock3, Search, Sparkles, Undo2 } from "lucide-react";
-import { Account, api, formatMoney, LedgerEntry, LedgerReviewStatus } from "../lib/api";
+import {
+  CheckCircle2,
+  ChevronRight,
+  Clock3,
+  Search,
+  Sparkles,
+  Tags,
+  Trash2,
+  Undo2,
+  X,
+} from "lucide-react";
+import {
+  Account,
+  api,
+  formatMoney,
+  LedgerBulkAction,
+  LedgerBulkResult,
+  LedgerEntry,
+  LedgerReviewStatus,
+} from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
@@ -60,6 +78,40 @@ function sourceLabel(source: LedgerEntry["source"]): string {
     .replaceAll("_", " ");
 }
 
+/** A checkbox that can render the third "some but not all" state, which HTML
+ *  only exposes through the imperative `indeterminate` property. */
+function TriCheckbox({
+  checked,
+  indeterminate = false,
+  onChange,
+  ariaLabel,
+  className = "",
+}: {
+  checked: boolean;
+  indeterminate?: boolean;
+  onChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  ariaLabel: string;
+  className?: string;
+}) {
+  const ref = React.useRef<HTMLInputElement>(null);
+  React.useEffect(() => {
+    if (ref.current) ref.current.indeterminate = indeterminate;
+  }, [indeterminate]);
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={checked}
+      onChange={onChange}
+      aria-label={ariaLabel}
+      className={
+        "h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 accent-indigo-600 dark:border-slate-600 " +
+        className
+      }
+    />
+  );
+}
+
 export default function FinanceTransactions() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const { toast } = useToast();
@@ -72,6 +124,12 @@ export default function FinanceTransactions() {
   const [summary, setSummary] = React.useState<ReviewSummary | null>(null);
   const [search, setSearch] = React.useState("");
   const [selected, setSelected] = React.useState<LedgerEntry | null>(null);
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() => new Set());
+  const [bulkBusy, setBulkBusy] = React.useState(false);
+  const [confirmAction, setConfirmAction] = React.useState<"approve" | "delete" | null>(null);
+  const [pickerOpen, setPickerOpen] = React.useState(false);
+
+  const canApprove = company.role === "owner" || company.role === "admin";
 
   const reload = React.useCallback(async () => {
     try {
@@ -97,6 +155,7 @@ export default function FinanceTransactions() {
 
   React.useEffect(() => {
     setRows(null);
+    setSelectedIds(new Set());
     void reload();
   }, [reload]);
 
@@ -117,6 +176,88 @@ export default function FinanceTransactions() {
       return `${entry.memo} ${entry.source} ${accountText}`.toLowerCase().includes(needle);
     });
   }, [accountById, rows, search]);
+
+  // Selection is kept as a set of ids and reconciled against the loaded rows so
+  // a lingering id (deleted or filtered away) never drives a bulk call.
+  const selectedEntries = React.useMemo(
+    () => (rows ?? []).filter((entry) => selectedIds.has(entry.id)),
+    [rows, selectedIds],
+  );
+  const selectedCount = selectedEntries.length;
+  const selectedInView = filtered.filter((entry) => selectedIds.has(entry.id)).length;
+  const allSelected = filtered.length > 0 && selectedInView === filtered.length;
+  const someSelected = selectedInView > 0 && !allSelected;
+
+  const anyApprovable = selectedEntries.some((entry) => entry.reviewStatus !== "approved");
+  const anyReturnable = selectedEntries.some((entry) => entry.reviewStatus === "ai_reviewed");
+  const anyDeletable = selectedEntries.some(
+    (entry) => entry.source === "manual" && entry.reviewStatus !== "approved",
+  );
+
+  function toggleOne(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllInView() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) filtered.forEach((entry) => next.delete(entry.id));
+      else filtered.forEach((entry) => next.add(entry.id));
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
+
+  async function runBulk(action: LedgerBulkAction, toAccountId?: string) {
+    const ids = selectedEntries.map((entry) => entry.id);
+    if (ids.length === 0) return;
+    setBulkBusy(true);
+    try {
+      const result = await api.post<LedgerBulkResult>(
+        `/api/companies/${company.id}/ledger-entries/bulk`,
+        { action, ids, toAccountId },
+      );
+      const okN = result.succeeded.length;
+      const skipN = result.skipped.length;
+      const verb =
+        action === "approve"
+          ? "Approved"
+          : action === "return"
+            ? "Returned"
+            : action === "delete"
+              ? "Deleted"
+              : "Recategorized";
+      if (okN > 0) {
+        toast(
+          `${verb} ${okN} transaction${okN === 1 ? "" : "s"}${
+            skipN ? ` · ${skipN} skipped` : ""
+          }`,
+          skipN ? "info" : "success",
+        );
+      } else {
+        toast(
+          skipN ? `Nothing changed — ${result.skipped[0].reason}` : "Nothing to update",
+          "error",
+        );
+      }
+      setConfirmAction(null);
+      setPickerOpen(false);
+      clearSelection();
+      await reload();
+    } catch (err) {
+      toast((err as Error).message || "Bulk action failed", "error");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   function pickStatus(next: LedgerReviewStatus) {
     setSearchParams(next === "unreviewed" ? {} : { status: next });
@@ -215,49 +356,162 @@ export default function FinanceTransactions() {
             </p>
           </div>
         ) : (
-          <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-            {filtered.map((entry) => (
-              <li key={entry.id}>
-                <button
-                  className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800/50"
-                  onClick={() => setSelected(entry)}
-                >
-                  <div className="w-24 shrink-0 font-mono text-xs text-slate-500 dark:text-slate-400">
-                    {new Date(entry.date).toISOString().slice(0, 10)}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
-                      {entry.memo || "Untitled transaction"}
-                    </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                      <span className="capitalize">{sourceLabel(entry.source)}</span>
-                      <span>·</span>
-                      <span>{entry.lines.length} ledger lines</span>
-                      {entry.reviewedByEmployee && (
-                        <>
-                          <span>·</span>
-                          <span className="text-violet-600 dark:text-violet-300">
-                            Reviewed by {entry.reviewedByEmployee.name}
-                          </span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  <span
-                    className={`hidden rounded-full border px-2 py-0.5 text-[10px] font-semibold sm:inline-flex ${STATUS_STYLE[entry.reviewStatus]}`}
-                  >
-                    {statusLabel(entry.reviewStatus)}
+          <>
+            <div
+              className={
+                "sticky top-0 z-10 flex items-center gap-3 border-b px-4 py-2 backdrop-blur " +
+                (selectedCount > 0
+                  ? "border-indigo-200 bg-indigo-50/90 dark:border-indigo-900 dark:bg-indigo-950/70"
+                  : "border-slate-100 bg-white/90 dark:border-slate-800 dark:bg-slate-900/90")
+              }
+            >
+              <TriCheckbox
+                checked={allSelected}
+                indeterminate={someSelected}
+                onChange={toggleAllInView}
+                ariaLabel={allSelected ? "Clear selection" : "Select all transactions"}
+              />
+              {selectedCount === 0 ? (
+                <span className="text-xs text-slate-500 dark:text-slate-400">
+                  Select transactions to approve, recategorize, or delete together.
+                </span>
+              ) : (
+                <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-indigo-700 dark:text-indigo-300">
+                    {selectedCount} selected
                   </span>
-                  <div className="w-28 text-right text-sm font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-                    {formatMoney(entry.totalCents, "USD")}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {canApprove && anyApprovable && (
+                      <Button
+                        size="sm"
+                        onClick={() => setConfirmAction("approve")}
+                        disabled={bulkBusy}
+                      >
+                        <CheckCircle2 size={14} /> Approve
+                      </Button>
+                    )}
+                    {canApprove && anyReturnable && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => void runBulk("return")}
+                        disabled={bulkBusy}
+                      >
+                        <Undo2 size={14} /> Return
+                      </Button>
+                    )}
+                    {canApprove && anyApprovable && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setPickerOpen(true)}
+                        disabled={bulkBusy}
+                      >
+                        <Tags size={14} /> Change category
+                      </Button>
+                    )}
+                    {anyDeletable && (
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        onClick={() => setConfirmAction("delete")}
+                        disabled={bulkBusy}
+                      >
+                        <Trash2 size={14} /> Delete
+                      </Button>
+                    )}
+                    <button
+                      onClick={clearSelection}
+                      disabled={bulkBusy}
+                      aria-label="Clear selection"
+                      className="rounded-md p-1.5 text-slate-500 hover:bg-white/70 hover:text-slate-700 disabled:opacity-60 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                    >
+                      <X size={15} />
+                    </button>
                   </div>
-                  <ChevronRight size={15} className="text-slate-400" />
-                </button>
-              </li>
-            ))}
-          </ul>
+                </div>
+              )}
+            </div>
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+              {filtered.map((entry) => {
+                const isSelected = selectedIds.has(entry.id);
+                return (
+                  <li
+                    key={entry.id}
+                    className={
+                      "flex items-center gap-3 pl-4 transition-colors " +
+                      (isSelected
+                        ? "bg-indigo-50/70 dark:bg-indigo-950/40"
+                        : "hover:bg-slate-50 dark:hover:bg-slate-800/50")
+                    }
+                  >
+                    <TriCheckbox
+                      checked={isSelected}
+                      onChange={() => toggleOne(entry.id)}
+                      ariaLabel={`Select ${entry.memo || "transaction"}`}
+                    />
+                    <button
+                      className="flex min-w-0 flex-1 items-center gap-3 py-3 pr-4 text-left"
+                      onClick={() => setSelected(entry)}
+                    >
+                      <div className="hidden w-24 shrink-0 font-mono text-xs text-slate-500 sm:block dark:text-slate-400">
+                        {new Date(entry.date).toISOString().slice(0, 10)}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
+                          {entry.memo || "Untitled transaction"}
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                          <span className="capitalize">{sourceLabel(entry.source)}</span>
+                          <span>·</span>
+                          <span>{entry.lines.length} ledger lines</span>
+                          {entry.reviewedByEmployee && (
+                            <>
+                              <span>·</span>
+                              <span className="text-violet-600 dark:text-violet-300">
+                                Reviewed by {entry.reviewedByEmployee.name}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <span
+                        className={`hidden rounded-full border px-2 py-0.5 text-[10px] font-semibold sm:inline-flex ${STATUS_STYLE[entry.reviewStatus]}`}
+                      >
+                        {statusLabel(entry.reviewStatus)}
+                      </span>
+                      <div className="w-28 text-right text-sm font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+                        {formatMoney(entry.totalCents, "USD")}
+                      </div>
+                      <ChevronRight size={15} className="text-slate-400" />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
         )}
       </div>
+
+      {confirmAction && (
+        <BulkConfirmModal
+          action={confirmAction}
+          count={selectedCount}
+          busy={bulkBusy}
+          onClose={() => (bulkBusy ? undefined : setConfirmAction(null))}
+          onConfirm={() => void runBulk(confirmAction)}
+        />
+      )}
+
+      {pickerOpen && accounts && (
+        <BulkCategoryModal
+          accounts={accounts}
+          count={selectedCount}
+          busy={bulkBusy}
+          onClose={() => (bulkBusy ? undefined : setPickerOpen(false))}
+          onApply={(accountId) => void runBulk("recategorize", accountId)}
+        />
+      )}
 
       {selected && accounts && (
         <TransactionReviewModal
@@ -274,6 +528,163 @@ export default function FinanceTransactions() {
         />
       )}
     </div>
+  );
+}
+
+function BulkConfirmModal({
+  action,
+  count,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  action: "approve" | "delete";
+  count: number;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const isDelete = action === "delete";
+  const plural = count === 1 ? "" : "s";
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={isDelete ? "Delete transactions" : "Approve transactions"}
+    >
+      <p className="text-sm text-slate-600 dark:text-slate-300">
+        {isDelete ? (
+          <>
+            You&apos;re about to delete {count} selected transaction{plural}. Only unapproved,
+            manually posted drafts are removed — approved or auto-posted entries are skipped and left
+            untouched.
+          </>
+        ) : (
+          <>
+            Approve {count} selected transaction{plural}? Any staged category changes are posted to
+            the ledger and each transaction gets final human sign-off. Rows already approved are
+            skipped.
+          </>
+        )}
+      </p>
+      <div className="mt-6 flex justify-end gap-2">
+        <Button variant="secondary" onClick={onClose} disabled={busy}>
+          Cancel
+        </Button>
+        <Button variant={isDelete ? "danger" : "primary"} onClick={onConfirm} disabled={busy}>
+          {busy ? (
+            <Spinner size={14} />
+          ) : isDelete ? (
+            <Trash2 size={14} />
+          ) : (
+            <CheckCircle2 size={14} />
+          )}
+          {isDelete ? "Delete" : "Approve"} {count}
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
+function BulkCategoryModal({
+  accounts,
+  count,
+  busy,
+  onClose,
+  onApply,
+}: {
+  accounts: Account[];
+  count: number;
+  busy: boolean;
+  onClose: () => void;
+  onApply: (accountId: string) => void;
+}) {
+  const [search, setSearch] = React.useState("");
+  const [picked, setPicked] = React.useState<string | null>(null);
+  const options = React.useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return accounts
+      .filter((account) => !account.archivedAt)
+      .filter((account) => account.type === "expense" || account.type === "revenue")
+      .filter(
+        (account) => !needle || `${account.code} ${account.name}`.toLowerCase().includes(needle),
+      )
+      .sort((a, b) => a.code.localeCompare(b.code));
+  }, [accounts, search]);
+  const groups: Array<{ label: string; list: Account[] }> = [
+    { label: "Expense", list: options.filter((account) => account.type === "expense") },
+    { label: "Revenue", list: options.filter((account) => account.type === "revenue") },
+  ];
+  const plural = count === 1 ? "" : "s";
+
+  return (
+    <Modal open onClose={onClose} title="Change category" size="lg">
+      <p className="text-sm text-slate-600 dark:text-slate-300">
+        Apply one category to {count} selected transaction{plural} and approve them. Each
+        transaction&apos;s single expense or revenue line moves to the category you pick;
+        transactions with a different shape — no matching line, or more than one — are skipped so you
+        can open them individually.
+      </p>
+      <label className="relative mt-4 block">
+        <Search size={14} className="pointer-events-none absolute left-3 top-2.5 text-slate-400" />
+        <input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search categories"
+          className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-indigo-900"
+        />
+      </label>
+      <div className="mt-3 max-h-72 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700">
+        {options.length === 0 ? (
+          <p className="p-6 text-center text-sm text-slate-500 dark:text-slate-400">
+            No matching categories
+          </p>
+        ) : (
+          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            {groups.map((group) =>
+              group.list.length === 0 ? null : (
+                <div key={group.label}>
+                  <div className="bg-slate-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                    {group.label}
+                  </div>
+                  {group.list.map((account) => (
+                    <button
+                      key={account.id}
+                      onClick={() => setPicked(account.id)}
+                      className={
+                        "flex w-full items-center gap-2 px-3 py-2 text-left text-sm " +
+                        (picked === account.id
+                          ? "bg-indigo-50 text-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-200"
+                          : "hover:bg-slate-50 dark:hover:bg-slate-800/50")
+                      }
+                    >
+                      <span className="font-mono text-xs text-slate-400">{account.code}</span>
+                      <span className="truncate text-slate-700 dark:text-slate-200">
+                        {account.name}
+                      </span>
+                      {picked === account.id && (
+                        <CheckCircle2
+                          size={14}
+                          className="ml-auto text-indigo-600 dark:text-indigo-300"
+                        />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              ),
+            )}
+          </div>
+        )}
+      </div>
+      <div className="mt-6 flex justify-end gap-2">
+        <Button variant="secondary" onClick={onClose} disabled={busy}>
+          Cancel
+        </Button>
+        <Button onClick={() => picked && onApply(picked)} disabled={busy || !picked}>
+          {busy ? <Spinner size={14} /> : <Tags size={14} />} Apply &amp; approve
+        </Button>
+      </div>
+    </Modal>
   );
 }
 

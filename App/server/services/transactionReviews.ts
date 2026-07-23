@@ -320,6 +320,138 @@ export async function returnLedgerReview(args: {
   return (await getLedgerEntryForReview(args.companyId, entry.id))!;
 }
 
+export type BulkReviewAction = "approve" | "return" | "delete" | "recategorize";
+
+export type BulkReviewResult = {
+  action: BulkReviewAction;
+  succeeded: string[];
+  skipped: Array<{ id: string; reason: string }>;
+};
+
+/**
+ * Apply one review action to a batch of transactions. Each entry is handled
+ * independently: a failure on one (already approved, wrong line shape, …)
+ * records a skip reason and never aborts the rest of the batch. Approve,
+ * return, and recategorize all post through the single-entry helpers so the
+ * ledger side effects and validation stay identical to the one-at-a-time flow.
+ */
+export async function bulkLedgerReview(args: {
+  companyId: string;
+  userId: string;
+  action: BulkReviewAction;
+  entryIds: string[];
+  toAccountId?: string;
+  note?: string;
+}): Promise<BulkReviewResult> {
+  const ids = [...new Set(args.entryIds)];
+  const succeeded: string[] = [];
+  const skipped: Array<{ id: string; reason: string }> = [];
+
+  if (args.action === "recategorize") {
+    return recategorizeBatch({ ...args, entryIds: ids });
+  }
+
+  for (const id of ids) {
+    try {
+      if (args.action === "approve") {
+        await approveLedgerReview({
+          companyId: args.companyId,
+          entryId: id,
+          userId: args.userId,
+          note: args.note,
+        });
+      } else if (args.action === "return") {
+        await returnLedgerReview({ companyId: args.companyId, entryId: id, note: args.note });
+      } else {
+        await deleteLedgerEntry(args.companyId, id);
+      }
+      succeeded.push(id);
+    } catch (err) {
+      skipped.push({ id, reason: (err as Error).message || "Could not update transaction" });
+    }
+  }
+  return { action: args.action, succeeded, skipped };
+}
+
+/** Mirrors the single-entry DELETE guard: only unapproved, manually posted
+ *  transactions can be removed; everything else must be voided at the source. */
+async function deleteLedgerEntry(companyId: string, entryId: string): Promise<void> {
+  const repo = AppDataSource.getRepository(LedgerEntry);
+  const entry = await repo.findOneBy({ id: entryId, companyId });
+  if (!entry) throw new Error("Transaction not found");
+  if (entry.reviewStatus === "approved") {
+    throw new Error("Approved transactions are locked — post a reversing entry instead");
+  }
+  if (entry.source !== "manual") {
+    throw new Error("Auto-posted entries cannot be deleted — void the source instead");
+  }
+  await AppDataSource.getRepository(LedgerLine).delete({ ledgerEntryId: entry.id });
+  await repo.delete({ id: entry.id });
+}
+
+/** Move every selected transaction's single expense/revenue line to one target
+ *  category and approve it in the same step (posting a reclass is itself the
+ *  human sign-off). Transactions whose editable line does not match the target
+ *  account type, or that carry more than one such line, are skipped so the
+ *  owner can open them and decide by hand. */
+async function recategorizeBatch(args: {
+  companyId: string;
+  userId: string;
+  entryIds: string[];
+  toAccountId?: string;
+  note?: string;
+}): Promise<BulkReviewResult> {
+  const succeeded: string[] = [];
+  const skipped: Array<{ id: string; reason: string }> = [];
+  if (!args.toAccountId) {
+    return { action: "recategorize", succeeded, skipped };
+  }
+  const target = await AppDataSource.getRepository(Account).findOneBy({
+    id: args.toAccountId,
+    companyId: args.companyId,
+  });
+  if (!target) throw new Error("Target category not found");
+  if (target.type !== "expense" && target.type !== "revenue") {
+    throw new Error("Only expense and revenue categories can be applied in bulk");
+  }
+  if (target.archivedAt) throw new Error(`Category ${target.code} ${target.name} is archived`);
+
+  const accounts = await AppDataSource.getRepository(Account).find({
+    where: { companyId: args.companyId },
+  });
+  const accountById = new Map(accounts.map((account) => [account.id, account]));
+
+  for (const id of args.entryIds) {
+    try {
+      const entry = await getLedgerEntryForReview(args.companyId, id);
+      if (!entry) throw new Error("Transaction not found");
+      if (entry.reviewStatus === "approved") {
+        throw new Error("Already approved — locked");
+      }
+      const candidates = entry.lines.filter(
+        (line) => accountById.get(line.accountId)?.type === target.type,
+      );
+      if (candidates.length === 0) {
+        throw new Error(`No ${target.type} line to recategorize`);
+      }
+      if (candidates.length > 1) {
+        throw new Error(`Has ${candidates.length} ${target.type} lines — open it to choose`);
+      }
+      await approveLedgerReview({
+        companyId: args.companyId,
+        entryId: id,
+        userId: args.userId,
+        changes: [{ lineId: candidates[0].id, accountId: target.id }],
+        note: args.note,
+      });
+      succeeded.push(id);
+    } catch (err) {
+      skipped.push({ id, reason: (err as Error).message || "Could not recategorize" });
+    }
+  }
+  return { action: "recategorize", succeeded, skipped };
+}
+
 async function notifyFinanceReviewReady(entry: LedgerEntry, employeeId: string): Promise<void> {
   const [company, employee, memberships] = await Promise.all([
     AppDataSource.getRepository(Company).findOneBy({ id: entry.companyId }),

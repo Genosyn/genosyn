@@ -250,6 +250,17 @@ export function Finance() {
         preserves the original posting, so the Journal and audit log show both sides of the
         decision. Nothing edits a posted ledger line in place.
       </P>
+      <P>
+        When several transactions call for the same decision, tick the checkbox on each row (or the
+        header checkbox to take the whole list) and a selection bar appears with bulk{" "}
+        <Code>Approve</Code>, <Code>Return</Code>, <Code>Change category</Code>, and{" "}
+        <Code>Delete</Code>. <Strong>Change category</Strong> moves each transaction&apos;s single
+        expense or revenue line to one category and approves it in the same step. Bulk delete only
+        removes unapproved manual drafts. Every action runs per-transaction: rows that don&apos;t
+        qualify — already approved, auto-posted, or the wrong shape for a shared category — are
+        skipped and reported back, never silently changed. Approve, Return, and Change category stay
+        limited to owners and admins.
+      </P>
 
       <H2 id="ai-access">Give AI employees finance access</H2>
       <P>

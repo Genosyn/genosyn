@@ -84,6 +84,7 @@ import {
 import { postLedgerEntry, seedChartOfAccounts, trialBalance } from "../services/ledger.js";
 import {
   approveLedgerReview,
+  bulkLedgerReview,
   getLedgerEntryForReview,
   hydrateLedgerEntries,
   ledgerReviewSummary,
@@ -1781,6 +1782,56 @@ financeRouter.post(
     }
   },
 );
+
+const ledgerBulkSchema = z.object({
+  action: z.enum(["approve", "return", "delete", "recategorize"]),
+  ids: z.array(z.string().uuid()).min(1).max(500),
+  toAccountId: z.string().uuid().optional(),
+  note: z.string().max(2000).optional(),
+});
+
+financeRouter.post("/ledger-entries/bulk", validateBody(ledgerBulkSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const body = req.body as z.infer<typeof ledgerBulkSchema>;
+  // Deleting is limited to unapproved manual drafts, matching the single-entry
+  // DELETE; the other three actions post to the ledger, so they stay behind the
+  // same owner/admin gate as one-at-a-time approval.
+  if (body.action !== "delete" && !canApproveFinance(req)) {
+    return res
+      .status(403)
+      .json({ error: "Only owners and admins can approve, return, or recategorize transactions" });
+  }
+  if (body.action === "recategorize" && !body.toAccountId) {
+    return res.status(400).json({ error: "Pick a category to apply" });
+  }
+  try {
+    const result = await bulkLedgerReview({
+      companyId: cid,
+      userId: req.userId!,
+      action: body.action,
+      entryIds: body.ids,
+      toAccountId: body.toAccountId,
+      note: body.note,
+    });
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId,
+      action: `finance.transaction.bulk_${body.action}`,
+      targetType: "ledger_entry",
+      targetId: result.succeeded[0] ?? null,
+      targetLabel: `${result.succeeded.length} transaction(s)`,
+      metadata: {
+        requested: body.ids.length,
+        succeeded: result.succeeded.length,
+        skipped: result.skipped.length,
+        toAccountId: body.toAccountId ?? null,
+      },
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
 
 // ─────────────────────────── Trial balance ─────────────────────────────
 

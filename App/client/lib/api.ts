@@ -2478,6 +2478,14 @@ export type LedgerLineDraft = {
   description?: string;
 };
 
+export type LedgerBulkAction = "approve" | "return" | "delete" | "recategorize";
+
+export type LedgerBulkResult = {
+  action: LedgerBulkAction;
+  succeeded: string[];
+  skipped: Array<{ id: string; reason: string }>;
+};
+
 export type TrialBalanceRow = {
   account: Pick<Account, "id" | "code" | "name" | "type">;
   debitCents: number;
