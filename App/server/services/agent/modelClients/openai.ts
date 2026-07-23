@@ -6,6 +6,7 @@ import type {
   ModelClient,
   ToolDef,
 } from "../types.js";
+import { parseArgs } from "./parseArgs.js";
 
 /**
  * OpenAI Chat Completions client — the carrier for the `custom` provider (any
@@ -74,6 +75,9 @@ export function createOpenAIClient(opts: {
         number,
         { id: string; name: string; args: string }
       >();
+      // Which slot the previous fragment landed in, so a fragment carrying
+      // neither `index` nor `id` can be appended to the call it continues.
+      let lastSlot = -1;
 
       for await (const chunk of stream) {
         // The usage chunk arrives last and carries an empty `choices` array, so
@@ -99,12 +103,13 @@ export function createOpenAIClient(opts: {
         }
         if (delta?.tool_calls) {
           for (const tc of delta.tool_calls) {
-            const idx = tc.index ?? 0;
+            const idx = tc.index ?? slotFor(toolAcc, tc.id, lastSlot);
             const cur = toolAcc.get(idx) ?? { id: "", name: "", args: "" };
             if (tc.id) cur.id = tc.id;
             if (tc.function?.name) cur.name = tc.function.name;
             if (tc.function?.arguments) cur.args += tc.function.arguments;
             toolAcc.set(idx, cur);
+            lastSlot = idx;
           }
         }
         if (choice.finish_reason) finishReason = choice.finish_reason;
@@ -118,7 +123,7 @@ export function createOpenAIClient(opts: {
           type: "tool_use",
           id: tc.id || `call_${tc.name}_${blocks.length}`,
           name: tc.name,
-          input: parseArgs(tc.args),
+          input: parseArgs(tc.args).input,
         });
       }
 
@@ -129,17 +134,33 @@ export function createOpenAIClient(opts: {
   };
 }
 
-function parseArgs(raw: string): Record<string, unknown> {
-  const s = raw.trim();
-  if (!s) return {};
-  try {
-    const v = JSON.parse(s);
-    return v && typeof v === "object" && !Array.isArray(v)
-      ? (v as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
+/**
+ * Which accumulator slot a fragment belongs to when the server omitted `index`.
+ *
+ * Chat Completions says `index` is present on every `tool_calls` delta, but
+ * llama.cpp and some vLLM builds leave it off. Defaulting to 0 was survivable
+ * while parallel calls had distinct names — the collision produced obvious
+ * garbage. It stops being survivable once several calls in one turn share a
+ * name (`call_tool`, from `../tools/discovery.ts`): their argument fragments
+ * interleave into one slot and concatenate into invalid JSON that reads as the
+ * model's fault.
+ *
+ * So: a fragment carrying an id joins the slot already holding that id, or
+ * opens a new one; a fragment carrying neither id nor index continues whatever
+ * the previous fragment was building.
+ */
+function slotFor(
+  acc: Map<number, { id: string; name: string; args: string }>,
+  id: string | undefined,
+  lastSlot: number,
+): number {
+  if (id) {
+    for (const [slot, call] of acc) {
+      if (call.id === id) return slot;
+    }
+    return acc.size;
   }
+  return lastSlot >= 0 ? lastSlot : 0;
 }
 
 function toOpenAITool(t: ToolDef): OpenAI.Chat.Completions.ChatCompletionTool {

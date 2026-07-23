@@ -7,6 +7,7 @@ import type {
   ToolDef,
   ToolResultBlock,
 } from "../types.js";
+import { parseArgs } from "./parseArgs.js";
 
 /**
  * OpenAI Responses API client — the carrier for the `openai` provider.
@@ -142,7 +143,7 @@ export function createOpenAIResponsesClient(opts: {
             // is a guaranteed rejection.
             id: item.call_id,
             name: item.name,
-            input: parseArgs(item.arguments),
+            input: parseArgs(item.arguments).input,
           });
         }
         // `reasoning` items are dropped: AssistantBlock has nowhere to put them,
@@ -175,19 +176,6 @@ export function createOpenAIResponsesClient(opts: {
       };
     },
   };
-}
-
-function parseArgs(raw: string): Record<string, unknown> {
-  const s = raw.trim();
-  if (!s) return {};
-  try {
-    const v = JSON.parse(s);
-    return v && typeof v === "object" && !Array.isArray(v)
-      ? (v as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
 }
 
 function toResponsesTool(t: ToolDef): OpenAI.Responses.FunctionTool {

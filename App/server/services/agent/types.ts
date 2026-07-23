@@ -64,6 +64,19 @@ export type ToolResult = {
 /** A tool the model can call. `run` executes it and returns text for the model. */
 export type AgentTool = ToolDef & {
   run(input: Record<string, unknown>): Promise<ToolResult>;
+  /**
+   * What this call *really* is, for logs and the run transcript.
+   *
+   * Only dispatching tools implement it. `call_tool` runs every deferred tool
+   * in the catalogue, so without this every one of them would appear in the
+   * transcript as `call_tool` — turning the most useful column in a run log
+   * into a constant. Returning `{name, input}` lets the loop report the target
+   * the model actually reached for.
+   */
+  describeCall?(input: Record<string, unknown>): {
+    name: string;
+    input: Record<string, unknown>;
+  };
 };
 
 // ---------- model client ----------
@@ -89,6 +102,28 @@ export type StreamCallbacks = {
    * employee that inexplicably refuses to do its job.
    */
   onToolsTrimmed?: (info: ToolTrimInfo) => void;
+  /**
+   * Fired once per run with how the tool catalogue was split into the working
+   * set the model is shown and the tail it has to discover.
+   *
+   * Same reasoning as {@link onCompact} and {@link onToolsTrimmed}: deferral is
+   * invisible from the outside, and "the employee never used the tool" and "the
+   * employee was never shown the tool" look identical in a transcript unless
+   * something says which happened.
+   */
+  onToolsDeferred?: (info: ToolDeferralInfo) => void;
+};
+
+/** How the run's tools were split between the working set and the catalogue. */
+export type ToolDeferralInfo = {
+  /** Tools sent on every request this run. */
+  resident: number;
+  /** Tools reachable only via `find_tools` / `call_tool`. */
+  deferred: number;
+  /** Domains represented in the deferred catalogue, for the run log. */
+  domains: string[];
+  /** Names made resident because a Skill's declared toolset asked for them. */
+  fromSkills: string[];
 };
 
 /** What the tool trim dropped, and what forced it. */
@@ -162,6 +197,5 @@ export interface ModelClient {
     tools: ToolDef[];
     signal?: AbortSignal;
     onText?: (delta: string) => void;
-    onToolUse?: (name: string) => void;
   }): Promise<AssistantTurn>;
 }
