@@ -8,7 +8,19 @@ test("round-trips scoped authenticated ciphertext", () => {
   const encrypted = encryptSecret("tenant credential", "company:alpha");
   assert.match(encrypted, /^v2\./);
   assert.equal(decryptSecret(encrypted), "tenant credential");
-  assert.throws(() => decryptSecret(`${encrypted.slice(0, -1)}A`));
+  // Tamper a character mid-payload rather than the final one. The last
+  // base64 character carries padding bits that don't all survive a decode,
+  // so overwriting it is not guaranteed to change the ciphertext — whenever
+  // that character already equals the replacement the "tampered" string is
+  // byte-identical to the original, decryption succeeds, and the expected
+  // exception never fires (~6% of runs, since padding restricts the final
+  // character to 16 values). A mid-payload swap always changes real bytes,
+  // so the GCM auth tag rejects it deterministically.
+  const body = encrypted.slice("v2.".length);
+  const at = Math.floor(body.length / 2);
+  const tampered = `v2.${body.slice(0, at)}${body[at] === "A" ? "B" : "A"}${body.slice(at + 1)}`;
+  assert.notEqual(tampered, encrypted);
+  assert.throws(() => decryptSecret(tampered));
 });
 
 test("reads legacy session-secret ciphertexts during rotation", () => {
