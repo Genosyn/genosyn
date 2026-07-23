@@ -79,15 +79,29 @@ export async function syncStripePayouts(feed: BankFeed): Promise<number> {
   const apiKey = cfg.apiKey;
   if (!apiKey) throw new Error("Stripe connection is missing an API key");
 
-  const res = await fetch(`${STRIPE_API}/payouts?limit=100`, {
-    headers: { Authorization: `Bearer ${apiKey}` },
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`Stripe ${res.status}: ${text.slice(0, 200)}`);
+  // Walk the full payout history via cursor pagination. Stripe caps a page
+  // at 100 and sets `has_more` when more remain; fetching a single page
+  // silently dropped every payout older than the newest 100. The page cap
+  // is a backstop against a pathological response looping forever.
+  const payouts: StripePayout[] = [];
+  let startingAfter: string | undefined;
+  for (let page = 0; page < 1000; page += 1) {
+    const url = new URL(`${STRIPE_API}/payouts`);
+    url.searchParams.set("limit", "100");
+    if (startingAfter) url.searchParams.set("starting_after", startingAfter);
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(`Stripe ${res.status}: ${text.slice(0, 200)}`);
+    }
+    const parsed = JSON.parse(text) as StripePayoutsResponse;
+    const batch = parsed.data ?? [];
+    payouts.push(...batch);
+    if (!parsed.has_more || batch.length === 0) break;
+    startingAfter = batch[batch.length - 1].id;
   }
-  const parsed = JSON.parse(text) as StripePayoutsResponse;
-  const payouts = parsed.data ?? [];
 
   const existing = await AppDataSource.getRepository(BankTransaction).find({
     where: { feedId: feed.id },

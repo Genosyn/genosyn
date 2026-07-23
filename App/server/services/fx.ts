@@ -2,6 +2,7 @@ import { AppDataSource } from "../db/datasource.js";
 import { CompanyFinanceSettings } from "../db/entities/CompanyFinanceSettings.js";
 import { Currency } from "../db/entities/Currency.js";
 import { ExchangeRate } from "../db/entities/ExchangeRate.js";
+import { LedgerEntry } from "../db/entities/LedgerEntry.js";
 import { roundHalfAway } from "../lib/money.js";
 import { seedChartOfAccounts } from "./ledger.js";
 
@@ -107,7 +108,25 @@ export async function setHomeCurrency(
 ): Promise<CompanyFinanceSettings> {
   const repo = AppDataSource.getRepository(CompanyFinanceSettings);
   const s = await getFinanceSettings(companyId);
-  s.homeCurrency = homeCurrency.toUpperCase();
+  const next = homeCurrency.toUpperCase();
+  // Historical ledger amounts are stored as integer minor units *in the home
+  // currency at the time they were posted* — there is no per-row reporting
+  // currency to reinterpret. Silently switching the home currency would
+  // re-label every past balance (a $1,100 balance sheet reads as "€1,100"),
+  // so once anything is on the books the switch is refused. Setting it to the
+  // same value stays a harmless no-op.
+  if (next !== s.homeCurrency) {
+    const posted = await AppDataSource.getRepository(LedgerEntry).count({
+      where: { companyId },
+    });
+    if (posted > 0) {
+      throw new Error(
+        "Home currency can't be changed once transactions have been posted — " +
+          "historical amounts are stored in the original home currency and would be silently re-labeled.",
+      );
+    }
+  }
+  s.homeCurrency = next;
   return repo.save(s);
 }
 

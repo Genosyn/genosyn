@@ -1601,6 +1601,23 @@ financeRouter.patch(
       if (a.isSystem && body.archived) {
         return res.status(409).json({ error: "System accounts cannot be archived" });
       }
+      // Every report filters archived accounts out, so archiving one that
+      // still carries a balance would silently drop that balance from the
+      // trial balance and balance sheet — the books would stop balancing.
+      // The delete path already guards this; the archive path must too.
+      if (body.archived && !a.archivedAt) {
+        const lines = await AppDataSource.getRepository(LedgerLine).find({
+          where: { accountId: a.id },
+          select: ["debitCents", "creditCents"],
+        });
+        const balance = lines.reduce((sum, l) => sum + l.debitCents - l.creditCents, 0);
+        if (balance !== 0) {
+          return res.status(409).json({
+            error:
+              "This account still has a balance. Move its balance to another account with a journal entry before archiving it.",
+          });
+        }
+      }
       a.archivedAt = body.archived ? new Date() : null;
     }
     await repo.save(a);
@@ -1736,6 +1753,15 @@ financeRouter.delete("/ledger-entries/:id", async (req, res) => {
   }
   await AppDataSource.getRepository(LedgerLine).delete({ ledgerEntryId: e.id });
   await repo.delete({ id: e.id });
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "finance.ledger_entry.delete",
+    targetType: "ledger_entry",
+    targetId: e.id,
+    targetLabel: e.memo || e.source,
+    metadata: { source: e.source, date: e.date.toISOString() },
+  });
   res.json({ ok: true });
 });
 
@@ -2393,19 +2419,23 @@ const settingsPatchSchema = z.object({
 financeRouter.patch("/finance-settings", validateBody(settingsPatchSchema), async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const body = req.body as z.infer<typeof settingsPatchSchema>;
-  if (body.homeCurrency !== undefined) {
-    await setHomeCurrency(cid, body.homeCurrency);
+  try {
+    if (body.homeCurrency !== undefined) {
+      await setHomeCurrency(cid, body.homeCurrency);
+    }
+    if (body.defaultFromBlock !== undefined || body.defaultFooter !== undefined) {
+      await setFinanceTemplates(cid, {
+        defaultFromBlock: body.defaultFromBlock,
+        defaultFooter: body.defaultFooter,
+      });
+    }
+    if (body.invoiceCcEmails !== undefined) {
+      await setInvoiceCcEmails(cid, body.invoiceCcEmails);
+    }
+    res.json(await getFinanceSettings(cid));
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
   }
-  if (body.defaultFromBlock !== undefined || body.defaultFooter !== undefined) {
-    await setFinanceTemplates(cid, {
-      defaultFromBlock: body.defaultFromBlock,
-      defaultFooter: body.defaultFooter,
-    });
-  }
-  if (body.invoiceCcEmails !== undefined) {
-    await setInvoiceCcEmails(cid, body.invoiceCcEmails);
-  }
-  res.json(await getFinanceSettings(cid));
 });
 
 financeRouter.get("/currencies", async (req, res) => {
@@ -2529,6 +2559,22 @@ financeRouter.post("/periods", validateBody(periodCreateSchema), async (req, res
     return res.status(400).json({ error: "endDate must be after startDate" });
   }
   const repo = AppDataSource.getRepository(AccountingPeriod);
+  // Accounting periods must partition the calendar — two overlapping periods
+  // would double-count the overlapping P&L into Retained Earnings when both
+  // close. Reject any new range that intersects an existing one.
+  const existing = await repo.find({ where: { companyId: cid } });
+  const clash = existing.find(
+    (existingPeriod) =>
+      start.getTime() <= existingPeriod.endDate.getTime() &&
+      existingPeriod.startDate.getTime() <= end.getTime(),
+  );
+  if (clash) {
+    return res.status(409).json({
+      error: `This range overlaps the existing period "${clash.name}" (${clash.startDate
+        .toISOString()
+        .slice(0, 10)} – ${clash.endDate.toISOString().slice(0, 10)}).`,
+    });
+  }
   const p = await repo.save(
     repo.create({
       companyId: cid,
@@ -2559,6 +2605,14 @@ financeRouter.post("/periods/:id/close", async (req, res) => {
   if (!p) return res.status(404).json({ error: "Period not found" });
   try {
     const closed = await closePeriod(p, req.userId ?? null);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "finance.period.close",
+      targetType: "accounting_period",
+      targetId: p.id,
+      targetLabel: p.name,
+    });
     res.json(closed);
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
@@ -2572,6 +2626,14 @@ financeRouter.post("/periods/:id/reopen", async (req, res) => {
   if (!p) return res.status(404).json({ error: "Period not found" });
   try {
     const opened = await reopenPeriod(p);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "finance.period.reopen",
+      targetType: "accounting_period",
+      targetId: p.id,
+      targetLabel: p.name,
+    });
     res.json(opened);
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
