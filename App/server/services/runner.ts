@@ -178,7 +178,10 @@ export async function startRoutineRun(
   const completion = (async (): Promise<Run> => {
     let mcpToken: string | null = null;
     try {
-      mcpToken = issueMcpToken(emp.id, co.id);
+      mcpToken = issueMcpToken(emp.id, co.id, {
+        runId: saved.id,
+        routineId: routine.id,
+      });
       // No model connected → skip cleanly.
       if (!model) {
         log.line(

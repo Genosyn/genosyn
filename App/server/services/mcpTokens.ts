@@ -18,6 +18,14 @@ export type McpTokenInfo = {
   token: string;
   employeeId: string;
   companyId: string;
+  /**
+   * The Run and Routine this token was minted for, when the spawn came from the
+   * routine runner. Null for the chat seam and external MCP sessions, which
+   * have an employee but no Run. Tools that record provenance (mail drafts, for
+   * one) read these so a write can be traced back to the Routine that made it.
+   */
+  runId: string | null;
+  routineId: string | null;
   expiresAt: number;
 };
 
@@ -56,14 +64,24 @@ const stagedSidecars = new Map<string, Map<string, unknown[]>>();
  * Mint a fresh token for an employee + company. 32 random bytes gives ~128
  * bits of entropy — plenty for a token that lives in memory and expires on
  * the hour.
+ *
+ * `origin` is optional so the chat seam and external MCP sessions — which have
+ * no Run — keep calling this with two arguments; the routine runner passes the
+ * Run and Routine it is executing so tool writes can record their provenance.
  */
-export function issueMcpToken(employeeId: string, companyId: string): string {
+export function issueMcpToken(
+  employeeId: string,
+  companyId: string,
+  origin: { runId?: string; routineId?: string } = {},
+): string {
   sweep();
   const token = crypto.randomBytes(32).toString("hex");
   tokens.set(token, {
     token,
     employeeId,
     companyId,
+    runId: origin.runId ?? null,
+    routineId: origin.routineId ?? null,
     expiresAt: Date.now() + TTL_MS,
   });
   return token;

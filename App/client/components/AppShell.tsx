@@ -22,6 +22,7 @@ import {
   PALETTE_SHORTCUT,
   useCommandPalette,
 } from "./CommandPalette";
+import { CommandRegistryProvider } from "./CommandRegistry";
 import { CompanySocketProvider } from "./CompanySocket";
 import { Logo, LogoMark } from "./Logo";
 import {
@@ -88,6 +89,9 @@ export function AppShell({ me, companies, current, onCompaniesChanged, children 
         companySlug={current.slug}
         isMasterAdmin={Boolean(me.isMasterAdmin)}
       >
+        {/* Outside the palette so pages can publish contextual actions into it,
+            and the palette can read them, from the same tree. */}
+        <CommandRegistryProvider>
         <CommandPaletteProvider
           me={me}
           companyId={current.id}
@@ -120,6 +124,7 @@ export function AppShell({ me, companies, current, onCompaniesChanged, children 
             </div>
           </ContextualSidebarContext.Provider>
         </CommandPaletteProvider>
+        </CommandRegistryProvider>
       </KeyboardShortcutsProvider>
     </CompanySocketProvider>
   );

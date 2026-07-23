@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useOutletContext, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
 import {
   Archive,
   ArchiveRestore,
@@ -13,16 +13,22 @@ import {
   X,
 } from "lucide-react";
 import {
+  MailSavedSearch,
   MailThread,
   MailThreadView,
+  THREAD_BULK_CHUNK,
   ThreadActionName,
   mailSyncDate,
   mailApi,
   shortMailDate,
 } from "../lib/mail";
+import { shouldIgnoreShortcut } from "../lib/keyboard";
+import { type Command, useRegisterCommands } from "../components/CommandRegistry";
 import { MailOutletCtx } from "./MailLayout";
 import { MailDraftReview } from "./MailDraftReview";
 import { Button } from "../components/ui/Button";
+import { Checkbox } from "../components/ui/Checkbox";
+import { useDialog } from "../components/ui/Dialog";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
@@ -49,6 +55,7 @@ export default function MailThreadList() {
   const { company, account, labels, changeTick, syncing, syncNow, openCompose } =
     useOutletContext<MailOutletCtx>();
   const { toast, background } = useToast();
+  const dialog = useDialog();
   const [params, setParams] = useSearchParams();
   const view = (params.get("view") ?? "inbox") as MailThreadView;
   const label = params.get("label") ?? "";
@@ -59,12 +66,18 @@ export default function MailThreadList() {
   const [loadingMore, setLoadingMore] = React.useState(false);
   const [search, setSearch] = React.useState(q);
 
+  // Drafts are not browsed as threads — the review queue loads its own
+  // draft-centric list (attribution, facets, bulk selection), so this page
+  // hands the whole surface over rather than fetching threads nobody renders.
+  const draftsReview = view === "drafts" && !q.trim() && !label;
+
   // Monotonic request id: an all-mail body search can take a while, and a
   // response that resolves after a newer request (folder switch, cleared
   // box) must not clobber the fresher list.
   const loadSeq = React.useRef(0);
   const load = React.useCallback(
     async (append: boolean, before?: string) => {
+      if (draftsReview) return;
       const seq = ++loadSeq.current;
       const res = await mailApi.threads(company.id, account.id, {
         view,
@@ -77,7 +90,7 @@ export default function MailThreadList() {
       setThreads((prev) => (append && prev ? [...prev, ...res.threads] : res.threads));
       setNextBefore(res.nextBefore);
     },
-    [company.id, account.id, view, label, q],
+    [company.id, account.id, view, label, q, draftsReview],
   );
 
   React.useEffect(() => {
@@ -151,6 +164,268 @@ export default function MailThreadList() {
     });
   };
 
+  // ───────────────────────── selection, bulk, keyboard ─────────────────────────
+
+  const navigate = useNavigate();
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() => new Set());
+  const [bulkBusy, setBulkBusy] = React.useState(false);
+  const [cursor, setCursor] = React.useState(0);
+  /** Where a shift-click range started. */
+  const anchorRef = React.useRef<string | null>(null);
+
+  const rows = React.useMemo(() => threads ?? [], [threads]);
+  const selectedCount = selectedIds.size;
+  const allSelected = rows.length > 0 && selectedCount === rows.length;
+
+  // A folder switch or a new search is a different set of rows — carrying a
+  // selection across it would act on threads nobody can see any more.
+  React.useEffect(() => {
+    setSelectedIds(new Set());
+    setCursor(0);
+  }, [view, label, q]);
+
+  const clearSelection = React.useCallback(() => setSelectedIds(new Set()), []);
+
+  const toggleOne = React.useCallback(
+    (thread: MailThread, extend: boolean) => {
+      setSelectedIds((current) => {
+        const next = new Set(current);
+        const index = rows.findIndex((row) => row.id === thread.id);
+        const anchorIndex = anchorRef.current
+          ? rows.findIndex((row) => row.id === anchorRef.current)
+          : -1;
+        // Shift-click extends from the last row touched, as every mail client does.
+        if (extend && anchorIndex >= 0 && index >= 0) {
+          const [from, to] = anchorIndex < index ? [anchorIndex, index] : [index, anchorIndex];
+          const selecting = !next.has(thread.id);
+          for (let i = from; i <= to; i += 1) {
+            if (selecting) next.add(rows[i].id);
+            else next.delete(rows[i].id);
+          }
+        } else if (next.has(thread.id)) {
+          next.delete(thread.id);
+        } else {
+          next.add(thread.id);
+        }
+        anchorRef.current = thread.id;
+        return next;
+      });
+    },
+    [rows],
+  );
+
+  const toggleAll = () => {
+    if (selectedCount > 0) clearSelection();
+    else setSelectedIds(new Set(rows.map((row) => row.id)));
+  };
+
+  /**
+   * Run one action across the selection, chunked so a large sweep cannot
+   * outlive a proxy timeout. Failures are reported per item rather than
+   * collapsing the whole run into a single error.
+   */
+  const runBulk = React.useCallback(
+    async (action: ThreadActionName) => {
+      const ids = [...selectedIds];
+      if (ids.length === 0) return;
+      setBulkBusy(true);
+      const failures: { id: string; reason: string }[] = [];
+      try {
+        for (let i = 0; i < ids.length; i += THREAD_BULK_CHUNK) {
+          const chunk = ids.slice(i, i + THREAD_BULK_CHUNK);
+          const res = await mailApi.threadActionBulk(company.id, account.id, {
+            action,
+            ids: chunk,
+          });
+          failures.push(...res.skipped);
+        }
+        const done = ids.length - failures.length;
+        toast(
+          failures.length === 0
+            ? `Updated ${done} ${done === 1 ? "thread" : "threads"}.`
+            : `Updated ${done} · ${failures.length} failed.`,
+          failures.length === 0 ? "success" : "error",
+        );
+      } catch (err) {
+        toast((err as Error).message, "error");
+      } finally {
+        setBulkBusy(false);
+        clearSelection();
+        await load(false).catch(() => {});
+      }
+    },
+    [selectedIds, company.id, account.id, toast, clearSelection, load],
+  );
+
+  React.useEffect(() => {
+    document.querySelector(`[data-thread-idx="${cursor}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [cursor]);
+
+  // Publish the selection's verbs to ⌘K. They appear only while something is
+  // selected, so the palette never offers to archive nothing.
+  const threadCommands = React.useMemo<Command[]>(() => {
+    if (selectedCount === 0) return [];
+    const suffix = `${selectedCount} selected`;
+    return [
+      {
+        id: "mail.selected.archive",
+        label: `Archive ${suffix}`,
+        icon: Archive,
+        group: "Email",
+        keywords: ["bulk", "selection"],
+        run: () => void runBulk("archive"),
+      },
+      {
+        id: "mail.selected.read",
+        label: `Mark ${suffix} as read`,
+        icon: MailOpen,
+        group: "Email",
+        keywords: ["bulk", "selection"],
+        run: () => void runBulk("markRead"),
+      },
+      {
+        id: "mail.selected.star",
+        label: `Star ${suffix}`,
+        icon: Star,
+        group: "Email",
+        keywords: ["bulk", "selection"],
+        run: () => void runBulk("star"),
+      },
+      {
+        id: "mail.selected.trash",
+        label: `Trash ${suffix}`,
+        icon: Trash2,
+        group: "Email",
+        keywords: ["bulk", "selection", "delete"],
+        run: () => void runBulk("trash"),
+      },
+    ];
+  }, [selectedCount, runBulk]);
+  useRegisterCommands(threadCommands);
+
+  // ───────────────────────── saved searches ─────────────────────────
+
+  const [saved, setSaved] = React.useState<MailSavedSearch[]>([]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    mailApi
+      .savedSearches(company.id, account.id)
+      .then((res) => {
+        if (!cancelled) setSaved(res.savedSearches);
+      })
+      // A missing shortcut list is not worth a toast — the search box still works.
+      .catch(() => {
+        if (!cancelled) setSaved([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [company.id, account.id]);
+
+  const saveCurrentSearch = async () => {
+    const query = search.trim();
+    if (!query) return;
+    const name = await dialog.prompt({
+      title: "Save this search",
+      message: <span className="font-mono text-xs">{query}</span>,
+      placeholder: "e.g. Unread from customers",
+      confirmLabel: "Save",
+      validate: (value) => (value.length > 80 ? "Keep it under 80 characters" : null),
+    });
+    if (!name) return;
+    try {
+      const res = await mailApi.createSavedSearch(company.id, account.id, { name, query });
+      setSaved((prev) => [...prev, res.savedSearch]);
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  };
+
+  const removeSavedSearch = async (entry: MailSavedSearch) => {
+    const ok = await dialog.confirm({
+      title: `Delete “${entry.name}”?`,
+      message: "The search itself is not affected — only this shortcut.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
+    setSaved((prev) => prev.filter((row) => row.id !== entry.id));
+    mailApi.deleteSavedSearch(company.id, entry.id).catch((err: unknown) => {
+      toast(err instanceof Error ? err.message : "Could not delete that shortcut", "error");
+    });
+  };
+
+  React.useEffect(() => {
+    // The drafts queue owns its own keys while it is on screen.
+    if (draftsReview) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (shouldIgnoreShortcut(event)) return;
+      const row = rows[cursor];
+      // Shift makes `event.key` uppercase, so Shift+X (range-select) would miss
+      // a bare "x" comparison. Fold single characters before matching.
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+      // j/k rather than the arrow keys, so ordinary scrolling still works.
+      if (key === "j") {
+        event.preventDefault();
+        setCursor((c) => Math.min(c + 1, Math.max(0, rows.length - 1)));
+        return;
+      }
+      if (key === "k") {
+        event.preventDefault();
+        setCursor((c) => Math.max(c - 1, 0));
+        return;
+      }
+      if (key === "Escape") {
+        event.preventDefault();
+        clearSelection();
+        return;
+      }
+      if (!row) return;
+      if (key === "x") {
+        event.preventDefault();
+        toggleOne(row, event.shiftKey);
+        return;
+      }
+      if (key === "Enter") {
+        event.preventDefault();
+        navigate(`/c/${company.slug}/mail/t/${row.id}`);
+        return;
+      }
+      // A sweep already in flight owns the selection; letting a second one
+      // start would interleave two chunked runs over the same rows.
+      if (bulkBusy) return;
+      // With a selection up, single keys act on the selection — the same rule
+      // every mail client uses, and the only one that isn't a nasty surprise.
+      const applyTo = (action: ThreadActionName) => {
+        if (selectedCount > 0) void runBulk(action);
+        else act(row, action);
+      };
+      if (key === "e") {
+        event.preventDefault();
+        applyTo(row.labelIds.includes("INBOX") ? "archive" : "moveToInbox");
+      } else if (key === "#") {
+        event.preventDefault();
+        applyTo(row.labelIds.includes("TRASH") ? "untrash" : "trash");
+      } else if (key === "s") {
+        event.preventDefault();
+        applyTo(row.labelIds.includes("STARRED") ? "unstar" : "star");
+      } else if (key === "u") {
+        event.preventDefault();
+        applyTo(row.unread ? "markRead" : "markUnread");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, cursor, draftsReview, selectedCount, bulkBusy, runBulk, toggleOne, clearSelection]);
+
+  // Rows leave the list under the cursor (archive, trash, a sync pass). Without
+  // this the cursor strands past the end and every shortcut becomes a no-op.
+  React.useEffect(() => {
+    setCursor((c) => Math.min(c, Math.max(0, rows.length - 1)));
+  }, [rows.length]);
+
   const labelName = label ? (labels.find((l) => l.gmailLabelId === label)?.name ?? label) : null;
   const searching = q.trim().length > 0;
   const title = searching ? "Search" : (labelName ?? VIEW_TITLES[view] ?? "Inbox");
@@ -167,7 +442,7 @@ export default function MailThreadList() {
     <div
       className={clsx(
         "mx-auto flex min-h-full flex-col px-4 py-4 sm:px-6",
-        view === "drafts" && !searching && !label ? "max-w-[96rem]" : "max-w-5xl",
+        draftsReview ? "max-w-[96rem]" : "max-w-5xl",
       )}
     >
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -192,7 +467,9 @@ export default function MailThreadList() {
           <RefreshCw size={14} className={syncing ? "animate-spin" : undefined} />
           {syncing ? "Syncing…" : "Sync now"}
         </button>
-        <SearchBox value={search} onChange={setSearch} />
+        {/* The review queue carries its own scoped search; two boxes on one
+            screen would just be a guessing game about which one applies. */}
+        {!draftsReview && <SearchBox value={search} onChange={setSearch} />}
       </div>
       {searching && (
         <div className="mb-2 flex items-baseline gap-2 text-xs text-slate-500 dark:text-slate-400">
@@ -215,7 +492,27 @@ export default function MailThreadList() {
         </div>
       )}
 
-      {threads === null ? (
+      {!draftsReview && (
+        <FilterBar
+          query={search}
+          view={view}
+          onChange={setSearch}
+          saved={saved}
+          onSave={() => void saveCurrentSearch()}
+          onDelete={(entry) => void removeSavedSearch(entry)}
+        />
+      )}
+
+      {draftsReview ? (
+        <MailDraftReview
+          companyId={company.id}
+          companySlug={company.slug}
+          company={company}
+          account={account}
+          changeTick={changeTick}
+          openCompose={openCompose}
+        />
+      ) : threads === null ? (
         <div className="flex flex-1 items-center justify-center">
           <Spinner size={22} />
         </div>
@@ -232,40 +529,42 @@ export default function MailThreadList() {
             }
           />
         </div>
-      ) : view === "drafts" && !searching && !label ? (
-        <MailDraftReview
-          companyId={company.id}
-          companySlug={company.slug}
-          company={company}
-          account={account}
-          threads={threads}
-          changeTick={changeTick}
-          hasMore={nextBefore !== null}
-          loadingMore={loadingMore}
-          openCompose={openCompose}
-          onRefresh={() => load(false)}
-          onLoadMore={async () => {
-            if (!nextBefore) return;
-            setLoadingMore(true);
-            try {
-              await load(true, nextBefore);
-            } catch (err) {
-              toast((err as Error).message, "error");
-            } finally {
-              setLoadingMore(false);
-            }
-          }}
-        />
       ) : (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <div className="flex items-center gap-3 border-b border-slate-200 px-4 py-2 dark:border-slate-800">
+            <Checkbox
+              checked={allSelected}
+              indeterminate={selectedCount > 0 && !allSelected}
+              onChange={toggleAll}
+              label="Select every thread in view"
+            />
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              {selectedCount > 0 ? (
+                <span className="font-medium text-indigo-700 dark:text-indigo-300">
+                  {selectedCount} selected
+                </span>
+              ) : (
+                "Select all"
+              )}
+            </span>
+            <span className="ml-auto hidden text-[11px] text-slate-400 sm:block">
+              <Kbd>j</Kbd> <Kbd>k</Kbd> move · <Kbd>x</Kbd> select · <Kbd>e</Kbd> archive ·{" "}
+              <Kbd>s</Kbd> star
+            </span>
+          </div>
           <ul className="divide-y divide-slate-100 dark:divide-slate-800/70">
-            {threads.map((t) => (
+            {threads.map((t, index) => (
               <ThreadRow
                 key={t.id}
                 thread={t}
+                index={index}
+                focused={index === cursor}
+                selected={selectedIds.has(t.id)}
                 companySlug={company.slug}
                 highlightTerms={highlightTerms}
                 onAction={act}
+                onFocus={() => setCursor(index)}
+                onToggleSelect={(extend) => toggleOne(t, extend)}
               />
             ))}
           </ul>
@@ -292,9 +591,191 @@ export default function MailThreadList() {
           )}
         </div>
       )}
+
+      {selectedCount > 0 && !draftsReview && (
+        <ThreadBulkBar
+          count={selectedCount}
+          busy={bulkBusy}
+          onAction={(action) => void runBulk(action)}
+          onClear={clearSelection}
+        />
+      )}
     </div>
   );
 }
+
+/**
+ * Floating action bar for a thread selection. Deliberately a small, fixed set
+ * of verbs — the long tail stays on the row hover menu, where it does not
+ * tempt anyone into a 200-thread mistake.
+ */
+function ThreadBulkBar({
+  count,
+  busy,
+  onAction,
+  onClear,
+}: {
+  count: number;
+  busy: boolean;
+  onAction: (action: ThreadActionName) => void;
+  onClear: () => void;
+}) {
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center px-4">
+      <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-slate-200 bg-white/95 px-3 py-2 shadow-lg backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
+        <span className="px-1 text-sm font-medium tabular-nums text-slate-700 dark:text-slate-200">
+          {count} selected
+        </span>
+        <span className="mx-1 h-4 w-px bg-slate-200 dark:bg-slate-700" />
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAction("markRead")}>
+          <MailOpen size={14} /> Read
+        </Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAction("star")}>
+          <Star size={14} /> Star
+        </Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAction("archive")}>
+          <Archive size={14} /> Archive
+        </Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAction("trash")}>
+          <Trash2 size={14} /> Trash
+        </Button>
+        <button
+          onClick={onClear}
+          aria-label="Clear selection"
+          className="ml-1 rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
+        >
+          <X size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded border border-slate-200 bg-slate-50 px-1 font-sans text-[10px] font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+      {children}
+    </kbd>
+  );
+}
+
+// ───────────────────────────── quick filters ─────────────────────────────
+
+/**
+ * One-click narrowings that compile straight to the search grammar, so a chip
+ * and a typed query are the same thing — no second filtering system to keep in
+ * step with the first.
+ */
+const QUICK_FILTERS: Array<{ token: string; label: string }> = [
+  { token: "is:unread", label: "Unread" },
+  { token: "is:starred", label: "Starred" },
+  { token: "has:attachment", label: "Has attachment" },
+];
+
+function FilterBar({
+  query,
+  view,
+  onChange,
+  saved,
+  onSave,
+  onDelete,
+}: {
+  query: string;
+  view: MailThreadView;
+  onChange: (next: string) => void;
+  saved: MailSavedSearch[];
+  onSave: () => void;
+  onDelete: (entry: MailSavedSearch) => void;
+}) {
+  const tokens = query.split(/\s+/).filter(Boolean);
+  const current = query.trim();
+  // Saving the same query twice would just make two chips that do one thing.
+  const alreadySaved = saved.some((entry) => entry.query.trim() === current);
+
+  const toggle = (token: string) => {
+    if (tokens.includes(token)) {
+      onChange(tokens.filter((t) => t !== token).join(" "));
+      return;
+    }
+    // A bare `is:unread` searches every folder, which is not what someone
+    // standing in the Inbox means — pin the scope to the folder they are in.
+    const next = [...tokens, token];
+    const scoped = next.some((t) => t.startsWith("in:"));
+    if (!scoped && view !== "all") next.unshift(`in:${view}`);
+    onChange(next.join(" "));
+  };
+
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-1.5">
+      {QUICK_FILTERS.map(({ token, label }) => {
+        const active = tokens.includes(token);
+        return (
+          <button
+            key={token}
+            type="button"
+            onClick={() => toggle(token)}
+            aria-pressed={active}
+            className={clsx(
+              "rounded-full border px-2.5 py-0.5 text-xs font-medium transition",
+              active
+                ? "border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-300"
+                : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800",
+            )}
+          >
+            {label}
+          </button>
+        );
+      })}
+
+      {saved.length > 0 && (
+        <span className="mx-0.5 h-4 w-px bg-slate-200 dark:bg-slate-700" aria-hidden="true" />
+      )}
+
+      {saved.map((entry) => {
+        const active = entry.query.trim() === current;
+        return (
+          <span
+            key={entry.id}
+            className={clsx(
+              "group inline-flex items-center gap-0.5 rounded-full border py-0.5 pl-2.5 pr-1 text-xs font-medium transition",
+              active
+                ? "border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-300"
+                : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800",
+            )}
+          >
+            <button
+              type="button"
+              onClick={() => onChange(entry.query)}
+              title={entry.query}
+              className="max-w-[10rem] truncate"
+            >
+              {entry.name}
+            </button>
+            <button
+              type="button"
+              onClick={() => onDelete(entry)}
+              aria-label={`Delete saved search ${entry.name}`}
+              className="rounded-full p-0.5 text-slate-400 opacity-0 transition hover:text-red-600 focus:opacity-100 group-hover:opacity-100 dark:hover:text-red-400"
+            >
+              <X size={11} />
+            </button>
+          </span>
+        );
+      })}
+
+      {current && !alreadySaved && (
+        <button
+          type="button"
+          onClick={onSave}
+          className="inline-flex items-center gap-1 rounded-full border border-dashed border-slate-300 px-2.5 py-0.5 text-xs font-medium text-slate-500 transition hover:border-indigo-300 hover:text-indigo-600 dark:border-slate-600 dark:text-slate-400 dark:hover:border-indigo-500/40 dark:hover:text-indigo-300"
+        >
+          <Star size={11} /> Save search
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ───────────────────────────── search box ─────────────────────────────
 
 /** Operator chips offered while the box is focused — one click appends. */
@@ -474,26 +955,58 @@ function Highlight({ text, terms }: { text: string; terms: string[] }) {
 
 function ThreadRow({
   thread,
+  index,
+  focused,
+  selected,
   companySlug,
   highlightTerms,
   onAction,
+  onFocus,
+  onToggleSelect,
 }: {
   thread: MailThread;
+  index: number;
+  focused: boolean;
+  selected: boolean;
   companySlug: string;
   highlightTerms: string[];
   onAction: (t: MailThread, action: ThreadActionName) => void;
+  onFocus: () => void;
+  onToggleSelect: (extend: boolean) => void;
 }) {
   const starred = thread.labelIds.includes("STARRED");
   const inTrash = thread.labelIds.includes("TRASH");
   const inInbox = thread.labelIds.includes("INBOX");
   return (
-    <li className="group relative">
+    <li
+      data-thread-idx={index}
+      onMouseEnter={onFocus}
+      className={clsx(
+        "group relative flex items-center gap-2.5 pl-4",
+        selected
+          ? "bg-indigo-50/70 dark:bg-indigo-500/10"
+          : thread.unread
+            ? "bg-indigo-50/30 dark:bg-indigo-500/5"
+            : "hover:bg-slate-50 dark:hover:bg-slate-900",
+        focused && "ring-1 ring-inset ring-indigo-400/60 dark:ring-indigo-500/40",
+      )}
+    >
+      {/* Outside the link on purpose: a checkbox nested in an anchor still
+          navigates on click, and stopPropagation does not prevent that. */}
+      <Checkbox
+        checked={selected}
+        label={`Select ${thread.subject || "thread"}`}
+        onChange={(event) =>
+          onToggleSelect(Boolean((event.nativeEvent as MouseEvent).shiftKey))
+        }
+        className={clsx(
+          !selected && "opacity-0 focus:opacity-100 group-hover:opacity-100",
+          "transition-opacity",
+        )}
+      />
       <Link
         to={`/c/${companySlug}/mail/t/${thread.id}`}
-        className={clsx(
-          "flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-900",
-          thread.unread && "bg-indigo-50/30 dark:bg-indigo-500/5",
-        )}
+        className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pr-4"
       >
         <button
           onClick={(e) => {

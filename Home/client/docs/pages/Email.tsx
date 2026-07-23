@@ -97,14 +97,83 @@ export function Email() {
         behind a <Strong>Show images</Strong> click, so a tracking pixel can&apos;t phone home just
         because you opened a message.
       </P>
+      <H2 id="drafts">The Drafts review queue</H2>
       <P>
-        <Strong>Drafts</Strong> opens as a review queue. Pick a draft on the left to check its
-        To, Cc, and Bcc recipients, subject, message, attachments, and the previous message for
-        context without leaving the page. Press <Strong>Send &amp; next</Strong> to send it through
-        the connected Gmail mailbox and advance through the queue immediately while Gmail finishes
-        in the background, or <Strong>Edit draft</Strong> to open the full conversation before
-        sending. A progress message follows the send even if you move elsewhere. If Gmail rejects
-        it, the error stays visible and the draft returns to the review queue.
+        AI employees write drafts; you decide what actually goes out. <Strong>Drafts</Strong> opens
+        as a review queue built for that job — one row per draft rather than one per thread, so a
+        night&apos;s work is a single scannable list instead of a folder to click through.
+      </P>
+      <P>
+        Every row shows who wrote it: the <Strong>AI employee</Strong> and the{" "}
+        <Strong>Routine</Strong> that produced it, next to the recipient, subject, and a preview.
+        Filter the queue <Strong>by AI employee</Strong> or <Strong>by routine</Strong> from the
+        toolbar — each option carries its own count — and group the list the same way to review one
+        routine&apos;s output as a batch. Drafts you wrote yourself show you instead; anything
+        written before this shipped, or synced in from Gmail, reads as{" "}
+        <Strong>Unattributed</Strong> rather than guessing at an author.
+      </P>
+      <P>
+        Press <Code>Enter</Code> to peek at a draft inline, or open it for full review: the whole
+        message, its attachments, the message it is replying to, the Run that produced it, and the
+        thread&apos;s AI chat — all in one panel, without leaving the queue.
+      </P>
+
+      <H3 id="sending-in-bulk">Marking drafts to send, and sending everything</H3>
+      <P>
+        Tick the drafts you want and press <Strong>Send selected</Strong>, or take the whole
+        filtered queue with <Strong>Send all</Strong>. The header checkbox selects every draft
+        matching the current filter — not only the ones on screen — so a 300-draft queue is two
+        clicks rather than 300.
+      </P>
+      <P>
+        Because sending cannot be undone, every batch stops at a confirmation that shows what a
+        count alone hides: <Strong>who is about to receive mail</Strong> — a sample of the real
+        addresses — a breakdown per routine, and the mailbox it goes out from. Past 25 drafts, or
+        whenever you selected everything matching a filter, the confirm button stays disabled until
+        you acknowledge the size explicitly.
+      </P>
+      <P>
+        A draft with no recipient can never be selected: its checkbox is disabled rather than being
+        silently dropped at send time. Those drafts collect in a pinned{" "}
+        <Strong>Needs attention</Strong> group along with anything Gmail refused, so nothing
+        vanishes without being accounted for. Sending runs in batches with live progress, and the
+        result says exactly what went and what did not.
+      </P>
+
+      <H2 id="power-user">Keyboard, bulk actions, and ⌘K</H2>
+      <P>
+        Mail is keyboard-drivable end to end. In any list, <Code>j</Code> and <Code>k</Code> move,{" "}
+        <Code>x</Code> selects, <Code>e</Code> archives — or sends, in Drafts — <Code>#</Code>{" "}
+        trashes, <Code>s</Code> stars, <Code>u</Code> toggles read, <Code>o</Code> opens a draft for
+        review, <Code>c</Code> composes from anywhere in mail, and <Code>Esc</Code> clears the
+        selection. Press <Code>?</Code> for the full list. Shortcuts pause automatically while you
+        are typing in a field or a dialog is open.
+      </P>
+      <P>
+        The inbox has the same multi-select: tick rows — <Strong>shift-click</Strong> takes a range
+        — then archive, trash, star, or mark read across all of them in one action, instead of one
+        thread at a time.
+      </P>
+      <P>
+        <Code>⌘K</Code> runs mail actions as well as finding pages: compose, sync the mailbox, jump
+        to any folder, and — when something is selected — act on that selection. In the Drafts
+        queue it offers <Strong>Send all drafts</Strong> directly.
+      </P>
+
+      <H3 id="saved-searches">Quick filters and saved searches</H3>
+      <P>
+        Above the thread list, one-click chips narrow what you are looking at —{" "}
+        <Strong>Unread</Strong>, <Strong>Starred</Strong>, <Strong>Has attachment</Strong> — scoped
+        to the folder you are standing in. They are not a separate filtering system: each chip
+        writes the same operators you could have typed, so <Code>is:unread</Code> from a chip and{" "}
+        <Code>is:unread</Code> from the box are the same query.
+      </P>
+      <P>
+        Any search you can type, you can keep. With a query in the box, press{" "}
+        <Strong>Save search</Strong>, give it a name, and it becomes a chip you can click from then
+        on. Saved searches are <Strong>yours alone</Strong> — they are stored per person, so a
+        shared mailbox does not turn into a shared list of everybody&apos;s shortcuts — and hovering
+        one reveals an × to remove it.
       </P>
 
       <H2 id="assistant">AI chat on every email</H2>

@@ -223,6 +223,11 @@ type McpRequest = Request & {
   /** Raw bearer token — stashed so route handlers can stage per-token
    * state (e.g. chat-attachment uploads) without re-parsing the header. */
   mcpToken?: string;
+  /** The Run/Routine behind this call when the runner minted the token.
+   * Null on the chat seam and external MCP sessions. Handlers that record
+   * provenance on the rows they write read these. */
+  mcpRunId?: string | null;
+  mcpRoutineId?: string | null;
 };
 
 async function requireMcpToken(req: McpRequest, res: Response, next: NextFunction) {
@@ -242,6 +247,8 @@ async function requireMcpToken(req: McpRequest, res: Response, next: NextFunctio
   req.mcpEmployee = emp;
   req.mcpCompany = co;
   req.mcpToken = token;
+  req.mcpRunId = info.runId;
+  req.mcpRoutineId = info.routineId;
   next();
 }
 
@@ -6148,6 +6155,13 @@ mcpInternalRouter.post(
           attachments,
         },
         thread,
+        // Provenance for the Drafts review queue: which employee wrote it, and
+        // the Run/Routine behind it when the runner minted this token.
+        {
+          employeeId: self.id,
+          routineId: req.mcpRoutineId ?? null,
+          runId: req.mcpRunId ?? null,
+        },
       );
       await recordAudit({
         companyId: co.id,

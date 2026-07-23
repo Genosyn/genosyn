@@ -56,7 +56,7 @@ export async function performThreadAction(
   account: MailAccount,
   thread: MailThread,
   action: ThreadAction,
-  opts: { labelId?: string; labelName?: string } = {},
+  opts: { labelId?: string; labelName?: string; silent?: boolean } = {},
 ): Promise<void> {
   const token = await accessTokenForAccount(account);
   const gtid = thread.gmailThreadId;
@@ -101,7 +101,52 @@ export async function performThreadAction(
     }
   }
   await refreshThreadFromApi(account, token, gtid);
-  notifyMailChanged(account);
+  if (!opts.silent) notifyMailChanged(account);
+}
+
+/**
+ * Threads per bulk request. Each one costs a Gmail modify plus a refetch, so a
+ * few hundred in a single request would outlive any proxy timeout — the client
+ * chunks instead, which also lets it show progress.
+ */
+export const MAX_BULK_THREAD_IDS = 50;
+
+export type BulkThreadResult = {
+  succeeded: string[];
+  skipped: { id: string; reason: string }[];
+};
+
+/**
+ * Apply one action to many threads.
+ *
+ * Gmail exposes no batch endpoint for this — `modifyThread` is strictly
+ * per-thread — so this is an honest server-side loop rather than a pretend
+ * bulk call. Two things keep it safe at size: each item is isolated, so one
+ * thread Gmail rejects cannot abort the rest of the run; and the realtime
+ * broadcast fires once at the end instead of once per thread, which would
+ * otherwise make every connected client refetch N times.
+ */
+export async function bulkThreadAction(
+  account: MailAccount,
+  threads: MailThread[],
+  action: ThreadAction,
+  opts: { labelId?: string; labelName?: string } = {},
+): Promise<BulkThreadResult> {
+  const succeeded: string[] = [];
+  const skipped: { id: string; reason: string }[] = [];
+  for (const thread of threads) {
+    try {
+      await performThreadAction(account, thread, action, { ...opts, silent: true });
+      succeeded.push(thread.id);
+    } catch (err) {
+      skipped.push({
+        id: thread.id,
+        reason: err instanceof Error ? err.message : "Unknown error",
+      });
+    }
+  }
+  if (succeeded.length > 0) notifyMailChanged(account);
+  return { succeeded, skipped };
 }
 
 /** Look a label up by id or (case-insensitive) name; optionally create a
@@ -159,6 +204,41 @@ export type ComposeFields = {
    *  precedence over `attachmentIds`; the two are never mixed on one call. */
   attachments?: MimeAttachment[];
 };
+
+/**
+ * Who authored a message Genosyn creates. Mirrors {@link MailMessage}'s
+ * `createdBy*` columns: a human Member **or** an AI Employee, never both, plus
+ * the Run/Routine when an employee wrote it while executing one. Kept separate
+ * from {@link ComposeFields} because it never reaches the MIME composer — it is
+ * provenance on our mirror row, not part of the email.
+ */
+export type MailAuthorship = {
+  userId?: string | null;
+  employeeId?: string | null;
+  routineId?: string | null;
+  runId?: string | null;
+};
+
+/** Stamp authorship onto a freshly-ingested row. Mutates; caller saves. */
+function applyAuthorship(row: MailMessage, author: MailAuthorship): void {
+  row.createdByUserId = author.userId ?? null;
+  row.createdByEmployeeId = author.employeeId ?? null;
+  row.createdByRoutineId = author.routineId ?? null;
+  row.createdByRunId = author.runId ?? null;
+}
+
+/**
+ * Carry authorship across a row swap. Gmail reissues the message id when a
+ * draft is edited or sent, so the replacement row must inherit who wrote it —
+ * otherwise editing an AI-written draft would silently orphan it from its
+ * Routine. Mutates; caller saves.
+ */
+function carryAuthorship(from: MailMessage, to: MailMessage): void {
+  to.createdByUserId = from.createdByUserId;
+  to.createdByEmployeeId = from.createdByEmployeeId;
+  to.createdByRoutineId = from.createdByRoutineId;
+  to.createdByRunId = from.createdByRunId;
+}
 
 /** Reply-threading headers + default subject, derived from the newest
  * non-draft message of the thread. */
@@ -249,6 +329,7 @@ export async function createMailDraft(
   account: MailAccount,
   fields: ComposeFields,
   thread: MailThread | null,
+  author: MailAuthorship = {},
 ): Promise<MailMessage> {
   const token = await accessTokenForAccount(account);
   const mime = await composeMime(account, fields, thread);
@@ -258,6 +339,7 @@ export async function createMailDraft(
   const full = await getMessage(token, messageId, "full");
   const { row } = await upsertGmailMessage(account, full);
   row.gmailDraftId = draft.id;
+  applyAuthorship(row, author);
   await AppDataSource.getRepository(MailMessage).save(row);
   await recomputeThread(account, full.threadId);
   notifyMailChanged(account);
@@ -294,6 +376,7 @@ export async function updateMailDraft(
   const full = await getMessage(token, messageId, "full");
   const { row } = await upsertGmailMessage(account, full);
   row.gmailDraftId = draft.id;
+  carryAuthorship(draftRow, row);
   await AppDataSource.getRepository(MailMessage).save(row);
   if (row.id !== draftRow.id) {
     await AppDataSource.getRepository(MailMessage).delete({ id: draftRow.id });
@@ -303,10 +386,17 @@ export async function updateMailDraft(
   return row;
 }
 
-/** Send an existing draft. Returns the mirrored sent message. */
+/**
+ * Send an existing draft. Returns the mirrored sent message.
+ *
+ * `silent` suppresses the realtime broadcast so a bulk run can fire one
+ * `mail.updated` at the end instead of one per draft — a 200-draft batch would
+ * otherwise stampede every connected client with 200 refreshes.
+ */
 export async function sendMailDraft(
   account: MailAccount,
   draftRow: MailMessage,
+  opts: { silent?: boolean } = {},
 ): Promise<MailMessage> {
   if (!draftRow.gmailDraftId) throw new Error("Not a draft");
   const token = await accessTokenForAccount(account);
@@ -315,25 +405,30 @@ export async function sendMailDraft(
   // doesn't vanish the message from the mirror (Gmail still sent it).
   const full = await getMessage(token, sent.id, "full");
   const { row } = await upsertGmailMessage(account, full);
+  // Keep provenance on the sent copy — "this went out because the Weekly
+  // Outreach routine wrote it" is worth as much in Sent as it was in Drafts.
+  carryAuthorship(draftRow, row);
+  await AppDataSource.getRepository(MailMessage).save(row);
   if (row.id !== draftRow.id) {
     await AppDataSource.getRepository(MailMessage).delete({ id: draftRow.id });
   }
   await recomputeThread(account, full.threadId);
-  notifyMailChanged(account);
+  if (!opts.silent) notifyMailChanged(account);
   return row;
 }
 
-/** Discard a draft everywhere. */
+/** Discard a draft everywhere. `silent` — see {@link sendMailDraft}. */
 export async function discardMailDraft(
   account: MailAccount,
   draftRow: MailMessage,
+  opts: { silent?: boolean } = {},
 ): Promise<void> {
   if (!draftRow.gmailDraftId) throw new Error("Not a draft");
   const token = await accessTokenForAccount(account);
   await apiDeleteDraft(token, draftRow.gmailDraftId);
   await AppDataSource.getRepository(MailMessage).delete({ id: draftRow.id });
   await recomputeThread(account, draftRow.gmailThreadId);
-  notifyMailChanged(account);
+  if (!opts.silent) notifyMailChanged(account);
 }
 
 async function composeMime(
@@ -389,7 +484,7 @@ async function refreshThreadFromApi(
   await recomputeThread(account, gmailThreadId);
 }
 
-function notifyMailChanged(account: MailAccount): void {
+export function notifyMailChanged(account: MailAccount): void {
   broadcastToCompany(account.companyId, {
     type: "mail.updated",
     accountId: account.id,
