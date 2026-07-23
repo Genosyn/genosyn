@@ -21,6 +21,7 @@ import { Todo, TodoPriority, TodoRecurrence, TodoStatus } from "../db/entities/T
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { validateBody } from "../middleware/validate.js";
 import { toSlug } from "../lib/slug.js";
+import { formatMoney } from "../lib/money.js";
 import { routineTemplate, skillTemplate } from "../services/files.js";
 import { registerRoutine } from "../services/cron.js";
 import { recordAudit } from "../services/audit.js";
@@ -1062,23 +1063,42 @@ mcpInternalRouter.post(
         error: `Record the payment in the invoice's currency (${inv.currency}). Multi-currency payments aren't supported — the amount is always applied in ${inv.currency}.`,
       });
     }
+    // Refuse overpayment here too — the AI path posts through the same ledger
+    // as the human route, so an over-balance amount would drive AR negative
+    // with no credit-note tracking. Keep the two paths' guarantees identical.
+    if (body.amountCents > inv.balanceCents) {
+      return res.status(400).json({
+        error:
+          inv.balanceCents <= 0
+            ? "This invoice is already fully paid."
+            : `Payment exceeds the ${formatMoney(inv.balanceCents, inv.currency)} balance due. Record at most that amount.`,
+      });
+    }
+    const repo = AppDataSource.getRepository(InvoicePayment);
+    const payment = await repo.save(
+      repo.create({
+        invoiceId: inv.id,
+        amountCents: body.amountCents,
+        currency: body.currency ?? inv.currency,
+        paidAt: body.paidAt ? new Date(body.paidAt) : new Date(),
+        method: body.method ?? "other",
+        reference: body.reference ?? "",
+        notes: body.notes ?? "",
+        createdById: null,
+      }),
+    );
+    // Auto-post DR Bank / CR AR (FX-aware). If the post throws, roll the
+    // payment row back so the sub-ledger can't drift from the GL — matches
+    // the human invoice route.
     try {
-      const repo = AppDataSource.getRepository(InvoicePayment);
-      const payment = await repo.save(
-        repo.create({
-          invoiceId: inv.id,
-          amountCents: body.amountCents,
-          currency: body.currency ?? inv.currency,
-          paidAt: body.paidAt ? new Date(body.paidAt) : new Date(),
-          method: body.method ?? "other",
-          reference: body.reference ?? "",
-          notes: body.notes ?? "",
-          createdById: null,
-        }),
-      );
-      // Auto-post DR Bank / CR AR (FX-aware). recomputeInvoiceTotals flips the
-      // invoice to `paid` once payments cover the total.
       await postInvoicePayment(inv, payment, null);
+    } catch (err) {
+      await repo.delete({ id: payment.id });
+      return res.status(400).json({ error: (err as Error).message });
+    }
+    try {
+      // recomputeInvoiceTotals flips the invoice to `paid` once payments
+      // cover the total.
       const recomputed = await recomputeInvoiceTotals(inv);
       const [hydrated] = await hydrateInvoices(cid, [recomputed]);
       await financeWriteTrail(req, {

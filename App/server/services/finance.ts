@@ -12,6 +12,7 @@ import {
   computeLineTotals,
   formatInvoiceNumber,
   formatMoney,
+  reconcilePartsToTotal,
 } from "../lib/money.js";
 import { sendEmail } from "./email.js";
 import { renderPdfAttachment } from "./htmlToPdf.js";
@@ -341,6 +342,16 @@ async function postInvoiceIssue(
     invoice.issueDate,
   );
 
+  // Anchor the entry on the converted total (what the customer owes and
+  // what a later payment will clear), then reconcile the credit legs onto
+  // it. Converting each column independently can leave the legs a cent shy
+  // of the total — `round(a)+round(b) !== round(a+b)` — which the ledger
+  // would reject as unbalanced (breaking issue for FX invoices). The
+  // residual lands on the revenue leg, leaving Tax Payable exact.
+  const [revenueCredit, taxCredit] =
+    invoice.taxCents > 0
+      ? reconcilePartsToTotal(total.converted, [subtotal.converted, taxConverted.converted])
+      : [total.converted, 0];
   const lines = [
     {
       accountId: ar.id,
@@ -352,7 +363,7 @@ async function postInvoiceIssue(
     },
     {
       accountId: revenue.id,
-      creditCents: subtotal.converted,
+      creditCents: revenueCredit,
       description: `${invoice.number} — revenue`,
       origCurrency: invoice.currency,
       origAmountCents: invoice.subtotalCents,
@@ -362,7 +373,7 @@ async function postInvoiceIssue(
   if (invoice.taxCents > 0) {
     lines.push({
       accountId: tax.id,
-      creditCents: taxConverted.converted,
+      creditCents: taxCredit,
       description: `${invoice.number} — tax payable`,
       origCurrency: invoice.currency,
       origAmountCents: invoice.taxCents,

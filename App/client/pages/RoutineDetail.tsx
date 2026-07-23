@@ -26,6 +26,7 @@ import {
   RunLog,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
@@ -623,26 +624,32 @@ function RunsTab({
   const [loadingLog, setLoadingLog] = React.useState(false);
   const { toast } = useToast();
 
+  const loadRuns = React.useCallback(async () => {
+    try {
+      const list = await api.get<Run[]>(
+        `/api/companies/${company.id}/routines/${routine.id}/runs`,
+      );
+      setRuns(list);
+      setActiveId((current) => {
+        // Keep the run the human is looking at selected across a live refetch;
+        // only fall back to the deep-linked or newest run on first load.
+        if (current && list.some((r) => r.id === current)) return current;
+        if (list.length === 0) return null;
+        return initialRunId && list.some((r) => r.id === initialRunId) ? initialRunId : list[0].id;
+      });
+    } catch (err) {
+      toast((err as Error).message, "error");
+      setRuns([]);
+    }
+  }, [company.id, routine.id, initialRunId, toast]);
+
   React.useEffect(() => {
-    (async () => {
-      try {
-        const list = await api.get<Run[]>(
-          `/api/companies/${company.id}/routines/${routine.id}/runs`,
-        );
-        setRuns(list);
-        if (list.length > 0) {
-          // Prefer the deep-linked run when it's still in the recent window.
-          setActiveId(
-            initialRunId && list.some((r) => r.id === initialRunId) ? initialRunId : list[0].id,
-          );
-        }
-      } catch (err) {
-        toast((err as Error).message, "error");
-        setRuns([]);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [company.id, routine.id]);
+    loadRuns();
+  }, [loadRuns]);
+
+  // A run flipping running → done, or a fresh run appearing, is the canonical
+  // "an AI employee did something" moment — reflect it without a refresh.
+  useLiveRefetch("run", loadRuns, routine.id);
 
   React.useEffect(() => {
     if (!activeId) {

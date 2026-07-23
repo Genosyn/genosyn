@@ -2,6 +2,7 @@ import React from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { api, Company, UsageSummary } from "../lib/api";
 import { TopBar } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
@@ -28,19 +29,24 @@ export default function Usage() {
   const [summary, setSummary] = React.useState<UsageSummary | null>(null);
   const { toast } = useToast();
 
+  const reload = React.useCallback(async () => {
+    try {
+      const s = await api.get<UsageSummary>(
+        `/api/companies/${company.id}/usage?days=${days}`,
+      );
+      setSummary(s);
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }, [company.id, days, toast]);
+
   React.useEffect(() => {
     setSummary(null);
-    (async () => {
-      try {
-        const s = await api.get<UsageSummary>(
-          `/api/companies/${company.id}/usage?days=${days}`,
-        );
-        setSummary(s);
-      } catch (err) {
-        toast((err as Error).message, "error");
-      }
-    })();
-  }, [company.id, days, toast]);
+    reload();
+  }, [reload]);
+
+  // Token spend rolls up per Run; refetch (silently) as runs complete.
+  useLiveRefetch("run", reload);
 
   return (
     <>

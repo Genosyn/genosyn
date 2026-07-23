@@ -26,6 +26,7 @@ import {
   MessageAction,
 } from "../lib/api";
 import { useEmployeeSession } from "../lib/chatSessions";
+import { useComposerFileDrop } from "../lib/fileDrop";
 import { ChatMarkdown } from "../components/ChatMarkdown";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
@@ -869,7 +870,7 @@ function Composer({
     });
   }
 
-  async function handleFiles(files: FileList | null) {
+  async function handleFiles(files: FileList | File[] | null) {
     if (!files || files.length === 0) return;
     setUploading(true);
     try {
@@ -881,6 +882,12 @@ function Composer({
       if (fileRef.current) fileRef.current.value = "";
     }
   }
+
+  // Paste a screenshot or drag a file straight onto the composer — same
+  // upload path as the paperclip, no save-to-disk detour.
+  const { dragActive, onPaste, dragProps } = useComposerFileDrop((files) => {
+    if (!disabled && !uploading) void handleFiles(files);
+  });
 
   return (
     <form
@@ -915,12 +922,19 @@ function Composer({
         </div>
       )}
       <div
+        {...dragProps}
         className={
           "relative flex items-end gap-2 rounded-2xl border bg-white px-3 py-2 transition dark:bg-slate-900 " +
-          "border-slate-300 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 " +
-          "dark:border-slate-700 dark:focus-within:border-indigo-500"
+          (dragActive
+            ? "border-indigo-500 ring-2 ring-indigo-500/30 "
+            : "border-slate-300 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 dark:border-slate-700 dark:focus-within:border-indigo-500")
         }
       >
+        {dragActive && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-indigo-50/90 text-sm font-medium text-indigo-700 dark:bg-indigo-950/80 dark:text-indigo-200">
+            <Paperclip size={14} className="mr-1.5" /> Drop to attach
+          </div>
+        )}
         <input
           type="file"
           ref={fileRef}
@@ -948,6 +962,7 @@ function Composer({
           onSelect={(e) =>
             refreshResourceState(e.currentTarget.value, e.currentTarget.selectionStart)
           }
+          onPaste={onPaste}
           onKeyDown={(e) => {
             if (resourceQuery !== null && references.length > 0) {
               if (e.key === "ArrowDown") {

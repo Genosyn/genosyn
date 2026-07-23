@@ -71,7 +71,8 @@ export function Email() {
         The folder rail carries the usual views — Inbox, Starred, Sent, Drafts, All mail, Spam,
         Trash — plus your Gmail labels. Open a thread to read it, then <Strong>Reply</Strong>,{" "}
         <Strong>Reply all</Strong>, <Strong>Forward</Strong>, or <Strong>Compose</Strong> a new
-        message — with file attachments if you need them. Star, archive, trash, mark read/unread,
+        message — with file attachments if you need them, added from the Attach button or by
+        pasting a screenshot straight into the message box. Star, archive, trash, mark read/unread,
         and apply labels all act on the whole thread and land in Gmail immediately.
       </P>
       <P>

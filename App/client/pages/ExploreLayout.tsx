@@ -17,6 +17,7 @@ import { ContextualLayout } from "../components/AppShell";
 import { Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
 import { useToast } from "../components/ui/Toast";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Explore section sidebar. Two lists: Charts and Dashboards. Mirrors the
@@ -80,6 +81,8 @@ export default function ExploreLayout({ company }: { company: Company }) {
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch(["chart", "dashboard"], reload);
 
   async function newDashboard() {
     const title = await dialog.prompt({

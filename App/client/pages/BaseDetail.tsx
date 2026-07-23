@@ -41,6 +41,7 @@ import {
   SelectOption,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -202,6 +203,12 @@ export default function BaseDetail({ company }: { company: Company }) {
   React.useEffect(() => {
     loadContent();
   }, [loadContent]);
+
+  // Live grid: refetch silently (no spinner flash) when a record in the table
+  // being viewed changes — an AI employee writing rows shows up in place.
+  // Scoped to the active table so other tables' writes don't refetch it.
+  const liveReloadContent = React.useCallback(() => loadContent(true), [loadContent]);
+  useLiveRefetch("baserecord", liveReloadContent, currentTable?.id ?? null);
 
   // Reset the active view whenever the user switches tables — view IDs are
   // per-table so the previous selection is meaningless on the next one.

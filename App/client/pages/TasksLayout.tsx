@@ -4,6 +4,7 @@ import { FolderKanban, Plus, Search, ShieldCheck } from "lucide-react";
 import { api, Company, Project } from "../lib/api";
 import { ContextualLayout } from "../components/AppShell";
 import { Spinner } from "../components/ui/Spinner";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 export type TasksContextValue = {
   projects: Project[];
@@ -38,6 +39,8 @@ export default function TasksLayout({ company }: { company: Company }) {
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch(["project", "todo"], reload);
 
   const ctx = React.useMemo(
     () => ({ projects: projects ?? [], reload }),

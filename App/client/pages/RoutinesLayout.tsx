@@ -4,6 +4,7 @@ import { CalendarClock, Plus, Users } from "lucide-react";
 import { api, Company, Employee, RoutineWithMeta } from "../lib/api";
 import { ContextualLayout } from "../components/AppShell";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Routines section shell — every scheduled routine in the company, in one
@@ -37,6 +38,8 @@ export default function RoutinesLayout({ company }: { company: Company }) {
   React.useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useLiveRefetch(["routine", "run"], refresh);
 
   const ctx = React.useMemo<RoutinesContext>(
     () => ({ routines: routines ?? [], employees, loading: routines === null, refresh }),

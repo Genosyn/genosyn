@@ -24,6 +24,7 @@ import {
   InvoiceListItem,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { CustomerContractsPanel } from "./CustomerContractsPanel";
@@ -66,37 +67,34 @@ export default function CustomerDetail() {
   const [ready, setReady] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  React.useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const c = await api.get<Customer>(
-          `/api/companies/${company.id}/customers/${customerSlug}`,
-        );
-        if (!alive) return;
-        setCustomer(c);
-        const [inv, est] = await Promise.all([
-          api.get<InvoiceListItem[]>(
-            `/api/companies/${company.id}/invoices?customerId=${c.id}`,
-          ),
-          api.get<EstimateListItem[]>(
-            `/api/companies/${company.id}/estimates?customerId=${c.id}`,
-          ),
-        ]);
-        if (!alive) return;
-        setInvoices(inv);
-        setEstimates(est);
-        setReady(true);
-      } catch (err) {
-        if (!alive) return;
-        setError((err as Error).message);
-        setReady(true);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
+  const reload = React.useCallback(async () => {
+    try {
+      const c = await api.get<Customer>(
+        `/api/companies/${company.id}/customers/${customerSlug}`,
+      );
+      setCustomer(c);
+      const [inv, est] = await Promise.all([
+        api.get<InvoiceListItem[]>(
+          `/api/companies/${company.id}/invoices?customerId=${c.id}`,
+        ),
+        api.get<EstimateListItem[]>(
+          `/api/companies/${company.id}/estimates?customerId=${c.id}`,
+        ),
+      ]);
+      setInvoices(inv);
+      setEstimates(est);
+      setReady(true);
+    } catch (err) {
+      setError((err as Error).message);
+      setReady(true);
+    }
   }, [company.id, customerSlug]);
+
+  React.useEffect(() => {
+    reload();
+  }, [reload]);
+
+  useLiveRefetch(["customer", "invoice", "estimate"], reload);
 
   // Outstanding (issued + unpaid) and lifetime-billed totals, grouped by
   // currency so a multi-currency account is never summed into a meaningless

@@ -3,6 +3,7 @@ import { useOutletContext } from "react-router-dom";
 import { Archive, ArchiveRestore, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { Account, ACCOUNT_TYPE_LABEL, AccountType, api } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
@@ -46,6 +47,8 @@ export default function FinanceAccounts() {
   React.useEffect(() => {
     reload().catch(() => setAccounts([]));
   }, [reload]);
+
+  useLiveRefetch("financeaccount", reload);
 
   function archive(a: Account) {
     const optimistic = {

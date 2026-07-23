@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { api, CodeRepoGrant, CodeRepoGrantsResponse, CodeRepoTestResult } from "../lib/api";
 import { SyncBadge } from "./CodeReposIndex";
 import { useCodeReposContext } from "./CodeReposLayout";
@@ -26,7 +27,7 @@ export default function CodeRepoOverview() {
   const [testResult, setTestResult] = React.useState<CodeRepoTestResult | null>(null);
   const [grants, setGrants] = React.useState<CodeRepoGrant[] | null>(null);
 
-  React.useEffect(() => {
+  const reloadGrants = React.useCallback(() => {
     if (!repo) return;
     api
       .get<CodeRepoGrantsResponse>(
@@ -35,6 +36,12 @@ export default function CodeRepoOverview() {
       .then((response) => setGrants(response.direct))
       .catch(() => setGrants([]));
   }, [company.id, repo]);
+
+  React.useEffect(() => {
+    reloadGrants();
+  }, [reloadGrants]);
+
+  useLiveRefetch("grant", reloadGrants);
 
   if (!repo) {
     return (

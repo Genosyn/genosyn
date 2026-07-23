@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { ChevronDown, Network, Pencil, Plus, Users } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import {
   Avatar,
   employeeAvatarUrl,
@@ -33,12 +34,20 @@ export default function EmployeesIndex({ company }: { company: Company }) {
   const navigate = useNavigate();
   const [members, setMembers] = React.useState<Member[]>([]);
 
-  React.useEffect(() => {
+  const reloadMembers = React.useCallback(() => {
     api
       .get<Member[]>(`/api/companies/${company.id}/members`)
       .then(setMembers)
       .catch(() => setMembers([]));
   }, [company.id]);
+
+  React.useEffect(() => {
+    reloadMembers();
+  }, [reloadMembers]);
+
+  // The employee roster comes from context (kept live by EmployeesLayout);
+  // keep the human members in the org chart live too.
+  useLiveRefetch("member", reloadMembers);
 
   const crumbs = (
     <div className="mb-6">

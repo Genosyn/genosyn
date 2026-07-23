@@ -174,7 +174,8 @@ export function Employees() {
           <Strong>Chat.</Strong> Free-form conversations with the employee.
           Messages persist; action pills surface tool calls inline. Type{" "}
           <Code>/new</Code> to open a fresh context, or <Code>#</Code> and a
-          name to tag any company resource you can see.
+          name to tag any company resource you can see. Attach files with the
+          paperclip, or paste a screenshot and drag files onto the composer.
         </LI>
         <LI>
           <Strong>Workspace.</Strong> File editor scoped to the employee&apos;s

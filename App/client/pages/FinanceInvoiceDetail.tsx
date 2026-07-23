@@ -23,6 +23,7 @@ import {
   parseMoneyToCents,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { Spinner } from "../components/ui/Spinner";
@@ -123,6 +124,8 @@ export default function FinanceInvoiceDetail() {
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch("invoice", reload);
 
   async function issue() {
     if (!invoice) return;
@@ -900,6 +903,8 @@ function PaymentModal({
   const [reference, setReference] = React.useState("");
   const [notes, setNotes] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const cents = parseMoneyToCents(amount);
+  const overpay = cents > invoice.balanceCents;
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -927,13 +932,20 @@ function PaymentModal({
   return (
     <Modal open onClose={onClose} title="Record payment">
       <form onSubmit={save} className="space-y-4">
-        <Input
-          label="Amount"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          inputMode="decimal"
-          required
-        />
+        <div>
+          <Input
+            label="Amount"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            inputMode="decimal"
+            required
+          />
+          <p className={`mt-1 text-xs ${overpay ? "text-amber-600 dark:text-amber-400" : "text-slate-500"}`}>
+            {overpay
+              ? `Exceeds the ${formatMoney(invoice.balanceCents, invoice.currency)} balance due`
+              : `Balance due: ${formatMoney(invoice.balanceCents, invoice.currency)}`}
+          </p>
+        </div>
         <Input
           label="Date"
           type="date"
@@ -968,7 +980,7 @@ function PaymentModal({
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" disabled={busy || parseMoneyToCents(amount) <= 0}>
+          <Button type="submit" disabled={busy || cents <= 0 || overpay}>
             Record payment
           </Button>
         </div>

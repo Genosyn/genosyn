@@ -14,6 +14,7 @@ import { TopBar } from "../components/AppShell";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import type { SettingsOutletCtx } from "./SettingsLayout";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Settings → API keys. Personal-not-shared programmatic tokens for the same
@@ -51,6 +52,8 @@ function ApiKeysCard({ company }: { company: Company }) {
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch("apikey", reload);
 
   return (
     <>

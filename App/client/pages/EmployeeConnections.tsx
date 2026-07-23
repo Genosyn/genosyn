@@ -27,6 +27,7 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import type { EmployeeOutletCtx } from "./EmployeeLayout";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Per-employee Connections tab. Shows the integration Connections the
@@ -86,6 +87,8 @@ export function EmployeeConnections() {
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch(["connection", "grant"], reload);
 
   async function revoke(grant: ConnectionGrant) {
     const ok = await dialog.confirm({

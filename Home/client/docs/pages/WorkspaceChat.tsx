@@ -35,7 +35,10 @@ export function WorkspaceChat() {
       </P>
       <UL>
         <LI>Press Enter to send and Shift+Enter for a new line.</LI>
-        <LI>Use the paperclip for files up to 25 MB.</LI>
+        <LI>
+          Use the paperclip for files up to 25 MB, or paste a screenshot and
+          drag files straight onto the composer.
+        </LI>
         <LI>
           Hover your own message for reactions, editing, or soft deletion.
         </LI>

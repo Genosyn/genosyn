@@ -34,6 +34,7 @@ import { useToast } from "../components/ui/Toast";
 import { Spinner } from "../components/ui/Spinner";
 import { api, Company, CompanyTag, Resource, ResourceSourceKind } from "../lib/api";
 import { TagChips, TagFilterBar, TagPicker } from "../components/TagPicker";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Resources — knowledge ingestion. Humans paste a URL, paste raw text,
@@ -82,6 +83,8 @@ export default function ResourcesIndex({ company }: { company: Company }) {
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch("resource", reload);
 
   // Press "/" anywhere to jump to search — skip when the user is already
   // typing into a field so it doesn't hijack real input.

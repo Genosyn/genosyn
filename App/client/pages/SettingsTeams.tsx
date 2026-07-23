@@ -12,6 +12,7 @@ import { TopBar } from "../components/AppShell";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import type { SettingsOutletCtx } from "./SettingsLayout";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Settings → Teams. Company owners group AI employees into Teams (Engineering,
@@ -43,6 +44,8 @@ export function SettingsTeams() {
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch("team", reload);
 
   async function createTeam(e: React.FormEvent) {
     e.preventDefault();

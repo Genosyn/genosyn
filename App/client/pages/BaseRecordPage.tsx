@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Trash2 } from "lucide-react";
 import { api, BaseTableContent, Company } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
 import { useToast } from "../components/ui/Toast";
@@ -66,6 +67,11 @@ export default function BaseRecordPage({ company }: { company: Company }) {
   React.useEffect(() => {
     void loadContent();
   }, [loadContent]);
+
+  // Refetch silently when this record's table changes under us (a comment or
+  // field edit from elsewhere, an AI write). Scoped to the table.
+  const liveReload = React.useCallback(() => void loadContent(true), [loadContent]);
+  useLiveRefetch("baserecord", liveReload, table?.id ?? null);
 
   if (!detail || (loading && !content)) {
     return (

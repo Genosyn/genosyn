@@ -10,6 +10,7 @@ import {
   InvoiceStatus,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { Menu, MenuItem } from "../components/ui/Menu";
@@ -57,6 +58,8 @@ export default function FinanceInvoices() {
   React.useEffect(() => {
     reload().catch(() => setInvoices([]));
   }, [reload]);
+
+  useLiveRefetch("invoice", reload);
 
   async function deleteDraft(inv: InvoiceListItem) {
     const ok = await dialog.confirm({

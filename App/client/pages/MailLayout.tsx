@@ -28,6 +28,7 @@ import {
 } from "../lib/mail";
 import { ContextualLayout, SidebarLink } from "../components/AppShell";
 import { AttachmentBar, useMailAttachments } from "../components/MailAttachments";
+import { useComposerFileDrop } from "../lib/fileDrop";
 import { useCompanySocketSubscription } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { EmptyState } from "../components/ui/EmptyState";
@@ -609,6 +610,10 @@ function MailComposeModal({
   activeSession.current = session;
   const attach = useMailAttachments(company.id, account.id);
   const clearAttach = attach.clear;
+  // Paste a screenshot or drop a file straight into the compose box.
+  const { dragActive, onPaste, dragProps } = useComposerFileDrop((files) =>
+    attach.addFiles(files),
+  );
 
   React.useEffect(() => {
     if (!open) return;
@@ -705,7 +710,10 @@ function MailComposeModal({
           label="Message"
           value={body}
           onChange={(e) => setBody(e.target.value)}
+          onPaste={onPaste}
+          {...dragProps}
           rows={10}
+          className={dragActive ? "border-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-900" : undefined}
         />
         <AttachmentBar
           items={attach.items}

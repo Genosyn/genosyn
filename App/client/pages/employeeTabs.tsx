@@ -40,6 +40,7 @@ import { Card, CardBody } from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { Modal } from "../components/ui/Modal";
 import { useToast } from "../components/ui/Toast";
@@ -796,6 +797,8 @@ export function EmployeeModelSection({ company, emp }: { company: Company; emp: 
   React.useEffect(() => {
     reload().catch(() => setModels([]));
   }, [reload]);
+
+  useLiveRefetch("employee", reload, emp.id);
 
   if (models === undefined) return <Spinner />;
 
@@ -1562,6 +1565,8 @@ export function JournalPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [emp.id]);
 
+  useLiveRefetch("journal", reload, emp.id);
+
   async function addNote(e: React.FormEvent) {
     e.preventDefault();
     const t = title.trim();
@@ -1829,6 +1834,8 @@ export function MemoryPage() {
     reload();
   }, [reload]);
 
+  useLiveRefetch("memory", reload, emp.id);
+
   async function add(e: React.FormEvent) {
     e.preventDefault();
     const t = title.trim();
@@ -2084,6 +2091,8 @@ export function McpPage() {
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [emp.id]);
+
+  useLiveRefetch("mcpserver", reload, emp.id);
 
   async function remove(id: string) {
     const ok = await dialog.confirm({

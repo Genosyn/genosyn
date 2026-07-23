@@ -8,11 +8,13 @@ import {
   BankFeedKind,
   BankTransaction,
   BrexCashAccount,
+  CompanyFinanceSettings,
   formatMoney,
   IntegrationConnection,
   MatchCandidate,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
@@ -50,6 +52,7 @@ export default function FinanceReconcile() {
   const [showNewFeed, setShowNewFeed] = React.useState(false);
   const [showImport, setShowImport] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
+  const [homeCurrency, setHomeCurrency] = React.useState("USD");
 
   const reloadFeeds = React.useCallback(async () => {
     const [fs, as] = await Promise.all([
@@ -75,9 +78,26 @@ export default function FinanceReconcile() {
   React.useEffect(() => {
     reloadFeeds().catch(() => setFeeds([]));
   }, [reloadFeeds]);
+  useLiveRefetch("reconcile", reloadFeeds);
   React.useEffect(() => {
     reloadTxns().catch(() => setTxns([]));
   }, [reloadTxns]);
+  useLiveRefetch("reconcile", reloadTxns);
+
+  React.useEffect(() => {
+    let alive = true;
+    api
+      .get<CompanyFinanceSettings>(`/api/companies/${company.id}/finance-settings`)
+      .then((settings) => {
+        if (alive) setHomeCurrency(settings.homeCurrency);
+      })
+      .catch(() => {
+        if (alive) setHomeCurrency("USD");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [company.id]);
 
   const activeFeed = React.useMemo(
     () => feeds?.find((f) => f.id === activeFeedId) ?? null,
@@ -261,6 +281,7 @@ export default function FinanceReconcile() {
                     key={t.id}
                     companyId={company.id}
                     companySlug={company.slug}
+                    homeCurrency={homeCurrency}
                     txn={t}
                     onChanged={reloadTxns}
                   />
@@ -307,11 +328,13 @@ export default function FinanceReconcile() {
 function TxnRow({
   companyId,
   companySlug,
+  homeCurrency,
   txn,
   onChanged,
 }: {
   companyId: string;
   companySlug: string;
+  homeCurrency: string;
   txn: BankTransaction;
   onChanged: () => void;
 }) {
@@ -398,7 +421,7 @@ function TxnRow({
               : "text-emerald-700 dark:text-emerald-400")
           }
         >
-          {formatMoney(txn.amountCents, "USD")}
+          {formatMoney(txn.amountCents, homeCurrency)}
         </span>
         {matched ? (
           <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
@@ -471,7 +494,7 @@ function TxnRow({
                     </div>
                   </div>
                   <div className="tabular-nums text-sm text-slate-900 dark:text-slate-100">
-                    {formatMoney(c.amountCents, "USD")}
+                    {formatMoney(c.amountCents, homeCurrency)}
                   </div>
                   <Button onClick={() => match(c.paymentId)} disabled={busy} size="sm">
                     Match

@@ -5,6 +5,7 @@ import { Breadcrumbs, ContextualLayout, SidebarLink } from "../components/AppShe
 import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
 import { api, CodeRepository, Company } from "../lib/api";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 export type CodeReposOutletCtx = {
   company: Company;
@@ -43,6 +44,8 @@ export default function CodeReposLayout({ company }: { company: Company }) {
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch("coderepo", reload);
 
   const rows = repositories ?? [];
   const repo = slug ? (rows.find((item) => item.slug === slug) ?? null) : null;

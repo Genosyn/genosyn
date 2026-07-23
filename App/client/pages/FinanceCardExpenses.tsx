@@ -11,6 +11,7 @@ import {
   IntegrationConnection,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
@@ -66,12 +67,16 @@ export default function FinanceCardExpenses() {
     });
   }, [reloadFeeds, toast]);
 
+  useLiveRefetch("cardexpense", reloadFeeds);
+
   React.useEffect(() => {
     reloadTransactions().catch((err: Error) => {
       setTransactions([]);
       toast(err.message, "error");
     });
   }, [reloadTransactions, toast]);
+
+  useLiveRefetch("cardexpense", reloadTransactions);
 
   const activeFeed = feeds?.find((feed) => feed.id === activeFeedId) ?? null;
   const expenseAccounts = accounts.filter(

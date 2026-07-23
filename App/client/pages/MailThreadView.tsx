@@ -41,6 +41,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
 import { useToast } from "../components/ui/Toast";
 import { AttachmentBar, useMailAttachments } from "../components/MailAttachments";
+import { useComposerFileDrop } from "../lib/fileDrop";
 import { clsx } from "../components/ui/clsx";
 
 /**
@@ -764,6 +765,10 @@ function ReplyComposer({
   const [body, setBody] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const attach = useMailAttachments(companyId, accountId);
+  // Paste a screenshot or drop a file straight into the reply box.
+  const { dragActive, onPaste, dragProps } = useComposerFileDrop((files) =>
+    attach.addFiles(files),
+  );
 
   React.useEffect(() => {
     if (!open || recipients) return;
@@ -859,9 +864,12 @@ function ReplyComposer({
       <Textarea
         value={body}
         onChange={(e) => setBody(e.target.value)}
+        onPaste={onPaste}
+        {...dragProps}
         rows={6}
         placeholder="Write your reply…"
         autoFocus
+        className={dragActive ? "border-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-900" : undefined}
       />
       <div className="mt-2">
         <AttachmentBar

@@ -27,12 +27,14 @@ export function FinancialTrendChart({
   points,
   series,
   truncated,
+  homeCurrency,
 }: {
   title: string;
   subtitle: string;
   points: FinancialTrendPoint[];
   series: FinancialTrendSeries[];
   truncated?: boolean;
+  homeCurrency: string;
 }) {
   const width = 900;
   const height = 300;
@@ -54,6 +56,7 @@ export function FinancialTrendChart({
   const ticks = Array.from({ length: 5 }, (_, index) => min + ((max - min) * index) / 4);
   const labelEvery = Math.max(1, Math.ceil(points.length / 8));
   const last = points.at(-1);
+  const currencySymbol = symbolFor(homeCurrency);
 
   return (
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -77,7 +80,7 @@ export function FinancialTrendChart({
                   {item.label}
                 </div>
                 <div className="text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">
-                  {formatMoney(last[item.key], "USD")}
+                  {formatMoney(last[item.key], homeCurrency)}
                 </div>
               </div>
             ))}
@@ -115,7 +118,7 @@ export function FinancialTrendChart({
                   fontSize="11"
                   className="fill-slate-400 dark:fill-slate-500"
                 >
-                  {formatTick(tick)}
+                  {formatTick(tick, currencySymbol)}
                 </text>
               </g>
             ))}
@@ -159,7 +162,7 @@ export function FinancialTrendChart({
                       vectorEffect="non-scaling-stroke"
                     >
                       <title>
-                        {point.label} · {item.label}: {formatMoney(point[item.key], "USD")}
+                        {point.label} · {item.label}: {formatMoney(point[item.key], homeCurrency)}
                       </title>
                     </circle>
                   ))}
@@ -187,10 +190,28 @@ export function FinancialTrendChart({
   );
 }
 
-function formatTick(cents: number): string {
+function formatTick(cents: number, symbol: string): string {
   const amount = cents / 100;
   const abs = Math.abs(amount);
-  if (abs >= 1_000_000) return `${amount < 0 ? "-" : ""}$${(abs / 1_000_000).toFixed(1)}m`;
-  if (abs >= 1_000) return `${amount < 0 ? "-" : ""}$${(abs / 1_000).toFixed(0)}k`;
-  return `${amount < 0 ? "-" : ""}$${Math.round(abs)}`;
+  const sign = amount < 0 ? "-" : "";
+  if (abs >= 1_000_000) return `${sign}${symbol}${(abs / 1_000_000).toFixed(1)}m`;
+  if (abs >= 1_000) return `${sign}${symbol}${(abs / 1_000).toFixed(0)}k`;
+  return `${sign}${symbol}${Math.round(abs)}`;
+}
+
+/** Pull the currency's symbol (e.g. "$", "€", "£") out of `Intl` so axis
+ *  ticks match the company's home currency instead of a hardcoded "$".
+ *  Falls back to the ISO code for currencies with no distinct glyph. */
+function symbolFor(currency: string): string {
+  try {
+    const parts = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+      currencyDisplay: "symbol",
+      maximumFractionDigits: 0,
+    }).formatToParts(0);
+    return parts.find((part) => part.type === "currency")?.value ?? currency;
+  } catch {
+    return currency;
+  }
 }

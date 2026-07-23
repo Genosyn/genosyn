@@ -7,6 +7,7 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
 import { useToast } from "../components/ui/Toast";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Company-wide approvals inbox. One row per gated action, across every
@@ -104,6 +105,8 @@ export default function Approvals({ company }: { company: Company }) {
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [company.id]);
+
+  useLiveRefetch("approval", reload);
 
   function decide(row: Approval, action: "approve" | "reject") {
     setRows(

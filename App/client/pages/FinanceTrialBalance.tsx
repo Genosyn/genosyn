@@ -4,12 +4,14 @@ import {
   ACCOUNT_TYPE_LABEL,
   AccountType,
   api,
+  CompanyFinanceSettings,
   formatBalanceMagnitude,
   formatMoney,
   TrialBalanceResponse,
   TrialBalanceRow,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Input } from "../components/ui/Input";
 import { Spinner } from "../components/ui/Spinner";
 import { FinanceOutletCtx } from "./FinanceLayout";
@@ -41,9 +43,9 @@ export default function FinanceTrialBalance() {
   );
   const [data, setData] = React.useState<TrialBalanceResponse | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [homeCurrency, setHomeCurrency] = React.useState("USD");
 
-  React.useEffect(() => {
-    let alive = true;
+  const reload = React.useCallback(() => {
     api
       .get<TrialBalanceResponse>(
         `/api/companies/${company.id}/ledger/trial-balance?asOf=${encodeURIComponent(
@@ -51,18 +53,34 @@ export default function FinanceTrialBalance() {
         )}`,
       )
       .then((r) => {
-        if (!alive) return;
         setData(r);
         setLoadError(null);
       })
       .catch((err) => {
-        if (!alive) return;
         setLoadError((err as Error).message);
+      });
+  }, [company.id, asOf]);
+
+  React.useEffect(() => {
+    reload();
+  }, [reload]);
+
+  useLiveRefetch("ledger", reload);
+
+  React.useEffect(() => {
+    let alive = true;
+    api
+      .get<CompanyFinanceSettings>(`/api/companies/${company.id}/finance-settings`)
+      .then((settings) => {
+        if (alive) setHomeCurrency(settings.homeCurrency);
+      })
+      .catch(() => {
+        if (alive) setHomeCurrency("USD");
       });
     return () => {
       alive = false;
     };
-  }, [company.id, asOf]);
+  }, [company.id]);
 
   // Group rows by type, keep them ordered the way accountants expect.
   const grouped = React.useMemo(() => {
@@ -160,14 +178,14 @@ export default function FinanceTrialBalance() {
                           {r.account.name}
                         </td>
                         <td className="px-4 py-2 text-right tabular-nums text-slate-700 dark:text-slate-200">
-                          {r.debitCents > 0 ? formatMoney(r.debitCents, "USD") : ""}
+                          {r.debitCents > 0 ? formatMoney(r.debitCents, homeCurrency) : ""}
                         </td>
                         <td className="px-4 py-2 text-right tabular-nums text-slate-700 dark:text-slate-200">
-                          {r.creditCents > 0 ? formatMoney(r.creditCents, "USD") : ""}
+                          {r.creditCents > 0 ? formatMoney(r.creditCents, homeCurrency) : ""}
                         </td>
                         <td className="px-4 py-2 text-right tabular-nums font-medium text-slate-900 dark:text-slate-100">
                           {r.balanceCents !== 0
-                            ? formatBalanceMagnitude(r.balanceCents, "USD")
+                            ? formatBalanceMagnitude(r.balanceCents, homeCurrency)
                             : ""}
                         </td>
                       </tr>
@@ -181,10 +199,10 @@ export default function FinanceTrialBalance() {
                   Totals
                 </td>
                 <td className="px-4 py-2.5 text-right tabular-nums font-semibold text-slate-900 dark:text-slate-100">
-                  {formatMoney(totals.d, "USD")}
+                  {formatMoney(totals.d, homeCurrency)}
                 </td>
                 <td className="px-4 py-2.5 text-right tabular-nums font-semibold text-slate-900 dark:text-slate-100">
-                  {formatMoney(totals.c, "USD")}
+                  {formatMoney(totals.c, homeCurrency)}
                 </td>
                 <td
                   className={

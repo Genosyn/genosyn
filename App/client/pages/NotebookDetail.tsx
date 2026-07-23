@@ -40,6 +40,7 @@ import { useDialog } from "../components/ui/Dialog";
 import { NotesContext } from "./NotesLayout";
 import { clsx } from "../components/ui/clsx";
 import { AsyncResourceTagPicker } from "../components/TagPicker";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 const EMOJI_PALETTE = [
   "📚",
@@ -105,6 +106,8 @@ export default function NotebookDetail({ company }: { company: Company }) {
         n.body.toLowerCase().includes(q),
     );
   }, [query, pages]);
+
+  useLiveRefetch(["notebook", "note"], refresh);
 
   if (!notebook) {
     return (

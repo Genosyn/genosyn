@@ -17,6 +17,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
 import { useTasks } from "./TasksLayout";
 import { clsx } from "../components/ui/clsx";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Human reviewer inbox — one card per `in_review` todo across every project
@@ -42,6 +43,8 @@ export default function TasksReview({ company }: { company: Company }) {
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch("todo", reload);
 
   function resolve(t: ReviewItem, status: "done" | "in_progress") {
     const originalIndex = items?.findIndex((item) => item.id === t.id) ?? -1;

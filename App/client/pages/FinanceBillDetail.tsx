@@ -10,6 +10,7 @@ import {
   parseMoneyToCents,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
@@ -40,6 +41,7 @@ export default function FinanceBillDetail() {
   const { toast } = useToast();
   const dialog = useDialog();
   const [bill, setBill] = React.useState<Bill | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [showPay, setShowPay] = React.useState(false);
 
@@ -48,14 +50,17 @@ export default function FinanceBillDetail() {
     try {
       const b = await api.get<Bill>(`/api/companies/${company.id}/bills/${billSlug}`);
       setBill(b);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError((err as Error).message);
     }
-  }, [company.id, billSlug, toast]);
+  }, [company.id, billSlug]);
 
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch("bill", reload);
 
   async function issue() {
     if (!bill) return;
@@ -127,6 +132,15 @@ export default function FinanceBillDetail() {
     }
   }
 
+  if (loadError) {
+    return (
+      <div className="mx-auto max-w-3xl p-8 text-sm text-slate-500">
+        {loadError === "Bill not found"
+          ? "This bill doesn't exist or was deleted."
+          : loadError}
+      </div>
+    );
+  }
   if (!bill) {
     return (
       <div className="flex justify-center p-16">
@@ -390,6 +404,8 @@ function PaymentModal({
   const [reference, setReference] = React.useState("");
   const [notes, setNotes] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const cents = parseMoneyToCents(amount);
+  const overpay = cents > bill.balanceCents;
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -417,7 +433,14 @@ function PaymentModal({
   return (
     <Modal open onClose={onClose} title="Record payment">
       <form onSubmit={save} className="space-y-4">
-        <Input label="Amount" value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" required />
+        <div>
+          <Input label="Amount" value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" required />
+          <p className={`mt-1 text-xs ${overpay ? "text-amber-600 dark:text-amber-400" : "text-slate-500"}`}>
+            {overpay
+              ? `Exceeds the ${formatMoney(bill.balanceCents, bill.currency)} balance due`
+              : `Balance due: ${formatMoney(bill.balanceCents, bill.currency)}`}
+          </p>
+        </div>
         <Input label="Date" type="date" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} required />
         <Select label="Method" value={method} onChange={(e) => setMethod(e.target.value as BillPaymentMethod)}>
           <option value="cash">Cash</option>
@@ -430,7 +453,7 @@ function PaymentModal({
         <Textarea label="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button type="submit" disabled={busy || parseMoneyToCents(amount) <= 0}>Record payment</Button>
+          <Button type="submit" disabled={busy || cents <= 0 || overpay}>Record payment</Button>
         </div>
       </form>
     </Modal>

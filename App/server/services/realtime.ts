@@ -9,6 +9,7 @@ import { Channel } from "../db/entities/Channel.js";
 import { ChannelMember } from "../db/entities/ChannelMember.js";
 import { attachViewerSocket } from "./browserSessions.js";
 import { createAuthFlowState, consumeAuthFlowState } from "./authFlowState.js";
+import { registerResourceChangeSink } from "./resourceEvents.js";
 import { config } from "../../config.js";
 import { RealtimeEvent } from "../db/entities/RealtimeEvent.js";
 import { Client as PostgresClient } from "pg";
@@ -88,6 +89,17 @@ export type WsEvent =
       /** False when only account sync metadata changed. Omitted means the
        * mirrored messages, labels, or related Email state may have changed. */
       threadsChanged?: boolean;
+    }
+  | {
+      /** App-wide "content changed, refetch" fan-out, emitted for essentially
+       * every content write by the TypeORM subscriber via
+       * `services/resourceEvents.ts`. Coarse on purpose, like `mail.updated`:
+       * `kind` names the resource family a page listens for and `scopeIds`
+       * the parent ids touched (empty = refetch regardless). No row data
+       * rides the socket — open pages refetch through authorized routes. */
+      type: "resource.changed";
+      kind: string;
+      scopeIds: string[];
     };
 
 type ConnectedSocket = {
@@ -333,6 +345,14 @@ function matchViewerWsPath(pathname: string): { cid: string; eid: string; sid: s
 export function attachRealtime(httpServer: HttpServer): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
   const browserWss = new WebSocketServer({ noServer: true });
+
+  // Bring app-wide live sync online: the TypeORM subscriber's coalesced
+  // changes now fan out to the company room (and, on Postgres, to every other
+  // replica via `broadcastToCompany`). Until this runs, `emitResourceChange`
+  // is a no-op, so nothing written during boot/migrations broadcasts.
+  registerResourceChangeSink((companyId, kind, scopeIds) => {
+    broadcastToCompany(companyId, { type: "resource.changed", kind, scopeIds });
+  });
 
   httpServer.on("upgrade", async (req: IncomingMessage, socket: Socket, head) => {
     const url = req.url ?? "";

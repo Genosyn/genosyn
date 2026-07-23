@@ -29,6 +29,7 @@ import {
   pipelineStatus,
 } from "@/pages/pipelines/pipelineUi";
 import { AsyncResourceTagPicker } from "@/components/TagPicker";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 export default function PipelineDetail({ company }: { company: Company }) {
   const { pSlug = "" } = useParams();
@@ -80,6 +81,8 @@ export default function PipelineDetail({ company }: { company: Company }) {
     setTab("builder");
     void load();
   }, [load]);
+
+  useLiveRefetch("pipeline", load);
 
   React.useEffect(() => {
     if (!dirty) return;

@@ -20,6 +20,7 @@ import {
   formatDuration,
   formatRelativeTime,
 } from "@/pages/pipelines/pipelineUi";
+import { useLiveRefetch } from "../../components/CompanySocket";
 
 export function PipelineRuns({
   company,
@@ -67,6 +68,8 @@ export function PipelineRuns({
     const interval = window.setInterval(() => void loadRuns(true), 5_000);
     return () => window.clearInterval(interval);
   }, [loadRuns]);
+
+  useLiveRefetch("pipeline", loadRuns);
 
   React.useEffect(() => {
     let cancelled = false;

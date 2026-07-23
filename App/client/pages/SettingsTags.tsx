@@ -13,6 +13,7 @@ import { useDialog } from "../components/ui/Dialog";
 import { useToast } from "../components/ui/Toast";
 import type { SettingsOutletCtx } from "./SettingsLayout";
 import { getTagColorOption, randomTagColor, TagColorPicker } from "../components/TagColorPicker";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 export function SettingsTags() {
   const { company } = useOutletContext<SettingsOutletCtx>();
@@ -39,6 +40,8 @@ export function SettingsTags() {
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch("tag", reload);
 
   async function create(event: React.FormEvent) {
     event.preventDefault();

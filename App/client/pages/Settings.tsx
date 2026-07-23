@@ -14,6 +14,7 @@ import { TopBar } from "../components/AppShell";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import type { SettingsOutletCtx } from "./SettingsLayout";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Company-level settings split into sidebar-addressable sub-pages. Each page
@@ -310,6 +311,8 @@ export function SettingsMembers() {
     reload();
   }, [reload]);
 
+  useLiveRefetch("member", reload);
+
   return (
     <>
       <TopBar title="Members" />
@@ -447,6 +450,8 @@ function SecretsCard({ company }: { company: Company }) {
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch("secret", reload);
 
   return (
     <Card>

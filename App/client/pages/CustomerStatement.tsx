@@ -8,6 +8,7 @@ import {
   formatMoney,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { CustomersOutletCtx } from "./CustomersLayout";
@@ -91,28 +92,28 @@ export default function CustomerStatement() {
     return s ? `?${s}` : "";
   }, [from, to, currency]);
 
-  React.useEffect(() => {
-    let alive = true;
-    setLoading(true);
+  const reload = React.useCallback(async () => {
     setError(null);
-    (async () => {
-      try {
-        const res = await api.get<CustomerStatementResponse>(
-          `/api/companies/${company.id}/customers/${customerSlug}/statement${queryString}`,
-        );
-        if (!alive) return;
-        setData(res);
-      } catch (err) {
-        if (!alive) return;
-        setError((err as Error).message);
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
+    try {
+      const res = await api.get<CustomerStatementResponse>(
+        `/api/companies/${company.id}/customers/${customerSlug}/statement${queryString}`,
+      );
+      setData(res);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
   }, [company.id, customerSlug, queryString]);
+
+  React.useEffect(() => {
+    setLoading(true);
+    reload();
+  }, [reload]);
+
+  // A statement is derived from issued invoices + payments — refetch when the
+  // customer's billing changes.
+  useLiveRefetch("invoice", reload);
 
   const statement = data?.statement ?? null;
   const customerName = data?.customer.name ?? customerSlug ?? "";

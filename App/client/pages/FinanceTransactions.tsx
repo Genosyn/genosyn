@@ -14,6 +14,7 @@ import {
 import {
   Account,
   api,
+  CompanyFinanceSettings,
   formatMoney,
   LedgerBulkAction,
   LedgerBulkResult,
@@ -21,6 +22,7 @@ import {
   LedgerReviewStatus,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
 import { Spinner } from "../components/ui/Spinner";
@@ -128,6 +130,7 @@ export default function FinanceTransactions() {
   const [bulkBusy, setBulkBusy] = React.useState(false);
   const [confirmAction, setConfirmAction] = React.useState<"approve" | "delete" | null>(null);
   const [pickerOpen, setPickerOpen] = React.useState(false);
+  const [homeCurrency, setHomeCurrency] = React.useState("USD");
 
   const canApprove = company.role === "owner" || company.role === "admin";
 
@@ -158,6 +161,23 @@ export default function FinanceTransactions() {
     setSelectedIds(new Set());
     void reload();
   }, [reload]);
+
+  useLiveRefetch(["ledger", "financeaccount"], reload);
+
+  React.useEffect(() => {
+    let alive = true;
+    api
+      .get<CompanyFinanceSettings>(`/api/companies/${company.id}/finance-settings`)
+      .then((settings) => {
+        if (alive) setHomeCurrency(settings.homeCurrency);
+      })
+      .catch(() => {
+        if (alive) setHomeCurrency("USD");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [company.id]);
 
   const accountById = React.useMemo(
     () => new Map((accounts ?? []).map((account) => [account.id, account])),
@@ -335,6 +355,7 @@ export default function FinanceTransactions() {
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
+              aria-label="Search transactions by memo, source, or account"
               placeholder="Search memo, source, or account"
               className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-indigo-900"
             />
@@ -481,7 +502,7 @@ export default function FinanceTransactions() {
                         {statusLabel(entry.reviewStatus)}
                       </span>
                       <div className="w-28 text-right text-sm font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-                        {formatMoney(entry.totalCents, "USD")}
+                        {formatMoney(entry.totalCents, homeCurrency)}
                       </div>
                       <ChevronRight size={15} className="text-slate-400" />
                     </button>
@@ -517,6 +538,7 @@ export default function FinanceTransactions() {
         <TransactionReviewModal
           key={`${selected.id}-${selected.reviewStatus}-${selected.reviewedAt ?? ""}`}
           companyId={company.id}
+          homeCurrency={homeCurrency}
           canApprove={company.role === "owner" || company.role === "admin"}
           entry={selected}
           accounts={accounts}
@@ -690,6 +712,7 @@ function BulkCategoryModal({
 
 function TransactionReviewModal({
   companyId,
+  homeCurrency,
   canApprove,
   entry,
   accounts,
@@ -697,6 +720,7 @@ function TransactionReviewModal({
   onChanged,
 }: {
   companyId: string;
+  homeCurrency: string;
   canApprove: boolean;
   entry: LedgerEntry;
   accounts: Account[];
@@ -775,7 +799,7 @@ function TransactionReviewModal({
         </div>
         <div className="text-left sm:text-right">
           <div className="text-xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-            {formatMoney(entry.totalCents, "USD")}
+            {formatMoney(entry.totalCents, homeCurrency)}
           </div>
           <span
             className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${STATUS_STYLE[entry.reviewStatus]}`}
@@ -856,10 +880,10 @@ function TransactionReviewModal({
                     )}
                   </td>
                   <td className="px-3 py-3 text-right tabular-nums text-slate-900 dark:text-slate-100">
-                    {line.debitCents > 0 ? formatMoney(line.debitCents, "USD") : "—"}
+                    {line.debitCents > 0 ? formatMoney(line.debitCents, homeCurrency) : "—"}
                   </td>
                   <td className="px-3 py-3 text-right tabular-nums text-slate-900 dark:text-slate-100">
-                    {line.creditCents > 0 ? formatMoney(line.creditCents, "USD") : "—"}
+                    {line.creditCents > 0 ? formatMoney(line.creditCents, homeCurrency) : "—"}
                   </td>
                 </tr>
               );

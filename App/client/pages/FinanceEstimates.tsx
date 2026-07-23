@@ -10,6 +10,7 @@ import {
   formatMoney,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { Menu, MenuItem } from "../components/ui/Menu";
@@ -60,6 +61,8 @@ export default function FinanceEstimates() {
   React.useEffect(() => {
     reload().catch(() => setEstimates([]));
   }, [reload]);
+
+  useLiveRefetch("estimate", reload);
 
   async function deleteDraft(est: EstimateListItem) {
     const ok = await dialog.confirm({

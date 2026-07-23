@@ -47,6 +47,7 @@ import {
 } from "../lib/api";
 import { ResourceTagPicker } from "../components/TagPicker";
 import { SourceKindIcon, formatBodyLength, formatBytes, timeAgo } from "./ResourcesIndex";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Resource detail — opinionated per source kind. The rule of thumb is
@@ -90,6 +91,22 @@ export default function ResourceDetail({ company }: { company: Company }) {
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  // Live-refresh only while NOT editing — a broadcast must never stomp the
+  // markdown a human is mid-edit on. Viewers still pick up ingestion
+  // (pending → ready) and others' saves, silently (no full-page spinner).
+  const liveReload = React.useCallback(async () => {
+    if (editing || !slug) return;
+    try {
+      const r = await api.get<Resource>(`/api/companies/${company.id}/resources/${slug}`);
+      setRow(r);
+      setTitle(r.title);
+      setBody(r.bodyText ?? "");
+    } catch {
+      // A missed refresh is self-correcting on the next event or reload.
+    }
+  }, [company.id, slug, editing]);
+  useLiveRefetch("resource", liveReload);
 
   async function save() {
     if (!row) return;

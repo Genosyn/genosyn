@@ -9,6 +9,7 @@ import {
 } from "../lib/api";
 import { describeCron } from "../lib/schedule";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
@@ -51,7 +52,7 @@ export default function FinanceRecurringInvoices() {
   const [rows, setRows] = React.useState<RecurringInvoiceListItem[] | null>(null);
   const [filter, setFilter] = React.useState<StatusFilter>("all");
 
-  React.useEffect(() => {
+  const reload = React.useCallback(() => {
     api
       .get<RecurringInvoiceListItem[]>(
         `/api/companies/${company.id}/recurring-invoices`,
@@ -62,6 +63,12 @@ export default function FinanceRecurringInvoices() {
         setRows([]);
       });
   }, [company.id, toast]);
+
+  React.useEffect(() => {
+    reload();
+  }, [reload]);
+
+  useLiveRefetch("recurringinvoice", reload);
 
   const filtered = React.useMemo(() => {
     if (!rows) return null;

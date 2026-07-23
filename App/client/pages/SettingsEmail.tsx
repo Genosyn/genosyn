@@ -32,6 +32,7 @@ import { TopBar } from "../components/AppShell";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import type { SettingsOutletCtx } from "./SettingsLayout";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Company-level **Email** settings. Two-pane layout:
@@ -134,6 +135,8 @@ export function SettingsEmailProviders() {
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch("emailprovider", reload);
 
   async function makeDefault(p: EmailProvider) {
     setBusyId(p.id);

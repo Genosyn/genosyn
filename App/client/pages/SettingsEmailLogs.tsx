@@ -24,6 +24,7 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { Modal } from "../components/ui/Modal";
 import { useToast } from "../components/ui/Toast";
 import type { SettingsOutletCtx } from "./SettingsLayout";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Read-only Email Logs page. Lists every notification email Genosyn has
@@ -98,6 +99,8 @@ export function SettingsEmailLogs() {
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch("emaillog", reload);
 
   // Reset to first page whenever a filter changes.
   React.useEffect(() => {

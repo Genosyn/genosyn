@@ -12,6 +12,7 @@ import {
   Users,
 } from "lucide-react";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Menu } from "../components/ui/Menu";
 import { Select } from "../components/ui/Select";
@@ -109,6 +110,8 @@ export default function FinanceAiAccess() {
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch("grant", reload);
 
   const ungranted = candidates.filter((candidate) => !candidate.alreadyGranted);
   const grantedCount = grants?.length ?? 0;

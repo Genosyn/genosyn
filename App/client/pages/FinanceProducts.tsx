@@ -3,6 +3,7 @@ import { useOutletContext } from "react-router-dom";
 import { Archive, ArchiveRestore, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { api, formatMoney, parseMoneyToCents, Product, TaxRate } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
@@ -42,6 +43,8 @@ export default function FinanceProducts() {
   React.useEffect(() => {
     reload().catch(() => setProducts([]));
   }, [reload]);
+
+  useLiveRefetch(["product", "taxrate"], reload);
 
   function archive(p: Product) {
     const archived = !p.archivedAt;

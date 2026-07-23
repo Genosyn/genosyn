@@ -7,7 +7,7 @@ import { LedgerLine } from "../db/entities/LedgerLine.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Company } from "../db/entities/Company.js";
 import { createNotifications } from "./notifications.js";
-import { postLedgerEntry } from "./ledger.js";
+import { findClosedPeriodCovering, postLedgerEntry } from "./ledger.js";
 
 export type LedgerReviewChange = {
   lineId: string;
@@ -384,6 +384,12 @@ async function deleteLedgerEntry(companyId: string, entryId: string): Promise<vo
   }
   if (entry.source !== "manual") {
     throw new Error("Auto-posted entries cannot be deleted — void the source instead");
+  }
+  const closed = await findClosedPeriodCovering(companyId, entry.date);
+  if (closed) {
+    throw new Error(
+      `This entry is in the closed period "${closed.name}" and can't be deleted. Reopen the period first.`,
+    );
   }
   await AppDataSource.getRepository(LedgerLine).delete({ ledgerEntryId: entry.id });
   await repo.delete({ id: entry.id });

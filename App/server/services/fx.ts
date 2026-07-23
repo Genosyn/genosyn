@@ -182,7 +182,10 @@ export async function lookupRate(
     where: { companyId, fromCurrency: f, toCurrency: t },
     order: { date: "DESC" },
   });
-  const directHit = direct.find((r) => r.date.getTime() <= date.getTime());
+  // Skip a 0 rate (a fat-fingered entry) rather than silently converting
+  // every amount to zero — walk back to the next usable rate, mirroring the
+  // `rate !== 0` guard on the inverse fallback below.
+  const directHit = direct.find((r) => r.date.getTime() <= date.getTime() && r.rate !== 0);
   if (directHit) {
     return { rate: directHit.rate, sourceDate: directHit.date };
   }

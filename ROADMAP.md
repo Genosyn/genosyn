@@ -1151,6 +1151,57 @@ decouples it from how many features Genosyn has.
       Anthropic models, once the billing question for deferred definitions is
       settled
 
+### M31 — App-wide live sync ✅
+
+Workspace chat, the notifications bell, the Mail mirror, and the browser
+live-view already rode the per-company WebSocket hub (M9 + M28). Every other
+surface still loaded once and went stale: a routine finishing, an AI employee
+moving a todo or posting a work-report comment, an invoice being sent, a base
+record being written — none of it showed up until the human refreshed. Since
+AI employees act on their own schedule, "is anything happening?" too often
+meant reloading the page. This milestone makes essentially every content list
+and detail page refresh itself the moment its data changes, reusing the socket
+that already exists rather than adding polling.
+
+- [x] **One server choke-point.** A single TypeORM `EntitySubscriber`
+      (`server/db/subscribers/resourceChangeSubscriber.ts`) turns every content
+      write — from HTTP routes, MCP tools, cron, pipelines, mail sync, anywhere
+      — into a coarse `resource.changed` event. A declarative registry maps each
+      entity to a client `kind` and resolves its company directly
+      (`entity.companyId`) or by walking one immutable parent hop
+      (Run→Routine→employee, Todo→Project, BaseRecord→BaseTable→Base), memoized.
+      No route handler has to remember to emit.
+- [x] **Coarse on purpose, like `mail.updated`.** The frame carries only a
+      `kind` and the set of parent `scopeIds` touched — never row data. Open
+      pages refetch through the normal authorized routes, so nothing sensitive
+      rides the socket and project / channel / grant access is re-checked on
+      every refetch. Writes coalesce per `(company, kind)` on a short debounce
+      (`server/services/resourceEvents.ts`), so a bulk import collapses to one
+      frame instead of hundreds.
+- [x] **Cross-replica for free.** `resource.changed` fans out through the same
+      `broadcastToCompany` path as chat, so on Postgres a write on one replica
+      refreshes pages served by another (M28). The subscriber skips the
+      `RealtimeEvent` fan-out row itself, so there is no broadcast loop, and it
+      is inert until the socket layer registers its sink at boot — nothing
+      written during migrations broadcasts.
+- [x] **One client hook.** `useLiveRefetch(kinds, reload, scopeId?)`
+      (`client/components/CompanySocket.tsx`) subscribes to the shared company
+      socket and re-runs a page's existing loader (debounced) when a matching
+      kind arrives. Wired into ~90 list and detail surfaces across AI, Tasks,
+      Finance, Notes, Bases, Explore, Customers, Code, Pipelines, Resources,
+      Approvals, Audit, Usage, Settings, and the employee tabs. High-frequency
+      boards (routine runs, the todo board, base grids) pass a `scopeId` so a
+      change to one parent doesn't refetch the others.
+- [x] **Editors never clobber.** Detail pages whose editor buffer is bound to
+      loaded state (Notes, Skills, routine briefs, Resources, dashboards) either
+      subscribe only their sidebar/tree refresh, key their draft on the record
+      id so a same-id refetch can't reset it, or guard the live reload to
+      no-op while editing. The chart editor is deliberately not wired.
+- [x] **Already-live surfaces untouched.** Workspace chat, notifications, and
+      the Mail mirror keep their existing, richer events; the subscriber skips
+      those entities so nothing double-fires. Instance-scoped Admin pages
+      (`/api/admin/*`) are out of scope — the socket is per-company.
+
 ## V1 backlog (post-MVP)
 
 Items here are not on the active milestone path but worth picking up. Most

@@ -14,6 +14,7 @@ import { api, Company, Note, Notebook } from "../lib/api";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { clsx } from "../components/ui/clsx";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Notes section shell. The sidebar lists every Notebook in the company;
@@ -54,6 +55,8 @@ export default function NotesLayout({ company }: { company: Company }) {
   React.useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useLiveRefetch(["note", "notebook"], refresh);
 
   const createNoteInNotebook = React.useCallback(
     async (notebook: Notebook) => {

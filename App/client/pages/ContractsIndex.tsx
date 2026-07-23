@@ -19,6 +19,7 @@ import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { ContractUploadModal } from "../components/ContractUploadModal";
 import { formatContractSize, formatSignedDate } from "../lib/contracts";
 import { CustomersOutletCtx } from "./CustomersLayout";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Every signed contract for the company, across all customers — the
@@ -50,6 +51,8 @@ export default function ContractsIndex() {
       .then(setCustomers)
       .catch(() => setCustomers([]));
   }, [reload, company.id]);
+
+  useLiveRefetch(["contract", "customer"], reload);
 
   const visible = React.useMemo(() => {
     if (!contracts) return [];

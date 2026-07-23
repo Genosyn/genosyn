@@ -20,6 +20,7 @@ import { Button } from "../components/ui/Button";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Sidebar + layout for a single selected employee. The sidebar switches from
@@ -63,6 +64,8 @@ export default function EmployeeLayout({ company }: { company: Company }) {
   React.useEffect(() => {
     refreshEmp();
   }, [refreshEmp]);
+
+  useLiveRefetch("employee", refreshEmp);
 
   React.useEffect(() => {
     const handler = () => {

@@ -3,6 +3,7 @@ import { useOutletContext } from "react-router-dom";
 import { Plus, Trash2 } from "lucide-react";
 import { api, CompanyFinanceSettings, Currency, ExchangeRate } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
@@ -49,6 +50,8 @@ export default function FinanceCurrencies() {
       setRates([]);
     });
   }, [reload]);
+
+  useLiveRefetch("currency", reload);
 
   function changeHomeCurrency(code: string) {
     if (!settings || settings.homeCurrency === code) return;

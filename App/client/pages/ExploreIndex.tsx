@@ -13,6 +13,7 @@ import { api, Company } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Spinner } from "../components/ui/Spinner";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { useExplore } from "./ExploreLayout";
 
 /**
@@ -38,18 +39,24 @@ export default function ExploreIndex({ company }: { company: Company }) {
   const { charts, dashboards } = useExplore();
   const [connections, setConnections] = React.useState<ConnectionRow[] | null>(null);
 
-  React.useEffect(() => {
-    (async () => {
-      try {
-        const rows = await api.get<ConnectionRow[]>(
-          `/api/companies/${company.id}/explore/connections`,
-        );
-        setConnections(rows);
-      } catch {
-        setConnections([]);
-      }
-    })();
+  const reloadConnections = React.useCallback(async () => {
+    try {
+      const rows = await api.get<ConnectionRow[]>(
+        `/api/companies/${company.id}/explore/connections`,
+      );
+      setConnections(rows);
+    } catch {
+      setConnections([]);
+    }
   }, [company.id]);
+
+  React.useEffect(() => {
+    reloadConnections();
+  }, [reloadConnections]);
+
+  // Charts + dashboards are kept live by ExploreLayout's context; keep the
+  // database sources list live too.
+  useLiveRefetch("connection", reloadConnections);
 
   const hasConnections = (connections?.length ?? 0) > 0;
 

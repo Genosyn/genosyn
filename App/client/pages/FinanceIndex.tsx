@@ -3,6 +3,7 @@ import { Link, useOutletContext } from "react-router-dom";
 import { ArrowRight, FileText, Plus, Users, Wallet } from "lucide-react";
 import { api, Customer, formatMoney, InvoiceListItem } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { FinanceOutletCtx } from "./FinanceLayout";
@@ -18,27 +19,30 @@ export default function FinanceIndex() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const [invoices, setInvoices] = React.useState<InvoiceListItem[] | null>(null);
   const [customers, setCustomers] = React.useState<Customer[] | null>(null);
+  const [loadError, setLoadError] = React.useState(false);
 
-  React.useEffect(() => {
-    let alive = true;
+  const reload = React.useCallback(() => {
     Promise.all([
       api.get<InvoiceListItem[]>(`/api/companies/${company.id}/invoices`),
       api.get<Customer[]>(`/api/companies/${company.id}/customers`),
     ])
       .then(([inv, cust]) => {
-        if (!alive) return;
         setInvoices(inv);
         setCustomers(cust);
+        setLoadError(false);
       })
       .catch(() => {
-        if (!alive) return;
         setInvoices([]);
         setCustomers([]);
+        setLoadError(true);
       });
-    return () => {
-      alive = false;
-    };
   }, [company.id]);
+
+  React.useEffect(() => {
+    reload();
+  }, [reload]);
+
+  useLiveRefetch(["invoice", "customer"], reload);
 
   const loading = invoices === null || customers === null;
 
@@ -103,7 +107,19 @@ export default function FinanceIndex() {
         </div>
       </div>
 
-      {loading ? (
+      {loadError ? (
+        <div className="rounded-xl border border-dashed border-slate-200 bg-white p-12 text-center dark:border-slate-700 dark:bg-slate-900">
+          <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+            Couldn&apos;t load finance
+          </h3>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Something went wrong loading invoices and customers.
+          </p>
+          <Button variant="secondary" className="mt-4" onClick={reload}>
+            Try again
+          </Button>
+        </div>
+      ) : loading ? (
         <div className="flex justify-center p-16">
           <Spinner size={20} />
         </div>

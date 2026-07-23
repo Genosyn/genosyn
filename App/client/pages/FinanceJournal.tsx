@@ -4,12 +4,14 @@ import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
 import {
   Account,
   api,
+  CompanyFinanceSettings,
   formatMoney,
   LedgerEntry,
   LedgerEntrySource,
   parseMoneyToCents,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
@@ -76,20 +78,30 @@ export default function FinanceJournal() {
   const dialog = useDialog();
   const [entries, setEntries] = React.useState<LedgerEntry[] | null>(null);
   const [accounts, setAccounts] = React.useState<Account[]>([]);
+  const [homeCurrency, setHomeCurrency] = React.useState("USD");
+  const [loadError, setLoadError] = React.useState(false);
   const [showNew, setShowNew] = React.useState(false);
 
   const reload = React.useCallback(async () => {
-    const [es, as] = await Promise.all([
+    const [es, as, settings] = await Promise.all([
       api.get<LedgerEntry[]>(`/api/companies/${company.id}/ledger-entries`),
       api.get<Account[]>(`/api/companies/${company.id}/accounts`),
+      api.get<CompanyFinanceSettings>(`/api/companies/${company.id}/finance-settings`),
     ]);
     setEntries(es);
     setAccounts(as);
+    setHomeCurrency(settings.homeCurrency);
+    setLoadError(false);
   }, [company.id]);
 
   React.useEffect(() => {
-    reload().catch(() => setEntries([]));
+    reload().catch(() => {
+      setEntries([]);
+      setLoadError(true);
+    });
   }, [reload]);
+
+  useLiveRefetch(["ledger", "financeaccount"], reload);
 
   async function remove(e: LedgerEntry) {
     const ok = await dialog.confirm({
@@ -129,7 +141,28 @@ export default function FinanceJournal() {
         </Button>
       </div>
 
-      {entries === null ? (
+      {loadError ? (
+        <div className="rounded-xl border border-dashed border-slate-200 bg-white p-12 text-center dark:border-slate-700 dark:bg-slate-900">
+          <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+            Couldn&apos;t load the journal
+          </h3>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Something went wrong fetching the ledger.
+          </p>
+          <Button
+            variant="secondary"
+            className="mt-4"
+            onClick={() =>
+              reload().catch(() => {
+                setEntries([]);
+                setLoadError(true);
+              })
+            }
+          >
+            Try again
+          </Button>
+        </div>
+      ) : entries === null ? (
         <div className="flex justify-center p-16">
           <Spinner size={20} />
         </div>
@@ -151,6 +184,7 @@ export default function FinanceJournal() {
                 entry={e}
                 accountById={accountById}
                 companySlug={company.slug}
+                homeCurrency={homeCurrency}
                 onDelete={() => remove(e)}
               />
             ))}
@@ -162,6 +196,7 @@ export default function FinanceJournal() {
         <NewEntryModal
           companyId={company.id}
           accounts={accounts}
+          homeCurrency={homeCurrency}
           onClose={() => setShowNew(false)}
           onSaved={() => {
             setShowNew(false);
@@ -177,11 +212,13 @@ function EntryRow({
   entry,
   accountById,
   companySlug,
+  homeCurrency,
   onDelete,
 }: {
   entry: LedgerEntry;
   accountById: Map<string, Account>;
   companySlug: string;
+  homeCurrency: string;
   onDelete: () => void;
 }) {
   const [open, setOpen] = React.useState(false);
@@ -222,7 +259,7 @@ function EntryRow({
           {entry.memo || <span className="text-slate-400">(no memo)</span>}
         </span>
         <span className="tabular-nums text-sm font-medium text-slate-900 dark:text-slate-100">
-          {formatMoney(total, "USD")}
+          {formatMoney(total, homeCurrency)}
         </span>
         {entry.source === "manual" && (
           <button
@@ -280,10 +317,10 @@ function EntryRow({
                       {l.description}
                     </td>
                     <td className="px-2 py-1 text-right tabular-nums text-slate-900 dark:text-slate-100">
-                      {l.debitCents > 0 ? formatMoney(l.debitCents, "USD") : ""}
+                      {l.debitCents > 0 ? formatMoney(l.debitCents, homeCurrency) : ""}
                     </td>
                     <td className="px-2 py-1 text-right tabular-nums text-slate-900 dark:text-slate-100">
-                      {l.creditCents > 0 ? formatMoney(l.creditCents, "USD") : ""}
+                      {l.creditCents > 0 ? formatMoney(l.creditCents, homeCurrency) : ""}
                     </td>
                   </tr>
                 );
@@ -317,11 +354,13 @@ function emptyLine(side: "debit" | "credit"): DraftLine {
 function NewEntryModal({
   companyId,
   accounts,
+  homeCurrency,
   onClose,
   onSaved,
 }: {
   companyId: string;
   accounts: Account[];
+  homeCurrency: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -504,13 +543,13 @@ function NewEntryModal({
             <div>
               <span className="text-slate-500 dark:text-slate-400">Debits:</span>{" "}
               <span className="tabular-nums text-slate-900 dark:text-slate-100">
-                {formatMoney(totals.d, "USD")}
+                {formatMoney(totals.d, homeCurrency)}
               </span>
             </div>
             <div>
               <span className="text-slate-500 dark:text-slate-400">Credits:</span>{" "}
               <span className="tabular-nums text-slate-900 dark:text-slate-100">
-                {formatMoney(totals.c, "USD")}
+                {formatMoney(totals.c, homeCurrency)}
               </span>
             </div>
             <div

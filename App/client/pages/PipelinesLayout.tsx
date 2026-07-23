@@ -8,6 +8,7 @@ import {
   type PipelineIntegrationTool,
 } from "@/pages/pipelines/pipelineResources";
 import { pipelineStatus } from "@/pages/pipelines/pipelineUi";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 export type PipelinesContext = {
   pipelines: Pipeline[];
@@ -48,6 +49,8 @@ export default function PipelinesLayout({ company }: { company: Company }) {
     setLoading(true);
     void refresh();
   }, [refresh]);
+
+  useLiveRefetch("pipeline", refresh);
 
   const context = React.useMemo<PipelinesContext>(
     () => ({

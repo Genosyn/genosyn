@@ -29,6 +29,7 @@ import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { useDialog } from "../components/ui/Dialog";
 import { useToast } from "../components/ui/Toast";
 import { clsx } from "../components/ui/clsx";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 export type BasesContextValue = {
   bases: BaseT[];
@@ -103,9 +104,13 @@ export default function BasesLayout({ company }: { company: Company }) {
     reload();
   }, [reload]);
 
+  useLiveRefetch("base", reload);
+
   React.useEffect(() => {
     reloadActive();
   }, [reloadActive]);
+
+  useLiveRefetch("base", reloadActive);
 
   const ctx = React.useMemo<BasesContextValue>(
     () => ({

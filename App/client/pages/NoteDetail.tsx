@@ -35,6 +35,7 @@ import { BlockEditor } from "../components/notes/BlockEditor";
 import { NotesContext } from "./NotesLayout";
 import { clsx } from "../components/ui/clsx";
 import { AsyncResourceTagPicker } from "../components/TagPicker";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 const EMOJI_PALETTE = [
   "📄",
@@ -121,6 +122,8 @@ export default function NoteDetail({ company }: { company: Company }) {
       cancelled = true;
     };
   }, [company.id, noteSlug, toast]);
+
+  useLiveRefetch("note", refresh);
 
   const dirty =
     saved !== null &&

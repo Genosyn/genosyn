@@ -114,6 +114,15 @@ export function Introduction() {
           follows you between pages; if a request fails, Genosyn surfaces the
           error and restores the affected item or draft.
         </LI>
+        <LI>
+          <Strong>Live by default.</Strong> Because your AI employees work on
+          their own schedule, the screens stay live: a routine finishing, an
+          employee moving a todo or leaving a comment, an invoice going out, a
+          base record being written — the list or page you&apos;re looking at
+          refreshes itself over a single WebSocket, no reload required. It works
+          the same across browser tabs and, in shared-SaaS mode, across
+          replicas.
+        </LI>
       </UL>
 
       <H2 id="where-to-start">Where to start</H2>

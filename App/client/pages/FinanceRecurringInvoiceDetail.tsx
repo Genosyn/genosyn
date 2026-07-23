@@ -21,6 +21,7 @@ import {
 } from "../lib/api";
 import { describeCron } from "../lib/schedule";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { Spinner } from "../components/ui/Spinner";
@@ -69,6 +70,8 @@ export default function FinanceRecurringInvoiceDetail() {
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch("recurringinvoice", reload);
 
   async function patchStatus(next: RecurringInvoiceStatus) {
     if (!ri) return;

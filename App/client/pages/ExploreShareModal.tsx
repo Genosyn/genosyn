@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import { Modal } from "../components/ui/Modal";
 import { useToast } from "../components/ui/Toast";
 import { Avatar } from "../components/ui/Avatar";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Share modal for an Explore Chart or Dashboard. Identical shape — pass
@@ -86,6 +87,8 @@ export function ExploreShareModal({
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch("grant", reload);
 
   async function add(employeeId: string, accessLevel: AccessLevel) {
     setBusy(true);

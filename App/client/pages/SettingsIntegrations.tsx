@@ -53,6 +53,7 @@ import { TopBar } from "../components/AppShell";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import type { SettingsOutletCtx } from "./SettingsLayout";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Company-level **Integrations** page. Two panels:
@@ -127,6 +128,8 @@ export function SettingsIntegrations() {
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch("connection", reload);
 
   // When an OAuth popup finishes, it posts a message to the opener window
   // (this page). Refresh the list on success so the new connection appears.

@@ -6,6 +6,7 @@ import { ContextualLayout, SidebarLink } from "../components/AppShell";
 import { Spinner } from "../components/ui/Spinner";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { EmployeesContext } from "./employeesContext";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Sidebar for `/c/:slug/employees` (index) and `/c/:slug/employees/new`.
@@ -28,6 +29,8 @@ export default function EmployeesLayout({ company }: { company: Company }) {
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch("employee", reload);
 
   // Sub-pages (e.g. the employee General settings form) fire this when the
   // employee's display fields change — refresh the roster so sidebar names

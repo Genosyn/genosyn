@@ -67,6 +67,38 @@ export function computeLineTotals(input: LineInput): LineTotals {
 }
 
 /**
+ * Adjust a set of already-rounded integer `parts` so they sum *exactly*
+ * to `target`, returning a new array (input is not mutated).
+ *
+ * Why this exists: when a foreign-currency invoice or bill is posted to
+ * the ledger, each cent column is converted to the home currency and
+ * rounded on its own. Because `round(a) + round(b)` need not equal
+ * `round(a + b)`, the converted parts can miss the converted total by a
+ * cent or two — and the double-entry ledger then rejects the whole
+ * transaction as unbalanced (`postLedgerEntry`). We anchor on the
+ * converted total and absorb the residual into the largest-magnitude
+ * part, which both minimizes the relative distortion and leaves smaller
+ * parts (a tax line especially) exact whenever they aren't the largest.
+ *
+ * Returns `parts` unchanged when it is empty (the residual has nowhere to
+ * land — callers that can pass an empty set must anchor the total
+ * elsewhere) or already on target.
+ */
+export function reconcilePartsToTotal(target: number, parts: number[]): number[] {
+  if (parts.length === 0) return [];
+  const sum = parts.reduce((s, p) => s + p, 0);
+  const residual = target - sum;
+  if (residual === 0) return [...parts];
+  let largest = 0;
+  for (let i = 1; i < parts.length; i += 1) {
+    if (Math.abs(parts[i]) > Math.abs(parts[largest])) largest = i;
+  }
+  const out = [...parts];
+  out[largest] += residual;
+  return out;
+}
+
+/**
  * Format a cent amount for display. Browser formatting via Intl is fine
  * for both the React UI and the server-rendered printable invoice (Node
  * 22 has full Intl).

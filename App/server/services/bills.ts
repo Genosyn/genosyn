@@ -5,7 +5,7 @@ import { BillLineItem } from "../db/entities/BillLineItem.js";
 import { BillPayment } from "../db/entities/BillPayment.js";
 import { Vendor } from "../db/entities/Vendor.js";
 import { TaxRate } from "../db/entities/TaxRate.js";
-import { computeLineTotals } from "../lib/money.js";
+import { computeLineTotals, reconcilePartsToTotal } from "../lib/money.js";
 import { convertCents, getFinanceSettings } from "./fx.js";
 import {
   hasEntryFor,
@@ -253,7 +253,11 @@ async function postBillIssue(
       rate: conv.rate,
     });
   }
-  // AP credit balances the entry.
+  // AP credit balances the entry. Anchor on the converted total, then
+  // reconcile the debit legs onto it: converting each expense/tax column
+  // independently can leave the debits a cent off the credit
+  // (`round(a)+round(b) !== round(a+b)`), which the ledger would reject as
+  // unbalanced — stranding a foreign-currency bill "sent" but unposted.
   const totalConv = await convertCents(
     bill.companyId,
     bill.totalCents,
@@ -261,6 +265,13 @@ async function postBillIssue(
     home,
     bill.issueDate,
   );
+  const reconciledDebits = reconcilePartsToTotal(
+    totalConv.converted,
+    entryLines.map((l) => l.debitCents ?? 0),
+  );
+  entryLines.forEach((l, i) => {
+    l.debitCents = reconciledDebits[i];
+  });
   entryLines.push({
     accountId: ap.id,
     creditCents: totalConv.converted,

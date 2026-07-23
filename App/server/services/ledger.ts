@@ -401,9 +401,11 @@ export async function trialBalance(companyId: string, asOf: Date): Promise<Trial
 /**
  * Local lookup so ledger.ts doesn't have to import periods.ts (which
  * imports back into ledger.ts for `postLedgerEntry`). One small
- * duplication beats a circular dep.
+ * duplication beats a circular dep. Exported so the route layer can guard
+ * *deletions* the same way posting is guarded — a closed period must stay
+ * frozen against edits from either direction.
  */
-async function findClosedPeriodCovering(
+export async function findClosedPeriodCovering(
   companyId: string,
   date: Date,
 ): Promise<AccountingPeriod | null> {

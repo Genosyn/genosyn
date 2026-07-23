@@ -244,6 +244,15 @@ export type WsInboundEvent =
       type: "notification.read";
       userId: string;
       notificationIds: string[];
+    }
+  | {
+      /** App-wide "content changed, refetch" signal (mirrors the server's
+       * `resource.changed` in `services/resourceEvents.ts`). `kind` names the
+       * resource family a page listens for; `scopeIds` are the parent ids
+       * touched (empty = refetch regardless). Consume via `useLiveRefetch`. */
+      type: "resource.changed";
+      kind: string;
+      scopeIds: string[];
     };
 
 export type CompanySocket = {

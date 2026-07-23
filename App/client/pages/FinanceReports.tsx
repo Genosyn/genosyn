@@ -6,6 +6,7 @@ import {
   api,
   BalanceSheetReport,
   CashFlowReport,
+  CompanyFinanceSettings,
   FinancialTrendsReport,
   formatBalanceMagnitude,
   formatMoney,
@@ -91,6 +92,7 @@ export default function FinanceReports() {
   const priorRange = React.useMemo(() => priorRangeOf(effectiveRange), [effectiveRange]);
   const [trends, setTrends] = React.useState<FinancialTrendsReport | null>(null);
   const [trendError, setTrendError] = React.useState("");
+  const [homeCurrency, setHomeCurrency] = React.useState("USD");
 
   React.useEffect(() => {
     if (Number.isNaN(effectiveRange.from.getTime()) || Number.isNaN(effectiveRange.to.getTime())) {
@@ -117,6 +119,21 @@ export default function FinanceReports() {
       alive = false;
     };
   }, [company.id, effectiveRange.from, effectiveRange.to]);
+
+  React.useEffect(() => {
+    let alive = true;
+    api
+      .get<CompanyFinanceSettings>(`/api/companies/${company.id}/finance-settings`)
+      .then((settings) => {
+        if (alive) setHomeCurrency(settings.homeCurrency);
+      })
+      .catch(() => {
+        if (alive) setHomeCurrency("USD");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [company.id]);
 
   const trendConfig = trendSeriesFor(tab);
 
@@ -153,6 +170,7 @@ export default function FinanceReports() {
           <>
             <input
               type="date"
+              aria-label="From date"
               value={customFrom}
               onChange={(e) => setCustomFrom(e.target.value)}
               className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
@@ -160,6 +178,7 @@ export default function FinanceReports() {
             <span className="text-xs text-slate-400">to</span>
             <input
               type="date"
+              aria-label="To date"
               value={customTo}
               onChange={(e) => setCustomTo(e.target.value)}
               className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
@@ -210,6 +229,7 @@ export default function FinanceReports() {
             points={trends.points}
             series={trendConfig.series}
             truncated={trends.truncated}
+            homeCurrency={homeCurrency}
           />
         )}
       </div>
@@ -218,6 +238,7 @@ export default function FinanceReports() {
         {tab === "income" && (
           <IncomeStatementView
             companyId={company.id}
+            homeCurrency={homeCurrency}
             range={effectiveRange}
             priorRange={compare ? priorRange : null}
             onDrill={(accountId) => setDrill({ accountId, range: effectiveRange })}
@@ -226,6 +247,7 @@ export default function FinanceReports() {
         {tab === "balance" && (
           <BalanceSheetView
             companyId={company.id}
+            homeCurrency={homeCurrency}
             asOf={effectiveRange.to}
             priorAsOf={compare ? priorRange.to : null}
             onDrill={(accountId) =>
@@ -238,6 +260,7 @@ export default function FinanceReports() {
         {tab === "cashflow" && (
           <CashFlowView
             companyId={company.id}
+            homeCurrency={homeCurrency}
             range={effectiveRange}
             priorRange={compare ? priorRange : null}
           />
@@ -247,6 +270,7 @@ export default function FinanceReports() {
       {drill && (
         <DrillPanel
           companyId={company.id}
+          homeCurrency={homeCurrency}
           accountId={drill.accountId}
           range={drill.range}
           onClose={() => setDrill(null)}
@@ -298,11 +322,13 @@ function trendSeriesFor(tab: Tab): {
 
 function IncomeStatementView({
   companyId,
+  homeCurrency,
   range,
   priorRange,
   onDrill,
 }: {
   companyId: string;
+  homeCurrency: string;
   range: PeriodRange;
   priorRange: PeriodRange | null;
   onDrill: (accountId: string) => void;
@@ -320,6 +346,7 @@ function IncomeStatementView({
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <ReportTable
         title="Revenue"
+        homeCurrency={homeCurrency}
         rows={data.current.revenue}
         priorRows={data.prior?.revenue}
         total={data.current.totalRevenue}
@@ -328,6 +355,7 @@ function IncomeStatementView({
       />
       <ReportTable
         title="Expenses"
+        homeCurrency={homeCurrency}
         rows={data.current.expenses}
         priorRows={data.prior?.expenses}
         total={data.current.totalExpenses}
@@ -339,7 +367,7 @@ function IncomeStatementView({
         <div className="flex gap-12">
           {data.prior && (
             <div className="text-sm tabular-nums text-slate-500 dark:text-slate-400">
-              {formatMoney(data.prior.netIncome, "USD")}
+              {formatMoney(data.prior.netIncome, homeCurrency)}
             </div>
           )}
           <div
@@ -350,7 +378,7 @@ function IncomeStatementView({
                 : "text-rose-700 dark:text-rose-400")
             }
           >
-            {formatMoney(data.current.netIncome, "USD")}
+            {formatMoney(data.current.netIncome, homeCurrency)}
           </div>
         </div>
       </div>
@@ -360,6 +388,7 @@ function IncomeStatementView({
 
 function ReportTable({
   title,
+  homeCurrency,
   rows,
   priorRows,
   total,
@@ -367,6 +396,7 @@ function ReportTable({
   onDrill,
 }: {
   title: string;
+  homeCurrency: string;
   rows: ReportRow[];
   priorRows?: ReportRow[];
   total: number;
@@ -400,12 +430,12 @@ function ReportTable({
                 {priorRows !== undefined && (
                   <td className="w-32 px-4 py-2 text-right tabular-nums text-slate-500 dark:text-slate-400">
                     {priorByAcct.has(r.account.id)
-                      ? formatMoney(priorByAcct.get(r.account.id)!, "USD")
+                      ? formatMoney(priorByAcct.get(r.account.id)!, homeCurrency)
                       : ""}
                   </td>
                 )}
                 <td className="w-32 px-4 py-2 text-right tabular-nums text-slate-900 dark:text-slate-100">
-                  {formatMoney(r.amountCents, "USD")}
+                  {formatMoney(r.amountCents, homeCurrency)}
                 </td>
               </tr>
             ))}
@@ -419,11 +449,11 @@ function ReportTable({
         <div className="flex gap-12">
           {priorTotal !== undefined && (
             <div className="text-sm tabular-nums text-slate-500 dark:text-slate-400">
-              {formatMoney(priorTotal, "USD")}
+              {formatMoney(priorTotal, homeCurrency)}
             </div>
           )}
           <div className="text-sm font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-            {formatMoney(total, "USD")}
+            {formatMoney(total, homeCurrency)}
           </div>
         </div>
       </div>
@@ -435,11 +465,13 @@ function ReportTable({
 
 function BalanceSheetView({
   companyId,
+  homeCurrency,
   asOf,
   priorAsOf,
   onDrill,
 }: {
   companyId: string;
+  homeCurrency: string;
   asOf: Date;
   priorAsOf: Date | null;
   onDrill: (accountId: string) => void;
@@ -455,6 +487,7 @@ function BalanceSheetView({
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <BSSection
         title="Assets"
+        homeCurrency={homeCurrency}
         rows={data.current.assets}
         priorRows={data.prior?.assets}
         total={data.current.totalAssets}
@@ -463,6 +496,7 @@ function BalanceSheetView({
       />
       <BSSection
         title="Liabilities"
+        homeCurrency={homeCurrency}
         rows={data.current.liabilities}
         priorRows={data.prior?.liabilities}
         total={data.current.totalLiabilities}
@@ -471,6 +505,7 @@ function BalanceSheetView({
       />
       <BSSection
         title="Equity"
+        homeCurrency={homeCurrency}
         rows={data.current.equity}
         priorRows={data.prior?.equity}
         extraRow={{
@@ -488,7 +523,7 @@ function BalanceSheetView({
         </div>
         <div className="flex items-center gap-3">
           <div className="text-sm font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-            {formatMoney(liabAndEquity, "USD")}
+            {formatMoney(liabAndEquity, homeCurrency)}
           </div>
           <span
             className={
@@ -508,6 +543,7 @@ function BalanceSheetView({
 
 function BSSection({
   title,
+  homeCurrency,
   rows,
   priorRows,
   total,
@@ -516,6 +552,7 @@ function BSSection({
   onDrill,
 }: {
   title: string;
+  homeCurrency: string;
   rows: ReportRow[];
   priorRows?: ReportRow[];
   total: number;
@@ -551,7 +588,7 @@ function BSSection({
                 {showPrior && (
                   <td className="w-32 px-4 py-2 text-right tabular-nums text-slate-500 dark:text-slate-400">
                     {priorByAcct.has(r.account.id)
-                      ? formatMoney(priorByAcct.get(r.account.id)!, "USD")
+                      ? formatMoney(priorByAcct.get(r.account.id)!, homeCurrency)
                       : ""}
                   </td>
                 )}
@@ -564,8 +601,8 @@ function BSSection({
                   }
                 >
                   {r.amountCents < 0
-                    ? `(${formatBalanceMagnitude(r.amountCents, "USD")})`
-                    : formatMoney(r.amountCents, "USD")}
+                    ? `(${formatBalanceMagnitude(r.amountCents, homeCurrency)})`
+                    : formatMoney(r.amountCents, homeCurrency)}
                 </td>
               </tr>
             ))}
@@ -578,12 +615,12 @@ function BSSection({
                 {showPrior && (
                   <td className="w-32 px-4 py-2 text-right tabular-nums text-slate-500 dark:text-slate-400">
                     {extraRow.priorAmount !== undefined
-                      ? formatMoney(extraRow.priorAmount, "USD")
+                      ? formatMoney(extraRow.priorAmount, homeCurrency)
                       : ""}
                   </td>
                 )}
                 <td className="w-32 px-4 py-2 text-right tabular-nums text-slate-700 dark:text-slate-200">
-                  {formatMoney(extraRow.amount, "USD")}
+                  {formatMoney(extraRow.amount, homeCurrency)}
                 </td>
               </tr>
             )}
@@ -597,11 +634,11 @@ function BSSection({
         <div className="flex gap-12">
           {priorTotal !== undefined && (
             <div className="text-sm tabular-nums text-slate-500 dark:text-slate-400">
-              {formatMoney(priorTotal, "USD")}
+              {formatMoney(priorTotal, homeCurrency)}
             </div>
           )}
           <div className="text-sm font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-            {formatMoney(total, "USD")}
+            {formatMoney(total, homeCurrency)}
           </div>
         </div>
       </div>
@@ -613,10 +650,12 @@ function BSSection({
 
 function CashFlowView({
   companyId,
+  homeCurrency,
   range,
   priorRange,
 }: {
   companyId: string;
+  homeCurrency: string;
   range: PeriodRange;
   priorRange: PeriodRange | null;
 }) {
@@ -628,15 +667,29 @@ function CashFlowView({
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <CFRow
         label="Opening cash balance"
+        homeCurrency={homeCurrency}
         amount={data.current.openingBalance}
         priorAmount={data.prior?.openingBalance}
         bold
       />
-      <CFSection section={data.current.operating} priorSection={data.prior?.operating} />
-      <CFSection section={data.current.investing} priorSection={data.prior?.investing} />
-      <CFSection section={data.current.financing} priorSection={data.prior?.financing} />
+      <CFSection
+        section={data.current.operating}
+        priorSection={data.prior?.operating}
+        homeCurrency={homeCurrency}
+      />
+      <CFSection
+        section={data.current.investing}
+        priorSection={data.prior?.investing}
+        homeCurrency={homeCurrency}
+      />
+      <CFSection
+        section={data.current.financing}
+        priorSection={data.prior?.financing}
+        homeCurrency={homeCurrency}
+      />
       <CFRow
         label="Net change in cash"
+        homeCurrency={homeCurrency}
         amount={data.current.netChange}
         priorAmount={data.prior?.netChange}
         bold
@@ -644,6 +697,7 @@ function CashFlowView({
       />
       <CFRow
         label="Closing cash balance"
+        homeCurrency={homeCurrency}
         amount={data.current.closingBalance}
         priorAmount={data.prior?.closingBalance}
         bold
@@ -655,9 +709,11 @@ function CashFlowView({
 function CFSection({
   section,
   priorSection,
+  homeCurrency,
 }: {
   section: CashFlowReport["operating"];
   priorSection?: CashFlowReport["operating"];
+  homeCurrency: string;
 }) {
   return (
     <div className="border-t border-slate-100 dark:border-slate-800">
@@ -680,7 +736,7 @@ function CFSection({
                       : "text-slate-900 dark:text-slate-100")
                   }
                 >
-                  {formatMoney(l.cents, "USD")}
+                  {formatMoney(l.cents, homeCurrency)}
                 </td>
               </tr>
             ))}
@@ -689,6 +745,7 @@ function CFSection({
       )}
       <CFRow
         label={`Total ${section.label.toLowerCase()}`}
+        homeCurrency={homeCurrency}
         amount={section.total}
         priorAmount={priorSection?.total}
         small
@@ -699,6 +756,7 @@ function CFSection({
 
 function CFRow({
   label,
+  homeCurrency,
   amount,
   priorAmount,
   bold,
@@ -706,6 +764,7 @@ function CFRow({
   accent,
 }: {
   label: string;
+  homeCurrency: string;
   amount: number;
   priorAmount?: number;
   bold?: boolean;
@@ -732,7 +791,7 @@ function CFRow({
       <div className="flex gap-12">
         {priorAmount !== undefined && (
           <div className="text-sm tabular-nums text-slate-500 dark:text-slate-400">
-            {formatMoney(priorAmount, "USD")}
+            {formatMoney(priorAmount, homeCurrency)}
           </div>
         )}
         <div
@@ -746,7 +805,7 @@ function CFRow({
               : "text-slate-900 dark:text-slate-100")
           }
         >
-          {formatMoney(amount, "USD")}
+          {formatMoney(amount, homeCurrency)}
         </div>
       </div>
     </div>
@@ -757,11 +816,13 @@ function CFRow({
 
 function DrillPanel({
   companyId,
+  homeCurrency,
   accountId,
   range,
   onClose,
 }: {
   companyId: string;
+  homeCurrency: string;
   accountId: string;
   range: PeriodRange | null;
   onClose: () => void;
@@ -840,7 +901,7 @@ function DrillPanel({
             <div className="flex items-center justify-between bg-slate-50 px-4 py-2 text-xs dark:bg-slate-800/40">
               <span className="text-slate-500 dark:text-slate-400">Opening</span>
               <span className="tabular-nums text-slate-700 dark:text-slate-200">
-                {formatMoney(data.openingBalance, "USD")}
+                {formatMoney(data.openingBalance, homeCurrency)}
               </span>
             </div>
             <table className="w-full text-sm">
@@ -877,13 +938,13 @@ function DrillPanel({
                         )}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums text-slate-900 dark:text-slate-100">
-                        {r.debitCents > 0 ? formatMoney(r.debitCents, "USD") : ""}
+                        {r.debitCents > 0 ? formatMoney(r.debitCents, homeCurrency) : ""}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums text-slate-900 dark:text-slate-100">
-                        {r.creditCents > 0 ? formatMoney(r.creditCents, "USD") : ""}
+                        {r.creditCents > 0 ? formatMoney(r.creditCents, homeCurrency) : ""}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums text-slate-700 dark:text-slate-200">
-                        {formatMoney(r.runningBalanceCents, "USD")}
+                        {formatMoney(r.runningBalanceCents, homeCurrency)}
                       </td>
                     </tr>
                   ))
@@ -893,7 +954,7 @@ function DrillPanel({
             <div className="flex items-center justify-between border-t-2 border-slate-300 bg-slate-50 px-4 py-2 text-sm dark:border-slate-600 dark:bg-slate-800/60">
               <span className="font-semibold text-slate-900 dark:text-slate-100">Closing</span>
               <span className="font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-                {formatMoney(data.closingBalance, "USD")}
+                {formatMoney(data.closingBalance, homeCurrency)}
               </span>
             </div>
           </div>

@@ -22,6 +22,7 @@ import {
   CodeRepoGrantsResponse,
 } from "../lib/api";
 import { useCodeReposContext } from "./CodeReposLayout";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 export default function CodeRepoAccess() {
   const { company, repo, reload: reloadRepos } = useCodeReposContext();
@@ -52,6 +53,8 @@ export default function CodeRepoAccess() {
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch("grant", reload);
 
   if (!repo) {
     return (

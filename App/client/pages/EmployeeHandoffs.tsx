@@ -24,6 +24,7 @@ import { Input } from "../components/ui/Input";
 import { FormError } from "../components/ui/FormError";
 import { TopBar } from "../components/AppShell";
 import { useToast } from "../components/ui/Toast";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 type EmpCtx = { company: Company; emp: Employee };
 
@@ -94,6 +95,8 @@ export function HandoffsPage() {
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch(["handoff", "employee"], reload);
 
   return (
     <>

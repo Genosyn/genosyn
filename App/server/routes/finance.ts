@@ -24,6 +24,7 @@ import { TaxRate } from "../db/entities/TaxRate.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
+import { formatMoney } from "../lib/money.js";
 import {
   draftInvoiceSlug,
   duplicateInvoice,
@@ -81,7 +82,12 @@ import {
   sendEstimateEmail,
   voidEstimate,
 } from "../services/estimates.js";
-import { postLedgerEntry, seedChartOfAccounts, trialBalance } from "../services/ledger.js";
+import {
+  findClosedPeriodCovering,
+  postLedgerEntry,
+  seedChartOfAccounts,
+  trialBalance,
+} from "../services/ledger.js";
 import {
   approveLedgerReview,
   bulkLedgerReview,
@@ -1106,6 +1112,18 @@ financeRouter.post(
         error: `Record the payment in the invoice's currency (${inv.currency}). Multi-currency payments aren't supported — the amount is always applied in ${inv.currency}.`,
       });
     }
+    // Refuse overpayment. Without a credit-note/refund concept, a payment
+    // beyond the balance drives Accounts Receivable negative (an asset
+    // credited past zero) with nothing tracking the customer credit — silent
+    // book corruption. Cap at the outstanding balance instead.
+    if (body.amountCents > inv.balanceCents) {
+      return res.status(400).json({
+        error:
+          inv.balanceCents <= 0
+            ? "This invoice is already fully paid."
+            : `Payment exceeds the ${formatMoney(inv.balanceCents, inv.currency)} balance due. Record at most that amount.`,
+      });
+    }
     const repo = AppDataSource.getRepository(InvoicePayment);
     const p = await repo.save(
       repo.create({
@@ -1119,8 +1137,15 @@ financeRouter.post(
         createdById: req.userId ?? null,
       }),
     );
-    // Auto-post DR Bank / CR AR. Phase B (M19) — see services/ledger.ts.
-    await postInvoicePayment(inv, p, req.userId ?? null);
+    // Auto-post DR Bank / CR AR. Phase B (M19) — see services/ledger.ts. If
+    // the post throws (missing FX rate, closed period), roll the payment row
+    // back so the sub-ledger can't drift from the GL — mirrors the bill route.
+    try {
+      await postInvoicePayment(inv, p, req.userId ?? null);
+    } catch (err) {
+      await repo.delete({ id: p.id });
+      return res.status(400).json({ error: (err as Error).message });
+    }
     const recomputed = await recomputeInvoiceTotals(inv);
     const [hydrated] = await hydrateInvoices(cid, [recomputed]);
     res.json(hydrated);
@@ -1131,6 +1156,15 @@ financeRouter.delete("/invoices/:slug/payments/:pid", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const inv = await loadInvoiceBySlug(cid, req.params.slug);
   if (!inv) return res.status(404).json({ error: "Invoice not found" });
+  // Voiding already reversed every payment posting for this invoice. Deleting
+  // a payment now would reverse the same entry a second time (the two
+  // reversals use different keys, so the idempotency guard misses it),
+  // double-crediting Bank. Block it — the payment rows stay as history.
+  if (inv.status === "void") {
+    return res.status(409).json({
+      error: "This invoice is voided — its payments were already reversed and can't be deleted.",
+    });
+  }
   const payRepo = AppDataSource.getRepository(InvoicePayment);
   const p = await payRepo.findOneBy({ id: req.params.pid, invoiceId: inv.id });
   if (!p) return res.status(404).json({ error: "Payment not found" });
@@ -1690,6 +1724,15 @@ financeRouter.delete("/ledger-entries/:id", async (req, res) => {
     return res
       .status(409)
       .json({ error: "Auto-posted entries cannot be deleted directly — void the source instead" });
+  }
+  // A closed period is frozen against edits from either direction: posting
+  // into it is already blocked, and so must deleting out of it, or the
+  // period's reported numbers would silently change after the books closed.
+  const closed = await findClosedPeriodCovering(cid, e.date);
+  if (closed) {
+    return res.status(409).json({
+      error: `This entry is in the closed period "${closed.name}" and can't be deleted. Reopen the period first.`,
+    });
   }
   await AppDataSource.getRepository(LedgerLine).delete({ ledgerEntryId: e.id });
   await repo.delete({ id: e.id });
@@ -2881,6 +2924,16 @@ financeRouter.post("/bills/:slug/payments", validateBody(billPaymentSchema), asy
     return res.status(409).json({ error: "Voided bills cannot be paid" });
   }
   const body = req.body as z.infer<typeof billPaymentSchema>;
+  // Refuse overpayment: paying past the balance drives Accounts Payable
+  // negative with no vendor-credit tracking. Cap at the balance due.
+  if (body.amountCents > b.balanceCents) {
+    return res.status(400).json({
+      error:
+        b.balanceCents <= 0
+          ? "This bill is already fully paid."
+          : `Payment exceeds the ${formatMoney(b.balanceCents, b.currency)} balance due. Record at most that amount.`,
+    });
+  }
   const repo = AppDataSource.getRepository(BillPayment);
   const p = await repo.save(
     repo.create({
@@ -2911,6 +2964,13 @@ financeRouter.delete("/bills/:slug/payments/:pid", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const b = await loadBillBySlug(cid, req.params.slug);
   if (!b) return res.status(404).json({ error: "Bill not found" });
+  // Voiding already reversed every payment posting; deleting one now would
+  // reverse it a second time and double-debit Bank. Block it.
+  if (b.status === "void") {
+    return res.status(409).json({
+      error: "This bill is voided — its payments were already reversed and can't be deleted.",
+    });
+  }
   const repo = AppDataSource.getRepository(BillPayment);
   const p = await repo.findOneBy({ id: req.params.pid, billId: b.id });
   if (!p) return res.status(404).json({ error: "Payment not found" });

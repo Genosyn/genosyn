@@ -3,6 +3,7 @@ import { useOutletContext } from "react-router-dom";
 import { ChevronDown, ChevronRight, ScrollText } from "lucide-react";
 import { api, AuditEvent } from "../lib/api";
 import { TopBar } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Card, CardBody } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
 import { EmptyState } from "../components/ui/EmptyState";
@@ -19,17 +20,23 @@ export default function AuditLog() {
   const [rows, setRows] = React.useState<AuditEvent[] | null>(null);
   const { toast } = useToast();
 
-  React.useEffect(() => {
-    (async () => {
-      try {
-        const list = await api.get<AuditEvent[]>(`/api/companies/${company.id}/audit`);
-        setRows(list);
-      } catch (err) {
-        toast((err as Error).message, "error");
-        setRows([]);
-      }
-    })();
+  const reload = React.useCallback(async () => {
+    try {
+      const list = await api.get<AuditEvent[]>(`/api/companies/${company.id}/audit`);
+      setRows(list);
+    } catch (err) {
+      toast((err as Error).message, "error");
+      setRows([]);
+    }
   }, [company.id, toast]);
+
+  React.useEffect(() => {
+    reload();
+  }, [reload]);
+
+  // The audit log is written on essentially every human/AI mutation, so it is
+  // the one page that reflects the whole company's activity as it happens.
+  useLiveRefetch("audit", reload);
 
   return (
     <>

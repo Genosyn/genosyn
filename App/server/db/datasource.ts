@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import { config } from "../../config.js";
+import { ResourceChangeSubscriber } from "./subscribers/resourceChangeSubscriber.js";
 import { User } from "./entities/User.js";
 import { Company } from "./entities/Company.js";
 import { Membership } from "./entities/Membership.js";
@@ -261,6 +262,12 @@ export const AppDataSource = buildDataSource();
 export async function initDb(): Promise<void> {
   if (!AppDataSource.isInitialized) {
     await AppDataSource.initialize();
+    // App-wide live sync: one subscriber turns every content write into a
+    // coarse `resource.changed` broadcast. Registered here rather than in the
+    // DataSource options so there is exactly one instance; inert until the
+    // socket layer wires its sink (`attachRealtime`), so the migrations that
+    // run just below never fan out.
+    AppDataSource.subscribers.push(new ResourceChangeSubscriber());
   }
   // Run any pending migrations on boot. Idempotent -- already-run migrations
   // are tracked in the `migrations` table that TypeORM manages.

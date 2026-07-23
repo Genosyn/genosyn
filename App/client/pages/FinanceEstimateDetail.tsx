@@ -22,6 +22,7 @@ import {
   Invoice,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { Spinner } from "../components/ui/Spinner";
@@ -71,6 +72,8 @@ export default function FinanceEstimateDetail() {
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch("estimate", reload);
 
   async function issue() {
     if (!estimate) return;

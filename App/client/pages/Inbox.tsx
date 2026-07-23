@@ -12,6 +12,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { TopBar } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 type InboxEmployee = {
   id: string;
@@ -99,6 +100,8 @@ export default function Inbox({ company }: { company: Company }) {
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch(["approval", "todo", "handoff", "run"], reload);
 
   const today = isoDate(new Date());
   const isToday = date === today;

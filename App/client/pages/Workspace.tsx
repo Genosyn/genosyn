@@ -21,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { Company, Me } from "../lib/api";
+import { useComposerFileDrop } from "../lib/fileDrop";
 import {
   Mentionable,
   WorkspaceAttachment,
@@ -1528,7 +1529,7 @@ function Composer({
     }
   }
 
-  async function onFiles(files: FileList | null) {
+  async function onFiles(files: FileList | File[] | null) {
     if (!files || files.length === 0) return;
     for (const f of Array.from(files)) {
       try {
@@ -1539,6 +1540,12 @@ function Composer({
       }
     }
   }
+
+  // Paste a screenshot or drag a file onto the composer — routes straight to
+  // the same upload path as the paperclip button.
+  const { dragActive, onPaste, dragProps } = useComposerFileDrop((files) => {
+    void onFiles(files);
+  });
 
   // Autocomplete fires as soon as the caret sits right after `@` or `#`.
   // `mentionPrefix` carries the trigger char so the matcher can stay
@@ -1660,7 +1667,20 @@ function Composer({
           ))}
         </div>
       )}
-      <div className="relative flex items-start gap-2 rounded-xl border border-slate-200 bg-white p-2 focus-within:border-indigo-400 dark:border-slate-700 dark:bg-slate-900">
+      <div
+        {...dragProps}
+        className={
+          "relative flex items-start gap-2 rounded-xl border bg-white p-2 dark:bg-slate-900 " +
+          (dragActive
+            ? "border-indigo-500 ring-2 ring-indigo-500/30 "
+            : "border-slate-200 focus-within:border-indigo-400 dark:border-slate-700")
+        }
+      >
+        {dragActive && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-indigo-50/90 text-sm font-medium text-indigo-700 dark:bg-indigo-950/80 dark:text-indigo-200">
+            <Paperclip size={14} className="mr-1.5" /> Drop to attach
+          </div>
+        )}
         <input
           type="file"
           ref={fileRef}
@@ -1680,6 +1700,7 @@ function Composer({
           ref={textRef}
           value={draft}
           onChange={(e) => updateDraft(e.target.value)}
+          onPaste={onPaste}
           onKeyDown={(e) => {
             if (resourceQuery !== null && references.length > 0) {
               if (e.key === "ArrowDown") {

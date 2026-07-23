@@ -16,6 +16,7 @@ import { useToast } from "../components/ui/Toast";
 import { api, Company, CodeRepository } from "../lib/api";
 import { RepoFormModal } from "./CodeRepoForm";
 import { useCodeReposContext } from "./CodeReposLayout";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Code — the company's git repositories. Humans add any HTTPS / SSH repo and
@@ -49,6 +50,8 @@ export default function CodeReposIndex({ company }: { company: Company }) {
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  useLiveRefetch("coderepo", reload);
 
   const filtered = React.useMemo(() => {
     if (!items) return null;

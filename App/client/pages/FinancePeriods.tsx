@@ -3,6 +3,7 @@ import { useOutletContext } from "react-router-dom";
 import { Download, Lock, Plus, Trash2, Unlock } from "lucide-react";
 import { AccountingPeriod, api } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
@@ -37,6 +38,8 @@ export default function FinancePeriods() {
   React.useEffect(() => {
     reload().catch(() => setPeriods([]));
   }, [reload]);
+
+  useLiveRefetch("period", reload);
 
   async function close(p: AccountingPeriod) {
     const ok = await dialog.confirm({

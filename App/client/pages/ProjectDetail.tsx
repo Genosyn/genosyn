@@ -60,6 +60,7 @@ import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
 import { Spinner } from "../components/ui/Spinner";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Menu, MenuHeader, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
@@ -838,6 +839,11 @@ export default function ProjectDetail({ company, me }: { company: Company; me: M
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  // Live board: an AI employee moving a todo, auto-starting on assign, or
+  // posting a work-report comment shows up without a refresh. Scoped to this
+  // project so other projects' churn doesn't refetch it.
+  useLiveRefetch(["todo", "project"], reload, data?.project.id ?? null);
 
   React.useEffect(() => {
     api

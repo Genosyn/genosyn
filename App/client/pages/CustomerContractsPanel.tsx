@@ -6,6 +6,7 @@ import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { ContractUploadModal } from "../components/ContractUploadModal";
 import { formatContractSize, formatSignedDate } from "../lib/contracts";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * The signed contracts for one customer, shown on the customer edit page.
@@ -37,6 +38,8 @@ export function CustomerContractsPanel({
   React.useEffect(() => {
     reload().catch(() => setContracts([]));
   }, [reload]);
+
+  useLiveRefetch("contract", reload);
 
   async function remove(c: CustomerContract) {
     const ok = await dialog.confirm({

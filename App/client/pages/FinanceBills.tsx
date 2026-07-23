@@ -9,6 +9,7 @@ import {
   formatMoney,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { FinanceOutletCtx } from "./FinanceLayout";
@@ -41,18 +42,27 @@ const STATUS_BADGE: Record<StatusFilter, string> = {
 export default function FinanceBills() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const [bills, setBills] = React.useState<BillListItem[] | null>(null);
+  const [loadError, setLoadError] = React.useState(false);
   const [filter, setFilter] = React.useState<StatusFilter>("all");
 
-  React.useEffect(() => {
-    let alive = true;
+  const reload = React.useCallback(() => {
     api
       .get<BillListItem[]>(`/api/companies/${company.id}/bills`)
-      .then((list) => alive && setBills(list))
-      .catch(() => alive && setBills([]));
-    return () => {
-      alive = false;
-    };
+      .then((b) => {
+        setBills(b);
+        setLoadError(false);
+      })
+      .catch(() => {
+        setBills([]);
+        setLoadError(true);
+      });
   }, [company.id]);
+
+  React.useEffect(() => {
+    reload();
+  }, [reload]);
+
+  useLiveRefetch("bill", reload);
 
   const filtered = React.useMemo(() => {
     if (!bills) return null;
@@ -119,7 +129,19 @@ export default function FinanceBills() {
         ))}
       </div>
 
-      {filtered === null ? (
+      {loadError ? (
+        <div className="rounded-xl border border-dashed border-slate-200 bg-white p-12 text-center dark:border-slate-700 dark:bg-slate-900">
+          <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+            Couldn&apos;t load bills
+          </h3>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Something went wrong fetching this list.
+          </p>
+          <Button variant="secondary" className="mt-4" onClick={reload}>
+            Try again
+          </Button>
+        </div>
+      ) : filtered === null ? (
         <div className="flex justify-center p-16">
           <Spinner size={20} />
         </div>

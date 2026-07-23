@@ -26,6 +26,7 @@ import {
 } from "../components/charts/ChartRenderer";
 import { useExplore } from "./ExploreLayout";
 import { AsyncResourceTagPicker } from "../components/TagPicker";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Dashboard detail. Renders the saved cards in a 12-column CSS grid and
@@ -103,6 +104,22 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  // Live-refresh only while NOT editing the layout, and silently — the full
+  // `reload` flips a spinner and navigates away on a transient error, neither
+  // of which should happen on a background broadcast.
+  const liveReload = React.useCallback(async () => {
+    if (editing) return;
+    try {
+      const d = await api.get<DashboardDetail>(
+        `/api/companies/${company.id}/explore/dashboards/${slug}`,
+      );
+      setData(d);
+    } catch {
+      // Ignore transient errors on a live refresh; the next event reconciles.
+    }
+  }, [company.id, slug, editing]);
+  useLiveRefetch("dashboard", liveReload);
 
   const runChart = React.useCallback(
     async (chartSlug: string) => {

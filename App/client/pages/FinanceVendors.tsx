@@ -3,6 +3,7 @@ import { useOutletContext } from "react-router-dom";
 import { Archive, ArchiveRestore, Mail, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { api, Vendor } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
@@ -38,6 +39,8 @@ export default function FinanceVendors() {
   React.useEffect(() => {
     reload().catch(() => setVendors([]));
   }, [reload]);
+
+  useLiveRefetch("vendor", reload);
 
   function archive(v: Vendor) {
     const archived = !v.archivedAt;

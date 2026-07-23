@@ -4,6 +4,7 @@ import { Plus, Users, Wrench } from "lucide-react";
 import { api, Company, Employee, SkillWithMeta } from "../lib/api";
 import { ContextualLayout } from "../components/AppShell";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Skills section shell — every playbook in the company, in one place. Skills
@@ -37,6 +38,8 @@ export default function SkillsLayout({ company }: { company: Company }) {
   React.useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useLiveRefetch("skill", refresh);
 
   const ctx = React.useMemo<SkillsContext>(
     () => ({ skills: skills ?? [], employees, loading: skills === null, refresh }),

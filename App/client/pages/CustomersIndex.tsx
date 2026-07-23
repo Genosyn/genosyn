@@ -18,6 +18,7 @@ import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { CustomersOutletCtx } from "./CustomersLayout";
+import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Customers list — the landing page of the standalone Customers section.
@@ -31,6 +32,7 @@ export default function CustomersIndex() {
   const { background } = useToast();
   const dialog = useDialog();
   const [customers, setCustomers] = React.useState<Customer[] | null>(null);
+  const [loadError, setLoadError] = React.useState(false);
   const [showArchived, setShowArchived] = React.useState(false);
 
   const reload = React.useCallback(async () => {
@@ -38,11 +40,17 @@ export default function CustomersIndex() {
       `/api/companies/${company.id}/customers?archived=${showArchived}`,
     );
     setCustomers(list);
+    setLoadError(false);
   }, [company.id, showArchived]);
 
   React.useEffect(() => {
-    reload().catch(() => setCustomers([]));
+    reload().catch(() => {
+      setCustomers([]);
+      setLoadError(true);
+    });
   }, [reload]);
+
+  useLiveRefetch("customer", reload);
 
   function archive(c: Customer) {
     const archived = !c.archivedAt;
@@ -135,7 +143,28 @@ export default function CustomersIndex() {
         </div>
       </div>
 
-      {customers === null ? (
+      {loadError ? (
+        <div className="rounded-xl border border-dashed border-slate-200 bg-white p-12 text-center dark:border-slate-700 dark:bg-slate-900">
+          <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+            Couldn&apos;t load customers
+          </h3>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Something went wrong fetching this list.
+          </p>
+          <Button
+            variant="secondary"
+            className="mt-4"
+            onClick={() =>
+              reload().catch(() => {
+                setCustomers([]);
+                setLoadError(true);
+              })
+            }
+          >
+            Try again
+          </Button>
+        </div>
+      ) : customers === null ? (
         <div className="flex justify-center p-16">
           <Spinner size={20} />
         </div>
