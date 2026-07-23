@@ -125,6 +125,13 @@ export type ChatOptions = {
    * surface-specific tools without touching the shared prompt.
    */
   extraSystem?: string;
+  /**
+   * Tool names this surface needs loaded up-front. The mail assistant is the
+   * case that matters: it is a per-email panel whose whole job is mail, so
+   * making it discover the mail tools would put a round-trip in front of every
+   * reply.
+   */
+  extraToolset?: string[];
 };
 
 /** Non-streaming wrapper. */
@@ -262,7 +269,7 @@ export async function streamChatWithEmployee(
         genosynToken: mcpToken,
         bashTimeoutMs: 5 * 60 * 1000,
         maxSteps: CHAT_MAX_STEPS,
-        skillToolset: residentNamesForSkills(skills),
+        skillToolset: [...residentNamesForSkills(skills), ...(options.extraToolset ?? [])],
         conversationId: options.conversationId,
         signal: controller.signal,
         callbacks: {

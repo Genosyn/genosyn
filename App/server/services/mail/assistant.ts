@@ -231,6 +231,23 @@ async function resolveTargetEmployee(
 }
 
 /** The panel briefing appended to the employee's system prompt. */
+/**
+ * The mail tools this panel always needs loaded.
+ *
+ * The per-email assistant exists to work one mailbox, so every one of these is
+ * on its hot path — discovering them would put a round-trip in front of every
+ * reply for no benefit.
+ */
+const MAIL_ASSISTANT_TOOLS = [
+  "search_mail",
+  "get_mail_thread",
+  "create_mail_draft",
+  "edit_mail_draft",
+  "update_mail_thread",
+  "send_mail",
+  "suggest_mail_actions",
+];
+
 function assistantBriefing(account: MailAccount, accessLevel: MailAccessLevel | null): string {
   const lines = [
     "",
@@ -242,16 +259,16 @@ function assistantBriefing(account: MailAccount, accessLevel: MailAccessLevel | 
     // employee to call op "draft" just burns turns on 403s.
     const canDraft = MAIL_ACCESS_RANK[accessLevel] >= MAIL_ACCESS_RANK.draft;
     const ops = canDraft
-      ? `op "search"/"get" to read, op "draft" to write drafts${accessLevel === "send" ? ', op "send" to send' : ""}, op "update" to triage (labels, archive, read state)`
-      : 'op "search"/"get" to read — your level allows reading only, so route drafting, triage, and sending through the suggestion buttons below instead of calling those ops';
+      ? `\`search_mail\`/\`get_mail_thread\` to read, \`create_mail_draft\` to write drafts${accessLevel === "send" ? ", `send_mail` to send" : ""}, \`update_mail_thread\` to triage (labels, archive, read state)`
+      : "`search_mail`/`get_mail_thread` to read — your level allows reading only, so route drafting, triage, and sending through the suggestion buttons below instead of calling those tools";
     lines.push(
-      `Your access level on this mailbox is "${accessLevel}". Use the \`mail\` tool for real work: ${ops}.`,
-      'When the teammate asks you to change an existing draft, fetch the thread, identify the draft message id, and use the `mail` tool op "edit" to update that Gmail draft directly. Do not create a second draft and do not merely describe the rewrite.',
-      'End turns that have obvious next steps with the `mail` tool op "suggest" (`suggest_mail_actions`): it renders one-click buttons under your reply that the teammate executes with their own authority. Suggest things beyond your grant there — e.g. propose sending a draft (`send_draft`), triage actions, opening a thread, a handover, or an inbox rule you noticed a pattern for. 1–4 buttons, short imperative labels. Never repeat a button\'s contents in prose.',
+      `Your access level on this mailbox is "${accessLevel}". Use the mail tools for real work: ${ops}. They are already loaded — you do not need to look them up.`,
+      "When the teammate asks you to change an existing draft, fetch the thread, identify the draft message id, and use `edit_mail_draft` to update that Gmail draft directly. Do not create a second draft and do not merely describe the rewrite.",
+      'End turns that have obvious next steps with `suggest_mail_actions`: it renders one-click buttons under your reply that the teammate executes with their own authority. Suggest things beyond your grant there — e.g. propose sending a draft (`send_draft`), triage actions, opening a thread, a handover, or an inbox rule you noticed a pattern for. 1–4 buttons, short imperative labels. Never repeat a button\'s contents in prose.',
     );
   } else {
     lines.push(
-      "You have NO grant on this mailbox, so the `mail` tool will refuse it and no thread contents are included above. You can still answer general questions and use your other tools. If the teammate wants you working this inbox, tell them to grant you access under Email → Settings → AI access.",
+      "You have NO grant on this mailbox, so the mail tools will refuse and no thread contents are included above. You can still answer general questions and use your other tools. If the teammate wants you working this inbox, tell them to grant you access under Email → Settings → AI access.",
     );
   }
   return lines.join("\n");
@@ -286,7 +303,7 @@ async function composeTurnContext(
     return parts.join("\n");
   }
   parts.push(
-    `The teammate is viewing the thread "${thread.subject || "(no subject)"}" — id ${thread.id} (pass as \`threadId\` to the \`mail\` tool).`,
+    `The teammate is viewing the thread "${thread.subject || "(no subject)"}" — id ${thread.id} (pass as \`threadId\` to the mail tools).`,
   );
   const messages = await AppDataSource.getRepository(MailMessage).find({
     where: { threadId: thread.id },
@@ -308,7 +325,7 @@ async function composeTurnContext(
       body,
     ].join("\n");
     if (block.length > budget) {
-      rendered.push(`… ${i + 1} earlier message(s) omitted — fetch with the mail tool if needed.`);
+      rendered.push(`… ${i + 1} earlier message(s) omitted — fetch with \`get_mail_thread\` if needed.`);
       break;
     }
     budget -= block.length;
@@ -479,7 +496,10 @@ export async function runAssistantTurn(args: {
     prompt,
     history,
     callbacks.onChunk,
-    { extraSystem: assistantBriefing(account, accessLevel) },
+    {
+      extraSystem: assistantBriefing(account, accessLevel),
+      extraToolset: MAIL_ASSISTANT_TOOLS,
+    },
   );
 
   const actions = await captureTurnActions(account.companyId, employee.id, turnStart);
