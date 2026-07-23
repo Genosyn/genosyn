@@ -140,6 +140,23 @@ export function Email() {
         result says exactly what went and what did not.
       </P>
 
+      <H2 id="suppressed">Sending refuses suppressed recipients</H2>
+      <P>
+        Every send from this mailbox is checked against the company&apos;s{" "}
+        <DocLink to="/docs/deliverability">suppression list</DocLink> — the addresses that
+        unsubscribed, hard-bounced, or were marked do-not-email. The check sits at the one outbound
+        choke-point, so it covers a Member pressing Send, a bulk send from the Drafts queue, a
+        sequence step, and an AI employee&apos;s mail tools identically, and it runs when the message
+        actually goes out rather than when the draft was written.
+      </P>
+      <P>
+        A single message is refused <Strong>all or nothing</Strong>: if any recipient in To, Cc or
+        Bcc is on the list, the send fails and names the addresses, rather than quietly delivering to
+        the rest. A bulk send skips the blocked drafts and tells you which ones. Manage the list, and
+        read the unsubscribe and bounce rules, under{" "}
+        <DocLink to="/docs/deliverability">Deliverability</DocLink>.
+      </P>
+
       <H2 id="power-user">Keyboard, bulk actions, and ⌘K</H2>
       <P>
         Mail is keyboard-drivable end to end. In any list, <Code>j</Code> and <Code>k</Code> move,{" "}

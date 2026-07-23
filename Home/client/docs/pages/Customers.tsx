@@ -134,6 +134,12 @@ export function Customers() {
         Edit customer page. Contacts are for your records — invoice and
         estimate email still goes to the customer&apos;s billing email.
       </P>
+      <P>
+        These belong to an account you already bill. The people you are still{" "}
+        <em>selling</em> to — who may have no account yet — are{" "}
+        <DocLink to="/docs/revenue">Revenue contacts</DocLink>, with their own
+        timeline, deals, and outbound.
+      </P>
 
       <H2 id="contracts">Contracts</H2>
       <P>

@@ -1011,6 +1011,112 @@ export const PRODUCTS: ProductDef[] = [
     ],
   },
 
+  // ───────────────────────────────── Revenue ─────────────────────────────────
+  {
+    slug: "revenue",
+    name: "Revenue",
+    category: "Operations",
+    icon: "trendingUp",
+    accent: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+    tagline: "From ad click to collected cash.",
+    taglineAccent: "One loop, one database, worked by AI employees.",
+    summary:
+      "Contacts, deals, outbound sequences, and product signals in the same database as your invoices and ledger — with timelines that fill themselves from email.",
+    seoTitle: "Revenue — A CRM that reaches your ledger · Genosyn",
+    description:
+      "Self-hosted go-to-market inside Genosyn: deals and contacts whose timelines fill from email, AI-drafted sequences a human approves, and metrics joined to your ledger.",
+    intro:
+      "Revenue is the middle of the loop most stacks leave open. A CRM has no ledger, a ledger has no deals, and the product-signal tools have neither — so ad click, contact, deal, invoice, collected cash, and journal entry live in four systems that agree only when somebody reconciles them. In Genosyn they are rows in one database, worked by AI employees under a grant a human sets.",
+    checks: [
+      "Deals, contacts, and one timeline",
+      "The timeline fills itself from email",
+      "Drafts wait for a human Send",
+      "read < write < send AI grants",
+    ],
+    features: [
+      {
+        icon: "layoutGrid",
+        title: "Deals on a board",
+        body: "Seven Deal Stages seeded from a conventional B2B ladder — New through Closed Won — as a flat ordered list you edit, each carrying a forecast probability. Moving a deal into a won or lost stage closes it and stamps the date. Pipeline is the word Genosyn reserves for its DAG automation, so here it is stages and a board.",
+      },
+      {
+        icon: "history",
+        title: "The timeline fills itself",
+        body: "Mail sync matches thread participants against known Contacts and writes each message onto the timeline as it lands, so opening a contact shows every conversation you have ever had without anyone logging a thing. It links only to contacts that already exist — a mailbox is mostly newsletters and receipts, and auto-creating from strangers would bury the list in a week.",
+      },
+      {
+        icon: "mailPlus",
+        title: "Sequences drafted, not merged",
+        body: "A Sequence names an AI employee and a standing brief instead of storing message bodies: every touch is written for that contact from their real context — prior threads, the open deal, the signal that enrolled them. Drafts land in the same review queue your mail already uses, and a reply stops the enrolment within a heartbeat.",
+      },
+      {
+        icon: "shieldCheck",
+        title: "Deliverability before volume",
+        body: "Suppression is enforced at the single outbound choke-point every send path shares, re-checked at send rather than at draft time. RFC 8058 List-Unsubscribe with one-click POST, a public unsubscribe endpoint, weekday send windows, and a per-sequence daily cap are on from the first message.",
+      },
+      {
+        icon: "zap",
+        title: "Signals over your own database",
+        body: "A saved query against a connected Postgres, MySQL, ClickHouse, or Stripe account, evaluated on cron and deduplicated so an account triggers once instead of every tick. A firing logs an activity, sends a notification, opens a Deal, enrols a Sequence, or wakes an AI employee with the payload.",
+      },
+      {
+        icon: "barChart3",
+        title: "Metrics that reach the ledger",
+        body: "MRR movement — new, expansion, contraction, churn, reactivation — with ARR, NRR and GRR cohorts, win rate, sales-cycle length, stage conversion, pipeline coverage, CAC by channel, LTV:CAC and payback. The arithmetic is pure and property-tested, and collected cash comes from recorded invoice payments rather than from a deal marked won.",
+      },
+    ],
+    employees: {
+      heading: "Inside what a human authorized",
+      body: "Revenue is one company-wide Grant per employee at read, write, or send — the same shape Finance uses. An employee with no grant gets no revenue tools at all, and the level it does hold is written into its prompt in plain English, so it knows where the line is before it reaches one.",
+      bullets: [
+        {
+          title: "Three levels, one row",
+          body: "read lists and opens contacts, deals, timelines, sequences, signals, and reports. write creates and updates them, moves a deal between stages, logs activities, and enrols contacts. send is the only level that can put mail on the wire unattended.",
+        },
+        {
+          title: "Unattended send needs two keys",
+          body: "A sequence marked auto-send requires the employee's revenue grant at send and its grant on that mailbox at send. Suppression, the send window, and the daily cap apply either way — auto-send bypasses none of them.",
+        },
+        {
+          title: "Attributed, then auditable",
+          body: "Every AI write is recorded against the employee's name in the audit log, and the timeline shows whether a Member or an AI employee logged each event. A contact or a deal can be owned by either.",
+        },
+      ],
+    },
+    faqs: [
+      {
+        q: "How is this different from bolting a CRM onto our stack?",
+        a: "The chain is unbroken. The Contact, the Deal, the invoice it becomes, the payment recorded against that invoice, and the journal entry that posts are rows in one database with one permission model and one audit trail — no nightly sync, no integration to reconcile. A Contact is a person and can exist long before there is an account to attach them to; a Customer is the billable account an invoice is addressed to.",
+      },
+      {
+        q: "How does the timeline fill itself, and what does it deliberately not do?",
+        a: "Mail sync links each mirrored message to Contacts that already exist and writes an inbound or outbound activity, so a contact page shows the whole conversation history with nobody doing data entry. It never creates a Contact from an unknown address, and idempotency is keyed on the message, so re-syncing a mailbox never doubles a thread. Creating a contact stays an explicit act — a human, an import, or a Signal.",
+      },
+      {
+        q: "Can an AI employee send outbound email without me?",
+        a: "Not by default. Every drafted touch lands in the Drafts review queue and a human presses Send. Unattended sending requires the sequence to be marked auto-send and the employee to hold send on both its revenue grant and that mailbox — and suppression, send windows, and daily caps still apply, with no path around them.",
+      },
+      {
+        q: "What exactly is a Signal?",
+        a: "A saved query over a connected product database or Stripe, plus a rule for what to do with the rows it returns, evaluated on a standard 5-field cron. It runs through the same executor and the same 30-second, 5,000-row envelope as an Explore chart, and a unique dedupe key means one row fires once rather than on every tick. Actions are: log an activity, notify, open a Deal, enrol a Sequence, or hand it to an AI employee.",
+      },
+      {
+        q: "Where do the CAC numbers come from?",
+        a: "Spend is grouped by platform from the ad-spend ledger Paid Marketing writes, and wins are counted per deal source over the same period, with unattributed spend and wins kept as their own row rather than dropped. That ledger records authorized budget changes rather than settled platform spend, so CAC today is a documented proxy — reading real spend back from the ad platforms is the next step. The other side of the ratio is exact: collected revenue sums recorded invoice payments.",
+      },
+    ],
+    docsPath: "/docs/revenue",
+    keywords: [
+      "AI-native CRM",
+      "self-hosted sales CRM",
+      "sales pipeline software self-hosted",
+      "AI drafted outbound sequences",
+      "product qualified lead signals",
+      "MRR NRR and churn reporting",
+      "CAC LTV and payback tracking",
+    ],
+  },
+
   // ────────────────────────────────── Email ──────────────────────────────────
   {
     slug: "email",

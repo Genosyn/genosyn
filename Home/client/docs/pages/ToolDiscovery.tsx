@@ -55,8 +55,8 @@ export function ToolDiscovery() {
 
       <H2 id="catalogue">The catalogue</H2>
       <P>
-        Everything else — mail, finance, Bases, Notes, Resources, charts, dashboards, workspace
-        channels, handoffs, and every{" "}
+        Everything else — mail, finance, revenue, Bases, Notes, Resources, charts, dashboards,
+        workspace channels, handoffs, and every{" "}
         <DocLink to="/docs/integrations">Integration</DocLink> tool — lives in the catalogue. The
         employee calls <Code>find_tools</Code> with what it is trying to do (&quot;record a
         payment&quot;, &quot;reply to that email&quot;, &quot;read a spreadsheet&quot;) and gets back
@@ -94,7 +94,9 @@ export function ToolDiscovery() {
       </P>
       <UL>
         <LI>
-          <Code>[tools] 22 loaded, 89 in the catalogue behind find_tools — bases, mail, finance…</Code>
+          <Code>
+            [tools] 22 loaded, 109 in the catalogue behind find_tools — bases, mail, finance…
+          </Code>
         </LI>
         <LI>
           When a Skill declared tools, they are named:{" "}

@@ -127,7 +127,7 @@ export function allRoutes(): RouteHead[] {
       path: "/products",
       title: "Products — every tool in the box · Genosyn",
       description:
-        "Every tool Genosyn ships built in: AI Employees, Workspace chat, Tasks, Bases, Notes, Resources, Pipelines, Explore BI, Email, Customers, Finance, and Code.",
+        "Every tool Genosyn ships built in: AI Employees, Workspace chat, Tasks, Bases, Notes, Resources, Pipelines, Explore BI, Revenue, Email, Customers, Finance, and Code.",
       jsonLd: [
         ORGANIZATION,
         WEBSITE,

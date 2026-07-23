@@ -17,6 +17,10 @@ import { Browser } from "@/docs/pages/Browser";
 import { CodeRepositories } from "@/docs/pages/Code";
 import { Explore } from "@/docs/pages/Explore";
 import { Marketing } from "@/docs/pages/Marketing";
+import { Revenue } from "@/docs/pages/Revenue";
+import { Sequences } from "@/docs/pages/Sequences";
+import { Signals } from "@/docs/pages/Signals";
+import { Deliverability } from "@/docs/pages/Deliverability";
 import { WorkspaceChat } from "@/docs/pages/WorkspaceChat";
 import { Email } from "@/docs/pages/Email";
 import { Tasks } from "@/docs/pages/Tasks";
@@ -49,6 +53,10 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/code": CodeRepositories,
   "/docs/explore": Explore,
   "/docs/marketing": Marketing,
+  "/docs/revenue": Revenue,
+  "/docs/sequences": Sequences,
+  "/docs/signals": Signals,
+  "/docs/deliverability": Deliverability,
   "/docs/workspace-chat": WorkspaceChat,
   "/docs/email": Email,
   "/docs/tasks": Tasks,

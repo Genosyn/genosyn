@@ -22,8 +22,10 @@ import {
   StickyNote,
   Table2,
   Terminal,
+  TrendingUp,
   Webhook,
   Workflow,
+  Zap,
 } from "lucide-react";
 
 /**
@@ -42,6 +44,7 @@ const PREVIEWS: Record<string, () => JSX.Element> = {
   pipelines: PipelinesPreview,
   explore: ExplorePreview,
   marketing: MarketingPreview,
+  revenue: RevenuePreview,
   email: EmailPreview,
   customers: CustomersPreview,
   finance: FinancePreview,
@@ -737,6 +740,201 @@ function ExplorePreview() {
             </div>
           </div>
         </div>
+      </div>
+    </Window>
+  );
+}
+
+// ───────────────────────────────── Revenue ──────────────────────────────────
+
+const REVENUE_LOOP = [
+  "ad click",
+  "contact",
+  "deal",
+  "invoice",
+  "collected cash",
+  "ledger",
+];
+
+function RevenuePreview() {
+  const stages: Array<{
+    label: string;
+    count: number;
+    deal: { name: string; amount: string; who: string; color: string; isAI?: boolean };
+  }> = [
+    {
+      label: "Qualified",
+      count: 6,
+      deal: {
+        name: "Initech",
+        amount: "$9,600",
+        who: "SS",
+        color: "bg-emerald-100 text-emerald-700",
+      },
+    },
+    {
+      label: "Demo",
+      count: 4,
+      deal: {
+        name: "Umbrella",
+        amount: "$21,000",
+        who: "AB",
+        color: "bg-sky-100 text-sky-700",
+        isAI: true,
+      },
+    },
+    {
+      label: "Proposal",
+      count: 3,
+      deal: {
+        name: "Globex",
+        amount: "$32,000",
+        who: "AB",
+        color: "bg-sky-100 text-sky-700",
+        isAI: true,
+      },
+    },
+    {
+      label: "Closed Won",
+      count: 9,
+      deal: {
+        name: "Acme Co.",
+        amount: "$14,400",
+        who: "SS",
+        color: "bg-emerald-100 text-emerald-700",
+      },
+    },
+  ];
+
+  const timeline: Array<{
+    icon: typeof Mail;
+    tone: string;
+    label: string;
+    detail: string;
+    time: string;
+  }> = [
+    {
+      icon: Mail,
+      tone: "bg-zinc-100 text-zinc-600",
+      label: "email in · Lee at Globex",
+      detail: "matched to a known contact by mail sync",
+      time: "9:12",
+    },
+    {
+      icon: Zap,
+      tone: "bg-amber-50 text-amber-700",
+      label: "signal · seats +4 on the trial",
+      detail: "saved query on cron · fired once for this account",
+      time: "9:14",
+    },
+    {
+      icon: Sparkles,
+      tone: "bg-violet-50 text-violet-700",
+      label: "sequence step 2 · drafted by Alex (AI)",
+      detail: "waiting in the review queue for a human Send",
+      time: "9:15",
+    },
+    {
+      icon: TrendingUp,
+      tone: "bg-emerald-50 text-emerald-700",
+      label: "stage change · Demo → Proposal",
+      detail: "weighted at 60% of $32,000",
+      time: "9:31",
+    },
+  ];
+
+  return (
+    <Window url="genosyn.com / revenue / deals — board">
+      <div className="flex items-center gap-2 border-b border-zinc-100 px-5 py-2.5 text-[11px]">
+        <TrendingUp className="h-3.5 w-3.5 text-zinc-500" />
+        <span className="font-medium text-zinc-700">Deals</span>
+        <Tag tone="bg-emerald-50 text-emerald-700 ring-emerald-200">7 stages</Tag>
+        <span className="ml-auto font-mono text-[10px] text-zinc-400">
+          weighted $128,400 · coverage 3.2x
+        </span>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-5">
+        <div className="border-b border-zinc-100 p-5 md:col-span-3 md:border-b-0 md:border-r">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {stages.map((s) => (
+              <div key={s.label} className="rounded-xl bg-zinc-50/70 p-2 ring-1 ring-zinc-100">
+                <div className="flex items-center justify-between px-1 pb-1.5 text-[9.5px] font-semibold uppercase tracking-wider text-zinc-500">
+                  <span className="truncate">{s.label}</span>
+                  <span className="font-mono text-zinc-400">{s.count}</span>
+                </div>
+                <div className="rounded-lg border border-zinc-200 bg-white p-2.5 shadow-card">
+                  <div className="truncate text-[12px] font-medium text-zinc-800">
+                    {s.deal.name}
+                  </div>
+                  <div className="mt-0.5 font-mono text-[10px] tabular-nums text-zinc-500">
+                    {s.deal.amount}
+                  </div>
+                  <div className="mt-2 flex items-center justify-between">
+                    <span
+                      className={`flex h-5 w-5 items-center justify-center rounded-md text-[8px] font-semibold ${s.deal.color}`}
+                    >
+                      {s.deal.who}
+                    </span>
+                    {s.deal.isAI && (
+                      <span className="rounded-md bg-violet-50 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-violet-700 ring-1 ring-violet-200">
+                        AI
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex items-center gap-2 text-[11px] text-zinc-500">
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+            <span>
+              Won deals bill from the same database — invoice, payment, journal entry
+            </span>
+          </div>
+        </div>
+        <div className="p-5 md:col-span-2">
+          <div className="flex items-baseline justify-between">
+            <span className="text-[12px] font-semibold text-zinc-900">
+              Globex · renewal expansion
+            </span>
+            <span className="font-mono text-[10px] text-zinc-400">timeline</span>
+          </div>
+          <div className="mt-3 space-y-2">
+            {timeline.map((t) => (
+              <div key={t.label} className="flex items-start gap-2">
+                <span
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${t.tone}`}
+                >
+                  <t.icon className="h-3 w-3" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[11.5px] font-medium text-zinc-800">
+                    {t.label}
+                  </div>
+                  <div className="text-[10px] leading-4 text-zinc-500">{t.detail}</div>
+                </div>
+                <span className="font-mono text-[9.5px] text-zinc-400">{t.time}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5 border-t border-zinc-100 bg-zinc-50/60 px-5 py-2.5 text-[10.5px] text-zinc-500">
+        {REVENUE_LOOP.map((step, i) => (
+          <span key={step} className="inline-flex items-center gap-1.5">
+            {i > 0 && <ArrowRight aria-hidden className="h-3 w-3 text-zinc-300" />}
+            <span
+              className={`rounded-md px-1.5 py-0.5 font-medium ${
+                i === REVENUE_LOOP.length - 1
+                  ? "bg-zinc-900 text-white"
+                  : "bg-white text-zinc-600 ring-1 ring-zinc-200"
+              }`}
+            >
+              {step}
+            </span>
+          </span>
+        ))}
+        <span className="ml-auto font-mono text-[10px] text-zinc-400">one database</span>
       </div>
     </Window>
   );

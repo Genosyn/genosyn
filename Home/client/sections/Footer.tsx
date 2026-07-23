@@ -73,6 +73,7 @@ const PRODUCT_LINKS: FooterLink[] = [
   { href: "/products/resources", label: "Resources" },
   { href: "/products/pipelines", label: "Pipelines" },
   { href: "/products/explore", label: "Explore" },
+  { href: "/products/revenue", label: "Revenue" },
   { href: "/products/email", label: "Email" },
   { href: "/products/customers", label: "Customers" },
   { href: "/products/finance", label: "Finance" },

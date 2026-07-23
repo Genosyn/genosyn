@@ -119,6 +119,35 @@ export const DOCS_NAV: DocsSection[] = [
     ],
   },
   {
+    label: "Revenue",
+    pages: [
+      {
+        path: "/docs/revenue",
+        title: "Revenue",
+        blurb:
+          "Contacts, deals, the board, and a timeline that fills itself from your mailbox.",
+      },
+      {
+        path: "/docs/sequences",
+        title: "Sequences",
+        blurb:
+          "Multi-step outbound drafted per contact by an AI employee, with review, send windows, and caps.",
+      },
+      {
+        path: "/docs/signals",
+        title: "Signals",
+        blurb:
+          "Product-usage triggers — a saved query over your own database, deduplicated and acted on.",
+      },
+      {
+        path: "/docs/deliverability",
+        title: "Deliverability",
+        blurb:
+          "Suppression list, unsubscribe and one-click, bounces, send caps — how not to burn your domain.",
+      },
+    ],
+  },
+  {
     label: "Operations",
     pages: [
       {
