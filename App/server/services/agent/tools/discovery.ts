@@ -1,5 +1,4 @@
 import type { AgentTool } from "../types.js";
-import { PARSE_ERROR_KEY } from "../modelClients/parseArgs.js";
 import { TOOL_DOMAINS, TOOL_KEYWORDS, domainOf } from "./toolIndex.js";
 
 /**
@@ -267,19 +266,9 @@ export function createCallTool(ctx: DiscoveryContext): AgentTool {
       return { name: target, input: parsed.ok ? parsed.args : {} };
     },
     run: async (input) => {
-      // The client stamps a parse failure here when the whole `call_tool`
-      // argument blob was malformed. Surfacing it verbatim is the only way the
-      // model learns it was its JSON and not its field names.
-      const stamped = input[PARSE_ERROR_KEY];
-      if (typeof stamped === "string") {
-        return {
-          content:
-            `Your call_tool arguments did not parse: ${stamped}\n` +
-            "Send `name` as a plain string and `args_json` as a JSON object encoded in a string.",
-          isError: true,
-        };
-      }
-
+      // A malformed *outer* blob is caught in loop.ts before dispatch, for
+      // every tool — see PARSE_ERROR_KEY there. What is left here is a
+      // well-formed call whose inner `args_json` may still be bad.
       const name = typeof input.name === "string" ? input.name.trim() : "";
       if (!name) {
         return {

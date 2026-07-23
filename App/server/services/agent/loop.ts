@@ -13,6 +13,7 @@ import type {
   ToolResultBlock,
 } from "./types.js";
 import type { ToolRegistry } from "./tools/toolRegistry.js";
+import { PARSE_ERROR_KEY } from "./modelClients/parseArgs.js";
 
 /**
  * The agentic loop — the thing the harness CLIs used to own.
@@ -165,7 +166,19 @@ export async function runAgentLoop(params: {
       callbacks?.onToolUse?.(reportedName, described?.input ?? tu.input);
 
       let result: ToolResult;
-      if (!tool) {
+      // The OpenAI-shaped clients stamp a malformed argument blob here rather
+      // than silently passing `{}`. Answer it before dispatch: every tool's zod
+      // is `.strict()`, so letting the stamp through would trade a misleading
+      // "field is required" for an equally misleading "unrecognized key".
+      const parseError = tu.input[PARSE_ERROR_KEY];
+      if (typeof parseError === "string") {
+        result = {
+          content:
+            `Your arguments for ${reportedName} did not parse: ${parseError}\n` +
+            "Re-send the call with valid JSON.",
+          isError: true,
+        };
+      } else if (!tool) {
         result = {
           content: `Unknown tool: ${tu.name}. Call find_tools to see what is available.`,
           isError: true,
