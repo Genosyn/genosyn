@@ -69,6 +69,18 @@ async function loadEmpAndCompany(
  */
 const MAX_REPLAY_TURNS = 20;
 
+/**
+ * How often the streamed-send endpoint emits an SSE keepalive comment while a
+ * turn is in flight. A single agent turn can spend well over a minute between
+ * visible `chunk` events — the model "thinks" before its first token, and
+ * tools (bash, browser, MCP) run silently in between. During those gaps no
+ * bytes flow, and any idle reverse proxy in front of a self-hosted Genosyn
+ * (nginx `proxy_read_timeout` 60s, Caddy, cloud load balancers at 30–100s)
+ * resets the connection — which surfaces in the browser as a mid-stream
+ * `network error`. A comment line every 15s stays under those idle timers.
+ */
+const CHAT_STREAM_HEARTBEAT_MS = 15_000;
+
 /** Derive a display title from the first user message. */
 function deriveTitle(message: string): string {
   const firstLine = message.split("\n")[0].trim();
@@ -325,6 +337,18 @@ employeeSurfaceRouter.post(
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
 
+    // Keep the connection warm across long silent stretches of a turn. SSE
+    // comment lines (`:`-prefixed) are ignored by the client parser but count
+    // as traffic, so they reset the idle-read timers on any proxy between the
+    // browser and this process — without them a slow reply drops mid-stream.
+    const heartbeat = setInterval(() => {
+      if (!res.writableEnded) res.write(`: keepalive\n\n`);
+    }, CHAT_STREAM_HEARTBEAT_MS);
+    // Don't let the keepalive timer hold the process open on its own, and stop
+    // firing the moment the client hangs up (nothing left to keep warm).
+    heartbeat.unref?.();
+    res.on("close", () => clearInterval(heartbeat));
+
     try {
       const loaded = await loadEmpAndCompany(cid, eid);
       if (!loaded) {
@@ -469,6 +493,8 @@ employeeSurfaceRouter.post(
       } else {
         next(e);
       }
+    } finally {
+      clearInterval(heartbeat);
     }
   },
 );

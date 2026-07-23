@@ -68,12 +68,22 @@ export async function streamPost(
     for (const frame of frames) {
       if (!frame.trim()) continue;
       let event = "message";
+      let sawField = false;
       const dataLines: string[] = [];
       for (const line of frame.split("\n")) {
-        if (line.startsWith("event:")) event = line.slice(6).trim();
-        else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+        if (line.startsWith("event:")) {
+          event = line.slice(6).trim();
+          sawField = true;
+        } else if (line.startsWith("data:")) {
+          dataLines.push(line.slice(5).trim());
+          sawField = true;
+        }
         // ignore comments and id/retry fields — we don't use them
       }
+      // A frame with no event/data field is a server keepalive comment
+      // (`: ...`) sent to hold the connection open during long replies.
+      // It carries nothing to dispatch, so skip it.
+      if (!sawField) continue;
       const raw = dataLines.join("\n");
       let data: unknown = null;
       if (raw) {
