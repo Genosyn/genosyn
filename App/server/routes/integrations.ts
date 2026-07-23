@@ -8,7 +8,12 @@ import {
   requireCompanyRoleForMutations,
 } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
-import { assertIntegrationAllowed, getProvider, listCatalog } from "../integrations/index.js";
+import {
+  assertIntegrationAllowed,
+  getProvider,
+  listCatalog,
+  providerSupportsApiKey,
+} from "../integrations/index.js";
 import {
   createApiKeyConnection,
   createBrowserLoginConnection,
@@ -88,9 +93,9 @@ integrationsRouter.post("/connections", validateBody(createConnectionSchema), as
   const body = req.body as z.infer<typeof createConnectionSchema>;
   const provider = getProvider(body.provider);
   if (!provider) return res.status(400).json({ error: "Unknown integration" });
-  if (provider.catalog.authMode !== "apikey") {
+  if (!providerSupportsApiKey(provider)) {
     return res.status(400).json({
-      error: `${provider.catalog.name} must be connected via OAuth — call /oauth/start instead.`,
+      error: `${provider.catalog.name} can't be connected with an API key — use OAuth instead.`,
     });
   }
   try {

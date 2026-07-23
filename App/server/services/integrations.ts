@@ -4,7 +4,7 @@ import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { EmployeeConnectionGrant } from "../db/entities/EmployeeConnectionGrant.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { encryptSecret, decryptSecret } from "../lib/secret.js";
-import { assertIntegrationAllowed, getProvider } from "../integrations/index.js";
+import { assertIntegrationAllowed, getProvider, providerSupportsApiKey } from "../integrations/index.js";
 import {
   ApprovalRequiredError,
   type IntegrationConfig,
@@ -129,7 +129,7 @@ export async function createApiKeyConnection(args: {
 }): Promise<IntegrationConnection> {
   const provider = getProvider(args.provider);
   if (!provider) throw new Error(`Unknown integration: ${args.provider}`);
-  if (provider.catalog.authMode !== "apikey") {
+  if (!providerSupportsApiKey(provider)) {
     throw new Error(`${provider.catalog.name} is not an API-key integration`);
   }
   if (!provider.validateApiKey) {

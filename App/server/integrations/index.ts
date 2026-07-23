@@ -76,6 +76,21 @@ export function getProvider(id: string): IntegrationProvider | null {
   return PROVIDERS[id] ?? null;
 }
 
+/**
+ * Whether a provider accepts an API-key / personal-access-token Connection.
+ *
+ * `catalog.authMode` only names the provider's *primary* connect mode, so it
+ * can't be used to gate the API-key path: GitHub's primary mode is `oauth2`,
+ * but it also accepts a Personal Access Token as a secondary mode. The real
+ * signal is the provider implementing `validateApiKey` alongside a non-empty
+ * `fields` block to collect the token — that covers both pure API-key
+ * integrations (Stripe, Linear, …) and OAuth integrations with a secondary
+ * token path (GitHub). This mirrors the client's `supportsApiKey` check.
+ */
+export function providerSupportsApiKey(provider: IntegrationProvider): boolean {
+  return !!provider.validateApiKey && (provider.catalog.fields?.length ?? 0) > 0;
+}
+
 export function listProviderIds(): string[] {
   return Object.keys(PROVIDERS);
 }
