@@ -1,4 +1,5 @@
 import { STATIC_TOOLS } from "../mcp/toolManifest.js";
+import { collapseStaticTools } from "./agent/tools/genosynFamilies.js";
 import { RETIRED_FAMILIES } from "./agent/tools/familyAliases.js";
 import { CODING_TOOL_NAMES } from "./agent/tools/coding.js";
 import type { Skill } from "../db/entities/Skill.js";
@@ -48,13 +49,46 @@ export function serializeToolset(names: string[]): string | null {
   return names.length > 0 ? JSON.stringify(names) : null;
 }
 
-/** Every name a Skill may legally declare. */
+/** Every static name a Skill may legally declare. */
 function knownToolNames(): Set<string> {
   return new Set<string>([
     ...STATIC_TOOLS.map((t) => t.name),
+    // The live collapsed family (`memory`): it is a real agent-facing tool but
+    // not a STATIC_TOOLS entry, so without this a Skill declaring `memory`
+    // would be rejected.
+    ...collapseStaticTools().collapsed.map((c) => c.name),
     ...Object.keys(RETIRED_FAMILIES),
     ...CODING_TOOL_NAMES,
   ]);
+}
+
+/**
+ * Whether a name is a dynamic tool we cannot check against a static list.
+ *
+ * Integration and company-MCP tools only exist once their Connection/server is
+ * live, which may be after the Skill is edited — so they are accepted by shape.
+ * The shapes are the real ones the runtime produces:
+ *   - browser: `browser_*`
+ *   - company MCP: `<server>__<tool>` (mcpBridge `exposedToolName`)
+ *   - integration: `<provider>_<tool>` (mcpInternal `/integrations/_list`)
+ * The integration case can't be told from a typo of a static name by shape
+ * alone, so it is accepted only when the leading segment is not itself a known
+ * static tool — a typo like `send_invoic` still fails.
+ */
+function looksDynamic(name: string, known: Set<string>): boolean {
+  if (name.startsWith("browser_")) return true;
+  if (name.includes("__")) return true;
+  // `<provider>_<tool>`: require a provider-shaped prefix and a tool suffix,
+  // and don't swallow near-misses of real static names.
+  return /^[a-z0-9]+_[a-z0-9_]+$/.test(name) && !known.has(name) && !isNearStatic(name, known);
+}
+
+/** A name within edit distance 2 of a static tool is treated as a typo. */
+function isNearStatic(name: string, known: Set<string>): boolean {
+  for (const k of known) {
+    if (Math.abs(k.length - name.length) <= 2 && editDistance(name, k) <= 2) return true;
+  }
+  return false;
 }
 
 export type ToolsetValidation =
@@ -64,12 +98,6 @@ export type ToolsetValidation =
 export function validateToolset(names: unknown): ToolsetValidation {
   if (!Array.isArray(names)) {
     return { ok: false, error: "toolset must be an array of tool names." };
-  }
-  if (names.length > MAX_TOOLSET_ENTRIES) {
-    return {
-      ok: false,
-      error: `A Skill may declare at most ${MAX_TOOLSET_ENTRIES} tools; got ${names.length}.`,
-    };
   }
 
   const cleaned: string[] = [];
@@ -82,13 +110,17 @@ export function validateToolset(names: unknown): ToolsetValidation {
     if (!cleaned.includes(name)) cleaned.push(name);
   }
 
+  // Count after cleaning: 30 entries that dedupe to 20 real tools is a fine
+  // toolset, not an over-limit one.
+  if (cleaned.length > MAX_TOOLSET_ENTRIES) {
+    return {
+      ok: false,
+      error: `A Skill may declare at most ${MAX_TOOLSET_ENTRIES} tools; got ${cleaned.length}.`,
+    };
+  }
+
   const known = knownToolNames();
-  const unknown = cleaned.filter(
-    // `browser_*` and company MCP tools exist only when that server is
-    // connected, so they can't be checked against a static list. Accept the
-    // shape and let the partition ignore any that don't resolve at run time.
-    (n) => !known.has(n) && !n.startsWith("browser_") && !n.includes(":"),
-  );
+  const unknown = cleaned.filter((n) => !known.has(n) && !looksDynamic(n, known));
   if (unknown.length > 0) {
     const suggestions = unknown
       .map((n) => {

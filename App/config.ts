@@ -67,10 +67,13 @@ export const config = {
     maxConcurrentRunsPerCompany: 4,
     // Show the model a working set of tools and let it reach the rest through
     // `find_tools` / `call_tool`, instead of sending every schema on every
-    // step. Off is exactly the pre-1.43 behaviour: one branch, everything
-    // resident. Keep the switch — first-turn recall is the risk this design
-    // carries, and an operator who hits it needs a way back that does not
-    // involve a downgrade.
+    // step. Off makes every tool resident again — the model sees the whole
+    // catalogue on each request, as it did before this existed. (Not identical
+    // to the old on-wire size: the collapsed CRUD families are gone, so an
+    // OpenAI-provider employee with many integrations could brush the 128-tool
+    // cap and get trimmed — the run still works, it just isn't as lean.) Keep
+    // the switch: first-turn recall is the risk this design carries, and an
+    // operator who hits it needs a way back that doesn't involve a downgrade.
     toolDiscovery: {
       enabled: true,
       // Below this many tools the round-trip costs more than the schemas do.

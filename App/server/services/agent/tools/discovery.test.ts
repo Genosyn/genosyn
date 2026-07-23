@@ -202,6 +202,25 @@ describe("call_tool dispatch", () => {
     assert.equal(out.isError, true);
   });
 
+  test("call_tool can dispatch find_tools (the meta-tools resolve too)", async () => {
+    // Regression: the model, told everything runs through call_tool, will call
+    // call_tool("find_tools"). If resolve() can't see the meta-tools, that
+    // returns "unknown tool" for a tool sitting in its own visible list.
+    const find = createFindToolsTool({
+      searchable,
+      resolve: () => undefined,
+      grantDead: new Set(),
+    });
+    const withMeta = createCallTool({
+      searchable,
+      resolve: (name) => (name === "find_tools" ? find : undefined),
+      grantDead: new Set(),
+    });
+    const out = await withMeta.run({ name: "find_tools", args_json: '{"query":"invoice"}' });
+    assert.equal(out.isError, undefined, `call_tool(find_tools) failed: ${out.content}`);
+    assert.ok(out.content.includes("catalogue"));
+  });
+
   test("describeCall reports the real target, not call_tool", () => {
     const described = call.describeCall?.({
       name: "send_invoice",

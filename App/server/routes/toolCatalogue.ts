@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { STATIC_TOOLS } from "../mcp/toolManifest.js";
 import { TOOL_DOMAINS } from "../services/agent/tools/toolIndex.js";
+import { collapseStaticTools } from "../services/agent/tools/genosynFamilies.js";
 import { CODING_TOOL_NAMES } from "../services/agent/tools/coding.js";
 
 /**
@@ -27,12 +28,29 @@ toolCatalogueRouter.use(requireCompanyMember);
 toolCatalogueRouter.get("/tool-catalogue", (_req, res) => {
   const summaries = new Map(STATIC_TOOLS.map((t) => [t.name, firstSentence(t.description)]));
 
-  const domains = Object.entries(TOOL_DOMAINS).map(([key, domain]) => ({
-    key,
-    label: domain.label,
-    blurb: domain.blurb,
-    tools: domain.tools.map((name) => ({ name, summary: summaries.get(name) ?? "" })),
-  }));
+  // A collapsed family's granular members are not agent-facing tools — only the
+  // family name is. Offering `list_memory` in the picker would let a Skill
+  // declare a name that resolves to nothing. Map each collapsed member to its
+  // family so the picker only ever shows names that are real.
+  const { collapsed } = collapseStaticTools();
+  const toFamily = new Map<string, string>();
+  const familySummary = new Map<string, string>();
+  for (const fam of collapsed) {
+    familySummary.set(fam.name, firstSentence(fam.description));
+    for (const target of Object.values(fam.ops)) toFamily.set(target, fam.name);
+  }
+
+  const domains = Object.entries(TOOL_DOMAINS).map(([key, domain]) => {
+    const seen = new Set<string>();
+    const tools: { name: string; summary: string }[] = [];
+    for (const raw of domain.tools) {
+      const name = toFamily.get(raw) ?? raw;
+      if (seen.has(name)) continue;
+      seen.add(name);
+      tools.push({ name, summary: familySummary.get(name) ?? summaries.get(name) ?? "" });
+    }
+    return { key, label: domain.label, blurb: domain.blurb, tools };
+  });
 
   domains.push({
     key: "coding",

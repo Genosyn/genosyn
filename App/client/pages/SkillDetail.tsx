@@ -230,6 +230,15 @@ function SettingsTab({
   const [name, setName] = React.useState(skill.name);
   const [toolset, setToolset] = React.useState<string[]>(skill.toolset ?? []);
   const [saving, setSaving] = React.useState(false);
+
+  // A toolset-only edit must be saveable, so the dirty check spans both fields.
+  // Order-insensitive on the toolset — the picker appends, but a reorder is not
+  // a change worth enabling Save for.
+  const savedToolset = skill.toolset ?? [];
+  const dirty =
+    name.trim() !== skill.name ||
+    toolset.length !== savedToolset.length ||
+    [...toolset].sort().join(" ") !== [...savedToolset].sort().join(" ");
   const { toast } = useToast();
   const dialog = useDialog();
   const navigate = useNavigate();
@@ -278,7 +287,7 @@ function SettingsTab({
       </Card>
 
       <div className="flex gap-2">
-        <Button onClick={save} disabled={saving || !name.trim() || name.trim() === skill.name}>
+        <Button onClick={save} disabled={saving || !name.trim() || !dirty}>
           {saving ? "Saving…" : "Save changes"}
         </Button>
       </div>

@@ -44,6 +44,14 @@ export type DiscoveryContext = {
 export function createFindToolsTool(ctx: DiscoveryContext): AgentTool {
   const footer = buildDomainFooter(ctx.searchable);
 
+  // Only advertise domains that actually have a searchable tool. A resident-only
+  // domain (routines, orientation) in the enum would be a guaranteed dead end —
+  // the model would filter to it and get nothing.
+  const searchableNames = new Set(ctx.searchable.map((t) => t.name));
+  const liveDomains = Object.keys(TOOL_DOMAINS).filter((key) =>
+    (TOOL_DOMAINS[key]?.tools ?? []).some((n) => searchableNames.has(n)),
+  );
+
   return {
     name: "find_tools",
     description:
@@ -63,7 +71,7 @@ export function createFindToolsTool(ctx: DiscoveryContext): AgentTool {
         },
         domain: {
           type: "string",
-          enum: Object.keys(TOOL_DOMAINS),
+          enum: liveDomains,
           description: "Optional: restrict the search to one domain.",
         },
         page: {

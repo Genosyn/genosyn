@@ -1,6 +1,7 @@
 import type { AIEmployee } from "../../db/entities/AIEmployee.js";
 import type { Company } from "../../db/entities/Company.js";
 import type { Skill } from "../../db/entities/Skill.js";
+import { config } from "../../../config.js";
 import { TOOL_DOMAINS } from "./tools/toolIndex.js";
 
 /**
@@ -75,6 +76,11 @@ export function composeEmployeeSystemPrompt(args: {
  */
 export function toolsBriefing(surface: PromptSurface): string {
   const isChat = surface === "chat";
+  // When discovery is off (the revert flag), every tool is loaded and there is
+  // no find_tools/call_tool to reach for — so promising them would send the
+  // model chasing tools that do not exist. The flag is the dominant signal: the
+  // catalogue is always large enough to clear minCatalogueSize in practice.
+  const discovery = config.agent.toolDiscovery.enabled;
 
   const lines: string[] = [
     "",
@@ -83,15 +89,23 @@ export function toolsBriefing(surface: PromptSurface): string {
       "Describing an action you don't actually take is a lie the human will catch: a tool call " +
       "leaves a visible audit row, and prose-only claims are invisible.",
     "",
-    "### Your visible tools are a working set, not everything you have",
-    "Most of your tools are not in the list you can see. `find_tools` searches the full " +
-      "catalogue by description and returns exact schemas; `call_tool` runs anything it finds. " +
-      "**Before saying you cannot do something, call `find_tools`** — a capability you have not " +
-      "been shown is not a capability you lack. It is cheap and idempotent, so call it whenever " +
-      "you are unsure, and again if you have forgotten what it returned.",
-    `Domains in the catalogue: ${domainLine()}.`,
-    "",
-    "### Always loaded",
+  ];
+
+  if (discovery) {
+    lines.push(
+      "### Your visible tools are a working set, not everything you have",
+      "Most of your tools are not in the list you can see. `find_tools` searches the full " +
+        "catalogue by description and returns exact schemas; `call_tool` runs anything it finds. " +
+        "**Before saying you cannot do something, call `find_tools`** — a capability you have not " +
+        "been shown is not a capability you lack. It is cheap and idempotent, so call it whenever " +
+        "you are unsure, and again if you have forgotten what it returned.",
+      `Domains in the catalogue: ${domainLine()}.`,
+      "",
+    );
+  }
+
+  lines.push(
+    discovery ? "### Always loaded" : "### Your tools",
     "- Coding: `bash`, `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep`, " +
       "rooted at your working directory (which holds any granted git repos under `repos/` and " +
       "`code-repos/`).",
@@ -110,16 +124,30 @@ export function toolsBriefing(surface: PromptSurface): string {
       "directory, so partition file-writing briefs explicitly and never overlap git operations.",
     "- Browser tools (when enabled) and any company-configured MCP server tools.",
     "",
-    "### Reaching the rest",
-    "- Email, finance, Bases, notes, resources, charts, dashboards, workspace channels, " +
-      "handoffs and your company's integrations all live in the catalogue. Call `find_tools` " +
-      "with what you are trying to do — \"record a payment\", \"reply to that email\", \"read a " +
-      'spreadsheet" — and it returns the exact tools and their arguments.',
-    "- Grants still apply. If `find_tools` says you hold no grant for something, say so plainly " +
-      "rather than working around it.",
+  );
+
+  if (discovery) {
+    lines.push(
+      "### Reaching the rest",
+      "- Email, finance, Bases, notes, resources, charts, dashboards, workspace channels, " +
+        "handoffs and your company's integrations all live in the catalogue. Call `find_tools` " +
+        "with what you are trying to do — \"record a payment\", \"reply to that email\", \"read a " +
+        'spreadsheet" — and it returns the exact tools and their arguments.',
+      "- Grants still apply. If `find_tools` says you hold no grant for something, say so plainly " +
+        "rather than working around it.",
+    );
+  } else {
+    lines.push(
+      "- Email, finance, Bases, notes, resources, charts, dashboards, workspace channels, " +
+        "handoffs and your company's integrations are in your tool list too. Grants still apply — " +
+        "if a tool denies access, say so plainly rather than working around it.",
+    );
+  }
+
+  lines.push(
     "- Mail: prefer creating a draft over sending" +
       (isChat ? " unless explicitly told to send." : " unless the brief explicitly allows sending."),
-  ];
+  );
 
   if (isChat) {
     lines.push(

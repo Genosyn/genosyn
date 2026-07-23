@@ -179,10 +179,13 @@ export async function runAgentLoop(params: {
           isError: true,
         };
       } else if (!tool) {
-        result = {
-          content: `Unknown tool: ${tu.name}. Call find_tools to see what is available.`,
-          isError: true,
-        };
+        // Only point at find_tools when it actually exists — with discovery off
+        // every tool is resident, so advising the model to call a tool that
+        // isn't there would just invite it to retry until the step limit.
+        const hint = registry.resolve("find_tools")
+          ? " Call find_tools to see what is available."
+          : "";
+        result = { content: `Unknown tool: ${tu.name}.${hint}`, isError: true };
       } else {
         try {
           result = await tool.run(tu.input);

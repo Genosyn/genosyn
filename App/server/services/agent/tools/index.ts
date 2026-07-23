@@ -153,12 +153,22 @@ export async function gatherEmployeeTools(params: {
     await Promise.all(bridged.map((b) => b.close()));
   };
 
+  // The meta-tools resolve too, so `call_tool("find_tools", …)` works — a very
+  // common move once the model is told everything runs through `call_tool`. The
+  // array is filled in below, before any dispatch, so the forward reference is
+  // safe; capturing it here also makes call_tool's self-call guard reachable.
+  const meta: AgentTool[] = [];
   const resolveAny = (name: string): AgentTool | undefined =>
-    tools.find((t) => t.name === name) ?? genosyn.aliases.find((a) => a.name === name);
+    tools.find((t) => t.name === name) ??
+    meta.find((t) => t.name === name) ??
+    genosyn.aliases.find((a) => a.name === name);
 
   // The revert path is one branch rather than a flag threaded through the
-  // partition: everything resident is exactly the behaviour that shipped before
-  // deferral existed, which is the only kind of revert worth having.
+  // partition: everything goes resident and there are no meta-tools. The model
+  // then sees the whole catalogue, as it did before deferral. `trimToProviderCap`
+  // in runEmployee is the backstop if that exceeds a provider cap — grant-dead
+  // tools were already sorted to the tail for exactly this. The briefing reads
+  // the same flag so it doesn't promise a `find_tools` that isn't there.
   const discovery = config.agent.toolDiscovery;
   if (!discovery.enabled || tools.length < discovery.minCatalogueSize) {
     return {
@@ -202,7 +212,7 @@ export async function gatherEmployeeTools(params: {
 
   // Discovery is built last because it closes over the deferred set, and goes
   // first in the resident list because it is the door to everything behind it.
-  const meta = discoveryTools({ searchable: deferred, resolve: resolveAny, grantDead });
+  meta.push(...discoveryTools({ searchable: deferred, resolve: resolveAny, grantDead }));
   resident.unshift(...meta);
 
   const domains = [...new Set(deferred.map((t) => domainOf(t.name) ?? "connected services"))];
