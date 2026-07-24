@@ -274,6 +274,15 @@ export function Finance() {
         <DocLink to="/docs/integrations">Settings → Integrations</DocLink>.
       </P>
       <P>
+        A bank line that isn&apos;t a recorded payment — bank interest, a fee, an owner transfer, a
+        cash sale — can be <Strong>categorized</Strong> straight into the books. Expand the line and
+        pick a category account under <Code>Or post it straight to a category</Code>: Genosyn posts a
+        balanced journal entry (money in debits the bank account and credits the category; money out
+        reverses) and marks the line reconciled. Unmatching a categorized line reverses that entry,
+        so the books always follow what you see on the feed. (Bank categorization is home-currency in
+        this release.)
+      </P>
+      <P>
         For Brex, create a <Code>Brex</Code> Connection using a read-only user token, then click{" "}
         <Code>New feed</Code>, choose <Code>Brex Cash</Code>, select the Connection and Cash
         account, and map it to the corresponding asset account in the chart of accounts.{" "}

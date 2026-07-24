@@ -1375,12 +1375,19 @@ the functional prerequisites land before the tools that need them:
       audit `update_customer` email repoints, make `requireFinance` fail
       closed on an unknown level, and company-scope the reconciliation
       payment lookup. Shipped in 1.48.1.
-- Bank categorization (post a bank line to the ledger — the prerequisite
-  the whole milestone rests on), for humans first; reconciliation beyond
-  invoice payments; the proposal spine; the grant-scope layer; human-side
-  audit coverage + a read-only finance role; then the job tools
-  themselves (read, bank, AR, AP, close), each proposal-only until an
-  owner raises a per-company limit.
+- [x] **A1 — Bank categorization (humans).** A bank-feed line can be posted
+      to the ledger for the first time: from Reconcile, pick a category and
+      Genosyn posts a balanced entry (money in DR bank / CR category; money
+      out reverses) and marks the line reconciled; unmatch reverses it.
+      New `bank_categorization` / `bank_categorization_void` sources; no
+      migration. Home-currency only for now. Closes P1 — the prerequisite the
+      rest of the milestone rested on, and the original "bank feed never posts
+      to the ledger" gap. Shipped in 1.53.0.
+- Next: reconciliation beyond invoice payments (match bills / card
+  settlements / manual entries); the proposal spine; the grant-scope layer;
+  human-side audit coverage + a read-only finance role; then the job tools
+  themselves (read, bank, AR, AP, close), each proposal-only until an owner
+  raises a per-company limit.
 - Depends on M19 Phase H (credit notes / refunds) for the AR correction
   tools. Multi-currency bank lines and a tax-return figure are named but
   out of scope.

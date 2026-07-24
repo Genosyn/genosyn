@@ -283,6 +283,7 @@ export default function FinanceReconcile() {
                     companySlug={company.slug}
                     homeCurrency={homeCurrency}
                     txn={t}
+                    accounts={accounts}
                     onChanged={reloadTxns}
                   />
                 ))}
@@ -330,17 +331,20 @@ function TxnRow({
   companySlug,
   homeCurrency,
   txn,
+  accounts,
   onChanged,
 }: {
   companyId: string;
   companySlug: string;
   homeCurrency: string;
   txn: BankTransaction;
+  accounts: Account[];
   onChanged: () => void;
 }) {
   const [open, setOpen] = React.useState(false);
   const [candidates, setCandidates] = React.useState<MatchCandidate[] | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [catAccount, setCatAccount] = React.useState("");
   const { toast } = useToast();
 
   const matched = !!txn.reconciledAt;
@@ -382,6 +386,24 @@ function TxnRow({
     setBusy(true);
     try {
       await api.post(`/api/companies/${companyId}/bank-transactions/${txn.id}/unmatch`);
+      onChanged();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function categorize() {
+    if (!catAccount) {
+      toast("Pick a category account first", "error");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.post(`/api/companies/${companyId}/bank-transactions/${txn.id}/categorize`, {
+        accountId: catAccount,
+      });
       onChanged();
     } catch (err) {
       toast((err as Error).message, "error");
@@ -470,8 +492,8 @@ function TxnRow({
             </div>
           ) : candidates.length === 0 ? (
             <div className="text-sm text-slate-500 dark:text-slate-400">
-              No payment candidates within the matching window. Record the corresponding invoice
-              payment first, then come back.
+              No invoice-payment candidates within the matching window. Match it to a recorded
+              payment, or post it straight to a category below (bank interest, a fee, a transfer).
             </div>
           ) : (
             <ul className="space-y-1.5">
@@ -502,6 +524,29 @@ function TxnRow({
                 </li>
               ))}
             </ul>
+          )}
+          {!matched && (
+            <div className="mt-3 flex items-end gap-2 border-t border-slate-200 pt-3 dark:border-slate-700">
+              <div className="flex-1">
+                <Select
+                  label="Or post it straight to a category"
+                  value={catAccount}
+                  onChange={(e) => setCatAccount(e.target.value)}
+                >
+                  <option value="">— Pick an account —</option>
+                  {accounts
+                    .filter((a) => !a.archivedAt)
+                    .map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.code} {a.name}
+                      </option>
+                    ))}
+                </Select>
+              </div>
+              <Button variant="secondary" onClick={categorize} disabled={busy || !catAccount}>
+                Categorize
+              </Button>
+            </div>
           )}
         </div>
       )}

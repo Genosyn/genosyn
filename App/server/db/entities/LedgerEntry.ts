@@ -49,6 +49,11 @@ export type LedgerEntrySource =
   | "vendor_credit_void"
   | "vendor_refund"
   | "vendor_refund_void"
+  // A bank-feed line categorized into the ledger: DR/CR the feed's bank account
+  // against a chosen category. The first path that turns an uncleared bank line
+  // into a real journal entry.
+  | "bank_categorization"
+  | "bank_categorization_void"
   | "brex_card_expense"
   | "brex_card_refund"
   | "brex_card_payment"

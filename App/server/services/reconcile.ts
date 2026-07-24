@@ -14,6 +14,9 @@ import {
   summarizeBrexCashAccount,
 } from "../integrations/providers/brex.js";
 import { decryptConnectionConfig } from "./integrations.js";
+import { Account } from "../db/entities/Account.js";
+import { LedgerLine } from "../db/entities/LedgerLine.js";
+import { findClosedPeriodCovering, postLedgerEntry } from "./ledger.js";
 
 /**
  * Reconciliation service. Phase D of the Finance milestone (M19) — see
@@ -527,10 +530,111 @@ export async function manualMatch(
 }
 
 export async function unmatch(txn: BankTransaction): Promise<BankTransaction> {
+  // A plain match just links to a pre-existing payment/entry — clearing the
+  // flags is enough. But if this line was *categorized* (we posted a journal
+  // entry for it), unmatching must reverse that entry so the books truly undo.
+  if (txn.matchedLedgerEntryId) {
+    const entry = await AppDataSource.getRepository(LedgerEntry).findOneBy({
+      id: txn.matchedLedgerEntryId,
+      companyId: txn.companyId,
+    });
+    if (entry && entry.source === "bank_categorization" && entry.sourceRefId === txn.id) {
+      const closed = await findClosedPeriodCovering(txn.companyId, entry.date);
+      if (closed) {
+        throw new Error(
+          `This line was categorized into the closed period "${closed.name}" and can't be unmatched. Reopen the period first.`,
+        );
+      }
+      const origLines = await AppDataSource.getRepository(LedgerLine).find({
+        where: { ledgerEntryId: entry.id },
+        order: { sortOrder: "ASC" },
+      });
+      // Explicit forward-posted mirror keyed on the entry id (unique per
+      // categorization), so re-categorizing and unmatching again never
+      // collides with a prior reversal's idempotency key.
+      await postLedgerEntry({
+        companyId: txn.companyId,
+        date: new Date(),
+        memo: `Uncategorize ${txn.description || "bank line"}`,
+        source: "bank_categorization_void",
+        sourceRefId: entry.id,
+        createdById: txn.reconciledById,
+        lines: origLines.map((l) => ({
+          accountId: l.accountId,
+          debitCents: l.creditCents,
+          creditCents: l.debitCents,
+          description: l.description ? `Reversal: ${l.description}` : "",
+        })),
+      });
+    }
+  }
   txn.matchedPaymentId = null;
   txn.matchedLedgerEntryId = null;
   txn.reconciledAt = null;
   txn.reconciledById = null;
+  return AppDataSource.getRepository(BankTransaction).save(txn);
+}
+
+/**
+ * Turn an uncleared bank line into a categorized journal entry — the first
+ * path in the product that posts a bank line to the ledger. Money in debits the
+ * feed's bank account and credits the chosen category; money out reverses.
+ * Bank lines are home-currency in this milestone (see BankTransaction), so the
+ * amount posts to the ledger directly with no FX conversion.
+ */
+export async function categorizeBankTransaction(
+  txn: BankTransaction,
+  categoryAccountId: string,
+  actorUserId: string | null,
+): Promise<BankTransaction> {
+  if (txn.reconciledAt) {
+    throw new Error("This bank line is already reconciled — unmatch it first");
+  }
+  if (txn.amountCents === 0) throw new Error("Cannot categorize a zero-amount line");
+  const feed = await AppDataSource.getRepository(BankFeed).findOneBy({
+    id: txn.feedId,
+    companyId: txn.companyId,
+  });
+  if (!feed) throw new Error("Bank feed not found");
+  const acctRepo = AppDataSource.getRepository(Account);
+  const bankAccount = await acctRepo.findOneBy({ id: feed.accountId, companyId: txn.companyId });
+  if (!bankAccount) throw new Error("The feed's bank account no longer exists");
+  const category = await acctRepo.findOneBy({ id: categoryAccountId, companyId: txn.companyId });
+  if (!category) throw new Error("Category account not found");
+  if (category.archivedAt) throw new Error("That category account is archived");
+  if (category.id === bankAccount.id) {
+    throw new Error("Pick a category other than the feed's own bank account");
+  }
+  const closed = await findClosedPeriodCovering(txn.companyId, txn.date);
+  if (closed) {
+    throw new Error(`This line's date falls in the closed period "${closed.name}".`);
+  }
+
+  const abs = Math.abs(txn.amountCents);
+  const desc = txn.description || "Bank transaction";
+  const lines =
+    txn.amountCents > 0
+      ? [
+          { accountId: bankAccount.id, debitCents: abs, description: desc },
+          { accountId: category.id, creditCents: abs, description: desc },
+        ]
+      : [
+          { accountId: category.id, debitCents: abs, description: desc },
+          { accountId: bankAccount.id, creditCents: abs, description: desc },
+        ];
+  const { entry } = await postLedgerEntry({
+    companyId: txn.companyId,
+    date: txn.date,
+    memo: desc,
+    source: "bank_categorization",
+    sourceRefId: txn.id,
+    createdById: actorUserId,
+    lines,
+  });
+  txn.matchedPaymentId = null;
+  txn.matchedLedgerEntryId = entry.id;
+  txn.reconciledAt = new Date();
+  txn.reconciledById = actorUserId;
   return AppDataSource.getRepository(BankTransaction).save(txn);
 }
 

@@ -2591,6 +2591,8 @@ export type LedgerEntrySource =
   | "vendor_credit_void"
   | "vendor_refund"
   | "vendor_refund_void"
+  | "bank_categorization"
+  | "bank_categorization_void"
   | "brex_card_expense"
   | "brex_card_refund"
   | "brex_card_payment"

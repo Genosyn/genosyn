@@ -153,6 +153,7 @@ import {
 import {
   assertBrexCashAccountConnection,
   autoMatchFeed,
+  categorizeBankTransaction,
   findMatchCandidates,
   importBankCsv,
   listBrexCashAccountsForConnection,
@@ -2983,10 +2984,44 @@ financeRouter.post("/bank-transactions/:id/unmatch", async (req, res) => {
   const repo = AppDataSource.getRepository(BankTransaction);
   const t = await repo.findOneBy({ id: req.params.id, companyId: cid });
   if (!t) return res.status(404).json({ error: "Transaction not found" });
-  const fresh = await unmatch(t);
-  const [hydrated] = await hydrateBankTxns(cid, [fresh]);
-  res.json(hydrated);
+  try {
+    const fresh = await unmatch(t);
+    const [hydrated] = await hydrateBankTxns(cid, [fresh]);
+    res.json(hydrated);
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
 });
+
+const categorizeSchema = z.object({ accountId: z.string().uuid() });
+
+financeRouter.post(
+  "/bank-transactions/:id/categorize",
+  validateBody(categorizeSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const repo = AppDataSource.getRepository(BankTransaction);
+    const t = await repo.findOneBy({ id: req.params.id, companyId: cid });
+    if (!t) return res.status(404).json({ error: "Transaction not found" });
+    const body = req.body as z.infer<typeof categorizeSchema>;
+    try {
+      const fresh = await categorizeBankTransaction(t, body.accountId, req.userId ?? null);
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "finance.bank_transaction.categorize",
+        targetType: "bank_transaction",
+        targetId: t.id,
+        targetLabel: t.description || t.reference || t.id,
+        metadata: { accountId: body.accountId, amountCents: t.amountCents },
+      });
+      const [hydrated] = await hydrateBankTxns(cid, [fresh]);
+      res.json(hydrated);
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
 
 // ─────────────────────── AI access (finance grants) ────────────────────
 //

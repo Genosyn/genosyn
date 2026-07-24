@@ -81,6 +81,14 @@ const SOURCE_BADGE: Record<LedgerEntrySource, { label: string; cls: string }> = 
     label: "Vendor refund reversed",
     cls: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
   },
+  bank_categorization: {
+    label: "Bank categorized",
+    cls: "bg-cyan-100 text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-300",
+  },
+  bank_categorization_void: {
+    label: "Bank uncategorized",
+    cls: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
+  },
   invoice_issue: {
     label: "Invoice issued",
     cls: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
