@@ -52,15 +52,21 @@ import {
 import {
   applyCustomerCredit,
   createCreditNoteFromInvoice,
+  createDeposit,
+  createOverpaymentCredit,
   creditOpenCents,
   getCreditLines,
   issueCreditNote,
   listApplicationsForInvoice,
   listCreditApplications,
+  listCreditRefunds,
   listCustomerCredits,
   loadCreditBySlug,
+  loadRefundById,
+  refundCustomerCredit,
   unapplyCustomerCredit,
   voidCreditNote,
+  voidCustomerRefund,
 } from "../services/customerCredits.js";
 import { CustomerCredit } from "../db/entities/CustomerCredit.js";
 import { CustomerCreditApplication } from "../db/entities/CustomerCreditApplication.js";
@@ -1129,6 +1135,7 @@ const paymentCreateSchema = z.object({
   method: z.enum(["cash", "bank_transfer", "stripe", "lightning", "other"]).optional(),
   reference: z.string().max(200).optional(),
   notes: z.string().max(2000).optional(),
+  allowOverpayment: z.boolean().optional(),
 });
 
 financeRouter.post(
@@ -1154,38 +1161,62 @@ financeRouter.post(
         error: `Record the payment in the invoice's currency (${inv.currency}). Multi-currency payments aren't supported — the amount is always applied in ${inv.currency}.`,
       });
     }
-    // Refuse overpayment. Without a credit-note/refund concept, a payment
-    // beyond the balance drives Accounts Receivable negative (an asset
-    // credited past zero) with nothing tracking the customer credit — silent
-    // book corruption. Cap at the outstanding balance instead.
-    if (body.amountCents > inv.balanceCents) {
+    // Overpayment splits into the applied portion (a normal payment) and the
+    // excess (an on-account customer credit, DR Bank / CR 2400), instead of
+    // driving AR negative. Off by default, so every existing caller — and the
+    // AI record_payment tool — keeps today's exact refuse-overpayment
+    // guarantee unless the human explicitly opts in.
+    const paidAt = body.paidAt ? new Date(body.paidAt) : new Date();
+    if (body.amountCents > inv.balanceCents && !body.allowOverpayment) {
       return res.status(400).json({
         error:
           inv.balanceCents <= 0
-            ? "This invoice is already fully paid."
-            : `Payment exceeds the ${formatMoney(inv.balanceCents, inv.currency)} balance due. Record at most that amount.`,
+            ? "This invoice is already fully paid. Turn on overpayment to record the excess as a customer credit."
+            : `Payment exceeds the ${formatMoney(inv.balanceCents, inv.currency)} balance due. Turn on overpayment to record the excess as a customer credit.`,
       });
     }
+    const applied = Math.min(body.amountCents, Math.max(inv.balanceCents, 0));
+    const excess = body.amountCents - applied;
     const repo = AppDataSource.getRepository(InvoicePayment);
-    const p = await repo.save(
-      repo.create({
-        invoiceId: inv.id,
-        amountCents: body.amountCents,
-        currency: body.currency ?? inv.currency,
-        paidAt: body.paidAt ? new Date(body.paidAt) : new Date(),
-        method: body.method ?? "other",
-        reference: body.reference ?? "",
-        notes: body.notes ?? "",
-        createdById: req.userId ?? null,
-      }),
-    );
-    // Auto-post DR Bank / CR AR. Phase B (M19) — see services/ledger.ts. If
-    // the post throws (missing FX rate, closed period), roll the payment row
-    // back so the sub-ledger can't drift from the GL — mirrors the bill route.
+    let paymentRow: InvoicePayment | null = null;
     try {
-      await postInvoicePayment(inv, p, req.userId ?? null);
+      // No InvoicePayment row when the whole amount is excess (invoice already
+      // settled) — the excess is purely a customer credit.
+      if (applied > 0) {
+        paymentRow = await repo.save(
+          repo.create({
+            invoiceId: inv.id,
+            amountCents: applied,
+            currency: body.currency ?? inv.currency,
+            paidAt,
+            method: body.method ?? "other",
+            reference: body.reference ?? "",
+            notes: body.notes ?? "",
+            createdById: req.userId ?? null,
+          }),
+        );
+        await postInvoicePayment(inv, paymentRow, req.userId ?? null);
+      }
+      if (excess > 0) {
+        await createOverpaymentCredit(
+          cid,
+          {
+            customerId: inv.customerId,
+            amountCents: excess,
+            currency: inv.currency,
+            bankAccountId: null,
+            paidAt,
+          },
+          req.userId ?? null,
+        );
+      }
     } catch (err) {
-      await repo.delete({ id: p.id });
+      // Keep the GL and sub-ledger consistent: if the applied payment posted
+      // but the excess credit failed, reverse the payment before bailing.
+      if (paymentRow) {
+        await reverseInvoicePayment(inv, paymentRow, req.userId ?? null);
+        await repo.delete({ id: paymentRow.id });
+      }
       return res.status(400).json({ error: (err as Error).message });
     }
     const recomputed = await recomputeInvoiceTotals(inv);
@@ -1301,9 +1332,10 @@ financeRouter.delete("/invoices/:slug/write-offs/:wid", async (req, res) => {
 // ─────────────────────────── Credit notes ─────────────────────────────
 
 async function serializeCreditDetail(companyId: string, credit: CustomerCredit) {
-  const [lines, apps] = await Promise.all([
+  const [lines, apps, refunds] = await Promise.all([
     getCreditLines(credit.id),
     listCreditApplications(credit.id),
+    listCreditRefunds(credit.id),
   ]);
   const invIds = [...new Set(apps.map((a) => a.invoiceId))];
   const invs = invIds.length
@@ -1322,6 +1354,7 @@ async function serializeCreditDetail(companyId: string, credit: CustomerCredit) 
       invoiceNumber: invById.get(a.invoiceId)?.number ?? null,
       invoiceSlug: invById.get(a.invoiceId)?.slug ?? null,
     })),
+    refunds,
   };
 }
 
@@ -1463,6 +1496,112 @@ financeRouter.post("/credit-notes/:slug/void", async (req, res) => {
       targetLabel: credit.number,
     });
     res.json(await serializeCreditDetail(cid, voided));
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+const refundSchema = z.object({
+  amountCents: z.number().int().min(1).max(2_000_000_000),
+  refundedAt: z.string().datetime().optional(),
+  method: z.string().max(60).optional(),
+  reference: z.string().max(200).optional(),
+  notes: z.string().max(2000).optional(),
+  bankAccountId: z.string().uuid().nullable().optional(),
+});
+
+financeRouter.post("/credit-notes/:slug/refund", validateBody(refundSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const credit = await loadCreditBySlug(cid, req.params.slug);
+  if (!credit) return res.status(404).json({ error: "Credit note not found" });
+  const body = req.body as z.infer<typeof refundSchema>;
+  try {
+    const refund = await refundCustomerCredit(
+      credit,
+      {
+        amountCents: body.amountCents,
+        refundedAt: body.refundedAt ? new Date(body.refundedAt) : undefined,
+        method: body.method,
+        reference: body.reference,
+        notes: body.notes,
+        bankAccountId: body.bankAccountId ?? null,
+      },
+      req.userId ?? null,
+    );
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "finance.credit_note.refund",
+      targetType: "credit_note",
+      targetId: credit.id,
+      targetLabel: credit.number,
+      metadata: { refundId: refund.id, amountCents: body.amountCents },
+    });
+    const fresh = await loadCreditBySlug(cid, req.params.slug);
+    res.json(await serializeCreditDetail(cid, fresh!));
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+financeRouter.delete("/customer-refunds/:id", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const refund = await loadRefundById(cid, req.params.id);
+  if (!refund) return res.status(404).json({ error: "Refund not found" });
+  try {
+    await voidCustomerRefund(refund, req.userId ?? null);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "finance.credit_note.refund_reversed",
+      targetType: "credit_note",
+      targetId: refund.creditId,
+      targetLabel: refund.id,
+      metadata: { refundId: refund.id, amountCents: refund.amountCents },
+    });
+    const credit = await AppDataSource.getRepository(CustomerCredit).findOneBy({
+      id: refund.creditId,
+      companyId: cid,
+    });
+    res.json(credit ? await serializeCreditDetail(cid, credit) : { ok: true });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+const depositSchema = z.object({
+  customerId: z.string().uuid(),
+  amountCents: z.number().int().min(1).max(2_000_000_000),
+  currency: currencySchema.optional(),
+  bankAccountId: z.string().uuid().nullable().optional(),
+  notes: z.string().max(2000).optional(),
+});
+
+financeRouter.post("/deposits", validateBody(depositSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const body = req.body as z.infer<typeof depositSchema>;
+  try {
+    const credit = await createDeposit(
+      cid,
+      {
+        customerId: body.customerId,
+        amountCents: body.amountCents,
+        currency: body.currency ?? "USD",
+        bankAccountId: body.bankAccountId ?? null,
+        notes: body.notes,
+      },
+      req.userId ?? null,
+    );
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "finance.deposit.create",
+      targetType: "credit_note",
+      targetId: credit.id,
+      targetLabel: credit.number,
+      metadata: { amountCents: body.amountCents, customerId: body.customerId },
+    });
+    res.json(await serializeCreditDetail(cid, credit));
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }

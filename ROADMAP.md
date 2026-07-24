@@ -1081,7 +1081,17 @@ Phased so each phase ships behind its own PR:
         invoice with credit (or a write-off) against it is refused. Credit
         notes list + detail, and a Credit note action on the invoice.
         Human-facing; AI credit tools deferred to M33. Shipped in 1.50.0.
-  - Refunds / deposits / overpayment split (cash half of G1 + G4).
+  - [x] Refunds, deposits and overpayments (cash half of G1 + G4).
+        `CustomerRefund`: DR 2400/2500 / CR 1100 (+ bounded FX plug,
+        last-draw-exact) capped at the credit's open balance; reversible.
+        Deposits post DR 1100 / CR 2500 (unearned revenue, no tax leg — US
+        default). Overpayment on a payment splits into the applied portion
+        and an on-account credit (DR 1100 / CR 2400), opt-in so the default
+        stays refuse-overpayment for every existing caller and the AI path.
+        Refund UI on the credit note; overpayment tick in the payment
+        dialog. Deposit creation is API-only for now (a customer-picker
+        composer is a fast-follow). AI refund/deposit tools deferred to M33.
+        Shipped in 1.51.0.
 
 MCP surface (shipped): reads — `list_invoices`, `get_invoice`,
 `list_customers`, `get_customer`, `list_finance_accounts`,

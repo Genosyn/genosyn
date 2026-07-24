@@ -1,5 +1,6 @@
 import { In, IsNull } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
+import { Account } from "../db/entities/Account.js";
 import { Customer } from "../db/entities/Customer.js";
 import { Invoice } from "../db/entities/Invoice.js";
 import { InvoiceLineItem } from "../db/entities/InvoiceLineItem.js";
@@ -10,6 +11,7 @@ import {
 } from "../db/entities/CustomerCredit.js";
 import { CustomerCreditLine } from "../db/entities/CustomerCreditLine.js";
 import { CustomerCreditApplication } from "../db/entities/CustomerCreditApplication.js";
+import { CustomerRefund } from "../db/entities/CustomerRefund.js";
 import { computeLineTotals, reconcilePartsToTotal, roundHalfAway } from "../lib/money.js";
 import { convertCents, getFinanceSettings } from "./fx.js";
 import { findClosedPeriodCovering, postLedgerEntry, requireAccountsByCode } from "./ledger.js";
@@ -32,6 +34,7 @@ import { recomputeInvoiceTotals } from "./finance.js";
  */
 
 const AR_CODE = "1200";
+const BANK_CODE = "1100";
 const RETURNS_CODE = "4100";
 const TAX_CODE = "2100";
 const FX_GAIN_CODE = "4910";
@@ -604,4 +607,321 @@ export async function voidCreditNote(
   credit.status = "void";
   credit.voidedAt = date;
   return AppDataSource.getRepository(CustomerCredit).save(credit);
+}
+
+// ───────────────── Deposits + overpayments (Increment 5) ────────────────
+
+type LedgerDraftLine = {
+  accountId: string;
+  debitCents?: number;
+  creditCents?: number;
+  description?: string;
+};
+
+async function resolveBankAccount(
+  companyId: string,
+  bankAccountId: string | null | undefined,
+): Promise<Account> {
+  if (bankAccountId) {
+    const account = await AppDataSource.getRepository(Account).findOneBy({
+      id: bankAccountId,
+      companyId,
+    });
+    if (!account) throw new Error("Bank account not found");
+    if (account.type !== "asset") throw new Error("Cash must move through an asset account");
+    if (account.archivedAt) throw new Error("That account is archived");
+    return account;
+  }
+  return (await requireAccountsByCode(companyId, [BANK_CODE])).get(BANK_CODE)!;
+}
+
+/** An issued, line-less credit (deposit / overpayment): totals are set
+ *  directly since recomputeCreditTotals is line-based. */
+async function issuedCreditShell(args: {
+  companyId: string;
+  customerId: string;
+  kind: CustomerCreditKind;
+  currency: string;
+  amountCents: number;
+  homeCents: number;
+  issueDate: Date;
+  notes?: string;
+  actorUserId: string | null;
+}): Promise<CustomerCredit> {
+  const repo = AppDataSource.getRepository(CustomerCredit);
+  const customer = await AppDataSource.getRepository(Customer).findOneBy({
+    id: args.customerId,
+    companyId: args.companyId,
+  });
+  const seq = await mintNextCreditSeq(args.companyId, args.customerId);
+  const number = formatCreditNumber(seq, customer?.slug);
+  return repo.save(
+    repo.create({
+      companyId: args.companyId,
+      customerId: args.customerId,
+      kind: args.kind,
+      status: "issued",
+      numberSeq: seq,
+      number,
+      slug: number.toLowerCase(),
+      sourceInvoiceId: null,
+      currency: args.currency,
+      subtotalCents: args.amountCents,
+      taxCents: 0,
+      totalCents: args.amountCents,
+      homeSubtotalCents: args.homeCents,
+      homeTaxCents: 0,
+      homeTotalCents: args.homeCents,
+      reason: "",
+      notes: args.notes ?? "",
+      issueDate: args.issueDate,
+      createdById: args.actorUserId,
+      issuedAt: new Date(),
+    }),
+  );
+}
+
+export async function createDeposit(
+  companyId: string,
+  input: {
+    customerId: string;
+    amountCents: number;
+    currency: string;
+    bankAccountId?: string | null;
+    issueDate?: Date;
+    notes?: string;
+  },
+  actorUserId: string | null,
+): Promise<CustomerCredit> {
+  const amount = Math.trunc(input.amountCents);
+  if (amount <= 0) throw new Error("Deposit amount must be positive");
+  const issueDate = input.issueDate ?? new Date();
+  const closed = await findClosedPeriodCovering(companyId, issueDate);
+  if (closed) throw new Error(`That date falls in the closed period "${closed.name}".`);
+  const settings = await getFinanceSettings(companyId);
+  const homeCents = (
+    await convertCents(companyId, amount, input.currency, settings.homeCurrency, issueDate)
+  ).converted;
+  if (homeCents <= 0) throw new Error("Converted deposit rounds to zero");
+  const bank = await resolveBankAccount(companyId, input.bankAccountId);
+  const deposits = (await requireAccountsByCode(companyId, ["2500"])).get("2500")!;
+  const credit = await issuedCreditShell({
+    companyId,
+    customerId: input.customerId,
+    kind: "deposit",
+    currency: input.currency,
+    amountCents: amount,
+    homeCents,
+    issueDate,
+    notes: input.notes,
+    actorUserId,
+  });
+  // Cash in, parked as unearned revenue (2500). No tax leg — correct for US
+  // sales tax; a VAT tax-point on advances would post output tax here and is
+  // out of scope (see ROADMAP M19).
+  await postLedgerEntry({
+    companyId,
+    date: issueDate,
+    memo: `Deposit ${credit.number}`,
+    source: "credit_note_issue",
+    sourceRefId: credit.id,
+    createdById: actorUserId,
+    lines: [
+      { accountId: bank.id, debitCents: homeCents, description: `Deposit ${credit.number}` },
+      { accountId: deposits.id, creditCents: homeCents, description: `Deposit ${credit.number}` },
+    ],
+  });
+  return credit;
+}
+
+/** Book the excess of a customer overpayment as an on-account credit
+ *  (DR Bank / CR 2400). Called by the payment route when allowOverpayment is
+ *  set and the payment exceeds the invoice balance. */
+export async function createOverpaymentCredit(
+  companyId: string,
+  args: {
+    customerId: string;
+    amountCents: number;
+    currency: string;
+    bankAccountId?: string | null;
+    paidAt: Date;
+  },
+  actorUserId: string | null,
+): Promise<CustomerCredit> {
+  const amount = Math.trunc(args.amountCents);
+  if (amount <= 0) throw new Error("Overpayment must be positive");
+  const settings = await getFinanceSettings(companyId);
+  const homeCents = (
+    await convertCents(companyId, amount, args.currency, settings.homeCurrency, args.paidAt)
+  ).converted;
+  const bank = await resolveBankAccount(companyId, args.bankAccountId);
+  const credits = (await requireAccountsByCode(companyId, ["2400"])).get("2400")!;
+  const credit = await issuedCreditShell({
+    companyId,
+    customerId: args.customerId,
+    kind: "overpayment",
+    currency: args.currency,
+    amountCents: amount,
+    homeCents,
+    issueDate: args.paidAt,
+    actorUserId,
+  });
+  await postLedgerEntry({
+    companyId,
+    date: args.paidAt,
+    memo: `Overpayment credit ${credit.number}`,
+    source: "credit_note_issue",
+    sourceRefId: credit.id,
+    createdById: actorUserId,
+    lines: [
+      { accountId: bank.id, debitCents: homeCents, description: `Overpayment ${credit.number}` },
+      { accountId: credits.id, creditCents: homeCents, description: `Overpayment ${credit.number}` },
+    ],
+  });
+  return credit;
+}
+
+// ─────────────────────────────── Refunds ───────────────────────────────
+
+export async function listCreditRefunds(creditId: string): Promise<CustomerRefund[]> {
+  return AppDataSource.getRepository(CustomerRefund).find({
+    where: { creditId },
+    order: { createdAt: "ASC" },
+  });
+}
+
+export async function loadRefundById(companyId: string, id: string): Promise<CustomerRefund | null> {
+  return AppDataSource.getRepository(CustomerRefund).findOneBy({ id, companyId });
+}
+
+export async function refundCustomerCredit(
+  credit: CustomerCredit,
+  input: {
+    amountCents: number;
+    refundedAt?: Date;
+    method?: string;
+    reference?: string;
+    notes?: string;
+    bankAccountId?: string | null;
+  },
+  actorUserId: string | null,
+): Promise<CustomerRefund> {
+  if (credit.status !== "issued") throw new Error("Only an issued credit can be refunded");
+  const amount = Math.trunc(input.amountCents);
+  const open = creditOpenCents(credit);
+  if (amount <= 0) throw new Error("Refund amount must be positive");
+  if (amount > open) throw new Error(`Refund ${amount} exceeds the credit's open balance ${open}`);
+  const refundedAt = input.refundedAt ?? new Date();
+  const closed = await findClosedPeriodCovering(credit.companyId, refundedAt);
+  if (closed) throw new Error(`That date falls in the closed period "${closed.name}".`);
+
+  const settings = await getFinanceSettings(credit.companyId);
+  const bankCents = (
+    await convertCents(credit.companyId, amount, credit.currency, settings.homeCurrency, refundedAt)
+  ).converted;
+  const isFinalDraw = amount === open;
+  const creditCents = isFinalDraw
+    ? credit.homeTotalCents - credit.homeAppliedCents - credit.homeRefundedCents
+    : roundHalfAway((amount * credit.homeTotalCents) / credit.totalCents);
+  const fxCents = creditCents - bankCents;
+
+  const bank = await resolveBankAccount(credit.companyId, input.bankAccountId);
+  const accounts = await requireAccountsByCode(credit.companyId, [
+    creditAccountCode(credit.kind),
+    FX_GAIN_CODE,
+    FX_LOSS_CODE,
+  ]);
+  const lines: LedgerDraftLine[] = [
+    { accountId: accounts.get(creditAccountCode(credit.kind))!.id, debitCents: creditCents, description: `Refund ${credit.number}` },
+    { accountId: bank.id, creditCents: bankCents, description: `Refund ${credit.number}` },
+  ];
+  if (fxCents > 0) {
+    lines.push({ accountId: accounts.get(FX_GAIN_CODE)!.id, creditCents: fxCents, description: "FX on refund" });
+  } else if (fxCents < 0) {
+    lines.push({ accountId: accounts.get(FX_LOSS_CODE)!.id, debitCents: -fxCents, description: "FX on refund" });
+  }
+
+  const repo = AppDataSource.getRepository(CustomerRefund);
+  const refund = await repo.save(
+    repo.create({
+      companyId: credit.companyId,
+      creditId: credit.id,
+      amountCents: amount,
+      creditCents,
+      bankCents,
+      fxCents,
+      currency: credit.currency,
+      bankAccountId: bank.id,
+      refundedAt,
+      method: input.method ?? "",
+      reference: input.reference ?? "",
+      notes: input.notes ?? "",
+      createdById: actorUserId,
+      reversedAt: null,
+      reversedById: null,
+    }),
+  );
+  await postLedgerEntry({
+    companyId: credit.companyId,
+    date: refundedAt,
+    memo: `Refund of ${credit.number}`,
+    source: "customer_refund",
+    sourceRefId: refund.id,
+    createdById: actorUserId,
+    lines,
+  });
+
+  credit.refundedCents += amount;
+  credit.homeRefundedCents += creditCents;
+  await AppDataSource.getRepository(CustomerCredit).save(credit);
+  return refund;
+}
+
+export async function voidCustomerRefund(
+  refund: CustomerRefund,
+  actorUserId: string | null,
+): Promise<CustomerRefund> {
+  if (refund.reversedAt) throw new Error("This refund has already been reversed");
+  const credit = await AppDataSource.getRepository(CustomerCredit).findOneBy({
+    id: refund.creditId,
+    companyId: refund.companyId,
+  });
+  if (!credit) throw new Error("Credit not found");
+  const date = new Date();
+  const closed = await findClosedPeriodCovering(refund.companyId, date);
+  if (closed) throw new Error(`The reversal would post into the closed period "${closed.name}".`);
+
+  const accounts = await requireAccountsByCode(refund.companyId, [
+    creditAccountCode(credit.kind),
+    FX_GAIN_CODE,
+    FX_LOSS_CODE,
+  ]);
+  const lines: LedgerDraftLine[] = [
+    { accountId: refund.bankAccountId, debitCents: refund.bankCents, description: "Refund reversal" },
+    { accountId: accounts.get(creditAccountCode(credit.kind))!.id, creditCents: refund.creditCents, description: "Refund reversal" },
+  ];
+  if (refund.fxCents > 0) {
+    lines.push({ accountId: accounts.get(FX_GAIN_CODE)!.id, debitCents: refund.fxCents, description: "FX reversal" });
+  } else if (refund.fxCents < 0) {
+    lines.push({ accountId: accounts.get(FX_LOSS_CODE)!.id, creditCents: -refund.fxCents, description: "FX reversal" });
+  }
+  await postLedgerEntry({
+    companyId: refund.companyId,
+    date,
+    memo: `Reversal of refund ${refund.id.slice(0, 8)}`,
+    source: "customer_refund_void",
+    sourceRefId: refund.id,
+    createdById: actorUserId,
+    reviewStatus: "approved",
+    lines,
+  });
+
+  refund.reversedAt = date;
+  refund.reversedById = actorUserId;
+  await AppDataSource.getRepository(CustomerRefund).save(refund);
+
+  credit.refundedCents -= refund.amountCents;
+  credit.homeRefundedCents -= refund.creditCents;
+  await AppDataSource.getRepository(CustomerCredit).save(credit);
+  return refund;
 }

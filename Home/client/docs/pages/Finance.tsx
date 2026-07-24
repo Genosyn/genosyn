@@ -214,6 +214,25 @@ export function Finance() {
         balance back, and void an unused credit memo to reverse it entirely.
       </P>
 
+      <H3 id="refunds-deposits">Refunds, deposits and overpayments</H3>
+      <P>
+        A credit can be paid back in cash instead of applied: from a credit
+        note, click <Code>Refund</Code>. It posts{" "}
+        <Code>DR Customer Credits / CR Bank</Code> against the credit&apos;s open
+        balance, and can be reversed if the money comes back. A{" "}
+        <Strong>deposit</Strong> takes money before any invoice exists —{" "}
+        <Code>DR Bank / CR Customer Deposits</Code>, held as unearned revenue
+        (no sales tax on receipt) until you apply it to the eventual invoice.
+      </P>
+      <P>
+        When a customer pays more than an invoice&apos;s balance, tick{" "}
+        <Strong>Record the excess as an on-account customer credit</Strong> in the
+        payment dialog: the balance-due portion posts as a normal payment and the
+        overage becomes a credit (<Code>DR Bank / CR Customer Credits</Code>) you can
+        apply to their next invoice or refund. Without that tick, overpayment is
+        refused, exactly as before.
+      </P>
+
       <H2 id="recurring-invoices">Recurring invoices</H2>
       <P>
         Open <Code>Finance → Recurring</Code> and click <Code>New schedule</Code> to set up a

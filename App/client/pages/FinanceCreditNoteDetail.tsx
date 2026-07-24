@@ -1,9 +1,10 @@
 import React from "react";
 import { Link, useOutletContext, useParams } from "react-router-dom";
-import { ArrowLeft, Ban, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Ban, Plus, Trash2, Undo2 } from "lucide-react";
 import {
   api,
   CreditNoteDetail,
+  CustomerRefundRow,
   formatMoney,
   parseMoneyToCents,
 } from "../lib/api";
@@ -31,6 +32,7 @@ export default function FinanceCreditNoteDetail() {
   const [credit, setCredit] = React.useState<CreditNoteDetail | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [showApply, setShowApply] = React.useState(false);
+  const [showRefund, setShowRefund] = React.useState(false);
 
   const reload = React.useCallback(async () => {
     if (!creditSlug) return;
@@ -63,6 +65,25 @@ export default function FinanceCreditNoteDetail() {
       setCredit(
         await api.del<CreditNoteDetail>(
           `/api/companies/${company.id}/credit-notes/${credit.slug}/applications/${appId}`,
+        ),
+      );
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
+
+  async function voidRefund(refundId: string) {
+    if (!credit) return;
+    const ok = await dialog.confirm({
+      title: "Reverse this refund?",
+      message: "Posts a reversing entry (money came back) and reopens the credit balance.",
+      confirmLabel: "Reverse",
+    });
+    if (!ok) return;
+    try {
+      setCredit(
+        await api.del<CreditNoteDetail>(
+          `/api/companies/${company.id}/customer-refunds/${refundId}`,
         ),
       );
     } catch (err) {
@@ -147,6 +168,11 @@ export default function FinanceCreditNoteDetail() {
           {canApply && (
             <Button onClick={() => setShowApply(true)}>
               <Plus size={14} /> Apply to invoice
+            </Button>
+          )}
+          {canApply && (
+            <Button variant="secondary" onClick={() => setShowRefund(true)}>
+              <Undo2 size={14} /> Refund
             </Button>
           )}
           {canVoid && (
@@ -235,6 +261,45 @@ export default function FinanceCreditNoteDetail() {
         )}
       </div>
 
+      {credit.refunds.length > 0 && (
+        <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            Refunds
+          </h3>
+          <ul className="mt-3 space-y-2 text-sm">
+            {credit.refunds.map((r) => (
+              <li
+                key={r.id}
+                className={
+                  "flex items-center justify-between gap-2 rounded-md border border-slate-100 p-2 dark:border-slate-800" +
+                  (r.reversedAt ? " opacity-60" : "")
+                }
+              >
+                <div>
+                  <span className="font-medium tabular-nums text-slate-900 dark:text-slate-100">
+                    {formatMoney(r.amountCents, credit.currency)}
+                  </span>{" "}
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    {new Date(r.refundedAt).toISOString().slice(0, 10)}
+                    {r.method ? ` · ${r.method}` : ""}
+                    {r.reversedAt ? " · reversed" : ""}
+                  </span>
+                </div>
+                {!r.reversedAt && (
+                  <button
+                    onClick={() => voidRefund(r.id)}
+                    className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+                    aria-label="Reverse refund"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {showApply && (
         <ApplyCreditModal
           companyId={company.id}
@@ -248,7 +313,94 @@ export default function FinanceCreditNoteDetail() {
           }}
         />
       )}
+
+      {showRefund && (
+        <RefundModal
+          companyId={company.id}
+          creditSlug={credit.slug}
+          currency={credit.currency}
+          maxCents={credit.openCents}
+          onClose={() => setShowRefund(false)}
+          onSaved={(fresh) => {
+            setShowRefund(false);
+            setCredit(fresh);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function RefundModal({
+  companyId,
+  creditSlug,
+  currency,
+  maxCents,
+  onClose,
+  onSaved,
+}: {
+  companyId: string;
+  creditSlug: string;
+  currency: string;
+  maxCents: number;
+  onClose: () => void;
+  onSaved: (fresh: CreditNoteDetail) => void;
+}) {
+  const { toast } = useToast();
+  const [amount, setAmount] = React.useState((maxCents / 100).toFixed(2));
+  const [method, setMethod] = React.useState("bank_transfer");
+  const [reference, setReference] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+
+  async function submit() {
+    const amountCents = parseMoneyToCents(amount);
+    if (amountCents <= 0) {
+      toast("Enter a positive amount", "error");
+      return;
+    }
+    setBusy(true);
+    try {
+      const fresh = await api.post<CreditNoteDetail>(
+        `/api/companies/${companyId}/credit-notes/${creditSlug}/refund`,
+        { amountCents, method: method.trim() || undefined, reference: reference.trim() || undefined },
+      );
+      onSaved(fresh);
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Refund credit">
+      <div className="space-y-3">
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          Pay cash back to the customer against this credit&apos;s open balance. Posts
+          DR Customer Credits / CR Bank.
+        </p>
+        <Input
+          label={`Amount (${currency})`}
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          inputMode="decimal"
+        />
+        <Input label="Method" value={method} onChange={(e) => setMethod(e.target.value)} />
+        <Input
+          label="Reference (optional)"
+          value={reference}
+          onChange={(e) => setReference(e.target.value)}
+        />
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={busy}>
+            {busy ? "Refunding…" : "Refund"}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

@@ -2271,9 +2271,21 @@ export type CustomerCreditApplicationRow = {
   creditSlug?: string | null;
 };
 
+export type CustomerRefundRow = {
+  id: string;
+  creditId: string;
+  amountCents: number;
+  currency: string;
+  refundedAt: string;
+  method: string;
+  reference: string;
+  reversedAt: string | null;
+};
+
 export type CreditNoteDetail = CustomerCredit & {
   lines: CustomerCreditLine[];
   applications: CustomerCreditApplicationRow[];
+  refunds: CustomerRefundRow[];
 };
 
 export type InvoiceListItem = Omit<Invoice, "lines" | "payments"> & {

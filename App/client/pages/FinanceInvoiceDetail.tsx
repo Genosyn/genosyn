@@ -1256,6 +1256,7 @@ function PaymentModal({
   const [reference, setReference] = React.useState("");
   const [notes, setNotes] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [allowOverpayment, setAllowOverpayment] = React.useState(false);
   const cents = parseMoneyToCents(amount);
   const overpay = cents > invoice.balanceCents;
 
@@ -1272,6 +1273,7 @@ function PaymentModal({
           method,
           reference: reference.trim(),
           notes,
+          allowOverpayment,
         },
       );
       onSaved(fresh);
@@ -1298,6 +1300,16 @@ function PaymentModal({
               ? `Exceeds the ${formatMoney(invoice.balanceCents, invoice.currency)} balance due`
               : `Balance due: ${formatMoney(invoice.balanceCents, invoice.currency)}`}
           </p>
+          {overpay && (
+            <label className="mt-2 flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+              <input
+                type="checkbox"
+                checked={allowOverpayment}
+                onChange={(e) => setAllowOverpayment(e.target.checked)}
+              />
+              Record the excess as an on-account customer credit
+            </label>
+          )}
         </div>
         <Input
           label="Date"
