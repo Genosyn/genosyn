@@ -1,9 +1,10 @@
-import { Router } from "express";
+import { Router, type RequestHandler } from "express";
 import { z } from "zod";
 import { AppDataSource } from "../db/datasource.js";
 import { CardFeed } from "../db/entities/CardFeed.js";
 import { CardTransaction } from "../db/entities/CardTransaction.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import { requireFinanceRead, requireFinanceWrite } from "../middleware/financeAccess.js";
 import { validateBody } from "../middleware/validate.js";
 import {
   createCardFeed,
@@ -18,6 +19,20 @@ import {
 export const cardExpensesRouter = Router({ mergeParams: true });
 cardExpensesRouter.use(requireAuth);
 cardExpensesRouter.use(requireCompanyMember);
+
+// Same per-member finance gate as financeRouter — card expenses post to the
+// ledger, so they are finance too. Wrapping the verb methods keeps the guard on
+// matched card-expense routes only, never the sibling routers on this mount.
+for (const verb of ["get", "post", "put", "patch", "delete"] as const) {
+  const original = cardExpensesRouter[verb].bind(cardExpensesRouter) as (
+    path: string,
+    ...handlers: RequestHandler[]
+  ) => unknown;
+  (cardExpensesRouter as unknown as Record<string, typeof original>)[verb] = (
+    path: string,
+    ...handlers: RequestHandler[]
+  ) => original(path, verb === "get" ? requireFinanceRead : requireFinanceWrite, ...handlers);
+}
 
 const companyParamsSchema = z.object({
   cid: z.string().uuid(),

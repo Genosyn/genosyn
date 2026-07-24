@@ -1407,9 +1407,22 @@ the functional prerequisites land before the tools that need them:
       with apply/reject audited. Modelled on `Approval`; kind-agnostic queue,
       apply gate and audit fields. Migration pair, no data backfill. Shipped in
       1.55.0.
-- Next: the grant-scope layer; human-side audit coverage + a read-only finance
-  role; then the job tools themselves (read, bank, AR, AP, close), each
-  proposal-only until an owner raises a per-company limit.
+- [x] **A4 — Read-only finance role (humans).** A per-member `financeAccess`
+      level (`none` / `read` / `full`) on `Membership`, orthogonal to the org
+      role — owners/admins are always effectively `full`; it only restricts
+      regular members. Enforced by wrapping the finance router's verb methods so
+      every finance route carries the gate automatically (GET needs ≥ `read`,
+      mutations need `full`) without repeating it on ~130 routes or polluting the
+      sibling routers that share the `/api/companies/:cid` mount; `cardExpenses`
+      is wrapped the same way. Owners/admins set a member's level from
+      `Settings → Members`, audited. Defaults to `full`, so nothing changes until
+      someone is dialled down. Middleware unit tests; migration pair. Shipped in
+      1.56.0. Fast-follow: hide the finance nav for `none` members (today they
+      see it and get 403s).
+- Next: the grant-scope layer (an orthogonal default-off scope allowlist for AI
+  finance tools) + human-side audit coverage; then the job tools themselves
+  (read, bank, AR, AP, close), each proposal-only until an owner raises a
+  per-company limit.
 - Depends on M19 Phase H (credit notes / refunds) for the AR correction
   tools. Multi-currency bank lines and a tax-return figure are named but
   out of scope.

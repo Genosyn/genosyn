@@ -395,6 +395,32 @@ export function Finance() {
         limited to owners and admins.
       </P>
 
+      <H2 id="finance-access">Who can see and change finances</H2>
+      <P>
+        Finance access is a per-member setting, separate from a member&apos;s company role. Owners
+        and admins always have full finance access; for everyone else, an owner or admin sets a level
+        under <Code>Settings → Members</Code>:
+      </P>
+      <UL>
+        <LI>
+          <Strong>Full</Strong> — the historical behaviour and the default: post, edit, send, and
+          reconcile without restriction.
+        </LI>
+        <LI>
+          <Strong>Read-only</Strong> — view every finance page but change nothing. Any attempt to
+          post, edit, or send is refused by the server, not just hidden.
+        </LI>
+        <LI>
+          <Strong>None</Strong> — the finance section is closed to them entirely.
+        </LI>
+      </UL>
+      <P>
+        Existing members are <Strong>Full</Strong> after the upgrade, so nothing changes until an
+        owner dials someone down. The check is enforced on the server for every finance route — a
+        read-only member is blocked from mutations even if they reach the API directly — and each
+        change to a member&apos;s level is written to the audit log.
+      </P>
+
       <H2 id="ai-access">Give AI employees finance access</H2>
       <P>
         By default an AI employee cannot touch Finance at all. Open <Code>Finance → AI access</Code>{" "}

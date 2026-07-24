@@ -228,6 +228,7 @@ companiesRouter.get("/:cid/members", requireCompanyMember, async (req, res) => {
     mems.map((m) => ({
       userId: m.userId,
       role: m.role,
+      financeAccess: m.financeAccess,
       email: byId.get(m.userId)?.email ?? null,
       name: byId.get(m.userId)?.name ?? null,
       avatarKey: byId.get(m.userId)?.avatarKey ?? null,
@@ -266,6 +267,43 @@ companiesRouter.patch(
       metadata: { role },
     });
     res.json({ userId: uid, role });
+  },
+);
+
+const memberFinanceAccessSchema = z.object({
+  financeAccess: z.enum(["none", "read", "full"]),
+});
+
+// Set a member's finance access level (M33 A4). Owners and admins can dial a
+// member down to read-only or none; the level is inert for owners/admins
+// themselves (they are always treated as full) but we allow setting it so the
+// UI needn't special-case them.
+companiesRouter.patch(
+  "/:cid/members/:uid/finance-access",
+  requireCompanyMember,
+  validateBody(memberFinanceAccessSchema),
+  async (req, res) => {
+    if (req.companyRole !== "owner" && req.companyRole !== "admin") {
+      return res.status(403).json({ error: "Only owners and admins can change finance access" });
+    }
+    const { cid, uid } = req.params;
+    const membership = await AppDataSource.getRepository(Membership).findOneBy({
+      companyId: cid,
+      userId: uid,
+    });
+    if (!membership) return res.status(404).json({ error: "Member not found" });
+    const { financeAccess } = req.body as z.infer<typeof memberFinanceAccessSchema>;
+    membership.financeAccess = financeAccess;
+    await AppDataSource.getRepository(Membership).save(membership);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "member.finance_access.update",
+      targetType: "member",
+      targetId: uid,
+      metadata: { financeAccess },
+    });
+    res.json({ userId: uid, financeAccess });
   },
 );
 

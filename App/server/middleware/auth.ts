@@ -18,6 +18,10 @@ declare module "express-serve-static-core" {
     apiKey?: ApiKey;
     /** Company role resolved by requireCompanyMember. */
     companyRole?: Role;
+    /** Full membership row resolved by requireCompanyMember — carries
+     *  `financeAccess` and anything else route middleware needs without a
+     *  second lookup. */
+    membership?: Membership;
   }
 }
 
@@ -134,6 +138,7 @@ export async function requireCompanyMember(
     }
   }
   req.companyRole = m.role;
+  req.membership = m;
   // Backwards compatibility for route code that still reads the old ad-hoc
   // property. New authorization middleware uses the typed companyRole field.
   (req as Request & { role: Role }).role = m.role;

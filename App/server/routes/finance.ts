@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type RequestHandler } from "express";
 import { z } from "zod";
 import { In } from "typeorm";
 import multer from "multer";
@@ -24,6 +24,7 @@ import { Product } from "../db/entities/Product.js";
 import { TaxRate } from "../db/entities/TaxRate.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import { requireFinanceRead, requireFinanceWrite } from "../middleware/financeAccess.js";
 import { toSlug } from "../lib/slug.js";
 import { formatMoney } from "../lib/money.js";
 import {
@@ -215,6 +216,24 @@ import {
 export const financeRouter = Router({ mergeParams: true });
 financeRouter.use(requireAuth);
 financeRouter.use(requireCompanyMember);
+
+// Per-member finance authorization (M33 A4). Rather than repeat the guard on
+// ~130 routes (and risk missing one), wrap the router's verb methods so every
+// finance route registered below carries the access gate automatically: a GET
+// needs at least `read`, any mutation needs `full`. The gate binds to the
+// matched route's handler chain, so sibling routers sharing the
+// `/api/companies/:cid` mount (contracts, explore, mail, revenue) are never
+// touched by it — only routes that actually resolve inside financeRouter.
+for (const verb of ["get", "post", "put", "patch", "delete"] as const) {
+  const original = financeRouter[verb].bind(financeRouter) as (
+    path: string,
+    ...handlers: RequestHandler[]
+  ) => unknown;
+  (financeRouter as unknown as Record<string, typeof original>)[verb] = (
+    path: string,
+    ...handlers: RequestHandler[]
+  ) => original(path, verb === "get" ? requireFinanceRead : requireFinanceWrite, ...handlers);
+}
 
 // Reused throughout — ISO 4217 codes are 3 ASCII letters. We don't enforce
 // the full ISO list because Phase E (multi-currency) will introduce a

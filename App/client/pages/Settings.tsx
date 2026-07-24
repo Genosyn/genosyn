@@ -1,7 +1,7 @@
 import React from "react";
 import { useOutletContext } from "react-router-dom";
 import { Pencil, Trash2 } from "lucide-react";
-import { api, Company, Member, Secret } from "../lib/api";
+import { api, Company, FinanceAccess, Member, Secret } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { FormError } from "../components/ui/FormError";
@@ -274,6 +274,18 @@ export function SettingsMembers() {
     }
   }
 
+  async function changeFinanceAccess(member: Member, financeAccess: FinanceAccess) {
+    try {
+      await api.patch(`/api/companies/${company.id}/members/${member.userId}/finance-access`, {
+        financeAccess,
+      });
+      await reload();
+      toast("Finance access updated", "success");
+    } catch (error) {
+      toast((error as Error).message, "error");
+    }
+  }
+
   async function removeMember(member: Member) {
     const self = member.userId === me.id;
     const confirmed = await dialog.confirm({
@@ -343,6 +355,21 @@ export function SettingsMembers() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    {canManage && m.role === "member" ? (
+                      <select
+                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-900"
+                        value={m.financeAccess}
+                        onChange={(event) =>
+                          void changeFinanceAccess(m, event.target.value as FinanceAccess)
+                        }
+                        aria-label={`Finance access for ${m.name ?? m.email ?? "member"}`}
+                        title="Finance access"
+                      >
+                        <option value="none">No finance</option>
+                        <option value="read">Finance: read-only</option>
+                        <option value="full">Finance: full</option>
+                      </select>
+                    ) : null}
                     {company.role === "owner" && m.role !== "owner" && m.userId !== me.id ? (
                       <select
                         className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-900"

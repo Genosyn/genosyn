@@ -483,9 +483,14 @@ export type AIModel = {
   /** False when the provider can't be asked at all (OpenAI reports no window). */
   contextWindowProbeable: boolean;
 };
+export type FinanceAccess = "none" | "read" | "full";
+
 export type Member = {
   userId: string;
   role: "owner" | "admin" | "member";
+  /** Per-member finance access, orthogonal to `role` (owners/admins are always
+   *  effectively full). See server/db/entities/Membership.ts. */
+  financeAccess: FinanceAccess;
   email: string | null;
   name: string | null;
   avatarKey?: string | null;
