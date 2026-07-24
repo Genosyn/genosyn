@@ -1,4 +1,4 @@
-import { In } from "typeorm";
+import { In, IsNull } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Customer } from "../db/entities/Customer.js";
 import { Invoice } from "../db/entities/Invoice.js";
@@ -6,6 +6,7 @@ import {
   InvoicePayment,
   type InvoicePaymentMethod,
 } from "../db/entities/InvoicePayment.js";
+import { InvoiceWriteOff } from "../db/entities/InvoiceWriteOff.js";
 
 /**
  * Customer statement (statement of account) builder. A statement is a
@@ -32,7 +33,7 @@ import {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export type StatementTxnKind = "invoice" | "payment";
+export type StatementTxnKind = "invoice" | "payment" | "adjustment";
 
 export type StatementTxn = {
   /** ISO `yyyy-mm-dd` of the invoice issue date or the payment date. */
@@ -152,6 +153,14 @@ export async function buildCustomerStatement(
         where: { invoiceId: In(scoped.map((i) => i.id)) },
       })
     : [];
+  // Non-reversed write-offs settle a receivable without cash. They must appear
+  // on the statement (as balance adjustments) and in the aging, or the running
+  // balance and the aging total would diverge for a written-off invoice.
+  const writeOffs = scoped.length
+    ? await AppDataSource.getRepository(InvoiceWriteOff).find({
+        where: { invoiceId: In(scoped.map((i) => i.id)), reversedAt: IsNull() },
+      })
+    : [];
 
   const to = opts.to ?? new Date();
   const toMs = endOfDayMs(to);
@@ -209,6 +218,27 @@ export async function buildCustomerStatement(
     });
   }
 
+  for (const w of writeOffs) {
+    const ms = w.writeOffDate.getTime();
+    if (ms > toMs) continue;
+    const inv = invById.get(w.invoiceId);
+    if (inv && inv.issueDate.getTime() > toMs) continue;
+    events.push({
+      ms,
+      order: 2,
+      txn: {
+        date: isoDay(w.writeOffDate),
+        kind: "adjustment",
+        reference: w.kind === "bad_debt" ? "Bad debt write-off" : "Balance adjustment",
+        description: inv?.number ? `Write-off on ${inv.number}` : "Balance adjustment",
+        invoiceSlug: inv?.slug ?? null,
+        chargeCents: 0,
+        paymentCents: w.amountCents,
+        balanceCents: 0,
+      },
+    });
+  }
+
   events.sort((a, b) => a.ms - b.ms || a.order - b.order);
 
   // Net everything before `from` into the opening balance; the rest forms
@@ -246,6 +276,15 @@ export async function buildCustomerStatement(
       );
     }
   }
+  const writtenOffByInvoice = new Map<string, number>();
+  for (const w of writeOffs) {
+    if (w.writeOffDate.getTime() <= toMs) {
+      writtenOffByInvoice.set(
+        w.invoiceId,
+        (writtenOffByInvoice.get(w.invoiceId) ?? 0) + w.amountCents,
+      );
+    }
+  }
 
   const aging: StatementAging = {
     currentCents: 0,
@@ -257,7 +296,10 @@ export async function buildCustomerStatement(
   };
   for (const inv of scoped) {
     if (inv.issueDate.getTime() > toMs) continue;
-    const bal = inv.totalCents - (paidByInvoice.get(inv.id) ?? 0);
+    const bal =
+      inv.totalCents -
+      (paidByInvoice.get(inv.id) ?? 0) -
+      (writtenOffByInvoice.get(inv.id) ?? 0);
     if (bal <= 0) continue;
     const daysPastDue = Math.floor((toMs - endOfDayMs(inv.dueDate)) / DAY_MS);
     if (daysPastDue <= 0) aging.currentCents += bal;

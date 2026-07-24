@@ -20,6 +20,8 @@ import {
   formatMoney,
   Invoice,
   InvoicePaymentMethod,
+  InvoiceWriteOff,
+  InvoiceWriteOffKind,
   parseMoneyToCents,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
@@ -40,7 +42,12 @@ const STATUS_BADGE: Record<string, string> = {
   sent: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
   overdue: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
   paid: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
+  written_off: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200",
   void: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  written_off: "Written off",
 };
 
 type InvoiceEmailDetails = {
@@ -69,6 +76,7 @@ type InvoiceResendActivity = {
 type InvoiceDetailPayload = Invoice & {
   emailDetails: InvoiceEmailDetails;
   resendActivities: InvoiceResendActivity[];
+  writeOffs: InvoiceWriteOff[];
 };
 
 type InvoiceSendResponse = {
@@ -101,9 +109,11 @@ export default function FinanceInvoiceDetail() {
   const [resendActivities, setResendActivities] = React.useState<
     InvoiceResendActivity[]
   >([]);
+  const [writeOffs, setWriteOffs] = React.useState<InvoiceWriteOff[]>([]);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [showPay, setShowPay] = React.useState(false);
+  const [showWriteOff, setShowWriteOff] = React.useState(false);
   const [showResend, setShowResend] = React.useState(false);
 
   const reload = React.useCallback(async () => {
@@ -115,6 +125,7 @@ export default function FinanceInvoiceDetail() {
       setInvoice(inv);
       setEmailDetails(inv.emailDetails);
       setResendActivities(inv.resendActivities);
+      setWriteOffs(inv.writeOffs ?? []);
       setLoadError(null);
     } catch (err) {
       setLoadError((err as Error).message);
@@ -252,6 +263,26 @@ export default function FinanceInvoiceDetail() {
     }
   }
 
+  async function reverseWriteOff(writeOffId: string) {
+    if (!invoice) return;
+    const ok = await dialog.confirm({
+      title: "Reverse this write-off?",
+      message:
+        "The amount goes back onto the invoice's open balance and a reversing journal entry is posted (also the bad-debt-recovery path).",
+      confirmLabel: "Reverse",
+    });
+    if (!ok) return;
+    try {
+      const fresh = await api.del<Invoice & { writeOffs: InvoiceWriteOff[] }>(
+        `/api/companies/${company.id}/invoices/${invoice.slug}/write-offs/${writeOffId}`,
+      );
+      setInvoice(fresh);
+      setWriteOffs(fresh.writeOffs ?? []);
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
+
   if (loadError) {
     return (
       <div className="mx-auto max-w-3xl p-8 text-sm text-slate-500">
@@ -298,10 +329,10 @@ export default function FinanceInvoiceDetail() {
           <span
             className={
               "inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider " +
-              STATUS_BADGE[ds]
+              (STATUS_BADGE[ds] ?? STATUS_BADGE.draft)
             }
           >
-            {ds}
+            {STATUS_LABEL[ds] ?? ds}
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -322,6 +353,15 @@ export default function FinanceInvoiceDetail() {
           {invoice.status === "sent" && (
             <Button onClick={() => setShowPay(true)} disabled={busy}>
               <Plus size={14} /> Record payment
+            </Button>
+          )}
+          {invoice.status === "sent" && invoice.balanceCents > 0 && (
+            <Button
+              variant="secondary"
+              onClick={() => setShowWriteOff(true)}
+              disabled={busy}
+            >
+              <Ban size={14} /> Write off
             </Button>
           )}
           {invoice.status === "paid" && (
@@ -612,6 +652,49 @@ export default function FinanceInvoiceDetail() {
             </ul>
           )}
         </div>
+        {writeOffs.length > 0 && (
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Adjustments
+            </h3>
+            <ul className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+              {writeOffs.map((w) => (
+                <li
+                  key={w.id}
+                  className={
+                    "flex items-start justify-between gap-2 rounded-md border border-slate-100 p-2 dark:border-slate-800" +
+                    (w.reversedAt ? " opacity-60" : "")
+                  }
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium tabular-nums text-slate-900 dark:text-slate-100">
+                      {formatMoney(w.amountCents, w.currency)}
+                    </div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                      {new Date(w.writeOffDate).toISOString().slice(0, 10)} ·{" "}
+                      {w.kind === "bad_debt" ? "Bad debt" : "Residual"}
+                      {w.reversedAt ? " · reversed" : ""}
+                    </div>
+                    {w.note ? (
+                      <div className="mt-0.5 truncate text-xs text-slate-400">
+                        {w.note}
+                      </div>
+                    ) : null}
+                  </div>
+                  {!w.reversedAt && (
+                    <button
+                      onClick={() => reverseWriteOff(w.id)}
+                      className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+                      aria-label="Reverse write-off"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             Activity
@@ -698,7 +781,104 @@ export default function FinanceInvoiceDetail() {
           }}
         />
       )}
+
+      {showWriteOff && (
+        <WriteOffModal
+          companyId={company.id}
+          invoice={invoice}
+          onClose={() => setShowWriteOff(false)}
+          onSaved={(fresh, wos) => {
+            setShowWriteOff(false);
+            setInvoice(fresh);
+            setWriteOffs(wos);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function WriteOffModal({
+  companyId,
+  invoice,
+  onClose,
+  onSaved,
+}: {
+  companyId: string;
+  invoice: Invoice;
+  onClose: () => void;
+  onSaved: (fresh: Invoice, writeOffs: InvoiceWriteOff[]) => void;
+}) {
+  const { toast } = useToast();
+  const [amount, setAmount] = React.useState(
+    (invoice.balanceCents / 100).toFixed(2),
+  );
+  const [kind, setKind] = React.useState<InvoiceWriteOffKind>("bad_debt");
+  const [note, setNote] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+
+  async function submit() {
+    const amountCents = parseMoneyToCents(amount);
+    if (amountCents <= 0) {
+      toast("Enter a positive amount", "error");
+      return;
+    }
+    if (amountCents > invoice.balanceCents) {
+      toast("Amount exceeds the invoice's open balance", "error");
+      return;
+    }
+    setBusy(true);
+    try {
+      const fresh = await api.post<Invoice & { writeOffs: InvoiceWriteOff[] }>(
+        `/api/companies/${companyId}/invoices/${invoice.slug}/write-off`,
+        { amountCents, kind, note: note.trim() || undefined },
+      );
+      onSaved(fresh, fresh.writeOffs ?? []);
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Write off">
+      <div className="space-y-3">
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          A write-off clears part of this invoice&apos;s balance without a
+          payment and without reversing the sale. Bad debt posts to Bad Debt
+          Expense; the revenue stays recognized in its original period.
+        </p>
+        <Input
+          label={`Amount (${invoice.currency})`}
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          inputMode="decimal"
+        />
+        <Select
+          label="Kind"
+          value={kind}
+          onChange={(e) => setKind(e.target.value as InvoiceWriteOffKind)}
+        >
+          <option value="bad_debt">Bad debt (uncollectible)</option>
+          <option value="residual">Residual / small balance</option>
+        </Select>
+        <Textarea
+          label="Note (optional)"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          rows={2}
+        />
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={busy}>
+            {busy ? "Writing off…" : "Write off"}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

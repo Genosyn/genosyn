@@ -1062,8 +1062,15 @@ Phased so each phase ships behind its own PR:
         members, `Invoice.creditedCents` / `writtenOffCents`,
         `BankTransaction.matchedCreditId` / `matchedRefundId`, and the
         cash-touching sources added to the cash-flow OPERATING set.
-  - Write-offs, credit notes + applications, then refunds / deposits /
-    overpayment split.
+  - [x] Write-offs (bad debt G3 + immaterial residual G5). `InvoiceWriteOff`;
+        DR 6100 Bad Debt Expense (overridable) / CR 1200 Accounts Receivable,
+        both legs at the invoice's issue-date rate so it is always balanced and
+        never carries an FX leg. Capped at the open balance, reversible (also
+        the bad-debt-recovery path), reflected in the invoice balance/status
+        (`written_off`) and the customer statement + aging. Human-facing on the
+        invoice detail page; the AI `write_off_invoice` tool is deferred to M33.
+        Shipped in 1.49.0.
+  - Credit notes + applications, then refunds / deposits / overpayment split.
 
 MCP surface (shipped): reads — `list_invoices`, `get_invoice`,
 `list_customers`, `get_customer`, `list_finance_accounts`,

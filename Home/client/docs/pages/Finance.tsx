@@ -172,6 +172,26 @@ export function Finance() {
         <Code>Void</Code> on a bill.
       </P>
 
+      <H3 id="invoices-write-off">Writing off a balance</H3>
+      <P>
+        When a receivable won&apos;t be collected, open the invoice and click{" "}
+        <Code>Write off</Code>. A write-off clears part or all of the open balance{" "}
+        <em>without</em> a payment and <em>without</em> reversing the sale — the revenue stays
+        recognized in the period it was earned. Pick <Strong>Bad debt</Strong> for an
+        uncollectible debt or <Strong>Residual</Strong> for an immaterial short-payment (a few
+        cents of rounding or a settlement discount). It posts{" "}
+        <Code>DR Bad Debt Expense / CR Accounts Receivable</Code> and can never exceed the open
+        balance. Unlike a credit note it does <em>not</em> relieve tax — a bad debt isn&apos;t a
+        sales-tax refund.
+      </P>
+      <P>
+        A fully written-off invoice shows the <Code>Written off</Code> status (it never counts as
+        cash collected). Write-offs appear under <Code>Adjustments</Code> on the invoice and as a
+        balance adjustment on the customer&apos;s statement. Made a mistake, or the customer paid
+        after all? <Code>Reverse</Code> the write-off — it puts the balance back and posts the
+        matching reversing entry, which is also how you record a bad-debt recovery.
+      </P>
+
       <H2 id="recurring-invoices">Recurring invoices</H2>
       <P>
         Open <Code>Finance → Recurring</Code> and click <Code>New schedule</Code> to set up a

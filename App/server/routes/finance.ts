@@ -13,6 +13,7 @@ import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { Invoice } from "../db/entities/Invoice.js";
 import { InvoiceLineItem } from "../db/entities/InvoiceLineItem.js";
 import { InvoicePayment } from "../db/entities/InvoicePayment.js";
+import { InvoiceWriteOff } from "../db/entities/InvoiceWriteOff.js";
 import { RecurringInvoice } from "../db/entities/RecurringInvoice.js";
 import { RecurringInvoiceLineItem } from "../db/entities/RecurringInvoiceLineItem.js";
 import { Estimate } from "../db/entities/Estimate.js";
@@ -43,6 +44,11 @@ import {
   uniqueCustomerSlug,
   voidInvoice,
 } from "../services/finance.js";
+import {
+  createInvoiceWriteOff,
+  listInvoiceWriteOffs,
+  reverseInvoiceWriteOff,
+} from "../services/writeOffs.js";
 import { recordAudit } from "../services/audit.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import {
@@ -798,12 +804,13 @@ financeRouter.get("/invoices/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const inv = await loadInvoiceBySlug(cid, req.params.slug);
   if (!inv) return res.status(404).json({ error: "Invoice not found" });
-  const [hydratedRows, emailDetails, resendActivities] = await Promise.all([
+  const [hydratedRows, emailDetails, resendActivities, writeOffs] = await Promise.all([
     hydrateInvoices(cid, [inv]),
     getInvoiceEmailDetails(cid, inv),
     listInvoiceResendActivities(cid, inv.id),
+    listInvoiceWriteOffs(cid, inv.id),
   ]);
-  res.json({ ...hydratedRows[0], emailDetails, resendActivities });
+  res.json({ ...hydratedRows[0], emailDetails, resendActivities, writeOffs });
 });
 
 const invoicePatchSchema = z.object({
@@ -1175,6 +1182,85 @@ financeRouter.delete("/invoices/:slug/payments/:pid", async (req, res) => {
   const recomputed = await recomputeInvoiceTotals(inv);
   const [hydrated] = await hydrateInvoices(cid, [recomputed]);
   res.json(hydrated);
+});
+
+// ───────────────────────────── Write-offs ─────────────────────────────
+
+const writeOffCreateSchema = z.object({
+  amountCents: z.number().int().min(1).max(2_000_000_000),
+  kind: z.enum(["bad_debt", "residual"]),
+  expenseAccountId: z.string().uuid().nullable().optional(),
+  writeOffDate: z.string().datetime().optional(),
+  note: z.string().max(2000).optional(),
+});
+
+financeRouter.post(
+  "/invoices/:slug/write-off",
+  validateBody(writeOffCreateSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const inv = await loadInvoiceBySlug(cid, req.params.slug);
+    if (!inv) return res.status(404).json({ error: "Invoice not found" });
+    const body = req.body as z.infer<typeof writeOffCreateSchema>;
+    try {
+      const writeOff = await createInvoiceWriteOff(
+        inv,
+        {
+          amountCents: body.amountCents,
+          kind: body.kind,
+          expenseAccountId: body.expenseAccountId ?? null,
+          writeOffDate: body.writeOffDate ? new Date(body.writeOffDate) : undefined,
+          note: body.note,
+        },
+        req.userId ?? null,
+      );
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "finance.invoice.write_off",
+        targetType: "invoice",
+        targetId: inv.id,
+        targetLabel: inv.number || inv.slug,
+        metadata: { writeOffId: writeOff.id, amountCents: body.amountCents, kind: body.kind },
+      });
+      const fresh = await loadInvoiceBySlug(cid, req.params.slug);
+      const [hydrated] = await hydrateInvoices(cid, [fresh!]);
+      const writeOffs = await listInvoiceWriteOffs(cid, inv.id);
+      res.json({ ...hydrated, writeOffs });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+financeRouter.delete("/invoices/:slug/write-offs/:wid", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const inv = await loadInvoiceBySlug(cid, req.params.slug);
+  if (!inv) return res.status(404).json({ error: "Invoice not found" });
+  const w = await AppDataSource.getRepository(InvoiceWriteOff).findOneBy({
+    id: req.params.wid,
+    companyId: cid,
+    invoiceId: inv.id,
+  });
+  if (!w) return res.status(404).json({ error: "Write-off not found" });
+  try {
+    await reverseInvoiceWriteOff(w, req.userId ?? null);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "finance.invoice.write_off_reversed",
+      targetType: "invoice",
+      targetId: inv.id,
+      targetLabel: inv.number || inv.slug,
+      metadata: { writeOffId: w.id, amountCents: w.amountCents },
+    });
+    const fresh = await loadInvoiceBySlug(cid, req.params.slug);
+    const [hydrated] = await hydrateInvoices(cid, [fresh!]);
+    const writeOffs = await listInvoiceWriteOffs(cid, inv.id);
+    res.json({ ...hydrated, writeOffs });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
 });
 
 // ───────────────────────────── Estimates ──────────────────────────────

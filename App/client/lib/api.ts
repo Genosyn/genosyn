@@ -2185,6 +2185,8 @@ export type Invoice = {
   taxCents: number;
   totalCents: number;
   paidCents: number;
+  creditedCents: number;
+  writtenOffCents: number;
   balanceCents: number;
   notes: string;
   footer: string;
@@ -2197,6 +2199,24 @@ export type Invoice = {
   customer: InvoiceCustomerStub | null;
   lines: InvoiceLineItem[];
   payments: InvoicePayment[];
+};
+
+export type InvoiceWriteOffKind = "bad_debt" | "residual";
+
+export type InvoiceWriteOff = {
+  id: string;
+  invoiceId: string;
+  kind: InvoiceWriteOffKind;
+  amountCents: number;
+  homeCents: number;
+  currency: string;
+  expenseAccountId: string;
+  writeOffDate: string;
+  note: string;
+  createdById: string | null;
+  reversedAt: string | null;
+  reversedById: string | null;
+  createdAt: string;
 };
 
 export type InvoiceListItem = Omit<Invoice, "lines" | "payments"> & {
@@ -2234,9 +2254,14 @@ export function parseMoneyToCents(input: string): number {
 }
 
 export function displayInvoiceStatus(
-  inv: Pick<Invoice, "status" | "dueDate">,
+  inv: Pick<Invoice, "status" | "dueDate" | "paidCents" | "writtenOffCents">,
   now: Date = new Date(),
-): InvoiceStatus | "overdue" {
+): InvoiceStatus | "overdue" | "written_off" {
+  // Settled with no cash against it ⇒ cleared by a write-off. Mirrors the
+  // server's displayStatus so list and detail agree.
+  if (inv.status === "paid" && inv.paidCents === 0 && inv.writtenOffCents > 0) {
+    return "written_off";
+  }
   if (inv.status === "sent" && new Date(inv.dueDate).getTime() < now.getTime()) {
     return "overdue";
   }

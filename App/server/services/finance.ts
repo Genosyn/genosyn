@@ -721,9 +721,16 @@ export async function hydrateInvoices(
  * "overdue" bucket for sent invoices past `dueDate`. Stored status stays
  * `sent` so changing the system clock doesn't corrupt anything.
  */
-export type DisplayStatus = InvoiceStatus | "overdue";
+export type DisplayStatus = InvoiceStatus | "overdue" | "written_off";
 
 export function displayStatus(invoice: Invoice, now: Date = new Date()): DisplayStatus {
+  // A fully-settled invoice with no cash against it was cleared by a write-off
+  // (recomputeInvoiceTotals flips it to "paid" once settled but only stamps
+  // paidAt when cash was involved). Surface that as its own status rather than
+  // a misleading "paid".
+  if (invoice.status === "paid" && invoice.paidCents === 0 && invoice.writtenOffCents > 0) {
+    return "written_off";
+  }
   if (invoice.status === "sent" && invoice.dueDate.getTime() < now.getTime()) {
     return "overdue";
   }
