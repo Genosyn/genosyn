@@ -9,6 +9,7 @@ import {
   CreditCard,
   FileSignature,
   FileText,
+  Undo2,
   Inbox,
   Layers,
   LayoutTemplate,
@@ -57,6 +58,11 @@ export default function FinanceLayout({ company }: { company: Company }) {
           label="Estimates"
         />
         <SidebarLink to={`${base}/invoices`} icon={<FileText size={14} />} label="Invoices" />
+        <SidebarLink
+          to={`${base}/credit-notes`}
+          icon={<Undo2 size={14} />}
+          label="Credit notes"
+        />
         <SidebarLink
           to={`${base}/recurring-invoices`}
           icon={<Repeat size={14} />}

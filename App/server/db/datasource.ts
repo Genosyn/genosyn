@@ -70,6 +70,9 @@ import { Invoice } from "./entities/Invoice.js";
 import { InvoiceLineItem } from "./entities/InvoiceLineItem.js";
 import { InvoicePayment } from "./entities/InvoicePayment.js";
 import { InvoiceWriteOff } from "./entities/InvoiceWriteOff.js";
+import { CustomerCredit } from "./entities/CustomerCredit.js";
+import { CustomerCreditLine } from "./entities/CustomerCreditLine.js";
+import { CustomerCreditApplication } from "./entities/CustomerCreditApplication.js";
 import { RecurringInvoice } from "./entities/RecurringInvoice.js";
 import { RecurringInvoiceLineItem } from "./entities/RecurringInvoiceLineItem.js";
 import { Estimate } from "./entities/Estimate.js";
@@ -204,6 +207,9 @@ const entities = [
   InvoiceLineItem,
   InvoicePayment,
   InvoiceWriteOff,
+  CustomerCredit,
+  CustomerCreditLine,
+  CustomerCreditApplication,
   RecurringInvoice,
   RecurringInvoiceLineItem,
   Estimate,

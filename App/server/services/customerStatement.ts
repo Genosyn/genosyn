@@ -7,6 +7,7 @@ import {
   type InvoicePaymentMethod,
 } from "../db/entities/InvoicePayment.js";
 import { InvoiceWriteOff } from "../db/entities/InvoiceWriteOff.js";
+import { CustomerCreditApplication } from "../db/entities/CustomerCreditApplication.js";
 
 /**
  * Customer statement (statement of account) builder. A statement is a
@@ -161,6 +162,13 @@ export async function buildCustomerStatement(
         where: { invoiceId: In(scoped.map((i) => i.id)), reversedAt: IsNull() },
       })
     : [];
+  // Non-reversed credit applications also relieve a receivable without cash —
+  // same reasoning as write-offs: they belong on the statement and in aging.
+  const creditApps = scoped.length
+    ? await AppDataSource.getRepository(CustomerCreditApplication).find({
+        where: { invoiceId: In(scoped.map((i) => i.id)), reversedAt: IsNull() },
+      })
+    : [];
 
   const to = opts.to ?? new Date();
   const toMs = endOfDayMs(to);
@@ -239,6 +247,27 @@ export async function buildCustomerStatement(
     });
   }
 
+  for (const app of creditApps) {
+    const ms = app.appliedAt.getTime();
+    if (ms > toMs) continue;
+    const inv = invById.get(app.invoiceId);
+    if (inv && inv.issueDate.getTime() > toMs) continue;
+    events.push({
+      ms,
+      order: 2,
+      txn: {
+        date: isoDay(app.appliedAt),
+        kind: "adjustment",
+        reference: "Credit applied",
+        description: inv?.number ? `Credit applied to ${inv.number}` : "Credit applied",
+        invoiceSlug: inv?.slug ?? null,
+        chargeCents: 0,
+        paymentCents: app.amountCents,
+        balanceCents: 0,
+      },
+    });
+  }
+
   events.sort((a, b) => a.ms - b.ms || a.order - b.order);
 
   // Net everything before `from` into the opening balance; the rest forms
@@ -285,6 +314,15 @@ export async function buildCustomerStatement(
       );
     }
   }
+  const creditedByInvoice = new Map<string, number>();
+  for (const app of creditApps) {
+    if (app.appliedAt.getTime() <= toMs) {
+      creditedByInvoice.set(
+        app.invoiceId,
+        (creditedByInvoice.get(app.invoiceId) ?? 0) + app.amountCents,
+      );
+    }
+  }
 
   const aging: StatementAging = {
     currentCents: 0,
@@ -299,7 +337,8 @@ export async function buildCustomerStatement(
     const bal =
       inv.totalCents -
       (paidByInvoice.get(inv.id) ?? 0) -
-      (writtenOffByInvoice.get(inv.id) ?? 0);
+      (writtenOffByInvoice.get(inv.id) ?? 0) -
+      (creditedByInvoice.get(inv.id) ?? 0);
     if (bal <= 0) continue;
     const daysPastDue = Math.floor((toMs - endOfDayMs(inv.dueDate)) / DAY_MS);
     if (daysPastDue <= 0) aging.currentCents += bal;

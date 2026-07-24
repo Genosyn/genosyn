@@ -2219,6 +2219,63 @@ export type InvoiceWriteOff = {
   createdAt: string;
 };
 
+export type CustomerCreditKind = "credit_memo" | "deposit" | "overpayment";
+export type CustomerCreditStatus = "draft" | "issued" | "void";
+
+export type CustomerCredit = {
+  id: string;
+  companyId: string;
+  customerId: string;
+  kind: CustomerCreditKind;
+  status: CustomerCreditStatus;
+  numberSeq: number;
+  number: string;
+  slug: string;
+  sourceInvoiceId: string | null;
+  currency: string;
+  subtotalCents: number;
+  taxCents: number;
+  totalCents: number;
+  appliedCents: number;
+  refundedCents: number;
+  openCents: number;
+  reason: string;
+  notes: string;
+  issueDate: string;
+  issuedAt: string | null;
+  voidedAt: string | null;
+  createdAt: string;
+};
+
+export type CustomerCreditLine = {
+  id: string;
+  description: string;
+  quantity: number;
+  unitPriceCents: number;
+  taxName: string;
+  lineSubtotalCents: number;
+  lineTaxCents: number;
+  lineTotalCents: number;
+};
+
+export type CustomerCreditApplicationRow = {
+  id: string;
+  creditId: string;
+  invoiceId: string;
+  amountCents: number;
+  appliedAt: string;
+  reversedAt: string | null;
+  invoiceNumber?: string | null;
+  invoiceSlug?: string | null;
+  creditNumber?: string | null;
+  creditSlug?: string | null;
+};
+
+export type CreditNoteDetail = CustomerCredit & {
+  lines: CustomerCreditLine[];
+  applications: CustomerCreditApplicationRow[];
+};
+
 export type InvoiceListItem = Omit<Invoice, "lines" | "payments"> & {
   linesCount: number;
   paymentsCount: number;
@@ -2254,13 +2311,14 @@ export function parseMoneyToCents(input: string): number {
 }
 
 export function displayInvoiceStatus(
-  inv: Pick<Invoice, "status" | "dueDate" | "paidCents" | "writtenOffCents">,
+  inv: Pick<Invoice, "status" | "dueDate" | "paidCents" | "writtenOffCents" | "creditedCents">,
   now: Date = new Date(),
-): InvoiceStatus | "overdue" | "written_off" {
-  // Settled with no cash against it ⇒ cleared by a write-off. Mirrors the
-  // server's displayStatus so list and detail agree.
-  if (inv.status === "paid" && inv.paidCents === 0 && inv.writtenOffCents > 0) {
-    return "written_off";
+): InvoiceStatus | "overdue" | "written_off" | "credited" {
+  // Settled with no cash against it ⇒ cleared by a write-off or a credit.
+  // Mirrors the server's displayStatus so list and detail agree.
+  if (inv.status === "paid" && inv.paidCents === 0) {
+    if (inv.writtenOffCents > 0) return "written_off";
+    if (inv.creditedCents > 0) return "credited";
   }
   if (inv.status === "sent" && new Date(inv.dueDate).getTime() < now.getTime()) {
     return "overdue";

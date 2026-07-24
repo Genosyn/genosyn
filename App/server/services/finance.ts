@@ -543,6 +543,20 @@ export async function voidInvoice(
       "This invoice has payments recorded against it and can't be voided. Refund or credit it instead.",
     );
   }
+  // Credits applied and write-offs also relieved this invoice's AR through
+  // their own postings; voiding would reverse the issue and strand those.
+  // Unwind them first (unapply the credit, reverse the write-off) — then the
+  // invoice is clean and can be voided.
+  if (invoice.creditedCents > 0) {
+    throw new Error(
+      "This invoice has credit applied to it. Unapply the credit before voiding it.",
+    );
+  }
+  if (invoice.writtenOffCents > 0) {
+    throw new Error(
+      "This invoice has a write-off against it. Reverse the write-off before voiding it.",
+    );
+  }
   // The reversal is dated today, so voiding an invoice that was issued
   // inside a closed period would smear that period's revenue into the
   // current one and silently change numbers the books were closed on.
@@ -721,15 +735,17 @@ export async function hydrateInvoices(
  * "overdue" bucket for sent invoices past `dueDate`. Stored status stays
  * `sent` so changing the system clock doesn't corrupt anything.
  */
-export type DisplayStatus = InvoiceStatus | "overdue" | "written_off";
+export type DisplayStatus = InvoiceStatus | "overdue" | "written_off" | "credited";
 
 export function displayStatus(invoice: Invoice, now: Date = new Date()): DisplayStatus {
   // A fully-settled invoice with no cash against it was cleared by a write-off
-  // (recomputeInvoiceTotals flips it to "paid" once settled but only stamps
-  // paidAt when cash was involved). Surface that as its own status rather than
-  // a misleading "paid".
-  if (invoice.status === "paid" && invoice.paidCents === 0 && invoice.writtenOffCents > 0) {
-    return "written_off";
+  // or a credit note (recomputeInvoiceTotals flips it to "paid" once settled
+  // but only stamps paidAt when cash was involved). Surface that as its own
+  // status rather than a misleading "paid". Write-off takes precedence in the
+  // rare mixed case.
+  if (invoice.status === "paid" && invoice.paidCents === 0) {
+    if (invoice.writtenOffCents > 0) return "written_off";
+    if (invoice.creditedCents > 0) return "credited";
   }
   if (invoice.status === "sent" && invoice.dueDate.getTime() < now.getTime()) {
     return "overdue";

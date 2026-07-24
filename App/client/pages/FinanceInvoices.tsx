@@ -18,7 +18,7 @@ import { useDialog } from "../components/ui/Dialog";
 import { useToast } from "../components/ui/Toast";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
-type StatusFilter = "all" | InvoiceStatus | "overdue" | "written_off";
+type StatusFilter = "all" | InvoiceStatus | "overdue" | "written_off" | "credited";
 
 const FILTERS: { key: StatusFilter; label: string }[] = [
   { key: "all", label: "All" },
@@ -26,6 +26,7 @@ const FILTERS: { key: StatusFilter; label: string }[] = [
   { key: "sent", label: "Sent" },
   { key: "overdue", label: "Overdue" },
   { key: "paid", label: "Paid" },
+  { key: "credited", label: "Credited" },
   { key: "written_off", label: "Written off" },
   { key: "void", label: "Void" },
 ];
@@ -36,6 +37,7 @@ const STATUS_BADGE: Record<StatusFilter, string> = {
   sent: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
   overdue: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
   paid: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
+  credited: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
   written_off: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200",
   void: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
 };
@@ -155,6 +157,7 @@ export default function FinanceInvoices() {
       sent: 0,
       overdue: 0,
       paid: 0,
+      credited: 0,
       written_off: 0,
       void: 0,
     };

@@ -1070,7 +1070,18 @@ Phased so each phase ships behind its own PR:
         (`written_off`) and the customer statement + aging. Human-facing on the
         invoice detail page; the AI `write_off_invoice` tool is deferred to M33.
         Shipped in 1.49.0.
-  - Credit notes + applications, then refunds / deposits / overpayment split.
+  - [x] Credit notes + applications (non-cash half of G1). `CustomerCredit` +
+        `CustomerCreditLine` + `CustomerCreditApplication`. Issue posts
+        DR 4100 / DR 2100 / CR 2400, capped cumulatively against the source
+        invoice on subtotal, tax and total. Apply posts DR 2400 / CR 1200
+        (+ a bounded FX plug, last-draw-exact) capped at
+        min(credit open, invoice balance) so AR can't go negative;
+        unapply/void reverse from stored carrying amounts. Invoice shows a
+        `credited` status; statement + aging include applications; voiding an
+        invoice with credit (or a write-off) against it is refused. Credit
+        notes list + detail, and a Credit note action on the invoice.
+        Human-facing; AI credit tools deferred to M33. Shipped in 1.50.0.
+  - Refunds / deposits / overpayment split (cash half of G1 + G4).
 
 MCP surface (shipped): reads — `list_invoices`, `get_invoice`,
 `list_customers`, `get_customer`, `list_finance_accounts`,

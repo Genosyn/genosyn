@@ -49,6 +49,21 @@ import {
   listInvoiceWriteOffs,
   reverseInvoiceWriteOff,
 } from "../services/writeOffs.js";
+import {
+  applyCustomerCredit,
+  createCreditNoteFromInvoice,
+  creditOpenCents,
+  getCreditLines,
+  issueCreditNote,
+  listApplicationsForInvoice,
+  listCreditApplications,
+  listCustomerCredits,
+  loadCreditBySlug,
+  unapplyCustomerCredit,
+  voidCreditNote,
+} from "../services/customerCredits.js";
+import { CustomerCredit } from "../db/entities/CustomerCredit.js";
+import { CustomerCreditApplication } from "../db/entities/CustomerCreditApplication.js";
 import { recordAudit } from "../services/audit.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import {
@@ -804,13 +819,33 @@ financeRouter.get("/invoices/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const inv = await loadInvoiceBySlug(cid, req.params.slug);
   if (!inv) return res.status(404).json({ error: "Invoice not found" });
-  const [hydratedRows, emailDetails, resendActivities, writeOffs] = await Promise.all([
+  const [hydratedRows, emailDetails, resendActivities, writeOffs, apps] = await Promise.all([
     hydrateInvoices(cid, [inv]),
     getInvoiceEmailDetails(cid, inv),
     listInvoiceResendActivities(cid, inv.id),
     listInvoiceWriteOffs(cid, inv.id),
+    listApplicationsForInvoice(inv.id),
   ]);
-  res.json({ ...hydratedRows[0], emailDetails, resendActivities, writeOffs });
+  const creditIds = [...new Set(apps.map((a) => a.creditId))];
+  const credits = creditIds.length
+    ? await AppDataSource.getRepository(CustomerCredit).find({
+        where: { id: In(creditIds), companyId: cid },
+        select: ["id", "number", "slug"],
+      })
+    : [];
+  const creditById = new Map(credits.map((c) => [c.id, c]));
+  const creditApplications = apps.map((a) => ({
+    ...a,
+    creditNumber: creditById.get(a.creditId)?.number ?? null,
+    creditSlug: creditById.get(a.creditId)?.slug ?? null,
+  }));
+  res.json({
+    ...hydratedRows[0],
+    emailDetails,
+    resendActivities,
+    writeOffs,
+    creditApplications,
+  });
 });
 
 const invoicePatchSchema = z.object({
@@ -1258,6 +1293,176 @@ financeRouter.delete("/invoices/:slug/write-offs/:wid", async (req, res) => {
     const [hydrated] = await hydrateInvoices(cid, [fresh!]);
     const writeOffs = await listInvoiceWriteOffs(cid, inv.id);
     res.json({ ...hydrated, writeOffs });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+// ─────────────────────────── Credit notes ─────────────────────────────
+
+async function serializeCreditDetail(companyId: string, credit: CustomerCredit) {
+  const [lines, apps] = await Promise.all([
+    getCreditLines(credit.id),
+    listCreditApplications(credit.id),
+  ]);
+  const invIds = [...new Set(apps.map((a) => a.invoiceId))];
+  const invs = invIds.length
+    ? await AppDataSource.getRepository(Invoice).find({
+        where: { id: In(invIds), companyId },
+        select: ["id", "number", "slug"],
+      })
+    : [];
+  const invById = new Map(invs.map((i) => [i.id, i]));
+  return {
+    ...credit,
+    openCents: creditOpenCents(credit),
+    lines,
+    applications: apps.map((a) => ({
+      ...a,
+      invoiceNumber: invById.get(a.invoiceId)?.number ?? null,
+      invoiceSlug: invById.get(a.invoiceId)?.slug ?? null,
+    })),
+  };
+}
+
+financeRouter.get("/credit-notes", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const credits = await listCustomerCredits(cid);
+  res.json(credits.map((c) => ({ ...c, openCents: creditOpenCents(c) })));
+});
+
+financeRouter.get("/credit-notes/:slug", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const credit = await loadCreditBySlug(cid, req.params.slug);
+  if (!credit) return res.status(404).json({ error: "Credit note not found" });
+  res.json(await serializeCreditDetail(cid, credit));
+});
+
+const creditFromInvoiceSchema = z.object({
+  mode: z.enum(["full", "amount"]),
+  amountCents: z.number().int().min(1).max(2_000_000_000).optional(),
+  applyNow: z.boolean().optional(),
+  reason: z.string().max(2000).optional(),
+  notes: z.string().max(2000).optional(),
+});
+
+financeRouter.post(
+  "/invoices/:slug/credit-note",
+  validateBody(creditFromInvoiceSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const inv = await loadInvoiceBySlug(cid, req.params.slug);
+    if (!inv) return res.status(404).json({ error: "Invoice not found" });
+    const body = req.body as z.infer<typeof creditFromInvoiceSchema>;
+    if (body.mode === "amount" && !body.amountCents) {
+      return res.status(400).json({ error: "amountCents is required for a partial credit" });
+    }
+    try {
+      const draft = await createCreditNoteFromInvoice(
+        inv,
+        { mode: body.mode, amountCents: body.amountCents, reason: body.reason, notes: body.notes },
+        req.userId ?? null,
+      );
+      let credit = await issueCreditNote(draft, req.userId ?? null);
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "finance.credit_note.issue",
+        targetType: "credit_note",
+        targetId: credit.id,
+        targetLabel: credit.number,
+        metadata: { totalCents: credit.totalCents, sourceInvoice: inv.number || inv.slug },
+      });
+      // The common flow: a credit raised against an invoice immediately reduces
+      // what the customer owes on it. Apply up to the room available.
+      if (body.applyNow !== false) {
+        const freshInv = await loadInvoiceBySlug(cid, req.params.slug);
+        const room = Math.min(creditOpenCents(credit), freshInv!.balanceCents);
+        if (room > 0) {
+          await applyCustomerCredit(credit, freshInv!, room, req.userId ?? null);
+          credit = (await loadCreditBySlug(cid, credit.slug))!;
+        }
+      }
+      res.json(await serializeCreditDetail(cid, credit));
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+const creditApplySchema = z.object({
+  invoiceSlug: z.string().min(1).max(200),
+  amountCents: z.number().int().min(1).max(2_000_000_000),
+});
+
+financeRouter.post("/credit-notes/:slug/apply", validateBody(creditApplySchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const credit = await loadCreditBySlug(cid, req.params.slug);
+  if (!credit) return res.status(404).json({ error: "Credit note not found" });
+  const body = req.body as z.infer<typeof creditApplySchema>;
+  const inv = await loadInvoiceBySlug(cid, body.invoiceSlug);
+  if (!inv) return res.status(404).json({ error: "Target invoice not found" });
+  try {
+    const app = await applyCustomerCredit(credit, inv, body.amountCents, req.userId ?? null);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "finance.credit_note.apply",
+      targetType: "credit_note",
+      targetId: credit.id,
+      targetLabel: credit.number,
+      metadata: { applicationId: app.id, invoice: inv.number || inv.slug, amountCents: body.amountCents },
+    });
+    const fresh = await loadCreditBySlug(cid, req.params.slug);
+    res.json(await serializeCreditDetail(cid, fresh!));
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+financeRouter.delete("/credit-notes/:slug/applications/:aid", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const credit = await loadCreditBySlug(cid, req.params.slug);
+  if (!credit) return res.status(404).json({ error: "Credit note not found" });
+  const app = await AppDataSource.getRepository(CustomerCreditApplication).findOneBy({
+    id: req.params.aid,
+    companyId: cid,
+    creditId: credit.id,
+  });
+  if (!app) return res.status(404).json({ error: "Application not found" });
+  try {
+    await unapplyCustomerCredit(app, req.userId ?? null);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "finance.credit_note.unapply",
+      targetType: "credit_note",
+      targetId: credit.id,
+      targetLabel: credit.number,
+      metadata: { applicationId: app.id },
+    });
+    const fresh = await loadCreditBySlug(cid, req.params.slug);
+    res.json(await serializeCreditDetail(cid, fresh!));
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+financeRouter.post("/credit-notes/:slug/void", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const credit = await loadCreditBySlug(cid, req.params.slug);
+  if (!credit) return res.status(404).json({ error: "Credit note not found" });
+  try {
+    const voided = await voidCreditNote(credit, req.userId ?? null);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "finance.credit_note.void",
+      targetType: "credit_note",
+      targetId: credit.id,
+      targetLabel: credit.number,
+    });
+    res.json(await serializeCreditDetail(cid, voided));
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }

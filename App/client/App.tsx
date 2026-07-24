@@ -125,6 +125,8 @@ import FinanceTaxRates from "./pages/FinanceTaxRates";
 import FinanceInvoices from "./pages/FinanceInvoices";
 import FinanceInvoiceNew from "./pages/FinanceInvoiceNew";
 import FinanceInvoiceDetail from "./pages/FinanceInvoiceDetail";
+import FinanceCreditNotes from "./pages/FinanceCreditNotes";
+import FinanceCreditNoteDetail from "./pages/FinanceCreditNoteDetail";
 import FinanceRecurringInvoices from "./pages/FinanceRecurringInvoices";
 import FinanceRecurringInvoiceNew from "./pages/FinanceRecurringInvoiceNew";
 import FinanceRecurringInvoiceDetail from "./pages/FinanceRecurringInvoiceDetail";
@@ -433,6 +435,8 @@ function CompanyRoutes({
             <Route path="invoices/new" element={<FinanceInvoiceNew />} />
             <Route path="invoices/:invoiceSlug" element={<FinanceInvoiceDetail />} />
             <Route path="invoices/:invoiceSlug/edit" element={<FinanceInvoiceNew />} />
+            <Route path="credit-notes" element={<FinanceCreditNotes />} />
+            <Route path="credit-notes/:creditSlug" element={<FinanceCreditNoteDetail />} />
             <Route path="recurring-invoices" element={<FinanceRecurringInvoices />} />
             <Route path="recurring-invoices/new" element={<FinanceRecurringInvoiceNew />} />
             <Route

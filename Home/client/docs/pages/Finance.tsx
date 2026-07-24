@@ -192,6 +192,28 @@ export function Finance() {
         matching reversing entry, which is also how you record a bad-debt recovery.
       </P>
 
+      <H3 id="invoices-credit-note">Credit notes</H3>
+      <P>
+        A credit note reduces a sale you&apos;ve already invoiced — a return, a
+        goodwill adjustment, a billing correction. From an invoice, click{" "}
+        <Code>Credit note</Code>: credit it <Strong>in full</Strong> (every line, tax
+        included) or a <Strong>partial</Strong> ex-tax amount. Issuing posts{" "}
+        <Code>DR Sales Returns &amp; Allowances / DR Tax Payable / CR Customer Credits</Code> —
+        it reverses revenue (and tax, on a full credit) but never touches Accounts
+        Receivable directly, and credit notes can never total more than the invoice they
+        came from.
+      </P>
+      <P>
+        A credit is spent by <Strong>applying</Strong> it to an invoice, which is the only
+        way to lower a receivable without cash: it posts{" "}
+        <Code>DR Customer Credits / CR Accounts Receivable</Code>, capped so the invoice
+        balance can never go negative. Raising a credit against an invoice applies it there
+        by default; an on-account credit can be applied to any of that customer&apos;s
+        invoices in the same currency from the <Code>Credit notes</Code> section. An invoice
+        fully cleared by credit shows the <Code>Credited</Code> status. Unapply to put the
+        balance back, and void an unused credit memo to reverse it entirely.
+      </P>
+
       <H2 id="recurring-invoices">Recurring invoices</H2>
       <P>
         Open <Code>Finance → Recurring</Code> and click <Code>New schedule</Code> to set up a

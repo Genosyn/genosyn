@@ -13,6 +13,7 @@ import {
   Plus,
   Send,
   Trash2,
+  Undo2,
 } from "lucide-react";
 import {
   api,
@@ -22,6 +23,7 @@ import {
   InvoicePaymentMethod,
   InvoiceWriteOff,
   InvoiceWriteOffKind,
+  CustomerCreditApplicationRow,
   parseMoneyToCents,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
@@ -42,12 +44,14 @@ const STATUS_BADGE: Record<string, string> = {
   sent: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
   overdue: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
   paid: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
+  credited: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
   written_off: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200",
   void: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
 };
 
 const STATUS_LABEL: Record<string, string> = {
   written_off: "Written off",
+  credited: "Credited",
 };
 
 type InvoiceEmailDetails = {
@@ -77,6 +81,7 @@ type InvoiceDetailPayload = Invoice & {
   emailDetails: InvoiceEmailDetails;
   resendActivities: InvoiceResendActivity[];
   writeOffs: InvoiceWriteOff[];
+  creditApplications: CustomerCreditApplicationRow[];
 };
 
 type InvoiceSendResponse = {
@@ -110,10 +115,14 @@ export default function FinanceInvoiceDetail() {
     InvoiceResendActivity[]
   >([]);
   const [writeOffs, setWriteOffs] = React.useState<InvoiceWriteOff[]>([]);
+  const [creditApplications, setCreditApplications] = React.useState<
+    CustomerCreditApplicationRow[]
+  >([]);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [showPay, setShowPay] = React.useState(false);
   const [showWriteOff, setShowWriteOff] = React.useState(false);
+  const [showCreditNote, setShowCreditNote] = React.useState(false);
   const [showResend, setShowResend] = React.useState(false);
 
   const reload = React.useCallback(async () => {
@@ -126,6 +135,7 @@ export default function FinanceInvoiceDetail() {
       setEmailDetails(inv.emailDetails);
       setResendActivities(inv.resendActivities);
       setWriteOffs(inv.writeOffs ?? []);
+      setCreditApplications(inv.creditApplications ?? []);
       setLoadError(null);
     } catch (err) {
       setLoadError((err as Error).message);
@@ -283,6 +293,25 @@ export default function FinanceInvoiceDetail() {
     }
   }
 
+  async function unapplyCredit(app: CustomerCreditApplicationRow) {
+    if (!app.creditSlug) return;
+    const ok = await dialog.confirm({
+      title: "Unapply this credit?",
+      message:
+        "The credited amount goes back onto the invoice's balance and the credit note becomes available to apply elsewhere.",
+      confirmLabel: "Unapply",
+    });
+    if (!ok) return;
+    try {
+      await api.del(
+        `/api/companies/${company.id}/credit-notes/${app.creditSlug}/applications/${app.id}`,
+      );
+      await reload();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
+
   if (loadError) {
     return (
       <div className="mx-auto max-w-3xl p-8 text-sm text-slate-500">
@@ -364,6 +393,16 @@ export default function FinanceInvoiceDetail() {
               <Ban size={14} /> Write off
             </Button>
           )}
+          {(invoice.status === "sent" || invoice.status === "paid") &&
+            invoice.balanceCents > 0 && (
+              <Button
+                variant="secondary"
+                onClick={() => setShowCreditNote(true)}
+                disabled={busy}
+              >
+                <Undo2 size={14} /> Credit note
+              </Button>
+            )}
           {invoice.status === "paid" && (
             <Button
               variant="secondary"
@@ -652,7 +691,7 @@ export default function FinanceInvoiceDetail() {
             </ul>
           )}
         </div>
-        {writeOffs.length > 0 && (
+        {(writeOffs.length > 0 || creditApplications.length > 0) && (
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
               Adjustments
@@ -693,6 +732,39 @@ export default function FinanceInvoiceDetail() {
                 </li>
               ))}
             </ul>
+            {creditApplications.length > 0 && (
+              <ul className="mt-2 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                {creditApplications.map((a) => (
+                  <li
+                    key={a.id}
+                    className={
+                      "flex items-start justify-between gap-2 rounded-md border border-slate-100 p-2 dark:border-slate-800" +
+                      (a.reversedAt ? " opacity-60" : "")
+                    }
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium tabular-nums text-slate-900 dark:text-slate-100">
+                        {formatMoney(a.amountCents, invoice.currency)}
+                      </div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">
+                        {new Date(a.appliedAt).toISOString().slice(0, 10)} · Credit{" "}
+                        {a.creditNumber ?? "note"}
+                        {a.reversedAt ? " · reversed" : ""}
+                      </div>
+                    </div>
+                    {!a.reversedAt && (
+                      <button
+                        onClick={() => unapplyCredit(a)}
+                        className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+                        aria-label="Unapply credit"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -794,7 +866,108 @@ export default function FinanceInvoiceDetail() {
           }}
         />
       )}
+
+      {showCreditNote && (
+        <CreditNoteModal
+          companyId={company.id}
+          invoice={invoice}
+          onClose={() => setShowCreditNote(false)}
+          onSaved={() => {
+            setShowCreditNote(false);
+            void reload();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function CreditNoteModal({
+  companyId,
+  invoice,
+  onClose,
+  onSaved,
+}: {
+  companyId: string;
+  invoice: Invoice;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const [mode, setMode] = React.useState<"full" | "amount">("full");
+  const [amount, setAmount] = React.useState((invoice.balanceCents / 100).toFixed(2));
+  const [applyNow, setApplyNow] = React.useState(true);
+  const [reason, setReason] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+
+  async function submit() {
+    const body: Record<string, unknown> = { mode, applyNow, reason: reason.trim() || undefined };
+    if (mode === "amount") {
+      const amountCents = parseMoneyToCents(amount);
+      if (amountCents <= 0) {
+        toast("Enter a positive amount", "error");
+        return;
+      }
+      body.amountCents = amountCents;
+    }
+    setBusy(true);
+    try {
+      await api.post(
+        `/api/companies/${companyId}/invoices/${invoice.slug}/credit-note`,
+        body,
+      );
+      onSaved();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Credit note">
+      <div className="space-y-3">
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          A credit note reduces this sale — it reverses revenue (and tax on a full
+          credit) into Sales Returns, and can be applied to the invoice to lower
+          what the customer owes.
+        </p>
+        <Select label="Amount" value={mode} onChange={(e) => setMode(e.target.value as "full" | "amount")}>
+          <option value="full">Full — credit the whole invoice</option>
+          <option value="amount">Partial — a specific amount</option>
+        </Select>
+        {mode === "amount" && (
+          <Input
+            label={`Amount (${invoice.currency}, ex-tax)`}
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            inputMode="decimal"
+          />
+        )}
+        <Textarea
+          label="Reason (optional)"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          rows={2}
+        />
+        <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+          <input
+            type="checkbox"
+            checked={applyNow}
+            onChange={(e) => setApplyNow(e.target.checked)}
+          />
+          Apply to this invoice now (reduce its balance)
+        </label>
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={busy}>
+            {busy ? "Creating…" : "Create credit note"}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
