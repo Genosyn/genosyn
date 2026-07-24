@@ -78,6 +78,7 @@ import { VendorCredit } from "./entities/VendorCredit.js";
 import { VendorCreditLine } from "./entities/VendorCreditLine.js";
 import { VendorCreditApplication } from "./entities/VendorCreditApplication.js";
 import { VendorRefund } from "./entities/VendorRefund.js";
+import { FinanceProposal } from "./entities/FinanceProposal.js";
 import { RecurringInvoice } from "./entities/RecurringInvoice.js";
 import { RecurringInvoiceLineItem } from "./entities/RecurringInvoiceLineItem.js";
 import { Estimate } from "./entities/Estimate.js";
@@ -220,6 +221,7 @@ const entities = [
   VendorCreditLine,
   VendorCreditApplication,
   VendorRefund,
+  FinanceProposal,
   RecurringInvoice,
   RecurringInvoiceLineItem,
   Estimate,

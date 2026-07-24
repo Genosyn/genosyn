@@ -2972,6 +2972,41 @@ export type MatchCandidate =
       score: number;
     };
 
+// ─────────────────────── Finance proposals (M33 A3) ────────────────────
+
+export type FinanceProposalKind = "journal_entry";
+export type FinanceProposalStatus = "pending" | "applied" | "rejected" | "superseded";
+export type FinanceProposalActorType = "human" | "ai";
+
+/** Mirror of server/db/entities/FinanceProposal.ts — a staged, human-reviewed
+ *  finance mutation. Keep the two in step. */
+export type FinanceProposal = {
+  id: string;
+  companyId: string;
+  kind: FinanceProposalKind;
+  status: FinanceProposalStatus;
+  proposedByType: FinanceProposalActorType;
+  proposedById: string | null;
+  proposedByLabel: string | null;
+  title: string;
+  summary: string | null;
+  payloadJson: string;
+  resultJson: string | null;
+  appliedEntryId: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  decidedAt: string | null;
+  decidedByUserId: string | null;
+  reviewNote: string | null;
+};
+
+/** Parsed shape of a `journal_entry` proposal's `payloadJson`. */
+export type JournalProposalPayload = {
+  date: string;
+  memo: string;
+  lines: { accountId: string; debitCents: number; creditCents: number; description?: string }[];
+};
+
 // ─────────────────────── Multi-currency (M19 Phase E) ──────────────────
 
 export type Currency = {

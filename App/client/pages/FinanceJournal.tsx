@@ -457,6 +457,21 @@ function NewEntryModal({
     setLines((ls) => (ls.length <= 2 ? ls : ls.filter((_, i) => i !== idx)));
   }
 
+  function buildBody() {
+    const payload = lines
+      .filter((l) => l.accountId && parseMoneyToCents(l.amountText) > 0)
+      .map((l) => {
+        const cents = parseMoneyToCents(l.amountText);
+        return {
+          accountId: l.accountId,
+          debitCents: l.side === "debit" ? cents : 0,
+          creditCents: l.side === "credit" ? cents : 0,
+          description: l.description,
+        };
+      });
+    return { date: new Date(date).toISOString(), memo, lines: payload };
+  }
+
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!totals.balanced) {
@@ -465,22 +480,27 @@ function NewEntryModal({
     }
     setBusy(true);
     try {
-      const payload = lines
-        .filter((l) => l.accountId && parseMoneyToCents(l.amountText) > 0)
-        .map((l) => {
-          const cents = parseMoneyToCents(l.amountText);
-          return {
-            accountId: l.accountId,
-            debitCents: l.side === "debit" ? cents : 0,
-            creditCents: l.side === "credit" ? cents : 0,
-            description: l.description,
-          };
-        });
-      await api.post(`/api/companies/${companyId}/ledger-entries`, {
-        date: new Date(date).toISOString(),
-        memo,
-        lines: payload,
-      });
+      await api.post(`/api/companies/${companyId}/ledger-entries`, buildBody());
+      onSaved();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Maker-checker: stage the same entry as a `FinanceProposal` instead of
+  // posting it, so a second member applies it from the Proposals queue. Nothing
+  // hits the ledger until they do.
+  async function propose() {
+    if (!totals.balanced) {
+      toast("Debits and credits must match", "error");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.post(`/api/companies/${companyId}/finance-proposals`, buildBody());
+      toast("Staged for review", "success");
       onSaved();
     } catch (err) {
       toast((err as Error).message, "error");
@@ -631,6 +651,14 @@ function NewEntryModal({
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={propose}
+            disabled={busy || !totals.balanced}
+          >
+            Propose for review
           </Button>
           <Button type="submit" disabled={busy || !totals.balanced}>
             Post entry

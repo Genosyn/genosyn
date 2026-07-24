@@ -1394,9 +1394,22 @@ the functional prerequisites land before the tools that need them:
       matches either candidate kind (`paymentId` or `ledgerEntryId`). Reuses the
       existing `matchedLedgerEntryId` + `manualMatch`; no migration. Shipped in
       1.54.0.
-- Next: the proposal spine; the grant-scope layer; human-side audit coverage +
-  a read-only finance role; then the job tools themselves (read, bank, AR, AP,
-  close), each proposal-only until an owner raises a per-company limit.
+- [x] **A3 — The proposal spine (maker-checker).** New `FinanceProposal` entity
+      + `services/financeProposals.ts`: a staged finance mutation is validated
+      and stored but never executed at create time — it sits `pending` until a
+      human `apply`s it (dispatched by `kind` to the real finance service, which
+      re-checks balance / live accounts / open period) or rejects it. First
+      kind: `journal_entry`. For humans this is segregation of duties — one
+      member hits `Propose for review` on the Journal composer, another applies
+      it from the new `Finance → Proposals` queue; nothing touches the ledger
+      until they do. It is also the substrate every AI-authored ledger effect
+      will post through in the tool increments (AI proposes, a human applies),
+      with apply/reject audited. Modelled on `Approval`; kind-agnostic queue,
+      apply gate and audit fields. Migration pair, no data backfill. Shipped in
+      1.55.0.
+- Next: the grant-scope layer; human-side audit coverage + a read-only finance
+  role; then the job tools themselves (read, bank, AR, AP, close), each
+  proposal-only until an owner raises a per-company limit.
 - Depends on M19 Phase H (credit notes / refunds) for the AR correction
   tools. Multi-currency bank lines and a tax-return figure are named but
   out of scope.

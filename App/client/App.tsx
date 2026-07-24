@@ -140,6 +140,7 @@ import FinanceSettings from "./pages/FinanceSettings";
 import FinanceAiAccess from "./pages/FinanceAiAccess";
 import FinanceAccounts from "./pages/FinanceAccounts";
 import FinanceJournal from "./pages/FinanceJournal";
+import FinanceProposals from "./pages/FinanceProposals";
 import FinanceTransactions from "./pages/FinanceTransactions";
 import FinanceTrialBalance from "./pages/FinanceTrialBalance";
 import FinanceReports from "./pages/FinanceReports";
@@ -456,6 +457,7 @@ function CompanyRoutes({
             <Route path="accounts" element={<FinanceAccounts />} />
             <Route path="transactions" element={<FinanceTransactions />} />
             <Route path="journal" element={<FinanceJournal />} />
+            <Route path="proposals" element={<FinanceProposals />} />
             <Route path="trial-balance" element={<FinanceTrialBalance />} />
             <Route path="reports" element={<FinanceReports />} />
             <Route path="reconcile" element={<FinanceReconcile />} />

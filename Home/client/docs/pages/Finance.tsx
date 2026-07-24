@@ -345,6 +345,29 @@ export function Finance() {
         axis stays readable.
       </P>
 
+      <H2 id="proposals">Proposals (maker-checker)</H2>
+      <P>
+        A journal entry can be <Strong>staged for review</Strong> instead of posted straight away —
+        the classic accounting maker-checker control, where one person drafts an entry and another
+        signs it off. Compose the entry as usual under <Code>Finance → Journal → New manual
+        entry</Code>, then click <Code>Propose for review</Code> rather than <Code>Post entry</Code>.
+        Nothing hits the ledger yet.
+      </P>
+      <P>
+        Staged entries collect under <Code>Finance → Proposals</Code>. Expand one to see its full
+        debits and credits, then <Code>Apply</Code> to post it — it becomes an ordinary manual
+        journal entry, tagged as one that went through review — or <Code>Reject</Code> it with an
+        optional note back to the proposer. Applying re-checks everything a direct posting would
+        (balance, live accounts, an open period), so a proposal staged before a period closed fails
+        cleanly rather than back-dating into frozen numbers; the reason is shown on the row and the
+        proposal stays pending so it can be fixed and retried.
+      </P>
+      <P>
+        This is also the spine that AI employees post finance work through: an AI can <Strong>propose</Strong>{" "}
+        an entry, but only a person <Strong>applies</Strong> it, so no automation ever moves the books
+        unattended. Every apply and reject is recorded in the audit log with who decided and when.
+      </P>
+
       <H2 id="transaction-review">Review and approve transactions</H2>
       <P>
         Open <Code>Finance → Transactions</Code>. Every posted journal entry — whether it came from

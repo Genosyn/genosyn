@@ -5,6 +5,7 @@ import {
   BookOpen,
   Building2,
   Calendar,
+  ClipboardCheck,
   Coins,
   CreditCard,
   FileSignature,
@@ -84,6 +85,11 @@ export default function FinanceLayout({ company }: { company: Company }) {
           label="Transactions"
         />
         <SidebarLink to={`${base}/journal`} icon={<NotebookPen size={14} />} label="Journal" />
+        <SidebarLink
+          to={`${base}/proposals`}
+          icon={<ClipboardCheck size={14} />}
+          label="Proposals"
+        />
         <SidebarLink to={`${base}/accounts`} icon={<BookOpen size={14} />} label="Accounts" />
         <SidebarLink
           to={`${base}/trial-balance`}

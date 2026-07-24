@@ -50,6 +50,14 @@ import {
   reverseInvoiceWriteOff,
 } from "../services/writeOffs.js";
 import {
+  applyFinanceProposal,
+  createJournalEntryProposal,
+  getFinanceProposal,
+  journalEntryPayloadSchema,
+  listFinanceProposals,
+  rejectFinanceProposal,
+} from "../services/financeProposals.js";
+import {
   applyCustomerCredit,
   createCreditNoteFromInvoice,
   createDeposit,
@@ -4054,3 +4062,115 @@ financeRouter.post("/recurring-invoices/:slug/duplicate", async (req, res) => {
     res.status(400).json({ error: (err as Error).message });
   }
 });
+
+// ─────────────────────── Finance proposals (M33 A3) ─────────────────────
+// The maker-checker spine: one member stages a balanced journal entry, another
+// applies it. Also the substrate AI finance tools post through in later
+// increments — an AI can propose, but only a human applies.
+
+const proposalStatusQuerySchema = z.enum(["pending", "applied", "rejected", "superseded"]);
+
+financeRouter.get("/finance-proposals", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const statusRaw = (req.query as Record<string, string>).status;
+  const status = proposalStatusQuerySchema.safeParse(statusRaw);
+  const proposals = await listFinanceProposals(cid, {
+    status: status.success ? status.data : undefined,
+  });
+  res.json(proposals);
+});
+
+financeRouter.get("/finance-proposals/:id", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const proposal = await getFinanceProposal(cid, req.params.id);
+  if (!proposal) return res.status(404).json({ error: "Proposal not found" });
+  res.json(proposal);
+});
+
+financeRouter.post(
+  "/finance-proposals",
+  validateBody(journalEntryPayloadSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const body = req.body as z.infer<typeof journalEntryPayloadSchema>;
+    try {
+      const proposal = await createJournalEntryProposal(cid, body, {
+        type: "human",
+        id: req.userId ?? null,
+        label: req.user?.name || req.user?.email || null,
+      });
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "finance.proposal.create",
+        targetType: "finance_proposal",
+        targetId: proposal.id,
+        targetLabel: proposal.title,
+        metadata: { kind: proposal.kind },
+      });
+      res.status(201).json(proposal);
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+const proposalReviewSchema = z.object({ note: z.string().max(2000).optional() });
+
+financeRouter.post(
+  "/finance-proposals/:id/apply",
+  validateBody(proposalReviewSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const proposal = await getFinanceProposal(cid, req.params.id);
+    if (!proposal) return res.status(404).json({ error: "Proposal not found" });
+    const body = req.body as z.infer<typeof proposalReviewSchema>;
+    try {
+      const applied = await applyFinanceProposal(proposal, {
+        userId: req.userId ?? null,
+        note: body.note ?? null,
+      });
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "finance.proposal.apply",
+        targetType: "finance_proposal",
+        targetId: applied.id,
+        targetLabel: applied.title,
+        metadata: { kind: applied.kind, appliedEntryId: applied.appliedEntryId },
+      });
+      res.json(applied);
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+financeRouter.post(
+  "/finance-proposals/:id/reject",
+  validateBody(proposalReviewSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const proposal = await getFinanceProposal(cid, req.params.id);
+    if (!proposal) return res.status(404).json({ error: "Proposal not found" });
+    const body = req.body as z.infer<typeof proposalReviewSchema>;
+    try {
+      const rejected = await rejectFinanceProposal(proposal, {
+        userId: req.userId ?? null,
+        note: body.note ?? null,
+      });
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "finance.proposal.reject",
+        targetType: "finance_proposal",
+        targetId: rejected.id,
+        targetLabel: rejected.title,
+        metadata: { kind: rejected.kind },
+      });
+      res.json(rejected);
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
