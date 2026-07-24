@@ -70,6 +70,11 @@ export default function FinanceLayout({ company }: { company: Company }) {
         />
         <SidebarLink to={`${base}/bills`} icon={<Inbox size={14} />} label="Bills" />
         <SidebarLink to={`${base}/vendors`} icon={<Building2 size={14} />} label="Vendors" />
+        <SidebarLink
+          to={`${base}/vendor-credits`}
+          icon={<Undo2 size={14} />}
+          label="Vendor credits"
+        />
         <div className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
           Ledger
         </div>

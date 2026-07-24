@@ -70,6 +70,25 @@ import {
 } from "../services/customerCredits.js";
 import { CustomerCredit } from "../db/entities/CustomerCredit.js";
 import { CustomerCreditApplication } from "../db/entities/CustomerCreditApplication.js";
+import { VendorCredit } from "../db/entities/VendorCredit.js";
+import { VendorCreditApplication } from "../db/entities/VendorCreditApplication.js";
+import {
+  applyVendorCredit,
+  createVendorCreditFromBill,
+  getVendorCreditLines,
+  issueVendorCredit,
+  listVendorApplicationsForBill,
+  listVendorCreditApplications,
+  listVendorCreditRefunds,
+  listVendorCredits,
+  loadVendorCreditBySlug,
+  loadVendorRefundById,
+  refundVendorCredit,
+  unapplyVendorCredit,
+  vendorCreditOpenCents,
+  voidVendorCredit,
+  voidVendorRefund,
+} from "../services/vendorCredits.js";
 import { recordAudit } from "../services/audit.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import {
@@ -1602,6 +1621,248 @@ financeRouter.post("/deposits", validateBody(depositSchema), async (req, res) =>
       metadata: { amountCents: body.amountCents, customerId: body.customerId },
     });
     res.json(await serializeCreditDetail(cid, credit));
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+// ─────────────────────────── Vendor credits ───────────────────────────
+
+async function serializeVendorCreditDetail(companyId: string, credit: VendorCredit) {
+  const [lines, apps, refunds] = await Promise.all([
+    getVendorCreditLines(credit.id),
+    listVendorCreditApplications(credit.id),
+    listVendorCreditRefunds(credit.id),
+  ]);
+  const billIds = [...new Set(apps.map((a) => a.billId))];
+  const bills = billIds.length
+    ? await AppDataSource.getRepository(Bill).find({
+        where: { id: In(billIds), companyId },
+        select: ["id", "number", "slug"],
+      })
+    : [];
+  const billById = new Map(bills.map((b) => [b.id, b]));
+  return {
+    ...credit,
+    openCents: vendorCreditOpenCents(credit),
+    lines,
+    applications: apps.map((a) => ({
+      ...a,
+      billNumber: billById.get(a.billId)?.number ?? null,
+      billSlug: billById.get(a.billId)?.slug ?? null,
+    })),
+    refunds,
+  };
+}
+
+financeRouter.get("/vendor-credits", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const credits = await listVendorCredits(cid);
+  res.json(credits.map((c) => ({ ...c, openCents: vendorCreditOpenCents(c) })));
+});
+
+financeRouter.get("/vendor-credits/:slug", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const credit = await loadVendorCreditBySlug(cid, req.params.slug);
+  if (!credit) return res.status(404).json({ error: "Vendor credit not found" });
+  res.json(await serializeVendorCreditDetail(cid, credit));
+});
+
+const vendorCreditFromBillSchema = z.object({
+  mode: z.enum(["full", "amount"]),
+  amountCents: z.number().int().min(1).max(2_000_000_000).optional(),
+  applyNow: z.boolean().optional(),
+  reason: z.string().max(2000).optional(),
+  notes: z.string().max(2000).optional(),
+});
+
+financeRouter.post(
+  "/bills/:slug/vendor-credit",
+  validateBody(vendorCreditFromBillSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const bill = await loadBillBySlug(cid, req.params.slug);
+    if (!bill) return res.status(404).json({ error: "Bill not found" });
+    const body = req.body as z.infer<typeof vendorCreditFromBillSchema>;
+    if (body.mode === "amount" && !body.amountCents) {
+      return res.status(400).json({ error: "amountCents is required for a partial credit" });
+    }
+    try {
+      const draft = await createVendorCreditFromBill(
+        bill,
+        { mode: body.mode, amountCents: body.amountCents, reason: body.reason, notes: body.notes },
+        req.userId ?? null,
+      );
+      let credit = await issueVendorCredit(draft, req.userId ?? null);
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "finance.vendor_credit.issue",
+        targetType: "vendor_credit",
+        targetId: credit.id,
+        targetLabel: credit.number,
+        metadata: { totalCents: credit.totalCents, sourceBill: bill.number || bill.slug },
+      });
+      if (body.applyNow !== false) {
+        const freshBill = await loadBillBySlug(cid, req.params.slug);
+        const room = Math.min(vendorCreditOpenCents(credit), freshBill!.balanceCents);
+        if (room > 0) {
+          await applyVendorCredit(credit, freshBill!, room, req.userId ?? null);
+          credit = (await loadVendorCreditBySlug(cid, credit.slug))!;
+        }
+      }
+      res.json(await serializeVendorCreditDetail(cid, credit));
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+const vendorCreditApplySchema = z.object({
+  billSlug: z.string().min(1).max(200),
+  amountCents: z.number().int().min(1).max(2_000_000_000),
+});
+
+financeRouter.post(
+  "/vendor-credits/:slug/apply",
+  validateBody(vendorCreditApplySchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const credit = await loadVendorCreditBySlug(cid, req.params.slug);
+    if (!credit) return res.status(404).json({ error: "Vendor credit not found" });
+    const body = req.body as z.infer<typeof vendorCreditApplySchema>;
+    const bill = await loadBillBySlug(cid, body.billSlug);
+    if (!bill) return res.status(404).json({ error: "Target bill not found" });
+    try {
+      const app = await applyVendorCredit(credit, bill, body.amountCents, req.userId ?? null);
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "finance.vendor_credit.apply",
+        targetType: "vendor_credit",
+        targetId: credit.id,
+        targetLabel: credit.number,
+        metadata: { applicationId: app.id, bill: bill.number || bill.slug, amountCents: body.amountCents },
+      });
+      const fresh = await loadVendorCreditBySlug(cid, req.params.slug);
+      res.json(await serializeVendorCreditDetail(cid, fresh!));
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+financeRouter.delete("/vendor-credits/:slug/applications/:aid", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const credit = await loadVendorCreditBySlug(cid, req.params.slug);
+  if (!credit) return res.status(404).json({ error: "Vendor credit not found" });
+  const app = await AppDataSource.getRepository(VendorCreditApplication).findOneBy({
+    id: req.params.aid,
+    companyId: cid,
+    creditId: credit.id,
+  });
+  if (!app) return res.status(404).json({ error: "Application not found" });
+  try {
+    await unapplyVendorCredit(app, req.userId ?? null);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "finance.vendor_credit.unapply",
+      targetType: "vendor_credit",
+      targetId: credit.id,
+      targetLabel: credit.number,
+      metadata: { applicationId: app.id },
+    });
+    const fresh = await loadVendorCreditBySlug(cid, req.params.slug);
+    res.json(await serializeVendorCreditDetail(cid, fresh!));
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+financeRouter.post("/vendor-credits/:slug/void", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const credit = await loadVendorCreditBySlug(cid, req.params.slug);
+  if (!credit) return res.status(404).json({ error: "Vendor credit not found" });
+  try {
+    const voided = await voidVendorCredit(credit, req.userId ?? null);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "finance.vendor_credit.void",
+      targetType: "vendor_credit",
+      targetId: credit.id,
+      targetLabel: credit.number,
+    });
+    res.json(await serializeVendorCreditDetail(cid, voided));
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+const vendorRefundSchema = z.object({
+  amountCents: z.number().int().min(1).max(2_000_000_000),
+  refundedAt: z.string().datetime().optional(),
+  method: z.string().max(60).optional(),
+  reference: z.string().max(200).optional(),
+  notes: z.string().max(2000).optional(),
+  bankAccountId: z.string().uuid().nullable().optional(),
+});
+
+financeRouter.post("/vendor-credits/:slug/refund", validateBody(vendorRefundSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const credit = await loadVendorCreditBySlug(cid, req.params.slug);
+  if (!credit) return res.status(404).json({ error: "Vendor credit not found" });
+  const body = req.body as z.infer<typeof vendorRefundSchema>;
+  try {
+    const refund = await refundVendorCredit(
+      credit,
+      {
+        amountCents: body.amountCents,
+        refundedAt: body.refundedAt ? new Date(body.refundedAt) : undefined,
+        method: body.method,
+        reference: body.reference,
+        notes: body.notes,
+        bankAccountId: body.bankAccountId ?? null,
+      },
+      req.userId ?? null,
+    );
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "finance.vendor_credit.refund",
+      targetType: "vendor_credit",
+      targetId: credit.id,
+      targetLabel: credit.number,
+      metadata: { refundId: refund.id, amountCents: body.amountCents },
+    });
+    const fresh = await loadVendorCreditBySlug(cid, req.params.slug);
+    res.json(await serializeVendorCreditDetail(cid, fresh!));
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+financeRouter.delete("/vendor-refunds/:id", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const refund = await loadVendorRefundById(cid, req.params.id);
+  if (!refund) return res.status(404).json({ error: "Refund not found" });
+  try {
+    await voidVendorRefund(refund, req.userId ?? null);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "finance.vendor_credit.refund_reversed",
+      targetType: "vendor_credit",
+      targetId: refund.creditId,
+      targetLabel: refund.id,
+      metadata: { refundId: refund.id, amountCents: refund.amountCents },
+    });
+    const credit = await AppDataSource.getRepository(VendorCredit).findOneBy({
+      id: refund.creditId,
+      companyId: cid,
+    });
+    res.json(credit ? await serializeVendorCreditDetail(cid, credit) : { ok: true });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
@@ -3307,8 +3568,24 @@ financeRouter.get("/bills/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const b = await loadBillBySlug(cid, req.params.slug);
   if (!b) return res.status(404).json({ error: "Bill not found" });
-  const [hydrated] = await hydrateBills(cid, [b]);
-  res.json(hydrated);
+  const [[hydrated], apps] = await Promise.all([
+    hydrateBills(cid, [b]),
+    listVendorApplicationsForBill(b.id),
+  ]);
+  const creditIds = [...new Set(apps.map((a) => a.creditId))];
+  const credits = creditIds.length
+    ? await AppDataSource.getRepository(VendorCredit).find({
+        where: { id: In(creditIds), companyId: cid },
+        select: ["id", "number", "slug"],
+      })
+    : [];
+  const creditById = new Map(credits.map((c) => [c.id, c]));
+  const vendorCreditApplications = apps.map((a) => ({
+    ...a,
+    creditNumber: creditById.get(a.creditId)?.number ?? null,
+    creditSlug: creditById.get(a.creditId)?.slug ?? null,
+  }));
+  res.json({ ...hydrated, vendorCreditApplications });
 });
 
 const billPatchSchema = z.object({

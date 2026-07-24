@@ -2288,6 +2288,63 @@ export type CreditNoteDetail = CustomerCredit & {
   refunds: CustomerRefundRow[];
 };
 
+export type VendorCreditStatus = "draft" | "issued" | "void";
+
+export type VendorCredit = {
+  id: string;
+  companyId: string;
+  vendorId: string;
+  status: VendorCreditStatus;
+  number: string;
+  slug: string;
+  sourceBillId: string | null;
+  currency: string;
+  subtotalCents: number;
+  taxCents: number;
+  totalCents: number;
+  appliedCents: number;
+  refundedCents: number;
+  openCents: number;
+  reason: string;
+  notes: string;
+  issueDate: string;
+  createdAt: string;
+};
+
+export type VendorCreditLineRow = {
+  id: string;
+  description: string;
+  lineTotalCents: number;
+};
+
+export type VendorCreditApplicationRow = {
+  id: string;
+  creditId: string;
+  billId: string;
+  amountCents: number;
+  appliedAt: string;
+  reversedAt: string | null;
+  billNumber?: string | null;
+  billSlug?: string | null;
+  creditNumber?: string | null;
+  creditSlug?: string | null;
+};
+
+export type VendorRefundRow = {
+  id: string;
+  amountCents: number;
+  currency: string;
+  refundedAt: string;
+  method: string;
+  reversedAt: string | null;
+};
+
+export type VendorCreditDetail = VendorCredit & {
+  lines: VendorCreditLineRow[];
+  applications: VendorCreditApplicationRow[];
+  refunds: VendorRefundRow[];
+};
+
 export type InvoiceListItem = Omit<Invoice, "lines" | "payments"> & {
   linesCount: number;
   paymentsCount: number;
@@ -2528,6 +2585,12 @@ export type LedgerEntrySource =
   | "customer_refund_void"
   | "invoice_writeoff"
   | "invoice_writeoff_reversal"
+  | "vendor_credit_issue"
+  | "vendor_credit_apply"
+  | "vendor_credit_unapply"
+  | "vendor_credit_void"
+  | "vendor_refund"
+  | "vendor_refund_void"
   | "brex_card_expense"
   | "brex_card_refund"
   | "brex_card_payment"

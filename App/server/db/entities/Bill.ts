@@ -80,6 +80,11 @@ export class Bill {
   @Column({ type: "int", default: 0 })
   paidCents!: number;
 
+  /** Sum of non-reversed vendor-credit applications against this bill, in
+   *  document currency. Settles the bill without cash, kept out of paidCents. */
+  @Column({ type: "int", default: 0 })
+  creditedCents!: number;
+
   @Column({ type: "int", default: 0 })
   balanceCents!: number;
 

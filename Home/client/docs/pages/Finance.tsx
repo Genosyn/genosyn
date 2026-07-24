@@ -282,6 +282,21 @@ export function Finance() {
         transaction id.
       </P>
 
+      <H3 id="vendor-credits">Vendor credits</H3>
+      <P>
+        The AP mirror of credit notes. When a supplier credits you — a return, a
+        billing correction — open the bill and click <Code>Vendor credit</Code>.
+        Issuing posts <Code>DR Vendor Credits / CR the expense account(s) / CR Tax
+        Payable</Code>, reversing the bill&apos;s expense and input tax and parking
+        the value in <Code>1300 Vendor Credits</Code> (an asset — the supplier owes
+        you). Apply it to a bill to reduce what you owe (<Code>DR Accounts Payable /
+        CR Vendor Credits</Code>, capped so AP can&apos;t go negative), or record a{" "}
+        <Code>Refund</Code> when the supplier pays you back in cash
+        (<Code>DR Bank / CR Vendor Credits</Code>). Manage them under{" "}
+        <Code>Vendor credits</Code>; unapply, void and reverse work exactly like the
+        customer side.
+      </P>
+
       <H2 id="card-expenses">Corporate card expenses</H2>
       <P>
         Open <Code>Finance → Card expenses</Code> to connect the primary Brex corporate card

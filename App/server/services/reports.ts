@@ -256,6 +256,8 @@ const OPERATING: ReadonlySet<LedgerEntrySource> = new Set([
   "credit_note_void",
   "customer_refund",
   "customer_refund_void",
+  "vendor_refund",
+  "vendor_refund_void",
 ]);
 
 export async function cashFlow(companyId: string, from: Date, to: Date): Promise<CashFlowReport> {

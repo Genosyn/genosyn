@@ -42,6 +42,9 @@ export const SYSTEM_ACCOUNTS: ReadonlyArray<{
 }> = [
   { code: "1100", name: "Bank", type: "asset" },
   { code: "1200", name: "Accounts Receivable", type: "asset" },
+  // A supplier owes us — issued vendor credits park here until applied to a
+  // bill or refunded in cash. The AP mirror of 2400 Customer Credits.
+  { code: "1300", name: "Vendor Credits", type: "asset" },
   { code: "2100", name: "Tax Payable", type: "liability" },
   { code: "2200", name: "Accounts Payable", type: "liability" },
   { code: "2300", name: "Corporate Card Payable", type: "liability" },

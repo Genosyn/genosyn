@@ -57,6 +57,30 @@ const SOURCE_BADGE: Record<LedgerEntrySource, { label: string; cls: string }> = 
     label: "Write-off reversed",
     cls: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
   },
+  vendor_credit_issue: {
+    label: "Vendor credit",
+    cls: "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300",
+  },
+  vendor_credit_apply: {
+    label: "Vendor credit applied",
+    cls: "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300",
+  },
+  vendor_credit_unapply: {
+    label: "Vendor credit unapplied",
+    cls: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
+  },
+  vendor_credit_void: {
+    label: "Vendor credit voided",
+    cls: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
+  },
+  vendor_refund: {
+    label: "Vendor refund",
+    cls: "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300",
+  },
+  vendor_refund_void: {
+    label: "Vendor refund reversed",
+    cls: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
+  },
   invoice_issue: {
     label: "Invoice issued",
     cls: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",

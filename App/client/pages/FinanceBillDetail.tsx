@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
-import { ArrowLeft, Ban, CheckCircle2, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Ban, CheckCircle2, Plus, Trash2, Undo2 } from "lucide-react";
 import {
   api,
   Bill,
@@ -8,6 +8,7 @@ import {
   displayBillStatus,
   formatMoney,
   parseMoneyToCents,
+  VendorCreditDetail,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -44,6 +45,7 @@ export default function FinanceBillDetail() {
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [showPay, setShowPay] = React.useState(false);
+  const [showCredit, setShowCredit] = React.useState(false);
 
   const reload = React.useCallback(async () => {
     if (!billSlug) return;
@@ -189,6 +191,11 @@ export default function FinanceBillDetail() {
           {bill.status !== "void" && bill.status !== "draft" && (
             <Button variant="secondary" onClick={() => setShowPay(true)} disabled={busy}>
               <Plus size={14} /> Record payment
+            </Button>
+          )}
+          {bill.status !== "void" && bill.status !== "draft" && bill.balanceCents > 0 && (
+            <Button variant="secondary" onClick={() => setShowCredit(true)} disabled={busy}>
+              <Undo2 size={14} /> Vendor credit
             </Button>
           )}
           {bill.status !== "void" && bill.status !== "draft" && (
@@ -382,7 +389,93 @@ export default function FinanceBillDetail() {
           }}
         />
       )}
+
+      {showCredit && (
+        <VendorCreditModal
+          companyId={company.id}
+          bill={bill}
+          onClose={() => setShowCredit(false)}
+          onCreated={(credit) => {
+            setShowCredit(false);
+            navigate(`/c/${company.slug}/finance/vendor-credits/${credit.slug}`);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function VendorCreditModal({
+  companyId,
+  bill,
+  onClose,
+  onCreated,
+}: {
+  companyId: string;
+  bill: Bill;
+  onClose: () => void;
+  onCreated: (credit: VendorCreditDetail) => void;
+}) {
+  const { toast } = useToast();
+  const [mode, setMode] = React.useState<"full" | "amount">("full");
+  const [amount, setAmount] = React.useState((bill.balanceCents / 100).toFixed(2));
+  const [applyNow, setApplyNow] = React.useState(true);
+  const [reason, setReason] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+
+  async function submit() {
+    const body: Record<string, unknown> = { mode, applyNow, reason: reason.trim() || undefined };
+    if (mode === "amount") {
+      const amountCents = parseMoneyToCents(amount);
+      if (amountCents <= 0) return toast("Enter a positive amount", "error");
+      body.amountCents = amountCents;
+    }
+    setBusy(true);
+    try {
+      onCreated(
+        await api.post<VendorCreditDetail>(
+          `/api/companies/${companyId}/bills/${bill.slug}/vendor-credit`,
+          body,
+        ),
+      );
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Vendor credit">
+      <div className="space-y-3">
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          Record a credit the supplier gave you against this bill — it reverses the
+          expense (and input tax on a full credit) and can be applied to reduce what
+          you owe.
+        </p>
+        <Select label="Amount" value={mode} onChange={(e) => setMode(e.target.value as "full" | "amount")}>
+          <option value="full">Full — credit the whole bill</option>
+          <option value="amount">Partial — a specific amount</option>
+        </Select>
+        {mode === "amount" && (
+          <Input
+            label={`Amount (${bill.currency}, ex-tax)`}
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            inputMode="decimal"
+          />
+        )}
+        <Input label="Reason (optional)" value={reason} onChange={(e) => setReason(e.target.value)} />
+        <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+          <input type="checkbox" checked={applyNow} onChange={(e) => setApplyNow(e.target.checked)} />
+          Apply to this bill now (reduce its balance)
+        </label>
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button onClick={submit} disabled={busy}>{busy ? "Creating…" : "Create vendor credit"}</Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

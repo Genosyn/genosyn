@@ -127,6 +127,8 @@ import FinanceInvoiceNew from "./pages/FinanceInvoiceNew";
 import FinanceInvoiceDetail from "./pages/FinanceInvoiceDetail";
 import FinanceCreditNotes from "./pages/FinanceCreditNotes";
 import FinanceCreditNoteDetail from "./pages/FinanceCreditNoteDetail";
+import FinanceVendorCredits from "./pages/FinanceVendorCredits";
+import FinanceVendorCreditDetail from "./pages/FinanceVendorCreditDetail";
 import FinanceRecurringInvoices from "./pages/FinanceRecurringInvoices";
 import FinanceRecurringInvoiceNew from "./pages/FinanceRecurringInvoiceNew";
 import FinanceRecurringInvoiceDetail from "./pages/FinanceRecurringInvoiceDetail";
@@ -467,6 +469,8 @@ function CompanyRoutes({
             <Route path="bills" element={<FinanceBills />} />
             <Route path="bills/new" element={<FinanceBillNew />} />
             <Route path="bills/:billSlug" element={<FinanceBillDetail />} />
+            <Route path="vendor-credits" element={<FinanceVendorCredits />} />
+            <Route path="vendor-credits/:creditSlug" element={<FinanceVendorCreditDetail />} />
           </Route>
 
           {/* Explore (M20) — Metabase-style analytics. Saved Charts (SQL +

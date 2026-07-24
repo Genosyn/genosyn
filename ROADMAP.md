@@ -1092,6 +1092,18 @@ Phased so each phase ships behind its own PR:
         dialog. Deposit creation is API-only for now (a customer-picker
         composer is a fast-follow). AI refund/deposit tools deferred to M33.
         Shipped in 1.51.0.
+  - [x] Ledger-delete guard (AP prerequisite): a `manual` entry carrying a
+        sourceRefId — bill issue/payment, the period-close entry — is no longer
+        hand-deletable through the single or bulk delete routes. Shipped in 1.52.0.
+  - [x] Vendor credits (AP mirror, G6). `VendorCredit` / `VendorCreditLine` /
+        `VendorCreditApplication` / `VendorRefund`, a `1300 Vendor Credits`
+        asset, and `Bill.creditedCents`. Issue posts DR 1300 / CR each expense
+        account / CR 2100; apply posts DR 2200 / CR 1300 capped at
+        min(credit open, bill balance) so AP can't go negative (+ FX plug,
+        sign-flipped from AR because the parking account is an asset); refund
+        posts DR 1100 / CR 1300. Cumulative issue cap, unapply / void /
+        void-refund, a `Vendor credit` action on the bill, and a Vendor credits
+        list + detail. AI vendor-credit tools deferred to M33. Shipped in 1.52.0.
 
 MCP surface (shipped): reads — `list_invoices`, `get_invoice`,
 `list_customers`, `get_customer`, `list_finance_accounts`,

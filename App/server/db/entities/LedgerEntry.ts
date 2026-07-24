@@ -41,6 +41,14 @@ export type LedgerEntrySource =
   // recognized in the period it was earned.
   | "invoice_writeoff"
   | "invoice_writeoff_reversal"
+  // Vendor credits (AP mirror). Issue parks in 1300 Vendor Credits; apply
+  // relieves 2200 AP; refund brings cash in via 1100.
+  | "vendor_credit_issue"
+  | "vendor_credit_apply"
+  | "vendor_credit_unapply"
+  | "vendor_credit_void"
+  | "vendor_refund"
+  | "vendor_refund_void"
   | "brex_card_expense"
   | "brex_card_refund"
   | "brex_card_payment"

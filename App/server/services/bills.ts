@@ -147,10 +147,13 @@ export async function recomputeBillTotals(bill: Bill): Promise<Bill> {
   bill.taxCents = tax;
   bill.totalCents = total;
   bill.paidCents = paid;
-  bill.balanceCents = total - paid;
+  // A vendor credit applied to this bill settles it without cash; the column is
+  // maintained by the vendor-credit service, and paidAt only stamps for cash.
+  const settled = paid + bill.creditedCents;
+  bill.balanceCents = total - settled;
   if (bill.status !== "draft" && bill.status !== "void") {
-    if (paid >= total && total > 0) {
-      if (bill.status !== "paid") bill.paidAt = new Date();
+    if (settled >= total && total > 0) {
+      if (bill.status !== "paid" && paid > 0) bill.paidAt = new Date();
       bill.status = "paid";
     } else {
       bill.status = "sent";
