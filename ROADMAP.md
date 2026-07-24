@@ -1310,6 +1310,41 @@ pipeline, and the PQL tools have neither.
       framework rather than a bundled provider
 - [ ] A second sales process per company (one nullable `processId` when asked)
 
+### M33 — AI-native accounting
+
+Make the whole finance module operable by an AI Employee, safely — not
+just accounts receivable. Today an AI can run AR and stage a category
+review; it has no tools for AP, bank feeds, reconciliation, card
+expenses, periods/close or tax, and several of those are impossible for
+a human too until the underlying gaps close (a bank line cannot post to
+the ledger at all). The shape is **job-shaped tools, all deferred behind
+`find_tools`/`call_tool`** (a measured ~16 names fits the tool-budget
+footer; full CRUD parity does not), gated by the existing
+`read < invoice < full` ordinal plus an orthogonal default-off scope
+allowlist, where money movement and final approval stay with humans and
+every AI-authored ledger effect is either posted by a service whose
+actor type makes an AI money-out posting a compile error, or a
+`FinanceProposal` a human applies.
+
+Ordered so each increment is independently green and releasable, and so
+the functional prerequisites land before the tools that need them:
+
+- [x] **A0 — Harden the shipped surface.** Close the `send_invoice`
+      recipient-exfiltration channel (AI-supplied To/Cc restricted to the
+      customer's own domain and the owner-curated always-Cc mailboxes),
+      audit `update_customer` email repoints, make `requireFinance` fail
+      closed on an unknown level, and company-scope the reconciliation
+      payment lookup. Shipped in 1.48.1.
+- Bank categorization (post a bank line to the ledger — the prerequisite
+  the whole milestone rests on), for humans first; reconciliation beyond
+  invoice payments; the proposal spine; the grant-scope layer; human-side
+  audit coverage + a read-only finance role; then the job tools
+  themselves (read, bank, AR, AP, close), each proposal-only until an
+  owner raises a per-company limit.
+- Depends on M19 Phase H (credit notes / refunds) for the AR correction
+  tools. Multi-currency bank lines and a tax-return figure are named but
+  out of scope.
+
 ## V1 backlog (post-MVP)
 
 Items here are not on the active milestone path but worth picking up. Most

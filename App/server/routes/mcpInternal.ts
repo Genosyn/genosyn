@@ -173,6 +173,11 @@ import {
   voidInvoice,
 } from "../services/finance.js";
 import { Customer } from "../db/entities/Customer.js";
+import { getFinanceSettings } from "../services/fx.js";
+import {
+  disallowedRecipients,
+  trustedRecipientDomains,
+} from "../lib/recipientAllowlist.js";
 import { CustomerContact } from "../db/entities/CustomerContact.js";
 import { Invoice } from "../db/entities/Invoice.js";
 import { InvoicePayment } from "../db/entities/InvoicePayment.js";
@@ -440,7 +445,13 @@ async function requireFinance(
   const grant = await AppDataSource.getRepository(EmployeeFinanceGrant).findOneBy({
     employeeId: self.id,
   });
-  if (!grant || FINANCE_ACCESS_RANK[grant.accessLevel] < FINANCE_ACCESS_RANK[required]) {
+  // Fail CLOSED on an unrecognized level. FINANCE_ACCESS_RANK[x] is
+  // `undefined` for any string that isn't a known level, and
+  // `undefined < N` is `false` — so a bare `<` comparison would SKIP the
+  // 403 and grant access. That could happen during a mixed-version
+  // deploy or after a rollback that left a newer level string in the DB.
+  const have = grant ? FINANCE_ACCESS_RANK[grant.accessLevel] : undefined;
+  if (!grant || typeof have !== "number" || have < FINANCE_ACCESS_RANK[required]) {
     res.status(403).json({
       error: grant
         ? `No grant: this needs the "${required}" finance access level; yours is "${grant.accessLevel}". Ask an owner or admin to raise it under Finance → AI access.`
@@ -914,6 +925,12 @@ mcpInternalRouter.post(
     if (!c) return res.status(404).json({ error: "Customer not found" });
     // Renames change the display name but not the slug, so links stay stable —
     // same rule the human customer routes follow.
+    // Repointing a customer's email is the one field that interacts with the
+    // send_invoice recipient allowlist (the customer's domain is trusted), so
+    // record the before/after explicitly in the audit trail rather than as a
+    // generic "updated customer".
+    const emailChanged = body.email !== undefined && body.email !== c.email;
+    const previousEmail = c.email;
     if (body.name !== undefined) c.name = body.name;
     if (body.email !== undefined) c.email = body.email;
     if (body.phone !== undefined) c.phone = body.phone;
@@ -929,6 +946,9 @@ mcpInternalRouter.post(
       targetId: c.id,
       targetLabel: c.name,
       journalTitle: `${req.mcpEmployee!.name} updated customer ${c.name}`,
+      metadata: emailChanged
+        ? { emailChanged: true, previousEmail, newEmail: c.email }
+        : { emailChanged: false },
     });
     res.json({ customer: serializeToolCustomer(c) });
   },
@@ -1061,6 +1081,33 @@ mcpInternalRouter.post(
       return res.status(400).json({
         error: `Cannot issue an invoice with a non-positive total (${inv.totalCents} ${inv.currency}). Add positive line items first.`,
       });
+    }
+    // Recipient allowlist. A person sending from the invoice page confirms
+    // the exact addresses in a modal, so the human route is unconstrained.
+    // This tool is driven by an AI whose context carries attacker-controlled
+    // text (memos, vendor names, bank descriptors), so an injected prompt
+    // must not be able to mail company documents + free text to an arbitrary
+    // address. AI-supplied To/Cc are limited to the customer's own domain and
+    // the owner-curated always-Cc finance mailboxes. (Omitting To/Cc entirely
+    // still defaults to the customer's on-file address, which is always fine.)
+    if (body.to?.length || body.cc?.length) {
+      const [customer, settings] = await Promise.all([
+        AppDataSource.getRepository(Customer).findOneBy({ id: inv.customerId, companyId: cid }),
+        getFinanceSettings(cid),
+      ]);
+      const trusted = trustedRecipientDomains({
+        customerEmail: customer?.email,
+        ccEmails: settings.invoiceCcEmails,
+      });
+      const blocked = disallowedRecipients([...(body.to ?? []), ...(body.cc ?? [])], trusted);
+      if (blocked.length) {
+        return res.status(400).json({
+          error:
+            `These recipients aren't allowed for an AI-sent invoice: ${blocked.join(", ")}. ` +
+            "An AI employee may only email the customer's own domain or a finance mailbox saved " +
+            "under Finance → Settings → Always Cc. A person can send to any address from the invoice page.",
+        });
+      }
     }
     try {
       // Auto-issue drafts first (mints the number, posts DR AR / CR Revenue),

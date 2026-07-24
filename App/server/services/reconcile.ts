@@ -498,6 +498,16 @@ export async function manualMatch(
       id: target.paymentId,
     });
     if (!p) throw new Error("Payment not found");
+    // InvoicePayment carries no companyId of its own — only invoiceId — so
+    // confirm the payment belongs to THIS company via its invoice before
+    // matching. Without this a caller could point one tenant's bank line at
+    // another tenant's payment id (the ledgerEntryId branch below is already
+    // company-scoped; this branch was not).
+    const owningInvoice = await AppDataSource.getRepository(Invoice).findOneBy({
+      id: p.invoiceId,
+      companyId: txn.companyId,
+    });
+    if (!owningInvoice) throw new Error("Payment not found");
     txn.matchedPaymentId = p.id;
     txn.matchedLedgerEntryId = null;
   } else if (target.ledgerEntryId) {

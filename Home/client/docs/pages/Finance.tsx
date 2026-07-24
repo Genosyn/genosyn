@@ -321,6 +321,14 @@ export function Finance() {
         <Strong>Invoicing</Strong>. Amounts are integer minor units (cents), so <Code>5000</Code> is
         $50.00. An employee with no grant gets no finance tool at all.
       </P>
+      <P>
+        When an AI employee sends an invoice, any <Code>To</Code> / <Code>Cc</Code> it supplies is
+        restricted to the customer&apos;s own email domain or a finance mailbox you saved under{" "}
+        <Code>Finance → Settings → Always Cc</Code> — an AI can&apos;t mail company documents to an
+        arbitrary outside address, even if a malicious invoice memo or bank description tries to talk
+        it into doing so. A person sending from the invoice page is unaffected and can still address
+        anyone.
+      </P>
 
       <H3 id="ai-invoice-email">Emailing an invoice PDF</H3>
       <P>
