@@ -382,7 +382,10 @@ async function deleteLedgerEntry(companyId: string, entryId: string): Promise<vo
   if (entry.reviewStatus === "approved") {
     throw new Error("Approved transactions are locked — post a reversing entry instead");
   }
-  if (entry.source !== "manual") {
+  // See the single-entry DELETE route: a `manual` entry with a sourceRefId is
+  // an auto-post overload (bill issue/payment, period close), not a hand-posted
+  // journal, so it must not be bulk-deletable either.
+  if (entry.source !== "manual" || entry.sourceRefId) {
     throw new Error("Auto-posted entries cannot be deleted — void the source instead");
   }
   const closed = await findClosedPeriodCovering(companyId, entry.date);

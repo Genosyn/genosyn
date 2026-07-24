@@ -2167,7 +2167,12 @@ financeRouter.delete("/ledger-entries/:id", async (req, res) => {
       error: "Approved transactions are locked — post a reversing entry instead",
     });
   }
-  if (e.source !== "manual") {
+  // Genuine hand-posted journal entries carry a null sourceRefId. Auto-post
+  // paths that overload the `manual` source — bill issue/payment and the
+  // period-close entry — set a sourceRefId, and are managed by their own
+  // void / reopen flows. Blocking `manual`-with-a-sourceRefId here stops a
+  // member erasing a bill's AP posting (or a closing entry) through this route.
+  if (e.source !== "manual" || e.sourceRefId) {
     return res
       .status(409)
       .json({ error: "Auto-posted entries cannot be deleted directly — void the source instead" });
