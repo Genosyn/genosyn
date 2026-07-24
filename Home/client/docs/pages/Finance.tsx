@@ -274,6 +274,14 @@ export function Finance() {
         <DocLink to="/docs/integrations">Settings → Integrations</DocLink>.
       </P>
       <P>
+        Expand a line and Genosyn suggests two kinds of match, ranked by amount and date: recorded{" "}
+        <Strong>invoice payments</Strong> (the money-in side), and any posted{" "}
+        <Strong>journal entry</Strong> that already touches this feed&apos;s bank account — a bill
+        payment, a card settlement, a refund, or a manual entry. That second kind covers the whole
+        money-out side that payment matching alone used to miss. Entries already matched to another
+        line, and the categorization entries described below, are never offered twice.
+      </P>
+      <P>
         A bank line that isn&apos;t a recorded payment — bank interest, a fee, an owner transfer, a
         cash sale — can be <Strong>categorized</Strong> straight into the books. Expand the line and
         pick a category account under <Code>Or post it straight to a category</Code>: Genosyn posts a

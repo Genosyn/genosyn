@@ -640,18 +640,32 @@ export async function categorizeBankTransaction(
 
 // ─────────────────────── Match candidates (drill) ──────────────────────
 
-export type MatchCandidate = {
-  kind: "payment";
-  paymentId: string;
-  invoiceNumber: string;
-  invoiceSlug: string;
-  customerName: string;
-  amountCents: number;
-  paidAt: string;
-  method: string;
-  /** 0..1 confidence score from the auto-matcher heuristic. */
-  score: number;
-};
+export type MatchCandidate =
+  | {
+      kind: "payment";
+      paymentId: string;
+      invoiceNumber: string;
+      invoiceSlug: string;
+      customerName: string;
+      amountCents: number;
+      paidAt: string;
+      method: string;
+      /** 0..1 confidence score from the auto-matcher heuristic. */
+      score: number;
+    }
+  | {
+      /** Any posted entry with a line on the feed's bank account — bill
+       *  payments, card settlements, refunds, deposits, manual entries. The
+       *  whole money-out side that invoice-payment matching alone missed. */
+      kind: "ledger_entry";
+      ledgerEntryId: string;
+      memo: string;
+      source: string;
+      date: string;
+      /** The bank-account line amount, signed (+ in / − out). */
+      amountCents: number;
+      score: number;
+    };
 
 /**
  * Suggest payment candidates for a given bank transaction, ranked by
@@ -663,52 +677,122 @@ export async function findMatchCandidates(txn: BankTransaction): Promise<MatchCa
     where: { companyId: txn.companyId },
   });
   const invIds = invoices.map((i) => i.id);
-  if (invIds.length === 0) return [];
-  const customers = new Map(
-    (
-      await AppDataSource.getRepository((await import("../db/entities/Customer.js")).Customer).find(
-        {
+  const out: MatchCandidate[] = [];
+
+  // Invoice-payment candidates (the classic money-in path). Skipped when the
+  // company has no invoices — but the ledger-entry sweep below still runs, so a
+  // company that only pays bills can still reconcile its money-out lines.
+  if (invIds.length > 0) {
+    const customers = new Map(
+      (
+        await AppDataSource.getRepository(
+          (await import("../db/entities/Customer.js")).Customer,
+        ).find({
           where: {
             id: In(invoices.map((i) => i.customerId)),
             companyId: txn.companyId,
           },
           select: ["id", "name"],
-        },
-      )
-    ).map((c) => [c.id, c.name]),
-  );
-  const allPayments = await AppDataSource.getRepository(InvoicePayment).find({
-    where: { invoiceId: In(invIds) },
-  });
-  const txns = await AppDataSource.getRepository(BankTransaction).find({
-    where: { companyId: txn.companyId },
-    select: ["matchedPaymentId"],
-  });
-  const claimed = new Set(txns.map((t) => t.matchedPaymentId).filter((x): x is string => !!x));
-  const invById = new Map(invoices.map((i) => [i.id, i]));
-
-  const out: MatchCandidate[] = [];
-  for (const p of allPayments) {
-    if (claimed.has(p.id) && p.id !== txn.matchedPaymentId) continue;
-    const inv = invById.get(p.invoiceId);
-    if (!inv) continue;
-    const amtMatch = p.amountCents === txn.amountCents ? 0.6 : 0;
-    const dayDiff = Math.abs(p.paidAt.getTime() - txn.date.getTime()) / (24 * 60 * 60 * 1000);
-    const dateScore = Math.max(0, 0.4 - 0.05 * dayDiff);
-    const score = amtMatch + dateScore;
-    if (score <= 0) continue;
-    out.push({
-      kind: "payment",
-      paymentId: p.id,
-      invoiceNumber: inv.number || "(draft)",
-      invoiceSlug: inv.slug,
-      customerName: customers.get(inv.customerId) ?? "—",
-      amountCents: p.amountCents,
-      paidAt: p.paidAt.toISOString(),
-      method: p.method,
-      score,
+        })
+      ).map((c) => [c.id, c.name]),
+    );
+    const allPayments = await AppDataSource.getRepository(InvoicePayment).find({
+      where: { invoiceId: In(invIds) },
     });
+    const txns = await AppDataSource.getRepository(BankTransaction).find({
+      where: { companyId: txn.companyId },
+      select: ["matchedPaymentId"],
+    });
+    const claimed = new Set(txns.map((t) => t.matchedPaymentId).filter((x): x is string => !!x));
+    const invById = new Map(invoices.map((i) => [i.id, i]));
+    for (const p of allPayments) {
+      if (claimed.has(p.id) && p.id !== txn.matchedPaymentId) continue;
+      const inv = invById.get(p.invoiceId);
+      if (!inv) continue;
+      const amtMatch = p.amountCents === txn.amountCents ? 0.6 : 0;
+      const dayDiff = Math.abs(p.paidAt.getTime() - txn.date.getTime()) / (24 * 60 * 60 * 1000);
+      const dateScore = Math.max(0, 0.4 - 0.05 * dayDiff);
+      const score = amtMatch + dateScore;
+      if (score <= 0) continue;
+      out.push({
+        kind: "payment",
+        paymentId: p.id,
+        invoiceNumber: inv.number || "(draft)",
+        invoiceSlug: inv.slug,
+        customerName: customers.get(inv.customerId) ?? "—",
+        amountCents: p.amountCents,
+        paidAt: p.paidAt.toISOString(),
+        method: p.method,
+        score,
+      });
+    }
   }
+  // Ledger-entry candidates: any posted entry with a line on the feed's bank
+  // account, matching this line's amount + direction and not already claimed.
+  // Covers the money-out side (bill payments, card settlements, refunds) and
+  // manual entries that plain invoice-payment matching could never reach.
+  const feed = await AppDataSource.getRepository(BankFeed).findOneBy({
+    id: txn.feedId,
+    companyId: txn.companyId,
+  });
+  const bankAccountId = feed?.accountId ?? null;
+  if (bankAccountId) {
+    const bankLines = await AppDataSource.getRepository(LedgerLine).find({
+      where: { companyId: txn.companyId, accountId: bankAccountId },
+    });
+    const entryIds = [...new Set(bankLines.map((l) => l.ledgerEntryId))];
+    const entries = entryIds.length
+      ? await AppDataSource.getRepository(LedgerEntry).find({
+          where: { id: In(entryIds), companyId: txn.companyId },
+        })
+      : [];
+    const entryById = new Map(entries.map((e) => [e.id, e]));
+    const claimedEntries = new Set(
+      (
+        await AppDataSource.getRepository(BankTransaction).find({
+          where: { companyId: txn.companyId },
+          select: ["matchedLedgerEntryId"],
+        })
+      )
+        .map((t) => t.matchedLedgerEntryId)
+        .filter((x): x is string => !!x),
+    );
+    // invoice_payment entries are already offered via the payment path above;
+    // bank_categorization entries were themselves created from a bank line.
+    const excludeSources = new Set([
+      "invoice_payment",
+      "bank_categorization",
+      "bank_categorization_void",
+    ]);
+    const wantIn = txn.amountCents > 0;
+    const abs = Math.abs(txn.amountCents);
+    const seenEntries = new Set<string>();
+    for (const l of bankLines) {
+      const e = entryById.get(l.ledgerEntryId);
+      if (!e || seenEntries.has(e.id)) continue;
+      if (excludeSources.has(e.source)) continue;
+      if (claimedEntries.has(e.id) && e.id !== txn.matchedLedgerEntryId) continue;
+      // Money in ⇒ a debit to the bank account; money out ⇒ a credit.
+      const lineAmount = wantIn ? l.debitCents : l.creditCents;
+      if (lineAmount === 0) continue;
+      seenEntries.add(e.id);
+      const amtMatch = lineAmount === abs ? 0.6 : 0;
+      const dayDiff = Math.abs(e.date.getTime() - txn.date.getTime()) / (24 * 60 * 60 * 1000);
+      const dateScore = Math.max(0, 0.4 - 0.05 * dayDiff);
+      const score = amtMatch + dateScore;
+      if (score <= 0) continue;
+      out.push({
+        kind: "ledger_entry",
+        ledgerEntryId: e.id,
+        memo: e.memo || "(no memo)",
+        source: e.source,
+        date: e.date.toISOString(),
+        amountCents: wantIn ? lineAmount : -lineAmount,
+        score,
+      });
+    }
+  }
+
   out.sort((a, b) => b.score - a.score);
   return out.slice(0, 25);
 }

@@ -7,8 +7,13 @@ import { LedgerEntry } from "../db/entities/LedgerEntry.js";
 import { LedgerLine } from "../db/entities/LedgerLine.js";
 import { AppDataSource } from "../db/datasource.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
-import { accountByCode, seedChartOfAccounts } from "./ledger.js";
-import { categorizeBankTransaction, unmatch } from "./reconcile.js";
+import { accountByCode, postLedgerEntry, seedChartOfAccounts } from "./ledger.js";
+import {
+  categorizeBankTransaction,
+  findMatchCandidates,
+  manualMatch,
+  unmatch,
+} from "./reconcile.js";
 
 before(initTestDb);
 beforeEach(resetTestDb);
@@ -104,5 +109,71 @@ describe("categorizeBankTransaction", () => {
     // Re-categorizing the same line works (no idempotency-key collision).
     const fresh = await categorizeBankTransaction(cleared, expense.id, null);
     assert.ok(fresh.reconciledAt);
+  });
+});
+
+describe("findMatchCandidates — ledger entries (P2)", () => {
+  // Post a manual DR expense / CR bank entry — the money-out shape that
+  // invoice-payment matching alone could never reach.
+  async function postManualOut(bankId: string, expenseId: string, amountCents: number) {
+    const { entry } = await postLedgerEntry({
+      companyId: CO,
+      date: new Date("2026-04-01T00:00:00Z"),
+      memo: "Rent",
+      source: "manual",
+      sourceRefId: null,
+      createdById: null,
+      lines: [
+        { accountId: expenseId, debitCents: amountCents, creditCents: 0, description: "" },
+        { accountId: bankId, debitCents: 0, creditCents: amountCents, description: "" },
+      ],
+    });
+    return entry;
+  }
+
+  test("surfaces a manual money-out entry on the bank account as a candidate", async () => {
+    const { bank, feed } = await setup();
+    const expense = (await accountByCode(CO, "6000"))!;
+    await postManualOut(bank.id, expense.id, 4000);
+    const txn = await makeTxn(feed.id, -4000); // money out, same amount
+
+    const candidates = await findMatchCandidates(txn);
+    const led = candidates.filter((c) => c.kind === "ledger_entry");
+    assert.equal(led.length, 1, "the manual entry should be the sole ledger candidate");
+    assert.equal(led[0].amountCents, -4000, "reported signed as money out");
+    assert.equal(led[0].source, "manual");
+  });
+
+  test("a matched entry is not offered again to a second like-amount line", async () => {
+    const { bank, feed } = await setup();
+    const expense = (await accountByCode(CO, "6000"))!;
+    const entry = await postManualOut(bank.id, expense.id, 4000);
+    const first = await makeTxn(feed.id, -4000);
+    const second = await makeTxn(feed.id, -4000);
+
+    const matched = await manualMatch(first, { ledgerEntryId: entry.id }, "u1");
+    assert.equal(matched.matchedLedgerEntryId, entry.id);
+
+    const candidates = await findMatchCandidates(second);
+    assert.equal(
+      candidates.filter((c) => c.kind === "ledger_entry").length,
+      0,
+      "the claimed entry must not resurface",
+    );
+  });
+
+  test("categorization entries are never re-offered as ledger candidates", async () => {
+    const { feed } = await setup();
+    const expense = (await accountByCode(CO, "6000"))!;
+    const categorized = await makeTxn(feed.id, -5000);
+    await categorizeBankTransaction(categorized, expense.id, null); // posts bank_categorization
+
+    const other = await makeTxn(feed.id, -5000); // same amount, still uncleared
+    const candidates = await findMatchCandidates(other);
+    assert.equal(
+      candidates.filter((c) => c.kind === "ledger_entry").length,
+      0,
+      "a bank_categorization entry is its own bank line, not a match target",
+    );
   });
 });

@@ -1383,11 +1383,20 @@ the functional prerequisites land before the tools that need them:
       migration. Home-currency only for now. Closes P1 — the prerequisite the
       rest of the milestone rested on, and the original "bank feed never posts
       to the ledger" gap. Shipped in 1.53.0.
-- Next: reconciliation beyond invoice payments (match bills / card
-  settlements / manual entries); the proposal spine; the grant-scope layer;
-  human-side audit coverage + a read-only finance role; then the job tools
-  themselves (read, bank, AR, AP, close), each proposal-only until an owner
-  raises a per-company limit.
+- [x] **A2 — Reconciliation beyond invoice payments (humans).**
+      `findMatchCandidates` now also surfaces posted ledger entries carrying a
+      line on the feed's bank account — bill payments, card settlements,
+      refunds, manual journals — the whole money-out side that invoice-payment
+      matching alone could never reach. Ranked by amount + date like the
+      payment path; already-claimed entries and `invoice_payment` /
+      `bank_categorization` sources are excluded so nothing is offered twice,
+      and the sweep runs even when the company has no invoices. Reconcile
+      matches either candidate kind (`paymentId` or `ledgerEntryId`). Reuses the
+      existing `matchedLedgerEntryId` + `manualMatch`; no migration. Shipped in
+      1.54.0.
+- Next: the proposal spine; the grant-scope layer; human-side audit coverage +
+  a read-only finance role; then the job tools themselves (read, bank, AR, AP,
+  close), each proposal-only until an owner raises a per-company limit.
 - Depends on M19 Phase H (credit notes / refunds) for the AR correction
   tools. Multi-currency bank lines and a tax-return figure are named but
   out of scope.

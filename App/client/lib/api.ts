@@ -2950,17 +2950,27 @@ export type BankTransaction = {
   match: BankTransactionMatch | null;
 };
 
-export type MatchCandidate = {
-  kind: "payment";
-  paymentId: string;
-  invoiceNumber: string;
-  invoiceSlug: string;
-  customerName: string;
-  amountCents: number;
-  paidAt: string;
-  method: string;
-  score: number;
-};
+export type MatchCandidate =
+  | {
+      kind: "payment";
+      paymentId: string;
+      invoiceNumber: string;
+      invoiceSlug: string;
+      customerName: string;
+      amountCents: number;
+      paidAt: string;
+      method: string;
+      score: number;
+    }
+  | {
+      kind: "ledger_entry";
+      ledgerEntryId: string;
+      memo: string;
+      source: string;
+      date: string;
+      amountCents: number;
+      score: number;
+    };
 
 // ─────────────────────── Multi-currency (M19 Phase E) ──────────────────
 

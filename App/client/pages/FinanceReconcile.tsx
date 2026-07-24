@@ -368,12 +368,12 @@ function TxnRow({
     if (next && !matched) ensureCandidates();
   }
 
-  async function match(paymentId: string) {
+  async function matchCandidate(c: MatchCandidate) {
     setBusy(true);
     try {
-      await api.post(`/api/companies/${companyId}/bank-transactions/${txn.id}/match`, {
-        paymentId,
-      });
+      const body =
+        c.kind === "payment" ? { paymentId: c.paymentId } : { ledgerEntryId: c.ledgerEntryId };
+      await api.post(`/api/companies/${companyId}/bank-transactions/${txn.id}/match`, body);
       onChanged();
     } catch (err) {
       toast((err as Error).message, "error");
@@ -499,26 +499,45 @@ function TxnRow({
             <ul className="space-y-1.5">
               {candidates.map((c) => (
                 <li
-                  key={c.paymentId}
+                  key={c.kind === "payment" ? c.paymentId : c.ledgerEntryId}
                   className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white p-2 text-sm dark:border-slate-700 dark:bg-slate-900"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs font-semibold text-indigo-600 dark:text-indigo-400">
-                        {c.invoiceNumber}
-                      </span>
-                      <span className="truncate text-slate-700 dark:text-slate-200">
-                        {c.customerName}
-                      </span>
-                    </div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400">
-                      {c.paidAt.slice(0, 10)} · {c.method} · score {(c.score * 100).toFixed(0)}%
-                    </div>
+                    {c.kind === "payment" ? (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs font-semibold text-indigo-600 dark:text-indigo-400">
+                            {c.invoiceNumber}
+                          </span>
+                          <span className="truncate text-slate-700 dark:text-slate-200">
+                            {c.customerName}
+                          </span>
+                        </div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                          {c.paidAt.slice(0, 10)} · {c.method} · score{" "}
+                          {(c.score * 100).toFixed(0)}%
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-600 dark:bg-slate-700/50 dark:text-slate-300">
+                            {c.source.replace(/_/g, " ")}
+                          </span>
+                          <span className="truncate text-slate-700 dark:text-slate-200">
+                            {c.memo || "Journal entry"}
+                          </span>
+                        </div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                          {c.date.slice(0, 10)} · score {(c.score * 100).toFixed(0)}%
+                        </div>
+                      </>
+                    )}
                   </div>
                   <div className="tabular-nums text-sm text-slate-900 dark:text-slate-100">
                     {formatMoney(c.amountCents, homeCurrency)}
                   </div>
-                  <Button onClick={() => match(c.paymentId)} disabled={busy} size="sm">
+                  <Button onClick={() => matchCandidate(c)} disabled={busy} size="sm">
                     Match
                   </Button>
                 </li>
