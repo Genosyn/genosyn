@@ -246,6 +246,9 @@ export const config = {
 ### M2 — Companies & Members ✅
 
 - [x] Create / rename / delete company (owner-only)
+- [x] Guided first-company onboarding: hire an AI Employee from a template,
+      connect its AI Model, optionally connect Gmail with a safe draft Grant,
+      and open chat with a reviewable starter request
 - [x] Company switcher in app shell
 - [x] Invite member by email (token link)
 - [x] Roles: owner / admin / member

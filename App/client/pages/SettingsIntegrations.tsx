@@ -1080,11 +1080,12 @@ type GithubAppDiscovery = {
   installations: GithubAppInstallation[];
 };
 
-function OauthOrServiceAccountModal({
+export function OauthOrServiceAccountModal({
   open,
   entry,
   reconnect,
   companyId,
+  initialScopeGroups,
   onClose,
   onSaved,
 }: {
@@ -1097,6 +1098,7 @@ function OauthOrServiceAccountModal({
     scopeGroups: string[];
   } | null;
   companyId: string;
+  initialScopeGroups?: string[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -1165,17 +1167,19 @@ function OauthOrServiceAccountModal({
       setSelectedInstallationId("");
       setBrowserFields({});
       setOauthExtraFields({});
-      // Default to all available scope groups checked. For reconnect with a
-      // non-empty stored selection, prefill from that. Legacy connections
-      // (empty stored array) fall back to "all" so the user sees the
-      // current grant rather than an empty list.
+      // Default to all available scope groups unless a guided caller asks for
+      // a smaller starting set. Reconnect always preserves the stored set;
+      // legacy connections with no stored selection still fall back to all.
       const allGroupKeys =
         (initialMode === "oauth"
           ? entry.oauth?.scopeGroups
           : entry.serviceAccount?.scopeGroups
         )?.map((g) => g.key) ?? [];
       const stored = reconnect?.scopeGroups ?? [];
-      setSelectedScopeGroups(stored.length > 0 ? stored : allGroupKeys);
+      const preferred = (initialScopeGroups ?? []).filter((key) => allGroupKeys.includes(key));
+      setSelectedScopeGroups(
+        stored.length > 0 ? stored : preferred.length > 0 ? preferred : allGroupKeys,
+      );
     }
   }, [
     open,
@@ -1186,6 +1190,7 @@ function OauthOrServiceAccountModal({
     supportsBrowser,
     isReconnect,
     reconnect,
+    initialScopeGroups,
   ]);
 
   if (!entry) return null;

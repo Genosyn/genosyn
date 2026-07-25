@@ -24,6 +24,11 @@ export const DOCS_NAV: DocsSection[] = [
         blurb: "One command to a running container on localhost:8471.",
       },
       {
+        path: "/docs/getting-started",
+        title: "Onboard your first AI Employee",
+        blurb: "Hire, connect email, and make a useful first request.",
+      },
+      {
         path: "/docs/mobile",
         title: "Install on your phone",
         blurb: "Add Genosyn to your home screen as a PWA — iOS, Android, desktop.",

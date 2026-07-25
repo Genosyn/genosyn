@@ -2,6 +2,7 @@ import { usePathname } from "@/lib/router";
 import { DocsShell } from "@/docs/DocsShell";
 import { Introduction } from "@/docs/pages/Introduction";
 import { Install } from "@/docs/pages/Install";
+import { GettingStarted } from "@/docs/pages/GettingStarted";
 import { MobileApp } from "@/docs/pages/MobileApp";
 import { Security } from "@/docs/pages/Security";
 import { Employees } from "@/docs/pages/Employees";
@@ -38,6 +39,7 @@ import { NotFound } from "@/docs/pages/NotFound";
 const PAGES: Record<string, () => JSX.Element> = {
   "/docs": Introduction,
   "/docs/install": Install,
+  "/docs/getting-started": GettingStarted,
   "/docs/mobile": MobileApp,
   "/docs/security": Security,
   "/docs/employees": Employees,

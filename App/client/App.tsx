@@ -12,7 +12,7 @@ import Signup from "./pages/Signup";
 import Forgot from "./pages/Forgot";
 import Reset from "./pages/Reset";
 import { VerifyEmailLink, VerifyEmailRequired } from "./pages/VerifyEmail";
-import Onboarding from "./pages/Onboarding";
+import Onboarding, { CompanyOnboarding } from "./pages/Onboarding";
 import EmployeesLayout from "./pages/EmployeesLayout";
 import EmployeesIndex from "./pages/EmployeesIndex";
 import EmployeeLayout from "./pages/EmployeeLayout";
@@ -233,7 +233,7 @@ function AuthedRoutes({
 }: {
   me: Me;
   companies: Company[];
-  onChanged: () => void;
+  onChanged: () => Promise<void>;
 }) {
   if (companies.length === 0) {
     return (
@@ -272,7 +272,7 @@ function CompanyRoutes({
 }: {
   me: Me;
   companies: Company[];
-  onChanged: () => void;
+  onChanged: () => Promise<void>;
 }) {
   const { companySlug } = useParams();
   const company = companies.find((c) => c.slug === companySlug);
@@ -285,6 +285,7 @@ function CompanyRoutes({
           {/* Home — the post-sign-in landing page: everything that needs the
             member's attention plus quick navigation. */}
           <Route index element={<HomePage company={company} me={me} />} />
+          <Route path="onboarding" element={<CompanyOnboarding company={company} />} />
 
           {/* Every product exposes a curated view of the shared Integration
             catalog. Settings keeps the complete catalog; these routes show

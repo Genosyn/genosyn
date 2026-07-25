@@ -5,12 +5,9 @@ import {
   H2,
   H3,
   KeyList,
-  LI,
-  OL,
   P,
   PageHeader,
   Pre,
-  Strong,
 } from "@/docs/Prose";
 
 export function Install() {
@@ -102,24 +99,14 @@ export function Install() {
       </P>
 
       <H2 id="next-steps">Next steps</H2>
-      <OL>
-        <LI>
-          Open <Code>http://localhost:8471</Code> and sign up as the owner.
-        </LI>
-        <LI>
-          Create your <Strong>first AI employee</Strong>. The app seeds a
-          starter Soul you can rewrite. See{" "}
-          <DocLink to="/docs/employees">AI Employees</DocLink>.
-        </LI>
-        <LI>
-          Pick an <DocLink to="/docs/models">AI Model</DocLink> and sign the
-          employee into their own account.
-        </LI>
-        <LI>
-          Add a <DocLink to="/docs/skills">Skill</DocLink> and schedule a{" "}
-          <DocLink to="/docs/routines">Routine</DocLink>.
-        </LI>
-      </OL>
+      <P>
+        Open <Code>http://localhost:8471</Code> and sign up as the owner. The
+        in-app launch guide takes you from company creation through hiring an
+        AI Employee, connecting its AI Model, setting up Gmail, and opening a
+        first request in chat. Follow{" "}
+        <DocLink to="/docs/getting-started">Onboard your first AI Employee</DocLink>{" "}
+        for the complete walkthrough.
+      </P>
 
       <H2 id="upgrading">Upgrading</H2>
       <P>

@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useOutletContext } from "react-router-dom";
+import { Link, useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import {
   AlertCircle,
   Archive,
@@ -52,6 +52,8 @@ export default function EmployeeChat() {
   const { company, emp } = useOutletContext<EmployeeOutletCtx>();
   const { toast } = useToast();
   const dialog = useDialog();
+  const location = useLocation();
+  const navigate = useNavigate();
   const { session, actions } = useEmployeeSession(emp.id);
   const {
     activeConvId,
@@ -76,6 +78,31 @@ export default function EmployeeChat() {
   >([]);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
+  const seededPrompt = React.useRef<string | null>(null);
+
+  // Onboarding and other guided surfaces can hand chat a draft without
+  // sending it. The Member still reviews and submits the message, so opening
+  // the page never spends model tokens or takes an action by itself. Router
+  // state keeps the draft out of the URL and browser/server logs.
+  React.useEffect(() => {
+    const state = location.state as { starterPrompt?: unknown } | null;
+    const prompt =
+      typeof state?.starterPrompt === "string" ? state.starterPrompt.trim() : "";
+    if (!prompt) {
+      seededPrompt.current = null;
+      return;
+    }
+    if (seededPrompt.current === prompt) return;
+    seededPrompt.current = prompt;
+    actions.update(emp.id, (current) =>
+      current.input.trim() ? current : { ...current, input: prompt },
+    );
+    navigate(`${location.pathname}${location.search}`, {
+      replace: true,
+      state: null,
+    });
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  }, [actions, emp.id, location.pathname, location.search, location.state, navigate]);
 
   // Reset staged attachments when the active conversation changes — leaving
   // them around would attach to the wrong thread on the next send.
