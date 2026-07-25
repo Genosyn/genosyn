@@ -21,7 +21,11 @@ export type EmployeeSession = {
   messages: ConversationMessage[];
   /** Running text for the in-flight assistant reply; null when no stream. */
   streamingReply: string | null;
+  /** Conversation currently receiving the in-flight reply. */
+  sendingConvId: string | null;
   sending: boolean;
+  /** Follow-up messages waiting for the current reply to finish. */
+  queuedMessages: QueuedChatMessage[];
   input: string;
   /** Active (non-archived) threads, newest first. */
   convs: ConversationSummary[];
@@ -35,12 +39,22 @@ export type EmployeeSession = {
   convLoading: boolean;
 };
 
+export type QueuedChatMessage = {
+  id: string;
+  conversationId: string | null;
+  content: string;
+  attachments: ChatAttachment[];
+  queuedAt: string;
+};
+
 const EMPTY: EmployeeSession = Object.freeze({
   activeConvId: null,
   loadedConvId: null,
   messages: [],
   streamingReply: null,
+  sendingConvId: null,
   sending: false,
+  queuedMessages: [],
   input: "",
   convs: [],
   archivedConvs: [],
@@ -85,6 +99,7 @@ type ChatActions = {
     message: string,
     opts?: { clearInput?: boolean; attachments?: ChatAttachment[] },
   ) => Promise<string | null>;
+  removeQueuedMessage: (empId: string, queuedMessageId: string) => void;
 };
 
 type ChatSessionsCtx = {
@@ -93,6 +108,10 @@ type ChatSessionsCtx = {
 };
 
 const Ctx = React.createContext<ChatSessionsCtx | null>(null);
+
+type PendingChatMessage = QueuedChatMessage & {
+  resolve: (error: string | null) => void;
+};
 
 export function ChatSessionsProvider({
   children,
@@ -106,6 +125,10 @@ export function ChatSessionsProvider({
   // current sessions without waiting for a re-render.
   const sessionsRef = React.useRef(sessions);
   sessionsRef.current = sessions;
+  // Synchronous queue state prevents two fast Enter presses from racing a
+  // React render. The serializable mirror lives on EmployeeSession for UI.
+  const pendingRef = React.useRef<Record<string, PendingChatMessage[]>>({});
+  const workersRef = React.useRef(new Set<string>());
 
   const update = React.useCallback((empId: string, u: Update) => {
     setSessions((prev) => {
@@ -115,6 +138,23 @@ export function ChatSessionsProvider({
       return { ...prev, [empId]: next };
     });
   }, []);
+
+  const removeQueuedMessage = React.useCallback(
+    (empId: string, queuedMessageId: string) => {
+      const queue = pendingRef.current[empId] ?? [];
+      const index = queue.findIndex((item) => item.id === queuedMessageId);
+      if (index === -1) return;
+      const [removed] = queue.splice(index, 1);
+      removed.resolve(null);
+      update(empId, (s) => ({
+        ...s,
+        queuedMessages: s.queuedMessages.filter(
+          (item) => item.id !== queuedMessageId,
+        ),
+      }));
+    },
+    [update],
+  );
 
   const initEmployee = React.useCallback(
     async (companyId: string, empId: string) => {
@@ -252,22 +292,30 @@ export function ChatSessionsProvider({
     [update],
   );
 
-  const send = React.useCallback(
+  const sendTurn = React.useCallback(
     async (
       companyId: string,
       empId: string,
       message: string,
-      opts?: { clearInput?: boolean; attachments?: ChatAttachment[] },
+      opts?: {
+        clearInput?: boolean;
+        attachments?: ChatAttachment[];
+        conversationId?: string | null;
+      },
     ): Promise<string | null> => {
       const msg = message.trim();
       const attachments = opts?.attachments ?? [];
       if (!msg && attachments.length === 0) return null;
       const base = `/api/companies/${companyId}/employees/${empId}`;
       const clearInput = opts?.clearInput ?? true;
+      let convId =
+        opts?.conversationId ??
+        sessionsRef.current[empId]?.activeConvId ??
+        null;
       const tempId = `temp-${Date.now()}`;
       const tempUser: ConversationMessage = {
         id: tempId,
-        conversationId: "",
+        conversationId: convId ?? "",
         role: "user",
         content: msg,
         status: null,
@@ -278,16 +326,19 @@ export function ChatSessionsProvider({
       update(empId, (s) => ({
         ...s,
         sending: true,
+        sendingConvId: convId,
         streamingReply: "",
         input: clearInput ? "" : s.input,
-        messages: [...s.messages, tempUser],
+        messages:
+          !convId || s.activeConvId === convId
+            ? [...s.messages, tempUser]
+            : s.messages,
       }));
 
       let accumulated = "";
       let gotAssistant = false;
       let serverEventError = false;
       let persistedUser: ConversationMessage | null = null;
-      let convId = sessionsRef.current[empId]?.activeConvId ?? null;
 
       try {
         // Lazy-create a conversation on first send so never-chatted
@@ -298,11 +349,23 @@ export function ChatSessionsProvider({
             {},
           );
           convId = created.id;
+          const queue = pendingRef.current[empId] ?? [];
+          for (const pending of queue) {
+            if (!pending.conversationId) {
+              pending.conversationId = created.id;
+            }
+          }
           update(empId, (s) => ({
             ...s,
             convs: [created, ...s.convs],
             activeConvId: created.id,
             loadedConvId: created.id,
+            sendingConvId: created.id,
+            queuedMessages: s.queuedMessages.map((pending) =>
+              pending.conversationId
+                ? pending
+                : { ...pending, conversationId: created.id },
+            ),
           }));
         }
         // Capture the thread this send belongs to. If the user switches
@@ -418,10 +481,86 @@ export function ChatSessionsProvider({
           ? raw
           : "Chat connection interrupted. See the conversation for details.";
       } finally {
-        update(empId, { sending: false });
+        update(empId, { sending: false, sendingConvId: null });
       }
     },
     [update],
+  );
+
+  const send = React.useCallback(
+    (
+      companyId: string,
+      empId: string,
+      message: string,
+      opts?: { clearInput?: boolean; attachments?: ChatAttachment[] },
+    ): Promise<string | null> => {
+      const content = message.trim();
+      const attachments = opts?.attachments ?? [];
+      if (!content && attachments.length === 0) {
+        return Promise.resolve(null);
+      }
+
+      return new Promise<string | null>((resolve) => {
+        const visibleItem: QueuedChatMessage = {
+          id: makeQueuedMessageId(),
+          conversationId:
+            sessionsRef.current[empId]?.activeConvId ?? null,
+          content,
+          attachments,
+          queuedAt: new Date().toISOString(),
+        };
+        const item: PendingChatMessage = { ...visibleItem, resolve };
+
+        if (workersRef.current.has(empId)) {
+          const queue = pendingRef.current[empId] ?? [];
+          queue.push(item);
+          pendingRef.current[empId] = queue;
+          update(empId, (s) => ({
+            ...s,
+            input: opts?.clearInput === false ? s.input : "",
+            queuedMessages: [...s.queuedMessages, visibleItem],
+          }));
+          return;
+        }
+
+        workersRef.current.add(empId);
+
+        async function drainQueue(first: PendingChatMessage): Promise<void> {
+          let current: PendingChatMessage | undefined = first;
+          let firstTurn = true;
+          while (current) {
+            const error = await sendTurn(
+              companyId,
+              empId,
+              current.content,
+              {
+                clearInput: firstTurn ? opts?.clearInput : false,
+                attachments: current.attachments,
+                conversationId: current.conversationId,
+              },
+            );
+            current.resolve(error);
+            firstTurn = false;
+
+            const queue = pendingRef.current[empId] ?? [];
+            current = queue.shift();
+            if (current) {
+              const nextId = current.id;
+              update(empId, (s) => ({
+                ...s,
+                queuedMessages: s.queuedMessages.filter(
+                  (queued) => queued.id !== nextId,
+                ),
+              }));
+            }
+          }
+          workersRef.current.delete(empId);
+        }
+
+        void drainQueue(item);
+      });
+    },
+    [sendTurn, update],
   );
 
   const actions = React.useMemo<ChatActions>(
@@ -435,6 +574,7 @@ export function ChatSessionsProvider({
       unarchiveConversation,
       loadArchived,
       send,
+      removeQueuedMessage,
     }),
     [
       update,
@@ -446,6 +586,7 @@ export function ChatSessionsProvider({
       unarchiveConversation,
       loadArchived,
       send,
+      removeQueuedMessage,
     ],
   );
 
@@ -467,6 +608,10 @@ function formatChatConnectionError(detail: string): string {
     "",
     "Check that the Genosyn server is still running and reachable from this browser. Review the server logs for the underlying error, then reopen this conversation before retrying.",
   ].join("\n");
+}
+
+function makeQueuedMessageId(): string {
+  return `queued-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
 export function useChatSessions(): ChatSessionsCtx {

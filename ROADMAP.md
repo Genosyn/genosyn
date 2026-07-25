@@ -576,6 +576,9 @@ sends system mail); this is the company's real inbox. Internal namespace is
       Connections / Handoffs / Journal)
 - [x] Persisted conversations (`Conversation` + `ConversationMessage`),
       action pills rendered from `actionsJson`
+- [x] Direct-chat follow-up queue: the composer stays editable during a reply,
+      shows queued messages inline, and releases them serially when the AI
+      Employee finishes
 - [x] Workspace file editor with path-traversal guards, 2 MiB text-only cap
 
 ### M8 — Polish + QA ✅

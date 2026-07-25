@@ -49,6 +49,21 @@ export function WorkspaceChat() {
         </LI>
       </UL>
 
+      <H2 id="queue-follow-ups">Queue follow-up messages</H2>
+      <P>
+        In the dedicated{" "}
+        <DocLink to="/docs/employees">employee Chat</DocLink>, the composer
+        stays available while the AI Employee replies. Keep typing and press
+        Enter: Genosyn adds each follow-up to an <Strong>Up next</Strong> queue
+        beneath the live response, then sends the messages in order as soon as
+        the employee finishes.
+      </P>
+      <P>
+        Queued messages keep their attachments. Remove one with its{" "}
+        <Strong>×</Strong> button before it starts, or navigate around the app
+        and return—the queue remains with that employee&apos;s chat session.
+      </P>
+
       <H2 id="new-context">Start a new AI context</H2>
       <P>
         Type <Code>/new</Code> by itself in an AI-employee DM to start fresh.

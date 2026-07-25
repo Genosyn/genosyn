@@ -25,7 +25,10 @@ import {
   ConversationSummary,
   MessageAction,
 } from "../lib/api";
-import { useEmployeeSession } from "../lib/chatSessions";
+import {
+  QueuedChatMessage,
+  useEmployeeSession,
+} from "../lib/chatSessions";
 import { useComposerFileDrop } from "../lib/fileDrop";
 import { ChatMarkdown } from "../components/ChatMarkdown";
 import { useToast } from "../components/ui/Toast";
@@ -60,7 +63,9 @@ export default function EmployeeChat() {
     loadedConvId,
     messages,
     streamingReply,
+    sendingConvId,
     sending,
+    queuedMessages,
     input,
     convs,
     convsLoaded,
@@ -79,6 +84,15 @@ export default function EmployeeChat() {
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
   const seededPrompt = React.useRef<string | null>(null);
+  const visibleQueuedMessages = queuedMessages.filter(
+    (message) =>
+      message.conversationId === activeConvId ||
+      (!message.conversationId && !activeConvId),
+  );
+  const isActiveResponse =
+    sending &&
+    (sendingConvId === activeConvId ||
+      (!sendingConvId && !activeConvId));
 
   // Onboarding and other guided surfaces can hand chat a draft without
   // sending it. The Member still reviews and submits the message, so opening
@@ -135,7 +149,12 @@ export default function EmployeeChat() {
   React.useEffect(() => {
     if (!scrollRef.current) return;
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages, sending, streamingReply]);
+  }, [
+    messages,
+    isActiveResponse,
+    streamingReply,
+    visibleQueuedMessages.length,
+  ]);
 
   // Auto-grow the textarea as the user types, capped so it doesn't swallow
   // the conversation.
@@ -187,7 +206,6 @@ export default function EmployeeChat() {
   }
 
   async function send(messageOverride?: string) {
-    if (sending) return;
     const msg = (messageOverride ?? input).trim();
     const atts = messageOverride ? [] : pendingAttachments;
     // Slash commands intercept the send. `/new` swaps to a fresh thread
@@ -276,7 +294,9 @@ export default function EmployeeChat() {
         >
           {isLoadingMessages ? (
             <MessageSkeleton />
-          ) : messages.length === 0 ? (
+          ) : messages.length === 0 &&
+            !isActiveResponse &&
+            visibleQueuedMessages.length === 0 ? (
             <EmptyState empName={emp.name} empRole={emp.role} onPick={(t) => send(t)} />
           ) : (
             <div className="mx-auto flex max-w-3xl flex-col gap-5">
@@ -293,16 +313,27 @@ export default function EmployeeChat() {
                   onInspectAction={setInspectAction}
                 />
               ))}
-              {sending && streamingReply !== null && streamingReply.length > 0 && (
+              {isActiveResponse &&
+                streamingReply !== null &&
+                streamingReply.length > 0 && (
                 <StreamingBubble
                   authorName={emp.name}
                   content={streamingReply}
                 />
               )}
-              {sending &&
+              {isActiveResponse &&
                 (streamingReply === null || streamingReply.length === 0) && (
                   <TypingIndicator authorName={emp.name} />
                 )}
+              {visibleQueuedMessages.length > 0 && (
+                <QueuedMessageStack
+                  messages={visibleQueuedMessages}
+                  empName={emp.name}
+                  onRemove={(id) =>
+                    actions.removeQueuedMessage(emp.id, id)
+                  }
+                />
+              )}
             </div>
           )}
         </div>
@@ -312,7 +343,8 @@ export default function EmployeeChat() {
           value={input}
           onChange={(v) => actions.update(emp.id, { input: v })}
           onSubmit={() => send()}
-          disabled={sending}
+          isResponding={sending}
+          queuedCount={visibleQueuedMessages.length}
           empName={emp.name}
           companyId={company.id}
           companySlug={company.slug}
@@ -757,6 +789,85 @@ function TypingIndicator({ authorName }: { authorName: string }) {
   );
 }
 
+function QueuedMessageStack({
+  messages,
+  empName,
+  onRemove,
+}: {
+  messages: QueuedChatMessage[];
+  empName: string;
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <section
+      className="ml-auto w-full max-w-[85%] rounded-2xl border border-indigo-200/80 bg-indigo-50/70 p-2 shadow-sm dark:border-indigo-500/30 dark:bg-indigo-500/10 sm:max-w-[75%]"
+      aria-label={`${messages.length} queued ${
+        messages.length === 1 ? "message" : "messages"
+      }`}
+      aria-live="polite"
+    >
+      <div className="flex items-center justify-between gap-3 px-1.5 pb-2 pt-0.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-200">
+            <Clock size={13} />
+          </span>
+          <div className="min-w-0">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-200">
+              Up next
+            </div>
+            <div className="truncate text-[11px] text-indigo-600/80 dark:text-indigo-300/70">
+              Sends automatically when {empName} finishes
+            </div>
+          </div>
+        </div>
+        <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-medium tabular-nums text-indigo-700 shadow-sm ring-1 ring-indigo-200 dark:bg-slate-900 dark:text-indigo-200 dark:ring-indigo-500/30">
+          {messages.length} queued
+        </span>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        {messages.map((message, index) => (
+          <div
+            key={message.id}
+            className="group relative rounded-xl border border-indigo-100 bg-white px-3 py-2.5 pr-9 text-sm leading-relaxed text-slate-800 shadow-sm dark:border-indigo-500/20 dark:bg-slate-900 dark:text-slate-100"
+          >
+            <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+              {index === 0 ? "Next message" : `Then · ${index + 1}`}
+            </div>
+            {message.content && (
+              <div className="break-words">
+                <ChatMarkdown content={message.content} />
+              </div>
+            )}
+            {message.attachments.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {message.attachments.map((attachment) => (
+                  <span
+                    key={attachment.id}
+                    className="inline-flex max-w-full items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                  >
+                    <Paperclip size={11} className="shrink-0" />
+                    <span className="truncate">{attachment.filename}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => onRemove(message.id)}
+              className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 focus:outline-none focus:ring-2 focus:ring-rose-400 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
+              aria-label="Remove queued message"
+              title="Remove from queue"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function Dot({ delay }: { delay: string }) {
   return (
     <span
@@ -839,7 +950,8 @@ function Composer({
   value,
   onChange,
   onSubmit,
-  disabled,
+  isResponding,
+  queuedCount,
   empName,
   companyId,
   companySlug,
@@ -851,7 +963,8 @@ function Composer({
   value: string;
   onChange: (v: string) => void;
   onSubmit: () => void;
-  disabled: boolean;
+  isResponding: boolean;
+  queuedCount: number;
   empName: string;
   companyId: string;
   companySlug: string;
@@ -859,8 +972,7 @@ function Composer({
   onUpload: (file: File) => Promise<void>;
   onRemoveAttachment: (id: string) => void;
 }) {
-  const canSend =
-    (value.trim().length > 0 || attachments.length > 0) && !disabled;
+  const canSend = value.trim().length > 0 || attachments.length > 0;
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = React.useState(false);
   const [resourceQuery, setResourceQuery] = React.useState<string | null>(null);
@@ -911,17 +1023,22 @@ function Composer({
   }
 
   // Paste a screenshot or drag a file straight onto the composer — same
-  // upload path as the paperclip, no save-to-disk detour. Disabled in lockstep
-  // with the paperclip button so the "Drop to attach" overlay never promises a
-  // drop the composer would silently swallow mid-reply.
+  // upload path as the paperclip, no save-to-disk detour. Follow-up
+  // attachments remain available while a reply streams and join the queue
+  // with the message that references them.
   const { dragActive, onPaste, dragProps } = useComposerFileDrop(
     (files) => void handleFiles(files),
-    { disabled: disabled || uploading },
+    { disabled: uploading },
   );
 
   return (
     <form
-      className="border-t border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950 sm:px-6"
+      className={
+        "border-t bg-white px-4 py-3 transition-colors dark:bg-slate-950 sm:px-6 " +
+        (isResponding
+          ? "border-indigo-200 dark:border-indigo-500/30"
+          : "border-slate-200 dark:border-slate-800")
+      }
       onSubmit={(e) => {
         e.preventDefault();
         onSubmit();
@@ -975,7 +1092,7 @@ function Composer({
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
-          disabled={disabled || uploading}
+          disabled={uploading}
           aria-label="Attach file"
           title="Attach file"
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-slate-200"
@@ -1022,23 +1139,29 @@ function Composer({
             }
           }}
           rows={1}
-          placeholder={`Message ${empName}…`}
+          placeholder={
+            isResponding
+              ? `Add a follow-up for ${empName}…`
+              : `Message ${empName}…`
+          }
           className="flex-1 resize-none self-center bg-transparent px-1 py-1 text-sm leading-relaxed text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
           style={{ maxHeight: 200 }}
-          disabled={disabled}
         />
         <button
           type="submit"
           disabled={!canSend}
-          aria-label="Send message"
+          aria-label={isResponding ? "Queue message" : "Send message"}
+          title={isResponding ? "Queue message" : "Send message"}
           className={
             "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition " +
             (canSend
-              ? "bg-indigo-600 text-white hover:bg-indigo-700"
+              ? isResponding
+                ? "bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-500/20 dark:text-indigo-200 dark:hover:bg-indigo-500/30"
+                : "bg-indigo-600 text-white hover:bg-indigo-700"
               : "bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-600")
           }
         >
-          <Send size={14} />
+          {isResponding ? <Clock size={14} /> : <Send size={14} />}
         </button>
         {resourceQuery !== null && (
           <ResourceReferencePicker
@@ -1051,7 +1174,7 @@ function Composer({
           />
         )}
       </div>
-      <div className="mt-1.5 flex items-center justify-between px-1 text-[11px] text-slate-400 dark:text-slate-500">
+      <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1 text-[11px] text-slate-400 dark:text-slate-500">
         <span>
           <kbd className="rounded border border-slate-200 bg-slate-50 px-1 font-sans dark:border-slate-700 dark:bg-slate-800">
             Enter
@@ -1067,8 +1190,16 @@ function Composer({
         </span>
         {uploading ? (
           <span className="italic">Uploading…</span>
-        ) : disabled ? (
-          <span className="italic">Waiting for reply…</span>
+        ) : isResponding ? (
+          <span className="inline-flex items-center gap-1.5 font-medium text-indigo-600 dark:text-indigo-300">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-400 opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-indigo-500" />
+            </span>
+            {queuedCount > 0
+              ? `${queuedCount} ${queuedCount === 1 ? "message" : "messages"} queued`
+              : "Enter queues your follow-up"}
+          </span>
         ) : null}
       </div>
     </form>
