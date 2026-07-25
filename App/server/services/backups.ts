@@ -3,7 +3,8 @@ import fs from "node:fs";
 import { createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import type { IncomingMessage } from "node:http";
-import archiver from "archiver";
+import type archiver from "archiver";
+import * as archiverRuntime from "archiver";
 import unzipper from "unzipper";
 import cron, { ScheduledTask } from "node-cron";
 import { AppDataSource } from "../db/datasource.js";
@@ -35,6 +36,11 @@ import { withSchedulerLease } from "./schedulerLeases.js";
 
 const SCHEDULE_ID = "default";
 const BACKUP_DIR_NAME = "Backup";
+const ZipArchive = (
+  archiverRuntime as unknown as {
+    ZipArchive: new (options?: archiver.ArchiverOptions) => archiver.Archiver;
+  }
+).ZipArchive;
 
 /**
  * Suffix for an archive still being written. Deliberately not `.zip` so
@@ -570,7 +576,7 @@ function writeZip(outPath: string, sqliteSnapshot: string | null): Promise<void>
   return new Promise((resolve, reject) => {
     const partPath = `${outPath}${PART_SUFFIX}`;
     const output = createWriteStream(partPath);
-    const archive = archiver("zip", { zlib: { level: 9 } });
+    const archive = new ZipArchive({ zlib: { level: 9 } });
 
     let failed = false;
     const fail = (err: Error) => {

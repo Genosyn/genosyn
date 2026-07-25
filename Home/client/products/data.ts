@@ -1548,6 +1548,7 @@ export const PRODUCT_CATEGORIES: string[] = [
   "Knowledge",
   "Automation",
   "Analytics",
+  "Marketing",
   "Operations",
   "Engineering",
 ];

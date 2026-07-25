@@ -39,5 +39,5 @@ COPY --from=build /build/Home/dist ./dist
 
 RUN chown -R node:node /app
 USER node
-EXPOSE 3000
+EXPOSE 8472
 CMD ["node", "dist/server.js"]

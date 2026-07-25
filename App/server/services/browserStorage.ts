@@ -26,7 +26,10 @@ async function resolveSlugs(
 ): Promise<{ companySlug: string; employeeSlug: string } | null> {
   const co = await AppDataSource.getRepository(Company).findOneBy({ id: companyId });
   if (!co) return null;
-  const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({ id: employeeId });
+  const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
+    id: employeeId,
+    companyId,
+  });
   if (!emp) return null;
   return { companySlug: co.slug, employeeSlug: emp.slug };
 }
@@ -99,4 +102,3 @@ export async function saveStorageState(
     // a stat / write hiccup take down the browser teardown path.
   }
 }
-

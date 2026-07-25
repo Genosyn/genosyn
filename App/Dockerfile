@@ -34,6 +34,8 @@ RUN npm run build
 
 # ---------- runtime ----------
 FROM node:22-alpine AS runtime
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
 ENV NODE_ENV=production
 WORKDIR /app
 

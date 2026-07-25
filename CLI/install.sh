@@ -183,7 +183,9 @@ install_bin() {
   local dst_dir
   dst_dir="$(dirname "${dst}")"
 
-  if [ -w "${dst_dir}" ] 2>/dev/null || { [ ! -e "${dst_dir}" ] && [ -w "$(dirname "${dst_dir}")" ] 2>/dev/null; }; then
+  if [ -w "${dst_dir}" ] 2>/dev/null || {
+    [ ! -e "${dst_dir}" ] && mkdir -p "${dst_dir}" 2>/dev/null
+  }; then
     mkdir -p "${dst_dir}"
     install -m 0755 "${src}" "${dst}"
     return 0

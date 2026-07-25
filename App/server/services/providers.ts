@@ -64,10 +64,16 @@ export function isModelConnected(m: AIModel): boolean {
     return false;
   }
   if (m.authMode === "apikey") {
-    return typeof cfg.apiKeyEncrypted === "string" && (cfg.apiKeyEncrypted as string).length > 0;
+    return (
+      typeof cfg.apiKeyEncrypted === "string" &&
+      (cfg.apiKeyEncrypted as string).trim().length > 0
+    );
   }
   if (m.authMode === "customEndpoint") {
-    return typeof cfg.baseURLEncrypted === "string" && (cfg.baseURLEncrypted as string).length > 0;
+    return (
+      typeof cfg.baseURLEncrypted === "string" &&
+      (cfg.baseURLEncrypted as string).trim().length > 0
+    );
   }
   return false;
 }

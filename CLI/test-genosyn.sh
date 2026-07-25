@@ -276,5 +276,177 @@ check "re-running the installer delegates to the safe upgrade path" \
 rm -rf "${test_root}"
 trap - EXIT
 
+echo "display and common flag helpers"
+check "human size: bytes" "$(human_size 1023)" "1023B"
+check "human size: kibibytes" "$(human_size 1536)" "1.5KB"
+check "human size: mebibytes" "$(human_size 1048576)" "1.0MB"
+check "human size: tebibytes" "$(human_size 1099511627776)" "1.0TB"
+
+NAME="prod/us west"
+AUTO_UPDATE_DIR="/tmp/genosyn state"
+check "unsafe container characters are sanitized in state keys" \
+  "$(auto_update_key)" "prod_us_west"
+check "the sanitized key is used in the wrapper path" \
+  "$(auto_update_wrapper_path)" "/tmp/genosyn state/auto-update-prod_us_west.sh"
+
+PORT=8471
+NAME=genosyn
+VOLUME=genosyn-data
+IMAGE=ghcr.io/genosyn/app:latest
+parse_common_flags \
+  --port 9001 \
+  --name=custom \
+  --volume custom-data \
+  --image=registry:5000/team/app:2 \
+  --tail 50 \
+  positional
+check "common flags parse the space form" "${PORT}" "9001"
+check "common flags parse the equals form" "${NAME}" "custom"
+check "common flags carry registry ports intact" "${IMAGE}" "registry:5000/team/app:2"
+check "common flags leave command-specific args in order" \
+  "$(printf '%s|' "${REMAINING[@]}")" "--tail|50|positional|"
+
+missing_value_rc=0
+missing_value_output="$(
+  bash -c 'source "$1"; parse_common_flags --port' _ "${HERE}/genosyn" 2>&1
+)" || missing_value_rc=$?
+check "a common flag without a value fails" "${missing_value_rc}" "1"
+check "a common flag without a value explains itself" \
+  "${missing_value_output}" "✗ Missing value for --port"
+
+for disabled in 0 false FALSE no NO off OFF; do
+  if auto_update_requested "${disabled}"; then disabled_result=yes; else disabled_result=no; fi
+  check "auto-update opt-out ${disabled}" "${disabled_result}" "no"
+done
+if auto_update_requested yes; then enabled_result=yes; else enabled_result=no; fi
+check "auto-update defaults all other values on" "${enabled_result}" "yes"
+
+echo "vLLM configuration helpers"
+test_root="$(mktemp -d -t genosyn-cli-vllm-test.XXXXXX)"
+trap 'rm -rf "${test_root}"' EXIT
+VLLM_DIR="${test_root}/vllm"
+mkdir -p "${VLLM_DIR}"
+vllm_write_default_env
+check "default vLLM model is the documented Qwen model" \
+  "$(vllm_env_get VLLM_MODEL "${VLLM_DIR}/.env")" \
+  "Qwen/Qwen2.5-Coder-32B-Instruct"
+check "default vLLM endpoint is unauthenticated" \
+  "$(vllm_env_get VLLM_API_KEY "${VLLM_DIR}/.env")" ""
+
+vllm_env_set VLLM_PORT 9000 "${VLLM_DIR}/.env"
+vllm_env_set VLLM_API_KEY 'secret=with=equals' "${VLLM_DIR}/.env"
+check "env upsert replaces a value" \
+  "$(vllm_env_get VLLM_PORT "${VLLM_DIR}/.env")" "9000"
+check "env values may contain equals signs" \
+  "$(vllm_env_get VLLM_API_KEY "${VLLM_DIR}/.env")" "secret=with=equals"
+printf '%s\n' 'VLLM_PORT=1' 'KEEP=this' 'VLLM_PORT=2' >"${VLLM_DIR}/duplicates.env"
+vllm_env_set VLLM_PORT 8001 "${VLLM_DIR}/duplicates.env"
+check "env upsert collapses duplicate keys" \
+  "$(grep -Ec '^VLLM_PORT=' "${VLLM_DIR}/duplicates.env")" "1"
+check "env upsert preserves unrelated lines" \
+  "$(grep -Fxc 'KEEP=this' "${VLLM_DIR}/duplicates.env")" "1"
+check "missing env keys read as empty" \
+  "$(vllm_env_get UNKNOWN "${VLLM_DIR}/.env")" ""
+
+vllm_write_compose
+check "generated compose keeps model interpolation for runtime" \
+  "$(grep -Fxc '      --model ${VLLM_MODEL:-Qwen/Qwen2.5-Coder-32B-Instruct}' "${VLLM_DIR}/docker-compose.yml")" \
+  "1"
+check "generated compose exposes the OpenAI-compatible port" \
+  "$(grep -Fxc '      - "${VLLM_PORT:-8000}:8000"' "${VLLM_DIR}/docker-compose.yml")" \
+  "1"
+check "generated compose reserves every NVIDIA GPU" \
+  "$(grep -Fxc '              capabilities: [gpu]' "${VLLM_DIR}/docker-compose.yml")" \
+  "1"
+
+echo "container command construction"
+command_log="${test_root}/commands.log"
+mkdir -p "${test_root}/bin"
+cat >"${test_root}/bin/docker" <<'EOF'
+#!/usr/bin/env bash
+printf 'docker' >>"${MOCK_DOCKER_LOG}"
+printf ' <%s>' "$@" >>"${MOCK_DOCKER_LOG}"
+printf '\n' >>"${MOCK_DOCKER_LOG}"
+EOF
+chmod +x "${test_root}/bin/docker"
+PATH="${test_root}/bin:${PATH}" \
+MOCK_DOCKER_LOG="${command_log}" \
+GENOSYN_NAME="company-one" \
+GENOSYN_PORT="9123" \
+GENOSYN_VOLUME="company-one-data" \
+bash -c 'source "$1"; run_container_with_image "$2"' \
+  _ "${HERE}/genosyn" "registry:5000/genosyn/app:test"
+check "run container binds the selected name, port, volume, and image" \
+  "$(cat "${command_log}")" \
+  "docker <run> <-d> <--name> <company-one> <--restart> <unless-stopped> <-p> <9123:8471> <-v> <company-one-data:/app/data> <registry:5000/genosyn/app:test>"
+
+: >"${command_log}"
+PATH="${test_root}/bin:${PATH}" \
+MOCK_DOCKER_LOG="${command_log}" \
+GENOSYN_NAME="company-one" \
+bash -c 'source "$1"; require_docker() { return 0; }; container_exists() { return 0; }; cmd_logs --tail 25 -f' \
+  _ "${HERE}/genosyn"
+check "logs preserves follow and tail flags" \
+  "$(cat "${command_log}")" \
+  "docker <logs> <-f> <--tail> <25> <company-one>"
+
+echo "bootstrap installer smoke tests"
+mkdir -p "${test_root}/bin" "${test_root}/home"
+cat >"${test_root}/bin/docker" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  info) exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+cat >"${test_root}/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+dest=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) dest="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+cp "${MOCK_CURL_SOURCE}" "${dest}"
+EOF
+chmod +x "${test_root}/bin/docker" "${test_root}/bin/curl"
+
+installer_rc=0
+installer_output="$(
+  PATH="${test_root}/bin:${PATH}" \
+  HOME="${test_root}/home" \
+  MOCK_CURL_SOURCE="${HERE}/genosyn" \
+  GENOSYN_CLI_PREFIX="${test_root}/prefix" \
+  GENOSYN_SKIP_RUN=1 \
+  bash "${HERE}/install.sh" 2>&1
+)" || installer_rc=$?
+check "installer succeeds with a valid downloaded CLI" "${installer_rc}" "0"
+check "installer writes an executable CLI" \
+  "$([ -x "${test_root}/prefix/bin/genosyn" ] && echo yes || echo no)" "yes"
+check "installer preserves the downloaded CLI exactly" \
+  "$(file_sha256 "${test_root}/prefix/bin/genosyn")" \
+  "$(file_sha256 "${HERE}/genosyn")"
+check "skip-run stops before Docker installation" \
+  "$(printf '%s' "${installer_output}" | grep -Fc "CLI installed. Run 'genosyn install'")" "1"
+
+printf '%s\n' '<html>not a script</html>' >"${test_root}/invalid-download"
+invalid_rc=0
+invalid_output="$(
+  PATH="${test_root}/bin:${PATH}" \
+  HOME="${test_root}/home" \
+  MOCK_CURL_SOURCE="${test_root}/invalid-download" \
+  GENOSYN_CLI_PREFIX="${test_root}/invalid-prefix" \
+  GENOSYN_SKIP_RUN=1 \
+  bash "${HERE}/install.sh" 2>&1
+)" || invalid_rc=$?
+check "installer rejects a non-script download" "${invalid_rc}" "1"
+check "installer explains a non-script download" \
+  "$(printf '%s' "${invalid_output}" | grep -Fc 'Downloaded file does not look like a shell script')" \
+  "1"
+
+rm -rf "${test_root}"
+trap - EXIT
+
 printf '\n%d passed, %d failed\n' "${pass}" "${fail}"
 [ "${fail}" -eq 0 ]

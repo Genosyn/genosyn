@@ -90,6 +90,10 @@ async function handleMessage(
     params?: Record<string, unknown>;
   };
   if (method === undefined) return null; // a response from the peer
+  // JSON-RPC notifications never receive a response, even when they use a
+  // method that normally returns data. An explicit `id: null` is still a
+  // request and is answered; only an absent id marks a notification.
+  if (id === undefined) return null;
   const rpcId: JsonRpcId = id ?? null;
 
   try {
@@ -157,12 +161,9 @@ async function handleMessage(
         return err(rpcId, -32602, `Unknown tool: ${name}`);
       }
       default:
-        // Notifications (id undefined) get swallowed; requests get an error.
-        if (id === undefined) return null;
         return err(rpcId, -32601, `Method not found: ${method}`);
     }
   } catch (e) {
-    if (id === undefined) return null;
     return err(rpcId, -32000, e instanceof Error ? e.message : String(e));
   }
 }

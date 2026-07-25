@@ -20,7 +20,7 @@
 
 set -euo pipefail
 
-CLI_VERSION="0.4.1"
+CLI_VERSION="0.4.2"
 
 PORT="${GENOSYN_PORT:-8471}"
 NAME="${GENOSYN_NAME:-genosyn}"
@@ -512,10 +512,22 @@ parse_common_flags() {
   REMAINING=()
   while [ $# -gt 0 ]; do
     case "$1" in
-      --port)    PORT="$2"; shift 2 ;;
-      --name)    NAME="$2"; shift 2 ;;
-      --volume)  VOLUME="$2"; shift 2 ;;
-      --image)   IMAGE="$2"; shift 2 ;;
+      --port)
+        [ $# -ge 2 ] || die "Missing value for --port"
+        PORT="$2"; shift 2
+        ;;
+      --name)
+        [ $# -ge 2 ] || die "Missing value for --name"
+        NAME="$2"; shift 2
+        ;;
+      --volume)
+        [ $# -ge 2 ] || die "Missing value for --volume"
+        VOLUME="$2"; shift 2
+        ;;
+      --image)
+        [ $# -ge 2 ] || die "Missing value for --image"
+        IMAGE="$2"; shift 2
+        ;;
       --port=*)    PORT="${1#*=}"; shift ;;
       --name=*)    NAME="${1#*=}"; shift ;;
       --volume=*)  VOLUME="${1#*=}"; shift ;;
@@ -1520,7 +1532,12 @@ vllm_env_set() {
   if [ -f "${file}" ]; then
     while IFS= read -r line || [ -n "${line}" ]; do
       case "${line}" in
-        "${key}="*) printf '%s=%s\n' "${key}" "${val}" >> "${tmp}"; found=1 ;;
+        "${key}="*)
+          if [ "${found}" = "0" ]; then
+            printf '%s=%s\n' "${key}" "${val}" >> "${tmp}"
+            found=1
+          fi
+          ;;
         *)          printf '%s\n' "${line}" >> "${tmp}" ;;
       esac
     done < "${file}"

@@ -25,6 +25,12 @@ import "./revenue.js";
 let cached: ReturnType<OpenApiGeneratorV3["generateDocument"]> | null = null;
 
 function readVersion(): string {
+  // Container builds cannot see the repo-root VERSION file because App is
+  // deliberately its own build context. The release workflow passes the same
+  // value as APP_VERSION and the runtime image preserves it.
+  const builtVersion = process.env.APP_VERSION?.trim();
+  if (builtVersion) return builtVersion;
+
   // VERSION lives at the repo root: <root>/VERSION. The compiled server runs
   // from <root>/App/dist/server, dev runs from <root>/App/server. Resolve
   // upward until we find it so both layouts work.

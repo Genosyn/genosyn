@@ -21,9 +21,9 @@ export function SelfHosting() {
         title="Configuration"
         lead={
           <>
-            Boot settings live in <Code>App/config.ts</Code>. Settings that are safe to change
-            while Genosyn is running, including its public URL, live in the database and are
-            managed from Admin.
+            Boot settings live in <Code>App/config.ts</Code>. Settings that are safe to change while
+            Genosyn is running, including its public URL, live in the database and are managed from
+            Admin.
           </>
         }
       />
@@ -102,8 +102,7 @@ export function SelfHosting() {
         Sign in as a master admin and open <Code>Admin → General</Code>. Set the exact origin
         Members use to reach Genosyn, for example <Code>https://genosyn.example.com</Code>. Genosyn
         stores it in the database and uses it for OAuth callbacks, WebAuthn, invitation and reset
-        links, push notifications, and API documentation. A path, query, or fragment is not
-        allowed.
+        links, push notifications, and API documentation. A path, query, or fragment is not allowed.
       </P>
       <Callout kind="tip" title="Fresh installs detect it automatically.">
         The first successful master-admin browser sign-in or sign-up saves the same-origin URL it

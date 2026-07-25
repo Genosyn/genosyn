@@ -47,6 +47,8 @@ export function readCustomEndpoint(m: AIModel): CustomEndpointConfig | null {
   } catch {
     return null;
   }
+  baseURL = baseURL.trim();
+  if (!baseURL) return null;
   const keyEnc = typeof cfg.apiKeyEncrypted === "string" ? (cfg.apiKeyEncrypted as string) : null;
   let apiKey: string | null = null;
   if (keyEnc) {
@@ -58,7 +60,7 @@ export function readCustomEndpoint(m: AIModel): CustomEndpointConfig | null {
   }
   const modelId = typeof cfg.modelId === "string" ? (cfg.modelId as string).trim() : "";
   if (!modelId) return null;
-  return { baseURL: baseURL.trim(), apiKey, modelId };
+  return { baseURL, apiKey, modelId };
 }
 
 /**
