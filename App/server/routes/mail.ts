@@ -46,7 +46,12 @@ import {
   runBulkDraftAction,
   type DraftSelection,
 } from "../services/mail/drafts.js";
-import { extractBodies, getAttachment, getMessage } from "../services/mail/gmailClient.js";
+import {
+  decodeHtmlEntities,
+  extractBodies,
+  getAttachment,
+  getMessage,
+} from "../services/mail/gmailClient.js";
 import { stageAttachment } from "../services/mail/outbox.js";
 import {
   createMailHandover,
@@ -130,7 +135,7 @@ function serializeThread(t: MailThread) {
     gmailThreadId: t.gmailThreadId,
     accountId: t.accountId,
     subject: t.subject,
-    snippet: t.snippet,
+    snippet: decodeHtmlEntities(t.snippet),
     participants: t.participants,
     labelIds: columnToLabelIds(t.labelIds),
     unread: t.unread,
@@ -152,7 +157,7 @@ function serializeMessage(m: MailMessage) {
     ccEmails: m.ccEmails,
     bccEmails: m.bccEmails,
     subject: m.subject,
-    snippet: m.snippet,
+    snippet: decodeHtmlEntities(m.snippet),
     bodyText: m.bodyText,
     bodyHtml: m.bodyHtml,
     labelIds: columnToLabelIds(m.labelIds),

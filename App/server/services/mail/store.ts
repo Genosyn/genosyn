@@ -5,6 +5,7 @@ import { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailLabel } from "../../db/entities/MailLabel.js";
 import {
   extractBodies,
+  decodeHtmlEntities,
   headerValue,
   parseAddress,
   listDrafts,
@@ -86,7 +87,7 @@ export async function upsertGmailMessage(
   row.ccEmails = headerValue(headers, "Cc");
   row.bccEmails = headerValue(headers, "Bcc");
   row.subject = headerValue(headers, "Subject");
-  row.snippet = gm.snippet ?? "";
+  row.snippet = decodeHtmlEntities(gm.snippet ?? "");
   row.bodyText = truncate(bodies.text, BODY_CAP);
   row.bodyHtml = truncate(bodies.html, BODY_CAP);
   row.labelIds = labelIdsToColumn(gm.labelIds ?? []);

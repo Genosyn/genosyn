@@ -573,20 +573,46 @@ function decodeBody(body: GmailBody | undefined): string {
 /** Minimal HTML→text for prompts and search — same spirit as the Resources
  * ingester: no DOM dependency, good enough for matching and reading. */
 export function stripHtml(html: string): string {
-  return html
+  const text = html
     .replace(/<(style|script|head)[\s\S]*?<\/\1>/gi, " ")
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/(p|div|tr|li|h[1-6]|blockquote)>/gi, "\n")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
+    .replace(/<[^>]+>/g, " ");
+  return decodeHtmlEntities(text)
     .replace(/[ \t]+/g, " ")
     .replace(/\n\s+\n/g, "\n\n")
     .trim();
+}
+
+const HTML_ENTITIES: Record<string, string> = {
+  amp: "&",
+  apos: "'",
+  gt: ">",
+  lt: "<",
+  nbsp: " ",
+  quot: '"',
+};
+
+/**
+ * Decode the character references Gmail uses in snippets while keeping the
+ * result plain text. Unknown and invalid references stay visible verbatim.
+ */
+export function decodeHtmlEntities(text: string): string {
+  return text.replace(
+    /&(?:#([0-9]+)|#x([0-9a-f]+)|([a-z][a-z0-9]+));/gi,
+    (entity, decimal: string | undefined, hexadecimal: string | undefined, named: string) => {
+      if (named) return HTML_ENTITIES[named.toLowerCase()] ?? entity;
+      const codePoint = Number.parseInt(decimal ?? hexadecimal ?? "", decimal ? 10 : 16);
+      if (
+        !Number.isFinite(codePoint) ||
+        codePoint > 0x10ffff ||
+        (codePoint >= 0xd800 && codePoint <= 0xdfff)
+      ) {
+        return entity;
+      }
+      return String.fromCodePoint(codePoint);
+    },
+  );
 }
 
 // ---------- Header helpers ----------
