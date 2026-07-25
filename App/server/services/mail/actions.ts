@@ -3,6 +3,7 @@ import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailLabel } from "../../db/entities/MailLabel.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailThread } from "../../db/entities/MailThread.js";
+import { parseAddressList } from "../../lib/emailAddress.js";
 import { broadcastToCompany } from "../realtime.js";
 import { accessTokenForAccount } from "./accounts.js";
 import {
@@ -18,7 +19,6 @@ import {
   trashThread,
   untrashThread,
   updateDraft as apiUpdateDraft,
-  parseAddress,
   type MimeAttachment,
 } from "./gmailClient.js";
 import { drainAttachments } from "./outbox.js";
@@ -269,14 +269,14 @@ async function replyContext(thread: MailThread): Promise<{
   const references = [last.referencesHeader, last.messageIdHeader]
     .filter(Boolean)
     .join(" ");
-  const from = last.fromName
-    ? `${last.fromName} <${last.fromEmail}>`
-    : last.fromEmail;
   return {
     subject,
     inReplyTo: last.messageIdHeader || undefined,
     references: references || undefined,
-    defaultTo: from,
+    // Use the canonical address rather than rebuilding `Display Name <email>`.
+    // A name containing a comma must be RFC-quoted; handing the address alone
+    // to the composer is both unambiguous and immune to malformed source names.
+    defaultTo: last.fromEmail,
     defaultCcPool: [last.toEmails, last.ccEmails].filter(Boolean).join(", "),
   };
 }
@@ -288,16 +288,16 @@ export async function replyAllRecipients(
 ): Promise<{ to: string; cc: string }> {
   const ctx = await replyContext(thread);
   const self = account.address.toLowerCase();
-  const notSelf = (addr: string) =>
-    parseAddress(addr).email.toLowerCase() !== self;
-  const splitAddrs = (v: string) =>
-    v.split(",").map((s) => s.trim()).filter(Boolean);
+  const recipientEmails = (value: string) =>
+    parseAddressList(value).addresses.filter((email) => email !== self);
 
   // The original sender goes in To — unless the last message was one the
   // mailbox itself sent (then defaultTo is our own address, which we drop and
   // let the cc pool carry the real recipients).
-  const toList = splitAddrs(ctx.defaultTo).filter(notSelf);
-  const cc = splitAddrs(ctx.defaultCcPool).filter(notSelf);
+  const toList = recipientEmails(ctx.defaultTo);
+  const cc = recipientEmails(ctx.defaultCcPool).filter(
+    (email) => !toList.includes(email),
+  );
   let to = toList;
   if (to.length === 0 && cc.length > 0) {
     to = [cc.shift()!]; // promote one cc into To so there's always a recipient
