@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
+import { Link, NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ChevronDown,
   ChevronRight,
@@ -159,7 +159,6 @@ function TopNav({
 
   const sectionKey = activeSection(location.pathname);
   const section = SECTION_BY_KEY[sectionKey];
-  const integrationScope = productIntegrationScope(sectionKey);
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 sm:gap-3 sm:px-4 dark:border-slate-800 dark:bg-slate-950">
@@ -243,22 +242,6 @@ function TopNav({
       <ChevronRight size={14} className="shrink-0 text-slate-300 dark:text-slate-600" />
 
       <SectionMenu current={section} />
-
-      {integrationScope && (
-        <NavLink
-          to={`/c/${current.slug}/${sectionKey as ProductIntegrationKey}/integrations`}
-          className={({ isActive }) =>
-            "flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium transition " +
-            (isActive
-              ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
-              : "text-slate-500 hover:bg-slate-50 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100")
-          }
-          title={`${integrationScope.label} integrations`}
-        >
-          <Plug size={14} />
-          <span className="hidden lg:inline">Integrations</span>
-        </NavLink>
-      )}
 
       <div className="ml-auto flex items-center gap-2">
         <button
@@ -431,8 +414,19 @@ export function ContextualLayout({
   sidebar?: React.ReactNode;
   children: React.ReactNode;
 }) {
-  const hasSidebar = sidebar !== undefined;
   const location = useLocation();
+  const { companySlug } = useParams<{ companySlug: string }>();
+  const sectionKey = activeSection(location.pathname);
+  const integrationScope = productIntegrationScope(sectionKey);
+  const integrationLink =
+    companySlug && integrationScope ? (
+      <SidebarLink
+        to={`/c/${companySlug}/${sectionKey as ProductIntegrationKey}/integrations`}
+        icon={<Plug size={14} />}
+        label="Integrations"
+      />
+    ) : null;
+  const hasSidebar = sidebar !== undefined || integrationLink !== null;
   const ctx = React.useContext(ContextualSidebarContext);
   // useState setters are referentially stable, so depending on them below
   // won't re-fire these effects when the drawer toggles.
@@ -463,6 +457,23 @@ export function ContextualLayout({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, setOpen]);
 
+  const sidebarContents = (
+    <>
+      {sidebar !== undefined && <div className="min-h-0 flex-1">{sidebar}</div>}
+      {integrationLink && (
+        <nav
+          aria-label={`${integrationScope?.label ?? "Product"} integrations`}
+          className={
+            "shrink-0 p-2 " +
+            (sidebar !== undefined ? "border-t border-slate-100 dark:border-slate-800" : "")
+          }
+        >
+          {integrationLink}
+        </nav>
+      )}
+    </>
+  );
+
   return (
     <>
       {hasSidebar && (
@@ -470,7 +481,7 @@ export function ContextualLayout({
           {/* Desktop: static sidebar. Hidden on mobile, where it would crush
               the main pane — reachable there via the top-nav drawer below. */}
           <aside className="hidden w-64 shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-white md:flex dark:border-slate-800 dark:bg-slate-950">
-            {sidebar}
+            {sidebarContents}
           </aside>
           {/* Mobile: off-canvas drawer + scrim. */}
           {open && (
@@ -481,7 +492,7 @@ export function ContextualLayout({
                 aria-hidden="true"
               />
               <aside className="absolute inset-y-0 left-0 flex w-64 max-w-[85vw] flex-col overflow-y-auto border-r border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-950">
-                {sidebar}
+                {sidebarContents}
               </aside>
             </div>
           )}

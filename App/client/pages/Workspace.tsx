@@ -13,6 +13,7 @@ import {
   MessagesSquare,
   MoreHorizontal,
   Paperclip,
+  Plug,
   Plus,
   Send,
   Smile,
@@ -50,6 +51,7 @@ import {
   resourceQueryAtCaret,
   useResourceReferences,
 } from "../components/chat/ResourceReferencePicker";
+import { SidebarLink } from "../components/AppShell";
 
 /**
  * Slack-style workspace chat:
@@ -472,6 +474,7 @@ export default function Workspace({ company, me }: WorkspaceProps) {
   return (
     <div className="flex min-h-0 flex-1">
       <WorkspaceSidebar
+        companySlug={company.slug}
         me={me}
         channels={channels}
         directory={directory}
@@ -542,6 +545,7 @@ export default function Workspace({ company, me }: WorkspaceProps) {
 // ────────────────────────── Sidebar ─────────────────────────────────────
 
 function WorkspaceSidebar({
+  companySlug,
   me,
   channels,
   directory,
@@ -552,6 +556,7 @@ function WorkspaceSidebar({
   onNewDM,
   onArchive,
 }: {
+  companySlug: string;
   me: Me;
   channels: WorkspaceChannel[] | null;
   directory: WorkspaceDirectory | null;
@@ -635,6 +640,13 @@ function WorkspaceSidebar({
         })}
         {dms.length === 0 && <EmptyHint label="No direct messages." />}
       </SidebarSection>
+      <nav className="mt-auto border-t border-slate-100 p-2 dark:border-slate-800">
+        <SidebarLink
+          to={`/c/${companySlug}/workspace/integrations`}
+          icon={<Plug size={14} />}
+          label="Integrations"
+        />
+      </nav>
     </aside>
   );
 }

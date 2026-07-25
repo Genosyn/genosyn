@@ -1484,7 +1484,7 @@ of the original V1 backlog has shipped — what remains is mostly
       with short-lived per-spawn Bearer)
 - [x] **Integrations + Connections framework** with grants
 - [x] **Product-scoped Integrations pages** — every product exposes
-      `/c/<company>/<product>/integrations` from the top bar. Each page shows
+      `/c/<company>/<product>/integrations` from its sidebar. Each page shows
       only the Connections and catalog entries relevant to that product
       (Explore: Postgres / MySQL / ClickHouse; Email: Google; Code: GitHub;
       etc.), while Settings → Integrations remains the complete company

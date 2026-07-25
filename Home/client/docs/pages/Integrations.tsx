@@ -103,9 +103,9 @@ export function Integrations() {
 
       <H2 id="product-pages">Connect from the product you are using</H2>
       <P>
-        Every product has an <Code>Integrations</Code> link beside its name in the top bar. That
-        page is a focused view of the company catalog: it shows the Connections and connector types
-        that belong in the current workflow, without making you leave the product to configure them.
+        Every product has an <Code>Integrations</Code> link in its sidebar. That page is a focused
+        view of the company catalog: it shows the Connections and connector types that belong in the
+        current workflow, without making you leave the product to configure them.
       </P>
       <UL>
         <LI>

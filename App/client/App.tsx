@@ -96,6 +96,7 @@ import NotebookDetail from "./pages/NotebookDetail";
 import NoteDetail from "./pages/NoteDetail";
 import ResourcesIndex from "./pages/ResourcesIndex";
 import ResourceDetail from "./pages/ResourceDetail";
+import ResourcesLayout from "./pages/ResourcesLayout";
 import CodeReposLayout from "./pages/CodeReposLayout";
 import CodeReposIndex from "./pages/CodeReposIndex";
 import CodeRepoOverview from "./pages/CodeRepoOverview";
@@ -396,8 +397,10 @@ function CompanyRoutes({
 
           {/* Resources (M18) — knowledge ingestion. URL / ebook / paste →
             extracted text, queryable by AI employees via MCP tools. */}
-          <Route path="resources" element={<ResourcesIndex company={company} />} />
-          <Route path="resources/:slug" element={<ResourceDetail company={company} />} />
+          <Route path="resources" element={<ResourcesLayout />}>
+            <Route index element={<ResourcesIndex company={company} />} />
+            <Route path=":slug" element={<ResourceDetail company={company} />} />
+          </Route>
 
           {/* Code — provider-agnostic git repositories the company adds so
             granted AI employees can read, commit, and push real code. */}

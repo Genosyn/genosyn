@@ -408,6 +408,7 @@ export function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/mail(\/|$)/.test(pathname)) return "mail";
   if (/\/c\/[^/]+\/workspace(\/|$)/.test(pathname)) return "workspace";
   if (/\/c\/[^/]+\/employees(\/|$)/.test(pathname)) return "employees";
+  if (/\/c\/[^/]+\/skills(\/|$)/.test(pathname)) return "skills";
   if (/\/c\/[^/]+\/routines(\/|$)/.test(pathname)) return "routines";
   if (/\/c\/[^/]+\/tasks(\/|$)/.test(pathname)) return "tasks";
   if (/\/c\/[^/]+\/bases(\/|$)/.test(pathname)) return "bases";
