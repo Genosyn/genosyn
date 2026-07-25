@@ -171,7 +171,7 @@ esac
 check "pre-upgrade backup uses a dated instance-specific name" \
   "${backup_name_ok}" 'yes'
 check "pre-upgrade backup directory is private" \
-  "$(stat -f '%Lp' "${UPGRADE_BACKUP_DIR}" 2>/dev/null || stat -c '%a' "${UPGRADE_BACKUP_DIR}")" '700'
+  "$(stat -c '%a' "${UPGRADE_BACKUP_DIR}" 2>/dev/null || stat -f '%Lp' "${UPGRADE_BACKUP_DIR}")" '700'
 
 rollback_log="${test_root}/rollback.log"
 docker() {
