@@ -19,6 +19,12 @@ import { Chart } from "../db/entities/Chart.js";
 import { CodeRepository } from "../db/entities/CodeRepository.js";
 import { Company } from "../db/entities/Company.js";
 import { Customer } from "../db/entities/Customer.js";
+import { Contact } from "../db/entities/Contact.js";
+import { Deal } from "../db/entities/Deal.js";
+import { Activity } from "../db/entities/Activity.js";
+import { Partnership } from "../db/entities/Partnership.js";
+import { RevenueDocument } from "../db/entities/RevenueDocument.js";
+import { RevenueImportBatch } from "../db/entities/RevenueImportBatch.js";
 import { CustomerContract } from "../db/entities/CustomerContract.js";
 import { Dashboard } from "../db/entities/Dashboard.js";
 import { EmailLog } from "../db/entities/EmailLog.js";
@@ -162,6 +168,25 @@ export async function deleteUserCascade(args: {
     await m.update(Chart, { createdById: userId }, { createdById: null });
     await m.update(CodeRepository, { createdById: userId }, { createdById: null });
     await m.update(Customer, { createdById: userId }, { createdById: null });
+    await m.update(Customer, { ownerId: userId }, { ownerId: null });
+    await m.update(Contact, { createdById: userId }, { createdById: null });
+    await m.update(Contact, { ownerId: userId }, { ownerId: null });
+    await m.update(Deal, { createdById: userId }, { createdById: null });
+    await m.update(Deal, { ownerId: userId }, { ownerId: null });
+    await m.update(Activity, { actorUserId: userId }, { actorUserId: null });
+    await m.update(Activity, { assignedUserId: userId }, { assignedUserId: null });
+    await m.update(Partnership, { createdById: userId }, { createdById: null });
+    await m.update(Partnership, { ownerId: userId }, { ownerId: null });
+    await m.update(
+      RevenueDocument,
+      { createdByUserId: userId },
+      { createdByUserId: null },
+    );
+    await m.update(
+      RevenueImportBatch,
+      { createdByUserId: userId },
+      { createdByUserId: null },
+    );
     await m.update(Dashboard, { createdById: userId }, { createdById: null });
     await m.update(Estimate, { createdById: userId }, { createdById: null });
     await m.update(Invoice, { createdById: userId }, { createdById: null });

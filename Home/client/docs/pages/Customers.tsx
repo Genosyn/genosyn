@@ -17,8 +17,8 @@ export function Customers() {
         title="Customers"
         lead={
           <>
-            The accounts you sell to — their people, their headline value,
-            and the contracts you&apos;ve signed with them. Customers used
+            The accounts you sell to — from prospect through billing — their people, headline
+            value, and the contracts you&apos;ve signed with them. Customers used
             to live inside Finance; they now have their own top-level
             section in the sidebar under <Code>Customers</Code>.
           </>
@@ -28,8 +28,8 @@ export function Customers() {
       <H2 id="what-ships">What ships</H2>
       <UL>
         <LI>
-          <Strong>Customer accounts</Strong> — name, billing email, phone,
-          tax ID, default currency, and billing address.
+          <Strong>Accounts</Strong> — prospect/customer/former status, domain, website, industry,
+          size and owner alongside billing email, phone, tax ID, currency, and address.
         </LI>
         <LI>
           <Strong>Annual Contract Value</Strong> — a headline revenue figure
@@ -52,17 +52,21 @@ export function Customers() {
 
       <H2 id="accounts">Customer accounts</H2>
       <P>
-        A <Strong>Customer</Strong> is the billable account — the company
-        name, primary billing email, tax ID, default currency, and address
-        that appear on every invoice. Create one from{" "}
-        <Code>Customers → New customer</Code>. Each customer also has a{" "}
+        A <Strong>Customer</Strong> row is the account across its whole lifecycle. Create a prospect
+        from <Code>Revenue → Accounts</Code> before it has finance activity, or create a customer
+        directly from <Code>Customers → New customer</Code>. Issuing the first invoice promotes a
+        prospect to customer automatically. The same row carries the company name, domain,
+        firmographics, owner, billing email, tax ID, default currency, and invoice address.
+      </P>
+      <P>
+        Each account also has a{" "}
         <Strong>slug</Strong> auto-derived from its name (<Code>Acme Corp</Code>{" "}
         → <Code>acme-corp</Code>); that slug is uppercased and prefixed onto
         every invoice and estimate number issued to the customer over in{" "}
         <DocLink to="/docs/finance">Finance</DocLink>, so the numbers stay
-        unique and self-identify across accounts. Customers with invoices
-        can&apos;t be deleted — archive them instead to keep historical
-        billing intact while hiding them from the default list.
+        unique and self-identify across accounts. Accounts with linked Revenue or finance history
+        cannot be deleted — archive them instead to keep the full relationship and billing history
+        intact.
       </P>
 
       <H2 id="overview">Customer overview</H2>
@@ -135,10 +139,10 @@ export function Customers() {
         estimate email still goes to the customer&apos;s billing email.
       </P>
       <P>
-        These belong to an account you already bill. The people you are still{" "}
-        <em>selling</em> to — who may have no account yet — are{" "}
+        These lightweight contacts support billing records. The people you are selling to are{" "}
         <DocLink to="/docs/revenue">Revenue contacts</DocLink>, with their own
-        timeline, deals, and outbound.
+        timeline, deals, ownership, and outbound; they can link to an account while it is still a
+        prospect.
       </P>
 
       <H2 id="contracts">Contracts</H2>

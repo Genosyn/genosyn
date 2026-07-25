@@ -7,6 +7,8 @@ import {
 } from "../../db/entities/Contact.js";
 import { Customer } from "../../db/entities/Customer.js";
 import { normalizeEmail } from "../../lib/emailAddress.js";
+import { assertRevenueLinks } from "./integrity.js";
+import { matchingResourceIds } from "./customFields.js";
 
 /**
  * Contacts — the person layer of the Revenue section.
@@ -55,6 +57,8 @@ export type ContactListOptions = {
   customerId?: string;
   ownerId?: string;
   ownerEmployeeId?: string;
+  customFieldKey?: string;
+  customFieldValue?: string;
   /** Include archived rows. Default false. */
   includeArchived?: boolean;
   limit?: number;
@@ -109,6 +113,16 @@ export async function listContacts(
   if (opts.ownerId) qb.andWhere("c.ownerId = :oid", { oid: opts.ownerId });
   if (opts.ownerEmployeeId) {
     qb.andWhere("c.ownerEmployeeId = :oeid", { oeid: opts.ownerEmployeeId });
+  }
+  if (opts.customFieldKey && opts.customFieldValue !== undefined) {
+    const ids = await matchingResourceIds(
+      companyId,
+      "contact",
+      opts.customFieldKey,
+      opts.customFieldValue,
+    );
+    if (ids.length === 0) return { rows: [], total: 0 };
+    qb.andWhere("c.id IN (:...customIds)", { customIds: ids });
   }
 
   const total = await qb.clone().getCount();
@@ -205,6 +219,7 @@ export async function createContact(
   input: ContactInput,
   actor: ContactActor = {},
 ): Promise<Contact> {
+  await assertRevenueLinks(companyId, { customerId: input.customerId });
   const email = normalizeEmail(input.email ?? "") ?? "";
   if (email) {
     const existing = await findContactByEmail(companyId, email);
@@ -250,6 +265,7 @@ export async function upsertContactByEmail(
   input: ContactInput & { email: string },
   actor: ContactActor = {},
 ): Promise<Contact | null> {
+  await assertRevenueLinks(companyId, { customerId: input.customerId });
   const email = normalizeEmail(input.email);
   if (!email) return null;
 
@@ -295,6 +311,7 @@ export async function updateContact(
   const repo = AppDataSource.getRepository(Contact);
   const contact = await repo.findOneBy({ id, companyId });
   if (!contact) return null;
+  await assertRevenueLinks(companyId, { customerId: patch.customerId });
 
   if (patch.email !== undefined) {
     const email = normalizeEmail(patch.email) ?? "";

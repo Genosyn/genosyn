@@ -10,6 +10,13 @@ import { DEFAULT_CURRENCY } from "../../lib/money.js";
 import { recordActivity } from "./activities.js";
 import { applyStageChange, weightedValueCents } from "./dealStage.js";
 import { defaultStageFor, getDealStage, listDealStages } from "./stages.js";
+import {
+  assertClassification,
+  classificationValue,
+  listRevenueClassifications,
+} from "./classifications.js";
+import { matchingResourceIds } from "./customFields.js";
+import { assertRevenueLinks, assertRevenueOwner } from "./integrity.js";
 
 /**
  * Deals — the opportunity layer.
@@ -42,6 +49,8 @@ export type DealInput = {
   ownerId?: string | null;
   ownerEmployeeId?: string | null;
   nextStep?: string;
+  nextFollowUpAt?: Date | null;
+  followUpReminderAt?: Date | null;
   lostReason?: string;
 };
 
@@ -53,6 +62,8 @@ export type DealListOptions = {
   contactId?: string;
   ownerId?: string;
   ownerEmployeeId?: string;
+  customFieldKey?: string;
+  customFieldValue?: string;
   includeArchived?: boolean;
   limit?: number;
   offset?: number;
@@ -103,6 +114,16 @@ export async function listDeals(
   if (opts.ownerId) qb.andWhere("d.ownerId = :oid", { oid: opts.ownerId });
   if (opts.ownerEmployeeId) {
     qb.andWhere("d.ownerEmployeeId = :oeid", { oeid: opts.ownerEmployeeId });
+  }
+  if (opts.customFieldKey && opts.customFieldValue !== undefined) {
+    const ids = await matchingResourceIds(
+      companyId,
+      "deal",
+      opts.customFieldKey,
+      opts.customFieldValue,
+    );
+    if (ids.length === 0) return { rows: [], total: 0 };
+    qb.andWhere("d.id IN (:...customIds)", { customIds: ids });
   }
 
   const total = await qb.clone().getCount();
@@ -201,6 +222,13 @@ export async function createDeal(
   if (input.stageId && !stage) throw new InvalidStageError(input.stageId);
   if (!stage) stage = await defaultStageFor(companyId);
   if (!stage) throw new Error("createDeal: the company has no deal stages");
+  await assertRevenueOwner(companyId, input);
+  await assertRevenueLinks(companyId, {
+    customerId: input.customerId,
+    contactId: input.primaryContactId,
+  });
+  const source = input.source ? classificationValue(input.source) : "";
+  await assertClassification(companyId, "deal_source", source);
 
   const now = new Date();
   const repo = AppDataSource.getRepository(Deal);
@@ -215,10 +243,12 @@ export async function createDeal(
     currency: input.currency || DEFAULT_CURRENCY,
     probabilityOverride: clampProbability(input.probabilityOverride),
     expectedCloseDate: input.expectedCloseDate ?? null,
-    source: input.source ?? "",
+    source,
     ownerId: input.ownerId ?? null,
     ownerEmployeeId: input.ownerEmployeeId ?? null,
     nextStep: input.nextStep ?? "",
+    nextFollowUpAt: input.nextFollowUpAt ?? null,
+    followUpReminderAt: input.followUpReminderAt ?? null,
     lastActivityAt: now,
     createdById: actor.userId ?? null,
     createdByEmployeeId: actor.employeeId ?? null,
@@ -261,6 +291,11 @@ export async function updateDeal(
   const repo = AppDataSource.getRepository(Deal);
   const deal = await repo.findOneBy({ id, companyId });
   if (!deal) return null;
+  await assertRevenueOwner(companyId, patch);
+  await assertRevenueLinks(companyId, {
+    customerId: patch.customerId,
+    contactId: patch.primaryContactId,
+  });
 
   // A stage change is not an ordinary field write — it carries the status
   // invariant and an activity — so it is routed through moveDealToStage.
@@ -276,10 +311,24 @@ export async function updateDeal(
     deal.probabilityOverride = clampProbability(rest.probabilityOverride);
   }
   if (rest.expectedCloseDate !== undefined) deal.expectedCloseDate = rest.expectedCloseDate;
-  if (rest.source !== undefined) deal.source = rest.source;
-  if (rest.ownerId !== undefined) deal.ownerId = rest.ownerId;
-  if (rest.ownerEmployeeId !== undefined) deal.ownerEmployeeId = rest.ownerEmployeeId;
+  if (rest.source !== undefined) {
+    const source = classificationValue(rest.source);
+    await assertClassification(companyId, "deal_source", source);
+    deal.source = source;
+  }
+  if (rest.ownerId !== undefined) {
+    deal.ownerId = rest.ownerId;
+    if (rest.ownerId) deal.ownerEmployeeId = null;
+  }
+  if (rest.ownerEmployeeId !== undefined) {
+    deal.ownerEmployeeId = rest.ownerEmployeeId;
+    if (rest.ownerEmployeeId) deal.ownerId = null;
+  }
   if (rest.nextStep !== undefined) deal.nextStep = rest.nextStep;
+  if (rest.nextFollowUpAt !== undefined) deal.nextFollowUpAt = rest.nextFollowUpAt;
+  if (rest.followUpReminderAt !== undefined) {
+    deal.followUpReminderAt = rest.followUpReminderAt;
+  }
   if (rest.lostReason !== undefined) deal.lostReason = rest.lostReason;
 
   const saved = await repo.save(deal);
@@ -320,6 +369,10 @@ export async function moveDealToStage(
   deal.closedAt = change.closedAt;
   deal.lostReason = opts.lostReason ?? change.lostReason;
   deal.lastActivityAt = now;
+  if (stage.kind !== "open") {
+    deal.nextFollowUpAt = null;
+    deal.followUpReminderAt = null;
+  }
 
   const saved = await repo.save(deal);
 
@@ -465,17 +518,28 @@ export async function addDealContact(
   contactId: string,
   role = "",
 ): Promise<DealContact> {
+  const normalizedRole = role ? classificationValue(role) : "";
+  const classifications = normalizedRole
+    ? await listRevenueClassifications(companyId, "committee_role")
+    : [];
+  const storedRole =
+    classifications.find((classification) => classification.value === normalizedRole)?.label ?? "";
+  if (normalizedRole && !storedRole) {
+    throw new Error("Unknown committee role classification");
+  }
   const repo = AppDataSource.getRepository(DealContact);
   const existing = await repo.findOneBy({ companyId, dealId, contactId });
   if (existing) {
-    if (role && existing.role !== role) {
-      existing.role = role;
+    if (storedRole && existing.role !== storedRole) {
+      existing.role = storedRole;
       return repo.save(existing);
     }
     return existing;
   }
   const count = await repo.countBy({ companyId, dealId });
-  return repo.save(repo.create({ companyId, dealId, contactId, role, sortOrder: count }));
+  return repo.save(
+    repo.create({ companyId, dealId, contactId, role: storedRole, sortOrder: count }),
+  );
 }
 
 export async function removeDealContact(

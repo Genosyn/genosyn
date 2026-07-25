@@ -21,6 +21,7 @@ import { Textarea } from "../components/ui/Textarea";
 import { useDialog } from "../components/ui/Dialog";
 import { useToast } from "../components/ui/Toast";
 import { RevenueOutletCtx } from "./RevenueLayout";
+import type { RevenueClassification } from "../lib/revenue";
 
 /**
  * The deal board — `GET /revenue/deals/board` rendered as one column per
@@ -71,6 +72,8 @@ export type Deal = {
   currency: string;
   probabilityOverride: number | null;
   expectedCloseDate: string | null;
+  nextFollowUpAt: string | null;
+  followUpReminderAt: string | null;
   status: DealStatus;
   closedAt: string | null;
   lostReason: string;
@@ -137,10 +140,19 @@ export type Activity = {
   contactId: string | null;
   dealId: string | null;
   customerId: string | null;
+  partnershipId?: string | null;
   mailThreadId: string | null;
   mailMessageId: string | null;
   actorUserId: string | null;
   actorEmployeeId: string | null;
+  taskStatus?: "open" | "completed" | "cancelled" | null;
+  dueAt?: string | null;
+  completedAt?: string | null;
+  assignedUserId?: string | null;
+  assignedEmployeeId?: string | null;
+  priority?: "low" | "normal" | "high" | "urgent" | null;
+  reminderAt?: string | null;
+  recurrenceRule?: string | null;
   /** Kind-specific detail, serialized — the API does not parse it for you. */
   metaJson: string | null;
   createdAt: string;
@@ -1023,10 +1035,14 @@ function NewDealModal({
   const [closeDate, setCloseDate] = React.useState("");
   const [owner, setOwner] = React.useState("");
   const [nextStep, setNextStep] = React.useState("");
+  const [source, setSource] = React.useState("");
+  const [nextFollowUpAt, setNextFollowUpAt] = React.useState("");
+  const [followUpReminderAt, setFollowUpReminderAt] = React.useState("");
   const [description, setDescription] = React.useState("");
 
   const [customers, setCustomers] = React.useState<Customer[]>([]);
   const [contacts, setContacts] = React.useState<RevenueContact[]>([]);
+  const [sources, setSources] = React.useState<RevenueClassification[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -1034,15 +1050,21 @@ function NewDealModal({
     let alive = true;
     void Promise.all([
       api
-        .get<Customer[]>(`/api/companies/${companyId}/customers`)
-        .catch(() => [] as Customer[]),
+        .get<{ rows: Customer[] }>(`${base}/accounts?limit=200`)
+        .catch(() => ({ rows: [] as Customer[] })),
       api
         .get<{ rows: RevenueContact[] }>(`${base}/contacts?limit=200`)
         .catch(() => ({ rows: [] as RevenueContact[] })),
-    ]).then(([cs, ct]) => {
+      api
+        .get<{ rows: RevenueClassification[] }>(
+          `${base}/classifications?kind=deal_source`,
+        )
+        .catch(() => ({ rows: [] as RevenueClassification[] })),
+    ]).then(([accountRows, ct, sourceRows]) => {
       if (!alive) return;
-      setCustomers(cs.filter((c) => !c.archivedAt));
+      setCustomers(accountRows.rows.filter((account) => !account.archivedAt));
       setContacts(ct.rows);
+      setSources(sourceRows.rows);
     });
     return () => {
       alive = false;
@@ -1066,7 +1088,10 @@ function NewDealModal({
         customerId: customerId || null,
         primaryContactId: contactId || null,
         expectedCloseDate: closeDate || null,
+        nextFollowUpAt: nextFollowUpAt || null,
+        followUpReminderAt: followUpReminderAt || null,
         nextStep: nextStep.trim(),
+        source,
         ...ownerIdsFromKey(owner),
       });
       onCreated(deal);
@@ -1174,6 +1199,29 @@ function NewDealModal({
           placeholder="Send the security questionnaire back"
           maxLength={500}
         />
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <Select label="Source" value={source} onChange={(e) => setSource(e.target.value)}>
+            <option value="">Not set</option>
+            {sources.map((row) => (
+              <option key={row.id} value={row.value}>
+                {row.label}
+              </option>
+            ))}
+          </Select>
+          <Input
+            label="Next follow-up"
+            type="datetime-local"
+            value={nextFollowUpAt}
+            onChange={(e) => setNextFollowUpAt(e.target.value)}
+          />
+          <Input
+            label="Reminder"
+            type="datetime-local"
+            value={followUpReminderAt}
+            onChange={(e) => setFollowUpReminderAt(e.target.value)}
+          />
+        </div>
 
         <Textarea
           label="Description"

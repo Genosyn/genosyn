@@ -137,6 +137,13 @@ import { SequenceStepRun } from "./entities/SequenceStepRun.js";
 import { Signal } from "./entities/Signal.js";
 import { SignalEvent } from "./entities/SignalEvent.js";
 import { EmployeeRevenueGrant } from "./entities/EmployeeRevenueGrant.js";
+import { RevenueClassification } from "./entities/RevenueClassification.js";
+import { RevenueCustomField } from "./entities/RevenueCustomField.js";
+import { RevenueCustomValue } from "./entities/RevenueCustomValue.js";
+import { Partnership } from "./entities/Partnership.js";
+import { PartnershipContact } from "./entities/PartnershipContact.js";
+import { RevenueDocument } from "./entities/RevenueDocument.js";
+import { RevenueImportBatch } from "./entities/RevenueImportBatch.js";
 
 const entities = [
   User,
@@ -272,6 +279,13 @@ const entities = [
   Signal,
   SignalEvent,
   EmployeeRevenueGrant,
+  RevenueClassification,
+  RevenueCustomField,
+  RevenueCustomValue,
+  Partnership,
+  PartnershipContact,
+  RevenueDocument,
+  RevenueImportBatch,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

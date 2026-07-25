@@ -2029,6 +2029,15 @@ export type Customer = {
   companyId: string;
   name: string;
   slug: string;
+  /** Revenue account lifecycle. A prospect is still a Customer row, but is
+   * not considered billable until its first invoice is issued. */
+  accountStatus: "prospect" | "customer" | "former";
+  domain: string;
+  websiteUrl: string;
+  industry: string;
+  employeeCount: number;
+  ownerId: string | null;
+  ownerEmployeeId: string | null;
   email: string;
   phone: string;
   billingAddress: string;

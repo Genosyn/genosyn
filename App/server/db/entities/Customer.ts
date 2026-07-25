@@ -9,8 +9,9 @@ import {
 } from "typeorm";
 
 /**
- * A Customer is a billable counterparty for `Invoice`s. Phase A of the
- * Finance milestone (M19) — see ROADMAP.md.
+ * A Customer is the shared company/account record from prospect through
+ * billing. It becomes a billable counterparty when an `Invoice` is issued;
+ * merely creating a prospect account does not create finance activity.
  *
  * Per-company by id; slug is unique per company so URLs read like
  * `/c/<co>/finance/customers/<slug>`. Renames change the display name
@@ -25,6 +26,8 @@ import {
 @Entity("customers")
 @Index(["companyId", "slug"], { unique: true })
 @Index(["companyId", "archivedAt"])
+@Index(["companyId", "accountStatus"])
+@Index(["companyId", "domain"])
 export class Customer {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -44,6 +47,33 @@ export class Customer {
 
   @Column({ type: "varchar", default: "" })
   phone!: string;
+
+  /**
+   * Customers are the account record throughout the lifecycle. A prospect is
+   * not billable merely because this row exists; billing starts with invoices.
+   */
+  @Column({ type: "varchar", default: "customer" })
+  accountStatus!: "prospect" | "customer" | "former";
+
+  /** Lowercase bare hostname used for dedupe and mail-domain association. */
+  @Column({ type: "varchar", default: "" })
+  domain!: string;
+
+  @Column({ type: "varchar", default: "" })
+  websiteUrl!: string;
+
+  @Column({ type: "varchar", default: "" })
+  industry!: string;
+
+  /** 0 means unknown. */
+  @Column({ type: "int", default: 0 })
+  employeeCount!: number;
+
+  @Column({ type: "varchar", nullable: true })
+  ownerId!: string | null;
+
+  @Column({ type: "varchar", nullable: true })
+  ownerEmployeeId!: string | null;
 
   @Column({ type: "text", default: "" })
   billingAddress!: string;

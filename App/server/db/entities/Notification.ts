@@ -22,7 +22,8 @@ export type NotificationKind =
   | "todo_review_requested"
   | "approval_pending"
   | "finance_review_ready"
-  | "mail_handover";
+  | "mail_handover"
+  | "revenue_follow_up";
 
 export type NotificationActorKind = "user" | "ai" | "system";
 
@@ -31,7 +32,8 @@ export type NotificationEntityKind =
   | "todo"
   | "approval"
   | "ledger_entry"
-  | "mail_handover";
+  | "mail_handover"
+  | "revenue_follow_up";
 
 @Entity("notifications")
 @Index(["userId", "readAt"])

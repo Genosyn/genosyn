@@ -47,6 +47,7 @@ export const DEAL_STATUSES: DealStatus[] = ["open", "won", "lost"];
 @Index(["companyId", "archivedAt"])
 @Index(["companyId", "closedAt"])
 @Index(["companyId", "expectedCloseDate"])
+@Index(["companyId", "nextFollowUpAt"])
 export class Deal {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -114,6 +115,14 @@ export class Deal {
   /** One line the owner keeps current: what has to happen next. */
   @Column({ type: "varchar", default: "" })
   nextStep!: string;
+
+  /** The dedicated sales follow-up date. Kept separate from expected close. */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  nextFollowUpAt!: Date | null;
+
+  /** Optional reminder before the follow-up becomes due. */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  followUpReminderAt!: Date | null;
 
   @Column({ type: dateTimeColumnType, nullable: true })
   lastActivityAt!: Date | null;

@@ -63,6 +63,7 @@ import { handoffsRouter } from "./routes/handoffs.js";
 import { inboxRouter } from "./routes/inbox.js";
 import { mailRouter } from "./routes/mail.js";
 import { revenueRouter } from "./routes/revenue.js";
+import { revenueOperationsRouter } from "./routes/revenueOperations.js";
 import { unsubscribeRouter } from "./routes/unsubscribe.js";
 import { apiKeysRouter } from "./routes/apiKeys.js";
 import { openapiRouter } from "./routes/openapi.js";
@@ -311,6 +312,7 @@ async function main() {
   // Revenue section (M32) — contacts, deals, activities, sequences, signals,
   // suppressions and the revenue reports.
   app.use("/api/companies/:cid", revenueRouter);
+  app.use("/api/companies/:cid", revenueOperationsRouter);
 
   // Client. Dev: mount Vite as middleware so API + UI share one port and
   // HMR still works. Prod: serve the built SPA from dist/client.

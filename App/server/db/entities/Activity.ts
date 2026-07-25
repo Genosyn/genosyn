@@ -59,6 +59,21 @@ export const ACTIVITY_KINDS: ActivityKind[] = [
 /** timeline query stays cheap. Longer bodies live on the MailMessage. */
 export const ACTIVITY_BODY_CAP = 8_000;
 
+export type ActivityTaskStatus = "open" | "completed" | "cancelled";
+export const ACTIVITY_TASK_STATUSES: ActivityTaskStatus[] = [
+  "open",
+  "completed",
+  "cancelled",
+];
+
+export type ActivityPriority = "low" | "normal" | "high" | "urgent";
+export const ACTIVITY_PRIORITIES: ActivityPriority[] = [
+  "low",
+  "normal",
+  "high",
+  "urgent",
+];
+
 /**
  * One event on a Contact / Deal / Customer timeline. See ROADMAP.md M32.
  *
@@ -86,7 +101,9 @@ export const ACTIVITY_BODY_CAP = 8_000;
 @Index(["contactId", "occurredAt"])
 @Index(["dealId", "occurredAt"])
 @Index(["customerId", "occurredAt"])
+@Index(["partnershipId", "occurredAt"])
 @Index(["companyId", "mailMessageId"])
+@Index(["companyId", "taskStatus", "dueAt"])
 export class Activity {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -118,6 +135,9 @@ export class Activity {
   @Column({ type: "varchar", nullable: true })
   customerId!: string | null;
 
+  @Column({ type: "varchar", nullable: true })
+  partnershipId!: string | null;
+
   /** Set on mail-derived rows so the timeline can deep-link into the thread. */
   @Column({ type: "varchar", nullable: true })
   mailThreadId!: string | null;
@@ -138,6 +158,35 @@ export class Activity {
   /** Kind-specific detail — `{fromStage,toStage}`, signal payload, and so on. */
   @Column({ type: "text", nullable: true })
   metaJson!: string | null;
+
+  /**
+   * Task metadata. Null on non-task activities. Keeping tasks on the unified
+   * timeline preserves context while still powering a proper follow-up queue.
+   */
+  @Column({ type: "varchar", nullable: true })
+  taskStatus!: ActivityTaskStatus | null;
+
+  @Column({ type: dateTimeColumnType, nullable: true })
+  dueAt!: Date | null;
+
+  @Column({ type: dateTimeColumnType, nullable: true })
+  completedAt!: Date | null;
+
+  @Column({ type: "varchar", nullable: true })
+  assignedUserId!: string | null;
+
+  @Column({ type: "varchar", nullable: true })
+  assignedEmployeeId!: string | null;
+
+  @Column({ type: "varchar", nullable: true })
+  priority!: ActivityPriority | null;
+
+  @Column({ type: dateTimeColumnType, nullable: true })
+  reminderAt!: Date | null;
+
+  /** iCalendar-style recurrence rule, e.g. `FREQ=WEEKLY;INTERVAL=1`. */
+  @Column({ type: "varchar", nullable: true })
+  recurrenceRule!: string | null;
 
   @CreateDateColumn()
   createdAt!: Date;

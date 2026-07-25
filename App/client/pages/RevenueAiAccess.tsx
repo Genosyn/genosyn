@@ -76,7 +76,7 @@ const LEVELS: LevelMeta[] = [
   {
     value: "read",
     label: "Read only",
-    tagline: "See the pipeline",
+    tagline: "See deals",
     hint: "List and open contacts, deals, activity timelines, sequences and signals, and pull revenue reports. Changes nothing.",
     icon: <Eye size={15} />,
     iconColor: "text-slate-500 dark:text-slate-400",
@@ -85,7 +85,7 @@ const LEVELS: LevelMeta[] = [
   {
     value: "write",
     label: "Write",
-    tagline: "Work the pipeline",
+    tagline: "Work deals",
     hint: "Everything in Read, plus create and update contacts and deals, log activities, move a deal between stages, and enrol somebody in a sequence.",
     icon: <Pencil size={15} />,
     iconColor: "text-indigo-500 dark:text-indigo-400",
@@ -326,7 +326,7 @@ export default function RevenueAiAccess() {
             </div>
             <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-slate-500 dark:text-slate-400">
               Add one above. Start with Read only, then promote to Write when you want an employee
-              to keep the pipeline up to date on its own.
+              to keep deals up to date on its own.
             </p>
           </div>
         ) : (

@@ -28,6 +28,8 @@ import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { CustomerContractsPanel } from "./CustomerContractsPanel";
+import { RevenueCustomFieldsPanel } from "../components/revenue/RevenueCustomFieldsPanel";
+import { RevenueDocumentsPanel } from "../components/revenue/RevenueDocumentsPanel";
 import { CustomersOutletCtx } from "./CustomersLayout";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -434,12 +436,32 @@ export default function CustomerDetail() {
             Details
           </h3>
           <dl className="space-y-2 text-sm">
+            <Detail label="Account status" value={customer.accountStatus} />
+            <Detail label="Domain" value={customer.domain} />
+            <Detail label="Website" value={customer.websiteUrl} />
+            <Detail label="Industry" value={customer.industry} />
+            <Detail
+              label="Company size"
+              value={customer.employeeCount > 0 ? `${customer.employeeCount.toLocaleString()} employees` : ""}
+            />
             <Detail label="Tax / VAT" value={customer.taxNumber} />
             <Detail label="Default currency" value={customer.currency} />
             <Detail label="Billing address" value={customer.billingAddress} multiline />
             <Detail label="Notes" value={customer.notes} multiline />
           </dl>
         </div>
+      </section>
+      <section className="mt-5 grid gap-5 lg:grid-cols-2">
+        <RevenueCustomFieldsPanel
+          companyId={company.id}
+          resourceType="account"
+          resourceId={customer.id}
+        />
+        <RevenueDocumentsPanel
+          companyId={company.id}
+          resourceType="account"
+          resourceId={customer.id}
+        />
       </section>
     </div>
   );

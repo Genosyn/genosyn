@@ -3,7 +3,14 @@ import { In, IsNull } from "typeorm";
 import { z } from "zod";
 
 import { AppDataSource } from "../db/datasource.js";
-import { ACTIVITY_KINDS, type ActivityKind } from "../db/entities/Activity.js";
+import {
+  ACTIVITY_KINDS,
+  ACTIVITY_PRIORITIES,
+  ACTIVITY_TASK_STATUSES,
+  type ActivityKind,
+  type ActivityPriority,
+  type ActivityTaskStatus,
+} from "../db/entities/Activity.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import {
   CONTACT_LIFECYCLE_STAGES,
@@ -12,6 +19,7 @@ import {
 } from "../db/entities/Contact.js";
 import { Customer } from "../db/entities/Customer.js";
 import { Deal } from "../db/entities/Deal.js";
+import { Partnership } from "../db/entities/Partnership.js";
 import { DEAL_STAGE_KINDS, DealStage, type DealStageKind } from "../db/entities/DealStage.js";
 import {
   REVENUE_ACCESS_LEVELS,
@@ -108,6 +116,7 @@ import {
   reorderDealStages,
   uniqueStageSlug,
 } from "../services/revenue/stages.js";
+import { createFollowUpTask } from "../services/revenue/followUps.js";
 
 /**
  * The Revenue HTTP surface — contacts, the deal board, activities, sequences,
@@ -259,6 +268,8 @@ const contactListQuery = z.object({
   ownerId: z.string().uuid().optional(),
   ownerEmployeeId: z.string().uuid().optional(),
   includeArchived: boolQuery,
+  customFieldKey: z.string().max(80).optional(),
+  customFieldValue: z.string().max(500).optional(),
 });
 
 revenueRouter.get(
@@ -558,6 +569,8 @@ const dealListQuery = z.object({
   ownerId: z.string().uuid().optional(),
   ownerEmployeeId: z.string().uuid().optional(),
   includeArchived: boolQuery,
+  customFieldKey: z.string().max(80).optional(),
+  customFieldValue: z.string().max(500).optional(),
 });
 
 revenueRouter.get(
@@ -596,6 +609,8 @@ const dealCreateSchema = z.object({
   ownerId: z.string().uuid().nullable().optional(),
   ownerEmployeeId: z.string().uuid().nullable().optional(),
   nextStep: z.string().max(500).optional(),
+  nextFollowUpAt: z.coerce.date().nullable().optional(),
+  followUpReminderAt: z.coerce.date().nullable().optional(),
   lostReason: z.string().max(500).optional(),
 });
 
@@ -618,7 +633,7 @@ revenueRouter.post(
       if (err instanceof InvalidStageError) {
         return res.status(400).json({ error: err.message });
       }
-      throw err;
+      return res.status(400).json({ error: (err as Error).message });
     }
   }),
 );
@@ -665,7 +680,7 @@ revenueRouter.patch(
       if (err instanceof InvalidStageError) {
         return res.status(400).json({ error: err.message });
       }
-      throw err;
+      return res.status(400).json({ error: (err as Error).message });
     }
   }),
 );
@@ -784,6 +799,7 @@ const activityListQuery = z.object({
   contactId: z.string().uuid().optional(),
   dealId: z.string().uuid().optional(),
   customerId: z.string().uuid().optional(),
+  partnershipId: z.string().uuid().optional(),
   kinds: csvEnum(ACTIVITY_KINDS),
   includeRelatedDeals: boolQuery,
 });
@@ -808,6 +824,12 @@ revenueRouter.get(
  * by the service that performs the underlying act.
  */
 const MANUAL_ACTIVITY_KINDS = ["note", "call", "meeting", "task"] as const;
+const taskStatusEnum = z.enum(
+  ACTIVITY_TASK_STATUSES as [ActivityTaskStatus, ...ActivityTaskStatus[]],
+);
+const activityPriorityEnum = z.enum(
+  ACTIVITY_PRIORITIES as [ActivityPriority, ...ActivityPriority[]],
+);
 
 const activityCreateSchema = z.object({
   kind: z.enum(MANUAL_ACTIVITY_KINDS),
@@ -817,6 +839,14 @@ const activityCreateSchema = z.object({
   contactId: z.string().uuid().nullable().optional(),
   dealId: z.string().uuid().nullable().optional(),
   customerId: z.string().uuid().nullable().optional(),
+  partnershipId: z.string().uuid().nullable().optional(),
+  dueAt: z.coerce.date().nullable().optional(),
+  reminderAt: z.coerce.date().nullable().optional(),
+  taskStatus: taskStatusEnum.optional(),
+  priority: activityPriorityEnum.optional(),
+  assignedUserId: z.string().uuid().nullable().optional(),
+  assignedEmployeeId: z.string().uuid().nullable().optional(),
+  recurrenceRule: z.string().max(200).nullable().optional(),
 });
 
 revenueRouter.post(
@@ -841,12 +871,40 @@ revenueRouter.post(
       });
       if (!customer) return res.status(400).json({ error: "Unknown customer" });
     }
+    if (body.partnershipId) {
+      const partnership = await AppDataSource.getRepository(Partnership).findOneBy({
+        id: body.partnershipId,
+        companyId: cid,
+      });
+      if (!partnership) return res.status(400).json({ error: "Unknown partnership" });
+    }
+    if (body.kind !== "task") {
+      const taskFields = [
+        body.dueAt,
+        body.reminderAt,
+        body.taskStatus,
+        body.priority,
+        body.assignedUserId,
+        body.assignedEmployeeId,
+        body.recurrenceRule,
+      ];
+      if (taskFields.some((value) => value !== undefined && value !== null)) {
+        return res.status(400).json({ error: "Task fields require kind=task" });
+      }
+    }
 
-    const activity = await recordActivity(
-      cid,
-      { ...body, kind: body.kind as ActivityKind },
-      actorOf(req),
-    );
+    const activity =
+      body.kind === "task"
+        ? await createFollowUpTask(
+            cid,
+            { ...body, subject: body.subject?.trim() || "Follow up" },
+            actorOf(req),
+          )
+        : await recordActivity(
+            cid,
+            { ...body, kind: body.kind as ActivityKind },
+            actorOf(req),
+          );
     await audit(
       req,
       "revenue.activity.create",

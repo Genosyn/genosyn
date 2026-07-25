@@ -670,7 +670,7 @@ async function actionCreateDeal(
     customerId: event.customerId,
     stageId,
     amountCents: signal.amountColumn ? toMinorUnits(row[signal.amountColumn]) : 0,
-    source: `signal:${signal.slug}`,
+    source: "product_signal",
   });
 
   event.dealId = deal.id;

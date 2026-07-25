@@ -133,6 +133,12 @@ export const DOCS_NAV: DocsSection[] = [
           "Contacts, deals, the board, and a timeline that fills itself from your mailbox.",
       },
       {
+        path: "/docs/revenue-operations",
+        title: "Revenue operations",
+        blurb:
+          "Follow-ups, prospect accounts, custom fields, partnerships, documents, and reversible migrations.",
+      },
+      {
         path: "/docs/sequences",
         title: "Sequences",
         blurb:

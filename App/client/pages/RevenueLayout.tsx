@@ -4,9 +4,14 @@ import {
   Ban,
   BarChart3,
   Bot,
+  Building2,
+  CalendarCheck,
   Contact2,
+  Handshake,
+  Import,
   Radar,
   Send,
+  Settings2,
   Target,
   TrendingUp,
 } from "lucide-react";
@@ -40,8 +45,23 @@ export default function RevenueLayout({ company }: { company: Company }) {
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
         <SidebarLink to={base} end icon={<BarChart3 size={14} />} label="Insights" />
+        <SidebarLink
+          to={`${base}/follow-ups`}
+          icon={<CalendarCheck size={14} />}
+          label="Follow-ups"
+        />
         <SidebarLink to={`${base}/deals`} icon={<Target size={14} />} label="Deals" />
+        <SidebarLink
+          to={`${base}/accounts`}
+          icon={<Building2 size={14} />}
+          label="Accounts"
+        />
         <SidebarLink to={`${base}/contacts`} icon={<Contact2 size={14} />} label="Contacts" />
+        <SidebarLink
+          to={`${base}/partnerships`}
+          icon={<Handshake size={14} />}
+          label="Partnerships"
+        />
         <SidebarLink to={`${base}/sequences`} icon={<Send size={14} />} label="Sequences" />
         <SidebarLink to={`${base}/signals`} icon={<Radar size={14} />} label="Signals" />
         <SidebarLink
@@ -50,6 +70,8 @@ export default function RevenueLayout({ company }: { company: Company }) {
           label="Suppressions"
         />
         <SidebarLink to={`${base}/ai-access`} icon={<Bot size={14} />} label="AI access" />
+        <SidebarLink to={`${base}/imports`} icon={<Import size={14} />} label="Imports" />
+        <SidebarLink to={`${base}/setup`} icon={<Settings2 size={14} />} label="Setup" />
       </nav>
     </div>
   );

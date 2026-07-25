@@ -4,6 +4,7 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import { AppDataSource } from "../../db/datasource.js";
 import { Activity } from "../../db/entities/Activity.js";
 import { DealStage } from "../../db/entities/DealStage.js";
+import { Membership } from "../../db/entities/Membership.js";
 import { closeTestDb, initTestDb, resetTestDb } from "../../test/dbHarness.js";
 import { listActivities } from "./activities.js";
 import { createContact } from "./contacts.js";
@@ -343,6 +344,10 @@ describe("hydration and the board", () => {
 
 describe("listDeals", () => {
   test("filters by status, stage and owner", async () => {
+    await AppDataSource.getRepository(Membership).save([
+      { companyId: CO, userId: "u_1", role: "member" },
+      { companyId: CO, userId: "u_2", role: "member" },
+    ]);
     const byName = await stages();
     const won = await createDeal(CO, { title: "Won", ownerId: "u_1" });
     await moveDealToStage(CO, won.id, byName.get("Closed Won")!.id);

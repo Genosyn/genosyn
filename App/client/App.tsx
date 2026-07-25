@@ -115,6 +115,13 @@ import RevenueSignals from "./pages/RevenueSignals";
 import RevenueSignalDetail from "./pages/RevenueSignalDetail";
 import RevenueSuppressions from "./pages/RevenueSuppressions";
 import RevenueAiAccess from "./pages/RevenueAiAccess";
+import RevenueAccounts from "./pages/RevenueAccounts";
+import RevenueAccountDetail from "./pages/RevenueAccountDetail";
+import RevenueFollowUps from "./pages/RevenueFollowUps";
+import RevenueImports from "./pages/RevenueImports";
+import RevenuePartnershipDetail from "./pages/RevenuePartnershipDetail";
+import RevenuePartnerships from "./pages/RevenuePartnerships";
+import RevenueSetup from "./pages/RevenueSetup";
 import CustomersIndex from "./pages/CustomersIndex";
 import CustomerNew from "./pages/CustomerNew";
 import CustomerDetail from "./pages/CustomerDetail";
@@ -423,23 +430,28 @@ function CompanyRoutes({
             <Route path=":customerSlug/edit" element={<CustomerNew />} />
           </Route>
 
-          {/* Revenue (M32) — the go-to-market side: contacts and deals with a
-            timeline that fills itself from mail, AI-drafted outbound
-            sequences, product signals, and the revenue reports. Sits beside
-            Customers (the billable account) rather than inside it, because a
-            contact and a deal both exist long before there is an account. */}
+          {/* Revenue (M32) — follow-ups, accounts, contacts, deals,
+            partnerships, outbound, signals, and reporting. Customer is the
+            shared account row from prospect through billing. */}
           <Route path="revenue" element={<RevenueLayout company={company} />}>
             <Route index element={<RevenueIndex />} />
+            <Route path="follow-ups" element={<RevenueFollowUps />} />
             <Route path="deals" element={<RevenueDeals />} />
             <Route path="deals/:dealId" element={<RevenueDealDetail />} />
+            <Route path="accounts" element={<RevenueAccounts />} />
+            <Route path="accounts/:accountId" element={<RevenueAccountDetail />} />
             <Route path="contacts" element={<RevenueContacts />} />
             <Route path="contacts/:contactId" element={<RevenueContactDetail />} />
+            <Route path="partnerships" element={<RevenuePartnerships />} />
+            <Route path="partnerships/:partnershipId" element={<RevenuePartnershipDetail />} />
             <Route path="sequences" element={<RevenueSequences />} />
             <Route path="sequences/:sequenceId" element={<RevenueSequenceDetail />} />
             <Route path="signals" element={<RevenueSignals />} />
             <Route path="signals/:signalId" element={<RevenueSignalDetail />} />
             <Route path="suppressions" element={<RevenueSuppressions />} />
             <Route path="ai-access" element={<RevenueAiAccess />} />
+            <Route path="imports" element={<RevenueImports />} />
+            <Route path="setup" element={<RevenueSetup />} />
           </Route>
 
           {/* Finance (M19 Phase A) — Products, Tax rates, Invoices, Bills,

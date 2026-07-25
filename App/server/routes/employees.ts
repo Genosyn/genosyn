@@ -13,6 +13,13 @@ import { Approval } from "../db/entities/Approval.js";
 import { McpServer } from "../db/entities/McpServer.js";
 import { Team } from "../db/entities/Team.js";
 import { Membership } from "../db/entities/Membership.js";
+import { Customer } from "../db/entities/Customer.js";
+import { Contact } from "../db/entities/Contact.js";
+import { Deal } from "../db/entities/Deal.js";
+import { Activity } from "../db/entities/Activity.js";
+import { Partnership } from "../db/entities/Partnership.js";
+import { RevenueDocument } from "../db/entities/RevenueDocument.js";
+import { RevenueImportBatch } from "../db/entities/RevenueImportBatch.js";
 import { validateBody } from "../middleware/validate.js";
 import {
   requireAuth,
@@ -362,6 +369,50 @@ employeesRouter.delete("/:eid", async (req, res) => {
   await deleteEmployeeConversations(emp.id);
   await archiveEmployeeDirectMessages(emp.id);
   await AppDataSource.getRepository(JournalEntry).delete({ employeeId: emp.id });
+  await AppDataSource.getRepository(Customer).update(
+    { ownerEmployeeId: emp.id },
+    { ownerEmployeeId: null },
+  );
+  await AppDataSource.getRepository(Contact).update(
+    { ownerEmployeeId: emp.id },
+    { ownerEmployeeId: null },
+  );
+  await AppDataSource.getRepository(Contact).update(
+    { createdByEmployeeId: emp.id },
+    { createdByEmployeeId: null },
+  );
+  await AppDataSource.getRepository(Deal).update(
+    { ownerEmployeeId: emp.id },
+    { ownerEmployeeId: null },
+  );
+  await AppDataSource.getRepository(Deal).update(
+    { createdByEmployeeId: emp.id },
+    { createdByEmployeeId: null },
+  );
+  await AppDataSource.getRepository(Activity).update(
+    { assignedEmployeeId: emp.id },
+    { assignedEmployeeId: null },
+  );
+  await AppDataSource.getRepository(Activity).update(
+    { actorEmployeeId: emp.id },
+    { actorEmployeeId: null },
+  );
+  await AppDataSource.getRepository(Partnership).update(
+    { ownerEmployeeId: emp.id },
+    { ownerEmployeeId: null },
+  );
+  await AppDataSource.getRepository(Partnership).update(
+    { createdByEmployeeId: emp.id },
+    { createdByEmployeeId: null },
+  );
+  await AppDataSource.getRepository(RevenueDocument).update(
+    { createdByEmployeeId: emp.id },
+    { createdByEmployeeId: null },
+  );
+  await AppDataSource.getRepository(RevenueImportBatch).update(
+    { createdByEmployeeId: emp.id },
+    { createdByEmployeeId: null },
+  );
   // Access entries are deleted, not nulled — a row whose employee is gone
   // matches nobody and would linger in the project's Access list.
   await AppDataSource.getRepository(ProjectMember).delete({ employeeId: emp.id });

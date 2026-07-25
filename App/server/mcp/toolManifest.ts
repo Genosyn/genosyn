@@ -2226,6 +2226,11 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           type: "boolean",
           description: "Only contacts a human put you down as the owner of.",
         },
+        customFieldKey: { type: "string" },
+        customFieldValue: {
+          type: "string",
+          description: "Exact normalized value for customFieldKey.",
+        },
         includeArchived: { type: "boolean" },
         limit: { type: "integer", minimum: 1, maximum: 200 },
         offset: { type: "integer", minimum: 0 },
@@ -2323,6 +2328,8 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           description: "Deals whose primary contact is this person.",
         },
         ownedByMe: { type: "boolean", description: "Only deals you are the owner of." },
+        customFieldKey: { type: "string" },
+        customFieldValue: { type: "string" },
         includeArchived: { type: "boolean" },
         limit: { type: "integer", minimum: 1, maximum: 200 },
         offset: { type: "integer", minimum: 0 },
@@ -2417,6 +2424,376 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
       },
       required: ["report"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_follow_ups",
+    description:
+      "Read the unified sales follow-up queue: dated Deal next steps, Partnership follow-ups, and open task activities. Each row says whether it is overdue and who owns it. Use `assignedToMe` for your own daily queue. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        state: { type: "string", enum: ["all", "overdue", "today", "upcoming"] },
+        assignedToMe: { type: "boolean" },
+        limit: { type: "integer", minimum: 1, maximum: 500 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_follow_up",
+    description:
+      "Schedule a real follow-up task on a Contact, Deal, account, or Partnership. Supports due/reminder dates, priority, Member or AI Employee assignment, and an iCalendar-style recurrence rule such as `FREQ=WEEKLY;INTERVAL=1`. Defaults to assigning the task to you. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        subject: { type: "string" },
+        bodyText: { type: "string" },
+        dueAt: { type: ["string", "null"], description: "ISO date/datetime." },
+        reminderAt: { type: ["string", "null"], description: "ISO date/datetime." },
+        priority: { type: "string", enum: ["low", "normal", "high", "urgent"] },
+        assignedUserId: { type: ["string", "null"] },
+        assignedEmployeeId: { type: ["string", "null"] },
+        recurrenceRule: { type: ["string", "null"] },
+        contactId: { type: ["string", "null"] },
+        dealId: { type: ["string", "null"] },
+        customerId: { type: ["string", "null"] },
+        partnershipId: { type: ["string", "null"] },
+      },
+      required: ["subject"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_follow_up",
+    description:
+      "Reschedule, reassign, complete, cancel, or edit an existing follow-up task. Completing a recurring task creates its next occurrence. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        followUpId: { type: "string" },
+        subject: { type: "string" },
+        bodyText: { type: "string" },
+        dueAt: { type: ["string", "null"] },
+        reminderAt: { type: ["string", "null"] },
+        priority: { type: "string", enum: ["low", "normal", "high", "urgent"] },
+        status: { type: "string", enum: ["open", "completed", "cancelled"] },
+        assignedUserId: { type: ["string", "null"] },
+        assignedEmployeeId: { type: ["string", "null"] },
+        recurrenceRule: { type: ["string", "null"] },
+      },
+      required: ["followUpId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_revenue_accounts",
+    description:
+      "List account records across the whole lifecycle. These are the existing Customer rows: `prospect` accounts are not billable until an invoice exists, so never create a finance-only duplicate. Filters include status, owner, and exact custom-field value. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        q: { type: "string" },
+        status: { type: "string", enum: ["prospect", "customer", "former"] },
+        ownedByMe: { type: "boolean" },
+        customFieldKey: { type: "string" },
+        customFieldValue: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 200 },
+        offset: { type: "integer", minimum: 0 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_revenue_account",
+    description:
+      "Create a prospect or customer account with domain, website, industry, size, owner, notes and billing status. This writes the same Customer entity Finance uses, so a future invoice links to this row without migration. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        email: { type: "string" },
+        phone: { type: "string" },
+        accountStatus: { type: "string", enum: ["prospect", "customer", "former"] },
+        domain: { type: "string" },
+        websiteUrl: { type: "string" },
+        industry: { type: "string" },
+        employeeCount: { type: "integer", minimum: 0 },
+        currency: { type: "string" },
+        annualContractValueCents: { type: "integer", minimum: 0 },
+        notes: { type: "string" },
+        ownerId: { type: ["string", "null"] },
+        ownerEmployeeId: { type: ["string", "null"] },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_revenue_account",
+    description:
+      "Fetch one account with its Contacts, Deals, typed custom fields and formal documents. Works for prospects and billed customers because both share the Customer entity. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: { accountId: { type: "string" } },
+      required: ["accountId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_revenue_account",
+    description:
+      "Enrich or reassign an existing prospect/customer account. Pass only changed fields. Domain duplicates are refused. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        accountId: { type: "string" },
+        name: { type: "string" },
+        email: { type: "string" },
+        phone: { type: "string" },
+        accountStatus: { type: "string", enum: ["prospect", "customer", "former"] },
+        domain: { type: "string" },
+        websiteUrl: { type: "string" },
+        industry: { type: "string" },
+        employeeCount: { type: "integer", minimum: 0 },
+        currency: { type: "string" },
+        annualContractValueCents: { type: "integer", minimum: 0 },
+        notes: { type: "string" },
+        ownerId: { type: ["string", "null"] },
+        ownerEmployeeId: { type: ["string", "null"] },
+      },
+      required: ["accountId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_revenue_classifications",
+    description:
+      "List the company's controlled values for Deal sources, buying-committee roles, Partnership types and Partnership statuses. Use these machine values on writes instead of inventing free text. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        kind: {
+          type: "string",
+          enum: ["deal_source", "committee_role", "partnership_type", "partnership_status"],
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_revenue_custom_fields",
+    description:
+      "List typed custom-field definitions for Contacts, accounts, Deals, or Partnerships. Fields may be text, number, date, boolean, select, multi-select or URL. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resourceType: {
+          type: "string",
+          enum: ["contact", "account", "deal", "partnership"],
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "set_revenue_custom_fields",
+    description:
+      "Set custom fields by stable field key on one Contact, account, Deal or Partnership. Values are type-checked against the definitions; null clears a value. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resourceType: {
+          type: "string",
+          enum: ["contact", "account", "deal", "partnership"],
+        },
+        resourceId: { type: "string" },
+        values: { type: "object", additionalProperties: true },
+      },
+      required: ["resourceType", "resourceId", "values"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_partnerships",
+    description:
+      "List native Partnership records with controlled type/status, next follow-up, integration/channel context and owner. Partnerships stay separate from Deals. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        q: { type: "string" },
+        type: { type: "string" },
+        status: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 200 },
+        offset: { type: "integer", minimum: 0 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_partnership",
+    description:
+      "Fetch one Partnership plus every linked Contact, including the primary-contact and Reply-All flags. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: { partnershipId: { type: "string" } },
+      required: ["partnershipId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_partnership",
+    description:
+      "Create a native Partnership with controlled type/status, owner, account link, integration/channel context and follow-up dates. Read classifications first. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        type: { type: "string" },
+        status: { type: "string" },
+        customerId: { type: ["string", "null"] },
+        websiteUrl: { type: "string" },
+        integrationContext: { type: "string" },
+        channelContext: { type: "string" },
+        notes: { type: "string" },
+        ownerId: { type: ["string", "null"] },
+        ownerEmployeeId: { type: ["string", "null"] },
+        nextFollowUpAt: { type: ["string", "null"] },
+        reminderAt: { type: ["string", "null"] },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_partnership",
+    description:
+      "Update or reassign one Partnership, including its next follow-up and operating context. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        partnershipId: { type: "string" },
+        name: { type: "string" },
+        type: { type: "string" },
+        status: { type: "string" },
+        customerId: { type: ["string", "null"] },
+        websiteUrl: { type: "string" },
+        integrationContext: { type: "string" },
+        channelContext: { type: "string" },
+        notes: { type: "string" },
+        ownerId: { type: ["string", "null"] },
+        ownerEmployeeId: { type: ["string", "null"] },
+        nextFollowUpAt: { type: ["string", "null"] },
+        reminderAt: { type: ["string", "null"] },
+      },
+      required: ["partnershipId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "add_partnership_contact",
+    description:
+      "Add or update a Contact on a Partnership, with role, primary-contact and Reply-All flags. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        partnershipId: { type: "string" },
+        contactId: { type: "string" },
+        role: { type: "string" },
+        isPrimary: { type: "boolean" },
+        replyAll: { type: "boolean" },
+      },
+      required: ["partnershipId", "contactId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_revenue_documents",
+    description:
+      "List formal documents related to a Deal, account, Partnership, or Contact: proposals, RFPs, security questionnaires, contracts and mail attachments. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dealId: { type: "string" },
+        customerId: { type: "string" },
+        partnershipId: { type: "string" },
+        contactId: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "link_revenue_document",
+    description:
+      "Create a formal relationship from a Deal/account/Partnership/Contact to an uploaded attachment, MailMessage attachment, or external URL. Use a chat-upload attachment id for local files. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        kind: {
+          type: "string",
+          enum: ["proposal", "rfp", "security_questionnaire", "contract", "email_attachment", "other"],
+        },
+        title: { type: "string" },
+        notes: { type: "string" },
+        dealId: { type: ["string", "null"] },
+        customerId: { type: ["string", "null"] },
+        partnershipId: { type: ["string", "null"] },
+        contactId: { type: ["string", "null"] },
+        attachmentId: { type: ["string", "null"] },
+        sourceMailMessageId: { type: ["string", "null"] },
+        externalUrl: { type: "string" },
+      },
+      required: ["kind", "title"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "preview_base_revenue_import",
+    description:
+      "Dry-run a granted Base table into Contacts, accounts, Deals, or Partnerships. Mapping values are Base field ids. Returns create/duplicate/skip decisions without writing anything. Needs `write` revenue access and a Base Grant.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        baseId: { type: "string" },
+        tableId: { type: "string" },
+        resourceType: {
+          type: "string",
+          enum: ["contact", "account", "deal", "partnership"],
+        },
+        mapping: { type: "object", additionalProperties: { type: "string" } },
+      },
+      required: ["baseId", "tableId", "resourceType", "mapping"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "run_base_revenue_import",
+    description:
+      "Commit a previously previewed-style Base import. Produces a durable source-row → native-id map and reconciliation report; duplicates are linked in the report but never overwritten. Needs `write` revenue access and a Base Grant.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        baseId: { type: "string" },
+        tableId: { type: "string" },
+        resourceType: {
+          type: "string",
+          enum: ["contact", "account", "deal", "partnership"],
+        },
+        mapping: { type: "object", additionalProperties: { type: "string" } },
+      },
+      required: ["baseId", "tableId", "resourceType", "mapping"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "rollback_revenue_import",
+    description:
+      "Roll back rows created by one Revenue import. Rows changed or linked after import are preserved and reported as blocked instead of being deleted. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: { importId: { type: "string" } },
+      required: ["importId"],
       additionalProperties: false,
     },
   },
@@ -2535,8 +2912,15 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           description: "Override the stage's default probability for this one deal.",
         },
         expectedCloseDate: { type: ["string", "null"], description: "ISO date/datetime." },
-        source: { type: "string" },
+        source: {
+          type: "string",
+          description: "Controlled value from list_revenue_classifications.",
+        },
         nextStep: { type: "string", description: "The concrete next action, in one line." },
+        nextFollowUpAt: { type: ["string", "null"], description: "ISO date/datetime." },
+        followUpReminderAt: { type: ["string", "null"], description: "ISO date/datetime." },
+        ownerId: { type: ["string", "null"], description: "Human Member owner." },
+        ownerEmployeeId: { type: ["string", "null"], description: "AI Employee owner." },
       },
       required: ["title"],
       additionalProperties: false,
@@ -2560,6 +2944,10 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         expectedCloseDate: { type: ["string", "null"] },
         source: { type: "string" },
         nextStep: { type: "string" },
+        nextFollowUpAt: { type: ["string", "null"] },
+        followUpReminderAt: { type: ["string", "null"] },
+        ownerId: { type: ["string", "null"] },
+        ownerEmployeeId: { type: ["string", "null"] },
       },
       required: ["dealId"],
       additionalProperties: false,
@@ -2600,6 +2988,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         contactId: { type: ["string", "null"] },
         dealId: { type: ["string", "null"] },
         customerId: { type: ["string", "null"] },
+        partnershipId: { type: ["string", "null"] },
       },
       required: ["kind"],
       additionalProperties: false,
@@ -2608,7 +2997,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "add_deal_contact",
     description:
-      "Put a Contact on a Deal's buying committee, with an optional role ('champion', 'economic buyer', 'legal'). Idempotent — adding somebody already on it just updates their role. Use this as you learn who else is involved; the committee is what tells the next person who to copy. Needs `write` revenue access.",
+      "Put a Contact on a Deal's buying committee, with a controlled role from `list_revenue_classifications`. Idempotent — adding somebody already on it just updates their role. Use this as you learn who else is involved; the committee is what tells the next person who to copy. Needs `write` revenue access.",
     inputSchema: {
       type: "object",
       properties: {

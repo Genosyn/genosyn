@@ -275,7 +275,7 @@ export default function RevenueIndex() {
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             {overview
               ? `${formatDay(overview.period.from)} — ${formatDay(overview.period.to)} · reported in ${overview.currency}`
-              : "Recurring revenue, pipeline and acquisition for the selected period."}
+              : "Recurring revenue, deals and acquisition for the selected period."}
           </p>
         </div>
         <PeriodSwitcher value={period} onChange={setPeriod} />
@@ -624,7 +624,7 @@ function StageFunnel({
     <section className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
         <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-          Pipeline by stage
+          Deal value by stage
         </h2>
       </div>
 
@@ -789,7 +789,7 @@ function NothingYet({ slug }: { slug: string }) {
         Nothing to report yet
       </h3>
       <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-slate-500 dark:text-slate-400">
-        Insights reads your pipeline and your billing history and answers four questions:
+        Insights reads your deals and your billing history and answers four questions:
         what recurring revenue did, what is still in play, how much of it closes, and what
         each channel costs to acquire. It fills in on its own once there is something to
         measure — add the people you are selling to, then the deals you are working.

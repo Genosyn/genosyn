@@ -292,6 +292,12 @@ export async function issueInvoice(
   invoice.status = "sent";
   invoice.sentAt = new Date();
   await AppDataSource.getRepository(Invoice).save(invoice);
+  // Customer is the account record before and after billing. Issuing its first
+  // invoice is the objective transition from prospect to customer.
+  if (customer.accountStatus === "prospect") {
+    customer.accountStatus = "customer";
+    await AppDataSource.getRepository(Customer).save(customer);
+  }
   const recomputed = await recomputeInvoiceTotals(invoice);
   // Auto-post: DR Accounts Receivable / CR Sales Revenue + Tax Payable.
   // Phase B (M19) — see services/ledger.ts and ROADMAP.md.

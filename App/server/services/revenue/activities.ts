@@ -4,10 +4,13 @@ import { AppDataSource } from "../../db/datasource.js";
 import {
   ACTIVITY_BODY_CAP,
   Activity,
+  type ActivityPriority,
   type ActivityKind,
+  type ActivityTaskStatus,
 } from "../../db/entities/Activity.js";
 import { Contact } from "../../db/entities/Contact.js";
 import { Deal } from "../../db/entities/Deal.js";
+import { Partnership } from "../../db/entities/Partnership.js";
 import { touchLastActivity } from "./contacts.js";
 
 /**
@@ -37,15 +40,25 @@ export type ActivityInput = {
   contactId?: string | null;
   dealId?: string | null;
   customerId?: string | null;
+  partnershipId?: string | null;
   mailThreadId?: string | null;
   mailMessageId?: string | null;
   meta?: Record<string, unknown> | null;
+  taskStatus?: ActivityTaskStatus | null;
+  dueAt?: Date | null;
+  completedAt?: Date | null;
+  assignedUserId?: string | null;
+  assignedEmployeeId?: string | null;
+  priority?: ActivityPriority | null;
+  reminderAt?: Date | null;
+  recurrenceRule?: string | null;
 };
 
 export type ActivityListOptions = {
   contactId?: string;
   dealId?: string;
   customerId?: string;
+  partnershipId?: string;
   kinds?: ActivityKind[];
   /** Also include activities on deals belonging to this contact. */
   includeRelatedDeals?: boolean;
@@ -99,16 +112,36 @@ export async function recordActivity(
       contactId: input.contactId ?? null,
       dealId: input.dealId ?? null,
       customerId: input.customerId ?? null,
+      partnershipId: input.partnershipId ?? null,
       mailThreadId: input.mailThreadId ?? null,
       mailMessageId: input.mailMessageId ?? null,
       actorUserId: actor.userId ?? null,
       actorEmployeeId: actor.employeeId ?? null,
       metaJson: serializeMeta(input.meta),
+      taskStatus: input.kind === "task" ? input.taskStatus ?? "open" : null,
+      dueAt: input.kind === "task" ? input.dueAt ?? null : null,
+      completedAt: input.kind === "task" ? input.completedAt ?? null : null,
+      assignedUserId: input.kind === "task" ? input.assignedUserId ?? null : null,
+      assignedEmployeeId: input.kind === "task" ? input.assignedEmployeeId ?? null : null,
+      priority: input.kind === "task" ? input.priority ?? "normal" : null,
+      reminderAt: input.kind === "task" ? input.reminderAt ?? null : null,
+      recurrenceRule: input.kind === "task" ? input.recurrenceRule ?? null : null,
     }),
   );
 
   if (input.contactId) await touchLastActivity(companyId, [input.contactId], occurredAt);
   if (input.dealId) await touchDealActivity(companyId, [input.dealId], occurredAt);
+  if (input.partnershipId) {
+    await AppDataSource.getRepository(Partnership)
+      .createQueryBuilder()
+      .update(Partnership)
+      .set({ lastActivityAt: occurredAt })
+      .where("companyId = :companyId AND id = :id", {
+        companyId,
+        id: input.partnershipId,
+      })
+      .execute();
+  }
   return row;
 }
 
@@ -164,9 +197,18 @@ export async function recordMailActivities(
       contactId: input.contactId ?? null,
       dealId: input.dealId ?? null,
       customerId: input.customerId ?? null,
+      partnershipId: input.partnershipId ?? null,
       mailThreadId: input.mailThreadId ?? null,
       mailMessageId: input.mailMessageId,
       metaJson: serializeMeta(input.meta),
+      taskStatus: null,
+      dueAt: null,
+      completedAt: null,
+      assignedUserId: null,
+      assignedEmployeeId: null,
+      priority: null,
+      reminderAt: null,
+      recurrenceRule: null,
     }),
   );
   await repo.save(rows);
@@ -224,6 +266,9 @@ export async function listActivities(
   if (opts.dealId) qb.andWhere("a.dealId = :dealId", { dealId: opts.dealId });
   if (opts.customerId) {
     qb.andWhere("a.customerId = :customerId", { customerId: opts.customerId });
+  }
+  if (opts.partnershipId) {
+    qb.andWhere("a.partnershipId = :partnershipId", { partnershipId: opts.partnershipId });
   }
   if (opts.kinds && opts.kinds.length > 0) {
     qb.andWhere("a.kind IN (:...kinds)", { kinds: opts.kinds });

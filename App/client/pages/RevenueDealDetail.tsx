@@ -33,9 +33,13 @@ import {
   parseMoneyToCents,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
+import { RevenueCustomFieldsPanel } from "../components/revenue/RevenueCustomFieldsPanel";
+import { RevenueDocumentsPanel } from "../components/revenue/RevenueDocumentsPanel";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
+import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
+import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
@@ -58,6 +62,7 @@ import {
   statusPillClasses,
 } from "./RevenueDeals";
 import { RevenueOutletCtx } from "./RevenueLayout";
+import type { RevenueClassification } from "../lib/revenue";
 
 /**
  * One deal: the header, the stage ladder, the fields a rep keeps current, the
@@ -77,6 +82,15 @@ const MANUAL_KINDS: { kind: ActivityKind; label: string }[] = [
   { kind: "meeting", label: "Meeting" },
 ];
 
+function isoDateTimeLocal(iso: string | null): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+    .toISOString()
+    .slice(0, 16);
+}
+
 export default function RevenueDealDetail() {
   const { company } = useOutletContext<RevenueOutletCtx>();
   const params = useParams();
@@ -95,15 +109,19 @@ export default function RevenueDealDetail() {
   const [members, setMembers] = React.useState<Member[]>([]);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
   const [contacts, setContacts] = React.useState<RevenueContact[]>([]);
+  const [classifications, setClassifications] = React.useState<RevenueClassification[]>([]);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [taskOpen, setTaskOpen] = React.useState(false);
 
   const reload = React.useCallback(async () => {
-    const [res, stageList] = await Promise.all([
+    const [res, stageList, controlled] = await Promise.all([
       api.get<DealDetailResponse>(`${base}/deals/${dealId}`),
       api.get<DealStage[]>(`${base}/stages`),
+      api.get<{ rows: RevenueClassification[] }>(`${base}/classifications`),
     ]);
     setDetail(res);
     setStages(stageList);
+    setClassifications(controlled.rows);
     setLoadError(null);
   }, [base, dealId]);
 
@@ -421,6 +439,16 @@ export default function RevenueDealDetail() {
             <span className="inline-flex items-center gap-1">
               <Calendar size={12} /> Expected close {fmtDay(deal.expectedCloseDate)}
             </span>
+            <span
+              className={
+                "inline-flex items-center gap-1 " +
+                (deal.nextFollowUpAt && new Date(deal.nextFollowUpAt) < new Date()
+                  ? "font-medium text-rose-600 dark:text-rose-400"
+                  : "")
+              }
+            >
+              <CheckSquare size={12} /> Follow up {fmtDay(deal.nextFollowUpAt)}
+            </span>
             <span className="inline-flex items-center gap-1">
               {owner?.ai ? <Bot size={12} /> : <User size={12} />}
               {owner ? owner.name : "Unassigned"}
@@ -437,6 +465,9 @@ export default function RevenueDealDetail() {
             )}
           </div>
         </div>
+        <Button variant="secondary" onClick={() => setTaskOpen(true)}>
+          <CheckSquare size={14} /> Follow-up task
+        </Button>
       </div>
 
       <StageStepper
@@ -448,6 +479,16 @@ export default function RevenueDealDetail() {
       <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
           <Composer onLog={logActivity} />
+          <RevenueCustomFieldsPanel
+            companyId={company.id}
+            resourceType="deal"
+            resourceId={dealId}
+          />
+          <RevenueDocumentsPanel
+            companyId={company.id}
+            resourceType="deal"
+            resourceId={dealId}
+          />
           <Timeline
             activities={detail.activities}
             total={detail.activityTotal}
@@ -461,17 +502,121 @@ export default function RevenueDealDetail() {
             deal={deal}
             members={members}
             employees={employees}
+            sources={classifications.filter((row) => row.kind === "deal_source")}
             onSave={patchDeal}
           />
           <Committee
             links={detail.contacts}
             contacts={contacts}
+            roles={classifications.filter((row) => row.kind === "committee_role")}
             onAdd={addCommitteeMember}
             onRemove={(link) => void removeCommitteeMember(link)}
           />
         </div>
       </div>
+      <DealTaskModal
+        open={taskOpen}
+        onClose={() => setTaskOpen(false)}
+        base={base}
+        deal={deal}
+        members={members}
+        employees={employees}
+        onCreated={() => {
+          setTaskOpen(false);
+          void reload();
+        }}
+      />
     </div>
+  );
+}
+
+function DealTaskModal({
+  open,
+  onClose,
+  base,
+  deal,
+  members,
+  employees,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  base: string;
+  deal: Deal;
+  members: Member[];
+  employees: Employee[];
+  onCreated: () => void;
+}) {
+  const [subject, setSubject] = React.useState(deal.nextStep || `Follow up on ${deal.title}`);
+  const [dueAt, setDueAt] = React.useState(isoDateTimeLocal(deal.nextFollowUpAt));
+  const [reminderAt, setReminderAt] = React.useState(
+    isoDateTimeLocal(deal.followUpReminderAt),
+  );
+  const [priority, setPriority] = React.useState("normal");
+  const [assignee, setAssignee] = React.useState(
+    ownerKey(deal.ownerId, deal.ownerEmployeeId).replace(/^ai:/, "employee:"),
+  );
+  const [recurrenceRule, setRecurrenceRule] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post(`${base}/follow-ups`, {
+        subject,
+        dueAt: dueAt || null,
+        reminderAt: reminderAt || null,
+        priority,
+        recurrenceRule: recurrenceRule || null,
+        dealId: deal.id,
+        customerId: deal.customerId,
+        contactId: deal.primaryContactId,
+        assignedUserId: assignee.startsWith("user:") ? assignee.slice(5) : null,
+        assignedEmployeeId: assignee.startsWith("employee:") ? assignee.slice(9) : null,
+      });
+      onCreated();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Deal follow-up task">
+      <form onSubmit={submit} className="space-y-4">
+        <Input label="Task" value={subject} onChange={(event) => setSubject(event.target.value)} required />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Input label="Due" type="datetime-local" value={dueAt} onChange={(event) => setDueAt(event.target.value)} required />
+          <Input label="Reminder" type="datetime-local" value={reminderAt} onChange={(event) => setReminderAt(event.target.value)} />
+          <Select label="Priority" value={priority} onChange={(event) => setPriority(event.target.value)}>
+            <option value="low">Low</option>
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
+            <option value="urgent">Urgent</option>
+          </Select>
+          <Select label="Assignee" value={assignee} onChange={(event) => setAssignee(event.target.value)}>
+            <option value="">Unassigned</option>
+            {members.map((member) => <option key={member.userId} value={`user:${member.userId}`}>{member.name || member.email || "Member"}</option>)}
+            {employees.map((employee) => <option key={employee.id} value={`employee:${employee.id}`}>{employee.name} · AI Employee</option>)}
+          </Select>
+          <Select label="Repeat" value={recurrenceRule} onChange={(event) => setRecurrenceRule(event.target.value)}>
+            <option value="">Does not repeat</option>
+            <option value="FREQ=DAILY;INTERVAL=1">Daily</option>
+            <option value="FREQ=WEEKLY;INTERVAL=1">Weekly</option>
+            <option value="FREQ=MONTHLY;INTERVAL=1">Monthly</option>
+          </Select>
+        </div>
+        {error && <FormError message={error} />}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={busy}>{busy ? "Creating…" : "Create task"}</Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -600,11 +745,13 @@ function DealFields({
   deal,
   members,
   employees,
+  sources,
   onSave,
 }: {
   deal: Deal;
   members: Member[];
   employees: Employee[];
+  sources: RevenueClassification[];
   onSave: (
     body: Record<string, unknown>,
     labels: { loading: string; success: string },
@@ -618,6 +765,8 @@ function DealFields({
     () => ({
       amount: (deal.amountCents / 100).toFixed(2),
       expectedCloseDate: isoDay(deal.expectedCloseDate),
+      nextFollowUpAt: isoDateTimeLocal(deal.nextFollowUpAt),
+      followUpReminderAt: isoDateTimeLocal(deal.followUpReminderAt),
       nextStep: deal.nextStep,
       source: deal.source,
       probability: deal.probabilityOverride === null ? "" : String(deal.probabilityOverride),
@@ -627,6 +776,8 @@ function DealFields({
     [
       deal.amountCents,
       deal.expectedCloseDate,
+      deal.nextFollowUpAt,
+      deal.followUpReminderAt,
       deal.nextStep,
       deal.source,
       deal.probabilityOverride,
@@ -657,6 +808,14 @@ function DealFields({
     if (draft.expectedCloseDate !== initial.expectedCloseDate) {
       body.expectedCloseDate = draft.expectedCloseDate || null;
       next.expectedCloseDate = draft.expectedCloseDate || null;
+    }
+    if (draft.nextFollowUpAt !== initial.nextFollowUpAt) {
+      body.nextFollowUpAt = draft.nextFollowUpAt || null;
+      next.nextFollowUpAt = draft.nextFollowUpAt || null;
+    }
+    if (draft.followUpReminderAt !== initial.followUpReminderAt) {
+      body.followUpReminderAt = draft.followUpReminderAt || null;
+      next.followUpReminderAt = draft.followUpReminderAt || null;
     }
     if (draft.nextStep !== initial.nextStep) {
       body.nextStep = draft.nextStep;
@@ -717,12 +876,29 @@ function DealFields({
           onChange={(e) => setDraft({ ...draft, nextStep: e.target.value })}
         />
         <Input
+          label="Next follow-up"
+          type="datetime-local"
+          value={draft.nextFollowUpAt}
+          onChange={(e) => setDraft({ ...draft, nextFollowUpAt: e.target.value })}
+        />
+        <Input
+          label="Follow-up reminder"
+          type="datetime-local"
+          value={draft.followUpReminderAt}
+          onChange={(e) => setDraft({ ...draft, followUpReminderAt: e.target.value })}
+        />
+        <Select
           label="Source"
           value={draft.source}
-          maxLength={100}
-          placeholder="referral, google-ads, signal:…"
           onChange={(e) => setDraft({ ...draft, source: e.target.value })}
-        />
+        >
+          <option value="">Not set</option>
+          {sources.map((source) => (
+            <option key={source.id} value={source.value}>
+              {source.label}
+            </option>
+          ))}
+        </Select>
         <Input
           label="Probability override"
           type="number"
@@ -775,11 +951,13 @@ function DealFields({
 function Committee({
   links,
   contacts,
+  roles,
   onAdd,
   onRemove,
 }: {
   links: DealContactLink[];
   contacts: RevenueContact[];
+  roles: RevenueClassification[];
   onAdd: (contactId: string, role: string) => void;
   onRemove: (link: DealContactLink) => void;
 }) {
@@ -851,13 +1029,18 @@ function Committee({
         </Select>
         <div className="flex items-center gap-2">
           <div className="flex-1">
-            <Input
+            <Select
               value={role}
               onChange={(e) => setRole(e.target.value)}
-              placeholder="Role — champion, security…"
-              maxLength={100}
               aria-label="Role on this deal"
-            />
+            >
+              <option value="">No role</option>
+              {roles.map((row) => (
+                <option key={row.id} value={row.value}>
+                  {row.label}
+                </option>
+              ))}
+            </Select>
           </div>
           <Button size="sm" variant="secondary" onClick={add} disabled={!contactId}>
             <Plus size={13} /> Add

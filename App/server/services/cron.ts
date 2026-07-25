@@ -12,6 +12,7 @@ import { withSchedulerLease } from "./schedulerLeases.js";
 import { findDueRetries, reconcileOrphanedRuns } from "./runRecovery.js";
 import { ORPHAN_GRACE_MS, STALE_SLOT_MS, countMissedSlots, isSlotStale } from "./cronMath.js";
 import { WorkloadLimitError } from "./workloadLeases.js";
+import { dispatchDueFollowUpReminders } from "./revenue/followUpReminders.js";
 
 /**
  * Heartbeat-based routine scheduler.
@@ -300,6 +301,14 @@ async function tick(): Promise<void> {
           missedSlots: 0,
         }).catch((err) => void onRetryError(parent.id)(err));
       }
+
+      // Phase 4 — durable Revenue reminders. The notification entity key
+      // makes this idempotent across heartbeats; the scheduler lease prevents
+      // two app instances racing the same reminder.
+      await dispatchDueFollowUpReminders(now).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[cron] revenue follow-up reminders failed:", err);
+      });
     });
   } finally {
     ticking = false;

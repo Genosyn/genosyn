@@ -8,6 +8,10 @@ import { Account, AccountType } from "../db/entities/Account.js";
 import { BankFeed, BankFeedKind } from "../db/entities/BankFeed.js";
 import { BankTransaction } from "../db/entities/BankTransaction.js";
 import { Customer } from "../db/entities/Customer.js";
+import { Contact } from "../db/entities/Contact.js";
+import { Deal } from "../db/entities/Deal.js";
+import { Partnership } from "../db/entities/Partnership.js";
+import { RevenueDocument } from "../db/entities/RevenueDocument.js";
 import { CustomerContact } from "../db/entities/CustomerContact.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { Invoice } from "../db/entities/Invoice.js";
@@ -45,6 +49,7 @@ import {
   uniqueCustomerSlug,
   voidInvoice,
 } from "../services/finance.js";
+import { normalizeAccountDomain } from "../services/revenue/accounts.js";
 import {
   createInvoiceWriteOff,
   listInvoiceWriteOffs,
@@ -320,6 +325,13 @@ const customerWriteSchema = z.object({
   name: z.string().min(1).max(120),
   email: z.string().email().max(200).or(z.literal("")).optional(),
   phone: z.string().max(60).optional(),
+  accountStatus: z.enum(["prospect", "customer", "former"]).optional(),
+  domain: z.string().max(255).optional(),
+  websiteUrl: z.string().max(1000).optional(),
+  industry: z.string().max(200).optional(),
+  employeeCount: z.number().int().min(0).max(2_000_000_000).optional(),
+  ownerId: z.string().uuid().nullable().optional(),
+  ownerEmployeeId: z.string().uuid().nullable().optional(),
   billingAddress: z.string().max(2000).optional(),
   shippingAddress: z.string().max(2000).optional(),
   taxNumber: z.string().max(60).optional(),
@@ -338,6 +350,10 @@ financeRouter.post("/customers", validateBody(customerWriteSchema), async (req, 
   const cid = (req.params as Record<string, string>).cid;
   const body = req.body as z.infer<typeof customerWriteSchema>;
   const repo = AppDataSource.getRepository(Customer);
+  const domain = normalizeAccountDomain(body.domain ?? "");
+  if (domain && (await repo.findOneBy({ companyId: cid, domain }))) {
+    return res.status(409).json({ error: "An account with that domain already exists" });
+  }
   const slug = await uniqueCustomerSlug(cid, toSlug(body.name));
   const c = repo.create({
     companyId: cid,
@@ -345,6 +361,13 @@ financeRouter.post("/customers", validateBody(customerWriteSchema), async (req, 
     slug,
     email: body.email ?? "",
     phone: body.phone ?? "",
+    accountStatus: body.accountStatus ?? "customer",
+    domain,
+    websiteUrl: body.websiteUrl ?? "",
+    industry: body.industry ?? "",
+    employeeCount: body.employeeCount ?? 0,
+    ownerId: body.ownerId ?? null,
+    ownerEmployeeId: body.ownerEmployeeId ?? null,
     billingAddress: body.billingAddress ?? "",
     shippingAddress: body.shippingAddress ?? "",
     taxNumber: body.taxNumber ?? "",
@@ -500,9 +523,31 @@ financeRouter.patch(
     const body = req.body as Partial<z.infer<typeof customerWriteSchema>> & {
       archived?: boolean;
     };
+    if (body.domain !== undefined) {
+      const domain = normalizeAccountDomain(body.domain);
+      const existing = domain
+        ? await AppDataSource.getRepository(Customer).findOneBy({ companyId: cid, domain })
+        : null;
+      if (existing && existing.id !== c.id) {
+        return res.status(409).json({ error: "An account with that domain already exists" });
+      }
+      c.domain = domain;
+    }
     if (body.name !== undefined) c.name = body.name;
     if (body.email !== undefined) c.email = body.email;
     if (body.phone !== undefined) c.phone = body.phone;
+    if (body.accountStatus !== undefined) c.accountStatus = body.accountStatus;
+    if (body.websiteUrl !== undefined) c.websiteUrl = body.websiteUrl;
+    if (body.industry !== undefined) c.industry = body.industry;
+    if (body.employeeCount !== undefined) c.employeeCount = body.employeeCount;
+    if (body.ownerId !== undefined) {
+      c.ownerId = body.ownerId;
+      if (body.ownerId) c.ownerEmployeeId = null;
+    }
+    if (body.ownerEmployeeId !== undefined) {
+      c.ownerEmployeeId = body.ownerEmployeeId;
+      if (body.ownerEmployeeId) c.ownerId = null;
+    }
     if (body.billingAddress !== undefined) c.billingAddress = body.billingAddress;
     if (body.shippingAddress !== undefined) c.shippingAddress = body.shippingAddress;
     if (body.taxNumber !== undefined) c.taxNumber = body.taxNumber;
@@ -524,14 +569,24 @@ financeRouter.delete("/customers/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const c = await loadCustomerBySlug(cid, req.params.slug);
   if (!c) return res.status(404).json({ error: "Customer not found" });
-  // Hard-delete is only allowed if the customer has no invoices. Anything
-  // else would orphan billing records — archive instead.
-  const invoiceCount = await AppDataSource.getRepository(Invoice).count({
-    where: { companyId: cid, customerId: c.id },
-  });
-  if (invoiceCount > 0) {
+  // Customer is the shared Revenue account. Refuse a hard delete when any
+  // finance or go-to-market history points at it; archive keeps that history
+  // intact and prevents dangling relationship ids.
+  const [invoiceCount, contactCount, dealCount, partnershipCount, documentCount] =
+    await Promise.all([
+      AppDataSource.getRepository(Invoice).count({ where: { companyId: cid, customerId: c.id } }),
+      AppDataSource.getRepository(Contact).count({ where: { companyId: cid, customerId: c.id } }),
+      AppDataSource.getRepository(Deal).count({ where: { companyId: cid, customerId: c.id } }),
+      AppDataSource.getRepository(Partnership).count({
+        where: { companyId: cid, customerId: c.id },
+      }),
+      AppDataSource.getRepository(RevenueDocument).count({
+        where: { companyId: cid, customerId: c.id },
+      }),
+    ]);
+  if (invoiceCount + contactCount + dealCount + partnershipCount + documentCount > 0) {
     return res.status(409).json({
-      error: "Customer has invoices. Archive them or delete the invoices first.",
+      error: "This account has linked Revenue or finance history. Archive it instead.",
     });
   }
   await AppDataSource.getRepository(CustomerContact).delete({ customerId: c.id });

@@ -1,0 +1,124 @@
+import { MigrationInterface, QueryRunner } from "typeorm";
+
+export class RevenueOperations1784990825128 implements MigrationInterface {
+    name = 'RevenueOperations1784990825128'
+
+    public async up(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`CREATE TABLE "revenue_classifications" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "companyId" character varying NOT NULL, "kind" character varying NOT NULL, "value" character varying NOT NULL, "label" character varying NOT NULL, "sortOrder" integer NOT NULL DEFAULT '0', "archivedAt" TIMESTAMP WITH TIME ZONE, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_98609c8e951148f1eb2c46226e8" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_f75f797617263fa2795e9c7682" ON "revenue_classifications" ("companyId", "kind", "sortOrder") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_39f1b6dec2a9ff3628ab2e19cf" ON "revenue_classifications" ("companyId", "kind", "value") `);
+        await queryRunner.query(`CREATE TABLE "revenue_custom_fields" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "companyId" character varying NOT NULL, "resourceType" character varying NOT NULL, "key" character varying NOT NULL, "name" character varying NOT NULL, "fieldType" character varying NOT NULL, "optionsJson" text NOT NULL DEFAULT '[]', "required" boolean NOT NULL DEFAULT false, "sortOrder" integer NOT NULL DEFAULT '0', "archivedAt" TIMESTAMP WITH TIME ZONE, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_1caaa20942609f00170cb719f2f" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_dc95fa571960717afb3d4d4f0f" ON "revenue_custom_fields" ("companyId", "resourceType", "sortOrder") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_b739a7faa4beeafff945731d36" ON "revenue_custom_fields" ("companyId", "resourceType", "key") `);
+        await queryRunner.query(`CREATE TABLE "revenue_custom_values" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "companyId" character varying NOT NULL, "fieldId" character varying NOT NULL, "resourceType" character varying NOT NULL, "resourceId" character varying NOT NULL, "valueJson" text NOT NULL, "searchValue" character varying NOT NULL DEFAULT '', "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_fff220ff28c647133b52f52dc01" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_537b4e6c5aaf3b23b50d11d203" ON "revenue_custom_values" ("companyId", "fieldId", "searchValue") `);
+        await queryRunner.query(`CREATE INDEX "IDX_58068e99ec39cbec78a9eed3f7" ON "revenue_custom_values" ("companyId", "resourceType", "resourceId") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_b4e44c6687106223c2d15ef2e5" ON "revenue_custom_values" ("companyId", "fieldId", "resourceId") `);
+        await queryRunner.query(`CREATE TABLE "partnerships" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "companyId" character varying NOT NULL, "name" character varying NOT NULL, "type" character varying NOT NULL DEFAULT '', "status" character varying NOT NULL DEFAULT '', "customerId" character varying, "websiteUrl" character varying NOT NULL DEFAULT '', "integrationContext" text NOT NULL DEFAULT '', "channelContext" text NOT NULL DEFAULT '', "notes" text NOT NULL DEFAULT '', "ownerId" character varying, "ownerEmployeeId" character varying, "nextFollowUpAt" TIMESTAMP WITH TIME ZONE, "reminderAt" TIMESTAMP WITH TIME ZONE, "lastActivityAt" TIMESTAMP WITH TIME ZONE, "archivedAt" TIMESTAMP WITH TIME ZONE, "createdById" character varying, "createdByEmployeeId" character varying, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_55de3c169ff0d5d88e9a7cb0cd6" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_0562460e47c6567e7c4a2ecf0b" ON "partnerships" ("companyId", "archivedAt") `);
+        await queryRunner.query(`CREATE INDEX "IDX_c6970560b5f631019855719697" ON "partnerships" ("companyId", "nextFollowUpAt") `);
+        await queryRunner.query(`CREATE INDEX "IDX_282e1dc8d8984fd3c09d42e6ac" ON "partnerships" ("companyId", "status") `);
+        await queryRunner.query(`CREATE TABLE "partnership_contacts" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "companyId" character varying NOT NULL, "partnershipId" character varying NOT NULL, "contactId" character varying NOT NULL, "role" character varying NOT NULL DEFAULT '', "isPrimary" boolean NOT NULL DEFAULT false, "replyAll" boolean NOT NULL DEFAULT false, "sortOrder" integer NOT NULL DEFAULT '0', "createdAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_607380be12d147cf4d53e17785c" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_53bcea13c4502e080017523dac" ON "partnership_contacts" ("companyId", "contactId") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_d9cc826ae147d56000d10add1b" ON "partnership_contacts" ("companyId", "partnershipId", "contactId") `);
+        await queryRunner.query(`CREATE TABLE "revenue_documents" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "companyId" character varying NOT NULL, "kind" character varying NOT NULL, "title" character varying NOT NULL, "notes" text NOT NULL DEFAULT '', "dealId" character varying, "customerId" character varying, "partnershipId" character varying, "contactId" character varying, "attachmentId" character varying, "sourceMailMessageId" character varying, "externalUrl" character varying NOT NULL DEFAULT '', "createdByUserId" character varying, "createdByEmployeeId" character varying, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_a7f41e9e76885aa97ab44169a72" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_725f4c1a7d34b794290b0ac08b" ON "revenue_documents" ("companyId", "contactId") `);
+        await queryRunner.query(`CREATE INDEX "IDX_e6e1e6843d68df6880c73fdb8b" ON "revenue_documents" ("companyId", "partnershipId") `);
+        await queryRunner.query(`CREATE INDEX "IDX_3ecbf03e13486b18a729e2f392" ON "revenue_documents" ("companyId", "customerId") `);
+        await queryRunner.query(`CREATE INDEX "IDX_8e2f3e906b858cae25a64c27ce" ON "revenue_documents" ("companyId", "dealId") `);
+        await queryRunner.query(`CREATE TABLE "revenue_import_batches" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "companyId" character varying NOT NULL, "resourceType" character varying NOT NULL, "sourceKind" character varying NOT NULL, "sourceLabel" character varying NOT NULL DEFAULT '', "sourceBaseId" character varying, "sourceTableId" character varying, "status" character varying NOT NULL, "mappingJson" text NOT NULL, "rowMapJson" text NOT NULL, "createdIdsJson" text NOT NULL, "reportJson" text NOT NULL, "rolledBackAt" TIMESTAMP WITH TIME ZONE, "createdByUserId" character varying, "createdByEmployeeId" character varying, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_28d46143a9c26f14e9ed81dd370" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_a7cf5cf8c67bbbb8c9acb93eea" ON "revenue_import_batches" ("companyId", "status") `);
+        await queryRunner.query(`CREATE INDEX "IDX_e3b13b6afcb0e35e93da44cbf3" ON "revenue_import_batches" ("companyId", "createdAt") `);
+        await queryRunner.query(`ALTER TABLE "customers" ADD "accountStatus" character varying NOT NULL DEFAULT 'customer'`);
+        await queryRunner.query(`ALTER TABLE "customers" ADD "domain" character varying NOT NULL DEFAULT ''`);
+        await queryRunner.query(`ALTER TABLE "customers" ADD "websiteUrl" character varying NOT NULL DEFAULT ''`);
+        await queryRunner.query(`ALTER TABLE "customers" ADD "industry" character varying NOT NULL DEFAULT ''`);
+        await queryRunner.query(`ALTER TABLE "customers" ADD "employeeCount" integer NOT NULL DEFAULT '0'`);
+        await queryRunner.query(`ALTER TABLE "customers" ADD "ownerId" character varying`);
+        await queryRunner.query(`ALTER TABLE "customers" ADD "ownerEmployeeId" character varying`);
+        await queryRunner.query(`ALTER TABLE "deals" ADD "nextFollowUpAt" TIMESTAMP WITH TIME ZONE`);
+        await queryRunner.query(`ALTER TABLE "deals" ADD "followUpReminderAt" TIMESTAMP WITH TIME ZONE`);
+        await queryRunner.query(`ALTER TABLE "activities" ADD "partnershipId" character varying`);
+        await queryRunner.query(`ALTER TABLE "activities" ADD "taskStatus" character varying`);
+        await queryRunner.query(`ALTER TABLE "activities" ADD "dueAt" TIMESTAMP WITH TIME ZONE`);
+        await queryRunner.query(`ALTER TABLE "activities" ADD "completedAt" TIMESTAMP WITH TIME ZONE`);
+        await queryRunner.query(`ALTER TABLE "activities" ADD "assignedUserId" character varying`);
+        await queryRunner.query(`ALTER TABLE "activities" ADD "assignedEmployeeId" character varying`);
+        await queryRunner.query(`ALTER TABLE "activities" ADD "priority" character varying`);
+        await queryRunner.query(`ALTER TABLE "activities" ADD "reminderAt" TIMESTAMP WITH TIME ZONE`);
+        await queryRunner.query(`ALTER TABLE "activities" ADD "recurrenceRule" character varying`);
+        await queryRunner.query(`ALTER TABLE "customer_credit_lines" DROP COLUMN "quantity"`);
+        await queryRunner.query(`ALTER TABLE "customer_credit_lines" ADD "quantity" real NOT NULL DEFAULT '1'`);
+        await queryRunner.query(`ALTER TABLE "customer_credit_lines" DROP COLUMN "taxPercent"`);
+        await queryRunner.query(`ALTER TABLE "customer_credit_lines" ADD "taxPercent" real NOT NULL DEFAULT '0'`);
+        await queryRunner.query(`ALTER TABLE "vendor_credit_lines" DROP COLUMN "quantity"`);
+        await queryRunner.query(`ALTER TABLE "vendor_credit_lines" ADD "quantity" real NOT NULL DEFAULT '1'`);
+        await queryRunner.query(`ALTER TABLE "vendor_credit_lines" DROP COLUMN "taxPercent"`);
+        await queryRunner.query(`ALTER TABLE "vendor_credit_lines" ADD "taxPercent" real NOT NULL DEFAULT '0'`);
+        await queryRunner.query(`CREATE INDEX "IDX_34d1051b5ebae7aaeb9c54ad52" ON "customers" ("companyId", "domain") `);
+        await queryRunner.query(`CREATE INDEX "IDX_957b8dd8c17aac17229369e91c" ON "customers" ("companyId", "accountStatus") `);
+        await queryRunner.query(`CREATE INDEX "IDX_066afacb0091745b417e9173cf" ON "deals" ("companyId", "nextFollowUpAt") `);
+        await queryRunner.query(`CREATE INDEX "IDX_c89d0d47933afc5511e84a9e56" ON "activities" ("companyId", "taskStatus", "dueAt") `);
+        await queryRunner.query(`CREATE INDEX "IDX_dcfba5f8376b0161f592f0530a" ON "activities" ("partnershipId", "occurredAt") `);
+    }
+
+    public async down(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`DROP INDEX "public"."IDX_dcfba5f8376b0161f592f0530a"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_c89d0d47933afc5511e84a9e56"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_066afacb0091745b417e9173cf"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_957b8dd8c17aac17229369e91c"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_34d1051b5ebae7aaeb9c54ad52"`);
+        await queryRunner.query(`ALTER TABLE "vendor_credit_lines" DROP COLUMN "taxPercent"`);
+        await queryRunner.query(`ALTER TABLE "vendor_credit_lines" ADD "taxPercent" double precision NOT NULL DEFAULT '0'`);
+        await queryRunner.query(`ALTER TABLE "vendor_credit_lines" DROP COLUMN "quantity"`);
+        await queryRunner.query(`ALTER TABLE "vendor_credit_lines" ADD "quantity" double precision NOT NULL DEFAULT '1'`);
+        await queryRunner.query(`ALTER TABLE "customer_credit_lines" DROP COLUMN "taxPercent"`);
+        await queryRunner.query(`ALTER TABLE "customer_credit_lines" ADD "taxPercent" double precision NOT NULL DEFAULT '0'`);
+        await queryRunner.query(`ALTER TABLE "customer_credit_lines" DROP COLUMN "quantity"`);
+        await queryRunner.query(`ALTER TABLE "customer_credit_lines" ADD "quantity" double precision NOT NULL DEFAULT '1'`);
+        await queryRunner.query(`ALTER TABLE "activities" DROP COLUMN "recurrenceRule"`);
+        await queryRunner.query(`ALTER TABLE "activities" DROP COLUMN "reminderAt"`);
+        await queryRunner.query(`ALTER TABLE "activities" DROP COLUMN "priority"`);
+        await queryRunner.query(`ALTER TABLE "activities" DROP COLUMN "assignedEmployeeId"`);
+        await queryRunner.query(`ALTER TABLE "activities" DROP COLUMN "assignedUserId"`);
+        await queryRunner.query(`ALTER TABLE "activities" DROP COLUMN "completedAt"`);
+        await queryRunner.query(`ALTER TABLE "activities" DROP COLUMN "dueAt"`);
+        await queryRunner.query(`ALTER TABLE "activities" DROP COLUMN "taskStatus"`);
+        await queryRunner.query(`ALTER TABLE "activities" DROP COLUMN "partnershipId"`);
+        await queryRunner.query(`ALTER TABLE "deals" DROP COLUMN "followUpReminderAt"`);
+        await queryRunner.query(`ALTER TABLE "deals" DROP COLUMN "nextFollowUpAt"`);
+        await queryRunner.query(`ALTER TABLE "customers" DROP COLUMN "ownerEmployeeId"`);
+        await queryRunner.query(`ALTER TABLE "customers" DROP COLUMN "ownerId"`);
+        await queryRunner.query(`ALTER TABLE "customers" DROP COLUMN "employeeCount"`);
+        await queryRunner.query(`ALTER TABLE "customers" DROP COLUMN "industry"`);
+        await queryRunner.query(`ALTER TABLE "customers" DROP COLUMN "websiteUrl"`);
+        await queryRunner.query(`ALTER TABLE "customers" DROP COLUMN "domain"`);
+        await queryRunner.query(`ALTER TABLE "customers" DROP COLUMN "accountStatus"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_e3b13b6afcb0e35e93da44cbf3"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_a7cf5cf8c67bbbb8c9acb93eea"`);
+        await queryRunner.query(`DROP TABLE "revenue_import_batches"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_8e2f3e906b858cae25a64c27ce"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_3ecbf03e13486b18a729e2f392"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_e6e1e6843d68df6880c73fdb8b"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_725f4c1a7d34b794290b0ac08b"`);
+        await queryRunner.query(`DROP TABLE "revenue_documents"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_d9cc826ae147d56000d10add1b"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_53bcea13c4502e080017523dac"`);
+        await queryRunner.query(`DROP TABLE "partnership_contacts"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_282e1dc8d8984fd3c09d42e6ac"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_c6970560b5f631019855719697"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_0562460e47c6567e7c4a2ecf0b"`);
+        await queryRunner.query(`DROP TABLE "partnerships"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_b4e44c6687106223c2d15ef2e5"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_58068e99ec39cbec78a9eed3f7"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_537b4e6c5aaf3b23b50d11d203"`);
+        await queryRunner.query(`DROP TABLE "revenue_custom_values"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_b739a7faa4beeafff945731d36"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_dc95fa571960717afb3d4d4f0f"`);
+        await queryRunner.query(`DROP TABLE "revenue_custom_fields"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_39f1b6dec2a9ff3628ab2e19cf"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_f75f797617263fa2795e9c7682"`);
+        await queryRunner.query(`DROP TABLE "revenue_classifications"`);
+    }
+
+}

@@ -541,7 +541,7 @@ describe("the create_deal action", () => {
     assert.ok(event.dealId);
     const deal = await AppDataSource.getRepository(Deal).findOneBy({ id: event.dealId as string });
     assert.equal(deal?.primaryContactId, event.contactId);
-    assert.equal(deal?.source, "signal:trial-ending");
+    assert.equal(deal?.source, "product_signal");
     assert.equal(deal?.title, "Trial ending — acct_1");
     assert.equal(deal?.amountCents, 0);
   });

@@ -1,0 +1,301 @@
+import React from "react";
+import { Link, useOutletContext } from "react-router-dom";
+import { Bot, CalendarCheck, Check, Clock3, Plus, User } from "lucide-react";
+import { api, type Employee, type Member } from "../lib/api";
+import type { FollowUpItem } from "../lib/revenue";
+import { Breadcrumbs } from "../components/AppShell";
+import { useLiveRefetch } from "../components/CompanySocket";
+import { Button } from "../components/ui/Button";
+import { FormError } from "../components/ui/FormError";
+import { Input } from "../components/ui/Input";
+import { Modal } from "../components/ui/Modal";
+import { Select } from "../components/ui/Select";
+import { Spinner } from "../components/ui/Spinner";
+import { Textarea } from "../components/ui/Textarea";
+import { useToast } from "../components/ui/Toast";
+import { RevenueOutletCtx } from "./RevenueLayout";
+
+type QueueState = "all" | "overdue" | "today" | "upcoming";
+
+function localDateTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function itemUrl(companySlug: string, item: FollowUpItem): string | null {
+  if (item.dealId) return `/c/${companySlug}/revenue/deals/${item.dealId}`;
+  if (item.partnershipId) {
+    return `/c/${companySlug}/revenue/partnerships/${item.partnershipId}`;
+  }
+  if (item.contactId) return `/c/${companySlug}/revenue/contacts/${item.contactId}`;
+  return null;
+}
+
+export default function RevenueFollowUps() {
+  const { company } = useOutletContext<RevenueOutletCtx>();
+  const { toast } = useToast();
+  const base = `/api/companies/${company.id}/revenue`;
+  const sectionUrl = `/c/${company.slug}/revenue`;
+  const [state, setState] = React.useState<QueueState>("all");
+  const [rows, setRows] = React.useState<FollowUpItem[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [creating, setCreating] = React.useState(false);
+  const [members, setMembers] = React.useState<Member[]>([]);
+  const [employees, setEmployees] = React.useState<Employee[]>([]);
+
+  const reload = React.useCallback(async () => {
+    const result = await api.get<{ rows: FollowUpItem[] }>(
+      `${base}/follow-ups?state=${state}&limit=500`,
+    );
+    setRows(result.rows);
+    setLoadError(null);
+  }, [base, state]);
+
+  React.useEffect(() => {
+    reload().catch((error) => {
+      setRows([]);
+      setLoadError(error instanceof Error ? error.message : String(error));
+    });
+  }, [reload]);
+
+  React.useEffect(() => {
+    void Promise.all([
+      api.get<Member[]>(`/api/companies/${company.id}/members`).catch(() => []),
+      api.get<Employee[]>(`/api/companies/${company.id}/employees`).catch(() => []),
+    ]).then(([memberRows, employeeRows]) => {
+      setMembers(memberRows);
+      setEmployees(employeeRows);
+    });
+  }, [company.id]);
+
+  useLiveRefetch(["activity", "deal", "partnership"], reload);
+
+  async function complete(item: FollowUpItem) {
+    if (item.source !== "task") return;
+    try {
+      await api.patch(`${base}/follow-ups/${item.id}`, { taskStatus: "completed" });
+      setRows((current) => current?.filter((row) => row.id !== item.id) ?? current);
+      toast(item.recurrenceRule ? "Completed and scheduled the next follow-up" : "Follow-up completed", "success");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : String(error), "error");
+    }
+  }
+
+  return (
+    <div className="mx-auto max-w-5xl p-8">
+      <div className="mb-6">
+        <Breadcrumbs items={[{ label: "Revenue", to: sectionUrl }, { label: "Follow-ups" }]} />
+      </div>
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+            Follow-ups
+          </h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            One queue for due work across tasks, deals, and partnerships.
+          </p>
+        </div>
+        <Button onClick={() => setCreating(true)}>
+          <Plus size={15} /> New follow-up
+        </Button>
+      </div>
+
+      <div className="mb-4 flex flex-wrap gap-2">
+        {(["all", "overdue", "today", "upcoming"] as QueueState[]).map((value) => (
+          <Button
+            key={value}
+            size="sm"
+            variant={state === value ? "primary" : "secondary"}
+            onClick={() => setState(value)}
+          >
+            {value[0].toUpperCase() + value.slice(1)}
+          </Button>
+        ))}
+      </div>
+
+      {loadError && <FormError message={loadError} />}
+      {rows === null ? (
+        <div className="flex justify-center py-20">
+          <Spinner />
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-300 px-6 py-16 text-center dark:border-slate-700">
+          <CalendarCheck className="mx-auto mb-3 text-slate-400" size={28} />
+          <p className="font-medium text-slate-800 dark:text-slate-200">Nothing due here</p>
+          <p className="mt-1 text-sm text-slate-500">Your queue is clear for this view.</p>
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          {rows.map((item) => {
+            const to = itemUrl(company.slug, item);
+            return (
+              <div
+                key={`${item.source}-${item.id}`}
+                className="flex flex-wrap items-center gap-4 border-b border-slate-100 px-4 py-3 last:border-0 dark:border-slate-800"
+              >
+                {item.source === "task" ? (
+                  <button
+                    type="button"
+                    onClick={() => void complete(item)}
+                    className="rounded-full border border-slate-300 p-1.5 text-slate-400 hover:border-emerald-500 hover:text-emerald-600 dark:border-slate-600"
+                    aria-label={`Complete ${item.title}`}
+                  >
+                    <Check size={14} />
+                  </button>
+                ) : (
+                  <Clock3 size={17} className={item.overdue ? "text-rose-500" : "text-slate-400"} />
+                )}
+                <div className="min-w-0 flex-1">
+                  {to ? (
+                    <Link
+                      to={to}
+                      className="font-medium text-slate-900 hover:text-indigo-600 dark:text-slate-100"
+                    >
+                      {item.title}
+                    </Link>
+                  ) : (
+                    <p className="font-medium text-slate-900 dark:text-slate-100">{item.title}</p>
+                  )}
+                  <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                    <span className={item.overdue ? "font-medium text-rose-600" : ""}>
+                      {item.overdue ? "Overdue · " : ""}
+                      {localDateTime(item.dueAt)}
+                    </span>
+                    <span className="capitalize">{item.source}</span>
+                    {item.priority !== "normal" && (
+                      <span className="font-medium capitalize">{item.priority}</span>
+                    )}
+                    {item.assigneeName && (
+                      <span className="inline-flex items-center gap-1">
+                        {item.assignedEmployeeId ? <Bot size={12} /> : <User size={12} />}
+                        {item.assigneeName}
+                      </span>
+                    )}
+                    {item.recurrenceRule && <span>Recurring</span>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <NewFollowUpModal
+        open={creating}
+        onClose={() => setCreating(false)}
+        base={base}
+        members={members}
+        employees={employees}
+        onCreated={() => {
+          setCreating(false);
+          void reload();
+        }}
+      />
+    </div>
+  );
+}
+
+function NewFollowUpModal({
+  open,
+  onClose,
+  base,
+  members,
+  employees,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  base: string;
+  members: Member[];
+  employees: Employee[];
+  onCreated: () => void;
+}) {
+  const [subject, setSubject] = React.useState("");
+  const [bodyText, setBodyText] = React.useState("");
+  const [dueAt, setDueAt] = React.useState("");
+  const [reminderAt, setReminderAt] = React.useState("");
+  const [priority, setPriority] = React.useState("normal");
+  const [assignee, setAssignee] = React.useState("");
+  const [recurrence, setRecurrence] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const isEmployee = assignee.startsWith("employee:");
+      await api.post(`${base}/follow-ups`, {
+        subject,
+        bodyText,
+        dueAt: dueAt || null,
+        reminderAt: reminderAt || null,
+        priority,
+        assignedUserId: assignee.startsWith("user:") ? assignee.slice(5) : null,
+        assignedEmployeeId: isEmployee ? assignee.slice(9) : null,
+        recurrenceRule: recurrence || null,
+      });
+      setSubject("");
+      setBodyText("");
+      setDueAt("");
+      setReminderAt("");
+      setAssignee("");
+      setRecurrence("");
+      onCreated();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="New follow-up" size="lg">
+      <form onSubmit={submit} className="space-y-4">
+        <Input label="What needs doing?" value={subject} onChange={(e) => setSubject(e.target.value)} required />
+        <Textarea label="Context" value={bodyText} onChange={(e) => setBodyText(e.target.value)} rows={3} />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Input label="Due" type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)} required />
+          <Input label="Reminder" type="datetime-local" value={reminderAt} onChange={(e) => setReminderAt(e.target.value)} />
+          <Select label="Priority" value={priority} onChange={(e) => setPriority(e.target.value)}>
+            <option value="low">Low</option>
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
+            <option value="urgent">Urgent</option>
+          </Select>
+          <Select label="Assignee" value={assignee} onChange={(e) => setAssignee(e.target.value)}>
+            <option value="">Unassigned</option>
+            {members.map((member) => (
+              <option key={member.userId} value={`user:${member.userId}`}>
+                {member.name || member.email || "Member"}
+              </option>
+            ))}
+            {employees.map((employee) => (
+              <option key={employee.id} value={`employee:${employee.id}`}>
+                {employee.name} · AI Employee
+              </option>
+            ))}
+          </Select>
+          <Select label="Repeat" value={recurrence} onChange={(e) => setRecurrence(e.target.value)}>
+            <option value="">Does not repeat</option>
+            <option value="FREQ=DAILY;INTERVAL=1">Daily</option>
+            <option value="FREQ=WEEKLY;INTERVAL=1">Weekly</option>
+            <option value="FREQ=MONTHLY;INTERVAL=1">Monthly</option>
+          </Select>
+        </div>
+        {error && <FormError message={error} />}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={busy}>{busy ? "Creating…" : "Create follow-up"}</Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}

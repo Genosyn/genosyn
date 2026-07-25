@@ -6,12 +6,15 @@ import {
   Customer,
   CustomerContact,
   CustomerContactDraft,
+  Employee,
+  Member,
   parseMoneyToCents,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { Input } from "../components/ui/Input";
+import { Select } from "../components/ui/Select";
 import { Textarea } from "../components/ui/Textarea";
 import { useToast } from "../components/ui/Toast";
 import { CustomersOutletCtx } from "./CustomersLayout";
@@ -80,6 +83,14 @@ export default function CustomerNew() {
   const [name, setName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [phone, setPhone] = React.useState("");
+  const [accountStatus, setAccountStatus] = React.useState<Customer["accountStatus"]>("customer");
+  const [domain, setDomain] = React.useState("");
+  const [websiteUrl, setWebsiteUrl] = React.useState("");
+  const [industry, setIndustry] = React.useState("");
+  const [employeeCount, setEmployeeCount] = React.useState("");
+  const [owner, setOwner] = React.useState("");
+  const [members, setMembers] = React.useState<Member[]>([]);
+  const [employees, setEmployees] = React.useState<Employee[]>([]);
   const [taxNumber, setTaxNumber] = React.useState("");
   const [currency, setCurrency] = React.useState("USD");
   // Annual Contract Value kept as the raw text the user types; converted to
@@ -104,6 +115,14 @@ export default function CustomerNew() {
         setName(c.name);
         setEmail(c.email);
         setPhone(c.phone);
+        setAccountStatus(c.accountStatus);
+        setDomain(c.domain);
+        setWebsiteUrl(c.websiteUrl);
+        setIndustry(c.industry);
+        setEmployeeCount(c.employeeCount > 0 ? String(c.employeeCount) : "");
+        setOwner(
+          c.ownerId ? `user:${c.ownerId}` : c.ownerEmployeeId ? `employee:${c.ownerEmployeeId}` : "",
+        );
         setTaxNumber(c.taxNumber);
         setCurrency(c.currency || "USD");
         setAcv(
@@ -121,6 +140,16 @@ export default function CustomerNew() {
       }
     })();
   }, [company.id, customerSlug, isEdit]);
+
+  React.useEffect(() => {
+    void Promise.all([
+      api.get<Member[]>(`/api/companies/${company.id}/members`).catch(() => []),
+      api.get<Employee[]>(`/api/companies/${company.id}/employees`).catch(() => []),
+    ]).then(([memberRows, employeeRows]) => {
+      setMembers(memberRows);
+      setEmployees(employeeRows);
+    });
+  }, [company.id]);
 
   function patchContact(idx: number, patch: Partial<ContactRow>) {
     setContacts((rows) => rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
@@ -156,6 +185,13 @@ export default function CustomerNew() {
         name: name.trim(),
         email: email.trim(),
         phone: phone.trim(),
+        accountStatus,
+        domain: domain.trim(),
+        websiteUrl: websiteUrl.trim(),
+        industry: industry.trim(),
+        employeeCount: employeeCount ? Number(employeeCount) : 0,
+        ownerId: owner.startsWith("user:") ? owner.slice(5) : null,
+        ownerEmployeeId: owner.startsWith("employee:") ? owner.slice(9) : null,
         taxNumber: taxNumber.trim(),
         currency: currency.trim().toUpperCase(),
         annualContractValueCents: parseMoneyToCents(acv),
@@ -311,6 +347,55 @@ export default function CustomerNew() {
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             maxLength={60}
+          />
+          <Select
+            label="Account status"
+            value={accountStatus}
+            onChange={(e) => setAccountStatus(e.target.value as Customer["accountStatus"])}
+          >
+            <option value="prospect">Prospect</option>
+            <option value="customer">Customer</option>
+            <option value="former">Former customer</option>
+          </Select>
+          <Select label="Account owner" value={owner} onChange={(e) => setOwner(e.target.value)}>
+            <option value="">Unassigned</option>
+            {members.map((member) => (
+              <option key={member.userId} value={`user:${member.userId}`}>
+                {member.name || member.email || "Member"}
+              </option>
+            ))}
+            {employees.map((employee) => (
+              <option key={employee.id} value={`employee:${employee.id}`}>
+                {employee.name} · AI Employee
+              </option>
+            ))}
+          </Select>
+          <Input
+            label="Domain"
+            value={domain}
+            onChange={(e) => setDomain(e.target.value)}
+            placeholder="example.com"
+            maxLength={255}
+          />
+          <Input
+            label="Website"
+            type="url"
+            value={websiteUrl}
+            onChange={(e) => setWebsiteUrl(e.target.value)}
+            placeholder="https://example.com"
+          />
+          <Input
+            label="Industry"
+            value={industry}
+            onChange={(e) => setIndustry(e.target.value)}
+            maxLength={200}
+          />
+          <Input
+            label="Employee count"
+            type="number"
+            min={0}
+            value={employeeCount}
+            onChange={(e) => setEmployeeCount(e.target.value)}
           />
           <Input
             label="Tax / VAT number"

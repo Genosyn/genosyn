@@ -161,8 +161,11 @@ genosyn/
 - **Organization:** `Tag`, `TagAssignment` (company-scoped labels attached to
   taggable resources)
 - **Revenue (M32):** `Contact`, `DealStage`, `Deal`, `DealContact`, `Activity`,
-  `Suppression`, `Sequence`, `SequenceStep`, `SequenceEnrollment`,
-  `SequenceStepRun`, `Signal`, `SignalEvent`, `EmployeeRevenueGrant`
+  `Partnership`, `PartnershipContact`, `RevenueClassification`,
+  `RevenueCustomField`, `RevenueCustomValue`, `RevenueDocument`,
+  `RevenueImportBatch`, `Suppression`, `Sequence`, `SequenceStep`,
+  `SequenceEnrollment`, `SequenceStepRun`, `Signal`, `SignalEvent`,
+  `EmployeeRevenueGrant`
 
 ### Stack
 
@@ -1294,10 +1297,9 @@ that already exists rather than adding polling.
 ### M32 — Revenue (AI-native go-to-market)
 
 Genosyn already tracked what a company spends to get attention (M26 paid
-marketing) and what it collects once somebody signs (M19 finance). The middle
-was missing: `Customer` is an accounts-receivable object and `CustomerContact`
-requires a `customerId`, so a person who was not yet an account had nowhere to
-live, and money you were still trying to win had nowhere at all.
+marketing) and what it collects once somebody signs (M19 finance). M32 added
+the operating middle: `Contact` is the person, `Customer` is the company
+account from prospect through billing, and `Deal` is the money still being won.
 
 This milestone is that middle, and it closes the loop — **ad click → contact →
 deal → invoice → collected cash → ledger entry, in one database, worked by AI
@@ -1312,6 +1314,17 @@ pipeline, and the PQL tools have neither.
       account, so contracts, statements and the invoice chain keep working
       untouched. Existing `customer_contacts` rows are copied into `contacts` by
       an idempotent boot backfill; no data is destroyed.
+- [x] **Complete Revenue operations.** One follow-up queue across assigned
+      task activities, deal dates and partnership dates; `Customer` enriched
+      into the prospect-through-billing account with firmographics and
+      ownership; typed custom fields with exact filtering; controlled deal
+      sources and committee/partnership classifications; formal document
+      relationships; native `Partnership` records with primary and Reply-All
+      contacts; and Base/CSV imports with dry run, duplicate preview, durable
+      source-row mapping, guarded rollback and reconciliation reports. Every
+      service is exposed through granular deferred AI tools behind
+      `EmployeeRevenueGrant`; Base imports additionally require a grant to the
+      source Base.
 - [x] **The timeline fills itself.** Mail sync matches thread participants
       against known contacts and writes `email_in` / `email_out` activities, so
       opening a Contact shows every conversation you have ever had with that
@@ -1348,8 +1361,9 @@ pipeline, and the PQL tools have neither.
 - [x] **`EmployeeRevenueGrant`** at `read` < `write` < `send`, managed from
       **Revenue → AI access**. An employee with no grant gets no revenue tool at
       all, matching the finance default.
-- [x] **Revenue section** at `/c/<co>/revenue` — the board, contacts, deals with
-      their timeline, sequences, signals, and an insights page.
+- [x] **Revenue section** at `/c/<co>/revenue` — insights, follow-ups, the deal
+      board, accounts, contacts, partnerships, sequences, signals, imports,
+      controlled classifications, custom-field setup and AI access.
 - [ ] Real ad-platform spend for CAC (replacing the `AdSpendEvent` proxy)
 - [ ] Meeting booking and calendar-based activities — deferred; Google Calendar
       is already connected and a native scheduler earns its complexity later

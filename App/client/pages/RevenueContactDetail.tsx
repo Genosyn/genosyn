@@ -15,13 +15,15 @@ import {
   ShieldAlert,
   UserPlus,
 } from "lucide-react";
-import { api, Employee, Member, formatMoney } from "../lib/api";
+import { api, Customer, Employee, Member, formatMoney } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import {
   ActivityTimeline,
   type RevenueActivity,
 } from "../components/revenue/ActivityTimeline";
+import { RevenueCustomFieldsPanel } from "../components/revenue/RevenueCustomFieldsPanel";
+import { RevenueDocumentsPanel } from "../components/revenue/RevenueDocumentsPanel";
 import { Button } from "../components/ui/Button";
 import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
@@ -139,6 +141,7 @@ export default function RevenueContactDetail() {
   const [enrolling, setEnrolling] = React.useState(false);
   const [members, setMembers] = React.useState<Member[]>([]);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
+  const [accounts, setAccounts] = React.useState<Customer[]>([]);
 
   const reload = React.useCallback(async () => {
     const payload = await api.get<ContactDetailResponse>(
@@ -165,11 +168,15 @@ export default function RevenueContactDetail() {
     Promise.all([
       api.get<Member[]>(`/api/companies/${company.id}/members`),
       api.get<Employee[]>(`/api/companies/${company.id}/employees`),
+      api.get<{ rows: Customer[] }>(
+        `/api/companies/${company.id}/revenue/accounts?limit=200`,
+      ),
     ])
-      .then(([m, e]) => {
+      .then(([m, e, a]) => {
         if (cancelled) return;
         setMembers(m);
         setEmployees(e);
+        setAccounts(a.rows);
       })
       .catch(() => {
         // Owner degrades to "Unassigned" — never a reason to fail the page.
@@ -540,7 +547,7 @@ export default function RevenueContactDetail() {
       </section>
 
       {/* Details */}
-      <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <section className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <h3 className="mb-3 text-sm font-semibold text-slate-900 dark:text-slate-100">
             Details
@@ -577,6 +584,18 @@ export default function RevenueContactDetail() {
           )}
         </div>
       </section>
+      <div className="grid gap-5 lg:grid-cols-2">
+        <RevenueCustomFieldsPanel
+          companyId={company.id}
+          resourceType="contact"
+          resourceId={contact.id}
+        />
+        <RevenueDocumentsPanel
+          companyId={company.id}
+          resourceType="contact"
+          resourceId={contact.id}
+        />
+      </div>
 
       {/* Both modals mount only while open, so their fields are seeded from
           the row as it stands the moment they are opened. */}
@@ -586,6 +605,7 @@ export default function RevenueContactDetail() {
           contact={contact}
           members={members}
           employees={employees}
+          accounts={accounts}
           onClose={() => setEditing(false)}
           onPatch={patchContact}
           onDone={() => {
@@ -631,6 +651,7 @@ function EditContactModal({
   contact,
   members,
   employees,
+  accounts,
   onClose,
   onPatch,
   onDone,
@@ -639,6 +660,7 @@ function EditContactModal({
   contact: RevenueContact;
   members: Member[];
   employees: Employee[];
+  accounts: Customer[];
   onClose: () => void;
   /** Optimistic write into the page's copy of the row, and the rollback. */
   onPatch: (patch: Partial<RevenueContact>) => void;
@@ -650,6 +672,7 @@ function EditContactModal({
   const [phone, setPhone] = React.useState(contact.phone);
   const [title, setTitle] = React.useState(contact.title);
   const [companyName, setCompanyName] = React.useState(contact.companyName);
+  const [customerId, setCustomerId] = React.useState(contact.customerId ?? "");
   const [linkedinUrl, setLinkedinUrl] = React.useState(contact.linkedinUrl);
   const [websiteUrl, setWebsiteUrl] = React.useState(contact.websiteUrl);
   const [stage, setStage] = React.useState<ContactLifecycleStage>(contact.lifecycleStage);
@@ -678,6 +701,7 @@ function EditContactModal({
       phone: phone.trim(),
       title: title.trim(),
       companyName: companyName.trim(),
+      customerId: customerId || null,
       linkedinUrl: linkedinUrl.trim(),
       websiteUrl: websiteUrl.trim(),
       lifecycleStage: stage,
@@ -696,6 +720,7 @@ function EditContactModal({
       phone: contact.phone,
       title: contact.title,
       companyName: contact.companyName,
+      customerId: contact.customerId,
       linkedinUrl: contact.linkedinUrl,
       websiteUrl: contact.websiteUrl,
       lifecycleStage: contact.lifecycleStage,
@@ -751,6 +776,23 @@ function EditContactModal({
             value={companyName}
             onChange={(e) => setCompanyName(e.target.value)}
           />
+          <Select
+            label="Account"
+            value={customerId}
+            onChange={(e) => {
+              const nextId = e.target.value;
+              setCustomerId(nextId);
+              const account = accounts.find((row) => row.id === nextId);
+              if (account) setCompanyName(account.name);
+            }}
+          >
+            <option value="">No linked account</option>
+            {accounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.name}
+              </option>
+            ))}
+          </Select>
           <Input label="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
           <Select
             label="Lifecycle stage"

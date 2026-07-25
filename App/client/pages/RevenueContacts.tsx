@@ -11,7 +11,7 @@ import {
   Search,
   Users,
 } from "lucide-react";
-import { api, Employee, Member } from "../lib/api";
+import { api, Customer, Employee, Member } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -251,6 +251,7 @@ export default function RevenueContacts() {
   const [creating, setCreating] = React.useState(false);
   const [members, setMembers] = React.useState<Member[]>([]);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
+  const [accounts, setAccounts] = React.useState<Customer[]>([]);
 
   const base = `/c/${company.slug}/revenue`;
 
@@ -303,11 +304,15 @@ export default function RevenueContacts() {
     Promise.all([
       api.get<Member[]>(`/api/companies/${company.id}/members`),
       api.get<Employee[]>(`/api/companies/${company.id}/employees`),
+      api.get<{ rows: Customer[] }>(
+        `/api/companies/${company.id}/revenue/accounts?limit=200`,
+      ),
     ])
-      .then(([m, e]) => {
+      .then(([m, e, a]) => {
         if (cancelled) return;
         setMembers(m);
         setEmployees(e);
+        setAccounts(a.rows);
       })
       .catch(() => {
         // Owners degrade to "Unassigned"; the list is still usable.
@@ -414,7 +419,7 @@ export default function RevenueContacts() {
             Contacts
           </h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Everyone in the pipeline, most recently touched first.
+            Everyone in the sales process, most recently touched first.
           </p>
         </div>
         <Button onClick={() => setCreating(true)}>
@@ -634,6 +639,7 @@ export default function RevenueContacts() {
           companyId={company.id}
           members={members}
           employees={employees}
+          accounts={accounts}
           onClose={() => setCreating(false)}
           onCreated={(contact) => {
             setCreating(false);
@@ -744,12 +750,14 @@ function NewContactModal({
   companyId,
   members,
   employees,
+  accounts,
   onClose,
   onCreated,
 }: {
   companyId: string;
   members: Member[];
   employees: Employee[];
+  accounts: Customer[];
   onClose: () => void;
   onCreated: (contact: RevenueContact) => void;
 }) {
@@ -758,6 +766,7 @@ function NewContactModal({
   const [email, setEmail] = React.useState("");
   const [title, setTitle] = React.useState("");
   const [companyName, setCompanyName] = React.useState("");
+  const [customerId, setCustomerId] = React.useState("");
   const [phone, setPhone] = React.useState("");
   const [stage, setStage] = React.useState<ContactLifecycleStage>("lead");
   const [owner, setOwner] = React.useState("");
@@ -779,6 +788,7 @@ function NewContactModal({
     if (trimmedEmail) body.email = trimmedEmail;
     if (title.trim()) body.title = title.trim();
     if (companyName.trim()) body.companyName = companyName.trim();
+    if (customerId) body.customerId = customerId;
     if (phone.trim()) body.phone = phone.trim();
     if (owner.startsWith("u:")) body.ownerId = owner.slice(2);
     if (owner.startsWith("e:")) body.ownerEmployeeId = owner.slice(2);
@@ -843,6 +853,23 @@ function NewContactModal({
             onChange={(e) => setCompanyName(e.target.value)}
             placeholder="Acme Inc."
           />
+          <Select
+            label="Account"
+            value={customerId}
+            onChange={(e) => {
+              const nextId = e.target.value;
+              setCustomerId(nextId);
+              const account = accounts.find((row) => row.id === nextId);
+              if (account) setCompanyName(account.name);
+            }}
+          >
+            <option value="">No linked account</option>
+            {accounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.name}
+              </option>
+            ))}
+          </Select>
           <Input
             label="Phone"
             value={phone}

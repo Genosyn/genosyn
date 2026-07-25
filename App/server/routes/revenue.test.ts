@@ -19,6 +19,7 @@ import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { revenueRouter } from "./revenue.js";
+import { revenueOperationsRouter } from "./revenueOperations.js";
 
 /**
  * Route-level tests for the Revenue HTTP surface.
@@ -55,6 +56,7 @@ before(async () => {
     next();
   });
   app.use("/api/companies/:cid", revenueRouter);
+  app.use("/api/companies/:cid", revenueOperationsRouter);
   app.use(errorHandler);
   await new Promise<void>((resolve) => {
     server = app.listen(0, resolve);
@@ -586,6 +588,154 @@ describe("revenue routes — suppressions", () => {
     const res = await call("DELETE", `/revenue/suppressions/${row.body.id}`);
     assert.equal(res.status, 200);
     assert.ok((await auditActions()).includes("revenue.suppression.delete"));
+  });
+});
+
+// ── Revenue operations ────────────────────────────────────────────────────
+
+describe("revenue routes — operating system", () => {
+  test("creates a prospect account, assigns a follow-up, and returns it in the queue", async () => {
+    const account = await call<{ id: string; accountStatus: string }>(
+      "POST",
+      "/revenue/accounts",
+      {
+        name: "Prospect Co",
+        domain: "https://www.prospect.example",
+        ownerId,
+      },
+    );
+    assert.equal(account.status, 201);
+    assert.equal(account.body.accountStatus, "prospect");
+
+    const task = await call<{ id: string }>("POST", "/revenue/follow-ups", {
+      subject: "Send the security questionnaire",
+      customerId: account.body.id,
+      assignedUserId: ownerId,
+      dueAt: "2026-08-01T09:00:00.000Z",
+      reminderAt: "2026-08-01T08:00:00.000Z",
+      priority: "high",
+    });
+    assert.equal(task.status, 201);
+    const queue = await call<{ rows: Array<{ id: string; assigneeName: string }> }>(
+      "GET",
+      "/revenue/follow-ups?state=all",
+    );
+    assert.equal(queue.status, 200);
+    assert.equal(queue.body.rows[0].id, task.body.id);
+    assert.equal(queue.body.rows[0].assigneeName, "Owner");
+  });
+
+  test("lets a Revenue member read accounts without Finance access", async () => {
+    await call("POST", "/revenue/accounts", {
+      name: "Member-visible prospect",
+      domain: "member-visible.example",
+    });
+
+    actingUserId = memberId;
+    const accounts = await call<{ rows: Array<{ name: string }> }>(
+      "GET",
+      "/revenue/accounts",
+    );
+
+    assert.equal(accounts.status, 200);
+    assert.ok(accounts.body.rows.some((account) => account.name === "Member-visible prospect"));
+  });
+
+  test("uses controlled classifications and typed fields for filterable deal data", async () => {
+    const field = await call<{ key: string }>("POST", "/revenue/custom-fields", {
+      resourceType: "deal",
+      name: "Plan interest",
+      fieldType: "select",
+      options: ["Growth", "Enterprise"],
+    });
+    assert.equal(field.status, 201);
+    assert.equal(field.body.key, "plan_interest");
+
+    const deal = await call<{ id: string; source: string }>("POST", "/revenue/deals", {
+      title: "Enterprise evaluation",
+      source: "Inbound",
+      ownerId,
+    });
+    assert.equal(deal.status, 201);
+    assert.equal(deal.body.source, "inbound");
+
+    const values = await call("PUT", `/revenue/custom-values/deal/${deal.body.id}`, {
+      values: { plan_interest: "Enterprise" },
+    });
+    assert.equal(values.status, 200);
+    const filtered = await call<{ rows: Array<{ id: string }>; total: number }>(
+      "GET",
+      "/revenue/deals?customFieldKey=plan_interest&customFieldValue=enterprise",
+    );
+    assert.equal(filtered.body.total, 1);
+    assert.equal(filtered.body.rows[0].id, deal.body.id);
+  });
+
+  test("round-trips a partnership, Reply-All contacts, and a formal document link", async () => {
+    const partnership = await call<{ id: string }>("POST", "/revenue/partnerships", {
+      name: "Cloud Partner",
+      type: "Technology",
+      status: "Active",
+      ownerId,
+    });
+    assert.equal(partnership.status, 201);
+    const contact = await createContact("Partner lead", "partner@example.com");
+    const linked = await call(
+      "POST",
+      `/revenue/partnerships/${partnership.body.id}/contacts`,
+      { contactId: contact.id, isPrimary: true, replyAll: true },
+    );
+    assert.equal(linked.status, 201);
+    const document = await call("POST", "/revenue/documents", {
+      kind: "contract",
+      title: "Partner agreement",
+      partnershipId: partnership.body.id,
+      externalUrl: "https://docs.example/partner-agreement",
+    });
+    assert.equal(document.status, 201);
+
+    const detail = await call<{
+      contacts: Array<{ replyAll: boolean }>;
+      documents: Array<{ title: string }>;
+    }>("GET", `/revenue/partnerships/${partnership.body.id}`);
+    assert.equal(detail.body.contacts[0].replyAll, true);
+    assert.equal(detail.body.documents[0].title, "Partner agreement");
+  });
+
+  test("previews, commits, and rolls back a CSV migration with a durable row map", async () => {
+    const input = {
+      resourceType: "contact",
+      sourceKind: "csv",
+      sourceLabel: "contacts.csv",
+      mapping: { name: "full_name", email: "address" },
+      rows: [
+        {
+          sourceId: "csv-1",
+          values: { full_name: "Imported person", address: "imported@example.com" },
+        },
+      ],
+    };
+    const preview = await call<{ createCount: number }>(
+      "POST",
+      "/revenue/imports/preview",
+      input,
+    );
+    assert.equal(preview.status, 200);
+    assert.equal(preview.body.createCount, 1);
+    const batch = await call<{ id: string; status: string }>(
+      "POST",
+      "/revenue/imports",
+      input,
+    );
+    assert.equal(batch.status, 201);
+    assert.equal(batch.body.status, "completed");
+    const rollback = await call<{ deleted: number; blocked: unknown[] }>(
+      "POST",
+      `/revenue/imports/${batch.body.id}/rollback`,
+    );
+    assert.equal(rollback.status, 200);
+    assert.equal(rollback.body.deleted, 1);
+    assert.deepEqual(rollback.body.blocked, []);
   });
 });
 

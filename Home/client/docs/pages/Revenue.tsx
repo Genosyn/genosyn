@@ -34,6 +34,11 @@ export function Revenue() {
       <H2 id="what-ships">What ships</H2>
       <UL>
         <LI>
+          <DocLink to="/docs/revenue-operations">Revenue operations</DocLink> — one follow-up queue,
+          prospect-through-customer accounts, typed custom fields, partnerships, formal documents,
+          and reversible Base/CSV migrations.
+        </LI>
+        <LI>
           <Strong>Contacts</Strong> — the humans, whether or not you bill them yet.
         </LI>
         <LI>
@@ -74,7 +79,7 @@ export function Revenue() {
               <>
                 A <Strong>person</Strong>. Name, email, phone, job title, LinkedIn. Lives here,
                 under <Code>Revenue → Contacts</Code>. A contact does not need an account attached —
-                early on, most of the list has none.
+                but it can link to a prospect account before any invoice exists.
               </>
             ),
           },
@@ -82,9 +87,10 @@ export function Revenue() {
             term: "Customer",
             def: (
               <>
-                An <Strong>account</Strong> — the billable company, over in{" "}
-                <DocLink to="/docs/customers">Customers</DocLink>, carrying the billing email, tax
-                ID, contracts and statements.
+                An <Strong>account</Strong> — prospect, customer, or former customer. It appears
+                under <Code>Revenue → Accounts</Code> for relationship work and{" "}
+                <DocLink to="/docs/customers">Customers</DocLink> for billing details, contracts,
+                and statements.
               </>
             ),
           },
@@ -103,7 +109,8 @@ export function Revenue() {
         Each contact carries a <Strong>lifecycle stage</Strong> — subscriber, lead, qualified,
         opportunity, customer, churned, or unqualified — and an <Strong>owner</Strong> who is either
         a Member or an AI employee, never both. <Strong>Source</Strong> records where they came
-        from, and it is filled in automatically for contacts a signal created (
+        from. Deal sources and buying-committee roles use the controlled lists in{" "}
+        <Code>Revenue → Setup</Code>; contact source is filled in automatically for contacts a signal created (
         <Code>signal:trial-expiring</Code>) so attribution survives.
       </P>
       <P>
@@ -123,10 +130,10 @@ export function Revenue() {
         additional contacts.
       </P>
       <P>
-        Two fields do more work than they look. <Strong>Next step</Strong> is one line the owner
-        keeps current: what has to happen next. <Strong>Probability</Strong> is inherited from the
-        stage unless you override it on the deal, which is what makes weighted pipeline value
-        meaningful before anybody has touched a single row.
+        Three fields do more work than they look. <Strong>Next step</Strong> says what must happen;
+        <Strong>Next follow-up</Strong> puts it in the shared queue, with an optional reminder; and{" "}
+        <Strong>Probability</Strong> is inherited from the stage unless you override it. See{" "}
+        <DocLink to="/docs/revenue-operations#follow-ups">Follow-ups</DocLink>.
       </P>
       <Callout kind="tip" title="Assigning a deal to an AI employee starts work.">
         Ownership can be an AI employee, and it is not decoration. Handing a deal to one kicks off a
@@ -308,12 +315,14 @@ export function Revenue() {
       </P>
       <UL>
         <LI>
-          <Strong>Read</Strong> — see contacts, deals, activities, signals and the reports. Changes
-          nothing.
+          <Strong>Read</Strong> — see follow-ups, accounts, contacts, deals, partnerships, typed
+          fields, documents, activities, signals and reports. Changes nothing.
         </LI>
         <LI>
-          <Strong>Write</Strong> — also create and update contacts and deals, log activities, move a
-          deal between stages, and enrol somebody in a sequence. Drafts still wait for a human.
+          <Strong>Write</Strong> — also assign and complete follow-ups, create or update accounts,
+          contacts, deals and partnerships, set custom values, link documents, run guarded
+          migrations, log activities, move a deal between stages, and enrol somebody in a
+          sequence. Drafts still wait for a human.
         </LI>
         <LI>
           <Strong>Send</Strong> — also let a sequence this employee drafts go out without anybody
@@ -325,7 +334,9 @@ export function Revenue() {
       <P>
         Members reach Revenue through the app as usual; these levels govern the AI surface only.
         Every write an employee makes lands in the audit log marked as an AI actor and on the
-        employee&apos;s journal.
+        employee&apos;s journal. See{" "}
+        <DocLink to="/docs/revenue-operations#ai-native">AI-native Revenue operations</DocLink> for
+        the full operating model.
       </P>
     </>
   );
