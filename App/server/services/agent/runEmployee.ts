@@ -177,6 +177,7 @@ async function runDelegatedBrief(
       parent.callbacks?.onToolUse?.(`[worker:${workerLabel}] ${name}`, input),
     onToolResult: (name, result) =>
       parent.callbacks?.onToolResult?.(`[worker:${workerLabel}] ${name}`, result),
+    onModelRetry: parent.callbacks?.onModelRetry,
     onUsage: parent.callbacks?.onUsage,
     onCompact: parent.callbacks?.onCompact,
     onToolsTrimmed: parent.callbacks?.onToolsTrimmed,

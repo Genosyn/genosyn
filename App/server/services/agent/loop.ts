@@ -14,6 +14,13 @@ import type {
 } from "./types.js";
 import type { ToolRegistry } from "./tools/toolRegistry.js";
 import { PARSE_ERROR_KEY } from "./modelClients/parseArgs.js";
+import {
+  isRetryableModelError,
+  MODEL_TURN_MAX_ATTEMPTS,
+  modelRetryDelayMs,
+  modelRetryReason,
+  waitForModelRetry,
+} from "./modelRetry.js";
 
 /**
  * The agentic loop — the thing the harness CLIs used to own.
@@ -220,8 +227,12 @@ export async function runAgentLoop(params: {
 }
 
 /**
- * (2) Run one turn, and if the provider rejects the prompt as too long, compact
- * as hard as we're allowed to and try once more.
+ * (2) Run one turn with two bounded recovery paths:
+ *
+ * - If the provider rejects the prompt as too long, compact as hard as we're
+ *   allowed to and try once more.
+ * - If the provider or network fails transiently before any visible output,
+ *   retry the identical turn with exponential backoff.
  *
  * This exists because the pre-flight check can be wrong in both directions: our
  * estimate of un-sent content is approximate, and when the window is unknown
@@ -243,46 +254,70 @@ async function streamTurnWithRecovery(params: {
   callbacks?: StreamCallbacks;
 }) {
   const { client, system, messages, toolDefs, signal, callbacks } = params;
-  try {
-    return await client.streamTurn({
-      system,
-      messages,
-      tools: toolDefs,
-      signal,
-      onText: callbacks?.onText,
-    });
-  } catch (err) {
-    if (!isContextOverflowError(err)) throw err;
+  let overflowRecovered = false;
+  let transientRetries = 0;
 
-    // We know the prompt exceeded the window but not by how much — the call
-    // failed, so there's no usage to read. Rather than invent a number to
-    // compact against, free everything we're allowed to: target zero, keep only
-    // the batch in flight. This is the emergency path, and a run that survives
-    // with a thin history beats a run that dies with a rich one.
-    const { evicted, freedTokens } = compactMessages({
-      messages,
-      currentTokens: Number.MAX_SAFE_INTEGER,
-      targetTokens: 0,
-      keepRecentBatches: 1,
-    });
-    if (evicted === 0) {
-      throw new Error(
-        "The prompt is too long for this model's context window, and there is nothing " +
-          `left to drop — the system prompt (Soul + skills) plus ${toolDefs.length} resident ` +
-          "tools and a single turn already exceed it. Trim the employee's skills, or move it " +
-          "to a model with a larger window. Original error: " +
-          (err instanceof Error ? err.message : String(err)),
-      );
+  for (;;) {
+    let outputStarted = false;
+    try {
+      return await client.streamTurn({
+        system,
+        messages,
+        tools: toolDefs,
+        signal,
+        onText: (delta) => {
+          if (delta) outputStarted = true;
+          callbacks?.onText?.(delta);
+        },
+      });
+    } catch (err) {
+      if (isContextOverflowError(err) && !overflowRecovered) {
+        // We know the prompt exceeded the window but not by how much — the call
+        // failed, so there's no usage to read. Rather than invent a number to
+        // compact against, free everything we're allowed to: target zero, keep
+        // only the batch in flight.
+        const { evicted, freedTokens } = compactMessages({
+          messages,
+          currentTokens: Number.MAX_SAFE_INTEGER,
+          targetTokens: 0,
+          keepRecentBatches: 1,
+        });
+        if (evicted === 0) {
+          throw new Error(
+            "The prompt is too long for this model's context window, and there is nothing " +
+              `left to drop — the system prompt (Soul + skills) plus ${toolDefs.length} resident ` +
+              "tools and a single turn already exceed it. Trim the employee's skills, or move it " +
+              "to a model with a larger window. Original error: " +
+              (err instanceof Error ? err.message : String(err)),
+          );
+        }
+        callbacks?.onCompact?.({ evicted, freedTokens, reason: "overflow" });
+        overflowRecovered = true;
+        continue;
+      }
+
+      // Replaying after text has reached chat or a Run log would duplicate the
+      // partial answer. Tool calls are not executed until streamTurn resolves,
+      // so a failure with no text is safe to replay.
+      if (
+        signal?.aborted ||
+        outputStarted ||
+        transientRetries >= MODEL_TURN_MAX_ATTEMPTS - 1 ||
+        !isRetryableModelError(err)
+      ) {
+        throw err;
+      }
+
+      transientRetries += 1;
+      const delayMs = modelRetryDelayMs(err, transientRetries);
+      callbacks?.onModelRetry?.({
+        attempt: transientRetries + 1,
+        maxAttempts: MODEL_TURN_MAX_ATTEMPTS,
+        delayMs,
+        reason: modelRetryReason(err),
+      });
+      await waitForModelRetry(delayMs, signal);
     }
-    callbacks?.onCompact?.({ evicted, freedTokens, reason: "overflow" });
-
-    return await client.streamTurn({
-      system,
-      messages,
-      tools: toolDefs,
-      signal,
-      onText: callbacks?.onText,
-    });
   }
 }
 

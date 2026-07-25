@@ -46,6 +46,9 @@ export function createOpenAIClient(opts: {
     // Most local servers ignore the key but the SDK refuses an empty string.
     apiKey: opts.apiKey || "not-needed",
     ...(opts.baseURL ? { baseURL: opts.baseURL } : {}),
+    // The loop owns one visible, cancellation-aware retry policy for every
+    // provider. Disable the SDK's otherwise-hidden nested retries.
+    maxRetries: 0,
   });
 
   return {

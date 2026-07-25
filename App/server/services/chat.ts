@@ -276,6 +276,12 @@ export async function streamChatWithEmployee(
         conversationId: options.conversationId,
         signal: controller.signal,
         callbacks: {
+          onModelRetry: (retry) => {
+            console.warn(
+              `[chat:model] employee=${emp.id} ${retry.reason}; retrying attempt ` +
+                `${retry.attempt} of ${retry.maxAttempts} in ${retry.delayMs}ms`,
+            );
+          },
           // A chat turn that lost a capability should not be invisible either.
           onToolsDeferred: (d) => {
             if (d.deferred > 0) {
@@ -323,4 +329,3 @@ function buildMessages(history: ChatTurn[], message: string): AgentMessage[] {
   messages.push({ role: "user", content: [{ type: "text", text: message }] });
   return messages;
 }
-

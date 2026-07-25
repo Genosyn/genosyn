@@ -84,6 +84,8 @@ export type AgentTool = ToolDef & {
 export type StreamCallbacks = {
   /** Human-visible reply prose, streamed token-by-token. */
   onText?: (delta: string) => void;
+  /** Fired before retrying a transient model-service or transport failure. */
+  onModelRetry?: (info: ModelRetryInfo) => void;
   /** Fired when the model decides to call a tool (before we execute it). */
   onToolUse?: (name: string, input: Record<string, unknown>) => void;
   /** Fired after a tool returns, before the result is fed back to the model. */
@@ -160,6 +162,18 @@ export type CompactionInfo = {
 export type TurnUsage = {
   inputTokens: number;
   outputTokens: number;
+};
+
+/** One transparent retry of the current model turn. */
+export type ModelRetryInfo = {
+  /** The provider call about to start, counting the original as attempt 1. */
+  attempt: number;
+  /** Total provider calls allowed for this turn. */
+  maxAttempts: number;
+  /** Backoff before the next provider call. */
+  delayMs: number;
+  /** Safe summary such as `HTTP 500`; never the provider response body. */
+  reason: string;
 };
 
 export type AssistantTurn = {

@@ -279,6 +279,10 @@ export async function startRoutineRun(
           runId: saved.id,
           signal: controller.signal,
           callbacks: {
+            onModelRetry: (retry) =>
+              log.line(
+                `\n[model] ${retry.reason}; retrying attempt ${retry.attempt} of ${retry.maxAttempts} in ${(retry.delayMs / 1000).toFixed(1)}s`,
+              ),
             onText: (delta) => {
               streamedAny = true;
               log.write(delta);

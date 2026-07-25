@@ -44,7 +44,12 @@ export function createOpenAIResponsesClient(opts: {
   /** Provider tool ceiling; see `OPENAI_MAX_TOOLS` in ./openai.ts. */
   maxTools?: number | null;
 }): ModelClient {
-  const client = new OpenAI({ apiKey: opts.apiKey });
+  const client = new OpenAI({
+    apiKey: opts.apiKey,
+    // The loop owns one visible, cancellation-aware retry policy for every
+    // provider. Disable the SDK's otherwise-hidden nested retries.
+    maxRetries: 0,
+  });
 
   return {
     model: opts.model,

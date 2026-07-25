@@ -37,6 +37,9 @@ export function createAnthropicClient(opts: {
   const client = new Anthropic({
     apiKey: opts.apiKey,
     ...(opts.baseURL ? { baseURL: opts.baseURL } : {}),
+    // The loop owns one visible, cancellation-aware retry policy for every
+    // provider. Disable the SDK's otherwise-hidden nested retries.
+    maxRetries: 0,
   });
 
   return {

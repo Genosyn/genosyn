@@ -181,6 +181,14 @@ export function Models() {
 
       <H3 id="model-errors">When a chat or Run reports a model error</H3>
       <P>
+        Temporary model-service and network failures are retried automatically before Genosyn
+        reports an error. Each model turn gets up to <Strong>five attempts</Strong> with a short
+        exponential backoff; provider <Code>Retry-After</Code> guidance is respected up to 30
+        seconds, and cancelling the chat or Run cancels the wait. A turn is never replayed after
+        visible output has started, because doing so could duplicate a partial answer. Run
+        transcripts record each retry on a <Code>[model]</Code> line.
+      </P>
+      <P>
         The error names the active model, shows the safe host-only endpoint, preserves the
         provider&apos;s detail and request ID when available, and lists checks for that failure
         type. In chat, use <Strong>Review AI Model settings</Strong> on the error to jump straight

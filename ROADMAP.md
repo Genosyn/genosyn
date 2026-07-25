@@ -543,6 +543,9 @@ sends system mail); this is the company's real inbox. Internal namespace is
 - [x] In-process agent runtime (`server/services/agent/`): a provider-agnostic
       tool-use loop over the Anthropic Messages API, OpenAI Chat Completions,
       and OpenAI-compatible custom endpoints, with native streaming
+- [x] Bounded transient model retries: five total attempts with exponential
+      jitter and `Retry-After` support, cancelled with the parent turn and
+      never replayed after visible output starts
 - [x] Tools provided directly to the model: built-in coding tools (bash +
       file read/write/edit/glob/grep), the genosyn tools (dispatched in-process
       over loopback), browser tools (bridged from the stdio MCP child), and

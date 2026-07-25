@@ -197,7 +197,9 @@ function guidance(category: ErrorCategory, provider: AIModel["provider"]): strin
   }
   if (category === "provider") {
     return [
-      "• Retry after checking the model service’s status or server logs.",
+      "• Genosyn retries transient failures before any output; it never replays a partial response.",
+      "• If no response had started, this failure outlasted the automatic retry window.",
+      "• Retry later after checking the model service’s status or server logs.",
       "• If the failure persists, switch the employee to another AI Model.",
     ];
   }
