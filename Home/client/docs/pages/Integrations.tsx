@@ -292,7 +292,9 @@ export function Integrations() {
         the runner materializes a git checkout of each allowed repo into{" "}
         <Code>data/companies/&lt;co&gt;/employees/&lt;emp&gt;/repos/...</Code> before each run. The
         git token never lands on disk — it&apos;s read from the env var the runner injects, via a
-        per-connection credential helper inside <Code>.git/genosyn-cred.sh</Code>.
+        repository-local inline credential helper. Because the helper does not contain an absolute
+        workspace path, it works the same way in the self-hosted runtime and the isolated SaaS
+        sandbox.
       </P>
 
       <H3 id="lightning-payments">Lightning payments</H3>
