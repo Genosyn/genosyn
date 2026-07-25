@@ -22,8 +22,8 @@ export function Signals() {
         title="Signals"
         lead={
           <>
-            A <Strong>Signal</Strong> is a saved query over your own product database plus a rule for
-            what to do with the rows that come back. Your database already knows who is about to
+            A <Strong>Signal</Strong> is a saved query over your own product database plus a rule
+            for what to do with the rows that come back. Your database already knows who is about to
             churn, who just hit a seat limit, and whose trial ends on Thursday — this is how that
             turns into a contact, a deal, a sequence enrolment, or an AI employee doing something
             about it. Find it under <Code>Revenue → Signals</Code>.
@@ -41,7 +41,7 @@ export function Signals() {
         <LI>
           Pick the <Strong>Connection</Strong> to run against: any Postgres, MySQL or ClickHouse
           connection you have added under{" "}
-          <DocLink to="/docs/integrations">Settings → Integrations</DocLink>, the same ones{" "}
+          <DocLink to="/docs/integrations">Revenue → Integrations</DocLink>, the same ones{" "}
           <DocLink to="/docs/explore">Explore</DocLink> uses.
         </LI>
         <LI>
@@ -52,8 +52,8 @@ export function Signals() {
         </LI>
         <LI>
           Set the <Strong>schedule</Strong> — a standard 5-field cron, validated against the
-          scheduler that will run it, exactly as on a{" "}
-          <DocLink to="/docs/routines">Routine</DocLink>. Hourly is a sane starting point.
+          scheduler that will run it, exactly as on a <DocLink to="/docs/routines">Routine</DocLink>
+          . Hourly is a sane starting point.
         </LI>
         <LI>
           Choose the <Strong>action</Strong>, then flip <Strong>Enabled</Strong> on.
@@ -63,8 +63,8 @@ export function Signals() {
       <H2 id="query">Writing the query</H2>
       <P>
         The query should return <Strong>one row per thing you want to act on</Strong>, and each row
-        should carry the columns the action needs. Keep it narrow: a signal that matches 500 accounts
-        on a single tick is a misconfigured query, not an alert.
+        should carry the columns the action needs. Keep it narrow: a signal that matches 500
+        accounts on a single tick is a misconfigured query, not an alert.
       </P>
       <Pre lang="sql">{`SELECT
   a.id            AS account_id,
@@ -120,36 +120,39 @@ ORDER BY a.plan_mrr_cents DESC`}</Pre>
         ]}
       />
       <P>
-        Queries run through Explore&apos;s executor and inherit its envelope: a 30-second timeout and
-        a hard row ceiling. A signal looks at at most 500 rows per tick; the overflow is not lost,
-        because the rows that did fire have their dedupe keys stored and the next tick picks up where
-        it left off. A signal with an <Code>ORDER BY</Code> therefore drains in priority order —
-        which is why the example above sorts by revenue.
+        Queries run through Explore&apos;s executor and inherit its envelope: a 30-second timeout
+        and a hard row ceiling. A signal looks at at most 500 rows per tick; the overflow is not
+        lost, because the rows that did fire have their dedupe keys stored and the next tick picks
+        up where it left off. A signal with an <Code>ORDER BY</Code> therefore drains in priority
+        order — which is why the example above sorts by revenue.
       </P>
 
       <H2 id="dedupe">The dedupe column is not optional</H2>
       <P>
         A signal re-runs its query on every tick. Without a way to tell &quot;this row already
-        fired&quot; from &quot;this row is new&quot;, the same account alerts you every hour, forever
-        — and the real damage is what happens next: somebody mutes the signal, and then it never
-        fires for the row that actually mattered.
+        fired&quot; from &quot;this row is new&quot;, the same account alerts you every hour,
+        forever — and the real damage is what happens next: somebody mutes the signal, and then it
+        never fires for the row that actually mattered.
       </P>
       <P>
-        <Strong>Name a dedupe column and the guarantee is a database constraint</Strong>, not a hope.
-        Genosyn stores one event per <em>(signal, dedupe key)</em> pair with a unique index, so an
-        account fires once per condition even when two replicas evaluate the same signal in the same
-        second — the loser hits the constraint and correctly does nothing.
+        <Strong>Name a dedupe column and the guarantee is a database constraint</Strong>, not a
+        hope. Genosyn stores one event per <em>(signal, dedupe key)</em> pair with a unique index,
+        so an account fires once per condition even when two replicas evaluate the same signal in
+        the same second — the loser hits the constraint and correctly does nothing.
       </P>
-      <Callout kind="warn" title="Leaving it blank degrades the signal, it does not disable dedupe.">
+      <Callout
+        kind="warn"
+        title="Leaving it blank degrades the signal, it does not disable dedupe."
+      >
         With no usable dedupe column, Genosyn falls back to hashing the entire row. That downgrades
         the signal from <em>fire once per account</em> to <em>fire once per distinct row</em> — so
         any column that moves (a timestamp, a counter, a computed &quot;days left&quot;) makes the
         same account fire again on every tick. Always name a stable identity column.
       </Callout>
       <P>
-        Pick something that does not change: an account id, a subscription id, a user id. If you want
-        a condition to be able to fire twice for the same account — a trial that restarts, a limit
-        hit in two different months — put the period into the key in SQL, for example{" "}
+        Pick something that does not change: an account id, a subscription id, a user id. If you
+        want a condition to be able to fire twice for the same account — a trial that restarts, a
+        limit hit in two different months — put the period into the key in SQL, for example{" "}
         <Code>account_id || &apos;:&apos; || to_char(now(), &apos;YYYY-MM&apos;)</Code>. That is a
         deliberate choice you can read months later.
       </P>
@@ -163,7 +166,8 @@ ORDER BY a.plan_mrr_cents DESC`}</Pre>
       <UL>
         <LI>The row count is small and the rows are the ones you meant.</LI>
         <LI>
-          The dedupe column is present, non-null, and identical for the same account across two runs.
+          The dedupe column is present, non-null, and identical for the same account across two
+          runs.
         </LI>
         <LI>The email and domain columns hold what the action will need.</LI>
       </UL>
@@ -173,9 +177,9 @@ ORDER BY a.plan_mrr_cents DESC`}</Pre>
         record of.
       </P>
       <Callout kind="tip" title="Enable with the safe action first.">
-        Set the action to <Strong>Log an activity</Strong>, let the signal run for a day, and look at
-        what it produced. Only then switch it to something that emails people. The activity action is
-        the only one with no external effect, and it exists for exactly this.
+        Set the action to <Strong>Log an activity</Strong>, let the signal run for a day, and look
+        at what it produced. Only then switch it to something that emails people. The activity
+        action is the only one with no external effect, and it exists for exactly this.
       </Callout>
 
       <H2 id="actions">What happens when a row fires</H2>
@@ -209,10 +213,10 @@ ORDER BY a.plan_mrr_cents DESC`}</Pre>
             term: "Enrol in a sequence",
             def: (
               <>
-                Adds the contact to a <DocLink to="/docs/sequences">Sequence</DocLink> you pick. Every
-                enrolment gate still applies — suppressed, do-not-contact and already-enrolled people
-                are refused, and the event records that it was refused rather than pretending it
-                worked.
+                Adds the contact to a <DocLink to="/docs/sequences">Sequence</DocLink> you pick.
+                Every enrolment gate still applies — suppressed, do-not-contact and already-enrolled
+                people are refused, and the event records that it was refused rather than pretending
+                it worked.
               </>
             ),
           },
@@ -220,9 +224,9 @@ ORDER BY a.plan_mrr_cents DESC`}</Pre>
             term: "Hand to an AI employee",
             def: (
               <>
-                Wakes the employee you name with the whole result row and an instruction, and lets it
-                decide what to do — research the account, draft an email, open a deal, escalate. It
-                runs with its full <DocLink to="/docs/soul">Soul</DocLink> and{" "}
+                Wakes the employee you name with the whole result row and an instruction, and lets
+                it decide what to do — research the account, draft an email, open a deal, escalate.
+                It runs with its full <DocLink to="/docs/soul">Soul</DocLink> and{" "}
                 <DocLink to="/docs/skills">Skills</DocLink>, and needs a revenue grant at the level
                 its actions require.
               </>
@@ -240,10 +244,10 @@ ORDER BY a.plan_mrr_cents DESC`}</Pre>
         exactly as designed. <Code>failed</Code> means somebody has to fix something.
       </P>
       <P>
-        A signal whose query throws keeps its schedule and shows the error on its own row rather than
-        disabling itself, because a signal that quietly switched itself off would be discovered weeks
-        later, by which time the rows it should have fired on have moved on. One broken signal never
-        stops the others in the same pass.
+        A signal whose query throws keeps its schedule and shows the error on its own row rather
+        than disabling itself, because a signal that quietly switched itself off would be discovered
+        weeks later, by which time the rows it should have fired on have moved on. One broken signal
+        never stops the others in the same pass.
       </P>
 
       <H2 id="least-privilege">Connect with a least-privileged role</H2>

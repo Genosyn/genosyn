@@ -9,26 +9,21 @@ import {
   Monitor,
   Moon,
   PanelLeft,
+  Plug,
   ServerCog,
   Sun,
 } from "lucide-react";
 import { api, Company, Me } from "../lib/api";
 import { SECTION_BY_KEY, SectionItem, activeSection } from "../lib/sections";
+import { productIntegrationScope, type ProductIntegrationKey } from "../lib/productIntegrations";
 import { useToast } from "./ui/Toast";
 import { useDialog } from "./ui/Dialog";
 import { Avatar, meAvatarUrl } from "./ui/Avatar";
-import {
-  CommandPaletteProvider,
-  PALETTE_SHORTCUT,
-  useCommandPalette,
-} from "./CommandPalette";
+import { CommandPaletteProvider, PALETTE_SHORTCUT, useCommandPalette } from "./CommandPalette";
 import { CommandRegistryProvider } from "./CommandRegistry";
 import { CompanySocketProvider } from "./CompanySocket";
 import { Logo, LogoMark } from "./Logo";
-import {
-  KeyboardShortcutsProvider,
-  useKeyboardShortcuts,
-} from "./KeyboardShortcuts";
+import { KeyboardShortcutsProvider, useKeyboardShortcuts } from "./KeyboardShortcuts";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { useTheme, Theme } from "./Theme";
 
@@ -72,8 +67,7 @@ type ContextualSidebarState = {
   hasSidebar: boolean;
   setHasSidebar: (v: boolean) => void;
 };
-const ContextualSidebarContext =
-  React.createContext<ContextualSidebarState | null>(null);
+const ContextualSidebarContext = React.createContext<ContextualSidebarState | null>(null);
 
 export function AppShell({ me, companies, current, onCompaniesChanged, children }: AppShellProps) {
   const [open, setOpen] = React.useState(false);
@@ -92,38 +86,34 @@ export function AppShell({ me, companies, current, onCompaniesChanged, children 
         {/* Outside the palette so pages can publish contextual actions into it,
             and the palette can read them, from the same tree. */}
         <CommandRegistryProvider>
-        <CommandPaletteProvider
-          me={me}
-          companyId={current.id}
-          companySlug={current.slug}
-        >
-          <ContextualSidebarContext.Provider value={sidebarState}>
-            <div className="flex h-full flex-col">
-              <a
-                href="#main-content"
-                onClick={(event) => {
-                  event.preventDefault();
-                  document.getElementById("main-content")?.focus();
-                }}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter" && event.key !== " ") return;
-                  event.preventDefault();
-                  document.getElementById("main-content")?.focus();
-                }}
-                className="sr-only z-[80] rounded-md bg-white px-3 py-2 text-sm font-medium text-indigo-700 shadow-lg focus:not-sr-only focus:fixed focus:left-3 focus:top-3 dark:bg-slate-900 dark:text-indigo-300"
-              >
-                Skip to main content
-              </a>
-              <TopNav
-                me={me}
-                companies={companies}
-                current={current}
-                onCompaniesChanged={onCompaniesChanged}
-              />
-              <div className="flex min-h-0 flex-1">{children}</div>
-            </div>
-          </ContextualSidebarContext.Provider>
-        </CommandPaletteProvider>
+          <CommandPaletteProvider me={me} companyId={current.id} companySlug={current.slug}>
+            <ContextualSidebarContext.Provider value={sidebarState}>
+              <div className="flex h-full flex-col">
+                <a
+                  href="#main-content"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    document.getElementById("main-content")?.focus();
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    document.getElementById("main-content")?.focus();
+                  }}
+                  className="sr-only z-[80] rounded-md bg-white px-3 py-2 text-sm font-medium text-indigo-700 shadow-lg focus:not-sr-only focus:fixed focus:left-3 focus:top-3 dark:bg-slate-900 dark:text-indigo-300"
+                >
+                  Skip to main content
+                </a>
+                <TopNav
+                  me={me}
+                  companies={companies}
+                  current={current}
+                  onCompaniesChanged={onCompaniesChanged}
+                />
+                <div className="flex min-h-0 flex-1">{children}</div>
+              </div>
+            </ContextualSidebarContext.Provider>
+          </CommandPaletteProvider>
         </CommandRegistryProvider>
       </KeyboardShortcutsProvider>
     </CompanySocketProvider>
@@ -169,6 +159,7 @@ function TopNav({
 
   const sectionKey = activeSection(location.pathname);
   const section = SECTION_BY_KEY[sectionKey];
+  const integrationScope = productIntegrationScope(sectionKey);
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 sm:gap-3 sm:px-4 dark:border-slate-800 dark:bg-slate-950">
@@ -181,16 +172,16 @@ function TopNav({
           <PanelLeft size={18} />
         </button>
       )}
-      <Link to={`/c/${current.slug}`} className="flex shrink-0 items-center gap-2 text-slate-900 dark:text-slate-100">
+      <Link
+        to={`/c/${current.slug}`}
+        className="flex shrink-0 items-center gap-2 text-slate-900 dark:text-slate-100"
+      >
         {/* Phones get the bare mark; the full wordmark would eat half the bar. */}
         <LogoMark className="h-7 w-7 sm:hidden" />
         <Logo className="hidden h-7 w-auto sm:block" />
       </Link>
 
-      <span
-        aria-hidden="true"
-        className="h-5 w-px shrink-0 bg-slate-200 dark:bg-slate-700"
-      />
+      <span aria-hidden="true" className="h-5 w-px shrink-0 bg-slate-200 dark:bg-slate-700" />
 
       {/* min-w-0 + truncate: the company name is the one flexible item in the
           bar, so it absorbs the squeeze on narrow viewports. */}
@@ -253,6 +244,22 @@ function TopNav({
 
       <SectionMenu current={section} />
 
+      {integrationScope && (
+        <NavLink
+          to={`/c/${current.slug}/${sectionKey as ProductIntegrationKey}/integrations`}
+          className={({ isActive }) =>
+            "flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium transition " +
+            (isActive
+              ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
+              : "text-slate-500 hover:bg-slate-50 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100")
+          }
+          title={`${integrationScope.label} integrations`}
+        >
+          <Plug size={14} />
+          <span className="hidden lg:inline">Integrations</span>
+        </NavLink>
+      )}
+
       <div className="ml-auto flex items-center gap-2">
         <button
           onClick={shortcuts.openGuide}
@@ -274,12 +281,10 @@ function TopNav({
             aria-expanded={userOpen}
             aria-haspopup="menu"
           >
-            <Avatar
-              name={me.name || me.email}
-              src={meAvatarUrl(me.avatarKey)}
-              size="sm"
-            />
-            <span className="hidden max-w-[12rem] truncate text-slate-700 sm:inline dark:text-slate-200">{me.name || me.email}</span>
+            <Avatar name={me.name || me.email} src={meAvatarUrl(me.avatarKey)} size="sm" />
+            <span className="hidden max-w-[12rem] truncate text-slate-700 sm:inline dark:text-slate-200">
+              {me.name || me.email}
+            </span>
           </button>
           {userOpen && (
             <>
@@ -342,11 +347,7 @@ function SectionMenu({ current }: { current: SectionItem }) {
       className="flex shrink-0 items-center gap-2 rounded-md px-2 py-1 text-sm font-medium text-slate-900 hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800"
       title={`Search sections (${PALETTE_SHORTCUT})`}
     >
-      <span
-        className={
-          "flex h-5 w-5 items-center justify-center rounded " + current.iconBg
-        }
-      >
+      <span className={"flex h-5 w-5 items-center justify-center rounded " + current.iconBg}>
         <Icon size={12} />
       </span>
       <span className="hidden sm:inline">{current.label}</span>
@@ -405,9 +406,7 @@ function ThemeToggle() {
                 }}
                 className={
                   "flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800 " +
-                  (o.value === theme
-                    ? "text-indigo-600"
-                    : "text-slate-700 dark:text-slate-200")
+                  (o.value === theme ? "text-indigo-600" : "text-slate-700 dark:text-slate-200")
                 }
               >
                 {o.icon} {o.label}

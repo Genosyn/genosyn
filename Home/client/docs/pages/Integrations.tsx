@@ -101,14 +101,42 @@ export function Integrations() {
         isolated egress worker is configured.
       </Callout>
 
+      <H2 id="product-pages">Connect from the product you are using</H2>
+      <P>
+        Every product has an <Code>Integrations</Code> link beside its name in the top bar. That
+        page is a focused view of the company catalog: it shows the Connections and connector types
+        that belong in the current workflow, without making you leave the product to configure them.
+      </P>
+      <UL>
+        <LI>
+          <Strong>Explore → Integrations</Strong> shows Postgres, MySQL, and ClickHouse.
+        </LI>
+        <LI>
+          <Strong>Email → Integrations</Strong> shows Google Workspace, where the Gmail product is
+          authorized.
+        </LI>
+        <LI>
+          <Strong>Code → Integrations</Strong> shows GitHub; <Strong>Finance → Integrations</Strong>{" "}
+          shows payment and banking Connections.
+        </LI>
+        <LI>
+          AI Employees, Skills, Routines, and Pipelines show the full catalog because they can use
+          any granted Connection.
+        </LI>
+      </UL>
+      <P>
+        Open <Code>Settings → Integrations</Code> whenever you want the complete company-wide
+        catalog. Connecting, reconnecting, checking, renaming, granting, and disconnecting work the
+        same way in either view.
+      </P>
+
       <H2 id="how-tools-show-up">How tools show up</H2>
       <P>
         Every run, the in-process agent regenerates the MCP server list. The built-in{" "}
         <Code>genosyn</Code> server lists every integration tool the employee has a Grant for; the
         agent reaches every one of them the same way and never has to know anything about
-        Connections. Integration tools live in the searchable catalogue rather than the
-        up-front working set — see{" "}
-        <DocLink to="/docs/tool-discovery">How tools reach the model</DocLink>.
+        Connections. Integration tools live in the searchable catalogue rather than the up-front
+        working set — see <DocLink to="/docs/tool-discovery">How tools reach the model</DocLink>.
       </P>
 
       <H2 id="external-mcp">Connecting an external MCP client</H2>
@@ -240,7 +268,7 @@ export function Integrations() {
         <Code>Developer → Settings</Code>, and create a user token with the{" "}
         <Code>accounts.cash.readonly</Code>, <Code>transactions.cash.readonly</Code>, and{" "}
         <Code>transactions.card.readonly</Code> scopes. In Genosyn, open{" "}
-        <Code>Settings → Integrations</Code>, choose <Code>Brex</Code>, and paste that token into a
+        <Code>Finance → Integrations</Code>, choose <Code>Brex</Code>, and paste that token into a
         new Connection. Genosyn encrypts the token and never returns it to the browser after
         creation.
       </P>

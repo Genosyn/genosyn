@@ -49,11 +49,16 @@ import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
 import { EmptyState } from "../components/ui/EmptyState";
-import { TopBar } from "../components/AppShell";
+import { Breadcrumbs, ContextualLayout, TopBar } from "../components/AppShell";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import type { SettingsOutletCtx } from "./SettingsLayout";
 import { useLiveRefetch } from "../components/CompanySocket";
+import {
+  PRODUCT_INTEGRATION_SCOPES,
+  type ProductIntegrationKey,
+  type ProductIntegrationScope,
+} from "../lib/productIntegrations";
 
 /**
  * Company-level **Integrations** page. Two panels:
@@ -94,6 +99,42 @@ function useCtx(): SettingsOutletCtx {
 
 export function SettingsIntegrations() {
   const { company } = useCtx();
+  return <IntegrationsPage company={company} />;
+}
+
+export function ProductIntegrationsPage({
+  company,
+  product,
+}: {
+  company: Company;
+  product: ProductIntegrationKey;
+}) {
+  const scope = PRODUCT_INTEGRATION_SCOPES[product];
+
+  return (
+    <ContextualLayout>
+      <div className="mx-auto w-full max-w-5xl px-6 py-8 sm:px-8">
+        <div className="mb-4">
+          <Breadcrumbs
+            items={[
+              { label: scope.label, to: `/c/${company.slug}/${product}` },
+              { label: "Integrations" },
+            ]}
+          />
+        </div>
+        <IntegrationsPage company={company} scope={scope} />
+      </div>
+    </ContextualLayout>
+  );
+}
+
+function IntegrationsPage({
+  company,
+  scope,
+}: {
+  company: Company;
+  scope?: ProductIntegrationScope;
+}) {
   const { toast, background } = useToast();
   const dialog = useDialog();
 
@@ -153,17 +194,36 @@ export function SettingsIntegrations() {
     return () => window.removeEventListener("message", handler);
   }, [reload, toast]);
 
+  const allowedProviders = React.useMemo(
+    () => (scope?.providers ? new Set(scope.providers) : null),
+    [scope],
+  );
+  const visibleCatalog = React.useMemo(
+    () =>
+      catalog?.filter(
+        (entry) => allowedProviders === null || allowedProviders.has(entry.provider),
+      ) ?? null,
+    [allowedProviders, catalog],
+  );
+  const visibleConnections = React.useMemo(
+    () =>
+      connections?.filter(
+        (connection) => allowedProviders === null || allowedProviders.has(connection.provider),
+      ) ?? null,
+    [allowedProviders, connections],
+  );
+
   const groupedCatalog = React.useMemo(() => {
-    if (!catalog)
+    if (!visibleCatalog)
       return [] as Array<{ category: IntegrationCategory; entries: IntegrationCatalogEntry[] }>;
     const needle = search.trim().toLowerCase();
     const filtered = needle
-      ? catalog.filter((e) => {
+      ? visibleCatalog.filter((e) => {
           const hay =
             `${e.name} ${e.tagline} ${e.description ?? ""} ${e.provider} ${e.category}`.toLowerCase();
           return hay.includes(needle);
         })
-      : catalog;
+      : visibleCatalog;
     const groups = new Map<IntegrationCategory, IntegrationCatalogEntry[]>();
     for (const entry of filtered) {
       const arr = groups.get(entry.category) ?? [];
@@ -176,18 +236,18 @@ export function SettingsIntegrations() {
       entries.sort((a, b) => a.name.localeCompare(b.name));
       return [{ category, entries }];
     });
-  }, [catalog, search]);
+  }, [search, visibleCatalog]);
 
   const byProvider = React.useMemo(() => {
     const out = new Map<string, IntegrationConnection[]>();
-    if (!connections) return out;
-    for (const c of connections) {
+    if (!visibleConnections) return out;
+    for (const c of visibleConnections) {
       const arr = out.get(c.provider) ?? [];
       arr.push(c);
       out.set(c.provider, arr);
     }
     return out;
-  }, [connections]);
+  }, [visibleConnections]);
 
   async function startConnect(entry: IntegrationCatalogEntry) {
     if (!entry.enabled) {
@@ -309,26 +369,52 @@ export function SettingsIntegrations() {
     <>
       <TopBar title="Integrations" />
 
+      {scope && (
+        <div className="mb-6 flex flex-col gap-3 rounded-xl border border-indigo-100 bg-indigo-50/60 p-4 sm:flex-row sm:items-center dark:border-indigo-900/60 dark:bg-indigo-950/30">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              Connections for {scope.label}
+            </h2>
+            <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
+              {scope.description}
+            </p>
+          </div>
+          <Link
+            to={`/c/${company.slug}/settings/integrations`}
+            className="shrink-0 text-xs font-medium text-indigo-700 hover:text-indigo-900 dark:text-indigo-300 dark:hover:text-indigo-200"
+          >
+            View all integrations in Settings →
+          </Link>
+        </div>
+      )}
+
       <section className="mb-6">
         <Card>
           <CardHeader>
-            <h2 className="text-sm font-semibold">Your connections</h2>
+            <h2 className="text-sm font-semibold">
+              {scope ? `${scope.label} connections` : "Your connections"}
+            </h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Third-party accounts your AI employees can access once granted. Credentials are
-              encrypted at rest.
+              {scope
+                ? `Third-party accounts available to ${scope.label}. Credentials are encrypted at rest.`
+                : "Third-party accounts your company and AI Employees can use. Credentials are encrypted at rest."}
             </p>
           </CardHeader>
           <CardBody>
-            {connections === null ? (
+            {visibleConnections === null ? (
               <Spinner />
-            ) : connections.length === 0 ? (
+            ) : visibleConnections.length === 0 ? (
               <EmptyState
-                title="No connections yet"
-                description="Pick an integration below to connect your first account."
+                title={scope ? `No ${scope.label} connections yet` : "No connections yet"}
+                description={
+                  scope
+                    ? `Pick an integration below to connect an account for ${scope.label}.`
+                    : "Pick an integration below to connect your first account."
+                }
               />
             ) : (
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                {connections.map((c) => {
+                {visibleConnections.map((c) => {
                   const entry = catalog?.find((e) => e.provider === c.provider);
                   const Icon = entry ? (ICONS[entry.icon] ?? Plug) : Plug;
                   return (
@@ -413,7 +499,9 @@ export function SettingsIntegrations() {
 
       <section>
         <div className="mb-3 flex items-center gap-3">
-          <h2 className="text-sm font-semibold">Available integrations</h2>
+          <h2 className="text-sm font-semibold">
+            {scope ? `${scope.label} integrations` : "Available integrations"}
+          </h2>
           <div className="relative ml-auto w-full max-w-xs">
             <Search
               size={14}
@@ -438,12 +526,16 @@ export function SettingsIntegrations() {
             )}
           </div>
         </div>
-        {catalog === null ? (
+        {visibleCatalog === null ? (
           <Spinner />
         ) : groupedCatalog.length === 0 ? (
           <EmptyState
-            title="No matching integrations"
-            description={`No integrations match "${search.trim()}". Try a different keyword or clear the search.`}
+            title={search.trim() ? "No matching integrations" : "No integrations available"}
+            description={
+              search.trim()
+                ? `No integrations match "${search.trim()}". Try a different keyword or clear the search.`
+                : `There are no integrations available for ${scope?.label ?? "this company"}.`
+            }
           />
         ) : (
           <div className="flex flex-col gap-6">

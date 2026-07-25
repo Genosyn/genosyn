@@ -53,7 +53,8 @@ import { AdminSSO } from "./pages/AdminSSO";
 import { AdminBackup } from "./pages/AdminBackup";
 import { AdminUsers } from "./pages/AdminUsers";
 import { AdminCompanies } from "./pages/AdminCompanies";
-import { SettingsIntegrations } from "./pages/SettingsIntegrations";
+import { ProductIntegrationsPage, SettingsIntegrations } from "./pages/SettingsIntegrations";
+import { PRODUCT_INTEGRATION_KEYS, type ProductIntegrationKey } from "./lib/productIntegrations";
 import { SettingsTeams } from "./pages/SettingsTeams";
 import { SettingsTags } from "./pages/SettingsTags";
 import { SettingsApiKeys } from "./pages/SettingsApiKeys";
@@ -283,6 +284,17 @@ function CompanyRoutes({
           {/* Home — the post-sign-in landing page: everything that needs the
             member's attention plus quick navigation. */}
           <Route index element={<HomePage company={company} me={me} />} />
+
+          {/* Every product exposes a curated view of the shared Integration
+            catalog. Settings keeps the complete catalog; these routes show
+            only the Connections that belong in the active product workflow. */}
+          {PRODUCT_INTEGRATION_KEYS.map((product: ProductIntegrationKey) => (
+            <Route
+              key={product}
+              path={`${product}/integrations`}
+              element={<ProductIntegrationsPage company={company} product={product} />}
+            />
+          ))}
 
           {/* Inbox — company-wide rollup of today's journal entries. */}
           <Route path="inbox" element={<Inbox company={company} />} />

@@ -34,7 +34,7 @@ import { useLiveRefetch } from "../components/CompanySocket";
  * employee has been granted — i.e. the third-party data sources they can
  * reach via MCP tools on their next spawn. Adding a grant picks from the
  * company's existing Connections; creating new Connections is the
- * company-level Integrations settings page.
+ * AI Employees product Integrations page.
  */
 
 const ICONS: Record<string, LucideIcon> = {
@@ -154,10 +154,10 @@ export function EmployeeConnections() {
         ) : pool.length === 0 ? (
           <EmptyState
             title="No connections in this company yet"
-            description="Connect Stripe, Google Workspace, or Metabase in Settings → Integrations before granting access."
+            description="Connect Stripe, Google Workspace, or Metabase in AI Employees → Integrations before granting access."
             action={
               <Link
-                to={`/c/${company.slug}/settings/integrations`}
+                to={`/c/${company.slug}/employees/integrations`}
                 className="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
               >
                 Open Integrations →

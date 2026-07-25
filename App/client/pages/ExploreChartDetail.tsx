@@ -69,7 +69,13 @@ const VIZ_OPTIONS: { value: VizType; label: string; icon: React.ReactNode }[] = 
   { value: "bar", label: "Bar", icon: <BarChart3 size={14} /> },
   { value: "line", label: "Line", icon: <LineIcon size={14} /> },
   { value: "area", label: "Area", icon: <LineIcon size={14} /> },
-  { value: "pie", label: "Pie", icon: <span className="inline-block h-3.5 w-3.5 rounded-full border-[3px] border-indigo-500 border-r-transparent" /> },
+  {
+    value: "pie",
+    label: "Pie",
+    icon: (
+      <span className="inline-block h-3.5 w-3.5 rounded-full border-[3px] border-indigo-500 border-r-transparent" />
+    ),
+  },
 ];
 
 const STARTER_SQL: Record<string, string> = {
@@ -113,9 +119,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
         setConnections(rows);
         if (isNew && rows.length > 0) {
           const presetId = searchParams.get("connectionId");
-          const matched = presetId
-            ? rows.find((r) => r.id === presetId)
-            : undefined;
+          const matched = presetId ? rows.find((r) => r.id === presetId) : undefined;
           const pick: ConnectionRow = matched ?? rows[0];
           setConnectionId(pick.id);
           if (!sql) setSql(STARTER_SQL[pick.provider] ?? "SELECT 1");
@@ -187,10 +191,10 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
     setRunning(true);
     setRunError(null);
     try {
-      const r = await api.post<QueryResult>(
-        `/api/companies/${company.id}/explore/run`,
-        { connectionId, sql },
-      );
+      const r = await api.post<QueryResult>(`/api/companies/${company.id}/explore/run`, {
+        connectionId,
+        sql,
+      });
       setResult(r);
     } catch (err) {
       setRunError((err as Error).message);
@@ -216,20 +220,28 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
     setSaving(true);
     try {
       if (isNew) {
-        const created = await api.post<ChartDTO>(
-          `/api/companies/${company.id}/explore/charts`,
-          { title, description, connectionId, sql, vizType, vizConfig },
-        );
+        const created = await api.post<ChartDTO>(`/api/companies/${company.id}/explore/charts`, {
+          title,
+          description,
+          connectionId,
+          sql,
+          vizType,
+          vizConfig,
+        });
         await reloadIndex();
         navigate(`/c/${company.slug}/explore/charts/${created.slug}`, {
           replace: true,
         });
         toast("Chart saved", "success");
       } else {
-        await api.patch<ChartDTO>(
-          `/api/companies/${company.id}/explore/charts/${slug}`,
-          { title, description, connectionId, sql, vizType, vizConfig },
-        );
+        await api.patch<ChartDTO>(`/api/companies/${company.id}/explore/charts/${slug}`, {
+          title,
+          description,
+          connectionId,
+          sql,
+          vizType,
+          vizConfig,
+        });
         setDirty(false);
         await reloadIndex();
         toast("Saved", "success");
@@ -274,10 +286,10 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
           No database connections yet
         </h1>
         <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-          Explore needs at least one Postgres, MySQL, or ClickHouse Integration
-          Connection before you can author charts.
+          Explore needs at least one Postgres, MySQL, or ClickHouse Integration Connection before
+          you can author charts.
         </p>
-        <Link to={`/c/${company.slug}/settings/integrations`}>
+        <Link to={`/c/${company.slug}/explore/integrations`}>
           <Button>Open integrations</Button>
         </Link>
       </div>
@@ -384,8 +396,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
             ) : result ? (
               <span className="text-slate-500 dark:text-slate-400 tabular-nums">
                 {result.rowCount.toLocaleString()} rows
-                {result.truncated && " (truncated)"} ·{" "}
-                {result.elapsedMs?.toFixed(0) ?? "?"} ms
+                {result.truncated && " (truncated)"} · {result.elapsedMs?.toFixed(0) ?? "?"} ms
               </span>
             ) : (
               <span className="text-slate-400 dark:text-slate-500">
@@ -504,7 +515,9 @@ function VizConfigEditor({
           >
             <option value="">First numeric column</option>
             {columns.map((c) => (
-              <option key={c} value={c}>{c}</option>
+              <option key={c} value={c}>
+                {c}
+              </option>
             ))}
           </Select>
         </Field>
@@ -538,7 +551,9 @@ function VizConfigEditor({
           >
             <option value="">First categorical column</option>
             {columns.map((c) => (
-              <option key={c} value={c}>{c}</option>
+              <option key={c} value={c}>
+                {c}
+              </option>
             ))}
           </Select>
         </Field>
@@ -549,7 +564,9 @@ function VizConfigEditor({
           >
             <option value="">First numeric column</option>
             {columns.map((c) => (
-              <option key={c} value={c}>{c}</option>
+              <option key={c} value={c}>
+                {c}
+              </option>
             ))}
           </Select>
         </Field>
@@ -568,7 +585,9 @@ function VizConfigEditor({
         >
           <option value="">First categorical column</option>
           {columns.map((c) => (
-            <option key={c} value={c}>{c}</option>
+            <option key={c} value={c}>
+              {c}
+            </option>
           ))}
         </Select>
       </Field>
@@ -587,9 +606,7 @@ function VizConfigEditor({
                   type="button"
                   onClick={() => {
                     set({
-                      measures: on
-                        ? measures.filter((m) => m !== c)
-                        : [...measures, c],
+                      measures: on ? measures.filter((m) => m !== c) : [...measures, c],
                     });
                   }}
                   className={
@@ -622,13 +639,7 @@ function VizConfigEditor({
   );
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
       <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">

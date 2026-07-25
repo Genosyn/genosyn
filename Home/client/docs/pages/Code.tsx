@@ -154,7 +154,7 @@ git push -u origin fix/typo`}</Pre>
       </P>
       <OL>
         <LI>
-          Add a GitHub Connection under <Strong>Settings → Integrations</Strong> and allowlist the
+          Add a GitHub Connection under <Strong>Code → Integrations</Strong> and allowlist the
           repository.
         </LI>
         <LI>

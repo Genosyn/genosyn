@@ -39,7 +39,7 @@ export function Email() {
       </P>
       <OL>
         <LI>
-          Open <Strong>Settings → Integrations</Strong> and add (or reconnect) a{" "}
+          Open <Strong>Email → Integrations</Strong> and add (or reconnect) a{" "}
           <Strong>Google</Strong> connection. On Google&apos;s consent screen, tick the{" "}
           <Strong>Gmail</Strong> product so the connection carries the Gmail scope.
         </LI>
@@ -71,9 +71,9 @@ export function Email() {
         The folder rail carries the usual views — Inbox, Starred, Sent, Drafts, All mail, Spam,
         Trash — plus your Gmail labels. Open a thread to read it, then <Strong>Reply</Strong>,{" "}
         <Strong>Reply all</Strong>, <Strong>Forward</Strong>, or <Strong>Compose</Strong> a new
-        message — with file attachments if you need them, added from the Attach button or by
-        pasting a screenshot straight into the message box. Star, archive, trash, mark read/unread,
-        and apply labels all act on the whole thread and land in Gmail immediately.
+        message — with file attachments if you need them, added from the Attach button or by pasting
+        a screenshot straight into the message box. Star, archive, trash, mark read/unread, and
+        apply labels all act on the whole thread and land in Gmail immediately.
       </P>
       <P>
         The Inbox header shows when the mailbox last completed a sync. Click{" "}
@@ -109,8 +109,8 @@ export function Email() {
         Filter the queue <Strong>by AI employee</Strong> or <Strong>by routine</Strong> from the
         toolbar — each option carries its own count — and group the list the same way to review one
         routine&apos;s output as a batch. Drafts you wrote yourself show you instead; anything
-        written before this shipped, or synced in from Gmail, reads as{" "}
-        <Strong>Unattributed</Strong> rather than guessing at an author.
+        written before this shipped, or synced in from Gmail, reads as <Strong>Unattributed</Strong>{" "}
+        rather than guessing at an author.
       </P>
       <P>
         Press <Code>Enter</Code> to peek at a draft inline, or open it for full review: the whole
@@ -146,14 +146,14 @@ export function Email() {
         <DocLink to="/docs/deliverability">suppression list</DocLink> — the addresses that
         unsubscribed, hard-bounced, or were marked do-not-email. The check sits at the one outbound
         choke-point, so it covers a Member pressing Send, a bulk send from the Drafts queue, a
-        sequence step, and an AI employee&apos;s mail tools identically, and it runs when the message
-        actually goes out rather than when the draft was written.
+        sequence step, and an AI employee&apos;s mail tools identically, and it runs when the
+        message actually goes out rather than when the draft was written.
       </P>
       <P>
         A single message is refused <Strong>all or nothing</Strong>: if any recipient in To, Cc or
-        Bcc is on the list, the send fails and names the addresses, rather than quietly delivering to
-        the rest. A bulk send skips the blocked drafts and tells you which ones. Manage the list, and
-        read the unsubscribe and bounce rules, under{" "}
+        Bcc is on the list, the send fails and names the addresses, rather than quietly delivering
+        to the rest. A bulk send skips the blocked drafts and tells you which ones. Manage the list,
+        and read the unsubscribe and bounce rules, under{" "}
         <DocLink to="/docs/deliverability">Deliverability</DocLink>.
       </P>
 
@@ -173,8 +173,8 @@ export function Email() {
       </P>
       <P>
         <Code>⌘K</Code> runs mail actions as well as finding pages: compose, sync the mailbox, jump
-        to any folder, and — when something is selected — act on that selection. In the Drafts
-        queue it offers <Strong>Send all drafts</Strong> directly.
+        to any folder, and — when something is selected — act on that selection. In the Drafts queue
+        it offers <Strong>Send all drafts</Strong> directly.
       </P>
 
       <H3 id="saved-searches">Quick filters and saved searches</H3>
@@ -199,9 +199,9 @@ export function Email() {
         you want directly — &ldquo;summarize this email&rdquo;, &ldquo;draft a reply&rdquo;,
         &ldquo;make this draft shorter and friendlier&rdquo;, or &ldquo;label and archive
         this&rdquo;. Type <Code>@</Code> when you want to choose a particular AI employee. The
-        employee you tagged stays on that email until you tag somebody else. Type{" "}
-        <Code>#</Code> to attach another company resource to the instruction, or{" "}
-        <Code>/new</Code> by itself to clear this email&apos;s AI context.
+        employee you tagged stays on that email until you tag somebody else. Type <Code>#</Code> to
+        attach another company resource to the instruction, or <Code>/new</Code> by itself to clear
+        this email&apos;s AI context.
       </P>
       <P>
         Every email has an independent chat, including each item in the Drafts review queue, so

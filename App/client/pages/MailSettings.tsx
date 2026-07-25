@@ -303,10 +303,10 @@ export default function MailSettings() {
         <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
           Need to add a Gmail account not listed? Add a Google connection with the Gmail scope under{" "}
           <Link
-            to={`/c/${company.slug}/settings/integrations`}
+            to={`/c/${company.slug}/mail/integrations`}
             className="text-indigo-600 hover:underline dark:text-indigo-400"
           >
-            Settings → Integrations
+            Email → Integrations
           </Link>
           .
         </p>
@@ -447,8 +447,8 @@ function ConnectModal({
         </div>
       ) : usable.length === 0 ? (
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          No unlinked Gmail-capable Google connections. Add one with the Gmail scope under Settings
-          → Integrations first.
+          No unlinked Gmail-capable Google connections. Add one with the Gmail scope under Email →
+          Integrations first.
         </p>
       ) : (
         <div className="space-y-2">

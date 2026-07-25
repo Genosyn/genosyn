@@ -723,7 +723,7 @@ function resourceOptionsForField({
         description: `${connection.provider} · ${connection.status}`,
       })),
       loading: resources.loading,
-      href: `${root}/settings/integrations`,
+      href: `${root}/pipelines/integrations`,
     };
   }
   if (field.key === "toolName") {
@@ -732,7 +732,7 @@ function resourceOptionsForField({
       plural: "Actions",
       options: toolOptions,
       loading: resources.loading,
-      href: `${root}/settings/integrations`,
+      href: `${root}/pipelines/integrations`,
     };
   }
   return null;
@@ -775,7 +775,8 @@ function TemplateHelp({ node }: { node: PipelineNode }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
       <div className="flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-300">
-        <Info size={14} /> {isTrigger ? "Data this trigger provides" : "Use data from earlier steps"}
+        <Info size={14} />{" "}
+        {isTrigger ? "Data this trigger provides" : "Use data from earlier steps"}
       </div>
       <p className="mt-1.5">
         Insert trigger data with{" "}

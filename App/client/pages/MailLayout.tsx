@@ -620,10 +620,10 @@ function MailOnboarding({
           <EmptyState
             title="No Gmail-capable Google connection yet"
             description={
-              'Add a Google connection with the "Gmail" product selected under Settings → Integrations, then come back here.'
+              'Add a Google connection with the "Gmail" product selected under Email → Integrations, then come back here.'
             }
             action={
-              <Link to={`/c/${company.slug}/settings/integrations`}>
+              <Link to={`/c/${company.slug}/mail/integrations`}>
                 <Button size="sm">Open Integrations</Button>
               </Link>
             }
@@ -674,9 +674,7 @@ function MailComposeModal({
   const attach = useMailAttachments(company.id, account.id);
   const clearAttach = attach.clear;
   // Paste a screenshot or drop a file straight into the compose box.
-  const { dragActive, onPaste, dragProps } = useComposerFileDrop((files) =>
-    attach.addFiles(files),
-  );
+  const { dragActive, onPaste, dragProps } = useComposerFileDrop((files) => attach.addFiles(files));
 
   React.useEffect(() => {
     if (!open) return;
@@ -776,7 +774,9 @@ function MailComposeModal({
           onPaste={onPaste}
           {...dragProps}
           rows={10}
-          className={dragActive ? "border-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-900" : undefined}
+          className={
+            dragActive ? "border-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-900" : undefined
+          }
         />
         <AttachmentBar
           items={attach.items}

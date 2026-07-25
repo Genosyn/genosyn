@@ -514,8 +514,7 @@ function TxnRow({
                           </span>
                         </div>
                         <div className="text-xs text-slate-500 dark:text-slate-400">
-                          {c.paidAt.slice(0, 10)} · {c.method} · score{" "}
-                          {(c.score * 100).toFixed(0)}%
+                          {c.paidAt.slice(0, 10)} · {c.method} · score {(c.score * 100).toFixed(0)}%
                         </div>
                       </>
                     ) : (
@@ -715,7 +714,7 @@ function NewFeedModal({
         )}
         {kind === "stripe_payouts" && stripeConns.length === 0 && (
           <p className="rounded-md bg-amber-50 p-3 text-xs text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
-            No Stripe connection found. Add one under Settings → Integrations first.
+            No Stripe connection found. Add one under Finance → Integrations first.
           </p>
         )}
         {kind === "brex_cash" && (
@@ -735,7 +734,7 @@ function NewFeedModal({
         )}
         {kind === "brex_cash" && brexConns.length === 0 && (
           <p className="rounded-md bg-amber-50 p-3 text-xs text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
-            No Brex Connection found. Add one under Settings → Integrations first.
+            No Brex Connection found. Add one under Finance → Integrations first.
           </p>
         )}
         {kind === "brex_cash" && connectionId && brexAccounts === null && (

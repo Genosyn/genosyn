@@ -155,7 +155,7 @@ export default function CodeRepoAccess() {
           icon={<GitPullRequest size={17} />}
           title="PRs use a GitHub Connection"
           detail="Grant a GitHub Connection to expose the create_pull_request tool after the branch is pushed."
-          to={`/c/${company.slug}/settings/integrations`}
+          to={`/c/${company.slug}/code/integrations`}
           linkLabel="Manage integrations"
         />
       </div>

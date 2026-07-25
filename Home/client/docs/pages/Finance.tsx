@@ -168,21 +168,20 @@ export function Finance() {
         given back with a refund or a credit note, never by rewriting history. And voiding an
         invoice issued inside a <Strong>closed accounting period</Strong> is refused too, because
         the reversal carries today&apos;s date and would pull a closed period&apos;s revenue into
-        the current one; reopen the period first. Both rules apply identically to{" "}
-        <Code>Void</Code> on a bill.
+        the current one; reopen the period first. Both rules apply identically to <Code>Void</Code>{" "}
+        on a bill.
       </P>
 
       <H3 id="invoices-write-off">Writing off a balance</H3>
       <P>
-        When a receivable won&apos;t be collected, open the invoice and click{" "}
-        <Code>Write off</Code>. A write-off clears part or all of the open balance{" "}
-        <em>without</em> a payment and <em>without</em> reversing the sale — the revenue stays
-        recognized in the period it was earned. Pick <Strong>Bad debt</Strong> for an
-        uncollectible debt or <Strong>Residual</Strong> for an immaterial short-payment (a few
-        cents of rounding or a settlement discount). It posts{" "}
-        <Code>DR Bad Debt Expense / CR Accounts Receivable</Code> and can never exceed the open
-        balance. Unlike a credit note it does <em>not</em> relieve tax — a bad debt isn&apos;t a
-        sales-tax refund.
+        When a receivable won&apos;t be collected, open the invoice and click <Code>Write off</Code>
+        . A write-off clears part or all of the open balance <em>without</em> a payment and{" "}
+        <em>without</em> reversing the sale — the revenue stays recognized in the period it was
+        earned. Pick <Strong>Bad debt</Strong> for an uncollectible debt or{" "}
+        <Strong>Residual</Strong> for an immaterial short-payment (a few cents of rounding or a
+        settlement discount). It posts <Code>DR Bad Debt Expense / CR Accounts Receivable</Code> and
+        can never exceed the open balance. Unlike a credit note it does <em>not</em> relieve tax — a
+        bad debt isn&apos;t a sales-tax refund.
       </P>
       <P>
         A fully written-off invoice shows the <Code>Written off</Code> status (it never counts as
@@ -194,43 +193,40 @@ export function Finance() {
 
       <H3 id="invoices-credit-note">Credit notes</H3>
       <P>
-        A credit note reduces a sale you&apos;ve already invoiced — a return, a
-        goodwill adjustment, a billing correction. From an invoice, click{" "}
-        <Code>Credit note</Code>: credit it <Strong>in full</Strong> (every line, tax
-        included) or a <Strong>partial</Strong> ex-tax amount. Issuing posts{" "}
-        <Code>DR Sales Returns &amp; Allowances / DR Tax Payable / CR Customer Credits</Code> —
-        it reverses revenue (and tax, on a full credit) but never touches Accounts
-        Receivable directly, and credit notes can never total more than the invoice they
-        came from.
+        A credit note reduces a sale you&apos;ve already invoiced — a return, a goodwill adjustment,
+        a billing correction. From an invoice, click <Code>Credit note</Code>: credit it{" "}
+        <Strong>in full</Strong> (every line, tax included) or a <Strong>partial</Strong> ex-tax
+        amount. Issuing posts{" "}
+        <Code>DR Sales Returns &amp; Allowances / DR Tax Payable / CR Customer Credits</Code> — it
+        reverses revenue (and tax, on a full credit) but never touches Accounts Receivable directly,
+        and credit notes can never total more than the invoice they came from.
       </P>
       <P>
-        A credit is spent by <Strong>applying</Strong> it to an invoice, which is the only
-        way to lower a receivable without cash: it posts{" "}
-        <Code>DR Customer Credits / CR Accounts Receivable</Code>, capped so the invoice
-        balance can never go negative. Raising a credit against an invoice applies it there
-        by default; an on-account credit can be applied to any of that customer&apos;s
-        invoices in the same currency from the <Code>Credit notes</Code> section. An invoice
-        fully cleared by credit shows the <Code>Credited</Code> status. Unapply to put the
-        balance back, and void an unused credit memo to reverse it entirely.
+        A credit is spent by <Strong>applying</Strong> it to an invoice, which is the only way to
+        lower a receivable without cash: it posts{" "}
+        <Code>DR Customer Credits / CR Accounts Receivable</Code>, capped so the invoice balance can
+        never go negative. Raising a credit against an invoice applies it there by default; an
+        on-account credit can be applied to any of that customer&apos;s invoices in the same
+        currency from the <Code>Credit notes</Code> section. An invoice fully cleared by credit
+        shows the <Code>Credited</Code> status. Unapply to put the balance back, and void an unused
+        credit memo to reverse it entirely.
       </P>
 
       <H3 id="refunds-deposits">Refunds, deposits and overpayments</H3>
       <P>
-        A credit can be paid back in cash instead of applied: from a credit
-        note, click <Code>Refund</Code>. It posts{" "}
-        <Code>DR Customer Credits / CR Bank</Code> against the credit&apos;s open
-        balance, and can be reversed if the money comes back. A{" "}
+        A credit can be paid back in cash instead of applied: from a credit note, click{" "}
+        <Code>Refund</Code>. It posts <Code>DR Customer Credits / CR Bank</Code> against the
+        credit&apos;s open balance, and can be reversed if the money comes back. A{" "}
         <Strong>deposit</Strong> takes money before any invoice exists —{" "}
-        <Code>DR Bank / CR Customer Deposits</Code>, held as unearned revenue
-        (no sales tax on receipt) until you apply it to the eventual invoice.
+        <Code>DR Bank / CR Customer Deposits</Code>, held as unearned revenue (no sales tax on
+        receipt) until you apply it to the eventual invoice.
       </P>
       <P>
         When a customer pays more than an invoice&apos;s balance, tick{" "}
-        <Strong>Record the excess as an on-account customer credit</Strong> in the
-        payment dialog: the balance-due portion posts as a normal payment and the
-        overage becomes a credit (<Code>DR Bank / CR Customer Credits</Code>) you can
-        apply to their next invoice or refund. Without that tick, overpayment is
-        refused, exactly as before.
+        <Strong>Record the excess as an on-account customer credit</Strong> in the payment dialog:
+        the balance-due portion posts as a normal payment and the overage becomes a credit (
+        <Code>DR Bank / CR Customer Credits</Code>) you can apply to their next invoice or refund.
+        Without that tick, overpayment is refused, exactly as before.
       </P>
 
       <H2 id="recurring-invoices">Recurring invoices</H2>
@@ -271,7 +267,7 @@ export function Finance() {
         Open <Code>Finance → Reconciliation</Code> to match external bank lines to the payments and
         journal entries already recorded in Genosyn. CSV upload works with any bank; Stripe payout
         and Brex Cash feeds can pull directly from an encrypted Connection under{" "}
-        <DocLink to="/docs/integrations">Settings → Integrations</DocLink>.
+        <DocLink to="/docs/integrations">Finance → Integrations</DocLink>.
       </P>
       <P>
         Expand a line and Genosyn suggests two kinds of match, ranked by amount and date: recorded{" "}
@@ -284,11 +280,11 @@ export function Finance() {
       <P>
         A bank line that isn&apos;t a recorded payment — bank interest, a fee, an owner transfer, a
         cash sale — can be <Strong>categorized</Strong> straight into the books. Expand the line and
-        pick a category account under <Code>Or post it straight to a category</Code>: Genosyn posts a
-        balanced journal entry (money in debits the bank account and credits the category; money out
-        reverses) and marks the line reconciled. Unmatching a categorized line reverses that entry,
-        so the books always follow what you see on the feed. (Bank categorization is home-currency in
-        this release.)
+        pick a category account under <Code>Or post it straight to a category</Code>: Genosyn posts
+        a balanced journal entry (money in debits the bank account and credits the category; money
+        out reverses) and marks the line reconciled. Unmatching a categorized line reverses that
+        entry, so the books always follow what you see on the feed. (Bank categorization is
+        home-currency in this release.)
       </P>
       <P>
         For Brex, create a <Code>Brex</Code> Connection using a read-only user token, then click{" "}
@@ -301,17 +297,15 @@ export function Finance() {
 
       <H3 id="vendor-credits">Vendor credits</H3>
       <P>
-        The AP mirror of credit notes. When a supplier credits you — a return, a
-        billing correction — open the bill and click <Code>Vendor credit</Code>.
-        Issuing posts <Code>DR Vendor Credits / CR the expense account(s) / CR Tax
-        Payable</Code>, reversing the bill&apos;s expense and input tax and parking
-        the value in <Code>1300 Vendor Credits</Code> (an asset — the supplier owes
-        you). Apply it to a bill to reduce what you owe (<Code>DR Accounts Payable /
-        CR Vendor Credits</Code>, capped so AP can&apos;t go negative), or record a{" "}
-        <Code>Refund</Code> when the supplier pays you back in cash
-        (<Code>DR Bank / CR Vendor Credits</Code>). Manage them under{" "}
-        <Code>Vendor credits</Code>; unapply, void and reverse work exactly like the
-        customer side.
+        The AP mirror of credit notes. When a supplier credits you — a return, a billing correction
+        — open the bill and click <Code>Vendor credit</Code>. Issuing posts{" "}
+        <Code>DR Vendor Credits / CR the expense account(s) / CR Tax Payable</Code>, reversing the
+        bill&apos;s expense and input tax and parking the value in <Code>1300 Vendor Credits</Code>{" "}
+        (an asset — the supplier owes you). Apply it to a bill to reduce what you owe (
+        <Code>DR Accounts Payable / CR Vendor Credits</Code>, capped so AP can&apos;t go negative),
+        or record a <Code>Refund</Code> when the supplier pays you back in cash (
+        <Code>DR Bank / CR Vendor Credits</Code>). Manage them under <Code>Vendor credits</Code>;
+        unapply, void and reverse work exactly like the customer side.
       </P>
 
       <H2 id="card-expenses">Corporate card expenses</H2>
@@ -349,9 +343,10 @@ export function Finance() {
       <P>
         A journal entry can be <Strong>staged for review</Strong> instead of posted straight away —
         the classic accounting maker-checker control, where one person drafts an entry and another
-        signs it off. Compose the entry as usual under <Code>Finance → Journal → New manual
-        entry</Code>, then click <Code>Propose for review</Code> rather than <Code>Post entry</Code>.
-        Nothing hits the ledger yet.
+        signs it off. Compose the entry as usual under{" "}
+        <Code>Finance → Journal → New manual entry</Code>, then click{" "}
+        <Code>Propose for review</Code> rather than <Code>Post entry</Code>. Nothing hits the ledger
+        yet.
       </P>
       <P>
         Staged entries collect under <Code>Finance → Proposals</Code>. Expand one to see its full
@@ -363,9 +358,10 @@ export function Finance() {
         proposal stays pending so it can be fixed and retried.
       </P>
       <P>
-        This is also the spine that AI employees post finance work through: an AI can <Strong>propose</Strong>{" "}
-        an entry, but only a person <Strong>applies</Strong> it, so no automation ever moves the books
-        unattended. Every apply and reject is recorded in the audit log with who decided and when.
+        This is also the spine that AI employees post finance work through: an AI can{" "}
+        <Strong>propose</Strong> an entry, but only a person <Strong>applies</Strong> it, so no
+        automation ever moves the books unattended. Every apply and reject is recorded in the audit
+        log with who decided and when.
       </P>
 
       <H2 id="transaction-review">Review and approve transactions</H2>
@@ -398,8 +394,8 @@ export function Finance() {
       <H2 id="finance-access">Who can see and change finances</H2>
       <P>
         Finance access is a per-member setting, separate from a member&apos;s company role. Owners
-        and admins always have full finance access; for everyone else, an owner or admin sets a level
-        under <Code>Settings → Members</Code>:
+        and admins always have full finance access; for everyone else, an owner or admin sets a
+        level under <Code>Settings → Members</Code>:
       </P>
       <UL>
         <LI>
@@ -467,21 +463,22 @@ export function Finance() {
         When an AI employee sends an invoice, any <Code>To</Code> / <Code>Cc</Code> it supplies is
         restricted to the customer&apos;s own email domain or a finance mailbox you saved under{" "}
         <Code>Finance → Settings → Always Cc</Code> — an AI can&apos;t mail company documents to an
-        arbitrary outside address, even if a malicious invoice memo or bank description tries to talk
-        it into doing so. A person sending from the invoice page is unaffected and can still address
-        anyone.
+        arbitrary outside address, even if a malicious invoice memo or bank description tries to
+        talk it into doing so. A person sending from the invoice page is unaffected and can still
+        address anyone.
       </P>
 
       <H3 id="ai-invoice-email">Emailing an invoice PDF</H3>
       <P>
         An employee that also has an <DocLink to="/docs/email">Email</DocLink> grant can attach an
         invoice&apos;s PDF straight to a message — no need to dig the file out of a past email. The{" "}
-        <Code>create_mail_draft</Code> and <Code>send_mail</Code> tools (and the Gmail integration&apos;s{" "}
-        <Code>gmail_create_draft</Code> / <Code>gmail_send_message</Code>) take an{" "}
-        <Code>attachments</Code> list; name an invoice by <Code>invoiceSlug</Code> and Genosyn renders
-        the PDF on the fly and attaches it. So a routine can reply on the original billing thread —
-        preserving the recipient and CCs — with the invoice attached. Rendering the PDF needs at
-        least <Strong>Read</Strong> finance access; sending needs the matching mailbox grant.
+        <Code>create_mail_draft</Code> and <Code>send_mail</Code> tools (and the Gmail
+        integration&apos;s <Code>gmail_create_draft</Code> / <Code>gmail_send_message</Code>) take
+        an <Code>attachments</Code> list; name an invoice by <Code>invoiceSlug</Code> and Genosyn
+        renders the PDF on the fly and attaches it. So a routine can reply on the original billing
+        thread — preserving the recipient and CCs — with the invoice attached. Rendering the PDF
+        needs at least <Strong>Read</Strong> finance access; sending needs the matching mailbox
+        grant.
       </P>
 
       <H3 id="ai-transaction-review">AI transaction review</H3>

@@ -1,14 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import {
-  BarChart3,
-  Database,
-  Layers,
-  LayoutGrid,
-  LineChart,
-  Plus,
-  Server,
-} from "lucide-react";
+import { BarChart3, Database, Layers, LayoutGrid, LineChart, Plus, Server } from "lucide-react";
 import { api, Company } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { EmptyState } from "../components/ui/EmptyState";
@@ -19,7 +11,7 @@ import { useExplore } from "./ExploreLayout";
 /**
  * Explore landing page. Three columns:
  *   1. Data sources — the company's postgres / mysql / clickhouse
- *      connections that Explore can query. Empty state nudges to /settings/integrations.
+ *      connections that Explore can query. Empty state nudges to /explore/integrations.
  *   2. Recent charts.
  *   3. Recent dashboards.
  *
@@ -68,14 +60,17 @@ export default function ExploreIndex({ company }: { company: Company }) {
             <BarChart3 size={20} className="text-indigo-500" /> Explore
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-            Self-serve analytics on the databases your team has connected.
-            Write a query, pick a chart, save it. Pin saved charts onto
-            Dashboards anyone in the company can read.
+            Self-serve analytics on the databases your team has connected. Write a query, pick a
+            chart, save it. Pin saved charts onto Dashboards anyone in the company can read.
           </p>
         </div>
         <div className="flex shrink-0 gap-2">
           <Link
-            to={hasConnections ? `/c/${company.slug}/explore/charts/new` : `/c/${company.slug}/settings/integrations`}
+            to={
+              hasConnections
+                ? `/c/${company.slug}/explore/charts/new`
+                : `/c/${company.slug}/explore/integrations`
+            }
           >
             <Button size="sm">
               <Plus size={14} />
@@ -91,13 +86,15 @@ export default function ExploreIndex({ company }: { company: Company }) {
           Data sources
         </h2>
         {connections === null ? (
-          <div className="flex justify-center p-6"><Spinner /></div>
+          <div className="flex justify-center p-6">
+            <Spinner />
+          </div>
         ) : connections.length === 0 ? (
           <EmptyState
             title="No database connections"
             description="Explore queries Postgres, MySQL, or ClickHouse via the existing integrations. Add one to start querying."
             action={
-              <Link to={`/c/${company.slug}/settings/integrations`}>
+              <Link to={`/c/${company.slug}/explore/integrations`}>
                 <Button size="sm">Open integrations</Button>
               </Link>
             }
@@ -208,8 +205,7 @@ export default function ExploreIndex({ company }: { company: Company }) {
                     {c.title}
                   </div>
                   <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                    {c.vizType} · updated{" "}
-                    {new Date(c.updatedAt).toLocaleDateString()}
+                    {c.vizType} · updated {new Date(c.updatedAt).toLocaleDateString()}
                   </div>
                 </div>
               </Link>
