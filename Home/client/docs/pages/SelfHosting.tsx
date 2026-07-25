@@ -90,6 +90,12 @@ export function SelfHosting() {
     // ...
   },
 } as const;`}</Pre>
+      <P>
+        <Code>maxConcurrentRunsPerCompany</Code> caps all top-level AI work in one company,
+        including chats and Routine runs. Within that limit, a Routine can run alongside chat and
+        other independent Routines for the same employee. Increase it only when your AI Model quotas
+        and host capacity can support the extra parallel requests.
+      </P>
 
       <H2 id="public-url">Public URL</H2>
       <P>

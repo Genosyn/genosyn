@@ -11,7 +11,7 @@ import { notifyApprovalPending } from "./notifications.js";
 import { withSchedulerLease } from "./schedulerLeases.js";
 import { findDueRetries, reconcileOrphanedRuns } from "./runRecovery.js";
 import { ORPHAN_GRACE_MS, STALE_SLOT_MS, countMissedSlots, isSlotStale } from "./cronMath.js";
-import { EmployeeWorkloadBusyError, WorkloadLimitError } from "./workloadLeases.js";
+import { WorkloadLimitError } from "./workloadLeases.js";
 
 /**
  * Heartbeat-based routine scheduler.
@@ -169,9 +169,9 @@ async function rearmAfterBusy(routineId: string): Promise<void> {
   await repo.save(r);
 }
 
-/** True for the two errors that mean "no capacity right now", not "broken". */
+/** True when the company has no workload capacity right now, not "broken". */
 function isCapacityError(err: unknown): boolean {
-  return err instanceof EmployeeWorkloadBusyError || err instanceof WorkloadLimitError;
+  return err instanceof WorkloadLimitError;
 }
 
 function onDispatchError(routineId: string) {

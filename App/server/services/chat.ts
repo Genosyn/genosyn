@@ -23,7 +23,6 @@ import { composeEmployeeSystemPrompt } from "./agent/systemPrompt.js";
 import { residentNamesForSkills, skillToolsetMap } from "./skillToolset.js";
 import {
   acquireWorkloadLease,
-  describeEmployeeWorkload,
   EmployeeWorkloadBusyError,
   releaseWorkloadLease,
 } from "./workloadLeases.js";
@@ -86,32 +85,10 @@ const CHAT_HARD_TIMEOUT_MS = 60 * 60_000;
 const CHAT_MAX_STEPS = 60;
 
 /**
- * Human-facing "still working" notice for a chat turn that lost the race for
- * the employee's workload slot. Names the employee and, when they're mid-Run,
- * links the routine so the teammate can open it and watch the progress.
- * Returned as the `busy` reply and rendered as markdown, so the link is live.
+ * Human-facing notice for a chat turn that lost the race to another chat.
+ * Routine runs deliberately do not block chat.
  */
-async function formatBusyReply(co: Company, emp: AIEmployee): Promise<string> {
-  let info: Awaited<ReturnType<typeof describeEmployeeWorkload>> = null;
-  try {
-    info = await describeEmployeeWorkload(emp.id);
-  } catch {
-    // Best-effort — a lookup hiccup shouldn't downgrade this to a hard error.
-  }
-  if (info?.kind === "routine" && info.routine) {
-    const href = `/c/${co.slug}/routines/${emp.slug}/${info.routine.slug}`;
-    return (
-      `${emp.name} is busy running the routine [${info.routine.name}](${href}) right now. ` +
-      `Open it to watch the progress, then send your message again once the run ` +
-      `finishes and ${emp.name} will pick it up.`
-    );
-  }
-  if (info?.kind === "routine") {
-    return (
-      `${emp.name} is busy running a scheduled routine right now. Send your ` +
-      `message again once it finishes and ${emp.name} will pick it up.`
-    );
-  }
+function formatBusyReply(emp: AIEmployee): string {
   return (
     `${emp.name} is still finishing another message. Send yours again in a ` +
     `moment and ${emp.name} will pick it up.`
@@ -189,13 +166,12 @@ export async function streamChatWithEmployee(
       CHAT_HARD_TIMEOUT_MS + 60_000,
     );
   } catch (error) {
-    // The employee is already mid-Run or mid-chat. That's not an error — it's
-    // a "come back in a moment" — so report what they're working on by name
-    // and let the teammate watch the progress, rather than a red failure.
+    // A second chat turn to the same employee waits. Routine runs never take
+    // this branch: they are allowed to overlap with chat and one another.
     if (error instanceof EmployeeWorkloadBusyError) {
       return {
         status: "busy",
-        reply: await formatBusyReply(co, emp),
+        reply: formatBusyReply(emp),
         attachmentIds: [],
         sidecars: {},
       };

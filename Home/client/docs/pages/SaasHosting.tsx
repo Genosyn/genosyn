@@ -127,7 +127,8 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
         Each AI employee&apos;s shell runs inside a Bubblewrap user, mount, PID, IPC, UTS, cgroup,
         and network namespace. Only that employee&apos;s workspace is writable; the API process
         environment is not inherited. File tools resolve real paths and reject symlink escapes. The
-        hosted runtime also serializes work per AI employee and caps concurrent AI work per company.
+        hosted runtime lets Routine runs and chat continue in parallel while capping total
+        concurrent AI work per company. Two chat replies for one employee remain serialized.
       </P>
       <UL>
         <LI>Company secrets are not injected into hosted coding shells.</LI>

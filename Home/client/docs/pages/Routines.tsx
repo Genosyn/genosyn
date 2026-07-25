@@ -186,6 +186,20 @@ Every weekday at 09:00, post a 5-bullet summary of:
 
 Post it to the #morning channel.`}</Pre>
 
+      <H2 id="concurrent-runs">Chat and Runs continue in parallel</H2>
+      <P>
+        Starting a Routine does not make its AI employee unavailable. You can keep chatting with
+        that employee and start other independent Routines while the first Run continues. Genosyn
+        counts every top-level chat and Run against the company workload limit; the self-hosted
+        default is four. A second chat turn to the same employee waits for the first reply, but
+        Routine work never blocks the composer.
+      </P>
+      <Callout kind="warn" title="Parallel work shares the employee workspace.">
+        Reads are safe. For writes, use distinct output files and avoid simultaneous git operations
+        or edits to the same file. Browser sessions also share the employee&apos;s persisted browser
+        state.
+      </Callout>
+
       <H2 id="parallel-delegation">Parallel delegation</H2>
       <P>
         Chat turns and Routine runs include <Code>delegate_parallel_work</Code>.
@@ -342,9 +356,9 @@ Verify the three results, resolve any disagreement, then post one concise brief 
       </P>
       <P>
         The same pass releases the <Strong>workload lease</Strong> the dead run
-        was holding. That matters more than the status: without it the AI
-        employee reads as busy and refuses chat until the lease expires — up to
-        an hour on the default timeout.
+        was holding. That matters more than the status: without it the dead Run keeps consuming one
+        of the company&apos;s concurrent workload slots until the lease expires — up to an hour on
+        the default timeout.
       </P>
 
       <H3 id="missed-slots">The server was off across scheduled slots</H3>

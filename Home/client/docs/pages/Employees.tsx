@@ -156,8 +156,11 @@ export function Employees() {
         <Code>cwd</Code> for the built-in coding tools (<Code>bash</Code>,{" "}
         <Code>read_file</Code>, <Code>write_file</Code>, <Code>edit_file</Code>,{" "}
         <Code>glob</Code>, <Code>grep</Code>), and captures the agent transcript
-        into a Run log. Two employees can run different models in parallel; their
-        provider credentials are stored encrypted in the database, never on disk.
+        into a Run log. A Routine does not make its AI employee unavailable: Members can keep
+        chatting with that employee and start independent Routines in parallel, up to the company
+        workload limit. Concurrent work shares this directory, so give overlapping Runs distinct
+        output files and avoid simultaneous edits to the same git working tree. Model credentials
+        stay encrypted in the database, never on disk.
       </P>
 
       <H3 id="org-chart">Org chart</H3>
@@ -175,7 +178,8 @@ export function Employees() {
           Messages persist; action pills surface tool calls inline. Type{" "}
           <Code>/new</Code> to open a fresh context, or <Code>#</Code> and a
           name to tag any company resource you can see. Attach files with the
-          paperclip, or paste a screenshot and drag files onto the composer.
+          paperclip, or paste a screenshot and drag files onto the composer. Chat stays available
+          while that employee&apos;s Routines run.
         </LI>
         <LI>
           <Strong>Workspace.</Strong> File editor scoped to the employee&apos;s

@@ -269,7 +269,8 @@ export const config = {
 - [x] Bubblewrap shell isolation with a private writable employee workspace,
       cleared server environment, symlink-safe file tools, and no shell network;
       shared browser and arbitrary stdio MCP disabled in SaaS mode
-- [x] Per-company AI concurrency quota plus single-workload-per-employee leases
+- [x] Per-company AI concurrency quota with workload leases; Routine runs and
+      chat can overlap for one AI employee, while chat replies stay serialized
 - [x] Horizontal coordination through Postgres: scheduler/worker leases, atomic
       mail claims, Telegram ownership/failover, encrypted OAuth/OIDC/WebSocket
       state, and authorized cross-replica realtime fan-out
@@ -283,7 +284,7 @@ export const config = {
 
 - [x] Every heartbeat reconciles Runs orphaned by a crash — a new `interrupted`
       status, a marker in the transcript, and the stranded `WorkloadLease`
-      cleared so the employee stops reading as busy
+      cleared so the dead Run stops consuming company workload capacity
 - [x] Missed occurrences recorded on the catch-up Run (`Run.missedSlots`) and
       folded into its brief; per-routine catch-up policy (`once` — the existing
       default — or `skip` for work that is only useful on time)
