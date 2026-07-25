@@ -10,6 +10,7 @@ import { dateTimeColumnType } from "./columnTypes.js";
 import type { RevenueResourceType } from "./RevenueCustomField.js";
 
 export type RevenueImportStatus = "completed" | "rolled_back" | "failed";
+export type RevenueImportResourceType = RevenueResourceType | "account_contact_deal";
 
 /**
  * Durable reconciliation ledger for a committed import. Dry runs do not write
@@ -27,7 +28,7 @@ export class RevenueImportBatch {
   companyId!: string;
 
   @Column({ type: "varchar" })
-  resourceType!: RevenueResourceType;
+  resourceType!: RevenueImportResourceType;
 
   @Column({ type: "varchar" })
   sourceKind!: "base" | "csv";

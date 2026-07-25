@@ -1,11 +1,7 @@
 import React from "react";
-import { ExternalLink, FileText, Paperclip, Plus, Trash2 } from "lucide-react";
+import { ExternalLink, FileText, Paperclip, Pencil, Plus, Trash2 } from "lucide-react";
 import { api } from "../../lib/api";
-import type {
-  RevenueDocument,
-  RevenueDocumentKind,
-  RevenueResourceType,
-} from "../../lib/revenue";
+import type { RevenueDocument, RevenueDocumentKind, RevenueResourceType } from "../../lib/revenue";
 import { Button } from "../ui/Button";
 import { FormError } from "../ui/FormError";
 import { Input } from "../ui/Input";
@@ -40,6 +36,7 @@ export function RevenueDocumentsPanel({
   const queryKey = resourceType === "account" ? "customerId" : `${resourceType}Id`;
   const [rows, setRows] = React.useState<RevenueDocument[] | null>(null);
   const [adding, setAdding] = React.useState(false);
+  const [editing, setEditing] = React.useState<RevenueDocument | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
@@ -89,19 +86,45 @@ export function RevenueDocumentsPanel({
               ? `${base}/documents/${document.id}/file`
               : document.externalUrl || null;
             return (
-              <div key={document.id} className="flex items-center gap-3 rounded-lg border border-slate-100 p-3 dark:border-slate-800">
+              <div
+                key={document.id}
+                className="flex items-center gap-3 rounded-lg border border-slate-100 p-3 dark:border-slate-800"
+              >
                 <FileText size={16} className="shrink-0 text-slate-400" />
                 <div className="min-w-0 flex-1">
                   {href ? (
-                    <a href={href} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 truncate text-sm font-medium text-indigo-600 hover:underline">
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 truncate text-sm font-medium text-indigo-600 hover:underline"
+                    >
                       {document.title} <ExternalLink size={11} />
                     </a>
                   ) : (
-                    <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-200">{document.title}</p>
+                    <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-200">
+                      {document.title}
+                    </p>
                   )}
-                  <p className="text-xs text-slate-500">{KIND_LABEL[document.kind]}{document.attachment ? ` · ${document.attachment.filename}` : ""}</p>
+                  <p className="text-xs text-slate-500">
+                    {KIND_LABEL[document.kind]}
+                    {document.attachment ? ` · ${document.attachment.filename}` : ""}
+                  </p>
                 </div>
-                <button type="button" onClick={() => void remove(document.id)} className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950" aria-label={`Remove ${document.title}`}>
+                <button
+                  type="button"
+                  onClick={() => setEditing(document)}
+                  className="rounded p-1 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-950"
+                  aria-label={`Edit ${document.title}`}
+                >
+                  <Pencil size={14} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void remove(document.id)}
+                  className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950"
+                  aria-label={`Remove ${document.title}`}
+                >
                   <Trash2 size={14} />
                 </button>
               </div>
@@ -122,7 +145,105 @@ export function RevenueDocumentsPanel({
           void reload();
         }}
       />
+      <EditDocumentModal
+        document={editing}
+        base={base}
+        onClose={() => setEditing(null)}
+        onSaved={() => {
+          setEditing(null);
+          void reload();
+        }}
+      />
     </section>
+  );
+}
+
+function EditDocumentModal({
+  document,
+  base,
+  onClose,
+  onSaved,
+}: {
+  document: RevenueDocument | null;
+  base: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [kind, setKind] = React.useState<RevenueDocumentKind>("other");
+  const [title, setTitle] = React.useState("");
+  const [notes, setNotes] = React.useState("");
+  const [url, setUrl] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    setKind(document?.kind ?? "other");
+    setTitle(document?.title ?? "");
+    setNotes(document?.notes ?? "");
+    setUrl(document?.externalUrl ?? "");
+    setError(null);
+  }, [document]);
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!document) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.patch(`${base}/documents/${document.id}`, {
+        kind,
+        title,
+        notes,
+        externalUrl: url.trim(),
+      });
+      onSaved();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Modal open={document !== null} onClose={onClose} title="Edit document">
+      <form onSubmit={submit} className="space-y-4">
+        <Select
+          label="Kind"
+          value={kind}
+          onChange={(event) => setKind(event.target.value as RevenueDocumentKind)}
+        >
+          {Object.entries(KIND_LABEL).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </Select>
+        <Input
+          label="Title"
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          required
+        />
+        <Input
+          label="External URL"
+          type="url"
+          value={url}
+          onChange={(event) => setUrl(event.target.value)}
+        />
+        <Textarea
+          label="Notes"
+          rows={3}
+          value={notes}
+          onChange={(event) => setNotes(event.target.value)}
+        />
+        {error && <FormError message={error} />}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={busy}>
+            {busy ? "Saving…" : "Save"}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -182,17 +303,49 @@ function AddDocumentModal({
   return (
     <Modal open={open} onClose={onClose} title="Link a document">
       <form onSubmit={submit} className="space-y-4">
-        <Select label="Kind" value={kind} onChange={(event) => setKind(event.target.value as RevenueDocumentKind)}>
-          {Object.entries(KIND_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        <Select
+          label="Kind"
+          value={kind}
+          onChange={(event) => setKind(event.target.value as RevenueDocumentKind)}
+        >
+          {Object.entries(KIND_LABEL).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
         </Select>
-        <Input label="Title" value={title} onChange={(event) => setTitle(event.target.value)} required />
-        <Input label="External URL" type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://…" />
-        <Input label="Or upload a file" type="file" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
-        <Textarea label="Notes" rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} />
+        <Input
+          label="Title"
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          required
+        />
+        <Input
+          label="External URL"
+          type="url"
+          value={url}
+          onChange={(event) => setUrl(event.target.value)}
+          placeholder="https://…"
+        />
+        <Input
+          label="Or upload a file"
+          type="file"
+          onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+        />
+        <Textarea
+          label="Notes"
+          rows={3}
+          value={notes}
+          onChange={(event) => setNotes(event.target.value)}
+        />
         {error && <FormError message={error} />}
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={busy}>{busy ? "Linking…" : "Link document"}</Button>
+          <Button type="button" variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={busy}>
+            {busy ? "Linking…" : "Link document"}
+          </Button>
         </div>
       </form>
     </Modal>

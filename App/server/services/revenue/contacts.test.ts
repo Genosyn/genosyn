@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 
+import { AppDataSource } from "../../db/datasource.js";
 import { Customer } from "../../db/entities/Customer.js";
+import { Membership } from "../../db/entities/Membership.js";
 import {
   closeTestDb,
   initTestDb,
@@ -87,6 +89,25 @@ describe("createContact", () => {
     assert.equal(byHuman.createdByEmployeeId, null);
     const byAi = await createContact(CO, { name: "A" }, { employeeId: "e_1" });
     assert.equal(byAi.createdByEmployeeId, "e_1");
+  });
+
+  test("refuses an owner who is not a Member of the company", async () => {
+    await assert.rejects(
+      () => createContact(CO, { name: "A", ownerId: "u_outsider" }),
+      /Unknown account owner/,
+    );
+  });
+
+  test("refuses simultaneous human and AI ownership", async () => {
+    await assert.rejects(
+      () =>
+        createContact(CO, {
+          name: "A",
+          ownerId: "u_1",
+          ownerEmployeeId: "employee_1",
+        }),
+      /either a Member or an AI Employee/,
+    );
   });
 });
 
@@ -243,6 +264,10 @@ describe("listContacts", () => {
   });
 
   test("filters by lifecycle stage and owner", async () => {
+    await AppDataSource.getRepository(Membership).save([
+      { companyId: CO, userId: "u_1", role: "member" },
+      { companyId: CO, userId: "u_2", role: "member" },
+    ]);
     await createContact(CO, { name: "A", lifecycleStage: "customer", ownerId: "u_1" });
     await createContact(CO, { name: "B", lifecycleStage: "lead", ownerId: "u_2" });
     assert.equal((await listContacts(CO, { lifecycleStage: "customer" })).total, 1);

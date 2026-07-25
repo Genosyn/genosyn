@@ -1367,6 +1367,14 @@ pipeline, and the PQL tools have neither.
 - [x] **Revenue section** at `/c/<co>/revenue` — insights, follow-ups, the deal
       board, accounts, contacts, partnerships, sequences, signals, imports,
       controlled classifications, custom-field setup and AI access.
+- [x] **Revenue administration and migration completion.** Give Members and AI
+      Employees the same service-backed administration surface for Deal Stages,
+      controlled classifications, typed custom-field definitions, Sequences,
+      Signal definitions and event history, formal-document lifecycle, Contact
+      ownership, and manual Activity correction. Add company-wide Activity
+      search/export, durable import-report lookup, a transactional Base/CSV
+      importer that splits each source row into a linked Account, Contact and
+      Deal, and a reconciled pass for Base record attachments.
 - [ ] Real ad-platform spend for CAC (replacing the `AdSpendEvent` proxy)
 - [ ] Meeting booking and calendar-based activities — deferred; Google Calendar
       is already connected and a native scheduler earns its complexity later

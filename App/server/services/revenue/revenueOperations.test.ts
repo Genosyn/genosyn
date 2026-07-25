@@ -1,25 +1,26 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AppDataSource } from "../../db/datasource.js";
 import { Activity } from "../../db/entities/Activity.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
 import { Company } from "../../db/entities/Company.js";
+import { Contact } from "../../db/entities/Contact.js";
+import { Customer } from "../../db/entities/Customer.js";
+import { Deal } from "../../db/entities/Deal.js";
 import { Membership } from "../../db/entities/Membership.js";
 import { Notification } from "../../db/entities/Notification.js";
 import { closeTestDb, initTestDb, resetTestDb } from "../../test/dbHarness.js";
-import {
-  createRevenueAccount,
-  listRevenueAccounts,
-  normalizeAccountDomain,
-} from "./accounts.js";
-import {
-  createRevenueClassification,
-  listRevenueClassifications,
-} from "./classifications.js";
+import { recordEmployeeAttachment, resolveBaseAttachmentFile } from "../baseRecordUploads.js";
+import { resolveAttachmentFile } from "../uploads.js";
+import { createRevenueAccount, listRevenueAccounts, normalizeAccountDomain } from "./accounts.js";
+import { createRevenueClassification, listRevenueClassifications } from "./classifications.js";
 import {
   createCustomField,
   getCustomValues,
+  installBaseMigrationCustomFields,
+  listCustomFields,
   matchingResourceIds,
   setCustomValues,
 } from "./customFields.js";
@@ -27,23 +28,27 @@ import {
   createRevenueDocument,
   deleteRevenueDocument,
   listRevenueDocuments,
+  updateRevenueDocument,
 } from "./documents.js";
 import {
-  createFollowUpTask,
-  listFollowUps,
-  updateFollowUpTask,
-} from "./followUps.js";
+  deleteManualActivity,
+  exportActivitiesCsv,
+  listActivities,
+  recordActivity,
+  updateManualActivity,
+} from "./activities.js";
+import { createFollowUpTask, listFollowUps, updateFollowUpTask } from "./followUps.js";
 import { dispatchDueFollowUpReminders } from "./followUpReminders.js";
 import {
+  commitLinkedRevenueImport,
   commitRevenueImport,
+  getRevenueImport,
+  migrateBaseAttachmentsForImport,
+  previewLinkedRevenueImport,
   previewRevenueImport,
   rollbackRevenueImport,
 } from "./imports.js";
-import {
-  addPartnershipContact,
-  createPartnership,
-  getPartnership,
-} from "./partnerships.js";
+import { addPartnershipContact, createPartnership, getPartnership } from "./partnerships.js";
 import { createContact } from "./contacts.js";
 
 before(initTestDb);
@@ -94,15 +99,33 @@ describe("typed custom fields", () => {
       infrastructure_size: 250,
     });
     assert.equal(values.find((row) => row.field.key === "plan_interest")?.value, "Enterprise");
-    assert.deepEqual(
-      await matchingResourceIds(CO, "account", "plan_interest", "enterprise"),
-      [account.id],
-    );
+    assert.deepEqual(await matchingResourceIds(CO, "account", "plan_interest", "enterprise"), [
+      account.id,
+    ]);
     await assert.rejects(
       () => setCustomValues(CO, "account", account.id, { plan_interest: "Unknown" }),
       /unknown option/,
     );
     assert.equal((await getCustomValues(CO, "account", account.id)).length, 2);
+  });
+
+  test("installs the Base migration field set idempotently", async () => {
+    const first = await installBaseMigrationCustomFields(CO);
+    const second = await installBaseMigrationCustomFields(CO);
+    assert.equal(first.created.length, 12);
+    assert.equal(second.created.length, 0);
+    const fields = await listCustomFields(CO);
+    assert.ok(
+      fields.some(
+        (field) => field.resourceType === "account" && field.key === "stripe_customer_id",
+      ),
+    );
+    assert.ok(
+      fields.some(
+        (field) => field.resourceType === "deal" && field.key === "procurement_security_status",
+      ),
+    );
+    assert.equal(fields.filter((field) => field.key === "original_base_row_id").length, 3);
   });
 });
 
@@ -186,7 +209,9 @@ describe("follow-up queue", () => {
 describe("partnerships and formal documents", () => {
   test("keeps controlled relationship context, primary/Reply-All contacts, and documents", async () => {
     const defaults = await listRevenueClassifications(CO);
-    assert.ok(defaults.some((row) => row.kind === "partnership_type" && row.value === "technology"));
+    assert.ok(
+      defaults.some((row) => row.kind === "partnership_type" && row.value === "technology"),
+    );
     const defaulted = await createPartnership(CO, { name: "New partner" });
     assert.equal(defaulted.type, "other");
     assert.equal(defaulted.status, "prospecting");
@@ -228,7 +253,52 @@ describe("partnerships and formal documents", () => {
       { employeeId: "employee_partnerships" },
     );
     assert.equal((await listRevenueDocuments(CO, { partnershipId: partnership.id })).length, 1);
+    const updated = await updateRevenueDocument(CO, document.id, {
+      title: "Signed partner agreement",
+      notes: "Countersigned",
+    });
+    assert.equal(updated?.title, "Signed partner agreement");
+    assert.equal(updated?.notes, "Countersigned");
     assert.equal(await deleteRevenueDocument(CO, document.id), true);
+  });
+});
+
+describe("activity administration", () => {
+  test("searches and exports history while only allowing manual corrections", async () => {
+    const contact = await createContact(CO, {
+      name: "Activity contact",
+      email: "activity@example.com",
+    });
+    const note = await recordActivity(CO, {
+      kind: "note",
+      subject: "Security review",
+      bodyText: "Questionnaire received",
+      contactId: contact.id,
+      occurredAt: new Date("2026-07-20T10:00:00.000Z"),
+    });
+    const machine = await recordActivity(CO, {
+      kind: "signal",
+      subject: "Usage threshold",
+      contactId: contact.id,
+      occurredAt: new Date("2026-07-21T10:00:00.000Z"),
+    });
+
+    const found = await listActivities(CO, { q: "questionnaire" });
+    assert.equal(found.total, 1);
+    assert.equal(found.rows[0].id, note.id);
+    const updated = await updateManualActivity(CO, note.id, {
+      subject: "Security questionnaire",
+    });
+    assert.equal(updated?.subject, "Security questionnaire");
+    await assert.rejects(
+      () => updateManualActivity(CO, machine.id, { subject: "Changed evidence" }),
+      /manually logged/,
+    );
+    const exported = await exportActivitiesCsv(CO, { kinds: ["note"] });
+    assert.equal(exported.exported, 1);
+    assert.match(exported.csv, /Security questionnaire/);
+    assert.equal((await deleteManualActivity(CO, note.id))?.id, note.id);
+    assert.equal((await listActivities(CO)).total, 1);
   });
 });
 
@@ -279,7 +349,10 @@ describe("reversible Revenue imports", () => {
       },
       { userId: "member_owner" },
     );
-    const rowMap = JSON.parse(batch.rowMapJson) as Array<{ sourceId: string; nativeId: string | null }>;
+    const rowMap = JSON.parse(batch.rowMapJson) as Array<{
+      sourceId: string;
+      nativeId: string | null;
+    }>;
     const importedId = rowMap.find((row) => row.sourceId === "base-2")?.nativeId;
     assert.ok(importedId);
     assert.equal(
@@ -292,5 +365,194 @@ describe("reversible Revenue imports", () => {
     assert.equal(rollback?.deleted, 1);
     assert.deepEqual(rollback?.blocked, []);
     assert.equal(rollback?.batch.status, "rolled_back");
+  });
+
+  test("atomically splits rows into linked Accounts, Contacts, and Deals", async () => {
+    await installBaseMigrationCustomFields(CO);
+    const rows = [
+      {
+        sourceId: "base-row-1",
+        values: {
+          company: "Acme",
+          domain: "acme.example",
+          person: "Ada",
+          email: "ada@acme.example",
+          opportunity: "Acme enterprise",
+        },
+      },
+      {
+        sourceId: "base-row-2",
+        values: {
+          company: "Acme",
+          domain: "acme.example",
+          person: "Grace",
+          email: "grace@acme.example",
+          opportunity: "Acme expansion",
+        },
+      },
+    ];
+    const mapping = {
+      account: { name: "company", domain: "domain" },
+      contact: { name: "person", email: "email", companyName: "company" },
+      deal: { title: "opportunity" },
+    };
+    const preview = await previewLinkedRevenueImport(CO, mapping, rows);
+    assert.equal(preview.createCount, 2);
+    const batch = await commitLinkedRevenueImport(
+      CO,
+      {
+        sourceKind: "base",
+        sourceLabel: "Legacy CRM",
+        sourceBaseId: "base_crm",
+        sourceTableId: "table_crm",
+        mapping,
+        rows,
+      },
+      { employeeId: "employee_revenue" },
+    );
+    assert.equal(batch.resourceType, "account_contact_deal");
+    assert.equal((await getRevenueImport(CO, batch.id))?.id, batch.id);
+    const [accounts, contacts, deals] = await Promise.all([
+      AppDataSource.getRepository(Customer).findBy({ companyId: CO }),
+      AppDataSource.getRepository(Contact).findBy({ companyId: CO }),
+      AppDataSource.getRepository(Deal).findBy({ companyId: CO }),
+    ]);
+    assert.equal(accounts.length, 1);
+    assert.equal(contacts.length, 2);
+    assert.equal(deals.length, 2);
+    assert.ok(contacts.every((contact) => contact.customerId === accounts[0].id));
+    assert.ok(deals.every((deal) => deal.customerId === accounts[0].id));
+    assert.deepEqual(
+      new Set(deals.map((deal) => deal.primaryContactId)),
+      new Set(contacts.map((contact) => contact.id)),
+    );
+    assert.equal(
+      (await getCustomValues(CO, "deal", deals[0].id)).find(
+        (value) => value.field.key === "original_base_row_id",
+      )?.value,
+      deals[0].title === "Acme enterprise" ? "base-row-1" : "base-row-2",
+    );
+
+    const rollback = await rollbackRevenueImport(CO, batch.id);
+    assert.equal(rollback?.deleted, 5);
+    assert.deepEqual(rollback?.blocked, []);
+    assert.equal(await AppDataSource.getRepository(Customer).countBy({ companyId: CO }), 0);
+    assert.equal(await AppDataSource.getRepository(Contact).countBy({ companyId: CO }), 0);
+    assert.equal(await AppDataSource.getRepository(Deal).countBy({ companyId: CO }), 0);
+  });
+
+  test("reports an ownership conflict instead of cross-linking an existing Contact", async () => {
+    const originalAccount = await createRevenueAccount(CO, {
+      name: "Original Account",
+      domain: "original.example",
+    });
+    await createContact(CO, {
+      name: "Existing person",
+      email: "existing-person@example.com",
+      customerId: originalAccount.id,
+    });
+    const rows = [
+      {
+        sourceId: "conflict-row",
+        values: {
+          company: "Different Account",
+          domain: "different.example",
+          person: "Existing person",
+          email: "existing-person@example.com",
+          opportunity: "Conflicting Deal",
+        },
+      },
+    ];
+    const report = await previewLinkedRevenueImport(
+      CO,
+      {
+        account: { name: "company", domain: "domain" },
+        contact: { name: "person", email: "email" },
+        deal: { title: "opportunity" },
+      },
+      rows,
+    );
+    assert.equal(report.skippedCount, 1);
+    assert.match(report.decisions[0].reason ?? "", /different Account/);
+    assert.equal(report.resourceCounts.account.create, 0);
+    assert.equal(report.resourceCounts.deal.create, 0);
+  });
+
+  test("migrates Base attachments into linked Revenue Documents idempotently", async () => {
+    const company = await AppDataSource.getRepository(Company).save({
+      id: CO,
+      name: "Attachment migration",
+      slug: "attachment-migration-test",
+      ownerId: "member_owner",
+    });
+    const sourceAttachment = await recordEmployeeAttachment({
+      companyId: CO,
+      companySlug: company.slug,
+      recordId: "base-row-with-file",
+      filename: "security.txt",
+      mimeType: "text/plain",
+      bytes: Buffer.from("security answers"),
+      uploadedByEmployeeId: "employee_revenue",
+    });
+    let copiedAttachmentId: string | null = null;
+    try {
+      const batch = await commitLinkedRevenueImport(
+        CO,
+        {
+          sourceKind: "base",
+          sourceLabel: "Base / Revenue",
+          sourceBaseId: "base_revenue",
+          sourceTableId: "table_revenue",
+          mapping: {
+            account: { name: "company" },
+            contact: { name: "person", email: "email" },
+            deal: { title: "opportunity" },
+          },
+          rows: [
+            {
+              sourceId: "base-row-with-file",
+              values: {
+                company: "Attachment Co",
+                person: "Attachment Person",
+                email: "attachment@example.com",
+                opportunity: "Attachment Deal",
+              },
+            },
+          ],
+        },
+        { employeeId: "employee_revenue" },
+      );
+      const first = await migrateBaseAttachmentsForImport(
+        CO,
+        batch.id,
+        { targetResourceType: "deal", kind: "security_questionnaire" },
+        { employeeId: "employee_revenue" },
+      );
+      const second = await migrateBaseAttachmentsForImport(
+        CO,
+        batch.id,
+        { targetResourceType: "deal", kind: "security_questionnaire" },
+        { employeeId: "employee_revenue" },
+      );
+      assert.equal(first.migrated, 1);
+      assert.equal(second.migrated, 0);
+      assert.equal(second.skipped, 1);
+      const deal = await AppDataSource.getRepository(Deal).findOneBy({
+        companyId: CO,
+        title: "Attachment Deal",
+      });
+      assert.ok(deal);
+      const documents = await listRevenueDocuments(CO, { dealId: deal!.id });
+      assert.equal(documents.length, 1);
+      assert.equal(documents[0].kind, "security_questionnaire");
+      copiedAttachmentId = documents[0].attachmentId;
+    } finally {
+      const sourceFile = await resolveBaseAttachmentFile(sourceAttachment.id, CO);
+      if (sourceFile) await fs.promises.unlink(sourceFile.absPath);
+      if (copiedAttachmentId) {
+        const copiedFile = await resolveAttachmentFile(copiedAttachmentId, CO);
+        if (copiedFile) await fs.promises.unlink(copiedFile.absPath);
+      }
+    }
   });
 });

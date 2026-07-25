@@ -1,5 +1,5 @@
 import { Request, Response, Router, type RequestHandler } from "express";
-import { In, IsNull } from "typeorm";
+import { In } from "typeorm";
 import { z } from "zod";
 
 import { AppDataSource } from "../db/datasource.js";
@@ -18,28 +18,21 @@ import {
   type ContactLifecycleStage,
 } from "../db/entities/Contact.js";
 import { Customer } from "../db/entities/Customer.js";
-import { Deal } from "../db/entities/Deal.js";
 import { Partnership } from "../db/entities/Partnership.js";
-import { DEAL_STAGE_KINDS, DealStage, type DealStageKind } from "../db/entities/DealStage.js";
+import { DEAL_STAGE_KINDS, type DealStageKind } from "../db/entities/DealStage.js";
 import {
   REVENUE_ACCESS_LEVELS,
   type RevenueAccessLevel,
 } from "../db/entities/EmployeeRevenueGrant.js";
 import { SEQUENCE_STATUSES, type SequenceStatus } from "../db/entities/Sequence.js";
-import {
-  ENROLLMENT_STATUSES,
-  type EnrollmentStatus,
-} from "../db/entities/SequenceEnrollment.js";
+import { ENROLLMENT_STATUSES, type EnrollmentStatus } from "../db/entities/SequenceEnrollment.js";
 import {
   SIGNAL_ACTION_KINDS,
   SIGNAL_SOURCE_KINDS,
   type SignalActionKind,
   type SignalSourceKind,
 } from "../db/entities/Signal.js";
-import {
-  SIGNAL_EVENT_STATUSES,
-  type SignalEventStatus,
-} from "../db/entities/SignalEvent.js";
+import { SIGNAL_EVENT_STATUSES, type SignalEventStatus } from "../db/entities/SignalEvent.js";
 import {
   SUPPRESSION_REASONS,
   Suppression,
@@ -54,7 +47,14 @@ import {
 } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
-import { listActivities, recordActivity } from "../services/revenue/activities.js";
+import {
+  deleteManualActivity,
+  exportActivitiesCsv,
+  getActivity,
+  listActivities,
+  recordActivity,
+  updateManualActivity,
+} from "../services/revenue/activities.js";
 import {
   DuplicateContactError,
   archiveContact,
@@ -112,9 +112,11 @@ import {
   updateSignal,
 } from "../services/revenue/signals.js";
 import {
+  archiveDealStage,
+  createDealStage,
   listDealStages,
   reorderDealStages,
-  uniqueStageSlug,
+  updateDealStage,
 } from "../services/revenue/stages.js";
 import { createFollowUpTask } from "../services/revenue/followUps.js";
 
@@ -151,9 +153,7 @@ revenueRouter.use(requireCompanyMember);
  * features admin-only. Scoping it to the paths this router actually owns is the
  * only correct form. See `middleware/auth.ts`.
  */
-revenueRouter.use(
-  onRoutePaths(["/revenue/ai-access"], requireCompanyRoleForMutations("admin")),
-);
+revenueRouter.use(onRoutePaths(["/revenue/ai-access"], requireCompanyRoleForMutations("admin")));
 
 // ── Plumbing ───────────────────────────────────────────────────────────────
 
@@ -242,18 +242,12 @@ const suppressionReasonEnum = z.enum(
 const revenueAccessEnum = z.enum(
   REVENUE_ACCESS_LEVELS as [RevenueAccessLevel, ...RevenueAccessLevel[]],
 );
-const sequenceStatusEnum = z.enum(
-  SEQUENCE_STATUSES as [SequenceStatus, ...SequenceStatus[]],
-);
+const sequenceStatusEnum = z.enum(SEQUENCE_STATUSES as [SequenceStatus, ...SequenceStatus[]]);
 const enrollmentStatusEnum = z.enum(
   ENROLLMENT_STATUSES as [EnrollmentStatus, ...EnrollmentStatus[]],
 );
-const signalSourceEnum = z.enum(
-  SIGNAL_SOURCE_KINDS as [SignalSourceKind, ...SignalSourceKind[]],
-);
-const signalActionEnum = z.enum(
-  SIGNAL_ACTION_KINDS as [SignalActionKind, ...SignalActionKind[]],
-);
+const signalSourceEnum = z.enum(SIGNAL_SOURCE_KINDS as [SignalSourceKind, ...SignalSourceKind[]]);
+const signalActionEnum = z.enum(SIGNAL_ACTION_KINDS as [SignalActionKind, ...SignalActionKind[]]);
 const signalEventStatusEnum = z.enum(
   SIGNAL_EVENT_STATUSES as [SignalEventStatus, ...SignalEventStatus[]],
 );
@@ -435,26 +429,7 @@ revenueRouter.post(
   h(async (req, res) => {
     const cid = cidOf(req);
     const body = req.body as z.infer<typeof stageCreateSchema>;
-    const repo = AppDataSource.getRepository(DealStage);
-    // New stages land at the end of the board. Anywhere else and the caller has
-    // to reorder anyway, and a stage silently inserted mid-pipeline changes what
-    // every existing deal's position means.
-    const last = await repo.findOne({
-      where: { companyId: cid },
-      order: { sortOrder: "DESC" },
-    });
-    const stage = await repo.save(
-      repo.create({
-        companyId: cid,
-        name: body.name.trim(),
-        slug: await uniqueStageSlug(cid, body.name),
-        sortOrder: (last?.sortOrder ?? -1) + 1,
-        probability: body.probability ?? 0,
-        kind: body.kind ?? "open",
-        color: body.color ?? "",
-        description: body.description ?? "",
-      }),
-    );
+    const stage = await createDealStage(cid, body);
     await audit(req, "revenue.stage.create", {
       type: "deal_stage",
       id: stage.id,
@@ -471,21 +446,10 @@ revenueRouter.patch(
   validateBody(stagePatchSchema),
   h(async (req, res) => {
     const cid = cidOf(req);
-    const repo = AppDataSource.getRepository(DealStage);
-    const stage = await repo.findOneBy({ id: req.params.id, companyId: cid });
-    if (!stage) return res.status(404).json({ error: "Stage not found" });
     const body = req.body as z.infer<typeof stagePatchSchema>;
-
-    if (body.name !== undefined) stage.name = body.name.trim();
-    if (body.probability !== undefined) stage.probability = body.probability;
-    if (body.color !== undefined) stage.color = body.color;
-    if (body.description !== undefined) stage.description = body.description;
-    // `kind` is not editable here on purpose. It drives `Deal.status`, and
-    // flipping a populated stage from open to won would silently close every
-    // deal sitting in it without writing the activities the funnel report reads.
-    // Closing deals is a per-deal act; use POST /revenue/deals/:id/stage.
-
-    await repo.save(stage);
+    const { kind: _kind, ...safePatch } = body;
+    const stage = await updateDealStage(cid, req.params.id, safePatch);
+    if (!stage) return res.status(404).json({ error: "Stage not found" });
     await audit(
       req,
       "revenue.stage.update",
@@ -530,24 +494,14 @@ revenueRouter.delete(
   "/revenue/stages/:id",
   h(async (req, res) => {
     const cid = cidOf(req);
-    const repo = AppDataSource.getRepository(DealStage);
-    const stage = await repo.findOneBy({ id: req.params.id, companyId: cid });
+    const result = await archiveDealStage(cid, req.params.id);
+    const { stage } = result;
     if (!stage) return res.status(404).json({ error: "Stage not found" });
-
-    const stranded = await AppDataSource.getRepository(Deal).countBy({
-      companyId: cid,
-      stageId: stage.id,
-      status: "open",
-      archivedAt: IsNull(),
-    });
-    if (stranded > 0) {
+    if (result.openDealCount > 0) {
       return res.status(409).json({
-        error: `${stranded} open deal${stranded === 1 ? "" : "s"} still sit in this stage. Move them first.`,
+        error: `${result.openDealCount} open deal${result.openDealCount === 1 ? "" : "s"} still sit in this stage. Move them first.`,
       });
     }
-
-    stage.archivedAt = new Date();
-    await repo.save(stage);
     await audit(req, "revenue.stage.archive", {
       type: "deal_stage",
       id: stage.id,
@@ -796,11 +750,16 @@ revenueRouter.delete(
 
 const activityListQuery = z.object({
   ...pageQuery,
+  q: z.string().max(200).optional(),
   contactId: z.string().uuid().optional(),
   dealId: z.string().uuid().optional(),
   customerId: z.string().uuid().optional(),
   partnershipId: z.string().uuid().optional(),
   kinds: csvEnum(ACTIVITY_KINDS),
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+  actorUserId: z.string().uuid().optional(),
+  actorEmployeeId: z.string().uuid().optional(),
   includeRelatedDeals: boolQuery,
 });
 
@@ -811,6 +770,31 @@ revenueRouter.get(
     if (!parsed.success) return res.status(400).json(BAD_QUERY);
     const { rows, total } = await listActivities(cidOf(req), parsed.data);
     return res.json({ rows, total });
+  }),
+);
+
+revenueRouter.get(
+  "/revenue/activities/export",
+  h(async (req, res) => {
+    const parsed = activityListQuery.omit({ limit: true, offset: true }).safeParse(req.query);
+    if (!parsed.success) return res.status(400).json(BAD_QUERY);
+    const result = await exportActivitiesCsv(cidOf(req), parsed.data);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="revenue-activities-${new Date().toISOString().slice(0, 10)}.csv"`,
+    );
+    res.setHeader("X-Exported-Rows", String(result.exported));
+    res.setHeader("X-Export-Truncated", String(result.truncated));
+    return res.send(result.csv);
+  }),
+);
+
+revenueRouter.get(
+  "/revenue/activities/:id",
+  h(async (req, res) => {
+    const activity = await getActivity(cidOf(req), req.params.id);
+    return activity ? res.json(activity) : res.status(404).json({ error: "Activity not found" });
   }),
 );
 
@@ -848,6 +832,55 @@ const activityCreateSchema = z.object({
   assignedEmployeeId: z.string().uuid().nullable().optional(),
   recurrenceRule: z.string().max(200).nullable().optional(),
 });
+
+const activityPatchSchema = z.object({
+  subject: z.string().max(500).optional(),
+  bodyText: z.string().max(20_000).optional(),
+  occurredAt: z.coerce.date().optional(),
+  contactId: z.string().uuid().nullable().optional(),
+  dealId: z.string().uuid().nullable().optional(),
+  customerId: z.string().uuid().nullable().optional(),
+  partnershipId: z.string().uuid().nullable().optional(),
+});
+
+revenueRouter.patch(
+  "/revenue/activities/:id",
+  validateBody(activityPatchSchema),
+  h(async (req, res) => {
+    try {
+      const body = req.body as z.infer<typeof activityPatchSchema>;
+      const activity = await updateManualActivity(cidOf(req), req.params.id, body);
+      if (!activity) return res.status(404).json({ error: "Activity not found" });
+      await audit(
+        req,
+        "revenue.activity.update",
+        { type: "activity", id: activity.id, label: activity.subject },
+        { changes: Object.keys(body) },
+      );
+      return res.json(activity);
+    } catch (error) {
+      return res.status(400).json({ error: (error as Error).message });
+    }
+  }),
+);
+
+revenueRouter.delete(
+  "/revenue/activities/:id",
+  h(async (req, res) => {
+    try {
+      const activity = await deleteManualActivity(cidOf(req), req.params.id);
+      if (!activity) return res.status(404).json({ error: "Activity not found" });
+      await audit(req, "revenue.activity.delete", {
+        type: "activity",
+        id: activity.id,
+        label: activity.subject,
+      });
+      return res.json({ ok: true });
+    } catch (error) {
+      return res.status(400).json({ error: (error as Error).message });
+    }
+  }),
+);
 
 revenueRouter.post(
   "/revenue/activities",
@@ -900,11 +933,7 @@ revenueRouter.post(
             { ...body, subject: body.subject?.trim() || "Follow up" },
             actorOf(req),
           )
-        : await recordActivity(
-            cid,
-            { ...body, kind: body.kind as ActivityKind },
-            actorOf(req),
-          );
+        : await recordActivity(cid, { ...body, kind: body.kind as ActivityKind }, actorOf(req));
     await audit(
       req,
       "revenue.activity.create",
@@ -1324,11 +1353,7 @@ revenueRouter.get(
     if (reason) qb.andWhere("s.reason = :reason", { reason });
 
     const total = await qb.clone().getCount();
-    const rows = await qb
-      .orderBy("s.createdAt", "DESC")
-      .skip(offset)
-      .take(limit)
-      .getMany();
+    const rows = await qb.orderBy("s.createdAt", "DESC").skip(offset).take(limit).getMany();
     return res.json({ rows, total });
   }),
 );
@@ -1462,9 +1487,7 @@ revenueRouter.get(
   h(async (req, res) => {
     const parsed = mrrQuery.safeParse(req.query);
     if (!parsed.success) return res.status(400).json(BAD_QUERY);
-    return res.json(
-      await getMrrSeries(cidOf(req), parsed.data.months ?? DEFAULT_REPORT_MONTHS),
-    );
+    return res.json(await getMrrSeries(cidOf(req), parsed.data.months ?? DEFAULT_REPORT_MONTHS));
   }),
 );
 

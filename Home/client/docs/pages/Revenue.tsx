@@ -110,8 +110,8 @@ export function Revenue() {
         opportunity, customer, churned, or unqualified — and an <Strong>owner</Strong> who is either
         a Member or an AI employee, never both. <Strong>Source</Strong> records where they came
         from. Deal sources and buying-committee roles use the controlled lists in{" "}
-        <Code>Revenue → Setup</Code>; contact source is filled in automatically for contacts a signal created (
-        <Code>signal:trial-expiring</Code>) so attribution survives.
+        <Code>Revenue → Setup</Code>; contact source is filled in automatically for contacts a
+        signal created (<Code>signal:trial-expiring</Code>) so attribution survives.
       </P>
       <P>
         <Strong>Do not contact</Strong> is a hard opt-out on the person: it blocks every address you
@@ -145,7 +145,7 @@ export function Revenue() {
       <H2 id="stages">Deal stages</H2>
       <P>
         Your sales process is a flat, ordered list of <Strong>deal stages</Strong>, managed from{" "}
-        <Code>Revenue → Settings → Stages</Code>. Each stage has a name, a colour, a default
+        <Code>Revenue → Setup → Deal Stages</Code>. Each stage has a name, a colour, a default
         probability, and a <Strong>kind</Strong> that decides what reaching it means:
       </P>
       <UL>
@@ -184,10 +184,10 @@ export function Revenue() {
         <Code>Revenue → Board</Code> is one column per open stage, one card per deal, sorted so the
         deals nearest a decision are where your eye lands. Drag a card between columns to move it —
         that is the same operation as changing the stage on the detail page, so it writes a{" "}
-        <Code>stage_change</Code> activity, updates the status, and feeds the funnel report. Dropping
-        a card into a <Strong>won</Strong> or <Strong>lost</Strong> column closes the deal; lost asks
-        for a reason, and the reason is worth typing because it is the only field that later explains
-        a conversion cliff.
+        <Code>stage_change</Code> activity, updates the status, and feeds the funnel report.
+        Dropping a card into a <Strong>won</Strong> or <Strong>lost</Strong> column closes the deal;
+        lost asks for a reason, and the reason is worth typing because it is the only field that
+        later explains a conversion cliff.
       </P>
       <P>
         Each column header carries its count and its total value, and the board totals both the raw
@@ -201,14 +201,20 @@ export function Revenue() {
         section precisely because almost nobody types into it. An <Strong>Activity</Strong> is one
         event: what happened, when it happened, and who did it.
       </P>
+      <P>
+        <Code>Revenue → Activities</Code> provides the company-wide audit view: search across
+        subjects and bodies, filter by kind or date, inspect a row by ID, and export the filtered
+        result. Manually logged notes, calls, meetings, and tasks can be corrected or removed;
+        machine-recorded mail, Deal, Sequence, and Signal evidence cannot.
+      </P>
       <KeyList
         rows={[
           {
             term: "From mail",
             def: (
               <>
-                <Code>email_in</Code> / <Code>email_out</Code>, written by mail sync. The bulk of the
-                timeline.
+                <Code>email_in</Code> / <Code>email_out</Code>, written by mail sync. The bulk of
+                the timeline.
               </>
             ),
           },
@@ -253,15 +259,13 @@ export function Revenue() {
       <H3 id="timeline-from-mail">How it fills itself from mail</H3>
       <P>
         Once a mailbox is connected under <DocLink to="/docs/email">Email</DocLink>, every sync
-        compares the participants on each new thread against the email addresses on your contacts.
-        A match writes an activity onto that contact&apos;s timeline — inbound or outbound, with the
+        compares the participants on each new thread against the email addresses on your contacts. A
+        match writes an activity onto that contact&apos;s timeline — inbound or outbound, with the
         subject, a snippet, and a link straight into the thread. Open a contact you have been
         emailing for two years and the whole correspondence is there, with nobody having done any
         data entry. That property is what makes the section load-bearing instead of abandoned.
       </P>
-      <P>
-        Three behaviours are worth knowing, because each one is deliberate:
-      </P>
+      <P>Three behaviours are worth knowing, because each one is deliberate:</P>
       <OL>
         <LI>
           <Strong>It links to contacts that already exist; it never creates one.</Strong> A real
@@ -320,9 +324,9 @@ export function Revenue() {
         </LI>
         <LI>
           <Strong>Write</Strong> — also assign and complete follow-ups, create or update accounts,
-          contacts, deals and partnerships, set custom values, link documents, run guarded
-          migrations, log activities, move a deal between stages, and enrol somebody in a
-          sequence. Drafts still wait for a human.
+          contacts, deals and partnerships, administer definitions and Deal Stages, manage
+          documents, Sequences and Signals, correct manual activity, and run linked, guarded Base
+          migrations. Drafts still wait for a human.
         </LI>
         <LI>
           <Strong>Send</Strong> — also let a sequence this employee drafts go out without anybody

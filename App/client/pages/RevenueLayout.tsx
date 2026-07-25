@@ -6,6 +6,7 @@ import {
   Bot,
   Building2,
   CalendarCheck,
+  ClipboardList,
   Contact2,
   Handshake,
   Import,
@@ -51,11 +52,7 @@ export default function RevenueLayout({ company }: { company: Company }) {
           label="Follow-ups"
         />
         <SidebarLink to={`${base}/deals`} icon={<Target size={14} />} label="Deals" />
-        <SidebarLink
-          to={`${base}/accounts`}
-          icon={<Building2 size={14} />}
-          label="Accounts"
-        />
+        <SidebarLink to={`${base}/accounts`} icon={<Building2 size={14} />} label="Accounts" />
         <SidebarLink to={`${base}/contacts`} icon={<Contact2 size={14} />} label="Contacts" />
         <SidebarLink
           to={`${base}/partnerships`}
@@ -65,10 +62,11 @@ export default function RevenueLayout({ company }: { company: Company }) {
         <SidebarLink to={`${base}/sequences`} icon={<Send size={14} />} label="Sequences" />
         <SidebarLink to={`${base}/signals`} icon={<Radar size={14} />} label="Signals" />
         <SidebarLink
-          to={`${base}/suppressions`}
-          icon={<Ban size={14} />}
-          label="Suppressions"
+          to={`${base}/activities`}
+          icon={<ClipboardList size={14} />}
+          label="Activities"
         />
+        <SidebarLink to={`${base}/suppressions`} icon={<Ban size={14} />} label="Suppressions" />
         <SidebarLink to={`${base}/ai-access`} icon={<Bot size={14} />} label="AI access" />
         <SidebarLink to={`${base}/imports`} icon={<Import size={14} />} label="Imports" />
         <SidebarLink to={`${base}/setup`} icon={<Settings2 size={14} />} label="Setup" />

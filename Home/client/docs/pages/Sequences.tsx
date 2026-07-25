@@ -34,10 +34,10 @@ export function Sequences() {
       <P>
         A template engine can put a first name in a subject line. It cannot write step 3 as{" "}
         <em>&quot;reference whatever they said in reply to step 2&quot;</em>. That is the difference
-        here: a <Strong>Sequence</Strong> stores instructions, never message bodies. At send time the
-        named employee reads the contact&apos;s timeline and writes the actual email. The cost of
-        that is real — every touch is a model call, and a bad brief produces bad mail at volume — so
-        the default is that a human still presses Send.
+        here: a <Strong>Sequence</Strong> stores instructions, never message bodies. At send time
+        the named employee reads the contact&apos;s timeline and writes the actual email. The cost
+        of that is real — every touch is a model call, and a bad brief produces bad mail at volume —
+        so the default is that a human still presses Send.
       </P>
 
       <H2 id="build">Building one</H2>
@@ -47,8 +47,8 @@ export function Sequences() {
         </LI>
         <LI>
           Pick the <Strong>mailbox</Strong> every touch sends from — one of the accounts connected
-          under <DocLink to="/docs/email">Email</DocLink> — and the <Strong>AI employee</Strong> that
-          writes them.
+          under <DocLink to="/docs/email">Email</DocLink> — and the <Strong>AI employee</Strong>{" "}
+          that writes them.
         </LI>
         <LI>
           Write the <Strong>Brief</Strong>. Who this is for, what you sell, what a good reply looks
@@ -79,12 +79,20 @@ export function Sequences() {
         snapshots its own step position and subject line.
       </Callout>
 
+      <H3 id="ai-administration">AI Employee administration</H3>
+      <P>
+        An AI Employee with Revenue Write access can create a Sequence, update its brief and
+        guardrails, replace its ordered steps, change status, inspect enrolments, enrol Contacts,
+        and archive it through the same service-backed operations as the builder. Every write is
+        audited and journalled. Revenue Send access is still required before its drafts may leave
+        without human review.
+      </P>
+
       <H2 id="enrol">Enrolling contacts</H2>
       <P>
         Select contacts in <Code>Revenue → Contacts</Code> and press <Strong>Enrol</Strong>, pick
-        the sequence from a deal, or let a{" "}
-        <DocLink to="/docs/signals">Signal</DocLink> enrol somebody the moment they hit a condition
-        in your product.
+        the sequence from a deal, or let a <DocLink to="/docs/signals">Signal</DocLink> enrol
+        somebody the moment they hit a condition in your product.
       </P>
       <P>
         Bulk enrolment <Strong>refuses per contact rather than failing the batch</Strong> — one
@@ -150,8 +158,8 @@ export function Sequences() {
             term: "Mailbox: send",
             def: (
               <>
-                Granted from <Code>Email → Settings → AI access</Code> for that specific mailbox. The
-                employee is trusted to speak from that address.
+                Granted from <Code>Email → Settings → AI access</Code> for that specific mailbox.
+                The employee is trusted to speak from that address.
               </>
             ),
           },
@@ -200,11 +208,11 @@ export function Sequences() {
 
       <H2 id="caps">Daily caps</H2>
       <P>
-        <Strong>Daily cap</Strong> is the maximum number of touches the whole sequence may produce in
-        a day, defaulting to 50. Both sent and drafted touches count against it — the drafting is
+        <Strong>Daily cap</Strong> is the maximum number of touches the whole sequence may produce
+        in a day, defaulting to 50. Both sent and drafted touches count against it — the drafting is
         what costs model time and what you will have to review — and <Code>0</Code> removes the
-        sequence-level cap entirely, which you should reserve for a sequence you have already watched
-        run.
+        sequence-level cap entirely, which you should reserve for a sequence you have already
+        watched run.
       </P>
       <P>
         Underneath, the scheduler dispatches a bounded number of touches per sweep across the whole
@@ -217,8 +225,9 @@ export function Sequences() {
       <P>
         <Strong>Stop on reply</Strong> is on by default, and turning it off is almost always wrong.
         Because mail sync already ingests inbound mail, a reply on the thread the sequence started
-        stops the enrolment within a heartbeat — the prospect answers and the machine gets out of the
-        way. An enrolment ends in exactly one of these states, and the distinction is operational:
+        stops the enrolment within a heartbeat — the prospect answers and the machine gets out of
+        the way. An enrolment ends in exactly one of these states, and the distinction is
+        operational:
       </P>
       <KeyList
         rows={[
@@ -241,7 +250,8 @@ export function Sequences() {
             def: (
               <>
                 Something broke. Deliberately not retried — an employee producing a malformed draft
-                would otherwise mail the same prospect every hour. Fix it, then resume the enrolment.
+                would otherwise mail the same prospect every hour. Fix it, then resume the
+                enrolment.
               </>
             ),
           },

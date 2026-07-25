@@ -86,6 +86,17 @@ const RECALL_CASES: Array<{ query: string; expect: string }> = [
   { query: "hand this over to a colleague", expect: "create_handoff" },
   { query: "fill in a pdf form", expect: "fill_pdf_form" },
   { query: "build a kpi dashboard", expect: "create_dashboard" },
+  {
+    query: "configure typed CRM fields before migration",
+    expect: "create_revenue_custom_field",
+  },
+  {
+    query: "split legacy CRM rows into accounts contacts and deals",
+    expect: "preview_linked_base_revenue_import",
+  },
+  { query: "search the company CRM activity audit", expect: "list_activities" },
+  { query: "build an outbound sequence and its steps", expect: "create_sequence" },
+  { query: "view product signal firing history", expect: "list_signal_events" },
   { query: "write a playbook", expect: "create_skill" },
   { query: "what git repos do i have", expect: "list_code_repositories" },
   // Deliberately a deferred orientation tool: `list_employees` is resident, so

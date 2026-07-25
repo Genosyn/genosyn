@@ -7,7 +7,15 @@ import {
 } from "../../db/entities/RevenueClassification.js";
 
 const DEFAULTS: Record<RevenueClassificationKind, string[]> = {
-  deal_source: ["Inbound", "Outbound", "Referral", "Partner", "Product signal", "Other"],
+  deal_source: [
+    "Inbound",
+    "Outbound",
+    "Referral",
+    "Partner",
+    "Product signal",
+    "Self-Serve Upgrade",
+    "Other",
+  ],
   committee_role: [
     "Champion",
     "Decision maker",

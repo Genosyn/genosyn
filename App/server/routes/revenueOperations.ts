@@ -40,6 +40,7 @@ import {
 import {
   createCustomField,
   getCustomValues,
+  installBaseMigrationCustomFields,
   listCustomFields,
   setCustomValues,
   updateCustomField,
@@ -47,7 +48,9 @@ import {
 import {
   createRevenueDocument,
   deleteRevenueDocument,
+  getRevenueDocument,
   listRevenueDocuments,
+  updateRevenueDocument,
 } from "../services/revenue/documents.js";
 import {
   createFollowUpTask,
@@ -55,12 +58,17 @@ import {
   updateFollowUpTask,
 } from "../services/revenue/followUps.js";
 import {
+  commitLinkedRevenueImport,
   commitRevenueImport,
+  getRevenueImport,
   listRevenueImports,
   loadBaseImportRows,
+  migrateBaseAttachmentsForImport,
+  previewLinkedRevenueImport,
   previewRevenueImport,
   rollbackRevenueImport,
   type ImportRow,
+  type LinkedImportMapping,
 } from "../services/revenue/imports.js";
 import {
   addPartnershipContact,
@@ -71,11 +79,7 @@ import {
   updatePartnership,
 } from "../services/revenue/partnerships.js";
 import { listActivities } from "../services/revenue/activities.js";
-import {
-  recordAttachment,
-  resolveAttachmentFile,
-  uploadMiddleware,
-} from "../services/uploads.js";
+import { recordAttachment, resolveAttachmentFile, uploadMiddleware } from "../services/uploads.js";
 
 export const revenueOperationsRouter = Router({ mergeParams: true });
 revenueOperationsRouter.use(requireAuth);
@@ -125,10 +129,7 @@ const fieldTypeEnum = z.enum(
   REVENUE_CUSTOM_FIELD_TYPES as [RevenueCustomFieldType, ...RevenueCustomFieldType[]],
 );
 const classificationKindEnum = z.enum(
-  REVENUE_CLASSIFICATION_KINDS as [
-    RevenueClassificationKind,
-    ...RevenueClassificationKind[],
-  ],
+  REVENUE_CLASSIFICATION_KINDS as [RevenueClassificationKind, ...RevenueClassificationKind[]],
 );
 const documentKindEnum = z.enum(
   REVENUE_DOCUMENT_KINDS as [RevenueDocumentKind, ...RevenueDocumentKind[]],
@@ -136,9 +137,7 @@ const documentKindEnum = z.enum(
 const taskStatusEnum = z.enum(
   ACTIVITY_TASK_STATUSES as [ActivityTaskStatus, ...ActivityTaskStatus[]],
 );
-const priorityEnum = z.enum(
-  ACTIVITY_PRIORITIES as [ActivityPriority, ...ActivityPriority[]],
-);
+const priorityEnum = z.enum(ACTIVITY_PRIORITIES as [ActivityPriority, ...ActivityPriority[]]);
 
 function optionalDate(value: string | null | undefined): Date | null | undefined {
   if (value === undefined) return undefined;
@@ -340,7 +339,13 @@ revenueOperationsRouter.post(
   h(async (req, res) => {
     try {
       const row = await createRevenueClassification(cidOf(req), req.body);
-      await audit(req, "revenue.classification.create", "revenue_classification", row.id, row.label);
+      await audit(
+        req,
+        "revenue.classification.create",
+        "revenue_classification",
+        row.id,
+        row.label,
+      );
       return res.status(201).json(row);
     } catch (error) {
       return res.status(409).json({ error: (error as Error).message });
@@ -381,6 +386,22 @@ revenueOperationsRouter.get(
         parsed.data.includeArchived,
       ),
     });
+  }),
+);
+
+revenueOperationsRouter.post(
+  "/revenue/custom-fields/base-migration-preset",
+  h(async (req, res) => {
+    const result = await installBaseMigrationCustomFields(cidOf(req));
+    await audit(
+      req,
+      "revenue.custom_fields.install_base_migration",
+      "revenue_custom_field",
+      null,
+      "Base migration fields",
+      { created: result.created.map((field) => field.key) },
+    );
+    return res.status(result.created.length > 0 ? 201 : 200).json(result);
   }),
 );
 
@@ -432,11 +453,7 @@ revenueOperationsRouter.get(
     const resourceType = resourceTypeEnum.safeParse(req.params.resourceType);
     if (!resourceType.success) return res.status(400).json({ error: "Invalid resource type" });
     return res.json({
-      rows: await getCustomValues(
-        cidOf(req),
-        resourceType.data,
-        req.params.resourceId,
-      ),
+      rows: await getCustomValues(cidOf(req), resourceType.data, req.params.resourceId),
     });
   }),
 );
@@ -599,11 +616,7 @@ revenueOperationsRouter.post(
 revenueOperationsRouter.delete(
   "/revenue/partnerships/:id/contacts/:contactId",
   h(async (req, res) => {
-    const removed = await removePartnershipContact(
-      cidOf(req),
-      req.params.id,
-      req.params.contactId,
-    );
+    const removed = await removePartnershipContact(cidOf(req), req.params.id, req.params.contactId);
     return removed ? res.json({ ok: true }) : res.status(404).json({ error: "Contact not found" });
   }),
 );
@@ -622,6 +635,18 @@ const documentWriteSchema = z.object({
   sourceMailMessageId: z.string().uuid().nullable().optional(),
   externalUrl: z.string().url().max(2000).or(z.literal("")).optional(),
 });
+const documentPatchSchema = documentWriteSchema
+  .pick({
+    kind: true,
+    title: true,
+    notes: true,
+    dealId: true,
+    customerId: true,
+    partnershipId: true,
+    contactId: true,
+    externalUrl: true,
+  })
+  .partial();
 
 revenueOperationsRouter.get(
   "/revenue/documents",
@@ -647,6 +672,31 @@ revenueOperationsRouter.post(
       const row = await createRevenueDocument(cidOf(req), req.body, actorOf(req));
       await audit(req, "revenue.document.create", "revenue_document", row.id, row.title);
       return res.status(201).json(row);
+    } catch (error) {
+      return res.status(400).json({ error: (error as Error).message });
+    }
+  }),
+);
+
+revenueOperationsRouter.get(
+  "/revenue/documents/:id",
+  h(async (req, res) => {
+    const document = await getRevenueDocument(cidOf(req), req.params.id);
+    return document ? res.json(document) : res.status(404).json({ error: "Document not found" });
+  }),
+);
+
+revenueOperationsRouter.patch(
+  "/revenue/documents/:id",
+  validateBody(documentPatchSchema),
+  h(async (req, res) => {
+    try {
+      const document = await updateRevenueDocument(cidOf(req), req.params.id, req.body);
+      if (!document) return res.status(404).json({ error: "Document not found" });
+      await audit(req, "revenue.document.update", "revenue_document", document.id, document.title, {
+        changes: Object.keys(req.body),
+      });
+      return res.json(document);
     } catch (error) {
       return res.status(400).json({ error: (error as Error).message });
     }
@@ -692,8 +742,7 @@ revenueOperationsRouter.post(
 revenueOperationsRouter.get(
   "/revenue/documents/:id/file",
   h(async (req, res) => {
-    const documents = await listRevenueDocuments(cidOf(req));
-    const document = documents.find((row) => row.id === req.params.id);
+    const document = await getRevenueDocument(cidOf(req), req.params.id);
     if (!document?.attachmentId) {
       return res.status(404).json({ error: "Document file not found" });
     }
@@ -711,8 +760,12 @@ revenueOperationsRouter.get(
 revenueOperationsRouter.delete(
   "/revenue/documents/:id",
   h(async (req, res) => {
+    const document = await getRevenueDocument(cidOf(req), req.params.id);
+    if (!document) return res.status(404).json({ error: "Document not found" });
     const removed = await deleteRevenueDocument(cidOf(req), req.params.id);
-    return removed ? res.json({ ok: true }) : res.status(404).json({ error: "Document not found" });
+    if (!removed) return res.status(404).json({ error: "Document not found" });
+    await audit(req, "revenue.document.delete", "revenue_document", document.id, document.title);
+    return res.json({ ok: true });
   }),
 );
 
@@ -731,10 +784,33 @@ const importInputSchema = z.object({
   mapping: z.record(z.string().min(1).max(500)),
   rows: z.array(importRowSchema).max(10_000).optional(),
 });
+const linkedImportInputSchema = importInputSchema
+  .omit({ resourceType: true, mapping: true })
+  .extend({
+    mapping: z.object({
+      account: z.record(z.string().min(1).max(500)),
+      contact: z.record(z.string().min(1).max(500)),
+      deal: z.record(z.string().min(1).max(500)),
+    }),
+  });
 
 async function resolvedImportRows(
   companyId: string,
   body: z.infer<typeof importInputSchema>,
+): Promise<{ rows: ImportRow[]; sourceLabel: string }> {
+  if (body.sourceKind === "base") {
+    if (!body.sourceBaseId || !body.sourceTableId) {
+      throw new Error("Base and table are required");
+    }
+    const source = await loadBaseImportRows(companyId, body.sourceBaseId, body.sourceTableId);
+    return { rows: source.rows, sourceLabel: source.sourceLabel };
+  }
+  return { rows: body.rows ?? [], sourceLabel: body.sourceLabel };
+}
+
+async function resolvedLinkedImportRows(
+  companyId: string,
+  body: z.infer<typeof linkedImportInputSchema>,
 ): Promise<{ rows: ImportRow[]; sourceLabel: string }> {
   if (body.sourceKind === "base") {
     if (!body.sourceBaseId || !body.sourceTableId) {
@@ -754,7 +830,9 @@ revenueOperationsRouter.get(
       .safeParse(req.query);
     if (!parsed.success) return res.status(400).json({ error: "Invalid Base source" });
     try {
-      return res.json(await loadBaseImportRows(cidOf(req), parsed.data.baseId, parsed.data.tableId));
+      return res.json(
+        await loadBaseImportRows(cidOf(req), parsed.data.baseId, parsed.data.tableId),
+      );
     } catch (error) {
       return res.status(404).json({ error: (error as Error).message });
     }
@@ -770,6 +848,26 @@ revenueOperationsRouter.post(
       const source = await resolvedImportRows(cidOf(req), body);
       return res.json(
         await previewRevenueImport(cidOf(req), body.resourceType, body.mapping, source.rows),
+      );
+    } catch (error) {
+      return res.status(400).json({ error: (error as Error).message });
+    }
+  }),
+);
+
+revenueOperationsRouter.post(
+  "/revenue/imports/linked/preview",
+  validateBody(linkedImportInputSchema),
+  h(async (req, res) => {
+    try {
+      const body = req.body as z.infer<typeof linkedImportInputSchema>;
+      const source = await resolvedLinkedImportRows(cidOf(req), body);
+      return res.json(
+        await previewLinkedRevenueImport(
+          cidOf(req),
+          body.mapping as LinkedImportMapping,
+          source.rows,
+        ),
       );
     } catch (error) {
       return res.status(400).json({ error: (error as Error).message });
@@ -803,9 +901,85 @@ revenueOperationsRouter.post(
   }),
 );
 
+revenueOperationsRouter.post(
+  "/revenue/imports/linked",
+  validateBody(linkedImportInputSchema),
+  h(async (req, res) => {
+    try {
+      const body = req.body as z.infer<typeof linkedImportInputSchema>;
+      const source = await resolvedLinkedImportRows(cidOf(req), body);
+      const batch = await commitLinkedRevenueImport(
+        cidOf(req),
+        {
+          ...body,
+          sourceLabel: source.sourceLabel,
+          mapping: body.mapping as LinkedImportMapping,
+          rows: source.rows,
+        },
+        actorOf(req),
+      );
+      await audit(
+        req,
+        "revenue.import.linked.commit",
+        "revenue_import",
+        batch.id,
+        batch.sourceLabel,
+        { resourceType: batch.resourceType },
+      );
+      return res.status(201).json(batch);
+    } catch (error) {
+      return res.status(400).json({ error: (error as Error).message });
+    }
+  }),
+);
+
 revenueOperationsRouter.get(
   "/revenue/imports",
   h(async (req, res) => res.json({ rows: await listRevenueImports(cidOf(req)) })),
+);
+
+revenueOperationsRouter.get(
+  "/revenue/imports/:id",
+  h(async (req, res) => {
+    const batch = await getRevenueImport(cidOf(req), req.params.id);
+    return batch ? res.json(batch) : res.status(404).json({ error: "Import not found" });
+  }),
+);
+
+revenueOperationsRouter.post(
+  "/revenue/imports/:id/attachments",
+  validateBody(
+    z.object({
+      targetResourceType: resourceTypeEnum.optional(),
+      kind: documentKindEnum.optional(),
+    }),
+  ),
+  h(async (req, res) => {
+    try {
+      const result = await migrateBaseAttachmentsForImport(
+        cidOf(req),
+        req.params.id,
+        req.body,
+        actorOf(req),
+      );
+      await audit(
+        req,
+        "revenue.import.attachments",
+        "revenue_import",
+        req.params.id,
+        "Base attachments",
+        {
+          targetResourceType: result.targetResourceType,
+          migrated: result.migrated,
+          skipped: result.skipped,
+          failed: result.failures.length,
+        },
+      );
+      return res.json(result);
+    } catch (error) {
+      return res.status(400).json({ error: (error as Error).message });
+    }
+  }),
 );
 
 revenueOperationsRouter.post(
@@ -813,10 +987,17 @@ revenueOperationsRouter.post(
   h(async (req, res) => {
     const result = await rollbackRevenueImport(cidOf(req), req.params.id);
     if (!result) return res.status(404).json({ error: "Import not found" });
-    await audit(req, "revenue.import.rollback", "revenue_import", result.batch.id, result.batch.sourceLabel, {
-      deleted: result.deleted,
-      blocked: result.blocked,
-    });
+    await audit(
+      req,
+      "revenue.import.rollback",
+      "revenue_import",
+      result.batch.id,
+      result.batch.sourceLabel,
+      {
+        deleted: result.deleted,
+        blocked: result.blocked,
+      },
+    );
     return res.json(result);
   }),
 );

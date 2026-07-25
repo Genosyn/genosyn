@@ -250,6 +250,14 @@ ORDER BY a.plan_mrr_cents DESC`}</Pre>
         never stops the others in the same pass.
       </P>
 
+      <H3 id="ai-administration">AI Employee administration</H3>
+      <P>
+        An AI Employee with Revenue Write access can create and edit Signal definitions and actions,
+        test them, inspect Signal event history, enable or disable them, and archive or restore
+        them. Testing a SQL Signal also requires a Grant to its database Connection; a Revenue grant
+        alone never exposes an unrelated Connection.
+      </P>
+
       <H2 id="least-privilege">Connect with a least-privileged role</H2>
       <Callout kind="warn" title="Read-only SQL is not enforced.">
         Genosyn does not parse or restrict the SQL a signal runs, exactly as in{" "}

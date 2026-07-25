@@ -13,6 +13,86 @@ import { RevenueCustomValue } from "../../db/entities/RevenueCustomValue.js";
 
 export type CustomFieldValue = string | number | boolean | string[] | null;
 
+export const BASE_MIGRATION_CUSTOM_FIELDS: Array<{
+  resourceType: RevenueResourceType;
+  name: string;
+  key: string;
+  fieldType: RevenueCustomFieldType;
+}> = [
+  {
+    resourceType: "account",
+    name: "Current monitoring stack",
+    key: "current_monitoring_stack",
+    fieldType: "text",
+  },
+  {
+    resourceType: "deal",
+    name: "Competitor or current provider",
+    key: "competitor_current_provider",
+    fieldType: "text",
+  },
+  {
+    resourceType: "deal",
+    name: "Plan or product interest",
+    key: "plan_product_interest",
+    fieldType: "text",
+  },
+  {
+    resourceType: "account",
+    name: "Company or infrastructure size",
+    key: "company_infrastructure_size",
+    fieldType: "text",
+  },
+  {
+    resourceType: "account",
+    name: "Geographic or compliance requirements",
+    key: "geographic_compliance_requirements",
+    fieldType: "text",
+  },
+  {
+    resourceType: "account",
+    name: "Stripe customer ID",
+    key: "stripe_customer_id",
+    fieldType: "text",
+  },
+  {
+    resourceType: "deal",
+    name: "Qualification score",
+    key: "qualification_score",
+    fieldType: "number",
+  },
+  {
+    resourceType: "deal",
+    name: "Qualification signals",
+    key: "qualification_signals",
+    fieldType: "text",
+  },
+  {
+    resourceType: "deal",
+    name: "Procurement or security status",
+    key: "procurement_security_status",
+    fieldType: "text",
+  },
+  {
+    resourceType: "account",
+    name: "Original Base row ID",
+    key: "original_base_row_id",
+    fieldType: "text",
+  },
+  {
+    resourceType: "contact",
+    name: "Original Base row ID",
+    key: "original_base_row_id",
+    fieldType: "text",
+  },
+  {
+    resourceType: "deal",
+    name: "Original Base row ID",
+    key: "original_base_row_id",
+    fieldType: "text",
+  },
+];
+
 export function customFieldKey(name: string): string {
   return name
     .trim()
@@ -25,7 +105,9 @@ export function customFieldKey(name: string): string {
 function parseOptions(optionsJson: string): string[] {
   try {
     const value = JSON.parse(optionsJson);
-    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === "string")
+      : [];
   } catch {
     return [];
   }
@@ -33,7 +115,11 @@ function parseOptions(optionsJson: string): string[] {
 
 function normalizedSearchValue(value: CustomFieldValue): string {
   if (value === null) return "";
-  if (Array.isArray(value)) return value.map((item) => item.trim().toLowerCase()).sort().join("|");
+  if (Array.isArray(value))
+    return value
+      .map((item) => item.trim().toLowerCase())
+      .sort()
+      .join("|");
   return String(value).trim().toLowerCase();
 }
 
@@ -106,7 +192,9 @@ async function resourceExists(
         : resourceType === "deal"
           ? Deal
           : Partnership;
-  return (await AppDataSource.getRepository(entity).count({ where: { companyId, id: resourceId } })) > 0;
+  return (
+    (await AppDataSource.getRepository(entity).count({ where: { companyId, id: resourceId } })) > 0
+  );
 }
 
 export async function listCustomFields(
@@ -175,6 +263,44 @@ export async function updateCustomField(
   if (patch.sortOrder !== undefined) row.sortOrder = patch.sortOrder;
   if (patch.archived !== undefined) row.archivedAt = patch.archived ? new Date() : null;
   return repo.save(row);
+}
+
+/**
+ * Install the opinionated field set used by the linked Base migration.
+ *
+ * Idempotent and non-destructive: an existing field with the same stable key
+ * wins, including its chosen type/options. An archived match is restored so a
+ * second setup run does not fail on the unique key while still leaving the
+ * company's definition intact.
+ */
+export async function installBaseMigrationCustomFields(
+  companyId: string,
+): Promise<{ created: RevenueCustomField[]; existing: RevenueCustomField[] }> {
+  const repo = AppDataSource.getRepository(RevenueCustomField);
+  const created: RevenueCustomField[] = [];
+  const existing: RevenueCustomField[] = [];
+  for (const definition of BASE_MIGRATION_CUSTOM_FIELDS) {
+    const current = await repo.findOneBy({
+      companyId,
+      resourceType: definition.resourceType,
+      key: definition.key,
+    });
+    if (current) {
+      if (current.archivedAt) {
+        current.archivedAt = null;
+        await repo.save(current);
+      }
+      existing.push(current);
+      continue;
+    }
+    created.push(
+      await createCustomField(companyId, {
+        ...definition,
+        required: false,
+      }),
+    );
+  }
+  return { created, existing };
 }
 
 export async function getCustomValues(

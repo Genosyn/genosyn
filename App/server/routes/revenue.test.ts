@@ -167,9 +167,7 @@ describe("revenue routes — auth and company scoping", () => {
     });
     await insert(Membership, { companyId: other.id, userId: ownerId, role: "owner" as Role });
 
-    const res = await fetch(
-      `${baseUrl}/api/companies/${other.id}/revenue/contacts/${mine.id}`,
-    );
+    const res = await fetch(`${baseUrl}/api/companies/${other.id}/revenue/contacts/${mine.id}`);
     assert.equal(res.status, 404);
   });
 });
@@ -181,10 +179,7 @@ describe("revenue routes — contacts", () => {
     const contact = await createContact();
     assert.equal(contact.name, "Ada Lovelace");
 
-    const list = await call<{ rows: unknown[]; total: number }>(
-      "GET",
-      "/revenue/contacts",
-    );
+    const list = await call<{ rows: unknown[]; total: number }>("GET", "/revenue/contacts");
     assert.equal(list.status, 200);
     assert.equal(list.body.total, 1);
     assert.deepEqual(await auditActions(), ["revenue.contact.create"]);
@@ -192,11 +187,10 @@ describe("revenue routes — contacts", () => {
 
   test("a duplicate address is a 409 carrying the existing id", async () => {
     const first = await createContact();
-    const res = await call<{ error: string; existingId: string }>(
-      "POST",
-      "/revenue/contacts",
-      { name: "Ada Again", email: "ada@example.com" },
-    );
+    const res = await call<{ error: string; existingId: string }>("POST", "/revenue/contacts", {
+      name: "Ada Again",
+      email: "ada@example.com",
+    });
     assert.equal(res.status, 409);
     assert.equal(res.body.existingId, first.id);
   });
@@ -204,11 +198,9 @@ describe("revenue routes — contacts", () => {
   test("patching onto somebody else's address is a 409", async () => {
     const first = await createContact("Ada", "ada@example.com");
     const second = await createContact("Grace", "grace@example.com");
-    const res = await call<{ existingId: string }>(
-      "PATCH",
-      `/revenue/contacts/${second.id}`,
-      { email: "ada@example.com" },
-    );
+    const res = await call<{ existingId: string }>("PATCH", `/revenue/contacts/${second.id}`, {
+      email: "ada@example.com",
+    });
     assert.equal(res.status, 409);
     assert.equal(res.body.existingId, first.id);
   });
@@ -265,10 +257,37 @@ describe("revenue routes — contacts", () => {
   });
 
   test("a nonsense pagination value is a 400, not a 500", async () => {
-    const res = await fetch(
-      `${baseUrl}/api/companies/${companyId}/revenue/contacts?limit=banana`,
-    );
+    const res = await fetch(`${baseUrl}/api/companies/${companyId}/revenue/contacts?limit=banana`);
     assert.equal(res.status, 400);
+  });
+
+  test("assigns a Contact to an AI Employee or Member and keeps one owner", async () => {
+    const employee = await insert(AIEmployee, {
+      companyId,
+      name: "Revenue owner",
+      slug: "revenue-owner",
+      role: "Account executive",
+    });
+    const created = await call<{
+      id: string;
+      ownerId: string | null;
+      ownerEmployeeId: string | null;
+    }>("POST", "/revenue/contacts", {
+      name: "Owned contact",
+      email: "owned@example.com",
+      ownerEmployeeId: employee.id,
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.ownerEmployeeId, employee.id);
+    assert.equal(created.body.ownerId, null);
+
+    const updated = await call<{
+      ownerId: string | null;
+      ownerEmployeeId: string | null;
+    }>("PATCH", `/revenue/contacts/${created.body.id}`, { ownerId });
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.ownerId, ownerId);
+    assert.equal(updated.body.ownerEmployeeId, null);
   });
 
   test("a missing contact is a 404", async () => {
@@ -291,11 +310,10 @@ describe("revenue routes — stages", () => {
   test("a new stage lands at the end of the board", async () => {
     const before = await call<Array<{ sortOrder: number }>>("GET", "/revenue/stages");
     const highest = Math.max(...before.body.map((s) => s.sortOrder));
-    const created = await call<{ sortOrder: number; slug: string }>(
-      "POST",
-      "/revenue/stages",
-      { name: "Security Review", probability: 70 },
-    );
+    const created = await call<{ sortOrder: number; slug: string }>("POST", "/revenue/stages", {
+      name: "Security Review",
+      probability: 70,
+    });
     assert.equal(created.status, 201);
     assert.equal(created.body.sortOrder, highest + 1);
     assert.equal(created.body.slug, "security-review");
@@ -429,15 +447,9 @@ describe("revenue routes — deals", () => {
     assert.equal(res.body.contacts[0].role, "Economic buyer");
     assert.equal(res.body.contacts[0].contact?.id, contact.id);
 
-    const removed = await call(
-      "DELETE",
-      `/revenue/deals/${deal.body.id}/contacts/${contact.id}`,
-    );
+    const removed = await call("DELETE", `/revenue/deals/${deal.body.id}/contacts/${contact.id}`);
     assert.equal(removed.status, 200);
-    const after = await call<{ contacts: unknown[] }>(
-      "GET",
-      `/revenue/deals/${deal.body.id}`,
-    );
+    const after = await call<{ contacts: unknown[] }>("GET", `/revenue/deals/${deal.body.id}`);
     assert.equal(after.body.contacts.length, 0);
   });
 
@@ -522,6 +534,51 @@ describe("revenue routes — activities", () => {
     assert.equal(body.total, 1);
     assert.equal(body.rows[0].kind, "meeting");
   });
+
+  test("gets, corrects, exports, and deletes a manual activity", async () => {
+    const created = await call<{ id: string }>("POST", "/revenue/activities", {
+      kind: "note",
+      subject: "Original note",
+      bodyText: "Cleanup target",
+    });
+    const read = await call<{ id: string }>("GET", `/revenue/activities/${created.body.id}`);
+    assert.equal(read.status, 200);
+    assert.equal(read.body.id, created.body.id);
+    const updated = await call<{ subject: string }>(
+      "PATCH",
+      `/revenue/activities/${created.body.id}`,
+      { subject: "Corrected note" },
+    );
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.subject, "Corrected note");
+
+    const exported = await fetch(
+      `${baseUrl}/api/companies/${companyId}/revenue/activities/export?q=corrected`,
+    );
+    assert.equal(exported.status, 200);
+    assert.match(exported.headers.get("content-type") ?? "", /text\/csv/);
+    assert.match(await exported.text(), /Corrected note/);
+
+    const removed = await call("DELETE", `/revenue/activities/${created.body.id}`);
+    assert.equal(removed.status, 200);
+    assert.equal(
+      (await call<{ total: number }>("GET", "/revenue/activities?q=corrected")).body.total,
+      0,
+    );
+  });
+
+  test("refuses to edit machine-recorded activity evidence", async () => {
+    const machine = await insert(Activity, {
+      companyId,
+      kind: "signal",
+      subject: "Product threshold",
+      occurredAt: new Date(),
+    });
+    const res = await call("PATCH", `/revenue/activities/${machine.id}`, {
+      subject: "Rewritten",
+    });
+    assert.equal(res.status, 400);
+  });
 });
 
 // ── Suppressions ───────────────────────────────────────────────────────────
@@ -535,11 +592,10 @@ describe("revenue routes — suppressions", () => {
     assert.equal(first.status, 201);
     assert.equal(first.body.email, "ada@example.com");
 
-    const again = await call<{ id: string; reason: string }>(
-      "POST",
-      "/revenue/suppressions",
-      { email: "ada@example.com", reason: "manual" },
-    );
+    const again = await call<{ id: string; reason: string }>("POST", "/revenue/suppressions", {
+      email: "ada@example.com",
+      reason: "manual",
+    });
     assert.equal(again.status, 200);
     assert.equal(again.body.id, first.body.id);
     // The original, stronger reason survives.
@@ -595,15 +651,11 @@ describe("revenue routes — suppressions", () => {
 
 describe("revenue routes — operating system", () => {
   test("creates a prospect account, assigns a follow-up, and returns it in the queue", async () => {
-    const account = await call<{ id: string; accountStatus: string }>(
-      "POST",
-      "/revenue/accounts",
-      {
-        name: "Prospect Co",
-        domain: "https://www.prospect.example",
-        ownerId,
-      },
-    );
+    const account = await call<{ id: string; accountStatus: string }>("POST", "/revenue/accounts", {
+      name: "Prospect Co",
+      domain: "https://www.prospect.example",
+      ownerId,
+    });
     assert.equal(account.status, 201);
     assert.equal(account.body.accountStatus, "prospect");
 
@@ -632,10 +684,7 @@ describe("revenue routes — operating system", () => {
     });
 
     actingUserId = memberId;
-    const accounts = await call<{ rows: Array<{ name: string }> }>(
-      "GET",
-      "/revenue/accounts",
-    );
+    const accounts = await call<{ rows: Array<{ name: string }> }>("GET", "/revenue/accounts");
 
     assert.equal(accounts.status, 200);
     assert.ok(accounts.body.rows.some((account) => account.name === "Member-visible prospect"));
@@ -680,11 +729,11 @@ describe("revenue routes — operating system", () => {
     });
     assert.equal(partnership.status, 201);
     const contact = await createContact("Partner lead", "partner@example.com");
-    const linked = await call(
-      "POST",
-      `/revenue/partnerships/${partnership.body.id}/contacts`,
-      { contactId: contact.id, isPrimary: true, replyAll: true },
-    );
+    const linked = await call("POST", `/revenue/partnerships/${partnership.body.id}/contacts`, {
+      contactId: contact.id,
+      isPrimary: true,
+      replyAll: true,
+    });
     assert.equal(linked.status, 201);
     const document = await call("POST", "/revenue/documents", {
       kind: "contract",
@@ -693,13 +742,26 @@ describe("revenue routes — operating system", () => {
       externalUrl: "https://docs.example/partner-agreement",
     });
     assert.equal(document.status, 201);
+    const documentId = (document.body as { id: string }).id;
+    const renamed = await call<{ title: string }>("PATCH", `/revenue/documents/${documentId}`, {
+      title: "Signed partner agreement",
+      notes: "Countersigned",
+    });
+    assert.equal(renamed.status, 200);
+    assert.equal(renamed.body.title, "Signed partner agreement");
 
     const detail = await call<{
       contacts: Array<{ replyAll: boolean }>;
       documents: Array<{ title: string }>;
     }>("GET", `/revenue/partnerships/${partnership.body.id}`);
     assert.equal(detail.body.contacts[0].replyAll, true);
-    assert.equal(detail.body.documents[0].title, "Partner agreement");
+    assert.equal(detail.body.documents[0].title, "Signed partner agreement");
+    assert.equal((await call("DELETE", `/revenue/documents/${documentId}`)).status, 200);
+    assert.equal(
+      (await call<{ documents: unknown[] }>("GET", `/revenue/partnerships/${partnership.body.id}`))
+        .body.documents.length,
+      0,
+    );
   });
 
   test("previews, commits, and rolls back a CSV migration with a durable row map", async () => {
@@ -715,18 +777,10 @@ describe("revenue routes — operating system", () => {
         },
       ],
     };
-    const preview = await call<{ createCount: number }>(
-      "POST",
-      "/revenue/imports/preview",
-      input,
-    );
+    const preview = await call<{ createCount: number }>("POST", "/revenue/imports/preview", input);
     assert.equal(preview.status, 200);
     assert.equal(preview.body.createCount, 1);
-    const batch = await call<{ id: string; status: string }>(
-      "POST",
-      "/revenue/imports",
-      input,
-    );
+    const batch = await call<{ id: string; status: string }>("POST", "/revenue/imports", input);
     assert.equal(batch.status, 201);
     assert.equal(batch.body.status, "completed");
     const rollback = await call<{ deleted: number; blocked: unknown[] }>(
@@ -736,6 +790,57 @@ describe("revenue routes — operating system", () => {
     assert.equal(rollback.status, 200);
     assert.equal(rollback.body.deleted, 1);
     assert.deepEqual(rollback.body.blocked, []);
+  });
+
+  test("installs migration fields and commits a linked Account, Contact, and Deal row", async () => {
+    const preset = await call<{ created: unknown[] }>(
+      "POST",
+      "/revenue/custom-fields/base-migration-preset",
+    );
+    assert.equal(preset.status, 201);
+    assert.equal(preset.body.created.length, 12);
+    const input = {
+      sourceKind: "csv",
+      sourceLabel: "legacy.csv",
+      mapping: {
+        account: { name: "company", domain: "domain" },
+        contact: { name: "person", email: "email" },
+        deal: { title: "opportunity" },
+      },
+      rows: [
+        {
+          sourceId: "csv-1",
+          values: {
+            company: "Linked Co",
+            domain: "linked.example",
+            person: "Linked Person",
+            email: "person@linked.example",
+            opportunity: "Linked Deal",
+          },
+        },
+      ],
+    };
+    const preview = await call<{ createCount: number }>(
+      "POST",
+      "/revenue/imports/linked/preview",
+      input,
+    );
+    assert.equal(preview.status, 200);
+    assert.equal(preview.body.createCount, 1);
+    const batch = await call<{ id: string; resourceType: string }>(
+      "POST",
+      "/revenue/imports/linked",
+      input,
+    );
+    assert.equal(batch.status, 201);
+    assert.equal(batch.body.resourceType, "account_contact_deal");
+    const retrieved = await call<{ id: string; rowMapJson: string }>(
+      "GET",
+      `/revenue/imports/${batch.body.id}`,
+    );
+    assert.equal(retrieved.status, 200);
+    assert.equal(retrieved.body.id, batch.body.id);
+    assert.match(retrieved.body.rowMapJson, /csv-1/);
   });
 });
 
@@ -893,11 +998,9 @@ describe("revenue routes — sequences", () => {
   });
 
   test("replacing the ladder on a missing sequence is a 404", async () => {
-    const res = await call(
-      "PUT",
-      "/revenue/sequences/00000000-0000-0000-0000-000000000000/steps",
-      { steps: [] },
-    );
+    const res = await call("PUT", "/revenue/sequences/00000000-0000-0000-0000-000000000000/steps", {
+      steps: [],
+    });
     assert.equal(res.status, 404);
   });
 
@@ -921,9 +1024,7 @@ describe("revenue routes — sequences", () => {
     });
     assert.equal(res.status, 200);
     assert.equal(res.body.enrolled, 1);
-    const reasons = Object.fromEntries(
-      res.body.skipped.map((s) => [s.contactId, s.reason]),
-    );
+    const reasons = Object.fromEntries(res.body.skipped.map((s) => [s.contactId, s.reason]));
     assert.equal(reasons[noEmail.body.id], "no_email");
     assert.equal(reasons[blocked.id], "suppressed");
   });
@@ -1010,11 +1111,9 @@ describe("revenue routes — signals", () => {
   });
 
   test("patching a missing signal is a 404 and a bad cron on patch is a 400", async () => {
-    const missing = await call(
-      "PATCH",
-      "/revenue/signals/00000000-0000-0000-0000-000000000000",
-      { name: "x" },
-    );
+    const missing = await call("PATCH", "/revenue/signals/00000000-0000-0000-0000-000000000000", {
+      name: "x",
+    });
     assert.equal(missing.status, 404);
 
     const signal = await aSignal();
@@ -1030,10 +1129,7 @@ describe("revenue routes — signals", () => {
 
   test("/revenue/signal-events is not swallowed by /revenue/signals/:id", async () => {
     await aSignal();
-    const res = await call<{ rows: unknown[]; total: number }>(
-      "GET",
-      "/revenue/signal-events",
-    );
+    const res = await call<{ rows: unknown[]; total: number }>("GET", "/revenue/signal-events");
     assert.equal(res.status, 200);
     assert.equal(res.body.total, 0);
     assert.ok(Array.isArray(res.body.rows));
@@ -1071,18 +1167,13 @@ describe("revenue routes — reports", () => {
     assert.equal(res.status, 200);
     assert.ok(res.body.period.from);
     assert.ok(res.body.period.to);
-    const span =
-      new Date(res.body.period.to).getTime() - new Date(res.body.period.from).getTime();
+    const span = new Date(res.body.period.to).getTime() - new Date(res.body.period.from).getTime();
     // Roughly a year, allowing for month lengths.
     assert.ok(span > 360 * 24 * 3_600_000, "default window should be ~12 months");
   });
 
   test("mrr, funnel and cac all answer on an empty company", async () => {
-    const paths = [
-      "/revenue/reports/mrr",
-      "/revenue/reports/funnel",
-      "/revenue/reports/cac",
-    ];
+    const paths = ["/revenue/reports/mrr", "/revenue/reports/funnel", "/revenue/reports/cac"];
     for (const path of paths) {
       const res = await call("GET", path);
       assert.equal(res.status, 200, `${path} should answer`);
@@ -1090,9 +1181,7 @@ describe("revenue routes — reports", () => {
   });
 
   test("an out-of-range months value is a 400", async () => {
-    const res = await fetch(
-      `${baseUrl}/api/companies/${companyId}/revenue/reports/mrr?months=999`,
-    );
+    const res = await fetch(`${baseUrl}/api/companies/${companyId}/revenue/reports/mrr?months=999`);
     assert.equal(res.status, 400);
   });
 });

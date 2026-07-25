@@ -94,8 +94,7 @@ export function createFindToolsTool(ctx: DiscoveryContext): AgentTool {
         pool = allowed.size > 0 ? pool.filter((t) => allowed.has(t.name)) : [];
         if (pool.length === 0) {
           return {
-            content:
-              `No tools in domain ${JSON.stringify(domain)}.\n\n${footer}`,
+            content: `No tools in domain ${JSON.stringify(domain)}.\n\n${footer}`,
             isError: false,
           };
         }
@@ -168,14 +167,14 @@ function buildDomainFooter(searchable: AgentTool[]): string {
   for (const [key, domain] of Object.entries(TOOL_DOMAINS)) {
     const names = domain.tools.filter((n) => present.has(n));
     if (names.length === 0) continue;
-    lines.push(`${key}: ${names.join(", ")}`);
+    lines.push(`${key}: ${names.join(",")}`);
   }
 
   // Integration and company-MCP tools have no manifest domain. They are the ones
   // with unguessable names, so listing them matters more here, not less.
   const other = searchable.map((t) => t.name).filter((n) => !domainOf(n));
   if (other.length > 0) {
-    lines.push(`connected services: ${other.join(", ")}`);
+    lines.push(`connected services: ${other.join(",")}`);
   }
 
   return lines.join("\n");
@@ -231,10 +230,49 @@ function tokenize(s: string): string[] {
 }
 
 const STOPWORDS = new Set([
-  "the", "and", "for", "with", "that", "this", "from", "into", "your", "you",
-  "get", "all", "any", "can", "how", "what", "when", "where", "which", "does",
-  "use", "using", "have", "has", "was", "are", "its", "it", "to", "of", "in",
-  "on", "at", "by", "an", "as", "is", "or", "be", "do", "me", "my", "a",
+  "the",
+  "and",
+  "for",
+  "with",
+  "that",
+  "this",
+  "from",
+  "into",
+  "your",
+  "you",
+  "get",
+  "all",
+  "any",
+  "can",
+  "how",
+  "what",
+  "when",
+  "where",
+  "which",
+  "does",
+  "use",
+  "using",
+  "have",
+  "has",
+  "was",
+  "are",
+  "its",
+  "it",
+  "to",
+  "of",
+  "in",
+  "on",
+  "at",
+  "by",
+  "an",
+  "as",
+  "is",
+  "or",
+  "be",
+  "do",
+  "me",
+  "my",
+  "a",
 ]);
 
 function firstSentence(s: string): string {
@@ -308,9 +346,7 @@ export function createCallTool(ctx: DiscoveryContext): AgentTool {
   };
 }
 
-type ExtractedArgs =
-  | { ok: true; args: Record<string, unknown> }
-  | { ok: false; error: string };
+type ExtractedArgs = { ok: true; args: Record<string, unknown> } | { ok: false; error: string };
 
 /**
  * Pull the target tool's arguments out of a `call_tool` input.

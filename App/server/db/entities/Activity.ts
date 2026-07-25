@@ -1,11 +1,5 @@
 import { dateTimeColumnType } from "./columnTypes.js";
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  Index,
-} from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 /**
  * What happened. Kinds are grouped by who produces them:
@@ -60,29 +54,20 @@ export const ACTIVITY_KINDS: ActivityKind[] = [
 export const ACTIVITY_BODY_CAP = 8_000;
 
 export type ActivityTaskStatus = "open" | "completed" | "cancelled";
-export const ACTIVITY_TASK_STATUSES: ActivityTaskStatus[] = [
-  "open",
-  "completed",
-  "cancelled",
-];
+export const ACTIVITY_TASK_STATUSES: ActivityTaskStatus[] = ["open", "completed", "cancelled"];
 
 export type ActivityPriority = "low" | "normal" | "high" | "urgent";
-export const ACTIVITY_PRIORITIES: ActivityPriority[] = [
-  "low",
-  "normal",
-  "high",
-  "urgent",
-];
+export const ACTIVITY_PRIORITIES: ActivityPriority[] = ["low", "normal", "high", "urgent"];
 
 /**
  * One event on a Contact / Deal / Customer timeline. See ROADMAP.md M32.
  *
- * This is append-only and the single most valuable table in the revenue
- * section, because almost nobody types into it. Mail sync matches thread
- * participants against `contacts.email` and writes `email_in` / `email_out`
- * rows on its own, so opening a Contact shows every conversation you have ever
- * had with that person without anyone doing data entry. That property is the
- * whole reason a CRM becomes load-bearing rather than abandoned.
+ * Machine-derived rows are append-only and make this the single most valuable
+ * table in the revenue section. Mail sync matches thread participants against
+ * `contacts.email` and writes `email_in` / `email_out` rows on its own, so
+ * opening a Contact shows every conversation without anyone doing data entry.
+ * Manually logged notes, calls, meetings, and tasks may be corrected or deleted
+ * through the Revenue administration service; derived evidence may not.
  *
  * All three subject FKs are nullable and independent: an email to a person with
  * no open deal has only `contactId`; a stage change has only `dealId`; an
@@ -90,10 +75,9 @@ export const ACTIVITY_PRIORITIES: ActivityPriority[] = [
  * walking Contact → Customer at read time) is what lets the account timeline be
  * one indexed query instead of a fan-out.
  *
- * No `@UpdateDateColumn`: activities are facts about the past. Correcting one
- * means writing another. `occurredAt` is separate from `createdAt` because a
- * backfilled email happened long before we recorded it, and the timeline must
- * sort by when it happened.
+ * No `@UpdateDateColumn`: `occurredAt` is the relevant time, and a backfilled
+ * email happened long before we recorded it. The timeline must sort by when it
+ * happened.
  */
 @Entity("activities")
 @Index(["companyId", "occurredAt"])

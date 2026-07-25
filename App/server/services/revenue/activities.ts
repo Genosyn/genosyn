@@ -12,16 +12,18 @@ import { Contact } from "../../db/entities/Contact.js";
 import { Deal } from "../../db/entities/Deal.js";
 import { Partnership } from "../../db/entities/Partnership.js";
 import { touchLastActivity } from "./contacts.js";
+import { assertRevenueLinks } from "./integrity.js";
 
 /**
  * The activity timeline.
  *
- * Append-only, and mostly written by machines rather than people — mail sync
- * produces the bulk of it, the deal service adds stage changes, sequences add
- * their touches. That is the point: a CRM whose history depends on humans
- * remembering to log calls is a CRM with no history, so the useful default is
- * that opening a Contact shows every conversation you have ever had with them
- * without anyone having typed anything.
+ * Mostly written by machines rather than people — mail sync produces the bulk
+ * of it, the deal service adds stage changes, sequences add their touches. Those
+ * machine rows are immutable evidence. Manually logged notes, calls, meetings,
+ * and tasks may be corrected through the narrow administration functions below.
+ * That is the point: a CRM whose history depends on humans remembering to log
+ * calls is a CRM with no history, so the useful default is that opening a
+ * Contact shows every conversation without anyone having typed anything.
  *
  * Writes here also move the denormalized `lastActivityAt` on the contact and
  * deal, which is what the list views sort by.
@@ -55,11 +57,16 @@ export type ActivityInput = {
 };
 
 export type ActivityListOptions = {
+  q?: string;
   contactId?: string;
   dealId?: string;
   customerId?: string;
   partnershipId?: string;
   kinds?: ActivityKind[];
+  from?: Date;
+  to?: Date;
+  actorUserId?: string;
+  actorEmployeeId?: string;
   /** Also include activities on deals belonging to this contact. */
   includeRelatedDeals?: boolean;
   limit?: number;
@@ -118,14 +125,14 @@ export async function recordActivity(
       actorUserId: actor.userId ?? null,
       actorEmployeeId: actor.employeeId ?? null,
       metaJson: serializeMeta(input.meta),
-      taskStatus: input.kind === "task" ? input.taskStatus ?? "open" : null,
-      dueAt: input.kind === "task" ? input.dueAt ?? null : null,
-      completedAt: input.kind === "task" ? input.completedAt ?? null : null,
-      assignedUserId: input.kind === "task" ? input.assignedUserId ?? null : null,
-      assignedEmployeeId: input.kind === "task" ? input.assignedEmployeeId ?? null : null,
-      priority: input.kind === "task" ? input.priority ?? "normal" : null,
-      reminderAt: input.kind === "task" ? input.reminderAt ?? null : null,
-      recurrenceRule: input.kind === "task" ? input.recurrenceRule ?? null : null,
+      taskStatus: input.kind === "task" ? (input.taskStatus ?? "open") : null,
+      dueAt: input.kind === "task" ? (input.dueAt ?? null) : null,
+      completedAt: input.kind === "task" ? (input.completedAt ?? null) : null,
+      assignedUserId: input.kind === "task" ? (input.assignedUserId ?? null) : null,
+      assignedEmployeeId: input.kind === "task" ? (input.assignedEmployeeId ?? null) : null,
+      priority: input.kind === "task" ? (input.priority ?? "normal") : null,
+      reminderAt: input.kind === "task" ? (input.reminderAt ?? null) : null,
+      recurrenceRule: input.kind === "task" ? (input.recurrenceRule ?? null) : null,
     }),
   );
 
@@ -273,6 +280,29 @@ export async function listActivities(
   if (opts.kinds && opts.kinds.length > 0) {
     qb.andWhere("a.kind IN (:...kinds)", { kinds: opts.kinds });
   }
+  if (opts.q?.trim()) {
+    qb.andWhere(
+      new Brackets((where) => {
+        where
+          .where("LOWER(a.subject) LIKE :activityQuery", {
+            activityQuery: `%${opts.q!.trim().toLowerCase()}%`,
+          })
+          .orWhere("LOWER(a.bodyText) LIKE :activityQuery", {
+            activityQuery: `%${opts.q!.trim().toLowerCase()}%`,
+          });
+      }),
+    );
+  }
+  if (opts.from) qb.andWhere("a.occurredAt >= :from", { from: opts.from });
+  if (opts.to) qb.andWhere("a.occurredAt <= :to", { to: opts.to });
+  if (opts.actorUserId) {
+    qb.andWhere("a.actorUserId = :actorUserId", { actorUserId: opts.actorUserId });
+  }
+  if (opts.actorEmployeeId) {
+    qb.andWhere("a.actorEmployeeId = :actorEmployeeId", {
+      actorEmployeeId: opts.actorEmployeeId,
+    });
+  }
 
   const total = await qb.clone().getCount();
   const rows = await qb
@@ -283,6 +313,192 @@ export async function listActivities(
     .getMany();
 
   return { rows, total };
+}
+
+export const MANUAL_ACTIVITY_KINDS = ["note", "call", "meeting", "task"] as const;
+
+function isManualActivity(activity: Activity): boolean {
+  return (MANUAL_ACTIVITY_KINDS as readonly string[]).includes(activity.kind);
+}
+
+export async function getActivity(companyId: string, id: string): Promise<Activity | null> {
+  return AppDataSource.getRepository(Activity).findOneBy({ companyId, id });
+}
+
+export type ActivityPatch = {
+  subject?: string;
+  bodyText?: string;
+  occurredAt?: Date;
+  contactId?: string | null;
+  dealId?: string | null;
+  customerId?: string | null;
+  partnershipId?: string | null;
+};
+
+/**
+ * Correct a manually logged fact. Machine-derived rows stay immutable because
+ * mail, stage and Signal history are evidence used by reporting and compliance.
+ */
+export async function updateManualActivity(
+  companyId: string,
+  id: string,
+  patch: ActivityPatch,
+): Promise<Activity | null> {
+  const repo = AppDataSource.getRepository(Activity);
+  const activity = await repo.findOneBy({ companyId, id });
+  if (!activity) return null;
+  if (!isManualActivity(activity)) {
+    throw new Error("Only manually logged notes, calls, meetings, and tasks can be edited");
+  }
+  await assertRevenueLinks(companyId, patch);
+  const previousLinks = activityLinks(activity);
+  if (patch.subject !== undefined) activity.subject = patch.subject.slice(0, 500);
+  if (patch.bodyText !== undefined) activity.bodyText = capBody(patch.bodyText);
+  if (patch.occurredAt !== undefined) activity.occurredAt = patch.occurredAt;
+  if (patch.contactId !== undefined) activity.contactId = patch.contactId;
+  if (patch.dealId !== undefined) activity.dealId = patch.dealId;
+  if (patch.customerId !== undefined) activity.customerId = patch.customerId;
+  if (patch.partnershipId !== undefined) activity.partnershipId = patch.partnershipId;
+  const saved = await repo.save(activity);
+  await refreshActivityRecency(companyId, [...previousLinks, ...activityLinks(saved)]);
+  return saved;
+}
+
+export async function deleteManualActivity(
+  companyId: string,
+  id: string,
+): Promise<Activity | null> {
+  const repo = AppDataSource.getRepository(Activity);
+  const activity = await repo.findOneBy({ companyId, id });
+  if (!activity) return null;
+  if (!isManualActivity(activity)) {
+    throw new Error("Only manually logged notes, calls, meetings, and tasks can be deleted");
+  }
+  const links = activityLinks(activity);
+  await repo.delete({ companyId, id });
+  await refreshActivityRecency(companyId, links);
+  return activity;
+}
+
+type RecencyLink =
+  | { type: "contact"; id: string }
+  | { type: "deal"; id: string }
+  | { type: "partnership"; id: string };
+
+function activityLinks(
+  activity: Pick<Activity, "contactId" | "dealId" | "partnershipId">,
+): RecencyLink[] {
+  return [
+    ...(activity.contactId ? [{ type: "contact" as const, id: activity.contactId }] : []),
+    ...(activity.dealId ? [{ type: "deal" as const, id: activity.dealId }] : []),
+    ...(activity.partnershipId
+      ? [{ type: "partnership" as const, id: activity.partnershipId }]
+      : []),
+  ];
+}
+
+async function refreshActivityRecency(companyId: string, links: RecencyLink[]): Promise<void> {
+  const unique = new Map(links.map((link) => [`${link.type}:${link.id}`, link]));
+  for (const link of unique.values()) {
+    const column =
+      link.type === "contact" ? "contactId" : link.type === "deal" ? "dealId" : "partnershipId";
+    const raw = await AppDataSource.getRepository(Activity)
+      .createQueryBuilder("activity")
+      .select("MAX(activity.occurredAt)", "latest")
+      .where("activity.companyId = :companyId", { companyId })
+      .andWhere(`activity.${column} = :resourceId`, { resourceId: link.id })
+      .getRawOne<{ latest: string | Date | null }>();
+    const latest = raw?.latest ? new Date(raw.latest) : null;
+    if (link.type === "contact") {
+      await AppDataSource.getRepository(Contact).update(
+        { companyId, id: link.id },
+        { lastActivityAt: latest },
+      );
+    } else if (link.type === "deal") {
+      await AppDataSource.getRepository(Deal).update(
+        { companyId, id: link.id },
+        { lastActivityAt: latest },
+      );
+    } else {
+      await AppDataSource.getRepository(Partnership).update(
+        { companyId, id: link.id },
+        { lastActivityAt: latest },
+      );
+    }
+  }
+}
+
+const ACTIVITY_EXPORT_CAP = 10_000;
+
+function csvCell(value: unknown): string {
+  const text =
+    value instanceof Date
+      ? value.toISOString()
+      : value === null || value === undefined
+        ? ""
+        : String(value);
+  return `"${text.replaceAll('"', '""')}"`;
+}
+
+export async function exportActivitiesCsv(
+  companyId: string,
+  opts: Omit<ActivityListOptions, "limit" | "offset"> = {},
+): Promise<{ csv: string; exported: number; truncated: boolean }> {
+  const rows: Activity[] = [];
+  let offset = 0;
+  let total = 0;
+  while (rows.length < ACTIVITY_EXPORT_CAP) {
+    const page = await listActivities(companyId, {
+      ...opts,
+      limit: MAX_LIMIT,
+      offset,
+    });
+    total = page.total;
+    rows.push(...page.rows);
+    if (page.rows.length < MAX_LIMIT || rows.length >= total) break;
+    offset += page.rows.length;
+  }
+  const exportedRows = rows.slice(0, ACTIVITY_EXPORT_CAP);
+  const header = [
+    "id",
+    "occurredAt",
+    "kind",
+    "subject",
+    "bodyText",
+    "contactId",
+    "dealId",
+    "customerId",
+    "partnershipId",
+    "actorUserId",
+    "actorEmployeeId",
+    "createdAt",
+  ];
+  const lines = [
+    header.map(csvCell).join(","),
+    ...exportedRows.map((row) =>
+      [
+        row.id,
+        row.occurredAt,
+        row.kind,
+        row.subject,
+        row.bodyText,
+        row.contactId,
+        row.dealId,
+        row.customerId,
+        row.partnershipId,
+        row.actorUserId,
+        row.actorEmployeeId,
+        row.createdAt,
+      ]
+        .map(csvCell)
+        .join(","),
+    ),
+  ];
+  return {
+    csv: lines.join("\r\n"),
+    exported: exportedRows.length,
+    truncated: total > exportedRows.length,
+  };
 }
 
 /** Move a deal's denormalized recency marker forward only. */
@@ -332,10 +548,7 @@ export async function countActivitiesByKind(
 }
 
 /** Contacts touched most recently — the "what's happening" feed on the index. */
-export async function recentlyActiveContacts(
-  companyId: string,
-  limit = 10,
-): Promise<Contact[]> {
+export async function recentlyActiveContacts(companyId: string, limit = 10): Promise<Contact[]> {
   return AppDataSource.getRepository(Contact)
     .createQueryBuilder("c")
     .where("c.companyId = :companyId", { companyId })

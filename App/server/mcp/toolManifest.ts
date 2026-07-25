@@ -2313,6 +2313,136 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "list_activities",
+    description:
+      "Search the company-wide Revenue Activity ledger across subjects and bodies, with resource, kind, date, and actor filters. Use this for audits beyond one Contact or Deal timeline. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        q: { type: "string" },
+        kinds: {
+          type: "array",
+          items: {
+            type: "string",
+            enum: [
+              "email_in",
+              "email_out",
+              "call",
+              "meeting",
+              "note",
+              "task",
+              "deal_created",
+              "stage_change",
+              "deal_won",
+              "deal_lost",
+              "enrollment",
+              "sequence_step",
+              "unsubscribe",
+              "bounce",
+              "signal",
+            ],
+          },
+        },
+        contactId: { type: "string" },
+        dealId: { type: "string" },
+        customerId: { type: "string" },
+        partnershipId: { type: "string" },
+        from: { type: "string", description: "ISO datetime." },
+        to: { type: "string", description: "ISO datetime." },
+        actorUserId: { type: "string" },
+        actorEmployeeId: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 200 },
+        offset: { type: "integer", minimum: 0 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_activity",
+    description:
+      "Fetch a Revenue Activity directly by id, including its resource links, author, task metadata, and machine metadata. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: { activityId: { type: "string" } },
+      required: ["activityId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_activity",
+    description:
+      "Correct the text, occurrence time, or Revenue links on a manually logged note, call, meeting, or task. Machine-derived email, stage, Sequence, and Signal history is immutable. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        activityId: { type: "string" },
+        subject: { type: "string" },
+        bodyText: { type: "string" },
+        occurredAt: { type: "string" },
+        contactId: { type: ["string", "null"] },
+        dealId: { type: ["string", "null"] },
+        customerId: { type: ["string", "null"] },
+        partnershipId: { type: ["string", "null"] },
+      },
+      required: ["activityId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_activity",
+    description:
+      "Delete an incorrectly logged manual note, call, meeting, or task and recompute record recency. Machine-derived history cannot be deleted. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: { activityId: { type: "string" } },
+      required: ["activityId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "export_activities",
+    description:
+      "Export the company-wide Revenue Activity ledger as CSV using the same search, resource, kind, date, and actor filters as `list_activities`. Returns `contentText` for `send_chat_attachment`; narrow filters if it exceeds 8 MiB. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        q: { type: "string" },
+        kinds: {
+          type: "array",
+          items: {
+            type: "string",
+            enum: [
+              "email_in",
+              "email_out",
+              "call",
+              "meeting",
+              "note",
+              "task",
+              "deal_created",
+              "stage_change",
+              "deal_won",
+              "deal_lost",
+              "enrollment",
+              "sequence_step",
+              "unsubscribe",
+              "bounce",
+              "signal",
+            ],
+          },
+        },
+        contactId: { type: "string" },
+        dealId: { type: "string" },
+        customerId: { type: "string" },
+        partnershipId: { type: "string" },
+        from: { type: "string" },
+        to: { type: "string" },
+        actorUserId: { type: "string" },
+        actorEmployeeId: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_deals",
     description:
       "List Deals — one opportunity each, newest-updated first. Filter by `q` (title / description), `status` (open / won / lost), `stageId`, `customerId`, `contactId`, or `ownedByMe`. A deal's status always follows the stage it sits in; `weightedValueCents` is the amount times the stage probability. Needs `read` revenue access.",
@@ -2364,6 +2494,69 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
+    name: "create_deal_stage",
+    description:
+      "Create a Deal Stage at the end of the company’s ordered sales process. `kind` is open, won, or lost and becomes immutable after creation because it drives Deal status. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        probability: { type: "integer", minimum: 0, maximum: 100 },
+        kind: { type: "string", enum: ["open", "won", "lost"] },
+        color: { type: "string" },
+        description: { type: "string" },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_deal_stage",
+    description:
+      "Edit a Deal Stage’s name, forecast probability, colour, or description. Stage kind cannot be changed after creation. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        stageId: { type: "string" },
+        name: { type: "string" },
+        probability: { type: "integer", minimum: 0, maximum: 100 },
+        color: { type: "string" },
+        description: { type: "string" },
+      },
+      required: ["stageId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "reorder_deal_stages",
+    description:
+      "Replace the Deal Stage order with the complete ordered list of stage ids. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        orderedIds: {
+          type: "array",
+          items: { type: "string" },
+          minItems: 1,
+          maxItems: 100,
+        },
+      },
+      required: ["orderedIds"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "archive_deal_stage",
+    description:
+      "Archive a Deal Stage. Refuses while open Deals still sit in it, so move them first. Historical Deals retain the archived stage. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: { stageId: { type: "string" } },
+      required: ["stageId"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_sequences",
     description:
       "List outbound Sequences — multi-step campaigns where each touch is drafted individually by a named AI employee from that contact's real context, not merged from a template. Rows carry the step count, per-status enrolment counts, the owning employee, the mailbox, and `autoSend` (off means every drafted touch waits in the review queue for a human). Needs `read` revenue access.",
@@ -2374,6 +2567,121 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         status: { type: "string", enum: ["draft", "active", "paused", "archived"] },
         includeArchived: { type: "boolean" },
       },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_sequence",
+    description:
+      "Fetch one Sequence with its full brief, ordered steps, send window, and enrolment counts. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: { sequenceId: { type: "string" } },
+      required: ["sequenceId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_sequence",
+    description:
+      "Create an outbound Sequence assigned to an AI Employee and mailbox. It starts as a draft unless status is supplied; create its ladder with `replace_sequence_steps` before activating it. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        description: { type: "string" },
+        status: { type: "string", enum: ["draft", "active", "paused", "archived"] },
+        mailAccountId: { type: "string" },
+        employeeId: { type: "string" },
+        brief: { type: "string" },
+        autoSend: { type: "boolean" },
+        stopOnReply: { type: "boolean" },
+        dailyCap: { type: "integer", minimum: 0, maximum: 100000 },
+        sendWindow: {
+          type: ["object", "null"],
+          properties: {
+            days: { type: "array", items: { type: "integer", minimum: 0, maximum: 6 } },
+            startHour: { type: "integer", minimum: 0, maximum: 23 },
+            endHour: { type: "integer", minimum: 0, maximum: 23 },
+            timezone: { type: "string" },
+          },
+          required: ["days", "startHour", "endHour", "timezone"],
+          additionalProperties: false,
+        },
+      },
+      required: ["name", "mailAccountId", "employeeId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_sequence",
+    description:
+      "Edit a Sequence’s configuration, assignment, brief, status, caps, send window, or auto-send flag. Use `replace_sequence_steps` for the ladder. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sequenceId: { type: "string" },
+        name: { type: "string" },
+        description: { type: "string" },
+        status: { type: "string", enum: ["draft", "active", "paused", "archived"] },
+        mailAccountId: { type: "string" },
+        employeeId: { type: "string" },
+        brief: { type: "string" },
+        autoSend: { type: "boolean" },
+        stopOnReply: { type: "boolean" },
+        dailyCap: { type: "integer", minimum: 0, maximum: 100000 },
+        sendWindow: {
+          type: ["object", "null"],
+          properties: {
+            days: { type: "array", items: { type: "integer", minimum: 0, maximum: 6 } },
+            startHour: { type: "integer", minimum: 0, maximum: 23 },
+            endHour: { type: "integer", minimum: 0, maximum: 23 },
+            timezone: { type: "string" },
+          },
+          required: ["days", "startHour", "endHour", "timezone"],
+          additionalProperties: false,
+        },
+      },
+      required: ["sequenceId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "replace_sequence_steps",
+    description:
+      "Replace a Sequence’s complete ordered step ladder. Each step carries a delay, drafting instruction, and whether it threads with the previous touch. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sequenceId: { type: "string" },
+        steps: {
+          type: "array",
+          maxItems: 50,
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              delayDays: { type: "integer", minimum: 0, maximum: 365 },
+              delayHours: { type: "integer", minimum: 0, maximum: 23 },
+              instruction: { type: "string" },
+              threadWithPrevious: { type: "boolean" },
+            },
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["sequenceId", "steps"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "archive_sequence",
+    description:
+      "Archive a Sequence and stop its active enrolments. This is a terminal cleanup operation for the campaign. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: { sequenceId: { type: "string" } },
+      required: ["sequenceId"],
       additionalProperties: false,
     },
   },
@@ -2390,6 +2698,124 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
         includeArchived: { type: "boolean" },
       },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_signal",
+    description:
+      "Fetch one Signal’s complete query and action configuration. The SQL can expose production schema details, so use it only for the requested administration work. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: { signalId: { type: "string" } },
+      required: ["signalId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_signal",
+    description:
+      "Create a product-usage Signal. Signals default disabled: save, test with `test_signal`, then enable after checking the result and action. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        description: { type: "string" },
+        sourceKind: { type: "string", enum: ["sql", "stripe"] },
+        connectionId: { type: ["string", "null"] },
+        sql: { type: "string" },
+        cron: { type: "string" },
+        enabled: { type: "boolean" },
+        dedupeKeyColumn: { type: "string" },
+        emailColumn: { type: "string" },
+        domainColumn: { type: "string" },
+        amountColumn: { type: "string" },
+        actionKind: {
+          type: "string",
+          enum: ["activity", "notify", "create_deal", "enroll_sequence", "hand_to_employee"],
+        },
+        actionConfig: { type: ["object", "null"], additionalProperties: true },
+        employeeId: { type: ["string", "null"] },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_signal",
+    description:
+      "Edit or enable a Signal’s query, schedule, matching columns, action, and assignee. Test query changes before enabling them. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        signalId: { type: "string" },
+        name: { type: "string" },
+        description: { type: "string" },
+        sourceKind: { type: "string", enum: ["sql", "stripe"] },
+        connectionId: { type: ["string", "null"] },
+        sql: { type: "string" },
+        cron: { type: "string" },
+        enabled: { type: "boolean" },
+        dedupeKeyColumn: { type: "string" },
+        emailColumn: { type: "string" },
+        domainColumn: { type: "string" },
+        amountColumn: { type: "string" },
+        actionKind: {
+          type: "string",
+          enum: ["activity", "notify", "create_deal", "enroll_sequence", "hand_to_employee"],
+        },
+        actionConfig: { type: ["object", "null"], additionalProperties: true },
+        employeeId: { type: ["string", "null"] },
+      },
+      required: ["signalId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_signal_events",
+    description:
+      "Read company-wide Signal execution history, optionally filtered by Signal or event status. Rows contain the payload, resolved Contact/account/Deal links, outcome, and failure detail. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        signalId: { type: "string" },
+        status: { type: "string", enum: ["new", "actioned", "ignored", "failed"] },
+        limit: { type: "integer", minimum: 1, maximum: 200 },
+        offset: { type: "integer", minimum: 0 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "test_signal",
+    description:
+      "Run a Signal query as a dry run and return up to 20 rows without writing events or consuming dedupe keys. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: { signalId: { type: "string" } },
+      required: ["signalId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "archive_signal",
+    description:
+      "Archive and disable a Signal while retaining its event history. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: { signalId: { type: "string" } },
+      required: ["signalId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "restore_signal",
+    description:
+      "Restore an archived Signal. It remains disabled until explicitly enabled. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: { signalId: { type: "string" } },
+      required: ["signalId"],
       additionalProperties: false,
     },
   },
@@ -2583,6 +3009,40 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "create_revenue_classification",
+    description:
+      "Add a controlled Deal source, buying-committee role, Partnership type, or Partnership status. The stable machine value is derived from the label unless supplied. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        kind: {
+          type: "string",
+          enum: ["deal_source", "committee_role", "partnership_type", "partnership_status"],
+        },
+        label: { type: "string" },
+        value: { type: "string" },
+      },
+      required: ["kind", "label"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_revenue_classification",
+    description:
+      "Rename, reorder, archive, or restore a controlled Revenue classification. Its machine value remains stable for historical reporting. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        classificationId: { type: "string" },
+        label: { type: "string" },
+        sortOrder: { type: "integer" },
+        archived: { type: "boolean" },
+      },
+      required: ["classificationId"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_revenue_custom_fields",
     description:
       "List typed custom-field definitions for Contacts, accounts, Deals, or Partnerships. Fields may be text, number, date, boolean, select, multi-select or URL. Needs `read` revenue access.",
@@ -2596,6 +3056,54 @@ export const STATIC_TOOLS: McpToolSpec[] = [
       },
       additionalProperties: false,
     },
+  },
+  {
+    name: "create_revenue_custom_field",
+    description:
+      "Create a typed custom-field definition for Contacts, accounts, Deals, or Partnerships. Stable keys make imported and AI-written values queryable. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resourceType: {
+          type: "string",
+          enum: ["contact", "account", "deal", "partnership"],
+        },
+        name: { type: "string" },
+        key: { type: "string" },
+        fieldType: {
+          type: "string",
+          enum: ["text", "number", "date", "boolean", "select", "multi_select", "url"],
+        },
+        options: { type: "array", items: { type: "string" }, maxItems: 200 },
+        required: { type: "boolean" },
+      },
+      required: ["resourceType", "name", "fieldType"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_revenue_custom_field",
+    description:
+      "Edit a custom field’s label, select options, required flag, order, or archive state. Type and stable key cannot change once values may exist. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fieldId: { type: "string" },
+        name: { type: "string" },
+        options: { type: "array", items: { type: "string" }, maxItems: 200 },
+        required: { type: "boolean" },
+        sortOrder: { type: "integer" },
+        archived: { type: "boolean" },
+      },
+      required: ["fieldId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "install_base_migration_custom_fields",
+    description:
+      "Idempotently install the recommended typed fields for migrating a compressed CRM Base: monitoring stack, competitor/current provider, product interest, company/infrastructure size, geography/compliance, Stripe customer id, qualification score/signals, procurement/security status, and original Base row ids. Needs `write` revenue access.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "set_revenue_custom_fields",
@@ -2732,7 +3240,14 @@ export const STATIC_TOOLS: McpToolSpec[] = [
       properties: {
         kind: {
           type: "string",
-          enum: ["proposal", "rfp", "security_questionnaire", "contract", "email_attachment", "other"],
+          enum: [
+            "proposal",
+            "rfp",
+            "security_questionnaire",
+            "contract",
+            "email_attachment",
+            "other",
+          ],
         },
         title: { type: "string" },
         notes: { type: "string" },
@@ -2745,6 +3260,87 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         externalUrl: { type: "string" },
       },
       required: ["kind", "title"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_revenue_document",
+    description:
+      "Fetch one formal Revenue document’s metadata and linked file metadata directly by id. Use `download_revenue_document` for its bytes. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: { documentId: { type: "string" } },
+      required: ["documentId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_revenue_document",
+    description:
+      "Edit a formal Revenue document’s title, kind, notes, external URL, or Contact/account/Deal/Partnership links. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: { type: "string" },
+        kind: {
+          type: "string",
+          enum: [
+            "proposal",
+            "rfp",
+            "security_questionnaire",
+            "contract",
+            "email_attachment",
+            "other",
+          ],
+        },
+        title: { type: "string" },
+        notes: { type: "string" },
+        dealId: { type: ["string", "null"] },
+        customerId: { type: ["string", "null"] },
+        partnershipId: { type: ["string", "null"] },
+        contactId: { type: ["string", "null"] },
+        externalUrl: { type: "string" },
+      },
+      required: ["documentId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_revenue_document",
+    description:
+      "Unlink a formal Revenue document record. The action is audited; it does not delete an external source document. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: { documentId: { type: "string" } },
+      required: ["documentId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "download_revenue_document",
+    description:
+      "Fetch a linked Revenue document’s binary bytes as base64, with filename and MIME type, up to 8 MiB. Pass `contentBase64` to `send_chat_attachment` when a Member asks for the file. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: { documentId: { type: "string" } },
+      required: ["documentId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_revenue_imports",
+    description:
+      "List the company’s durable Revenue import history with ids, source, resource type, status, reconciliation mapping, report, and rollback timestamp. Needs `read` revenue access.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_revenue_import",
+    description:
+      "Retrieve one past Revenue import by id with its parsed mapping, source-row reconciliation map, and complete report for later investigation or rollback. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: { importId: { type: "string" } },
+      required: ["importId"],
       additionalProperties: false,
     },
   },
@@ -2783,6 +3379,82 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         mapping: { type: "object", additionalProperties: { type: "string" } },
       },
       required: ["baseId", "tableId", "resourceType", "mapping"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "preview_linked_base_revenue_import",
+    description:
+      "Dry-run one compressed Base row into a linked Account, Contact, and Deal. Supply separate native/custom-field mappings for all three resources. Returns per-resource duplicate/skip/create decisions without writes. Needs `write` revenue access and a Base Grant.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        baseId: { type: "string" },
+        tableId: { type: "string" },
+        mapping: {
+          type: "object",
+          properties: {
+            account: { type: "object", additionalProperties: { type: "string" } },
+            contact: { type: "object", additionalProperties: { type: "string" } },
+            deal: { type: "object", additionalProperties: { type: "string" } },
+          },
+          required: ["account", "contact", "deal"],
+          additionalProperties: false,
+        },
+      },
+      required: ["baseId", "tableId", "mapping"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "run_linked_base_revenue_import",
+    description:
+      "Atomically split each compressed Base row into a linked Account, Contact, and Deal. The whole database write commits or rolls back together, duplicates are reused without overwrite, and the batch stores every source-to-native id. Needs `write` revenue access and a Base Grant.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        baseId: { type: "string" },
+        tableId: { type: "string" },
+        mapping: {
+          type: "object",
+          properties: {
+            account: { type: "object", additionalProperties: { type: "string" } },
+            contact: { type: "object", additionalProperties: { type: "string" } },
+            deal: { type: "object", additionalProperties: { type: "string" } },
+          },
+          required: ["account", "contact", "deal"],
+          additionalProperties: false,
+        },
+      },
+      required: ["baseId", "tableId", "mapping"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "migrate_base_revenue_attachments",
+    description:
+      "Copy every Base record attachment covered by an import reconciliation map into formal Revenue documents. For a linked import, choose account, contact, or deal (Deal is the default). Idempotently skips matching filename/size links. Needs `write` revenue access and a Grant to the source Base.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        importId: { type: "string" },
+        targetResourceType: {
+          type: "string",
+          enum: ["contact", "account", "deal", "partnership"],
+        },
+        kind: {
+          type: "string",
+          enum: [
+            "proposal",
+            "rfp",
+            "security_questionnaire",
+            "contract",
+            "email_attachment",
+            "other",
+          ],
+        },
+      },
+      required: ["importId"],
       additionalProperties: false,
     },
   },
@@ -2831,6 +3503,11 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           ],
           description: "Defaults to 'lead'.",
         },
+        ownerId: { type: ["string", "null"], description: "Human Member owner." },
+        ownerEmployeeId: {
+          type: ["string", "null"],
+          description: "AI Employee owner.",
+        },
         source: {
           type: "string",
           description: "Where they came from, e.g. 'referral' or 'google-ads'.",
@@ -2870,6 +3547,11 @@ export const STATIC_TOOLS: McpToolSpec[] = [
             "churned",
             "unqualified",
           ],
+        },
+        ownerId: { type: ["string", "null"], description: "Human Member owner." },
+        ownerEmployeeId: {
+          type: ["string", "null"],
+          description: "AI Employee owner.",
         },
         source: { type: "string" },
         sourceDetail: { type: "string" },

@@ -1,13 +1,10 @@
 import { Brackets, In, IsNull, LessThan, type SelectQueryBuilder } from "typeorm";
 
 import { AppDataSource } from "../../db/datasource.js";
-import {
-  Contact,
-  type ContactLifecycleStage,
-} from "../../db/entities/Contact.js";
+import { Contact, type ContactLifecycleStage } from "../../db/entities/Contact.js";
 import { Customer } from "../../db/entities/Customer.js";
 import { normalizeEmail } from "../../lib/emailAddress.js";
-import { assertRevenueLinks } from "./integrity.js";
+import { assertRevenueLinks, assertRevenueOwner } from "./integrity.js";
 import { matchingResourceIds } from "./customFields.js";
 
 /**
@@ -140,10 +137,7 @@ export async function listContacts(
 }
 
 /** One round-trip for the account names on a page of contacts. */
-async function attachCustomerNames(
-  companyId: string,
-  rows: Contact[],
-): Promise<HydratedContact[]> {
+async function attachCustomerNames(companyId: string, rows: Contact[]): Promise<HydratedContact[]> {
   const ids = [...new Set(rows.map((r) => r.customerId).filter((id): id is string => !!id))];
   if (ids.length === 0) {
     return rows.map((r) => Object.assign(r, { customerName: null }));
@@ -154,7 +148,7 @@ async function attachCustomerNames(
   });
   const byId = new Map(customers.map((c) => [c.id, c.name]));
   return rows.map((r) =>
-    Object.assign(r, { customerName: r.customerId ? byId.get(r.customerId) ?? null : null }),
+    Object.assign(r, { customerName: r.customerId ? (byId.get(r.customerId) ?? null) : null }),
   );
 }
 
@@ -219,7 +213,10 @@ export async function createContact(
   input: ContactInput,
   actor: ContactActor = {},
 ): Promise<Contact> {
-  await assertRevenueLinks(companyId, { customerId: input.customerId });
+  await Promise.all([
+    assertRevenueLinks(companyId, { customerId: input.customerId }),
+    assertRevenueOwner(companyId, input),
+  ]);
   const email = normalizeEmail(input.email ?? "") ?? "";
   if (email) {
     const existing = await findContactByEmail(companyId, email);
@@ -311,7 +308,10 @@ export async function updateContact(
   const repo = AppDataSource.getRepository(Contact);
   const contact = await repo.findOneBy({ id, companyId });
   if (!contact) return null;
-  await assertRevenueLinks(companyId, { customerId: patch.customerId });
+  await Promise.all([
+    assertRevenueLinks(companyId, { customerId: patch.customerId }),
+    assertRevenueOwner(companyId, patch),
+  ]);
 
   if (patch.email !== undefined) {
     const email = normalizeEmail(patch.email) ?? "";
@@ -329,8 +329,14 @@ export async function updateContact(
   if (patch.customerId !== undefined) contact.customerId = patch.customerId;
   if (patch.companyName !== undefined) contact.companyName = patch.companyName;
   if (patch.lifecycleStage !== undefined) contact.lifecycleStage = patch.lifecycleStage;
-  if (patch.ownerId !== undefined) contact.ownerId = patch.ownerId;
-  if (patch.ownerEmployeeId !== undefined) contact.ownerEmployeeId = patch.ownerEmployeeId;
+  if (patch.ownerId !== undefined) {
+    contact.ownerId = patch.ownerId;
+    if (patch.ownerId) contact.ownerEmployeeId = null;
+  }
+  if (patch.ownerEmployeeId !== undefined) {
+    contact.ownerEmployeeId = patch.ownerEmployeeId;
+    if (patch.ownerEmployeeId) contact.ownerId = null;
+  }
   if (patch.source !== undefined) contact.source = patch.source;
   if (patch.sourceDetail !== undefined) contact.sourceDetail = patch.sourceDetail;
   if (patch.score !== undefined) contact.score = clampScore(patch.score);
@@ -353,10 +359,7 @@ export async function archiveContact(
   return repo.save(contact);
 }
 
-export async function restoreContact(
-  companyId: string,
-  id: string,
-): Promise<Contact | null> {
+export async function restoreContact(companyId: string, id: string): Promise<Contact | null> {
   const repo = AppDataSource.getRepository(Contact);
   const contact = await repo.findOneBy({ id, companyId });
   if (!contact) return null;

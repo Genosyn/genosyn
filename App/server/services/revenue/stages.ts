@@ -1,6 +1,7 @@
 import { IsNull } from "typeorm";
 
 import { AppDataSource } from "../../db/datasource.js";
+import { Deal } from "../../db/entities/Deal.js";
 import { DealStage, type DealStageKind } from "../../db/entities/DealStage.js";
 import { toSlug } from "../../lib/slug.js";
 
@@ -125,10 +126,7 @@ export async function seedDefaultStages(companyId: string): Promise<DealStage[]>
 
 /** Look one up, scoped to the company. Archived stages resolve — a closed deal */
 /** must not lose the name of the stage it closed in. */
-export async function getDealStage(
-  companyId: string,
-  id: string,
-): Promise<DealStage | null> {
+export async function getDealStage(companyId: string, id: string): Promise<DealStage | null> {
   return AppDataSource.getRepository(DealStage).findOneBy({ id, companyId });
 }
 
@@ -154,6 +152,77 @@ export async function uniqueStageSlug(companyId: string, base: string): Promise<
     slug = `${root}-${n}`;
   }
   return slug;
+}
+
+export type DealStageCreate = {
+  name: string;
+  probability?: number;
+  kind?: DealStageKind;
+  color?: string;
+  description?: string;
+};
+
+export async function createDealStage(
+  companyId: string,
+  input: DealStageCreate,
+): Promise<DealStage> {
+  const repo = AppDataSource.getRepository(DealStage);
+  const last = await repo.findOne({
+    where: { companyId },
+    order: { sortOrder: "DESC" },
+  });
+  return repo.save(
+    repo.create({
+      companyId,
+      name: input.name.trim(),
+      slug: await uniqueStageSlug(companyId, input.name),
+      sortOrder: (last?.sortOrder ?? -1) + 1,
+      probability: input.probability ?? 0,
+      kind: input.kind ?? "open",
+      color: input.color ?? "",
+      description: input.description ?? "",
+      archivedAt: null,
+    }),
+  );
+}
+
+/**
+ * Stage kind is intentionally immutable after creation. It determines every
+ * Deal's derived status, and changing a populated stage from open to won would
+ * silently close records without the stage-change Activities the reports read.
+ */
+export async function updateDealStage(
+  companyId: string,
+  id: string,
+  patch: Partial<Omit<DealStageCreate, "kind">>,
+): Promise<DealStage | null> {
+  const repo = AppDataSource.getRepository(DealStage);
+  const stage = await repo.findOneBy({ companyId, id });
+  if (!stage) return null;
+  if (patch.name !== undefined) stage.name = patch.name.trim();
+  if (patch.probability !== undefined) stage.probability = patch.probability;
+  if (patch.color !== undefined) stage.color = patch.color;
+  if (patch.description !== undefined) stage.description = patch.description;
+  return repo.save(stage);
+}
+
+export async function archiveDealStage(
+  companyId: string,
+  id: string,
+  now = new Date(),
+): Promise<{ stage: DealStage | null; openDealCount: number }> {
+  const repo = AppDataSource.getRepository(DealStage);
+  const stage = await repo.findOneBy({ companyId, id });
+  if (!stage) return { stage: null, openDealCount: 0 };
+  const openDealCount = await AppDataSource.getRepository(Deal).countBy({
+    companyId,
+    stageId: stage.id,
+    status: "open",
+    archivedAt: IsNull(),
+  });
+  if (openDealCount > 0) return { stage, openDealCount };
+  stage.archivedAt = now;
+  return { stage: await repo.save(stage), openDealCount: 0 };
 }
 
 /**

@@ -125,12 +125,17 @@ export type RevenueDocument = {
 
 export type RevenueImportBatch = {
   id: string;
-  resourceType: RevenueResourceType;
+  resourceType: RevenueResourceType | "account_contact_deal";
   sourceKind: "base" | "csv";
   sourceLabel: string;
   status: "completed" | "rolled_back" | "failed";
+  mappingJson: string;
   rowMapJson: string;
+  createdIdsJson: string;
   reportJson: string;
+  sourceBaseId: string | null;
+  sourceTableId: string | null;
   rolledBackAt: string | null;
   createdAt: string;
+  updatedAt: string;
 };

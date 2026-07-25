@@ -119,6 +119,7 @@ import RevenueAccounts from "./pages/RevenueAccounts";
 import RevenueAccountDetail from "./pages/RevenueAccountDetail";
 import RevenueFollowUps from "./pages/RevenueFollowUps";
 import RevenueImports from "./pages/RevenueImports";
+import RevenueActivities from "./pages/RevenueActivities";
 import RevenuePartnershipDetail from "./pages/RevenuePartnershipDetail";
 import RevenuePartnerships from "./pages/RevenuePartnerships";
 import RevenueSetup from "./pages/RevenueSetup";
@@ -448,6 +449,7 @@ function CompanyRoutes({
             <Route path="sequences/:sequenceId" element={<RevenueSequenceDetail />} />
             <Route path="signals" element={<RevenueSignals />} />
             <Route path="signals/:signalId" element={<RevenueSignalDetail />} />
+            <Route path="activities" element={<RevenueActivities />} />
             <Route path="suppressions" element={<RevenueSuppressions />} />
             <Route path="ai-access" element={<RevenueAiAccess />} />
             <Route path="imports" element={<RevenueImports />} />
