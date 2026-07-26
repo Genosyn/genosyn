@@ -26,6 +26,7 @@ import {
   EmployeeWorkloadBusyError,
   releaseWorkloadLease,
 } from "./workloadLeases.js";
+import { createGenosynHelpSource } from "./agent/tools/genosynHelp.js";
 
 /**
  * Chat seam.
@@ -97,6 +98,8 @@ function formatBusyReply(emp: AIEmployee): string {
 
 export type ChatOptions = {
   conversationId?: string;
+  /** `help` adds the shipped Genosyn source snapshot and support briefing. */
+  surface?: "chat" | "help";
   /**
    * Extra system-prompt section appended after the Soul/Skills — lets a
    * surface (e.g. per-email AI chat) brief the employee on its context and
@@ -193,6 +196,7 @@ export async function streamChatWithEmployee(
     const codeReposContext = await composeCodeReposContext(emp.id);
     const financeContext = await composeFinanceContext(emp.id);
     const revenueContext = await composeRevenueContext(emp.id);
+    const helpSource = options.surface === "help" ? createGenosynHelpSource() : null;
     let system = composeEmployeeSystemPrompt({
       co,
       emp,
@@ -203,11 +207,14 @@ export async function streamChatWithEmployee(
       revenueContext,
       surface: "chat",
       opening:
-        `You are ${emp.name}, ${emp.role} at ${co.name}. A teammate is chatting with you ` +
-        `directly. Reply in your own voice, guided by your Soul, Memory, and Skills below. ` +
-        `Keep replies focused and grounded — ask clarifying questions when needed.`,
+        options.surface === "help"
+          ? `You are ${emp.name}, ${emp.role} at ${co.name}. A teammate selected you in Genosyn Help to answer a question about Genosyn. Reply in your own voice, guided by your Soul and Skills, while treating the Help briefing and shipped source as authoritative.`
+          : `You are ${emp.name}, ${emp.role} at ${co.name}. A teammate is chatting with you ` +
+            `directly. Reply in your own voice, guided by your Soul, Memory, and Skills below. ` +
+            `Keep replies focused and grounded — ask clarifying questions when needed.`,
       skillToolsets: skillToolsetMap(skills),
     });
+    if (helpSource) system += `\n${helpSource.prompt}`;
     if (options.extraSystem) system += `\n${options.extraSystem}`;
     const messages = buildMessages(history, message);
 
@@ -249,6 +256,7 @@ export async function streamChatWithEmployee(
         bashTimeoutMs: 5 * 60 * 1000,
         maxSteps: CHAT_MAX_STEPS,
         skillToolset: [...residentNamesForSkills(skills), ...(options.extraToolset ?? [])],
+        extraTools: helpSource?.tools,
         conversationId: options.conversationId,
         signal: controller.signal,
         callbacks: {

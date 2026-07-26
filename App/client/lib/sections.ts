@@ -1,6 +1,7 @@
 import {
   BarChart3,
   CalendarClock,
+  CircleHelp,
   CircleUser,
   Contact2,
   FolderGit2,
@@ -52,6 +53,7 @@ export type SectionKey =
   | "pipelines"
   | "approvals"
   | "settings"
+  | "help"
   | "account"
   | "admin";
 
@@ -87,8 +89,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         icon: Home,
         shortcut: "H",
         path: "",
-        iconBg:
-          "bg-slate-100 text-slate-600 dark:bg-slate-700/40 dark:text-slate-200",
+        iconBg: "bg-slate-100 text-slate-600 dark:bg-slate-700/40 dark:text-slate-200",
         keywords: ["dashboard", "overview", "start"],
       },
       {
@@ -98,8 +99,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         icon: MessageSquare,
         shortcut: "W",
         path: "/workspace",
-        iconBg:
-          "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300",
+        iconBg: "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300",
         keywords: ["chat", "channels", "dms", "slack", "messages"],
       },
       {
@@ -119,8 +119,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         icon: ListChecks,
         shortcut: "T",
         path: "/tasks",
-        iconBg:
-          "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300",
+        iconBg: "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300",
         keywords: ["projects", "todos", "kanban", "backlog", "issues"],
       },
     ],
@@ -139,8 +138,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         icon: Users,
         shortcut: "E",
         path: "/employees",
-        iconBg:
-          "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
+        iconBg: "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
         keywords: ["team", "roster", "staff", "people", "hire", "agent", "bot"],
       },
       {
@@ -150,8 +148,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         icon: Wrench,
         shortcut: "S",
         path: "/skills",
-        iconBg:
-          "bg-green-100 text-green-600 dark:bg-green-500/15 dark:text-green-300",
+        iconBg: "bg-green-100 text-green-600 dark:bg-green-500/15 dark:text-green-300",
         keywords: ["playbook", "capability", "instructions"],
       },
       {
@@ -161,8 +158,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         icon: CalendarClock,
         shortcut: "R",
         path: "/routines",
-        iconBg:
-          "bg-purple-100 text-purple-600 dark:bg-purple-500/15 dark:text-purple-300",
+        iconBg: "bg-purple-100 text-purple-600 dark:bg-purple-500/15 dark:text-purple-300",
         keywords: ["schedule", "cron", "job", "recurring", "runs", "logs"],
       },
     ],
@@ -177,8 +173,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         icon: Table2,
         shortcut: "B",
         path: "/bases",
-        iconBg:
-          "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300",
+        iconBg: "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300",
         keywords: ["airtable", "tables", "records", "spreadsheet", "database"],
       },
       {
@@ -188,8 +183,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         icon: NotebookText,
         shortcut: "N",
         path: "/notes",
-        iconBg:
-          "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300",
+        iconBg: "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300",
         keywords: ["notion", "docs", "pages", "markdown", "wiki"],
       },
       {
@@ -199,8 +193,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         icon: Library,
         shortcut: "L",
         path: "/resources",
-        iconBg:
-          "bg-fuchsia-100 text-fuchsia-600 dark:bg-fuchsia-500/15 dark:text-fuchsia-300",
+        iconBg: "bg-fuchsia-100 text-fuchsia-600 dark:bg-fuchsia-500/15 dark:text-fuchsia-300",
         keywords: ["ebooks", "transcripts", "urls", "knowledge", "library"],
       },
       {
@@ -210,8 +203,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         icon: BarChart3,
         shortcut: "X",
         path: "/explore",
-        iconBg:
-          "bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300",
+        iconBg: "bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300",
         keywords: ["bi", "sql", "charts", "dashboards", "analytics", "queries"],
       },
     ],
@@ -226,8 +218,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         icon: FolderGit2,
         shortcut: "C",
         path: "/code",
-        iconBg:
-          "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
+        iconBg: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
         keywords: ["git", "repos", "repositories", "branches", "engineering"],
       },
       {
@@ -252,8 +243,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         icon: TrendingUp,
         shortcut: "V",
         path: "/revenue",
-        iconBg:
-          "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300",
+        iconBg: "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300",
         // "crm", "pipeline" and "leads" are here precisely because they are
         // words we do NOT use in product copy — somebody typing them should
         // land here and learn the real names. "pipeline" especially: it means
@@ -284,8 +274,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         icon: Contact2,
         shortcut: "U",
         path: "/customers",
-        iconBg:
-          "bg-pink-100 text-pink-600 dark:bg-pink-500/15 dark:text-pink-300",
+        iconBg: "bg-pink-100 text-pink-600 dark:bg-pink-500/15 dark:text-pink-300",
         keywords: ["accounts", "contacts", "crm", "contracts", "acv"],
       },
       {
@@ -295,8 +284,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         icon: Wallet,
         shortcut: "F",
         path: "/finance",
-        iconBg:
-          "bg-teal-100 text-teal-600 dark:bg-teal-500/15 dark:text-teal-300",
+        iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-500/15 dark:text-teal-300",
         keywords: [
           "invoices",
           "bills",
@@ -320,8 +308,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         icon: NotebookPen,
         shortcut: "J",
         path: "/inbox",
-        iconBg:
-          "bg-cyan-100 text-cyan-600 dark:bg-cyan-500/15 dark:text-cyan-300",
+        iconBg: "bg-cyan-100 text-cyan-600 dark:bg-cyan-500/15 dark:text-cyan-300",
         keywords: ["diary", "activity", "digest", "log"],
       },
       {
@@ -331,8 +318,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         icon: ShieldCheck,
         shortcut: "A",
         path: "/approvals",
-        iconBg:
-          "bg-orange-100 text-orange-600 dark:bg-orange-500/15 dark:text-orange-300",
+        iconBg: "bg-orange-100 text-orange-600 dark:bg-orange-500/15 dark:text-orange-300",
         keywords: ["approve", "review", "gate", "sign off", "pending"],
       },
       {
@@ -342,8 +328,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
         icon: SettingsIcon,
         shortcut: ",",
         path: "/settings",
-        iconBg:
-          "bg-slate-200 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
+        iconBg: "bg-slate-200 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
         keywords: [
           "members",
           "integrations",
@@ -375,9 +360,20 @@ export const ACCOUNT_SECTION: SectionItem = {
   icon: CircleUser,
   shortcut: "O",
   path: "/account",
-  iconBg:
-    "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
+  iconBg: "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
   keywords: ["profile", "password", "avatar", "notifications", "me", "push"],
+};
+
+/** Product-aware support, answered by any AI Employee in the current company. */
+export const HELP_SECTION: SectionItem = {
+  key: "help",
+  label: "Help",
+  description: "Ask an AI Employee how Genosyn works.",
+  icon: CircleHelp,
+  shortcut: "Q",
+  path: "/help",
+  iconBg: "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300",
+  keywords: ["support", "docs", "questions", "codebase", "troubleshooting"],
 };
 
 /** Instance-operator surface, restricted to master admins. */
@@ -393,7 +389,7 @@ export const ADMIN_SECTION: SectionItem = {
 };
 
 export const SECTION_BY_KEY: Record<SectionKey, SectionItem> = Object.fromEntries(
-  [...SECTION_GROUPS.flatMap((g) => g.items), ACCOUNT_SECTION, ADMIN_SECTION].map(
+  [...SECTION_GROUPS.flatMap((g) => g.items), HELP_SECTION, ACCOUNT_SECTION, ADMIN_SECTION].map(
     (i) => [i.key, i],
   ),
 ) as Record<SectionKey, SectionItem>;
@@ -421,6 +417,7 @@ export function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/finance(\/|$)/.test(pathname)) return "finance";
   if (/\/c\/[^/]+\/pipelines(\/|$)/.test(pathname)) return "pipelines";
   if (/\/c\/[^/]+\/approvals(\/|$)/.test(pathname)) return "approvals";
+  if (/\/c\/[^/]+\/help(\/|$)/.test(pathname)) return "help";
   if (/\/c\/[^/]+\/account(\/|$)/.test(pathname)) return "account";
   if (/\/c\/[^/]+\/admin(\/|$)/.test(pathname)) return "admin";
   if (/\/c\/[^/]+\/settings(\/|$)/.test(pathname)) return "settings";

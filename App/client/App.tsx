@@ -166,6 +166,7 @@ import ExploreLayout from "./pages/ExploreLayout";
 import ExploreIndex from "./pages/ExploreIndex";
 import ExploreChartDetail from "./pages/ExploreChartDetail";
 import ExploreDashboardDetail from "./pages/ExploreDashboardDetail";
+import Help from "./pages/Help";
 
 type AuthState =
   | { status: "loading" }
@@ -515,6 +516,7 @@ function CompanyRoutes({
           </Route>
 
           <Route path="approvals" element={<Approvals company={company} />} />
+          <Route path="help" element={<Help company={company} />} />
 
           {/* Workspace chat — Slack-style channels and DMs (M9). */}
           <Route path="workspace" element={<Workspace company={company} me={me} />} />

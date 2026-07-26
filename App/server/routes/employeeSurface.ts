@@ -4,7 +4,7 @@ import { IsNull, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
-import { Conversation } from "../db/entities/Conversation.js";
+import { Conversation, type ConversationSource } from "../db/entities/Conversation.js";
 import { ConversationMessage } from "../db/entities/ConversationMessage.js";
 import { Attachment } from "../db/entities/Attachment.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
@@ -120,10 +120,7 @@ function summarizeAttachment(a: Attachment): AttachmentSummary {
   };
 }
 
-function serializeMessage(
-  m: ConversationMessage,
-  attachments: Attachment[] = [],
-) {
+function serializeMessage(m: ConversationMessage, attachments: Attachment[] = []) {
   return {
     id: m.id,
     conversationId: m.conversationId,
@@ -149,16 +146,30 @@ function formatChatInfrastructureError(error: unknown, conversationId: string): 
   ].join("\n");
 }
 
+const conversationSurfaceSchema = z.enum(["web", "help"]);
+const conversationListQuerySchema = z.object({
+  archived: z.enum(["0", "1"]).optional().default("0"),
+  surface: conversationSurfaceSchema.optional().default("web"),
+});
+const createConversationSchema = z.object({
+  surface: conversationSurfaceSchema.optional().default("web"),
+});
+
 employeeSurfaceRouter.get("/:eid/conversations", async (req, res) => {
   const { cid, eid } = req.params as Record<string, string>;
   const loaded = await loadEmpAndCompany(cid, eid);
   if (!loaded) return res.status(404).json({ error: "Not found" });
+  const parsed = conversationListQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "ValidationError", issues: parsed.error.issues });
+  }
   // `?archived=1` returns only archived threads, default returns only
   // active ones. The sidebar flips between the two via a disclosure.
-  const wantsArchived = req.query.archived === "1";
+  const wantsArchived = parsed.data.archived === "1";
   const rows = await AppDataSource.getRepository(Conversation).find({
     where: {
       employeeId: eid,
+      source: parsed.data.surface,
       archivedAt: wantsArchived ? Not(IsNull()) : IsNull(),
     },
     order: { updatedAt: "DESC" },
@@ -166,15 +177,24 @@ employeeSurfaceRouter.get("/:eid/conversations", async (req, res) => {
   res.json(rows.map((r) => serializeConversation(r, r.updatedAt)));
 });
 
-employeeSurfaceRouter.post("/:eid/conversations", async (req, res) => {
-  const { cid, eid } = req.params as Record<string, string>;
-  const loaded = await loadEmpAndCompany(cid, eid);
-  if (!loaded) return res.status(404).json({ error: "Not found" });
-  const repo = AppDataSource.getRepository(Conversation);
-  const conv = repo.create({ employeeId: eid, title: null });
-  await repo.save(conv);
-  res.json(serializeConversation(conv));
-});
+employeeSurfaceRouter.post(
+  "/:eid/conversations",
+  validateBody(createConversationSchema),
+  async (req, res) => {
+    const { cid, eid } = req.params as Record<string, string>;
+    const loaded = await loadEmpAndCompany(cid, eid);
+    if (!loaded) return res.status(404).json({ error: "Not found" });
+    const body = req.body as z.infer<typeof createConversationSchema>;
+    const repo = AppDataSource.getRepository(Conversation);
+    const conv = repo.create({
+      employeeId: eid,
+      title: null,
+      source: body.surface as ConversationSource,
+    });
+    await repo.save(conv);
+    res.json(serializeConversation(conv));
+  },
+);
 
 employeeSurfaceRouter.get("/:eid/conversations/:convId", async (req, res) => {
   const { cid, eid, convId } = req.params as Record<string, string>;
@@ -192,45 +212,37 @@ employeeSurfaceRouter.get("/:eid/conversations/:convId", async (req, res) => {
   const attachmentsByMsg = await attachmentsForMessages(messages.map((m) => m.id));
   res.json({
     conversation: serializeConversation(conv, conv.updatedAt),
-    messages: messages.map((m) =>
-      serializeMessage(m, attachmentsByMsg.get(m.id) ?? []),
-    ),
+    messages: messages.map((m) => serializeMessage(m, attachmentsByMsg.get(m.id) ?? [])),
   });
 });
 
-employeeSurfaceRouter.post(
-  "/:eid/conversations/:convId/archive",
-  async (req, res) => {
-    const { cid, eid, convId } = req.params as Record<string, string>;
-    const loaded = await loadEmpAndCompany(cid, eid);
-    if (!loaded) return res.status(404).json({ error: "Not found" });
-    const repo = AppDataSource.getRepository(Conversation);
-    const conv = await repo.findOneBy({ id: convId, employeeId: eid });
-    if (!conv) return res.status(404).json({ error: "Not found" });
-    if (!conv.archivedAt) {
-      conv.archivedAt = new Date();
-      await repo.save(conv);
-    }
-    res.json(serializeConversation(conv, conv.updatedAt));
-  },
-);
+employeeSurfaceRouter.post("/:eid/conversations/:convId/archive", async (req, res) => {
+  const { cid, eid, convId } = req.params as Record<string, string>;
+  const loaded = await loadEmpAndCompany(cid, eid);
+  if (!loaded) return res.status(404).json({ error: "Not found" });
+  const repo = AppDataSource.getRepository(Conversation);
+  const conv = await repo.findOneBy({ id: convId, employeeId: eid });
+  if (!conv) return res.status(404).json({ error: "Not found" });
+  if (!conv.archivedAt) {
+    conv.archivedAt = new Date();
+    await repo.save(conv);
+  }
+  res.json(serializeConversation(conv, conv.updatedAt));
+});
 
-employeeSurfaceRouter.post(
-  "/:eid/conversations/:convId/unarchive",
-  async (req, res) => {
-    const { cid, eid, convId } = req.params as Record<string, string>;
-    const loaded = await loadEmpAndCompany(cid, eid);
-    if (!loaded) return res.status(404).json({ error: "Not found" });
-    const repo = AppDataSource.getRepository(Conversation);
-    const conv = await repo.findOneBy({ id: convId, employeeId: eid });
-    if (!conv) return res.status(404).json({ error: "Not found" });
-    if (conv.archivedAt) {
-      conv.archivedAt = null;
-      await repo.save(conv);
-    }
-    res.json(serializeConversation(conv, conv.updatedAt));
-  },
-);
+employeeSurfaceRouter.post("/:eid/conversations/:convId/unarchive", async (req, res) => {
+  const { cid, eid, convId } = req.params as Record<string, string>;
+  const loaded = await loadEmpAndCompany(cid, eid);
+  if (!loaded) return res.status(404).json({ error: "Not found" });
+  const repo = AppDataSource.getRepository(Conversation);
+  const conv = await repo.findOneBy({ id: convId, employeeId: eid });
+  if (!conv) return res.status(404).json({ error: "Not found" });
+  if (conv.archivedAt) {
+    conv.archivedAt = null;
+    await repo.save(conv);
+  }
+  res.json(serializeConversation(conv, conv.updatedAt));
+});
 
 employeeSurfaceRouter.delete("/:eid/conversations/:convId", async (req, res) => {
   const { cid, eid, convId } = req.params as Record<string, string>;
@@ -273,26 +285,23 @@ employeeSurfaceRouter.post(
   },
 );
 
-employeeSurfaceRouter.get(
-  "/:eid/chat-attachments/:attachmentId",
-  async (req, res) => {
-    const { cid, eid, attachmentId } = req.params as Record<string, string>;
-    const loaded = await loadEmpAndCompany(cid, eid);
-    if (!loaded) return res.status(404).json({ error: "Not found" });
-    const resolved = await resolveAttachmentFile(attachmentId, loaded.co.id);
-    if (!resolved) {
-      return res.status(404).json({ error: "Attachment not found" });
-    }
-    res.setHeader("Content-Type", resolved.row.mimeType);
-    const inline = resolved.row.mimeType.startsWith("image/");
-    const disposition = inline ? "inline" : "attachment";
-    res.setHeader(
-      "Content-Disposition",
-      `${disposition}; filename="${encodeURIComponent(resolved.row.filename)}"`,
-    );
-    res.sendFile(resolved.absPath);
-  },
-);
+employeeSurfaceRouter.get("/:eid/chat-attachments/:attachmentId", async (req, res) => {
+  const { cid, eid, attachmentId } = req.params as Record<string, string>;
+  const loaded = await loadEmpAndCompany(cid, eid);
+  if (!loaded) return res.status(404).json({ error: "Not found" });
+  const resolved = await resolveAttachmentFile(attachmentId, loaded.co.id);
+  if (!resolved) {
+    return res.status(404).json({ error: "Attachment not found" });
+  }
+  res.setHeader("Content-Type", resolved.row.mimeType);
+  const inline = resolved.row.mimeType.startsWith("image/");
+  const disposition = inline ? "inline" : "attachment";
+  res.setHeader(
+    "Content-Disposition",
+    `${disposition}; filename="${encodeURIComponent(resolved.row.filename)}"`,
+  );
+  res.sendFile(resolved.absPath);
+});
 
 const sendSchema = z.object({
   message: z.string().max(8000).default(""),
@@ -410,9 +419,7 @@ employeeSurfaceRouter.post(
         where: { conversationId: conv.id },
         order: { createdAt: "ASC" },
       });
-      const priorIds = prior
-        .filter((m) => m.id !== userMsg.id)
-        .map((m) => m.id);
+      const priorIds = prior.filter((m) => m.id !== userMsg.id).map((m) => m.id);
       const priorAttachmentNotes = await historicalAttachmentSummaries(priorIds);
       const replay = prior
         .filter((m) => m.id !== userMsg.id)
@@ -448,7 +455,10 @@ employeeSurfaceRouter.post(
         promptMessage,
         replay,
         (chunk) => writeEvent("chunk", { text: chunk }),
-        { conversationId: conv.id },
+        {
+          conversationId: conv.id,
+          surface: conv.source === "help" ? "help" : "chat",
+        },
       );
 
       const actions = await captureTurnActions(cid, eid, turnStart);
@@ -478,10 +488,7 @@ employeeSurfaceRouter.post(
       writeEvent("done", {});
       res.end();
     } catch (e) {
-      console.error(
-        `[chat] turn failed company=${cid} employee=${eid} conversation=${convId}`,
-        e,
-      );
+      console.error(`[chat] turn failed company=${cid} employee=${eid} conversation=${convId}`, e);
       // If the stream is still open, surface the error over SSE; otherwise
       // fall back to the normal Express error handler.
       if (!res.writableEnded) {
@@ -523,29 +530,25 @@ const journalNoteSchema = z.object({
   body: z.string().max(10_000).default(""),
 });
 
-employeeSurfaceRouter.post(
-  "/:eid/journal",
-  validateBody(journalNoteSchema),
-  async (req, res) => {
-    const { cid, eid } = req.params as Record<string, string>;
-    const loaded = await loadEmpAndCompany(cid, eid);
-    if (!loaded) return res.status(404).json({ error: "Not found" });
-    const body = req.body as z.infer<typeof journalNoteSchema>;
-    const userId = req.session?.userId ?? null;
-    const repo = AppDataSource.getRepository(JournalEntry);
-    const entry = repo.create({
-      employeeId: loaded.emp.id,
-      kind: "note",
-      title: body.title,
-      body: body.body,
-      runId: null,
-      routineId: null,
-      authorUserId: userId,
-    });
-    await repo.save(entry);
-    res.json(entry);
-  },
-);
+employeeSurfaceRouter.post("/:eid/journal", validateBody(journalNoteSchema), async (req, res) => {
+  const { cid, eid } = req.params as Record<string, string>;
+  const loaded = await loadEmpAndCompany(cid, eid);
+  if (!loaded) return res.status(404).json({ error: "Not found" });
+  const body = req.body as z.infer<typeof journalNoteSchema>;
+  const userId = req.session?.userId ?? null;
+  const repo = AppDataSource.getRepository(JournalEntry);
+  const entry = repo.create({
+    employeeId: loaded.emp.id,
+    kind: "note",
+    title: body.title,
+    body: body.body,
+    runId: null,
+    routineId: null,
+    authorUserId: userId,
+  });
+  await repo.save(entry);
+  res.json(entry);
+});
 
 const journalPatchSchema = z
   .object({
@@ -608,25 +611,21 @@ const memoryCreateSchema = z.object({
   body: z.string().max(4000).default(""),
 });
 
-employeeSurfaceRouter.post(
-  "/:eid/memory",
-  validateBody(memoryCreateSchema),
-  async (req, res) => {
-    const { cid, eid } = req.params as Record<string, string>;
-    const loaded = await loadEmpAndCompany(cid, eid);
-    if (!loaded) return res.status(404).json({ error: "Not found" });
-    const body = req.body as z.infer<typeof memoryCreateSchema>;
-    const repo = AppDataSource.getRepository(EmployeeMemory);
-    const row = repo.create({
-      employeeId: loaded.emp.id,
-      title: body.title,
-      body: body.body,
-      authorUserId: req.session?.userId ?? null,
-    });
-    await repo.save(row);
-    res.json(row);
-  },
-);
+employeeSurfaceRouter.post("/:eid/memory", validateBody(memoryCreateSchema), async (req, res) => {
+  const { cid, eid } = req.params as Record<string, string>;
+  const loaded = await loadEmpAndCompany(cid, eid);
+  if (!loaded) return res.status(404).json({ error: "Not found" });
+  const body = req.body as z.infer<typeof memoryCreateSchema>;
+  const repo = AppDataSource.getRepository(EmployeeMemory);
+  const row = repo.create({
+    employeeId: loaded.emp.id,
+    title: body.title,
+    body: body.body,
+    authorUserId: req.session?.userId ?? null,
+  });
+  await repo.save(row);
+  res.json(row);
+});
 
 const memoryPatchSchema = z
   .object({

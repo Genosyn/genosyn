@@ -3,7 +3,6 @@
 # only COPYs Home/ and CLI/, but anything not ignored here still gets
 # uploaded to the Docker daemon on every build.
 .git
-.github
 node_modules
 **/node_modules
 **/dist
@@ -15,3 +14,12 @@ node_modules
 App/data
 Home/client/public/genosyn
 Home/client/public/install.sh
+
+# Local agent/browser state is never part of either production image or the
+# read-only Genosyn source snapshot shipped for in-app Help.
+.DS_Store
+**/.DS_Store
+.claude
+**/.claude
+.playwright-cli
+.tmp

@@ -30,6 +30,7 @@ import {
 import {
   ACCOUNT_SECTION,
   ADMIN_SECTION,
+  HELP_SECTION,
   SECTION_BY_KEY,
   SECTION_GROUPS,
   activeSection,
@@ -207,6 +208,7 @@ describe("product-scoped Integration catalogue", () => {
 describe("section routing and command search", () => {
   const items = [
     ...SECTION_GROUPS.flatMap((group) => group.items),
+    HELP_SECTION,
     ACCOUNT_SECTION,
     ADMIN_SECTION,
   ];
@@ -236,6 +238,7 @@ describe("section routing and command search", () => {
       "finance",
       "pipelines",
       "approvals",
+      "help",
       "account",
       "admin",
       "settings",

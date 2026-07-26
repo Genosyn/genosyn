@@ -52,6 +52,8 @@ export type EmployeeAgentParams = {
   delegationBudget?: DelegationBudget;
   /** Model-facing tool names the employee's active Skills asked to keep loaded. */
   skillToolset?: string[];
+  /** Surface-specific in-process tools, kept resident for this turn. */
+  extraTools?: AgentTool[];
 };
 
 export type EmployeeAgentResult =
@@ -91,7 +93,7 @@ export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<Emp
 
   const delegationDepth = params.delegationDepth ?? 0;
   const delegationBudget = params.delegationBudget ?? { remaining: MAX_DELEGATIONS_PER_TURN };
-  const localTools: AgentTool[] = [];
+  const localTools: AgentTool[] = [...(params.extraTools ?? [])];
   if (delegationDepth === 0) {
     localTools.push(
       createParallelDelegationTool({

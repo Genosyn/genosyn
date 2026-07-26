@@ -57,12 +57,12 @@ npm script (wired into `predev` and `prebuild`), so editing `CLI/` is the
 single source of truth. Bump `CLI_VERSION` in `CLI/genosyn` when you ship a
 change users should notice.
 
-Because `sync-cli` reads from `../CLI/`, **Home's Docker image must be built
-with the repo root as the build context** (not `./Home`). `Home/Dockerfile`
-mirrors the repo layout inside the image at `/build/Home` + `/build/CLI` so
-the relative path resolves the same way as local dev.
-`.github/workflows/docker.yml` sets `context: .` for the Home matrix entry
-and `context: ./App` for App. If you rename `CLI/`, update **all three**:
+Both Docker images use the repo root as their build context. Home needs the
+root because `sync-cli` reads from `../CLI/`; App needs it because in-app Help
+ships a read-only snapshot of App, Home, CLI, the roadmap, docs, and delivery
+workflows for AI Employees to inspect. `Home/Dockerfile` mirrors the repo
+layout inside the image at `/build/Home` + `/build/CLI` so the relative path
+resolves the same way as local dev. If you rename `CLI/`, update **all three**:
 the sync script, the Dockerfile, and the workflow matrix.
 
 ---

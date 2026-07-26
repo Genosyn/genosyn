@@ -55,12 +55,14 @@ jobs:
         include:
           - project: App
             image: app
-            context: ./App
+            # App Help ships a read-only snapshot of the whole Genosyn source
+            # tree, so its Dockerfile needs the repo root as build context.
+            context: .
             platform: linux/amd64
             runner: ubuntu-latest
           - project: App
             image: app
-            context: ./App
+            context: .
             platform: linux/arm64
             runner: ubuntu-24.04-arm
           - project: Home
@@ -152,7 +154,7 @@ jobs:
             ${{ steps.meta.outputs.labels }}
             org.opencontainers.image.version=${{ steps.ver.outputs.value }}
           # APP_VERSION + APP_COMMIT are baked into the App client bundle by
-          # vite.config.ts (.git is outside App's build context). The Home
+          # vite.config.ts (.git is excluded from the build context). The Home
           # Dockerfile ignores these args, which is harmless.
           build-args: |
             APP_VERSION=${{ steps.ver.outputs.value }}

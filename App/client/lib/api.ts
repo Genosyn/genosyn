@@ -504,6 +504,7 @@ export type ChatResult =
 export type ConversationSummary = {
   id: string;
   employeeId: string;
+  source?: "web" | "help" | "telegram";
   title: string | null;
   archivedAt: string | null;
   createdAt: string;
@@ -1096,6 +1097,7 @@ export type BaseTable = {
   name: string;
   slug: string;
   sortOrder: number;
+  archivedAt: string | null;
   createdAt: string;
 };
 

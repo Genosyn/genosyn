@@ -1461,6 +1461,22 @@ the functional prerequisites land before the tools that need them:
   tools. Multi-currency bank lines and a tax-return figure are named but
   out of scope.
 
+### M34 — In-app Help ✅
+
+- [x] Global **Help** action in the app shell, reachable from every company
+      page and through the command palette / `G Q` navigation chord.
+- [x] Ask any company AI Employee; Help conversations persist per employee and
+      stay isolated from ordinary direct-chat history and prompts.
+- [x] Help-specific system context covers Genosyn vocabulary, user workflows,
+      architecture, documentation, roadmap, deployment, and troubleshooting.
+- [x] The App image ships the exact Genosyn repository snapshot for its release
+      (App, Home, CLI, docs, roadmap, and workflows). Help gives the selected
+      employee resident, read-only list/search/read tools over that snapshot so
+      code-level answers can be verified and cite source paths without stuffing
+      the whole repository into every model request.
+- [x] User documentation at `/docs/help`, including the boundary between
+      read-only product Help and ordinary AI Employee Chat.
+
 ## V1 backlog (post-MVP)
 
 Items here are not on the active milestone path but worth picking up. Most

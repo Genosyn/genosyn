@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import {
   ACCOUNT_SECTION,
   ADMIN_SECTION,
+  HELP_SECTION,
   SECTION_GROUPS,
   SectionGroup,
   SectionItem,
@@ -31,7 +32,9 @@ function guideGroups(isMasterAdmin: boolean): SectionGroup[] {
     ...SECTION_GROUPS,
     {
       label: "You",
-      items: isMasterAdmin ? [ACCOUNT_SECTION, ADMIN_SECTION] : [ACCOUNT_SECTION],
+      items: isMasterAdmin
+        ? [HELP_SECTION, ACCOUNT_SECTION, ADMIN_SECTION]
+        : [HELP_SECTION, ACCOUNT_SECTION],
     },
   ];
 }

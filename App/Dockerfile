@@ -9,20 +9,19 @@
 
 # ---------- deps ----------
 FROM node:22-alpine AS deps
-WORKDIR /app
+WORKDIR /build/App
 # better-sqlite3 compiles a native addon. Alpine ships without a C toolchain,
 # so pull in python3 + build-base + linux-headers for the npm install step.
 RUN apk add --no-cache python3 make g++ linux-headers libstdc++
-COPY package.json package-lock.json* ./
+COPY App/package.json App/package-lock.json* ./
 RUN npm ci
 
 # ---------- build ----------
 FROM node:22-alpine AS build
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-# Build context is ./App, so .git lives outside it. CI passes the version
-# and short commit SHA as build args; vite.config.ts reads them from env
+WORKDIR /build/App
+COPY --from=deps /build/App/node_modules ./node_modules
+COPY App ./
+# CI passes the version and short commit SHA as build args; vite.config.ts reads them from env
 # and bakes them into the client bundle so the UI footer shows what
 # operators are actually running.
 ARG APP_VERSION=dev
@@ -66,19 +65,33 @@ ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 # Carry the dependency tree over from the deps stage instead of `npm ci`-ing
 # afresh — that'd require dragging the C toolchain into the runtime image. Then
 # prune dev deps in-place.
-COPY package.json package-lock.json* ./
-COPY --from=deps /app/node_modules ./node_modules
+COPY App/package.json App/package-lock.json* ./
+COPY --from=deps /build/App/node_modules ./node_modules
 RUN npm prune --omit=dev && npm cache clean --force
 
 # Built artifacts (server + client)
-COPY --from=build /app/dist ./dist
+COPY --from=build /build/App/dist ./dist
 
 # config.ts is bundled by tsc into dist/, but keep the source around for
 # self-hosters who want to read/edit it post-build.
-COPY --from=build /app/config.ts ./config.ts
+COPY --from=build /build/App/config.ts ./config.ts
+
+# Help conversations can inspect the exact code that produced this image.
+# Keep the snapshot read-only by placing it outside config.dataDir and exposing
+# it only through the in-process list/search/read Help tools. The root context
+# is deliberate: App, Home, CLI, roadmap, docs, and delivery workflows all
+# belong to the product context an AI Employee may need to explain.
+COPY --chown=node:node \
+  AGENTS.md CLAUDE.md CONTRIBUTING.md LICENSE README.md RELEASING.md ROADMAP.md VERSION \
+  ./.genosyn-source/
+COPY --chown=node:node App ./.genosyn-source/App
+COPY --chown=node:node Home ./.genosyn-source/Home
+COPY --chown=node:node CLI ./.genosyn-source/CLI
+COPY --chown=node:node .github ./.genosyn-source/.github
+RUN mv .genosyn-source genosyn-source && chmod -R a-w genosyn-source
 
 # Runtime data lives here — mount a volume in production
-RUN mkdir -p /app/data && chown -R node:node /app
+RUN mkdir -p /app/data && chown node:node /app/data
 VOLUME ["/app/data"]
 
 USER node

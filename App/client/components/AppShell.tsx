@@ -3,6 +3,7 @@ import { Link, NavLink, useLocation, useNavigate, useParams } from "react-router
 import {
   ChevronDown,
   ChevronRight,
+  CircleHelp,
   CircleUser,
   Keyboard,
   LogOut,
@@ -244,6 +245,20 @@ function TopNav({
       <SectionMenu current={section} />
 
       <div className="ml-auto flex items-center gap-2">
+        <button
+          onClick={() => navigate(`/c/${current.slug}/help`)}
+          className={
+            "flex h-8 w-8 items-center justify-center rounded-md " +
+            (sectionKey === "help"
+              ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
+              : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800")
+          }
+          title="Help"
+          aria-label="Open Help"
+          aria-current={sectionKey === "help" ? "page" : undefined}
+        >
+          <CircleHelp size={16} />
+        </button>
         <button
           onClick={shortcuts.openGuide}
           className="hidden h-8 w-8 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 sm:flex dark:text-slate-300 dark:hover:bg-slate-800"

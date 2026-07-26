@@ -23,6 +23,7 @@ import { api, CompanySearchResult, Me, SearchResultKind } from "../lib/api";
 import {
   ACCOUNT_SECTION,
   ADMIN_SECTION,
+  HELP_SECTION,
   SECTION_GROUPS,
   SectionGroup,
   SectionItem,
@@ -83,7 +84,9 @@ function paletteGroups(isMasterAdmin: boolean): SectionGroup[] {
     ...SECTION_GROUPS,
     {
       label: "You",
-      items: isMasterAdmin ? [ACCOUNT_SECTION, ADMIN_SECTION] : [ACCOUNT_SECTION],
+      items: isMasterAdmin
+        ? [HELP_SECTION, ACCOUNT_SECTION, ADMIN_SECTION]
+        : [HELP_SECTION, ACCOUNT_SECTION],
     },
   ];
 }
@@ -93,33 +96,26 @@ function paletteGroups(isMasterAdmin: boolean): SectionGroup[] {
  * treatment of its home section, so a Note result reads like the Notes
  * section it lives in.
  */
-const KIND_META: Record<
-  SearchResultKind,
-  { group: string; icon: LucideIcon; iconBg: string }
-> = {
+const KIND_META: Record<SearchResultKind, { group: string; icon: LucideIcon; iconBg: string }> = {
   employee: {
     group: "AI Employees",
     icon: Users,
-    iconBg:
-      "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
+    iconBg: "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
   },
   skill: {
     group: "Skills",
     icon: Wrench,
-    iconBg:
-      "bg-green-100 text-green-600 dark:bg-green-500/15 dark:text-green-300",
+    iconBg: "bg-green-100 text-green-600 dark:bg-green-500/15 dark:text-green-300",
   },
   routine: {
     group: "Routines",
     icon: CalendarClock,
-    iconBg:
-      "bg-purple-100 text-purple-600 dark:bg-purple-500/15 dark:text-purple-300",
+    iconBg: "bg-purple-100 text-purple-600 dark:bg-purple-500/15 dark:text-purple-300",
   },
   channel: {
     group: "Channels",
     icon: MessageSquare,
-    iconBg:
-      "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300",
+    iconBg: "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300",
   },
   project: {
     group: "Projects",
@@ -134,26 +130,22 @@ const KIND_META: Record<
   base: {
     group: "Bases",
     icon: Table2,
-    iconBg:
-      "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300",
+    iconBg: "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300",
   },
   notebook: {
     group: "Notebooks",
     icon: NotebookText,
-    iconBg:
-      "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300",
+    iconBg: "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300",
   },
   note: {
     group: "Notes",
     icon: NotebookText,
-    iconBg:
-      "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300",
+    iconBg: "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300",
   },
   resource: {
     group: "Resources",
     icon: Library,
-    iconBg:
-      "bg-fuchsia-100 text-fuchsia-600 dark:bg-fuchsia-500/15 dark:text-fuchsia-300",
+    iconBg: "bg-fuchsia-100 text-fuchsia-600 dark:bg-fuchsia-500/15 dark:text-fuchsia-300",
   },
   chart: {
     group: "Charts",
@@ -168,8 +160,7 @@ const KIND_META: Record<
   repo: {
     group: "Code Repositories",
     icon: FolderGit2,
-    iconBg:
-      "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
+    iconBg: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
   },
   pipeline: {
     group: "Pipelines",
@@ -232,12 +223,7 @@ export function CommandPaletteProvider({
     <CommandPaletteContext.Provider value={value}>
       {children}
       {isOpen && (
-        <CommandPalette
-          me={me}
-          companyId={companyId}
-          companySlug={companySlug}
-          onClose={close}
-        />
+        <CommandPalette me={me} companyId={companyId} companySlug={companySlug} onClose={close} />
       )}
     </CommandPaletteContext.Provider>
   );
@@ -335,18 +321,12 @@ function CommandPalette({
   const [query, setQuery] = React.useState("");
   const [active, setActive] = React.useState(0);
 
-  const groups = React.useMemo(
-    () => paletteGroups(Boolean(me.isMasterAdmin)),
-    [me.isMasterAdmin],
-  );
+  const groups = React.useMemo(() => paletteGroups(Boolean(me.isMasterAdmin)), [me.isMasterAdmin]);
   const items = React.useMemo(() => groups.flatMap((g) => g.items), [groups]);
   const matches = React.useMemo(() => searchSections(items, query), [items, query]);
   const searching = query.trim().length > 0;
   const currentKey = activeSection(location.pathname);
-  const { hits: entityHits, pending: entityPending } = useEntitySearch(
-    companyId,
-    query,
-  );
+  const { hits: entityHits, pending: entityPending } = useEntitySearch(companyId, query);
 
   // Actions the page on screen published. They lead the list: someone who hits
   // ⌘K while staring at a selection almost always means "do something to this",
@@ -383,9 +363,7 @@ function CommandPalette({
     () => [
       ...commandMatches.map((command): PaletteEntry => ({ type: "command", command })),
       ...matches.map((match): PaletteEntry => ({ type: "section", match })),
-      ...entityGroups.flatMap((g) =>
-        g.hits.map((hit): PaletteEntry => ({ type: "entity", hit })),
-      ),
+      ...entityGroups.flatMap((g) => g.hits.map((hit): PaletteEntry => ({ type: "entity", hit }))),
     ],
     [commandMatches, matches, entityGroups],
   );
@@ -411,9 +389,7 @@ function CommandPalette({
   }, [entries.length]);
 
   React.useEffect(() => {
-    listRef.current
-      ?.querySelector(`[data-idx="${active}"]`)
-      ?.scrollIntoView({ block: "nearest" });
+    listRef.current?.querySelector(`[data-idx="${active}"]`)?.scrollIntoView({ block: "nearest" });
   }, [active, entries]);
 
   const select = React.useCallback(
@@ -428,8 +404,7 @@ function CommandPalette({
         entry.command.run();
         return;
       }
-      const path =
-        entry.type === "section" ? entry.match.item.path : entry.hit.path;
+      const path = entry.type === "section" ? entry.match.item.path : entry.hit.path;
       navigate(`/c/${companySlug}${path}`);
     },
     [onClose, navigate, companySlug],
@@ -441,9 +416,7 @@ function CommandPalette({
       setActive((i) => (entries.length ? (i + 1) % entries.length : 0));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setActive((i) =>
-        entries.length ? (i - 1 + entries.length) % entries.length : 0,
-      );
+      setActive((i) => (entries.length ? (i - 1 + entries.length) % entries.length : 0));
     } else if (e.key === "Enter") {
       e.preventDefault();
       const entry = entries[active];
@@ -595,9 +568,7 @@ function CommandPalette({
                           active={i === active}
                           isCurrent={item.key === currentKey}
                           onHover={setActive}
-                          onSelect={() =>
-                            select({ type: "section", match: { item, hit: null } })
-                          }
+                          onSelect={() => select({ type: "section", match: { item, hit: null } })}
                         />
                       );
                     })}

@@ -29,6 +29,11 @@ export const DOCS_NAV: DocsSection[] = [
         blurb: "Hire, connect email, and make a useful first request.",
       },
       {
+        path: "/docs/help",
+        title: "Genosyn Help",
+        blurb: "Ask any AI Employee about the product and its shipped source code.",
+      },
+      {
         path: "/docs/mobile",
         title: "Install on your phone",
         blurb: "Add Genosyn to your home screen as a PWA — iOS, Android, desktop.",
@@ -129,8 +134,7 @@ export const DOCS_NAV: DocsSection[] = [
       {
         path: "/docs/revenue",
         title: "Revenue",
-        blurb:
-          "Contacts, deals, the board, and a timeline that fills itself from your mailbox.",
+        blurb: "Contacts, deals, the board, and a timeline that fills itself from your mailbox.",
       },
       {
         path: "/docs/revenue-operations",
