@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { In } from "typeorm";
+import { In, IsNull } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Base } from "../db/entities/Base.js";
 import { BaseTable } from "../db/entities/BaseTable.js";
@@ -19,6 +19,7 @@ import { toSlug } from "../lib/slug.js";
 import { chatWithEmployee } from "../services/chat.js";
 import {
   buildLinkOptionsFor,
+  deleteBaseTableWithContents,
   deleteGrantsForBase,
   ensureDefaultView,
   findBaseByName,
@@ -124,6 +125,7 @@ basesRouter.get("/bases", async (req, res) => {
         .select("t.baseId", "baseId")
         .addSelect("COUNT(t.id)", "count")
         .where("t.baseId IN (:...ids)", { ids: bases.map((b) => b.id) })
+        .andWhere("t.archivedAt IS NULL")
         .groupBy("t.baseId")
         .getRawMany()
     : [];
@@ -391,6 +393,7 @@ basesRouter.post(
 const patchTableSchema = z.object({
   name: z.string().min(1).max(80).optional(),
   sortOrder: z.number().optional(),
+  archived: z.boolean().optional(),
 });
 
 basesRouter.patch(
@@ -412,7 +415,23 @@ basesRouter.patch(
       t.name = body.name;
     }
     if (body.sortOrder !== undefined) t.sortOrder = body.sortOrder;
+    const archiveChanged =
+      body.archived !== undefined && body.archived !== (t.archivedAt !== null);
+    if (body.archived !== undefined) {
+      t.archivedAt = body.archived ? new Date() : null;
+    }
     await AppDataSource.getRepository(BaseTable).save(t);
+    if (archiveChanged) {
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: body.archived ? "base_table.archive" : "base_table.restore",
+        targetType: "base_table",
+        targetId: t.id,
+        targetLabel: `${b.name}/${t.name}`,
+        metadata: { baseId: b.id },
+      });
+    }
     res.json(t);
   },
 );
@@ -423,31 +442,18 @@ basesRouter.delete("/bases/:baseSlug/tables/:tableId", async (req, res) => {
   if (!b) return res.status(404).json({ error: "Base not found" });
   const t = await loadTable(b.id, req.params.tableId);
   if (!t) return res.status(404).json({ error: "Table not found" });
-  const records = await AppDataSource.getRepository(BaseRecord).find({
-    where: { tableId: t.id },
+  const co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
+  if (!co) return res.status(404).json({ error: "Company not found" });
+  await deleteBaseTableWithContents(t, co.slug);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "base_table.delete",
+    targetType: "base_table",
+    targetId: t.id,
+    targetLabel: `${b.name}/${t.name}`,
+    metadata: { baseId: b.id, archived: t.archivedAt !== null },
   });
-  const recordIds = records.map((r) => r.id);
-  if (recordIds.length) {
-    const attachments = await AppDataSource.getRepository(BaseRecordAttachment).find({
-      where: { recordId: In(recordIds) },
-    });
-    if (attachments.length) {
-      const co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
-      if (co) {
-        for (const a of attachments) await deleteBaseAttachmentBytes(a, co.slug);
-      }
-    }
-    await AppDataSource.getRepository(BaseRecordAttachment).delete({
-      recordId: In(recordIds),
-    });
-    await AppDataSource.getRepository(BaseRecordComment).delete({
-      recordId: In(recordIds),
-    });
-  }
-  await AppDataSource.getRepository(BaseRecord).delete({ tableId: t.id });
-  await AppDataSource.getRepository(BaseField).delete({ tableId: t.id });
-  await AppDataSource.getRepository(BaseView).delete({ tableId: t.id });
-  await AppDataSource.getRepository(BaseTable).delete({ id: t.id });
   res.json({ ok: true });
 });
 
@@ -521,7 +527,10 @@ basesRouter.post(
       if (typeof target !== "string") {
         return res.status(400).json({ error: "link field requires targetTableId" });
       }
-      const tt = await AppDataSource.getRepository(BaseTable).findOneBy({ id: target });
+      const tt = await AppDataSource.getRepository(BaseTable).findOneBy({
+        id: target,
+        archivedAt: IsNull(),
+      });
       if (!tt || tt.baseId !== b.id) {
         return res.status(400).json({ error: "Link target must be a table in this base" });
       }
@@ -1179,9 +1188,12 @@ basesRouter.post(
 
     // Build a schema snapshot for the prompt.
     const tables = await AppDataSource.getRepository(BaseTable).find({
-      where: { baseId: b.id },
+      where: { baseId: b.id, archivedAt: IsNull() },
       order: { sortOrder: "ASC" },
     });
+    if (body.tableId && !tables.some((table) => table.id === body.tableId)) {
+      return res.status(404).json({ error: "Table not found" });
+    }
     const fields = tables.length
       ? await AppDataSource.getRepository(BaseField).find({
           where: { tableId: In(tables.map((t) => t.id)) },

@@ -1,5 +1,5 @@
 import slugify from "slugify";
-import { In } from "typeorm";
+import { In, IsNull } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Channel, ChannelKind } from "../db/entities/Channel.js";
 import { ChannelMember } from "../db/entities/ChannelMember.js";
@@ -1393,6 +1393,7 @@ export async function listCompanyMentionables(
   const baseTables = bases.length
     ? await AppDataSource.getRepository(BaseTable).findBy({
         baseId: In(bases.map((b) => b.id)),
+        archivedAt: IsNull(),
       })
     : [];
 

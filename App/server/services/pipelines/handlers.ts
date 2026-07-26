@@ -1,3 +1,4 @@
+import { IsNull } from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
 import { Project } from "../../db/entities/Project.js";
@@ -218,6 +219,7 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
     const table = await AppDataSource.getRepository(BaseTable).findOneBy({
       baseId: base.id,
       slug: tableSlug,
+      archivedAt: IsNull(),
     });
     if (!table) throw new Error(`Table "${tableSlug}" not found in base "${baseSlug}"`);
     const data = parseObject(ctx.config.data, "data");

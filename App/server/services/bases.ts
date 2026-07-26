@@ -17,7 +17,7 @@ import { EmployeeBaseGrant } from "../db/entities/EmployeeBaseGrant.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { User } from "../db/entities/User.js";
 import { toSlug } from "../lib/slug.js";
-import { In } from "typeorm";
+import { In, IsNull } from "typeorm";
 import {
   BASE_TEMPLATES,
   BaseTemplate,
@@ -25,6 +25,7 @@ import {
   TemplateRowCell,
 } from "./baseTemplates.js";
 import { isResourceFieldType } from "./baseResources.js";
+import { deleteBaseAttachmentBytes } from "./baseRecordUploads.js";
 
 export async function uniqueBaseSlug(companyId: string, base: string): Promise<string> {
   const repo = AppDataSource.getRepository(Base);
@@ -319,7 +320,7 @@ export function hydrateRecord(r: BaseRecord): HydratedRecord {
  */
 export async function buildLinkOptionsFor(
   fields: BaseField[],
-  opts?: { maxPerTable?: number },
+  opts?: { maxPerTable?: number; includeArchivedTargets?: boolean },
 ): Promise<Record<string, LinkOption[]>> {
   const targetIds = new Set<string>();
   for (const f of fields) {
@@ -334,12 +335,20 @@ export async function buildLinkOptionsFor(
   if (targetIds.size === 0) return {};
 
   const tableIds = Array.from(targetIds);
+  const readableTableIds =
+    opts?.includeArchivedTargets === false
+      ? (
+          await AppDataSource.getRepository(BaseTable).find({
+            where: { id: In(tableIds), archivedAt: IsNull() },
+          })
+        ).map((table) => table.id)
+      : tableIds;
   const [primaries, records] = await Promise.all([
     AppDataSource.getRepository(BaseField).find({
-      where: { tableId: In(tableIds), isPrimary: true },
+      where: { tableId: In(readableTableIds), isPrimary: true },
     }),
     AppDataSource.getRepository(BaseRecord).find({
-      where: { tableId: In(tableIds) },
+      where: { tableId: In(readableTableIds) },
     }),
   ]);
 
@@ -347,7 +356,7 @@ export async function buildLinkOptionsFor(
   for (const p of primaries) primaryByTable.set(p.tableId, p);
 
   const byTable: Record<string, LinkOption[]> = {};
-  for (const tid of tableIds) byTable[tid] = [];
+  for (const tid of readableTableIds) byTable[tid] = [];
 
   const maxPerTable = opts?.maxPerTable ?? Infinity;
   for (const r of records) {
@@ -369,6 +378,39 @@ export async function buildLinkOptionsFor(
     byTable[r.tableId].push({ id: r.id, label, tableId: r.tableId });
   }
   return byTable;
+}
+
+/**
+ * Permanently remove a table and every row-owned child, including attachment
+ * bytes on disk. Both the Member HTTP route and the AI tool call this so the
+ * two delete paths cannot drift and leave comments, views, or files behind.
+ */
+export async function deleteBaseTableWithContents(
+  table: BaseTable,
+  companySlug: string,
+): Promise<void> {
+  const records = await AppDataSource.getRepository(BaseRecord).find({
+    where: { tableId: table.id },
+  });
+  const recordIds = records.map((record) => record.id);
+  if (recordIds.length > 0) {
+    const attachments = await AppDataSource.getRepository(BaseRecordAttachment).find({
+      where: { recordId: In(recordIds) },
+    });
+    for (const attachment of attachments) {
+      await deleteBaseAttachmentBytes(attachment, companySlug);
+    }
+    await AppDataSource.getRepository(BaseRecordAttachment).delete({
+      recordId: In(recordIds),
+    });
+    await AppDataSource.getRepository(BaseRecordComment).delete({
+      recordId: In(recordIds),
+    });
+  }
+  await AppDataSource.getRepository(BaseRecord).delete({ tableId: table.id });
+  await AppDataSource.getRepository(BaseField).delete({ tableId: table.id });
+  await AppDataSource.getRepository(BaseView).delete({ tableId: table.id });
+  await AppDataSource.getRepository(BaseTable).delete({ id: table.id });
 }
 
 // ───── Employee → Base access grants ────────────────────────────────────────

@@ -469,7 +469,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "get_base",
     description:
-      "Return the full schema of a Base you have access to — its tables, fields, and field types. Pass `baseSlug` from `list_bases`. Use this before reading or writing rows so you know the field ids.",
+      "Return the full schema of a Base you have access to — its active tables, fields, and field types. Archived tables are omitted until a Member restores them. Pass `baseSlug` from `list_bases`. Use this before reading or writing rows so you know the field ids.",
     inputSchema: {
       type: "object",
       properties: {
@@ -548,7 +548,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "delete_base_table",
     description:
-      "Delete a table from a Base, along with all of its fields and rows. Irreversible — confirm with a human first when uncertain.",
+      "Delete an active table from a Base, along with all of its fields, rows, comments, views, and attachments. Archived tables are inaccessible to AI Employees. Irreversible — confirm with a human first when uncertain.",
     inputSchema: {
       type: "object",
       properties: {

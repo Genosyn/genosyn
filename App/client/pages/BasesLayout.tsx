@@ -4,9 +4,10 @@ import {
   Outlet,
   useLocation,
   useNavigate,
-  useParams,
 } from "react-router-dom";
 import {
+  Archive,
+  ArchiveRestore,
   ChevronDown,
   Database,
   Edit3,
@@ -57,6 +58,7 @@ export default function BasesLayout({ company }: { company: Company }) {
   const [activeDetail, setActiveDetail] = React.useState<BaseDetailT | null>(
     null,
   );
+  const [showArchivedTables, setShowArchivedTables] = React.useState(false);
 
   // Parse the active base + table slugs off the URL. `useParams()` won't work
   // from the layout level because this component renders *outside* the child
@@ -75,6 +77,10 @@ export default function BasesLayout({ company }: { company: Company }) {
       activeTableSlug: rest[1] ?? null,
     };
   }, [company.slug, location.pathname]);
+
+  React.useEffect(() => {
+    setShowArchivedTables(false);
+  }, [activeBaseSlug]);
 
   const reload = React.useCallback(async () => {
     try {
@@ -176,7 +182,8 @@ export default function BasesLayout({ company }: { company: Company }) {
   ) {
     const ok = await dialog.confirm({
       title: `Delete "${t.name}"?`,
-      message: "This table and all its rows will be removed.",
+      message:
+        "This table and all its rows, comments, views, and attachments will be permanently removed.",
       confirmLabel: "Delete table",
       variant: "danger",
     });
@@ -187,14 +194,49 @@ export default function BasesLayout({ company }: { company: Company }) {
       );
       await reloadActive();
       await reload();
-      const remaining = currentTables.filter((x) => x.id !== t.id);
-      if (remaining[0]) {
-        navigate(`/c/${company.slug}/bases/${base.slug}/${remaining[0].slug}`, {
-          replace: true,
-        });
-      } else {
-        navigate(`/c/${company.slug}/bases/${base.slug}`, { replace: true });
+      if (activeTableSlug === t.slug) {
+        const remaining = currentTables.filter(
+          (table) => table.id !== t.id && !table.archivedAt,
+        );
+        if (remaining[0]) {
+          navigate(`/c/${company.slug}/bases/${base.slug}/${remaining[0].slug}`, {
+            replace: true,
+          });
+        } else {
+          navigate(`/c/${company.slug}/bases/${base.slug}`, { replace: true });
+        }
       }
+      toast(`Deleted ${t.name}`, "success");
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
+
+  async function setTableArchived(
+    base: BaseT,
+    table: BaseTable,
+    currentTables: BaseTable[],
+    archived: boolean,
+  ) {
+    try {
+      await api.patch<BaseTable>(
+        `/api/companies/${company.id}/bases/${base.slug}/tables/${table.id}`,
+        { archived },
+      );
+      await reloadActive();
+      await reload();
+      if (archived && activeTableSlug === table.slug) {
+        const next = currentTables.find(
+          (candidate) => candidate.id !== table.id && !candidate.archivedAt,
+        );
+        navigate(
+          next
+            ? `/c/${company.slug}/bases/${base.slug}/${next.slug}`
+            : `/c/${company.slug}/bases/${base.slug}`,
+          { replace: true },
+        );
+      }
+      toast(`${archived ? "Archived" : "Restored"} ${table.name}`, "success");
     } catch (err) {
       toast((err as Error).message, "error");
     }
@@ -245,6 +287,10 @@ export default function BasesLayout({ company }: { company: Company }) {
                 isActive && activeDetail?.base.id === b.id
                   ? activeDetail.tables
                   : null;
+              const activeTables =
+                tables?.filter((table) => !table.archivedAt) ?? null;
+              const archivedTables =
+                tables?.filter((table) => !!table.archivedAt) ?? null;
               return (
                 <li key={b.id}>
                   <NavLink
@@ -282,29 +328,82 @@ export default function BasesLayout({ company }: { company: Company }) {
                         <div className="flex py-2 pl-2">
                           <Spinner size={12} />
                         </div>
-                      ) : tables.length === 0 ? (
+                      ) : activeTables?.length === 0 ? (
                         <div className="px-2 py-1 text-[11px] text-slate-400 dark:text-slate-500">
-                          No tables yet
+                          No active tables
                         </div>
                       ) : (
                         <ul className="flex flex-col gap-0.5">
-                          {tables.map((t) => (
+                          {activeTables?.map((t) => (
                             <TableRow
                               key={t.id}
-                              base={b}
                               table={t}
                               active={activeTableSlug === t.slug}
-                              canDelete={tables.length > 1}
                               onClick={() =>
                                 navigate(
                                   `/c/${company.slug}/bases/${b.slug}/${t.slug}`,
                                 )
                               }
                               onRename={() => renameTable(b, t)}
+                              onArchive={() =>
+                                setTableArchived(b, t, tables, true)
+                              }
+                              onRestore={() =>
+                                setTableArchived(b, t, tables, false)
+                              }
                               onDelete={() => deleteTable(b, t, tables)}
                             />
                           ))}
                         </ul>
+                      )}
+                      {!!archivedTables?.length && (
+                        <div className="mt-1 border-t border-slate-100 pt-1 dark:border-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => setShowArchivedTables((shown) => !shown)}
+                            className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                            aria-expanded={showArchivedTables}
+                          >
+                            <Archive size={11} />
+                            <span className="flex-1 text-left">
+                              Archived ({archivedTables.length})
+                            </span>
+                            <ChevronDown
+                              size={10}
+                              className={clsx(
+                                "transition-transform",
+                                !showArchivedTables && "-rotate-90",
+                              )}
+                            />
+                          </button>
+                          {showArchivedTables && (
+                            <ul className="mt-0.5 flex flex-col gap-0.5">
+                              {archivedTables.map((t) => (
+                                <TableRow
+                                  key={t.id}
+                                  table={t}
+                                  active={activeTableSlug === t.slug}
+                                  archived
+                                  onClick={() =>
+                                    navigate(
+                                      `/c/${company.slug}/bases/${b.slug}/${t.slug}`,
+                                    )
+                                  }
+                                  onRename={() => renameTable(b, t)}
+                                  onArchive={() =>
+                                    setTableArchived(b, t, tables ?? [], true)
+                                  }
+                                  onRestore={() =>
+                                    setTableArchived(b, t, tables ?? [], false)
+                                  }
+                                  onDelete={() =>
+                                    deleteTable(b, t, tables ?? [])
+                                  }
+                                />
+                              ))}
+                            </ul>
+                          )}
+                        </div>
                       )}
                       <button
                         onClick={() =>
@@ -335,23 +434,24 @@ export default function BasesLayout({ company }: { company: Company }) {
 }
 
 function TableRow({
-  base,
   table,
   active,
-  canDelete,
+  archived = false,
   onClick,
   onRename,
+  onArchive,
+  onRestore,
   onDelete,
 }: {
-  base: BaseT;
   table: BaseTable;
   active: boolean;
-  canDelete: boolean;
+  archived?: boolean;
   onClick: () => void;
   onRename: () => void;
+  onArchive: () => void;
+  onRestore: () => void;
   onDelete: () => void;
 }) {
-  void base;
   return (
     <li className="group relative">
       <button
@@ -360,25 +460,36 @@ function TableRow({
           "flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[12px]",
           active
             ? "bg-indigo-50 font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
-            : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800",
+            : archived
+              ? "text-slate-400 hover:bg-slate-50 hover:text-slate-600 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+              : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800",
         )}
       >
-        <TableIcon
-          size={11}
-          className={clsx(
-            "shrink-0",
-            active
-              ? "text-indigo-500 dark:text-indigo-400"
-              : "text-slate-400 dark:text-slate-500",
-          )}
-        />
+        {archived ? (
+          <Archive
+            size={11}
+            className="shrink-0 text-slate-400 dark:text-slate-500"
+          />
+        ) : (
+          <TableIcon
+            size={11}
+            className={clsx(
+              "shrink-0",
+              active
+                ? "text-indigo-500 dark:text-indigo-400"
+                : "text-slate-400 dark:text-slate-500",
+            )}
+          />
+        )}
         <span className="min-w-0 flex-1 truncate">{table.name}</span>
       </button>
       <div className="absolute right-1 top-1/2 -translate-y-1/2">
         <Menu
           width={160}
+          align="right"
           trigger={({ ref, onClick: toggle, open }) => (
             <button
+              type="button"
               ref={ref}
               onClick={(e) => {
                 e.stopPropagation();
@@ -386,9 +497,14 @@ function TableRow({
               }}
               className={clsx(
                 "rounded p-0.5 hover:bg-slate-200 dark:hover:bg-slate-700",
-                open ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                open
+                  ? "bg-slate-200 opacity-100 dark:bg-slate-700"
+                  : "opacity-0 group-hover:opacity-100",
               )}
               aria-label="Table actions"
+              aria-expanded={open}
+              aria-haspopup="menu"
+              title="Table actions"
             >
               <ChevronDown size={11} />
             </button>
@@ -400,23 +516,34 @@ function TableRow({
                 icon={<Edit3 size={12} />}
                 label="Rename"
                 onSelect={() => {
-                  onRename();
                   close();
+                  onRename();
                 }}
               />
-              {canDelete && (
-                <>
-                  <MenuSeparator />
-                  <MenuItem
-                    icon={<Trash2 size={12} className="text-red-500" />}
-                    label={<span className="text-red-600">Delete</span>}
-                    onSelect={() => {
-                      onDelete();
-                      close();
-                    }}
-                  />
-                </>
-              )}
+              <MenuItem
+                icon={
+                  archived ? (
+                    <ArchiveRestore size={12} />
+                  ) : (
+                    <Archive size={12} />
+                  )
+                }
+                label={archived ? "Unarchive" : "Archive"}
+                onSelect={() => {
+                  close();
+                  if (archived) onRestore();
+                  else onArchive();
+                }}
+              />
+              <MenuSeparator />
+              <MenuItem
+                icon={<Trash2 size={12} className="text-red-500" />}
+                label={<span className="text-red-600">Delete</span>}
+                onSelect={() => {
+                  close();
+                  onDelete();
+                }}
+              />
             </>
           )}
         </Menu>

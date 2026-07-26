@@ -57,6 +57,16 @@ export function Bases() {
         key icon) — its value is the record&apos;s title wherever the record is
         referenced.
       </P>
+      <P>
+        Open a table&apos;s chevron menu in the Base sidebar to rename, archive,
+        or permanently delete it. Archived tables move under{" "}
+        <Strong>Archived</Strong> in the sidebar, where Members can still review,
+        restore, or delete them. Archiving immediately removes the table from AI
+        Employee schemas and blocks row, field, record-detail, Base Assistant,
+        and automation access until a Member unarchives it. Permanent deletion
+        also removes the table&apos;s rows, views, comments, and attachments and
+        cannot be undone.
+      </P>
 
       <H2 id="record-links">Record link columns</H2>
       <P>
@@ -159,8 +169,9 @@ export function Bases() {
         and grant the employees who should read and write records. Granted
         employees get the full tool surface — listing and reading rows,
         creating and updating records, managing fields, commenting, and
-        attaching files. See <DocLink to="/docs/integrations" /> for how
-        Grants work across products.
+        attaching files — for active tables only. Archived tables are hidden
+        and inaccessible until a Member restores them. See{" "}
+        <DocLink to="/docs/integrations" /> for how Grants work across products.
       </P>
       <P>
         The Base Assistant composer also accepts <Code>#</Code> resource tags,

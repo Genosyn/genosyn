@@ -646,6 +646,9 @@ sends system mail); this is the company's real inbox. Internal namespace is
 - [x] CRUD + download endpoints; multer 25 MB human cap, 5 MB AI cap
 - [x] Side drawer in `BaseDetail.tsx` with form + comment thread + files
 - [x] MCP tools — `get_base_record`, comment CRUD, attachment CRUD
+- [x] Table archive, restore, and permanent-delete controls; archived tables
+      stay available to Members but are excluded from AI Employee schemas,
+      row tools, record detail, Base Assistant context, and automation writes
 
 ### M11.6 — Record link columns + record pages ✅
 

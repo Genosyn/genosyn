@@ -5,6 +5,7 @@ import {
   CreateDateColumn,
   Index,
 } from "typeorm";
+import { dateTimeColumnType } from "./columnTypes.js";
 
 /**
  * A table inside a Base. Holds rows (BaseRecord) shaped by fields (BaseField).
@@ -29,6 +30,14 @@ export class BaseTable {
   /** Float sort key so reordering tabs is a single UPDATE. */
   @Column({ type: "float", default: 0 })
   sortOrder!: number;
+
+  /**
+   * Soft archive marker. Archived tables remain available to human Members
+   * for review, restore, or permanent deletion, but are excluded from every
+   * AI Employee Base surface.
+   */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  archivedAt!: Date | null;
 
   @CreateDateColumn()
   createdAt!: Date;

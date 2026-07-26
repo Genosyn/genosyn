@@ -54,6 +54,7 @@ import {
 } from "../services/integrations.js";
 import {
   buildLinkOptionsFor,
+  deleteBaseTableWithContents,
   findBaseByName,
   findBaseTableByName,
   grantBaseAccess,
@@ -3825,6 +3826,14 @@ async function checkedBaseImportSource(req: McpRequest, body: { baseId: string; 
   if (!(await hasBaseGrant(req.mcpEmployee!.id, body.baseId))) {
     throw new Error("You need a Grant to the source Base before importing it");
   }
+  const table = await AppDataSource.getRepository(BaseTable).findOneBy({
+    id: body.tableId,
+    baseId: body.baseId,
+    archivedAt: IsNull(),
+  });
+  if (!table) {
+    throw new Error("Source Base table not found");
+  }
   return loadBaseImportRows(req.mcpCompany!.id, body.baseId, body.tableId);
 }
 
@@ -5240,6 +5249,28 @@ async function loadGrantedBase(
   return b;
 }
 
+/**
+ * Resolve one non-archived table inside an already-authorized Base. Returning
+ * the same 404 for missing and archived rows keeps archived table names and
+ * contents outside the AI Employee surface until a Member restores them.
+ */
+async function loadActiveGrantedTable(
+  res: Response,
+  base: Base,
+  tableSlug: string,
+): Promise<BaseTable | null> {
+  const table = await AppDataSource.getRepository(BaseTable).findOneBy({
+    baseId: base.id,
+    slug: tableSlug,
+    archivedAt: IsNull(),
+  });
+  if (!table) {
+    res.status(404).json({ error: "Table not found" });
+    return null;
+  }
+  return table;
+}
+
 mcpInternalRouter.post("/tools/list_bases", async (req: McpRequest, res) => {
   const emp = req.mcpEmployee!;
   const bases = await listGrantedBasesForEmployee(emp.id);
@@ -5263,7 +5294,7 @@ mcpInternalRouter.post(
     const b = await loadGrantedBase(req, res, body.baseSlug);
     if (!b) return;
     const tables = await AppDataSource.getRepository(BaseTable).find({
-      where: { baseId: b.id },
+      where: { baseId: b.id, archivedAt: IsNull() },
       order: { sortOrder: "ASC", createdAt: "ASC" },
     });
     const fields = tables.length
@@ -5313,11 +5344,8 @@ mcpInternalRouter.post(
     const body = req.body as z.infer<typeof listRowsSchema>;
     const b = await loadGrantedBase(req, res, body.baseSlug);
     if (!b) return;
-    const t = await AppDataSource.getRepository(BaseTable).findOneBy({
-      baseId: b.id,
-      slug: body.tableSlug,
-    });
-    if (!t) return res.status(404).json({ error: "Table not found" });
+    const t = await loadActiveGrantedTable(res, b, body.tableSlug);
+    if (!t) return;
     // Rows carry a manual sort order that create_base_row appends to, so the
     // newest row sorts last. Reading "desc" is how a caller gets the latest
     // rows without paging through the whole table to reach the end.
@@ -5337,7 +5365,10 @@ mcpInternalRouter.post(
     ]);
     const co = req.mcpCompany!;
     const [linkOptions, resourceOptions] = await Promise.all([
-      buildLinkOptionsFor(fields, { maxPerTable: MCP_LINK_OPTIONS_PER_TABLE }),
+      buildLinkOptionsFor(fields, {
+        maxPerTable: MCP_LINK_OPTIONS_PER_TABLE,
+        includeArchivedTargets: false,
+      }),
       buildResourceOptionsFor(co.id, fields, {
         maxPerKind: MCP_LINK_OPTIONS_PER_TABLE,
         projectViewer: mcpActorOf(req),
@@ -5378,11 +5409,8 @@ mcpInternalRouter.post(
     const co = req.mcpCompany!;
     const b = await loadGrantedBase(req, res, body.baseSlug);
     if (!b) return;
-    const t = await AppDataSource.getRepository(BaseTable).findOneBy({
-      baseId: b.id,
-      slug: body.tableSlug,
-    });
-    if (!t) return res.status(404).json({ error: "Table not found" });
+    const t = await loadActiveGrantedTable(res, b, body.tableSlug);
+    if (!t) return;
     const repo = AppDataSource.getRepository(BaseRecord);
     const last = await repo.findOne({
       where: { tableId: t.id },
@@ -5431,11 +5459,8 @@ mcpInternalRouter.post(
     const co = req.mcpCompany!;
     const b = await loadGrantedBase(req, res, body.baseSlug);
     if (!b) return;
-    const t = await AppDataSource.getRepository(BaseTable).findOneBy({
-      baseId: b.id,
-      slug: body.tableSlug,
-    });
-    if (!t) return res.status(404).json({ error: "Table not found" });
+    const t = await loadActiveGrantedTable(res, b, body.tableSlug);
+    if (!t) return;
     const repo = AppDataSource.getRepository(BaseRecord);
     const r = await repo.findOneBy({ id: body.rowId, tableId: t.id });
     if (!r) return res.status(404).json({ error: "Row not found" });
@@ -5476,11 +5501,8 @@ mcpInternalRouter.post(
     const co = req.mcpCompany!;
     const b = await loadGrantedBase(req, res, body.baseSlug);
     if (!b) return;
-    const t = await AppDataSource.getRepository(BaseTable).findOneBy({
-      baseId: b.id,
-      slug: body.tableSlug,
-    });
-    if (!t) return res.status(404).json({ error: "Table not found" });
+    const t = await loadActiveGrantedTable(res, b, body.tableSlug);
+    if (!t) return;
     const repo = AppDataSource.getRepository(BaseRecord);
     const r = await repo.findOneBy({ id: body.rowId, tableId: t.id });
     if (!r) return res.status(404).json({ error: "Row not found" });
@@ -5521,6 +5543,7 @@ async function loadGrantedRecord(
   }
   const table = await AppDataSource.getRepository(BaseTable).findOneBy({
     id: record.tableId,
+    archivedAt: IsNull(),
   });
   if (!table) {
     res.status(404).json({ error: "Table not found" });
@@ -5563,7 +5586,10 @@ mcpInternalRouter.post(
     });
     const co = req.mcpCompany!;
     const [linkOptions, resourceOptions] = await Promise.all([
-      buildLinkOptionsFor(fields, { maxPerTable: MCP_LINK_OPTIONS_PER_TABLE }),
+      buildLinkOptionsFor(fields, {
+        maxPerTable: MCP_LINK_OPTIONS_PER_TABLE,
+        includeArchivedTargets: false,
+      }),
       buildResourceOptionsFor(co.id, fields, {
         maxPerKind: MCP_LINK_OPTIONS_PER_TABLE,
         projectViewer: mcpActorOf(req),
@@ -6092,8 +6118,8 @@ mcpInternalRouter.post(
     const b = await loadGrantedBase(req, res, body.baseSlug);
     if (!b) return;
     const tableRepo = AppDataSource.getRepository(BaseTable);
-    const t = await tableRepo.findOneBy({ baseId: b.id, slug: body.tableSlug });
-    if (!t) return res.status(404).json({ error: "Table not found" });
+    const t = await loadActiveGrantedTable(res, b, body.tableSlug);
+    if (!t) return;
 
     if (await findBaseTableByName(b.id, body.name, t.id)) {
       return res.status(409).json({
@@ -6133,13 +6159,10 @@ mcpInternalRouter.post(
     const co = req.mcpCompany!;
     const b = await loadGrantedBase(req, res, body.baseSlug);
     if (!b) return;
-    const tableRepo = AppDataSource.getRepository(BaseTable);
-    const t = await tableRepo.findOneBy({ baseId: b.id, slug: body.tableSlug });
-    if (!t) return res.status(404).json({ error: "Table not found" });
+    const t = await loadActiveGrantedTable(res, b, body.tableSlug);
+    if (!t) return;
 
-    await AppDataSource.getRepository(BaseRecord).delete({ tableId: t.id });
-    await AppDataSource.getRepository(BaseField).delete({ tableId: t.id });
-    await tableRepo.delete({ id: t.id });
+    await deleteBaseTableWithContents(t, co.slug);
 
     await recordAudit({
       companyId: co.id,
@@ -6188,11 +6211,8 @@ mcpInternalRouter.post(
     const co = req.mcpCompany!;
     const b = await loadGrantedBase(req, res, body.baseSlug);
     if (!b) return;
-    const t = await AppDataSource.getRepository(BaseTable).findOneBy({
-      baseId: b.id,
-      slug: body.tableSlug,
-    });
-    if (!t) return res.status(404).json({ error: "Table not found" });
+    const t = await loadActiveGrantedTable(res, b, body.tableSlug);
+    if (!t) return;
 
     let config: Record<string, unknown> = {};
     if (body.type === "select" || body.type === "multiselect") {
@@ -6213,6 +6233,7 @@ mcpInternalRouter.post(
       const target = await AppDataSource.getRepository(BaseTable).findOneBy({
         baseId: b.id,
         slug: body.linkTargetTableSlug,
+        archivedAt: IsNull(),
       });
       if (!target) {
         return res.status(400).json({
@@ -6279,11 +6300,8 @@ mcpInternalRouter.post(
     const co = req.mcpCompany!;
     const b = await loadGrantedBase(req, res, body.baseSlug);
     if (!b) return;
-    const t = await AppDataSource.getRepository(BaseTable).findOneBy({
-      baseId: b.id,
-      slug: body.tableSlug,
-    });
-    if (!t) return res.status(404).json({ error: "Table not found" });
+    const t = await loadActiveGrantedTable(res, b, body.tableSlug);
+    if (!t) return;
     const fieldRepo = AppDataSource.getRepository(BaseField);
     const f = await fieldRepo.findOneBy({ id: body.fieldId, tableId: t.id });
     if (!f) return res.status(404).json({ error: "Field not found" });
@@ -6355,11 +6373,8 @@ mcpInternalRouter.post(
     const co = req.mcpCompany!;
     const b = await loadGrantedBase(req, res, body.baseSlug);
     if (!b) return;
-    const t = await AppDataSource.getRepository(BaseTable).findOneBy({
-      baseId: b.id,
-      slug: body.tableSlug,
-    });
-    if (!t) return res.status(404).json({ error: "Table not found" });
+    const t = await loadActiveGrantedTable(res, b, body.tableSlug);
+    if (!t) return;
     const fieldRepo = AppDataSource.getRepository(BaseField);
     const f = await fieldRepo.findOneBy({ id: body.fieldId, tableId: t.id });
     if (!f) return res.status(404).json({ error: "Field not found" });

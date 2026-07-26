@@ -164,13 +164,13 @@ export default function BaseDetail({ company }: { company: Company }) {
   const currentTable = React.useMemo(() => {
     if (!detail) return null;
     if (tableSlug) return detail.tables.find((t) => t.slug === tableSlug) ?? null;
-    return detail.tables[0] ?? null;
+    return detail.tables.find((table) => !table.archivedAt) ?? null;
   }, [detail, tableSlug]);
 
   // Route to the first table when landing on the bare base URL.
   React.useEffect(() => {
     if (!detail || tableSlug) return;
-    const first = detail.tables[0];
+    const first = detail.tables.find((table) => !table.archivedAt);
     if (first) {
       navigate(
         `/c/${company.slug}/bases/${detail.base.slug}/${first.slug}`,
@@ -215,6 +215,10 @@ export default function BaseDetail({ company }: { company: Company }) {
   React.useEffect(() => {
     setActiveViewId(null);
   }, [currentTable?.id]);
+
+  React.useEffect(() => {
+    if (currentTable?.archivedAt) setShowAssistant(false);
+  }, [currentTable?.archivedAt]);
 
   // Promote the first available view to active once content arrives, and
   // gracefully fall back if the active view was deleted out from under us.
@@ -386,13 +390,19 @@ export default function BaseDetail({ company }: { company: Company }) {
           </div>
           <button
             onClick={() => setShowAssistant((s) => !s)}
+            disabled={!!currentTable?.archivedAt}
             className={clsx(
               "flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition",
+              currentTable?.archivedAt && "cursor-not-allowed opacity-50",
               showAssistant
                 ? "border-violet-300 bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:border-violet-800 dark:text-violet-300"
                 : "border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800",
             )}
-            title="Base assistant"
+            title={
+              currentTable?.archivedAt
+                ? "Unarchive this table before sharing it with an AI Employee"
+                : "Base assistant"
+            }
           >
             <Sparkles size={13} /> AI assistant
           </button>
@@ -413,7 +423,8 @@ export default function BaseDetail({ company }: { company: Company }) {
         <div className="min-h-0 flex-1 overflow-auto bg-slate-50 dark:bg-slate-950">
           {!currentTable ? (
             <div className="flex h-full items-center justify-center text-sm text-slate-500 dark:text-slate-400">
-              This base has no tables yet. Add one from the sidebar.
+              This base has no active tables. Add one or restore an archived table
+              from the sidebar.
             </div>
           ) : contentLoading && !content ? (
             <div className="flex h-full items-center justify-center">
@@ -709,7 +720,7 @@ function Grid({
     if (type === "link") {
       // Link fields need both a name AND a target table — launch the richer
       // dedicated dialog below instead of two serial prompts.
-      const choices = tables.filter((t) => t.id !== table.id);
+      const choices = tables.filter((t) => t.id !== table.id && !t.archivedAt);
       if (choices.length === 0) {
         await dialog.alert({
           title: "No table to link",
@@ -959,7 +970,7 @@ function Grid({
 
       {pendingLinkField && (
         <AddLinkFieldModal
-          tables={tables.filter((t) => t.id !== table.id)}
+          tables={tables.filter((t) => t.id !== table.id && !t.archivedAt)}
           onCancel={() => setPendingLinkField(null)}
           onCreate={async (name, targetTableId) => {
             setPendingLinkField(null);
