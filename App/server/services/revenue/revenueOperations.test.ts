@@ -5,10 +5,15 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import { AppDataSource } from "../../db/datasource.js";
 import { Activity } from "../../db/entities/Activity.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
+import { Base } from "../../db/entities/Base.js";
+import { BaseField } from "../../db/entities/BaseField.js";
+import { BaseRecord } from "../../db/entities/BaseRecord.js";
+import { BaseTable } from "../../db/entities/BaseTable.js";
 import { Company } from "../../db/entities/Company.js";
 import { Contact } from "../../db/entities/Contact.js";
 import { Customer } from "../../db/entities/Customer.js";
 import { Deal } from "../../db/entities/Deal.js";
+import { DealStage } from "../../db/entities/DealStage.js";
 import { Membership } from "../../db/entities/Membership.js";
 import { Notification } from "../../db/entities/Notification.js";
 import { closeTestDb, initTestDb, resetTestDb } from "../../test/dbHarness.js";
@@ -43,6 +48,7 @@ import {
   commitLinkedRevenueImport,
   commitRevenueImport,
   getRevenueImport,
+  loadBaseImportRows,
   migrateBaseAttachmentsForImport,
   previewLinkedRevenueImport,
   previewRevenueImport,
@@ -303,6 +309,172 @@ describe("activity administration", () => {
 });
 
 describe("reversible Revenue imports", () => {
+  test("resolves Base select ids and preserves native Deal Stages and sources", async () => {
+    const base = await AppDataSource.getRepository(Base).save({
+      companyId: CO,
+      name: "Legacy Revenue",
+      slug: "legacy-revenue",
+      description: "",
+      icon: "Database",
+      color: "indigo",
+      createdById: null,
+    });
+    const table = await AppDataSource.getRepository(BaseTable).save({
+      baseId: base.id,
+      name: "Deals",
+      slug: "deals",
+      sortOrder: 0,
+    });
+    const fieldRepo = AppDataSource.getRepository(BaseField);
+    const [companyField, personField, emailField, dealField, sourceField, stageField, tagsField] =
+      await fieldRepo.save([
+        fieldRepo.create({
+          tableId: table.id,
+          name: "Company",
+          type: "text",
+          configJson: "{}",
+          isPrimary: true,
+          sortOrder: 0,
+        }),
+        fieldRepo.create({
+          tableId: table.id,
+          name: "Person",
+          type: "text",
+          configJson: "{}",
+          isPrimary: false,
+          sortOrder: 1,
+        }),
+        fieldRepo.create({
+          tableId: table.id,
+          name: "Email",
+          type: "email",
+          configJson: "{}",
+          isPrimary: false,
+          sortOrder: 2,
+        }),
+        fieldRepo.create({
+          tableId: table.id,
+          name: "Deal",
+          type: "text",
+          configJson: "{}",
+          isPrimary: false,
+          sortOrder: 3,
+        }),
+        fieldRepo.create({
+          tableId: table.id,
+          name: "Source",
+          type: "select",
+          configJson: JSON.stringify({
+            options: [
+              { id: "wdv7zfjl", label: "Inbound", color: "sky" },
+              { id: "a0w8cfl3", label: "Self-Serve Upgrade", color: "emerald" },
+            ],
+          }),
+          isPrimary: false,
+          sortOrder: 4,
+        }),
+        fieldRepo.create({
+          tableId: table.id,
+          name: "Stage",
+          type: "select",
+          configJson: JSON.stringify({
+            options: [
+              { id: "hz5cl6np", label: "Lead", color: "slate" },
+              { id: "demo8", label: "Demo Scheduled", color: "indigo" },
+              { id: "proposal8", label: "Proposal Sent", color: "violet" },
+              { id: "6686tr2l", label: "Closed Won", color: "emerald" },
+            ],
+          }),
+          isPrimary: false,
+          sortOrder: 5,
+        }),
+        fieldRepo.create({
+          tableId: table.id,
+          name: "Tags",
+          type: "multiselect",
+          configJson: JSON.stringify({
+            options: [
+              { id: "priority8", label: "Priority", color: "rose" },
+              { id: "expansion8", label: "Expansion", color: "amber" },
+            ],
+          }),
+          isPrimary: false,
+          sortOrder: 6,
+        }),
+      ]);
+    const stageIds = ["hz5cl6np", "demo8", "proposal8", "6686tr2l"];
+    const sourceIds = ["wdv7zfjl", "a0w8cfl3", "wdv7zfjl", "a0w8cfl3"];
+    const recordRepo = AppDataSource.getRepository(BaseRecord);
+    await recordRepo.save(
+      stageIds.map((stageId, index) =>
+        recordRepo.create({
+          tableId: table.id,
+          dataJson: JSON.stringify({
+            [companyField.id]: `Account ${index + 1}`,
+            [personField.id]: `Person ${index + 1}`,
+            [emailField.id]: `person-${index + 1}@example.com`,
+            [dealField.id]: `Deal ${index + 1}`,
+            [sourceField.id]: sourceIds[index],
+            [stageField.id]: stageId,
+            [tagsField.id]: ["priority8", "expansion8"],
+          }),
+          sortOrder: index,
+        }),
+      ),
+    );
+
+    const source = await loadBaseImportRows(CO, base.id, table.id);
+    assert.equal(source.rows[0].values[sourceField.id], "Inbound");
+    assert.equal(source.rows[0].values[stageField.id], "Lead");
+    assert.deepEqual(source.rows[0].values[tagsField.id], ["Priority", "Expansion"]);
+
+    const mapping = {
+      account: { name: companyField.id },
+      contact: { name: personField.id, email: emailField.id },
+      deal: { title: dealField.id, source: sourceField.id, stage: stageField.id },
+    };
+    const preview = await previewLinkedRevenueImport(CO, mapping, source.rows);
+    assert.equal(preview.skippedCount, 0);
+    assert.deepEqual(
+      preview.decisions.map((decision) => decision.resources.deal.preview.stage),
+      ["New", "Demo", "Proposal", "Closed Won"],
+    );
+    assert.deepEqual(
+      preview.decisions.map((decision) => decision.resources.deal.preview.source),
+      ["inbound", "self_serve_upgrade", "inbound", "self_serve_upgrade"],
+    );
+    assert.deepEqual(
+      preview.decisions.map((decision) => decision.resources.deal.preview.sourceLabel),
+      ["Inbound", "Self-Serve Upgrade", "Inbound", "Self-Serve Upgrade"],
+    );
+
+    await commitLinkedRevenueImport(
+      CO,
+      {
+        sourceKind: "base",
+        sourceLabel: source.sourceLabel,
+        sourceBaseId: base.id,
+        sourceTableId: table.id,
+        mapping,
+        rows: source.rows,
+      },
+      { userId: "member_owner" },
+    );
+    const [deals, stages] = await Promise.all([
+      AppDataSource.getRepository(Deal).findBy({ companyId: CO }),
+      AppDataSource.getRepository(DealStage).findBy({ companyId: CO }),
+    ]);
+    const stagesById = new Map(stages.map((stage) => [stage.id, stage.name]));
+    const dealsByTitle = new Map(deals.map((deal) => [deal.title, deal]));
+    assert.equal(stagesById.get(dealsByTitle.get("Deal 1")?.stageId ?? ""), "New");
+    assert.equal(stagesById.get(dealsByTitle.get("Deal 2")?.stageId ?? ""), "Demo");
+    assert.equal(stagesById.get(dealsByTitle.get("Deal 3")?.stageId ?? ""), "Proposal");
+    assert.equal(stagesById.get(dealsByTitle.get("Deal 4")?.stageId ?? ""), "Closed Won");
+    assert.equal(dealsByTitle.get("Deal 1")?.source, "inbound");
+    assert.equal(dealsByTitle.get("Deal 2")?.source, "self_serve_upgrade");
+    assert.equal(dealsByTitle.get("Deal 4")?.status, "won");
+  });
+
   test("previews duplicates, commits a durable row map, and safely rolls back new rows", async () => {
     await createContact(CO, { name: "Existing", email: "existing@example.com" });
     await createCustomField(CO, {

@@ -88,6 +88,7 @@ const TARGET_FIELDS: Record<
     { key: "description", label: "Description" },
     { key: "amountCents", label: "Amount in minor units" },
     { key: "currency", label: "Currency" },
+    { key: "stage", label: "Deal Stage" },
     { key: "source", label: "Source" },
     { key: "nextStep", label: "Next step" },
     { key: "nextFollowUpAt", label: "Next follow-up" },
@@ -618,28 +619,48 @@ export default function RevenueImports() {
             </Button>
           </div>
           <div className="mt-4 max-h-72 overflow-auto rounded-lg border border-slate-100 dark:border-slate-800">
-            {preview.decisions.slice(0, 200).map((decision) => (
-              <div
-                key={decision.sourceId}
-                className="flex gap-3 border-b border-slate-100 px-3 py-2 text-xs last:border-0 dark:border-slate-800"
-              >
-                <span
-                  className={`w-20 shrink-0 font-medium capitalize ${decision.action === "create" ? "text-emerald-600" : decision.action === "duplicate" ? "text-amber-600" : "text-slate-500"}`}
+            {preview.decisions.slice(0, 200).map((decision) => {
+              const dealPreview =
+                "resources" in decision
+                  ? decision.resources.deal.preview
+                  : preview.resourceType === "deal"
+                    ? decision.preview
+                    : null;
+              return (
+                <div
+                  key={decision.sourceId}
+                  className="flex gap-3 border-b border-slate-100 px-3 py-2 text-xs last:border-0 dark:border-slate-800"
                 >
-                  {decision.action}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-slate-600 dark:text-slate-300">
-                  {"resources" in decision
-                    ? String(
-                        decision.resources.account.preview.name ||
-                          decision.resources.contact.preview.name ||
-                          decision.sourceId,
-                      )
-                    : String(decision.preview.name || decision.preview.title || decision.sourceId)}
-                </span>
-                {decision.reason && <span className="text-slate-500">{decision.reason}</span>}
-              </div>
-            ))}
+                  <span
+                    className={`w-20 shrink-0 font-medium capitalize ${decision.action === "create" ? "text-emerald-600" : decision.action === "duplicate" ? "text-amber-600" : "text-slate-500"}`}
+                  >
+                    {decision.action}
+                  </span>
+                  <div className="min-w-0 flex-1 text-slate-600 dark:text-slate-300">
+                    <p className="truncate">
+                      {"resources" in decision
+                        ? String(
+                            decision.resources.account.preview.name ||
+                              decision.resources.contact.preview.name ||
+                              decision.sourceId,
+                          )
+                        : String(
+                            decision.preview.name || decision.preview.title || decision.sourceId,
+                          )}
+                    </p>
+                    {dealPreview && (
+                      <p className="mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400">
+                        Deal Stage: {String(dealPreview.stage || "Not imported")} · Source:{" "}
+                        {String(
+                          dealPreview.sourceLabel || dealPreview.source || "Not imported",
+                        )}
+                      </p>
+                    )}
+                  </div>
+                  {decision.reason && <span className="text-slate-500">{decision.reason}</span>}
+                </div>
+              );
+            })}
           </div>
         </section>
       )}

@@ -28,13 +28,17 @@ import { toSlug } from "../../lib/slug.js";
 import { resolveBaseAttachmentFile } from "../baseRecordUploads.js";
 import { recordAttachmentBytes } from "../uploads.js";
 import { createRevenueAccount, normalizeAccountDomain } from "./accounts.js";
-import { assertClassification, classificationValue } from "./classifications.js";
+import {
+  assertClassification,
+  classificationValue,
+  listRevenueClassifications,
+} from "./classifications.js";
 import { createContact } from "./contacts.js";
 import { listCustomFields, setCustomValues, type CustomFieldValue } from "./customFields.js";
 import { createDeal } from "./deals.js";
 import { createRevenueDocument, listRevenueDocuments } from "./documents.js";
 import { createPartnership } from "./partnerships.js";
-import { defaultStageFor } from "./stages.js";
+import { listDealStages } from "./stages.js";
 
 export type ImportRow = {
   sourceId: string;
@@ -102,6 +106,62 @@ function asDate(value: unknown): Date | null {
   if (!text) return null;
   const parsed = new Date(text);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+const LEGACY_DEAL_STAGE_ALIASES = new Map([
+  ["lead", "new"],
+  ["demo_scheduled", "demo"],
+  ["proposal_sent", "proposal"],
+]);
+
+function resolveImportedDealStage(raw: string, stages: DealStage[]): DealStage | null {
+  const normalized = classificationValue(raw);
+  const target = LEGACY_DEAL_STAGE_ALIASES.get(normalized) ?? normalized;
+  return (
+    stages.find(
+      (stage) =>
+        classificationValue(stage.name) === target || classificationValue(stage.slug) === target,
+    ) ?? null
+  );
+}
+
+type BaseSelectOption = { id: string; label: string };
+
+function baseSelectOptions(field: BaseField): Map<string, string> {
+  if (field.type !== "select" && field.type !== "multiselect") return new Map();
+  try {
+    const config = JSON.parse(field.configJson || "{}") as { options?: unknown };
+    if (!Array.isArray(config.options)) return new Map();
+    return new Map(
+      config.options
+        .filter(
+          (option): option is BaseSelectOption =>
+            !!option &&
+            typeof option === "object" &&
+            typeof (option as BaseSelectOption).id === "string" &&
+            typeof (option as BaseSelectOption).label === "string",
+        )
+        .map((option) => [option.id, option.label]),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
+function resolveBaseSelectValue(
+  field: BaseField,
+  options: Map<string, string>,
+  value: unknown,
+): unknown {
+  if (field.type === "select" && typeof value === "string") {
+    return options.get(value) ?? value;
+  }
+  if (field.type === "multiselect" && Array.isArray(value)) {
+    return value.map((item) =>
+      typeof item === "string" ? (options.get(item) ?? item) : item,
+    );
+  }
+  return value;
 }
 
 function customImportValue(
@@ -196,6 +256,7 @@ function previewFor(
       description: asText(mapped(row, mapping, "description")),
       amountCents: Math.max(0, Math.round(asNumber(mapped(row, mapping, "amountCents")))),
       currency: asText(mapped(row, mapping, "currency")).toUpperCase() || "USD",
+      stage: asText(mapped(row, mapping, "stage")),
       source: asText(mapped(row, mapping, "source")),
       nextStep: asText(mapped(row, mapping, "nextStep")),
       nextFollowUpAt: asDate(mapped(row, mapping, "nextFollowUpAt")),
@@ -260,6 +321,11 @@ export async function previewRevenueImport(
 ): Promise<ImportReport> {
   const decisions: ImportDecision[] = [];
   const customFields = await listCustomFields(companyId, resourceType);
+  const dealStages = resourceType === "deal" ? await listDealStages(companyId) : [];
+  const dealSources =
+    resourceType === "deal"
+      ? await listRevenueClassifications(companyId, "deal_source")
+      : [];
   for (const row of rows.slice(0, 10_000)) {
     const preview = previewFor(resourceType, row, mapping);
     const required = asText(preview[resourceType === "deal" ? "title" : "name"]);
@@ -285,10 +351,40 @@ export async function previewRevenueImport(
       if (sourceKey || field.required) customValues[field.key] = parsed.value;
     }
     preview.customValues = customValues;
-    try {
-      if (resourceType === "deal" && preview.source) {
-        await assertClassification(companyId, "deal_source", asText(preview.source));
+    if (resourceType === "deal") {
+      const importedStage = asText(preview.stage);
+      const stage = importedStage
+        ? resolveImportedDealStage(importedStage, dealStages)
+        : (dealStages.find((candidate) => candidate.kind === "open") ?? dealStages[0] ?? null);
+      if (!stage) {
+        validationError = importedStage
+          ? `Unknown Deal Stage: ${importedStage}`
+          : "The company has no Deal Stage";
+      } else {
+        preview.stageId = stage.id;
+        preview.stage = stage.name;
       }
+
+      const importedSource = asText(preview.source);
+      if (importedSource) {
+        const normalizedSource = classificationValue(importedSource);
+        const source =
+          dealSources.find((candidate) => candidate.value === normalizedSource) ??
+          dealSources.find(
+            (candidate) => classificationValue(candidate.label) === normalizedSource,
+          );
+        if (!source) {
+          validationError ??= `Unknown deal source classification: ${importedSource}`;
+        } else {
+          preview.source = source.value;
+          preview.sourceLabel = source.label;
+        }
+      } else {
+        preview.source = "";
+        preview.sourceLabel = "";
+      }
+    }
+    try {
       if (resourceType === "partnership" && preview.type) {
         await assertClassification(companyId, "partnership_type", asText(preview.type));
       }
@@ -538,6 +634,7 @@ export async function loadBaseImportRows(
       order: { sortOrder: "ASC" },
     }),
   ]);
+  const selectOptions = new Map(fields.map((field) => [field.id, baseSelectOptions(field)]));
   return {
     sourceLabel: `${base.name} / ${table.name}`,
     fields,
@@ -547,6 +644,14 @@ export async function loadBaseImportRows(
         values = JSON.parse(record.dataJson) as Record<string, unknown>;
       } catch {
         values = {};
+      }
+      for (const field of fields) {
+        if (!Object.hasOwn(values, field.id)) continue;
+        values[field.id] = resolveBaseSelectValue(
+          field,
+          selectOptions.get(field.id) ?? new Map(),
+          values[field.id],
+        );
       }
       return { sourceId: record.id, values };
     }),
@@ -601,6 +706,7 @@ async function createImportedResource(
           description: asText(preview.description),
           amountCents: asNumber(preview.amountCents),
           currency: asText(preview.currency),
+          stageId: asText(preview.stageId) || null,
           source: asText(preview.source),
           nextStep: asText(preview.nextStep),
           nextFollowUpAt: preview.nextFollowUpAt instanceof Date ? preview.nextFollowUpAt : null,
@@ -982,8 +1088,8 @@ export async function commitLinkedRevenueImport(
   actor: ImportActor,
 ): Promise<RevenueImportBatch> {
   const report = await previewLinkedRevenueImport(companyId, input.mapping, input.rows);
-  const stage = await defaultStageFor(companyId);
-  if (!stage) throw new Error("The company has no Deal Stage");
+  const stages = await listDealStages(companyId);
+  const stagesById = new Map(stages.map((stage) => [stage.id, stage]));
   const customFields = await listCustomFields(companyId);
   const createdIds: LinkedCreatedIds = { account: [], contact: [], deal: [] };
 
@@ -1067,6 +1173,10 @@ export async function commitLinkedRevenueImport(
       }
 
       const dealDecision = decision.resources.deal;
+      const stage = stagesById.get(asText(dealDecision.preview.stageId));
+      if (!stage) {
+        throw new Error(`Resolved Deal Stage is no longer available for ${decision.sourceId}`);
+      }
       let dealId =
         dealDecision.nativeId &&
         (await manager.findOneBy(Deal, { companyId, id: dealDecision.nativeId }))

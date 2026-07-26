@@ -3347,7 +3347,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "preview_base_revenue_import",
     description:
-      "Dry-run a granted Base table into Contacts, accounts, Deals, or Partnerships. Mapping values are Base field ids. Returns create/duplicate/skip decisions without writing anything. Needs `write` revenue access and a Base Grant.",
+      "Dry-run a granted Base table into Contacts, Accounts, Deals, or Partnerships. Mapping values are Base field ids; select option ids are resolved to their Base labels. Deal mappings may include `stage` and `source`, and each Deal decision returns the resolved native Deal Stage and Source. Returns create/duplicate/skip decisions without writing anything. Needs `write` revenue access and a Base Grant.",
     inputSchema: {
       type: "object",
       properties: {
@@ -3366,7 +3366,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "run_base_revenue_import",
     description:
-      "Commit a previously previewed-style Base import. Produces a durable source-row → native-id map and reconciliation report; duplicates are linked in the report but never overwritten. Needs `write` revenue access and a Base Grant.",
+      "Commit a previously previewed-style Base import, preserving the resolved Deal Stage and Source when mapped. Produces a durable source-row → native-id map and reconciliation report; duplicates are linked in the report but never overwritten. Needs `write` revenue access and a Base Grant.",
     inputSchema: {
       type: "object",
       properties: {
@@ -3385,7 +3385,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "preview_linked_base_revenue_import",
     description:
-      "Dry-run one compressed Base row into a linked Account, Contact, and Deal. Supply separate native/custom-field mappings for all three resources. Returns per-resource duplicate/skip/create decisions without writes. Needs `write` revenue access and a Base Grant.",
+      "Dry-run one Base row into a linked Account, Contact, and Deal. Supply separate native/custom-field mappings for all three resources; Base select option ids are resolved to labels, and Deal mappings may include `stage` and `source`. Returns per-resource duplicate/skip/create decisions with the resolved native Deal Stage and Source. Needs `write` revenue access and a Base Grant.",
     inputSchema: {
       type: "object",
       properties: {
@@ -3409,7 +3409,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "run_linked_base_revenue_import",
     description:
-      "Atomically split each compressed Base row into a linked Account, Contact, and Deal. The whole database write commits or rolls back together, duplicates are reused without overwrite, and the batch stores every source-to-native id. Needs `write` revenue access and a Base Grant.",
+      "Atomically split each Base row into a linked Account, Contact, and Deal while preserving the resolved Deal Stage and Source. The whole database write commits or rolls back together, duplicates are reused without overwrite, and the batch stores every source-to-native id. Needs `write` revenue access and a Base Grant.",
     inputSchema: {
       type: "object",
       properties: {

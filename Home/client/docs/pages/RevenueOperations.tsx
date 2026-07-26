@@ -169,10 +169,14 @@ export function RevenueOperations() {
       </P>
       <OL>
         <LI>Install the Base migration fields, then choose the source Base table or CSV.</LI>
-        <LI>Map the Account, Contact, and Deal fields from the same source row.</LI>
+        <LI>
+          Map the Account, Contact, and Deal fields from the same source row, including Deal Stage
+          and Source when they exist.
+        </LI>
         <LI>
           Run a <Strong>dry run</Strong> to see creates, duplicate matches, skipped rows, and the
-          result for each of the three resources.
+          result for each of the three resources. Every Deal decision shows the resolved target
+          Deal Stage and Source.
         </LI>
         <LI>
           Commit only after reviewing the preview. All three resources and their links are written
@@ -187,6 +191,14 @@ export function RevenueOperations() {
         Partnerships instead when a source table genuinely contains one resource only.
       </P>
       <P>
+        Base select and multi-select cells are resolved from their stored option IDs to the labels
+        shown in the Base before Revenue validates them. Deal Stage accepts an existing Deal Stage
+        name; the common legacy labels <Code>Lead</Code>, <Code>Demo Scheduled</Code>, and{" "}
+        <Code>Proposal Sent</Code> resolve to <Code>New</Code>, <Code>Demo</Code>, and{" "}
+        <Code>Proposal</Code>. If Deal Stage is not mapped, the preview explicitly shows the
+        default Deal Stage that will be used.
+      </P>
+      <P>
         Every committed batch stores the field mapping, duplicate decisions, and source-row to
         native-ID map for reconciliation. Open <Strong>Report</Strong> at any time to recover the
         Import ID and mapping. For a Base import, <Strong>Migrate attachments</Strong> copies the
@@ -197,8 +209,9 @@ export function RevenueOperations() {
       </P>
       <Callout kind="warn" title="Controlled values must exist before import.">
         Deal sources and partnership type/status are validated through the lists in{" "}
-        <Code>Revenue → Setup</Code>. Add the values first or the dry run will tell you which rows
-        cannot be created.
+        <Code>Revenue → Setup</Code>. Source labels such as <Code>Inbound</Code> and{" "}
+        <Code>Self-Serve Upgrade</Code> resolve to those native classifications. Add any other
+        values first or the dry run will tell you which rows cannot be created.
       </Callout>
 
       <H2 id="ai-native">AI-native operation</H2>
