@@ -12,6 +12,7 @@ import {
   type GmailLabel,
   type GmailMessage,
 } from "./gmailClient.js";
+import { createRevenueDocumentCandidatesForMessage } from "../revenue/documentCapture.js";
 
 /**
  * The local-mirror write path shared by the sync engine and the
@@ -98,6 +99,15 @@ export async function upsertGmailMessage(
   row.attachmentsJson = JSON.stringify(bodies.attachments);
   row.sizeEstimate = gm.sizeEstimate ?? 0;
   await msgRepo.save(row);
+  if (bodies.attachments.length > 0) {
+    try {
+      await createRevenueDocumentCandidatesForMessage(account.companyId, row);
+    } catch (error) {
+      console.error(
+        `[revenue-document-capture] ${row.id}: ${(error as Error).message}`,
+      );
+    }
+  }
   return { row, created };
 }
 

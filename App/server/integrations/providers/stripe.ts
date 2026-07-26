@@ -131,6 +131,23 @@ export const stripeProvider: IntegrationProvider = {
       },
     },
     {
+      name: "list_invoices",
+      description:
+        "List Stripe invoices, most recent first. Pass `customerId` or a status to narrow the result.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          limit: { type: "integer", minimum: 1, maximum: 100 },
+          customerId: { type: "string" },
+          status: {
+            type: "string",
+            enum: ["draft", "open", "paid", "uncollectible", "void"],
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+    {
       name: "list_charges",
       description: "List charges, most recent first. Useful for revenue spot-checks.",
       inputSchema: {
@@ -218,6 +235,18 @@ export const stripeProvider: IntegrationProvider = {
         if (typeof a.status === "string" && a.status.trim())
           params["status"] = a.status.trim();
         return stripeGet(cfg.apiKey, "/subscriptions", params);
+      }
+      case "list_invoices": {
+        const params: Record<string, string | number> = {
+          limit: clampInt(a.limit, 1, 100, 20),
+        };
+        if (typeof a.customerId === "string" && a.customerId.trim()) {
+          params["customer"] = a.customerId.trim();
+        }
+        if (typeof a.status === "string" && a.status.trim()) {
+          params["status"] = a.status.trim();
+        }
+        return stripeGet(cfg.apiKey, "/invoices", params);
       }
       case "list_charges": {
         const params: Record<string, string | number> = {

@@ -13,6 +13,7 @@ import {
   Radar,
   Send,
   Settings2,
+  ShieldCheck,
   Target,
   TrendingUp,
 } from "lucide-react";
@@ -69,6 +70,11 @@ export default function RevenueLayout({ company }: { company: Company }) {
         <SidebarLink to={`${base}/suppressions`} icon={<Ban size={14} />} label="Suppressions" />
         <SidebarLink to={`${base}/ai-access`} icon={<Bot size={14} />} label="AI access" />
         <SidebarLink to={`${base}/imports`} icon={<Import size={14} />} label="Imports" />
+        <SidebarLink
+          to={`${base}/data-quality`}
+          icon={<ShieldCheck size={14} />}
+          label="Data quality"
+        />
         <SidebarLink to={`${base}/setup`} icon={<Settings2 size={14} />} label="Setup" />
       </nav>
     </div>

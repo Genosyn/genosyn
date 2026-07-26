@@ -6,6 +6,7 @@ import { Customer } from "../../db/entities/Customer.js";
 import { normalizeEmail } from "../../lib/emailAddress.js";
 import { assertRevenueLinks, assertRevenueOwner } from "./integrity.js";
 import { matchingResourceIds } from "./customFields.js";
+import { findMergedRecordRedirect } from "./operations.js";
 
 /**
  * Contacts — the person layer of the Revenue section.
@@ -363,6 +364,12 @@ export async function restoreContact(companyId: string, id: string): Promise<Con
   const repo = AppDataSource.getRepository(Contact);
   const contact = await repo.findOneBy({ id, companyId });
   if (!contact) return null;
+  const redirect = await findMergedRecordRedirect(companyId, "contact", id);
+  if (redirect) {
+    throw new Error(
+      `Restore blocked: this Contact was merged into ${redirect.targetId}; undo the merge instead`,
+    );
+  }
   contact.archivedAt = null;
   return repo.save(contact);
 }

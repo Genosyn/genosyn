@@ -21,6 +21,7 @@ import { Explore } from "@/docs/pages/Explore";
 import { Marketing } from "@/docs/pages/Marketing";
 import { Revenue } from "@/docs/pages/Revenue";
 import { RevenueOperations } from "@/docs/pages/RevenueOperations";
+import { RevenueDataQuality } from "@/docs/pages/RevenueDataQuality";
 import { Sequences } from "@/docs/pages/Sequences";
 import { Signals } from "@/docs/pages/Signals";
 import { Deliverability } from "@/docs/pages/Deliverability";
@@ -60,6 +61,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/marketing": Marketing,
   "/docs/revenue": Revenue,
   "/docs/revenue-operations": RevenueOperations,
+  "/docs/revenue-data-quality": RevenueDataQuality,
   "/docs/sequences": Sequences,
   "/docs/signals": Signals,
   "/docs/deliverability": Deliverability,

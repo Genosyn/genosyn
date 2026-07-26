@@ -16,7 +16,12 @@ import {
   listRevenueClassifications,
 } from "./classifications.js";
 import { matchingResourceIds } from "./customFields.js";
+import {
+  liveDealHistoryKey,
+  recordDealHistoryEvent,
+} from "./dealHistory.js";
 import { assertRevenueLinks, assertRevenueOwner } from "./integrity.js";
+import { findMergedRecordRedirect } from "./operations.js";
 
 /**
  * Deals — the opportunity layer.
@@ -265,7 +270,7 @@ export async function createDeal(
 
   const deal = await repo.save(draft);
 
-  await recordActivity(
+  const activity = await recordActivity(
     companyId,
     {
       kind: "deal_created",
@@ -278,6 +283,33 @@ export async function createDeal(
     },
     actor,
   );
+  await recordDealHistoryEvent(companyId, {
+    dealId: deal.id,
+    kind: "created",
+    occurredAt: now,
+    toStageId: stage.id,
+    toAmountCents: deal.amountCents,
+    currency: deal.currency,
+    toOwnerId: deal.ownerId,
+    toOwnerEmployeeId: deal.ownerEmployeeId,
+    sourceKind: "live",
+    sourceKey: `activity:${activity.id}`,
+    sourceActivityId: activity.id,
+    actor,
+  });
+  if (stage.kind === "won" || stage.kind === "lost") {
+    await recordDealHistoryEvent(companyId, {
+      dealId: deal.id,
+      kind: stage.kind,
+      occurredAt: now,
+      fromStageId: null,
+      toStageId: stage.id,
+      lostReason: deal.lostReason,
+      sourceKind: "live",
+      sourceKey: liveDealHistoryKey(deal.id, stage.kind),
+      actor,
+    });
+  }
 
   return deal;
 }
@@ -291,6 +323,10 @@ export async function updateDeal(
   const repo = AppDataSource.getRepository(Deal);
   const deal = await repo.findOneBy({ id, companyId });
   if (!deal) return null;
+  const beforeAmountCents = deal.amountCents;
+  const beforeCurrency = deal.currency;
+  const beforeOwnerId = deal.ownerId;
+  const beforeOwnerEmployeeId = deal.ownerEmployeeId;
   await assertRevenueOwner(companyId, patch);
   await assertRevenueLinks(companyId, {
     customerId: patch.customerId,
@@ -332,6 +368,37 @@ export async function updateDeal(
   if (rest.lostReason !== undefined) deal.lostReason = rest.lostReason;
 
   const saved = await repo.save(deal);
+  const changedAt = new Date();
+  if (saved.amountCents !== beforeAmountCents || saved.currency !== beforeCurrency) {
+    await recordDealHistoryEvent(companyId, {
+      dealId: saved.id,
+      kind: "amount_changed",
+      occurredAt: changedAt,
+      fromAmountCents: beforeAmountCents,
+      toAmountCents: saved.amountCents,
+      currency: saved.currency,
+      sourceKind: "live",
+      sourceKey: liveDealHistoryKey(saved.id, "amount_changed"),
+      actor,
+    });
+  }
+  if (
+    saved.ownerId !== beforeOwnerId ||
+    saved.ownerEmployeeId !== beforeOwnerEmployeeId
+  ) {
+    await recordDealHistoryEvent(companyId, {
+      dealId: saved.id,
+      kind: "owner_changed",
+      occurredAt: changedAt,
+      fromOwnerId: beforeOwnerId,
+      fromOwnerEmployeeId: beforeOwnerEmployeeId,
+      toOwnerId: saved.ownerId,
+      toOwnerEmployeeId: saved.ownerEmployeeId,
+      sourceKind: "live",
+      sourceKey: liveDealHistoryKey(saved.id, "owner_changed"),
+      actor,
+    });
+  }
   if (stageId && stageId !== saved.stageId) {
     return (await moveDealToStage(companyId, id, stageId, actor)) ?? saved;
   }
@@ -378,7 +445,7 @@ export async function moveDealToStage(
 
   const kind =
     stage.kind === "won" ? "deal_won" : stage.kind === "lost" ? "deal_lost" : "stage_change";
-  await recordActivity(
+  const activity = await recordActivity(
     companyId,
     {
       kind,
@@ -402,6 +469,21 @@ export async function moveDealToStage(
     },
     actor,
   );
+  await recordDealHistoryEvent(companyId, {
+    dealId: saved.id,
+    kind:
+      stage.kind === "won" ? "won" : stage.kind === "lost" ? "lost" : "stage_changed",
+    occurredAt: now,
+    fromStageId: fromStage?.id ?? null,
+    toStageId: stage.id,
+    toAmountCents: saved.amountCents,
+    currency: saved.currency,
+    lostReason: saved.lostReason,
+    sourceKind: "live",
+    sourceKey: `activity:${activity.id}`,
+    sourceActivityId: activity.id,
+    actor,
+  });
 
   return saved;
 }
@@ -427,6 +509,12 @@ export async function restoreDeal(companyId: string, id: string): Promise<Deal |
   const repo = AppDataSource.getRepository(Deal);
   const deal = await repo.findOneBy({ id, companyId });
   if (!deal) return null;
+  const redirect = await findMergedRecordRedirect(companyId, "deal", id);
+  if (redirect) {
+    throw new Error(
+      `Restore blocked: this Deal was merged into ${redirect.targetId}; undo the merge instead`,
+    );
+  }
   deal.archivedAt = null;
   return repo.save(deal);
 }

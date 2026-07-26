@@ -725,7 +725,7 @@ describe("revenue routes — operating system", () => {
     });
     assert.equal(refused.status, 409);
 
-    const merged = await call<{ target: { id: string } }>(
+    const merged = await call<{ target: { id: string }; operationId: string }>(
       "POST",
       `/revenue/accounts/${source.body.id}/merge`,
       {
@@ -750,8 +750,18 @@ describe("revenue routes — operating system", () => {
     assert.ok(all.body.rows.find((account) => account.id === source.body.id)?.archivedAt);
 
     const restored = await call("POST", `/revenue/accounts/${source.body.id}/restore`);
-    assert.equal(restored.status, 200);
-    assert.ok((await auditActions()).includes("revenue.account.restore"));
+    assert.equal(restored.status, 409);
+
+    const undone = await call("POST", `/revenue/operations/${merged.body.operationId}/undo`, {
+      confirm: "UNDO",
+    });
+    assert.equal(undone.status, 200);
+    const activeAfterUndo = await call<{ rows: Array<{ id: string }> }>(
+      "GET",
+      "/revenue/accounts",
+    );
+    assert.ok(activeAfterUndo.body.rows.some((account) => account.id === source.body.id));
+    assert.ok((await auditActions()).includes("revenue.operation.undo"));
   });
 
   test("uses controlled classifications and typed fields for filterable deal data", async () => {

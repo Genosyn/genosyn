@@ -5,6 +5,7 @@ import { AdSpendEvent } from "../../db/entities/AdSpendEvent.js";
 import { CompanyFinanceSettings } from "../../db/entities/CompanyFinanceSettings.js";
 import { Customer } from "../../db/entities/Customer.js";
 import { Deal } from "../../db/entities/Deal.js";
+import { DealHistoryEvent } from "../../db/entities/DealHistoryEvent.js";
 import { DealStage } from "../../db/entities/DealStage.js";
 import { Invoice } from "../../db/entities/Invoice.js";
 import { InvoicePayment } from "../../db/entities/InvoicePayment.js";
@@ -392,17 +393,17 @@ async function seedFunnelScenario() {
     kind: "lost",
   });
 
-  await makeDeal({ stageId: newStage.id, amountCents: 100_000 });
-  await makeDeal({ stageId: demo.id, amountCents: 200_000 });
-  await makeDeal({ stageId: demo.id, amountCents: 100_000 });
-  await makeDeal({
+  const newDeal = await makeDeal({ stageId: newStage.id, amountCents: 100_000 });
+  const demoDealA = await makeDeal({ stageId: demo.id, amountCents: 200_000 });
+  const demoDealB = await makeDeal({ stageId: demo.id, amountCents: 100_000 });
+  const wonDeal = await makeDeal({
     stageId: won.id,
     status: "won",
     amountCents: 500_000,
     createdAt: FROM,
     closedAt: at("2026-02-10T00:00:00Z"),
   });
-  await makeDeal({
+  const lostDeal = await makeDeal({
     stageId: lost.id,
     status: "lost",
     amountCents: 300_000,
@@ -410,6 +411,32 @@ async function seedFunnelScenario() {
   });
   // Points at a stage nobody can resolve — must surface, not vanish.
   await makeDeal({ stageId: "stage_archived", amountCents: 999_000 });
+
+  const history = [
+    [newDeal, "created", at("2026-01-02T00:00:00Z"), null, newStage.id],
+    [demoDealA, "created", at("2026-01-02T00:00:00Z"), null, newStage.id],
+    [demoDealA, "stage_changed", at("2026-01-10T00:00:00Z"), newStage.id, demo.id],
+    [demoDealB, "created", at("2026-01-03T00:00:00Z"), null, newStage.id],
+    [demoDealB, "stage_changed", at("2026-01-20T00:00:00Z"), newStage.id, demo.id],
+    [wonDeal, "created", FROM, null, newStage.id],
+    [wonDeal, "stage_changed", at("2026-01-10T00:00:00Z"), newStage.id, demo.id],
+    [wonDeal, "won", at("2026-02-10T00:00:00Z"), demo.id, won.id],
+    [lostDeal, "created", FROM, null, newStage.id],
+    [lostDeal, "stage_changed", at("2026-01-12T00:00:00Z"), newStage.id, demo.id],
+    [lostDeal, "lost", at("2026-02-20T00:00:00Z"), demo.id, lost.id],
+  ] as const;
+  for (const [deal, kind, occurredAt, fromStageId, toStageId] of history) {
+    await insert(DealHistoryEvent, {
+      companyId: CO,
+      dealId: deal.id,
+      kind,
+      occurredAt,
+      fromStageId,
+      toStageId,
+      sourceKind: "import",
+      sourceKey: `report-test:${deal.id}:${kind}:${occurredAt.toISOString()}`,
+    });
+  }
 
   return { newStage, demo, won, lost };
 }
@@ -435,15 +462,14 @@ describe("getFunnelReport", () => {
     assert.equal(report.orphanedCount, 1);
   });
 
-  test("conversion is null out of an empty stage rather than 0%", async () => {
+  test("conversion follows original cohorts and excludes lost as a false next stage", async () => {
     await seedFunnelScenario();
     const report = await getFunnelReport(CO, PERIOD);
     assert.deepEqual(
       report.conversion.map((row) => [row.fromStage.name, row.toStage.name, row.conversionPct]),
       [
-        ["New", "Demo", 200],
-        ["Demo", "Won", 0],
-        ["Won", "Lost", null],
+        ["New", "Demo", 80],
+        ["Demo", "Won", 25],
       ],
     );
   });

@@ -43,6 +43,12 @@ export function RevenueOperations() {
         and daily, weekly, or monthly recurrence. Completing a recurring task creates the next
         occurrence automatically.
       </P>
+      <P>
+        Filter by arbitrary assignee or unassigned, priority, resource type and ID, status,
+        due-date range, age, Deal Stage/status, or closed Deals. Select rows to complete, cancel,
+        reassign, reprioritize, or reschedule them together. For filter-wide dry runs and rollback,
+        use <DocLink to="/docs/revenue-data-quality#bulk">Data quality → Bulk operations</DocLink>.
+      </P>
       <Callout kind="tip" title="Use the queue as the daily sales home.">
         Deal close dates forecast revenue. Follow-up dates decide what you do today. Keep both; they
         answer different questions.
@@ -135,6 +141,11 @@ export function RevenueOperations() {
         linked file can be downloaded directly. Removing the document unlinks the Revenue record; it
         does not rewrite the source mail message or Base record the file originally came from.
       </P>
+      <P>
+        Mail sync can also classify relevant attachments and queue reviewed links with source and
+        hash provenance. See{" "}
+        <DocLink to="/docs/revenue-data-quality#document-capture">Revenue document capture</DocLink>.
+      </P>
 
       <H2 id="activity-audit">Company-wide activity audit</H2>
       <P>
@@ -200,12 +211,18 @@ export function RevenueOperations() {
       </P>
       <P>
         Every committed batch stores the field mapping, duplicate decisions, and source-row to
-        native-ID map for reconciliation. Open <Strong>Report</Strong> at any time to recover the
-        Import ID and mapping. For a Base import, <Strong>Migrate attachments</Strong> copies the
+        native-ID map for reconciliation. Open <Strong>Report</Strong> to page through decisions
+        without loading the whole batch. For a Base import, <Strong>Migrate attachments</Strong> copies the
         source row attachments into Revenue Documents after the structured records exist; the pass
         is idempotent and reports failures separately. Rollback deletes the linked Deals, Contacts,
         then Accounts only when they are still safe to remove; anything that gained activities,
         documents, or finance history is kept and reported as blocked.
+      </P>
+      <P>
+        The history list loads summaries rather than every source decision. Open one Import ID for
+        its mapping, page and filter the row-level decisions, or download reconciliation CSV/JSON.
+        Historical Deal timestamps use the separate{" "}
+        <DocLink to="/docs/revenue-data-quality#deal-history">Historical Deal import</DocLink>.
       </P>
       <Callout kind="warn" title="Controlled values must exist before import.">
         Deal sources and partnership type/status are validated through the lists in{" "}

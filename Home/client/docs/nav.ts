@@ -143,6 +143,12 @@ export const DOCS_NAV: DocsSection[] = [
           "Follow-ups, prospect accounts, custom fields, partnerships, documents, and reversible migrations.",
       },
       {
+        path: "/docs/revenue-data-quality",
+        title: "Revenue data quality",
+        blurb:
+          "Audited merges, bulk cleanup, historical truth, enrichment review, document capture, and exports.",
+      },
+      {
         path: "/docs/sequences",
         title: "Sequences",
         blurb:

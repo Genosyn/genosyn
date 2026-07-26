@@ -123,6 +123,7 @@ import RevenueActivities from "./pages/RevenueActivities";
 import RevenuePartnershipDetail from "./pages/RevenuePartnershipDetail";
 import RevenuePartnerships from "./pages/RevenuePartnerships";
 import RevenueSetup from "./pages/RevenueSetup";
+import RevenueDataQuality from "./pages/RevenueDataQuality";
 import CustomersIndex from "./pages/CustomersIndex";
 import CustomerNew from "./pages/CustomerNew";
 import CustomerDetail from "./pages/CustomerDetail";
@@ -454,6 +455,7 @@ function CompanyRoutes({
             <Route path="suppressions" element={<RevenueSuppressions />} />
             <Route path="ai-access" element={<RevenueAiAccess />} />
             <Route path="imports" element={<RevenueImports />} />
+            <Route path="data-quality" element={<RevenueDataQuality />} />
             <Route path="setup" element={<RevenueSetup />} />
           </Route>
 

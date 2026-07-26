@@ -65,7 +65,16 @@ type StageFunnelRow = {
 type StageConversionRow = {
   fromStage: StageLike;
   toStage: StageLike;
+  cohortEntered: number;
+  cohortProgressed: number;
   conversionPct: number | null;
+};
+
+type StagePerformanceRow = {
+  stage: StageLike;
+  enteredDuringPeriod: number;
+  progressedDuringPeriod: number;
+  medianTimeInStageDays: number | null;
 };
 
 type ChannelCac = {
@@ -99,8 +108,17 @@ type RevenueOverview = {
     stages: StageFunnelRow[];
     orphanedCount: number;
     conversion: StageConversionRow[];
+    stagePerformance: StagePerformanceRow[];
     winRate: { won: number; lost: number; winRatePct: number | null };
     salesCycleDays: number | null;
+    historyCoverage: {
+      eligibleDeals: number;
+      completeDeals: number;
+      partialDeals: number;
+      withoutHistory: number;
+      importedDeals: number;
+    };
+    semantics: "cohort_and_transition";
   };
   coverage: {
     openCents: number;
@@ -310,6 +328,9 @@ export default function RevenueIndex() {
           <StageFunnel
             rows={overview.funnel.stages}
             orphanedCount={overview.funnel.orphanedCount}
+            performance={overview.funnel.stagePerformance}
+            conversion={overview.funnel.conversion}
+            historyCoverage={overview.funnel.historyCoverage}
             currency={overview.currency}
           />
           <CacByChannel cac={overview.cac} currency={overview.currency} />
@@ -612,19 +633,27 @@ function LegendDot({ className, label }: { className: string; label: string }) {
 function StageFunnel({
   rows,
   orphanedCount,
+  performance,
+  conversion,
+  historyCoverage,
   currency,
 }: {
   rows: StageFunnelRow[];
   orphanedCount: number;
+  performance: StagePerformanceRow[];
+  conversion: StageConversionRow[];
+  historyCoverage: RevenueOverview["funnel"]["historyCoverage"];
   currency: string;
 }) {
   const widest = Math.max(1, ...rows.map((r) => r.valueCents));
+  const performanceByStage = new Map(performance.map((row) => [row.stage.id, row]));
+  const conversionByStage = new Map(conversion.map((row) => [row.fromStage.id, row]));
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
         <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-          Deal value by stage
+          Live Deal value and period transitions
         </h2>
       </div>
 
@@ -635,6 +664,8 @@ function StageFunnel({
       ) : (
         <ul className="divide-y divide-slate-100 dark:divide-slate-800">
           {rows.map((row) => {
+            const period = performanceByStage.get(row.stage.id);
+            const cohort = conversionByStage.get(row.stage.id);
             const pct = Math.round((row.valueCents / widest) * 100);
             const barTone =
               row.stage.kind === "won"
@@ -662,6 +693,17 @@ function StageFunnel({
                     style={{ width: `${Math.max(row.valueCents > 0 ? 2 : 0, pct)}%` }}
                   />
                 </div>
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  {period?.enteredDuringPeriod ?? 0} entered ·{" "}
+                  {period?.progressedDuringPeriod ?? 0} progressed
+                  {period?.medianTimeInStageDays !== null &&
+                    period?.medianTimeInStageDays !== undefined &&
+                    ` · median ${period.medianTimeInStageDays} days`}
+                  {cohort &&
+                    ` · cohort conversion ${
+                      cohort.conversionPct === null ? "—" : `${cohort.conversionPct}%`
+                    } (${cohort.cohortProgressed}/${cohort.cohortEntered})`}
+                </p>
               </li>
             );
           })}
@@ -673,6 +715,13 @@ function StageFunnel({
           {orphanedCount} open {orphanedCount === 1 ? "deal sits" : "deals sit"} in a stage that
           no longer exists, so {orphanedCount === 1 ? "it is" : "they are"} missing from the bars
           above.
+        </p>
+      )}
+      {(historyCoverage.withoutHistory > 0 || historyCoverage.partialDeals > 0) && (
+        <p className="border-t border-slate-100 px-4 py-3 text-xs text-amber-700 dark:border-slate-800 dark:text-amber-400">
+          Transition metrics exclude {historyCoverage.withoutHistory} Deals without history and{" "}
+          {historyCoverage.partialDeals} with partial history. Live stage values still include
+          them.
         </p>
       )}
     </section>

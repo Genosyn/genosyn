@@ -64,6 +64,14 @@ export class RevenueDocument {
   @Column({ type: "varchar", nullable: true })
   sourceMailMessageId!: string | null;
 
+  /** Positional Gmail attachment index within `sourceMailMessageId`. */
+  @Column({ type: "int", nullable: true })
+  sourceAttachmentIndex!: number | null;
+
+  /** SHA-256 of the captured bytes for cross-message deduplication. */
+  @Column({ type: "varchar", default: "" })
+  sourceAttachmentHash!: string;
+
   @Column({ type: "varchar", default: "" })
   externalUrl!: string;
 

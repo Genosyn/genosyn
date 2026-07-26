@@ -39,6 +39,10 @@ export function Revenue() {
           and reversible Base/CSV migrations.
         </LI>
         <LI>
+          <DocLink to="/docs/revenue-data-quality">Revenue data quality</DocLink> — audited merges,
+          bulk cleanup, historical Deal truth, enrichment review, document capture, and exports.
+        </LI>
+        <LI>
           <Strong>Contacts</Strong> — the humans, whether or not you bill them yet.
         </LI>
         <LI>
@@ -121,24 +125,23 @@ export function Revenue() {
         from the list without removing them from historical activities and deals.
       </P>
 
-      <H2 id="account-merge">Archive or merge an Account</H2>
+      <H2 id="account-merge">Archive or merge a core record</H2>
       <P>
-        Open an Account under <Code>Revenue → Accounts</Code> to archive it, restore it, or merge a
-        duplicate. Archiving only removes the Account from default lists: every Contact, Deal,
-        invoice, contract, document, and Activity stays linked, and restoring brings the Account
-        back.
+        Open <Code>Revenue → Data quality</Code> to merge duplicate Accounts, Contacts, Deals, or
+        Partnerships. Archiving only removes a record from default lists; historical links remain,
+        and restore or guarded undo can bring it back.
       </P>
       <P>
-        <Strong>Merge</Strong> is for two rows that represent the same company. Choose the active
-        destination Account and review the counted preflight, then type the source Account&apos;s
-        exact name. Genosyn moves every Revenue and Finance reference in one transaction and
-        archives the source. Issued invoice, estimate, and credit identifiers never change.
-        Destination fields win; missing custom-field values are copied, while a conflicting source
-        value stays visible on the archived source instead of silently overwriting the destination.
+        Choose the surviving record and review field conflicts and relationship counts, then type
+        the duplicate label. Genosyn moves every applicable Revenue and Finance reference in one
+        transaction, preserves aliases and source IDs, and archives the duplicate as a redirecting
+        tombstone. Destination fields win; missing custom values are copied, while conflicts stay
+        visible rather than silently overwriting the survivor.
       </P>
-      <Callout kind="info" title="A merge is atomic and the source is kept.">
-        Either every linked record moves or none do. The source Account is archived rather than
-        deleted, so its original fields and any custom-value conflicts remain available for review.
+      <Callout kind="info" title="A merge is atomic, audited, and reversible.">
+        Either every linked record moves or none do. Undo verifies that no affected row has changed
+        since the merge, then restores the exact earlier state. See{" "}
+        <DocLink to="/docs/revenue-data-quality#merge">Merge and archive core records</DocLink>.
       </Callout>
 
       <H2 id="deals">Deals</H2>
@@ -318,9 +321,11 @@ export function Revenue() {
         twelve months. Recurring revenue: <Strong>MRR movement</Strong> split into new, expansion,
         contraction, churn and reactivation (the waterfall is guaranteed to add up),{" "}
         <Strong>ARR</Strong>, and <Strong>NRR / GRR</Strong> retention. Pipeline:{" "}
-        <Strong>coverage</Strong> against a target you enter, <Strong>win rate</Strong>,{" "}
-        <Strong>sales-cycle length</Strong>, and <Strong>stage-to-stage conversion</Strong> read off
-        the stage-change activities. Acquisition: <Strong>CAC by channel</Strong>,{" "}
+        <Strong>coverage</Strong> against a target you enter, <Strong>win rate</Strong>, median{" "}
+        <Strong>sales-cycle length</Strong>, original-cohort <Strong>stage conversion</Strong>, and
+        entered/progressed counts with median time in each stage. These use timestamped Deal
+        history, never adjacent current-stage counts. Imported and history-free Deals are labelled
+        explicitly. Acquisition: <Strong>CAC by channel</Strong>,{" "}
         <Strong>LTV:CAC</Strong>, and <Strong>payback months</Strong>. A brand-new company sees
         zeros, never errors.
       </P>

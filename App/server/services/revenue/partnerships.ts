@@ -6,6 +6,7 @@ import { PartnershipContact } from "../../db/entities/PartnershipContact.js";
 import { assertClassification, classificationValue } from "./classifications.js";
 import { matchingResourceIds } from "./customFields.js";
 import { assertRevenueLinks, assertRevenueOwner } from "./integrity.js";
+import { findMergedRecordRedirect } from "./operations.js";
 
 export type PartnershipWrite = {
   name?: string;
@@ -174,7 +175,17 @@ export async function updatePartnership(
   await assertRevenueOwner(companyId, patch);
   await assertRevenueLinks(companyId, { customerId: patch.customerId });
   await applyPartnership(companyId, row, patch);
-  if (patch.archived !== undefined) row.archivedAt = patch.archived ? new Date() : null;
+  if (patch.archived !== undefined) {
+    if (!patch.archived) {
+      const redirect = await findMergedRecordRedirect(companyId, "partnership", id);
+      if (redirect) {
+        throw new Error(
+          `Restore blocked: this Partnership was merged into ${redirect.targetId}; undo the merge instead`,
+        );
+      }
+    }
+    row.archivedAt = patch.archived ? new Date() : null;
+  }
   return repo.save(row);
 }
 

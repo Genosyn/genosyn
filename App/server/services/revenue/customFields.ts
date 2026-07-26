@@ -113,7 +113,7 @@ function parseOptions(optionsJson: string): string[] {
   }
 }
 
-function normalizedSearchValue(value: CustomFieldValue): string {
+export function normalizedCustomFieldSearchValue(value: CustomFieldValue): string {
   if (value === null) return "";
   if (Array.isArray(value))
     return value
@@ -123,7 +123,10 @@ function normalizedSearchValue(value: CustomFieldValue): string {
   return String(value).trim().toLowerCase();
 }
 
-function validateValue(field: RevenueCustomField, value: unknown): CustomFieldValue {
+export function validateCustomFieldValue(
+  field: RevenueCustomField,
+  value: unknown,
+): CustomFieldValue {
   if (value === null || value === "") {
     if (field.required) throw new Error(`${field.name} is required`);
     return null;
@@ -340,7 +343,7 @@ export async function setCustomValues(
   for (const [key, rawValue] of Object.entries(values)) {
     const field = byKey.get(key);
     if (!field) throw new Error(`Unknown custom field: ${key}`);
-    const value = validateValue(field, rawValue);
+    const value = validateCustomFieldValue(field, rawValue);
     const existing = await repo.findOneBy({ companyId, fieldId: field.id, resourceId });
     if (value === null) {
       if (existing) await repo.delete({ id: existing.id });
@@ -354,7 +357,7 @@ export async function setCustomValues(
         resourceType,
         resourceId,
         valueJson: JSON.stringify(value),
-        searchValue: normalizedSearchValue(value),
+        searchValue: normalizedCustomFieldSearchValue(value),
       }),
     );
   }

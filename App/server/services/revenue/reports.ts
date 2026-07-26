@@ -10,18 +10,19 @@ import type {
   FunnelDeal,
   Period,
   PipelineCoverageResult,
-  StageConversionRow,
   StageFunnelRow,
   StageLike,
   WinRateResult,
 } from "./funnel.js";
 import {
   computePipelineCoverage,
-  computeSalesCycleDays,
-  computeStageConversion,
   computeStageFunnel,
-  computeWinRate,
 } from "./funnel.js";
+import {
+  historicalFunnelMetrics,
+  type HistoricalStageConversion,
+  type HistoricalStagePerformance,
+} from "./dealHistory.js";
 import type { MrrMovement, RetentionResult } from "./mrr.js";
 import { arrCents, computeMrrMovement, computeRetention, sumSnapshot } from "./mrr.js";
 import { roundHalfAway } from "../../lib/money.js";
@@ -203,24 +204,39 @@ export type FunnelSection = {
   stages: StageFunnelRow[];
   /** Open deals sitting in a stage that is archived or gone. A staleness signal. */
   orphanedCount: number;
-  conversion: StageConversionRow[];
+  /** Conversion for Deals created in the selected period, based on real transitions. */
+  conversion: HistoricalStageConversion[];
+  stagePerformance: HistoricalStagePerformance[];
   winRate: WinRateResult;
   /** Median days, won deals only. `null` when nothing closed won in the period. */
   salesCycleDays: number | null;
+  historyCoverage: {
+    eligibleDeals: number;
+    completeDeals: number;
+    partialDeals: number;
+    withoutHistory: number;
+    importedDeals: number;
+  };
+  semantics: "cohort_and_transition";
 };
 
-function buildFunnel(
+async function buildFunnel(
+  companyId: string,
   deals: readonly FunnelDeal[],
   stages: readonly StageLike[],
   period: Period,
-): FunnelSection {
+): Promise<FunnelSection> {
   const funnel = computeStageFunnel(deals, stages);
+  const history = await historicalFunnelMetrics(companyId, period.from, period.to, [...stages]);
   return {
     stages: funnel.rows,
     orphanedCount: funnel.orphanedCount,
-    conversion: computeStageConversion(funnel.rows),
-    winRate: computeWinRate(deals, period),
-    salesCycleDays: computeSalesCycleDays(deals, period),
+    conversion: history.conversion,
+    stagePerformance: history.stagePerformance,
+    winRate: history.outcomes,
+    salesCycleDays: history.salesCycleDays,
+    historyCoverage: history.historyCoverage,
+    semantics: "cohort_and_transition",
   };
 }
 
@@ -378,13 +394,14 @@ export async function getRevenueOverview(
   const lastMonth = mrr.months[mrr.months.length - 1];
   const cohort = firstMonth === undefined ? new Map() : (mrr.snapshots.get(firstMonth) ?? new Map());
   const latest = lastMonth === undefined ? new Map() : (mrr.snapshots.get(lastMonth) ?? new Map());
+  const funnel = await buildFunnel(companyId, deals, stages, period);
 
   return {
     period: { from, to },
     mrr: mrr.section,
     arrCents: arrCents(mrr.section.currentCents),
     retention: computeRetention(cohort, latest),
-    funnel: buildFunnel(deals, stages, period),
+    funnel,
     coverage: computePipelineCoverage(deals, stages, safeTargetCents(opts.targetCents)),
     cac: buildCac({
       spendByChannel: spendByChannel.byChannel,
@@ -473,10 +490,11 @@ export async function getFunnelReport(
     collectStages(companyId),
     getReportingCurrency(companyId),
   ]);
+  const funnel = await buildFunnel(companyId, deals, stages, { from, to });
 
   return {
     period: { from, to },
-    ...buildFunnel(deals, stages, { from, to }),
+    ...funnel,
     coverage: computePipelineCoverage(deals, stages, safeTargetCents(opts.targetCents)),
     currency,
   };

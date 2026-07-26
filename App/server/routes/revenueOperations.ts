@@ -8,6 +8,10 @@ import {
   type ActivityPriority,
   type ActivityTaskStatus,
 } from "../db/entities/Activity.js";
+import {
+  CONTACT_LIFECYCLE_STAGES,
+  type ContactLifecycleStage,
+} from "../db/entities/Contact.js";
 import { Company } from "../db/entities/Company.js";
 import {
   REVENUE_CLASSIFICATION_KINDS,
@@ -61,14 +65,56 @@ import {
   updateFollowUpTask,
 } from "../services/revenue/followUps.js";
 import {
+  mergeRevenueRecords,
+  previewRevenueMerge,
+  type MergeResourceType,
+} from "../services/revenue/merge.js";
+import { runRevenueBulkOperation } from "../services/revenue/bulk.js";
+import {
+  backfillDealHistoryFromActivities,
+  importHistoricalDealEvents,
+  listDealHistory,
+} from "../services/revenue/dealHistory.js";
+import {
+  createCommercialValueProposal,
+  listRevenueEvidence,
+  proposeCanonicalDomains,
+  proposeCommercialValuesFromFinance,
+  proposeCommercialValuesFromStripe,
+  reviewRevenueEvidence,
+} from "../services/revenue/enrichment.js";
+import {
+  dismissRevenueDuplicateCandidate,
+  listRevenueDuplicateCandidates,
+  scanRevenueDuplicates,
+} from "../services/revenue/duplicates.js";
+import {
+  REVENUE_EXPORT_RESOURCES,
+  exportRevenueSnapshotPage,
+  revenueExportCsv,
+  type RevenueExportResource,
+} from "../services/revenue/exports.js";
+import {
+  listRevenueDocumentCandidates,
+  reviewRevenueDocumentCandidate,
+  scanMailForRevenueDocuments,
+} from "../services/revenue/documentCapture.js";
+import {
+  findMergedRecordRedirect,
+  getRevenueOperation,
+  listRevenueOperations,
+  rollbackRevenueOperation,
+} from "../services/revenue/operations.js";
+import {
   commitLinkedRevenueImport,
   commitRevenueImport,
   getRevenueImport,
-  listRevenueImports,
+  getRevenueImportRows,
   loadBaseImportRows,
   migrateBaseAttachmentsForImport,
   previewLinkedRevenueImport,
   previewRevenueImport,
+  queryRevenueImports,
   rollbackRevenueImport,
   type ImportRow,
   type LinkedImportMapping,
@@ -141,6 +187,7 @@ const taskStatusEnum = z.enum(
   ACTIVITY_TASK_STATUSES as [ActivityTaskStatus, ...ActivityTaskStatus[]],
 );
 const priorityEnum = z.enum(ACTIVITY_PRIORITIES as [ActivityPriority, ...ActivityPriority[]]);
+const mergeResourceTypeEnum = z.enum(["account", "contact", "deal", "partnership"]);
 
 function optionalDate(value: string | null | undefined): Date | null | undefined {
   if (value === undefined) return undefined;
@@ -255,6 +302,7 @@ revenueOperationsRouter.post(
         req.params.id,
         req.body.targetAccountId,
         req.body.confirmSourceName,
+        actorOf(req),
       );
       await audit(
         req,
@@ -300,6 +348,727 @@ revenueOperationsRouter.patch(
   }),
 );
 
+// ── Core-record consolidation + reversible operation history ─────────────
+
+const mergeParamsSchema = z.object({
+  resourceType: mergeResourceTypeEnum,
+  id: z.string().uuid(),
+});
+
+revenueOperationsRouter.get(
+  "/revenue/records/:resourceType/:id/merge-preview",
+  h(async (req, res) => {
+    const params = mergeParamsSchema.safeParse(req.params);
+    const query = z.object({ targetId: z.string().uuid() }).safeParse(req.query);
+    if (!params.success || !query.success) {
+      return res.status(400).json({ error: "Valid source and destination records are required" });
+    }
+    try {
+      return res.json(
+        await previewRevenueMerge(
+          cidOf(req),
+          params.data.resourceType as MergeResourceType,
+          params.data.id,
+          query.data.targetId,
+        ),
+      );
+    } catch (error) {
+      const message = (error as Error).message;
+      return res.status(message.endsWith("not found") ? 404 : 409).json({ error: message });
+    }
+  }),
+);
+
+revenueOperationsRouter.post(
+  "/revenue/records/:resourceType/:id/merge",
+  validateBody(
+    z.object({
+      targetId: z.string().uuid(),
+      confirmSourceLabel: z.string().min(1).max(500),
+    }),
+  ),
+  h(async (req, res) => {
+    const params = mergeParamsSchema.safeParse(req.params);
+    if (!params.success) return res.status(400).json({ error: "Invalid Revenue record" });
+    try {
+      const result = await mergeRevenueRecords(
+        cidOf(req),
+        params.data.resourceType,
+        params.data.id,
+        req.body.targetId,
+        req.body.confirmSourceLabel,
+        actorOf(req),
+      );
+      await audit(
+        req,
+        `revenue.${params.data.resourceType}.merge`,
+        params.data.resourceType,
+        result.source.id,
+        `${result.source.label} → ${result.target.label}`,
+        {
+          operationId: result.operationId,
+          targetId: result.target.id,
+          moved: result.relationshipCounts,
+          customValuesCopied: result.customValuesCopied,
+        },
+      );
+      return res.json(result);
+    } catch (error) {
+      const message = (error as Error).message;
+      return res.status(message.endsWith("not found") ? 404 : 409).json({ error: message });
+    }
+  }),
+);
+
+revenueOperationsRouter.get(
+  "/revenue/records/:resourceType/:id/redirect",
+  h(async (req, res) => {
+    const params = mergeParamsSchema.safeParse(req.params);
+    if (!params.success) return res.status(400).json({ error: "Invalid Revenue record" });
+    const redirect = await findMergedRecordRedirect(
+      cidOf(req),
+      params.data.resourceType,
+      params.data.id,
+    );
+    return redirect ? res.json(redirect) : res.status(404).json({ error: "Redirect not found" });
+  }),
+);
+
+revenueOperationsRouter.get(
+  "/revenue/operations",
+  h(async (req, res) => {
+    const parsed = z
+      .object({
+        kind: z.enum(["merge", "bulk"]).optional(),
+        resourceType: z
+          .enum(["account", "contact", "deal", "partnership", "follow_up"])
+          .optional(),
+        status: z.enum(["completed", "partial", "failed", "rolled_back"]).optional(),
+        limit: z.coerce.number().int().min(1).max(200).optional(),
+        offset: z.coerce.number().int().min(0).optional(),
+      })
+      .safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid query parameters" });
+    return res.json(await listRevenueOperations(cidOf(req), parsed.data));
+  }),
+);
+
+revenueOperationsRouter.get(
+  "/revenue/operations/:id",
+  h(async (req, res) => {
+    const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
+    const query = z
+      .object({
+        rowLimit: z.coerce.number().int().min(1).max(500).optional(),
+        rowOffset: z.coerce.number().int().min(0).optional(),
+      })
+      .safeParse(req.query);
+    if (!params.success || !query.success) {
+      return res.status(400).json({ error: "Invalid operation query" });
+    }
+    const result = await getRevenueOperation(cidOf(req), params.data.id, query.data);
+    return result ? res.json(result) : res.status(404).json({ error: "Operation not found" });
+  }),
+);
+
+revenueOperationsRouter.post(
+  "/revenue/operations/:id/undo",
+  validateBody(z.object({ confirm: z.literal("UNDO") })),
+  h(async (req, res) => {
+    const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
+    if (!params.success) return res.status(400).json({ error: "Invalid operation" });
+    try {
+      const result = await rollbackRevenueOperation(cidOf(req), params.data.id);
+      await audit(
+        req,
+        "revenue.operation.undo",
+        "revenue_operation",
+        result.operation.id,
+        result.operation.kind,
+        { rolledBack: result.rolledBack },
+      );
+      return res.json(result);
+    } catch (error) {
+      return res.status(409).json({ error: (error as Error).message });
+    }
+  }),
+);
+
+const bulkTargetSchema = z
+  .object({
+    ids: z.array(z.string().uuid()).max(5_000).optional(),
+    followUpIds: z
+      .array(
+        z.object({
+          source: z.enum(["task", "deal", "partnership"]),
+          id: z.string().uuid(),
+        }),
+      )
+      .max(5_000)
+      .optional(),
+    filter: z
+      .object({
+        q: z.string().max(200).optional(),
+        includeArchived: z.boolean().optional(),
+        ownerId: z.string().uuid().optional(),
+        ownerEmployeeId: z.string().uuid().optional(),
+        unassigned: z.boolean().optional(),
+        accountStatus: z.enum(["prospect", "customer", "former"]).optional(),
+        lifecycleStage: z
+          .enum(CONTACT_LIFECYCLE_STAGES as [ContactLifecycleStage, ...ContactLifecycleStage[]])
+          .optional(),
+        dealStatus: z.enum(["open", "won", "lost"]).optional(),
+        dealStageId: z.string().uuid().optional(),
+        partnershipStatus: z.string().max(80).optional(),
+        followUpSource: z.enum(["task", "deal", "partnership"]).optional(),
+        taskStatus: taskStatusEnum.optional(),
+        priority: priorityEnum.optional(),
+        linkedResourceType: z.enum(["account", "contact", "deal", "partnership"]).optional(),
+        linkedResourceId: z.string().uuid().optional(),
+        dueFrom: z.string().datetime().optional(),
+        dueTo: z.string().datetime().optional(),
+        staleBefore: z.string().datetime().optional(),
+        createdBefore: z.string().datetime().optional(),
+        closedDeals: z.enum(["include", "only", "exclude"]).optional(),
+      })
+      .optional(),
+  })
+  .refine(
+    (target) =>
+      Boolean(target.ids?.length || target.followUpIds?.length || target.filter),
+    "Choose selected IDs or a filter",
+  );
+
+const bulkActionSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("assign_owner"),
+    ownerId: z.string().uuid().nullable(),
+    ownerEmployeeId: z.string().uuid().nullable(),
+  }),
+  z.object({
+    type: z.literal("set_contact_lifecycle"),
+    lifecycleStage: z.enum(
+      CONTACT_LIFECYCLE_STAGES as [ContactLifecycleStage, ...ContactLifecycleStage[]],
+    ),
+  }),
+  z.object({
+    type: z.literal("set_account_status"),
+    accountStatus: z.enum(["prospect", "customer", "former"]),
+  }),
+  z.object({
+    type: z.literal("set_custom_fields"),
+    values: z.record(z.unknown()),
+  }),
+  z.object({
+    type: z.literal("archive"),
+    archived: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("update_follow_up"),
+    taskStatus: taskStatusEnum.optional(),
+    priority: priorityEnum.optional(),
+    assignedUserId: z.string().uuid().nullable().optional(),
+    assignedEmployeeId: z.string().uuid().nullable().optional(),
+    dueAt: z.string().datetime().nullable().optional(),
+    reminderAt: z.string().datetime().nullable().optional(),
+  }),
+]);
+
+const bulkSchema = z.object({
+  resourceType: z.enum(["account", "contact", "deal", "partnership", "follow_up"]),
+  target: bulkTargetSchema,
+  action: bulkActionSchema,
+  dryRun: z.boolean().default(false),
+  idempotencyKey: z.string().min(8).max(200).optional(),
+});
+
+revenueOperationsRouter.post(
+  "/revenue/bulk",
+  validateBody(bulkSchema),
+  h(async (req, res) => {
+    try {
+      const body = req.body as z.infer<typeof bulkSchema>;
+      const filter = body.target.filter;
+      const action =
+        body.action.type === "update_follow_up"
+          ? {
+              ...body.action,
+              dueAt: optionalDate(body.action.dueAt),
+              reminderAt: optionalDate(body.action.reminderAt),
+            }
+          : body.action;
+      const result = await runRevenueBulkOperation(
+        cidOf(req),
+        {
+          ...body,
+          target: {
+            ...body.target,
+            filter: filter
+              ? {
+                  ...filter,
+                  dueFrom: optionalDate(filter.dueFrom) ?? undefined,
+                  dueTo: optionalDate(filter.dueTo) ?? undefined,
+                  staleBefore: optionalDate(filter.staleBefore) ?? undefined,
+                  createdBefore: optionalDate(filter.createdBefore) ?? undefined,
+                }
+              : undefined,
+          },
+          action,
+        },
+        actorOf(req),
+      );
+      if (!result.dryRun && !result.replayed) {
+        await audit(
+          req,
+          "revenue.bulk.apply",
+          "revenue_operation",
+          result.operationId ?? null,
+          body.resourceType,
+          {
+            action: body.action.type,
+            matched: result.matched,
+            applied: result.applied,
+            failed: result.failed,
+          },
+        );
+      }
+      return res.json(result);
+    } catch (error) {
+      return res.status(409).json({ error: (error as Error).message });
+    }
+  }),
+);
+
+const historyEventSchema = z.object({
+  sourceId: z.string().min(1).max(300),
+  kind: z.enum(["stage_changed", "amount_changed", "owner_changed", "won", "lost"]),
+  occurredAt: z.string().datetime(),
+  fromStageId: z.string().uuid().nullable().optional(),
+  toStageId: z.string().uuid().nullable().optional(),
+  fromAmountCents: z.number().int().min(0).max(2_000_000_000).nullable().optional(),
+  toAmountCents: z.number().int().min(0).max(2_000_000_000).nullable().optional(),
+  currency: z.string().length(3).optional(),
+  fromOwnerId: z.string().uuid().nullable().optional(),
+  fromOwnerEmployeeId: z.string().uuid().nullable().optional(),
+  toOwnerId: z.string().uuid().nullable().optional(),
+  toOwnerEmployeeId: z.string().uuid().nullable().optional(),
+  lostReason: z.string().max(2_000).optional(),
+  metadata: z.unknown().optional(),
+});
+
+revenueOperationsRouter.post(
+  "/revenue/deal-history/import",
+  validateBody(
+    z.object({
+      batchKey: z.string().min(8).max(200),
+      rows: z
+        .array(
+          z.object({
+            sourceId: z.string().min(1).max(300),
+            dealId: z.string().uuid(),
+            originalCreatedAt: z.string().datetime().optional(),
+            events: z.array(historyEventSchema).max(2_000),
+          }),
+        )
+        .min(1)
+        .max(200),
+    }),
+  ),
+  h(async (req, res) => {
+    const body = req.body as {
+      batchKey: string;
+      rows: Array<{
+        sourceId: string;
+        dealId: string;
+        originalCreatedAt?: string;
+        events: Array<z.infer<typeof historyEventSchema>>;
+      }>;
+    };
+    const result = await importHistoricalDealEvents(
+      cidOf(req),
+      body.batchKey,
+      body.rows.map((row) => ({
+        ...row,
+        originalCreatedAt: row.originalCreatedAt
+          ? new Date(row.originalCreatedAt)
+          : undefined,
+        events: row.events.map((event) => ({
+          ...event,
+          occurredAt: new Date(event.occurredAt),
+        })),
+      })),
+      actorOf(req),
+    );
+    await audit(
+      req,
+      "revenue.deal_history.import",
+      "deal_history_import",
+      null,
+      body.batchKey,
+      {
+        imported: result.imported,
+        skipped: result.skipped,
+        failed: result.failed,
+      },
+    );
+    return res.status(result.failed > 0 ? 207 : 200).json(result);
+  }),
+);
+
+revenueOperationsRouter.post(
+  "/revenue/deal-history/backfill-activities",
+  validateBody(z.object({ confirm: z.literal("BACKFILL") })),
+  h(async (req, res) => {
+    const result = await backfillDealHistoryFromActivities(cidOf(req), actorOf(req));
+    await audit(
+      req,
+      "revenue.deal_history.backfill",
+      "deal_history_event",
+      null,
+      "Activity backfill",
+      result,
+    );
+    return res.json(result);
+  }),
+);
+
+revenueOperationsRouter.get(
+  "/revenue/deal-history",
+  h(async (req, res) => {
+    const parsed = z
+      .object({
+        dealId: z.string().uuid().optional(),
+        sourceKind: z.enum(["live", "import", "activity_backfill"]).optional(),
+        kind: z
+          .enum(["created", "stage_changed", "amount_changed", "owner_changed", "won", "lost"])
+          .optional(),
+        from: z.string().datetime().optional(),
+        to: z.string().datetime().optional(),
+        limit: z.coerce.number().int().min(1).max(500).optional(),
+        offset: z.coerce.number().int().min(0).optional(),
+      })
+      .safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid query parameters" });
+    return res.json(
+      await listDealHistory(cidOf(req), {
+        ...parsed.data,
+        from: optionalDate(parsed.data.from) ?? undefined,
+        to: optionalDate(parsed.data.to) ?? undefined,
+      }),
+    );
+  }),
+);
+
+const evidenceSourceTypeEnum = z.enum([
+  "email",
+  "document",
+  "integration",
+  "finance",
+  "website",
+  "import",
+  "manual",
+]);
+
+revenueOperationsRouter.post(
+  "/revenue/enrichment/domains/propose",
+  validateBody(
+    z.object({
+      accountIds: z.array(z.string().uuid()).max(5_000).optional(),
+      verifiedContactIds: z.array(z.string().uuid()).max(20_000).optional(),
+      followWebsiteRedirects: z.boolean().optional(),
+    }),
+  ),
+  h(async (req, res) => {
+    const result = await proposeCanonicalDomains(cidOf(req), req.body);
+    await audit(
+      req,
+      "revenue.enrichment.domains.propose",
+      "revenue_field_evidence",
+      null,
+      "Canonical domains",
+      result,
+    );
+    return res.json(result);
+  }),
+);
+
+revenueOperationsRouter.post(
+  "/revenue/enrichment/commercial-values/propose-from-finance",
+  validateBody(z.object({ confirm: z.literal("PROPOSE") })),
+  h(async (req, res) => {
+    const result = await proposeCommercialValuesFromFinance(cidOf(req));
+    await audit(
+      req,
+      "revenue.enrichment.commercial_values.propose",
+      "revenue_field_evidence",
+      null,
+      "Finance evidence",
+      result,
+    );
+    return res.json(result);
+  }),
+);
+
+revenueOperationsRouter.post(
+  "/revenue/enrichment/commercial-values/propose-from-stripe",
+  validateBody(z.object({ confirm: z.literal("PROPOSE") })),
+  h(async (req, res) => {
+    const result = await proposeCommercialValuesFromStripe(cidOf(req));
+    await audit(
+      req,
+      "revenue.enrichment.commercial_values.propose",
+      "revenue_field_evidence",
+      null,
+      "Stripe subscription evidence",
+      result,
+    );
+    return res.json(result);
+  }),
+);
+
+revenueOperationsRouter.post(
+  "/revenue/enrichment/commercial-values/proposals",
+  validateBody(
+    z.object({
+      dealId: z.string().uuid(),
+      sourceType: z.enum(["email", "document", "integration", "finance", "manual"]),
+      sourceId: z.string().min(1).max(500),
+      sourceLabel: z.string().max(500).optional(),
+      sourceVerified: z.boolean(),
+      confidence: z.number().int().min(0).max(100),
+      extractedAt: z.string().datetime().optional(),
+      value: z.object({
+        amountCents: z.number().int().min(0).max(2_000_000_000),
+        currency: z.string().length(3),
+        revenueType: z.enum(["one_time", "recurring"]),
+        billingInterval: z.enum(["month", "quarter", "year"]).nullable().optional(),
+        quantity: z.number().int().min(0).nullable().optional(),
+        seats: z.number().int().min(0).nullable().optional(),
+        mrrCents: z.number().int().min(0).nullable().optional(),
+        arrCents: z.number().int().min(0).nullable().optional(),
+        acvCents: z.number().int().min(0).nullable().optional(),
+      }),
+      metadata: z.unknown().optional(),
+    }),
+  ),
+  h(async (req, res) => {
+    try {
+      const evidence = await createCommercialValueProposal(cidOf(req), {
+        ...req.body,
+        extractedAt: req.body.extractedAt ? new Date(req.body.extractedAt) : undefined,
+      });
+      await audit(
+        req,
+        "revenue.enrichment.commercial_value.propose",
+        "revenue_field_evidence",
+        evidence.id,
+        evidence.sourceLabel,
+        { dealId: evidence.resourceId, confidence: evidence.confidence },
+      );
+      return res.status(201).json(evidence);
+    } catch (error) {
+      return res.status(400).json({ error: (error as Error).message });
+    }
+  }),
+);
+
+revenueOperationsRouter.get(
+  "/revenue/enrichment/evidence",
+  h(async (req, res) => {
+    const parsed = z
+      .object({
+        resourceType: z.enum(["account", "contact", "deal", "partnership"]).optional(),
+        resourceId: z.string().uuid().optional(),
+        fieldKey: z.string().max(120).optional(),
+        sourceType: evidenceSourceTypeEnum.optional(),
+        status: z.enum(["proposed", "accepted", "rejected", "superseded"]).optional(),
+        limit: z.coerce.number().int().min(1).max(500).optional(),
+        offset: z.coerce.number().int().min(0).optional(),
+      })
+      .safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid query parameters" });
+    return res.json(await listRevenueEvidence(cidOf(req), parsed.data));
+  }),
+);
+
+revenueOperationsRouter.post(
+  "/revenue/enrichment/evidence/:id/review",
+  validateBody(z.object({ decision: z.enum(["accept", "reject"]) })),
+  h(async (req, res) => {
+    const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
+    if (!params.success) return res.status(400).json({ error: "Invalid evidence" });
+    try {
+      const evidence = await reviewRevenueEvidence(
+        cidOf(req),
+        params.data.id,
+        req.body.decision,
+        actorOf(req),
+      );
+      await audit(
+        req,
+        `revenue.enrichment.evidence.${req.body.decision}`,
+        "revenue_field_evidence",
+        evidence.id,
+        evidence.fieldKey,
+        { resourceType: evidence.resourceType, resourceId: evidence.resourceId },
+      );
+      return res.json(evidence);
+    } catch (error) {
+      return res.status(409).json({ error: (error as Error).message });
+    }
+  }),
+);
+
+revenueOperationsRouter.post(
+  "/revenue/duplicates/scan",
+  validateBody(z.object({ confirm: z.literal("SCAN") })),
+  h(async (req, res) => {
+    const result = await scanRevenueDuplicates(cidOf(req));
+    await audit(
+      req,
+      "revenue.duplicates.scan",
+      "revenue_duplicate_candidate",
+      null,
+      "Revenue duplicates",
+      result,
+    );
+    return res.json(result);
+  }),
+);
+
+revenueOperationsRouter.get(
+  "/revenue/duplicates",
+  h(async (req, res) => {
+    const parsed = z
+      .object({
+        resourceType: mergeResourceTypeEnum.optional(),
+        status: z.enum(["open", "dismissed", "merged"]).optional(),
+        minScore: z.coerce.number().int().min(0).max(100).optional(),
+        limit: z.coerce.number().int().min(1).max(500).optional(),
+        offset: z.coerce.number().int().min(0).optional(),
+      })
+      .safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid query parameters" });
+    return res.json(await listRevenueDuplicateCandidates(cidOf(req), parsed.data));
+  }),
+);
+
+revenueOperationsRouter.post(
+  "/revenue/duplicates/:id/dismiss",
+  validateBody(z.object({ confirm: z.literal("DISMISS") })),
+  h(async (req, res) => {
+    const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
+    if (!params.success) return res.status(400).json({ error: "Invalid duplicate candidate" });
+    try {
+      const row = await dismissRevenueDuplicateCandidate(
+        cidOf(req),
+        params.data.id,
+        req.userId ?? null,
+      );
+      if (!row) return res.status(404).json({ error: "Duplicate candidate not found" });
+      await audit(
+        req,
+        "revenue.duplicate.dismiss",
+        "revenue_duplicate_candidate",
+        row.id,
+        row.resourceType,
+      );
+      return res.json(row);
+    } catch (error) {
+      return res.status(409).json({ error: (error as Error).message });
+    }
+  }),
+);
+
+revenueOperationsRouter.post(
+  "/revenue/document-capture/scan",
+  validateBody(
+    z.object({
+      accountId: z.string().uuid().optional(),
+      from: z.string().datetime().optional(),
+      to: z.string().datetime().optional(),
+      limit: z.number().int().min(1).max(500).optional(),
+      offset: z.number().int().min(0).optional(),
+    }),
+  ),
+  h(async (req, res) => {
+    const result = await scanMailForRevenueDocuments(cidOf(req), {
+      ...req.body,
+      from: optionalDate(req.body.from) ?? undefined,
+      to: optionalDate(req.body.to) ?? undefined,
+    });
+    await audit(
+      req,
+      "revenue.document_capture.scan",
+      "revenue_document_candidate",
+      null,
+      "Mail attachments",
+      result,
+    );
+    return res.json(result);
+  }),
+);
+
+revenueOperationsRouter.get(
+  "/revenue/document-capture/candidates",
+  h(async (req, res) => {
+    const parsed = z
+      .object({
+        status: z.enum(["pending", "accepted", "rejected", "duplicate"]).optional(),
+        limit: z.coerce.number().int().min(1).max(500).optional(),
+        offset: z.coerce.number().int().min(0).optional(),
+      })
+      .safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid query parameters" });
+    return res.json(await listRevenueDocumentCandidates(cidOf(req), parsed.data));
+  }),
+);
+
+revenueOperationsRouter.post(
+  "/revenue/document-capture/candidates/:id/review",
+  validateBody(
+    z.discriminatedUnion("decision", [
+      z.object({
+        decision: z.literal("reject"),
+        note: z.string().max(2_000).optional(),
+      }),
+      z.object({
+        decision: z.literal("accept"),
+        kind: documentKindEnum.optional(),
+        resourceType: z.enum(["account", "contact", "deal", "partnership"]).optional(),
+        resourceId: z.string().uuid().optional(),
+        note: z.string().max(2_000).optional(),
+      }),
+    ]),
+  ),
+  h(async (req, res) => {
+    const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
+    if (!params.success) return res.status(400).json({ error: "Invalid document candidate" });
+    try {
+      const candidate = await reviewRevenueDocumentCandidate(
+        cidOf(req),
+        params.data.id,
+        req.body,
+        actorOf(req),
+      );
+      await audit(
+        req,
+        `revenue.document_capture.${req.body.decision}`,
+        "revenue_document_candidate",
+        candidate.id,
+        candidate.filename,
+        {
+          status: candidate.status,
+          revenueDocumentId: candidate.revenueDocumentId,
+        },
+      );
+      return res.json(candidate);
+    } catch (error) {
+      return res.status(409).json({ error: (error as Error).message });
+    }
+  }),
+);
+
 // ── Follow-up queue + complete task model ─────────────────────────────────
 
 const taskWriteSchema = z.object({
@@ -324,13 +1093,35 @@ revenueOperationsRouter.get(
     const parsed = z
       .object({
         state: z.enum(["all", "overdue", "today", "upcoming"]).optional(),
+        source: z.enum(["task", "deal", "partnership"]).optional(),
         assignedUserId: z.string().uuid().optional(),
         assignedEmployeeId: z.string().uuid().optional(),
+        unassigned: boolQuery,
+        priority: priorityEnum.optional(),
+        status: taskStatusEnum.optional(),
+        linkedResourceType: z.enum(["account", "contact", "deal", "partnership"]).optional(),
+        linkedResourceId: z.string().uuid().optional(),
+        dueFrom: z.string().datetime().optional(),
+        dueTo: z.string().datetime().optional(),
+        createdBefore: z.string().datetime().optional(),
+        staleBefore: z.string().datetime().optional(),
+        dealStageId: z.string().uuid().optional(),
+        dealStatus: z.enum(["open", "won", "lost"]).optional(),
+        closedDeals: z.enum(["include", "only", "exclude"]).optional(),
         limit: z.coerce.number().int().min(1).max(500).optional(),
+        offset: z.coerce.number().int().min(0).optional(),
       })
       .safeParse(req.query);
     if (!parsed.success) return res.status(400).json({ error: "Invalid query parameters" });
-    return res.json({ rows: await listFollowUps(cidOf(req), parsed.data) });
+    return res.json({
+      rows: await listFollowUps(cidOf(req), {
+        ...parsed.data,
+        dueFrom: optionalDate(parsed.data.dueFrom) ?? undefined,
+        dueTo: optionalDate(parsed.data.dueTo) ?? undefined,
+        createdBefore: optionalDate(parsed.data.createdBefore) ?? undefined,
+        staleBefore: optionalDate(parsed.data.staleBefore) ?? undefined,
+      }),
+    });
   }),
 );
 
@@ -1011,7 +1802,30 @@ revenueOperationsRouter.post(
 
 revenueOperationsRouter.get(
   "/revenue/imports",
-  h(async (req, res) => res.json({ rows: await listRevenueImports(cidOf(req)) })),
+  h(async (req, res) => {
+    const parsed = z
+      .object({
+        sourceKind: z.enum(["base", "csv"]).optional(),
+        status: z.enum(["completed", "rolled_back", "failed"]).optional(),
+        resourceType: z
+          .enum(["account", "contact", "deal", "partnership", "account_contact_deal"])
+          .optional(),
+        from: z.string().datetime().optional(),
+        to: z.string().datetime().optional(),
+        summaryOnly: boolQuery,
+        limit: z.coerce.number().int().min(1).max(200).optional(),
+        offset: z.coerce.number().int().min(0).optional(),
+      })
+      .safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid query parameters" });
+    return res.json(
+      await queryRevenueImports(cidOf(req), {
+        ...parsed.data,
+        from: optionalDate(parsed.data.from) ?? undefined,
+        to: optionalDate(parsed.data.to) ?? undefined,
+      }),
+    );
+  }),
 );
 
 revenueOperationsRouter.get(
@@ -1019,6 +1833,115 @@ revenueOperationsRouter.get(
   h(async (req, res) => {
     const batch = await getRevenueImport(cidOf(req), req.params.id);
     return batch ? res.json(batch) : res.status(404).json({ error: "Import not found" });
+  }),
+);
+
+revenueOperationsRouter.get(
+  "/revenue/imports/:id/rows",
+  h(async (req, res) => {
+    const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
+    const query = z
+      .object({
+        resourceType: resourceTypeEnum.optional(),
+        status: z.enum(["created", "matched", "skipped", "failed", "rolled_back"]).optional(),
+        action: z.string().max(80).optional(),
+        q: z.string().max(200).optional(),
+        limit: z.coerce.number().int().min(1).max(500).optional(),
+        offset: z.coerce.number().int().min(0).optional(),
+      })
+      .safeParse(req.query);
+    if (!params.success || !query.success) {
+      return res.status(400).json({ error: "Invalid import row query" });
+    }
+    const result = await getRevenueImportRows(cidOf(req), params.data.id, query.data);
+    return result ? res.json(result) : res.status(404).json({ error: "Import not found" });
+  }),
+);
+
+revenueOperationsRouter.get(
+  "/revenue/imports/:id/reconciliation",
+  h(async (req, res) => {
+    const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
+    const query = z
+      .object({
+        format: z.enum(["json", "csv"]).default("json"),
+        resourceType: resourceTypeEnum.optional(),
+        status: z.enum(["created", "matched", "skipped", "failed", "rolled_back"]).optional(),
+        action: z.string().max(80).optional(),
+        q: z.string().max(200).optional(),
+        limit: z.coerce.number().int().min(1).max(500).optional(),
+        offset: z.coerce.number().int().min(0).optional(),
+      })
+      .safeParse(req.query);
+    if (!params.success || !query.success) {
+      return res.status(400).json({ error: "Invalid reconciliation query" });
+    }
+    const { format, ...rowQuery } = query.data;
+    const result = await getRevenueImportRows(cidOf(req), params.data.id, rowQuery);
+    if (!result) return res.status(404).json({ error: "Import not found" });
+    if (format === "csv") {
+      const csv = revenueExportCsv({
+        resource: "import_reconciliation",
+        generatedAt: new Date(),
+        offset: rowQuery.offset ?? 0,
+        limit: rowQuery.limit ?? 100,
+        total: result.total,
+        nextOffset:
+          (rowQuery.offset ?? 0) + result.rows.length < result.total
+            ? (rowQuery.offset ?? 0) + result.rows.length
+            : null,
+        rows: result.rows.map((row) => ({ ...row })),
+      });
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="revenue-import-${params.data.id}.csv"`,
+      );
+      return res.send(csv);
+    }
+    return res.json(result);
+  }),
+);
+
+revenueOperationsRouter.get(
+  "/revenue/exports/:resource",
+  h(async (req, res) => {
+    const params = z
+      .object({
+        resource: z.enum(
+          REVENUE_EXPORT_RESOURCES as unknown as [
+            RevenueExportResource,
+            ...RevenueExportResource[],
+          ],
+        ),
+      })
+      .safeParse(req.params);
+    const query = z
+      .object({
+        format: z.enum(["json", "csv"]).default("json"),
+        limit: z.coerce.number().int().min(1).max(500).optional(),
+        offset: z.coerce.number().int().min(0).optional(),
+      })
+      .safeParse(req.query);
+    if (!params.success || !query.success) {
+      return res.status(400).json({ error: "Invalid Revenue export query" });
+    }
+    const page = await exportRevenueSnapshotPage(
+      cidOf(req),
+      params.data.resource,
+      query.data,
+    );
+    if (query.data.format === "csv") {
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("X-Revenue-Export-Next-Offset", page.nextOffset?.toString() ?? "");
+      res.setHeader("X-Revenue-Export-Total", page.total?.toString() ?? "");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="revenue-${params.data.resource}-${page.offset}.csv"`,
+      );
+      return res.send(revenueExportCsv(page));
+    }
+    return res.json(page);
   }),
 );
 

@@ -23,6 +23,7 @@ import {
 } from "../../db/entities/RevenueCustomField.js";
 import { RevenueDocument, type RevenueDocumentKind } from "../../db/entities/RevenueDocument.js";
 import { RevenueImportBatch } from "../../db/entities/RevenueImportBatch.js";
+import { RevenueImportRow } from "../../db/entities/RevenueImportRow.js";
 import { normalizeEmail } from "../../lib/emailAddress.js";
 import { toSlug } from "../../lib/slug.js";
 import { resolveBaseAttachmentFile } from "../baseRecordUploads.js";
@@ -807,7 +808,7 @@ export async function commitRevenueImport(
     reason,
   }));
   const repo = AppDataSource.getRepository(RevenueImportBatch);
-  return repo.save(
+  const batch = await repo.save(
     repo.create({
       companyId,
       resourceType: input.resourceType,
@@ -825,6 +826,29 @@ export async function commitRevenueImport(
       createdByEmployeeId: actor.employeeId ?? null,
     }),
   );
+  await AppDataSource.getRepository(RevenueImportRow).save(
+    report.decisions.map((decision, sortOrder) =>
+      AppDataSource.getRepository(RevenueImportRow).create({
+        companyId,
+        batchId: batch.id,
+        resourceType: input.resourceType,
+        sourceId: decision.sourceId,
+        nativeId: decision.nativeId,
+        action: decision.action,
+        status:
+          decision.action === "create"
+            ? "created"
+            : decision.action === "duplicate"
+              ? "matched"
+              : "skipped",
+        reason: decision.reason ?? "",
+        decisionJson: JSON.stringify(decision),
+        sortOrder,
+      }),
+    ),
+    { chunk: 500 },
+  );
+  return batch;
 }
 
 type LinkedCreatedIds = Record<LinkedImportResource, string[]>;
@@ -1259,7 +1283,7 @@ export async function commitLinkedRevenueImport(
       ),
     }));
     const repo = manager.getRepository(RevenueImportBatch);
-    return repo.save(
+    const batch = await repo.save(
       repo.create({
         companyId,
         resourceType: "account_contact_deal",
@@ -1277,6 +1301,37 @@ export async function commitLinkedRevenueImport(
         createdByEmployeeId: actor.employeeId ?? null,
       }),
     );
+    const importRows: RevenueImportRow[] = [];
+    for (const [sourceIndex, decision] of report.decisions.entries()) {
+      for (const [resourceIndex, resourceType] of (
+        ["account", "contact", "deal"] as const
+      ).entries()) {
+        const resource = decision.resources[resourceType];
+        importRows.push(
+          manager.create(RevenueImportRow, {
+            companyId,
+            batchId: batch.id,
+            resourceType,
+            sourceId: decision.sourceId,
+            nativeId: resource.nativeId,
+            action: resource.action,
+            status:
+              resource.action === "create"
+                ? "created"
+                : resource.action === "duplicate"
+                  ? "matched"
+                  : "skipped",
+            reason: resource.reason ?? decision.reason ?? "",
+            decisionJson: JSON.stringify(resource),
+            sortOrder: sourceIndex * 3 + resourceIndex,
+          }),
+        );
+      }
+    }
+    if (importRows.length > 0) {
+      await manager.save(RevenueImportRow, importRows, { chunk: 500 });
+    }
+    return batch;
   });
 }
 
@@ -1293,6 +1348,171 @@ export async function getRevenueImport(
   id: string,
 ): Promise<RevenueImportBatch | null> {
   return AppDataSource.getRepository(RevenueImportBatch).findOneBy({ companyId, id });
+}
+
+export async function queryRevenueImports(
+  companyId: string,
+  opts: {
+    sourceKind?: "base" | "csv";
+    status?: "completed" | "rolled_back" | "failed";
+    resourceType?: RevenueImportBatch["resourceType"];
+    from?: Date;
+    to?: Date;
+    summaryOnly?: boolean;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<{ rows: RevenueImportBatch[]; total: number }> {
+  const qb = AppDataSource.getRepository(RevenueImportBatch)
+    .createQueryBuilder("batch")
+    .where("batch.companyId = :companyId", { companyId });
+  if (opts.sourceKind) qb.andWhere("batch.sourceKind = :sourceKind", { sourceKind: opts.sourceKind });
+  if (opts.status) qb.andWhere("batch.status = :status", { status: opts.status });
+  if (opts.resourceType) {
+    qb.andWhere("batch.resourceType = :resourceType", { resourceType: opts.resourceType });
+  }
+  if (opts.from) qb.andWhere("batch.createdAt >= :from", { from: opts.from });
+  if (opts.to) qb.andWhere("batch.createdAt < :to", { to: opts.to });
+  if (opts.summaryOnly) {
+    qb.select([
+      "batch.id",
+      "batch.companyId",
+      "batch.resourceType",
+      "batch.sourceKind",
+      "batch.sourceLabel",
+      "batch.sourceBaseId",
+      "batch.sourceTableId",
+      "batch.status",
+      "batch.rolledBackAt",
+      "batch.createdByUserId",
+      "batch.createdByEmployeeId",
+      "batch.createdAt",
+      "batch.updatedAt",
+    ]);
+  }
+  const total = await qb.clone().getCount();
+  const rows = await qb
+    .orderBy("batch.createdAt", "DESC")
+    .skip(Math.max(opts.offset ?? 0, 0))
+    .take(Math.min(Math.max(opts.limit ?? 50, 1), 200))
+    .getMany();
+  return { rows, total };
+}
+
+async function materializeLegacyImportRows(
+  batch: RevenueImportBatch,
+): Promise<void> {
+  const repo = AppDataSource.getRepository(RevenueImportRow);
+  if ((await repo.count({ where: { companyId: batch.companyId, batchId: batch.id } })) > 0) return;
+  let rowMap: Array<Record<string, unknown>> = [];
+  try {
+    const parsed = JSON.parse(batch.rowMapJson) as unknown;
+    if (Array.isArray(parsed)) rowMap = parsed as Array<Record<string, unknown>>;
+  } catch {
+    rowMap = [];
+  }
+  const rows: RevenueImportRow[] = [];
+  for (const [sourceIndex, decision] of rowMap.entries()) {
+    const resources =
+      decision.resources && typeof decision.resources === "object"
+        ? (decision.resources as Record<string, Record<string, unknown>>)
+        : null;
+    if (resources) {
+      for (const [resourceIndex, resourceType] of (
+        ["account", "contact", "deal"] as const
+      ).entries()) {
+        const resource = resources[resourceType] ?? {};
+        const action = String(resource.action ?? decision.action ?? "skip");
+        rows.push(
+          repo.create({
+            companyId: batch.companyId,
+            batchId: batch.id,
+            resourceType,
+            sourceId: String(decision.sourceId ?? sourceIndex),
+            nativeId: typeof resource.nativeId === "string" ? resource.nativeId : null,
+            action,
+            status: action === "create" ? "created" : action === "duplicate" ? "matched" : "skipped",
+            reason: String(resource.reason ?? decision.reason ?? ""),
+            decisionJson: JSON.stringify(resource),
+            sortOrder: sourceIndex * 3 + resourceIndex,
+          }),
+        );
+      }
+    } else {
+      const action = String(decision.action ?? "skip");
+      rows.push(
+        repo.create({
+          companyId: batch.companyId,
+          batchId: batch.id,
+          resourceType: batch.resourceType as RevenueResourceType,
+          sourceId: String(decision.sourceId ?? sourceIndex),
+          nativeId: typeof decision.nativeId === "string" ? decision.nativeId : null,
+          action,
+          status: action === "create" ? "created" : action === "duplicate" ? "matched" : "skipped",
+          reason: String(decision.reason ?? ""),
+          decisionJson: JSON.stringify(decision),
+          sortOrder: sourceIndex,
+        }),
+      );
+    }
+  }
+  if (rows.length > 0) await repo.save(rows, { chunk: 500 });
+}
+
+export async function getRevenueImportRows(
+  companyId: string,
+  batchId: string,
+  opts: {
+    resourceType?: RevenueResourceType;
+    status?: RevenueImportRow["status"];
+    action?: string;
+    q?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<{
+  batch: Pick<
+    RevenueImportBatch,
+    "id" | "resourceType" | "sourceKind" | "sourceLabel" | "status" | "createdAt"
+  >;
+  rows: RevenueImportRow[];
+  total: number;
+} | null> {
+  const batch = await getRevenueImport(companyId, batchId);
+  if (!batch) return null;
+  await materializeLegacyImportRows(batch);
+  const qb = AppDataSource.getRepository(RevenueImportRow)
+    .createQueryBuilder("row")
+    .where("row.companyId = :companyId", { companyId })
+    .andWhere("row.batchId = :batchId", { batchId });
+  if (opts.resourceType) {
+    qb.andWhere("row.resourceType = :resourceType", { resourceType: opts.resourceType });
+  }
+  if (opts.status) qb.andWhere("row.status = :status", { status: opts.status });
+  if (opts.action) qb.andWhere("row.action = :action", { action: opts.action });
+  if (opts.q) {
+    qb.andWhere("(LOWER(row.sourceId) LIKE :q OR LOWER(row.reason) LIKE :q)", {
+      q: `%${opts.q.toLowerCase()}%`,
+    });
+  }
+  const total = await qb.clone().getCount();
+  const rows = await qb
+    .orderBy("row.sortOrder", "ASC")
+    .skip(Math.max(opts.offset ?? 0, 0))
+    .take(Math.min(Math.max(opts.limit ?? 100, 1), 500))
+    .getMany();
+  return {
+    batch: {
+      id: batch.id,
+      resourceType: batch.resourceType,
+      sourceKind: batch.sourceKind,
+      sourceLabel: batch.sourceLabel,
+      status: batch.status,
+      createdAt: batch.createdAt,
+    },
+    rows,
+    total,
+  };
 }
 
 async function rollbackLinkedRevenueImport(
@@ -1447,6 +1667,18 @@ export async function rollbackRevenueImport(
       const result = await rollbackLinkedRevenueImport(manager, batch, created);
       deleted = result.deleted;
       blocked = result.blocked;
+      const rolledBackIds = (["account", "contact", "deal"] as const).flatMap((resourceType) =>
+        created[resourceType].filter(
+          (resourceId) => !blocked.includes(`${resourceType}:${resourceId}`),
+        ),
+      );
+      if (rolledBackIds.length > 0) {
+        await manager.update(
+          RevenueImportRow,
+          { companyId, batchId: batch.id, nativeId: In(rolledBackIds) },
+          { status: "rolled_back" },
+        );
+      }
       batch.status = "rolled_back";
       batch.rolledBackAt = new Date();
       const report = JSON.parse(batch.reportJson) as LinkedImportReport & {
@@ -1574,6 +1806,14 @@ export async function rollbackRevenueImport(
     };
     report.rollback = { deleted, blocked };
     batch.reportJson = JSON.stringify(report);
+    const rolledBackIds = ids.filter((resourceId) => !blocked.includes(resourceId));
+    if (rolledBackIds.length > 0) {
+      await manager.update(
+        RevenueImportRow,
+        { companyId, batchId: batch.id, nativeId: In(rolledBackIds) },
+        { status: "rolled_back" },
+      );
+    }
     await manager.save(batch);
   });
   return { batch, deleted, blocked };

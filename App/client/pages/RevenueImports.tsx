@@ -61,6 +61,24 @@ type LinkedImportReport = {
 
 type ImportMode = RevenueResourceType | "account_contact_deal";
 type AnyImportReport = ImportReport | LinkedImportReport;
+type ImportDecisionRow = {
+  id: string;
+  resourceType: RevenueResourceType;
+  sourceId: string;
+  nativeId: string | null;
+  action: string;
+  status: "created" | "matched" | "skipped" | "failed" | "rolled_back";
+  reason: string;
+};
+type ImportDecisionPage = {
+  batch: Pick<
+    RevenueImportBatch,
+    "id" | "resourceType" | "sourceKind" | "sourceLabel" | "status" | "createdAt"
+  >;
+  rows: ImportDecisionRow[];
+  total: number;
+  offset: number;
+};
 
 const TARGET_FIELDS: Record<
   RevenueResourceType,
@@ -152,6 +170,11 @@ export default function RevenueImports() {
   const [bases, setBases] = React.useState<Base[]>([]);
   const [baseDetail, setBaseDetail] = React.useState<BaseDetail | null>(null);
   const [batches, setBatches] = React.useState<RevenueImportBatch[] | null>(null);
+  const [historyTotal, setHistoryTotal] = React.useState(0);
+  const [historyOffset, setHistoryOffset] = React.useState(0);
+  const [historySource, setHistorySource] = React.useState("");
+  const [historyStatus, setHistoryStatus] = React.useState("");
+  const [historyResource, setHistoryResource] = React.useState("");
   const [customFields, setCustomFields] = React.useState<RevenueCustomField[]>([]);
   const [resourceType, setResourceType] = React.useState<ImportMode>("account_contact_deal");
   const [sourceKind, setSourceKind] = React.useState<"base" | "csv">("base");
@@ -165,15 +188,27 @@ export default function RevenueImports() {
     Record<LinkedResourceType, Record<string, string>>
   >({ account: {}, contact: {}, deal: {} });
   const [preview, setPreview] = React.useState<AnyImportReport | null>(null);
-  const [selectedBatch, setSelectedBatch] = React.useState<RevenueImportBatch | null>(null);
+  const [selectedDecisionPage, setSelectedDecisionPage] =
+    React.useState<ImportDecisionPage | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   const reloadHistory = React.useCallback(async () => {
-    const result = await api.get<{ rows: RevenueImportBatch[] }>(`${baseUrl}/imports`);
+    const params = new URLSearchParams({
+      summaryOnly: "true",
+      limit: "25",
+      offset: historyOffset.toString(),
+    });
+    if (historySource) params.set("sourceKind", historySource);
+    if (historyStatus) params.set("status", historyStatus);
+    if (historyResource) params.set("resourceType", historyResource);
+    const result = await api.get<{ rows: RevenueImportBatch[]; total: number }>(
+      `${baseUrl}/imports?${params.toString()}`,
+    );
     setBatches(result.rows);
-  }, [baseUrl]);
+    setHistoryTotal(result.total);
+  }, [baseUrl, historyOffset, historyResource, historySource, historyStatus]);
 
   React.useEffect(() => {
     void Promise.all([
@@ -345,11 +380,14 @@ export default function RevenueImports() {
     }
   }
 
-  async function viewReport(id: string) {
+  async function viewReport(id: string, offset = 0) {
     setBusy(true);
     setError(null);
     try {
-      setSelectedBatch(await api.get<RevenueImportBatch>(`${baseUrl}/imports/${id}`));
+      const result = await api.get<Omit<ImportDecisionPage, "offset">>(
+        `${baseUrl}/imports/${id}/rows?limit=100&offset=${offset}`,
+      );
+      setSelectedDecisionPage({ ...result, offset });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -670,8 +708,47 @@ export default function RevenueImports() {
           Reconciliation history
         </h2>
         <p className="mt-1 text-sm text-slate-500">
-          Every committed import keeps its mapping and source-row-to-native-ID report.
+          Every committed import keeps paginated source-row-to-native-ID decisions.
         </p>
+        <div className="mt-4 grid gap-2 sm:grid-cols-3">
+          <Select
+            value={historySource}
+            onChange={(event) => {
+              setHistorySource(event.target.value);
+              setHistoryOffset(0);
+            }}
+          >
+            <option value="">Any source</option>
+            <option value="base">Base</option>
+            <option value="csv">CSV</option>
+          </Select>
+          <Select
+            value={historyStatus}
+            onChange={(event) => {
+              setHistoryStatus(event.target.value);
+              setHistoryOffset(0);
+            }}
+          >
+            <option value="">Any status</option>
+            <option value="completed">Completed</option>
+            <option value="rolled_back">Rolled back</option>
+            <option value="failed">Failed</option>
+          </Select>
+          <Select
+            value={historyResource}
+            onChange={(event) => {
+              setHistoryResource(event.target.value);
+              setHistoryOffset(0);
+            }}
+          >
+            <option value="">Any resource</option>
+            <option value="account">Accounts</option>
+            <option value="contact">Contacts</option>
+            <option value="deal">Deals</option>
+            <option value="partnership">Partnerships</option>
+            <option value="account_contact_deal">Linked rows</option>
+          </Select>
+        </div>
         {batches === null ? (
           <div className="flex justify-center py-12">
             <Spinner />
@@ -684,12 +761,6 @@ export default function RevenueImports() {
         ) : (
           <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
             {batches.map((batch) => {
-              let report: Partial<ImportReport> = {};
-              try {
-                report = JSON.parse(batch.reportJson) as ImportReport;
-              } catch {
-                report = {};
-              }
               return (
                 <div
                   key={batch.id}
@@ -703,8 +774,7 @@ export default function RevenueImports() {
                       {batch.resourceType === "account_contact_deal"
                         ? "linked Account + Contact + Deal"
                         : batch.resourceType}{" "}
-                      · {report.createCount ?? 0} rows created · {report.duplicateCount ?? 0}{" "}
-                      duplicates · {new Date(batch.createdAt).toLocaleString()}
+                      · summary-only listing · {new Date(batch.createdAt).toLocaleString()}
                     </p>
                   </div>
                   <span className="text-xs font-medium capitalize text-slate-500">
@@ -743,6 +813,32 @@ export default function RevenueImports() {
             })}
           </div>
         )}
+        {historyTotal > 25 && (
+          <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+            <span>
+              {historyOffset + 1}–{Math.min(historyOffset + (batches?.length ?? 0), historyTotal)} of{" "}
+              {historyTotal}
+            </span>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={historyOffset === 0}
+                onClick={() => setHistoryOffset(Math.max(0, historyOffset - 25))}
+              >
+                Previous
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={historyOffset + 25 >= historyTotal}
+                onClick={() => setHistoryOffset(historyOffset + 25)}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
         <div className="mt-3 flex items-start gap-2 text-xs text-slate-500">
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
           Rollback never deletes a record that has gained linked activity, contacts, deals,
@@ -750,62 +846,94 @@ export default function RevenueImports() {
         </div>
       </section>
 
-      {selectedBatch && (
-        <ImportReportPanel batch={selectedBatch} onClose={() => setSelectedBatch(null)} />
+      {selectedDecisionPage && (
+        <ImportDecisionPanel
+          page={selectedDecisionPage}
+          baseUrl={baseUrl}
+          onPage={(offset) => void viewReport(selectedDecisionPage.batch.id, offset)}
+          onClose={() => setSelectedDecisionPage(null)}
+        />
       )}
     </div>
   );
 }
 
-function ImportReportPanel({ batch, onClose }: { batch: RevenueImportBatch; onClose: () => void }) {
-  let mapping: unknown = {};
-  let rowMap: unknown[] = [];
-  let report: Record<string, unknown> = {};
-  try {
-    mapping = JSON.parse(batch.mappingJson) as unknown;
-    rowMap = JSON.parse(batch.rowMapJson) as unknown[];
-    report = JSON.parse(batch.reportJson) as Record<string, unknown>;
-  } catch {
-    report = {};
-  }
+function ImportDecisionPanel({
+  page,
+  baseUrl,
+  onPage,
+  onClose,
+}: {
+  page: ImportDecisionPage;
+  baseUrl: string;
+  onPage: (offset: number) => void;
+  onClose: () => void;
+}) {
   return (
     <section className="mt-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="font-semibold text-slate-900 dark:text-slate-100">
-            Import report · {batch.sourceLabel}
+            Import report · {page.batch.sourceLabel}
           </h2>
           <p className="mt-1 text-xs text-slate-500">
-            Import ID {batch.id} · {rowMap.length} reconciled source rows
+            Import ID {page.batch.id} · {page.total} reconciled resource decisions
           </p>
         </div>
         <Button size="sm" variant="ghost" onClick={onClose}>
           <X size={14} /> Close
         </Button>
       </div>
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <div>
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Saved field mapping
-          </h3>
-          <pre className="mt-2 max-h-72 overflow-auto rounded-lg bg-slate-950 p-3 text-xs text-slate-200">
-            {JSON.stringify(mapping, null, 2)}
-          </pre>
-        </div>
-        <div>
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Reconciliation
-          </h3>
-          <pre className="mt-2 max-h-72 overflow-auto rounded-lg bg-slate-950 p-3 text-xs text-slate-200">
-            {JSON.stringify(rowMap.slice(0, 500), null, 2)}
-          </pre>
+      <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+        <table className="w-full text-left text-xs">
+          <thead className="bg-slate-50 text-slate-500 dark:bg-slate-950">
+            <tr>
+              <th className="px-3 py-2">Source ID</th>
+              <th className="px-3 py-2">Resource</th>
+              <th className="px-3 py-2">Decision</th>
+              <th className="px-3 py-2">Native ID</th>
+              <th className="px-3 py-2">Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            {page.rows.map((row) => (
+              <tr key={row.id} className="border-t border-slate-100 dark:border-slate-800">
+                <td className="px-3 py-2">{row.sourceId}</td>
+                <td className="px-3 py-2 capitalize">{row.resourceType}</td>
+                <td className="px-3 py-2 capitalize">{row.status.replace("_", " ")}</td>
+                <td className="px-3 py-2 font-mono">{row.nativeId ?? "—"}</td>
+                <td className="px-3 py-2">{row.reason || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <a
+          href={`${baseUrl}/imports/${page.batch.id}/reconciliation?format=csv&limit=500&offset=0`}
+          className="text-xs font-medium text-indigo-600 hover:text-indigo-500"
+        >
+          Download reconciliation CSV
+        </a>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={page.offset === 0}
+            onClick={() => onPage(Math.max(0, page.offset - 100))}
+          >
+            Previous
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={page.offset + page.rows.length >= page.total}
+            onClick={() => onPage(page.offset + 100)}
+          >
+            Next
+          </Button>
         </div>
       </div>
-      {report.rollback !== undefined && report.rollback !== null && (
-        <p className="mt-3 text-xs text-slate-500">
-          Rollback result: {JSON.stringify(report.rollback)}
-        </p>
-      )}
     </section>
   );
 }

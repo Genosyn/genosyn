@@ -144,6 +144,14 @@ import { Partnership } from "./entities/Partnership.js";
 import { PartnershipContact } from "./entities/PartnershipContact.js";
 import { RevenueDocument } from "./entities/RevenueDocument.js";
 import { RevenueImportBatch } from "./entities/RevenueImportBatch.js";
+import { RevenueOperation } from "./entities/RevenueOperation.js";
+import { RevenueOperationRow } from "./entities/RevenueOperationRow.js";
+import { RevenueRecordAlias } from "./entities/RevenueRecordAlias.js";
+import { DealHistoryEvent } from "./entities/DealHistoryEvent.js";
+import { RevenueImportRow } from "./entities/RevenueImportRow.js";
+import { RevenueFieldEvidence } from "./entities/RevenueFieldEvidence.js";
+import { RevenueDocumentCandidate } from "./entities/RevenueDocumentCandidate.js";
+import { RevenueDuplicateCandidate } from "./entities/RevenueDuplicateCandidate.js";
 
 const entities = [
   User,
@@ -286,6 +294,14 @@ const entities = [
   PartnershipContact,
   RevenueDocument,
   RevenueImportBatch,
+  RevenueOperation,
+  RevenueOperationRow,
+  RevenueRecordAlias,
+  DealHistoryEvent,
+  RevenueImportRow,
+  RevenueFieldEvidence,
+  RevenueDocumentCandidate,
+  RevenueDuplicateCandidate,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

@@ -1387,6 +1387,47 @@ pipeline, and the PQL tools have neither.
       search/export, durable import-report lookup, a transactional Base/CSV
       importer that splits each source row into a linked Account, Contact and
       Deal, and a reconciled pass for Base record attachments.
+
+#### M32.1 — Revenue data quality and historical truth
+
+Ordered so cleanup writes have reversible identity semantics before reporting
+or enrichment trusts the resulting records:
+
+- [x] **Core-record consolidation.** Audited merge/archive/undo for Accounts,
+      Contacts, Deals, and Partnerships. Members select the survivor, preview
+      field and relationship conflicts, reassign timelines, follow-ups,
+      documents, committees and custom values, preserve aliases and imported
+      source IDs, and leave a redirecting tombstone instead of deleting the
+      duplicate.
+- [x] **Bulk Revenue operations.** Selected-ID or filter targeting for owner,
+      lifecycle/status, custom-field, follow-up and archive changes, with a dry
+      run, per-row validation, idempotent commits, partial-failure reporting,
+      durable audit history and guarded rollback. The follow-up queue adds
+      assignee/unassigned, priority, resource, status, due/staleness and Deal
+      state filters plus complete/cancel/reassign/reprioritize/reschedule bulk
+      triage.
+- [x] **Historical Deal truth.** Import original creation/close timestamps and
+      ordered stage, amount and owner changes as immutable historical events.
+      Funnel reporting becomes transition/cohort based: entered/progressed,
+      period wins/losses, original-cohort conversion, median time in stage and
+      median sales cycle, with explicit complete/partial/missing history
+      coverage for pre-history imports.
+- [x] **Controlled enrichment.** Provenance-backed, reviewable proposals for
+      canonical Account domains and Deal commercial value. Domain evidence
+      rejects public mailboxes, resolves aliases/subdomains and safely follows
+      redirects without overwriting verified values. Value evidence normalizes
+      currency, recurring cadence, seats, ARR/MRR/ACV, source and confidence
+      from Stripe, Finance, Account ACV, proposals/quotes and confirmed terms.
+- [x] **Revenue document capture.** Scan current and historical Gmail
+      attachments, classify commercial documents, propose Account/Contact/Deal/
+      Partnership links, deduplicate by source message and file hash, preserve
+      provenance, and require review when a link is ambiguous.
+- [x] **Exports, scalable reconciliation and duplicate candidates.** Complete
+      paginated snapshots for every core Revenue resource; summary/filter/
+      lookup/download and separately paginated row decisions for import
+      history; and an ongoing exact/aliased-domain, normalized-name, email,
+      Stripe-ID, redirect and same-Account Deal-title duplicate report that
+      feeds the merge workflow but never merges automatically.
 - [ ] Real ad-platform spend for CAC (replacing the `AdSpendEvent` proxy)
 - [ ] Meeting booking and calendar-based activities — deferred; Google Calendar
       is already connected and a native scheduler earns its complexity later
