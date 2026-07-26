@@ -278,6 +278,11 @@ workspaceRouter.post("/dms", validateBody(openDMSchema), async (req, res) => {
 
 // ───────────────────────── Messages ──────────────────────────────────────
 
+const messageListQuerySchema = z.object({
+  before: z.string().datetime({ offset: true }).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
 workspaceRouter.get("/channels/:channelId/messages", async (req, res) => {
   const co = companyOf(req as unknown as { company?: Company });
   const ok = await userHasChannelAccess({
@@ -286,15 +291,19 @@ workspaceRouter.get("/channels/:channelId/messages", async (req, res) => {
     companyId: co.id,
   });
   if (!ok) return res.status(404).json({ error: "Channel not found" });
-  const before = typeof req.query.before === "string" ? req.query.before : undefined;
-  const limitRaw = typeof req.query.limit === "string" ? Number(req.query.limit) : 50;
-  const limit = Math.max(1, Math.min(200, Number.isFinite(limitRaw) ? limitRaw : 50));
+  const parsed = messageListQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "ValidationError",
+      issues: parsed.error.issues,
+    });
+  }
   const rows = await listMessages({
     channelId: req.params.channelId,
     companyId: co.id,
     viewerUserId: req.userId!,
-    before,
-    limit,
+    before: parsed.data.before,
+    limit: parsed.data.limit,
   });
   res.json(rows);
 });

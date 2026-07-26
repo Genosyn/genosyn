@@ -630,11 +630,30 @@ export async function listMessages(params: {
     .orderBy("m.createdAt", "DESC")
     .take(params.limit);
   if (params.before) {
-    qb.andWhere("m.createdAt < :before", { before: params.before });
+    qb.andWhere("m.createdAt < :before", {
+      before: formatMessageBeforeCursor(
+        params.before,
+        AppDataSource.options.type,
+      ),
+    });
   }
   const rows = await qb.getMany();
   rows.reverse();
   return hydrateMessages(rows, params.viewerUserId);
+}
+
+export function formatMessageBeforeCursor(
+  before: string,
+  databaseType: string,
+): string | Date {
+  const date = new Date(before);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error("Invalid message cursor");
+  }
+  if (databaseType === "better-sqlite3") {
+    return date.toISOString().replace("T", " ").replace("Z", "");
+  }
+  return date;
 }
 
 // ──────────────────────── Reactions ──────────────────────────────────────
