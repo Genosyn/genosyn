@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
 import {
   ArrowRight,
+  Bell,
   BookHeart,
   Building2,
   CalendarClock,
   CheckCircle2,
+  ChevronDown,
   FileText,
   GitBranch,
   GitCommitHorizontal,
@@ -59,16 +61,38 @@ export function productPreview(slug: string): (() => JSX.Element) | undefined {
 
 function Window({ url, children }: { url: string; children: ReactNode }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lift">
-      <div className="flex items-center gap-2 border-b border-zinc-100 bg-zinc-50/60 px-4 py-3">
-        <div className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-zinc-300" />
-          <span className="h-2.5 w-2.5 rounded-full bg-zinc-300" />
-          <span className="h-2.5 w-2.5 rounded-full bg-zinc-300" />
+    <div className="overflow-hidden bg-white">
+      <div className="flex h-11 items-center gap-2 border-b border-zinc-200 bg-white px-3 text-zinc-700">
+        <div className="flex shrink-0 items-center gap-1.5">
+          <span className="h-4 w-4 rounded-full border-[1.5px] border-zinc-950" />
+          <span className="hidden text-[9px] font-bold tracking-[0.2em] text-zinc-950 sm:inline">
+            GENOSYN
+          </span>
         </div>
-        <div className="ml-2 inline-flex min-w-0 items-center gap-2 rounded-md bg-white px-2.5 py-1 text-xs font-medium text-zinc-600 shadow-card">
-          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
-          <span className="truncate">{url}</span>
+        <span className="h-4 w-px shrink-0 bg-zinc-200" />
+        <div className="inline-flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-zinc-800">
+          <span className="truncate">Northstar Labs</span>
+          <ChevronDown className="h-3 w-3 shrink-0 text-zinc-400" />
+        </div>
+        <span className="hidden text-zinc-300 sm:inline">/</span>
+        <div className="hidden min-w-0 items-center gap-1.5 sm:flex">
+          <span className="h-4 w-4 rounded bg-violet-100 text-center text-[9px] font-bold leading-4 text-violet-700">
+            G
+          </span>
+          <span className="max-w-48 truncate text-[10px] font-medium text-zinc-600">
+            {url.replace("genosyn.com / ", "")}
+          </span>
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <span className="hidden rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-[8px] font-medium text-zinc-400 sm:inline">
+            ⌘ K
+          </span>
+          <span className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400">
+            <Bell className="h-3 w-3" />
+          </span>
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-zinc-900 text-[8px] font-semibold text-white">
+            ND
+          </span>
         </div>
       </div>
       {children}
@@ -144,31 +168,27 @@ function EmployeesPreview() {
             <CalendarClock className="h-3.5 w-3.5 text-zinc-500" />
             <span className="font-medium text-zinc-700">Reconcile Stripe</span>
             <span className="font-mono text-[10px] text-zinc-400">0 7 * * *</span>
-            <span className="ml-auto font-mono text-[10px] text-zinc-400">
-              Run #212 · live
-            </span>
+            <span className="ml-auto font-mono text-[10px] text-zinc-400">Run #212 · live</span>
           </div>
           <div className="mt-3 space-y-1.5 rounded-xl border border-zinc-200 bg-zinc-950 p-4 font-mono text-[11px] leading-5 text-zinc-300">
             <div>
-              <span className="text-zinc-500">[07:00:02]</span> stripe_list_charges
-              — 42 since yesterday
+              <span className="text-zinc-500">[07:00:02]</span> stripe_list_charges — 42 since
+              yesterday
             </div>
             <div>
-              <span className="text-zinc-500">[07:00:19]</span> matched 41 to open
-              invoices
+              <span className="text-zinc-500">[07:00:19]</span> matched 41 to open invoices
             </div>
             <div>
-              <span className="text-zinc-500">[07:00:24]</span> posting DR Bank / CR
-              Accounts Receivable
+              <span className="text-zinc-500">[07:00:24]</span> posting DR Bank / CR Accounts
+              Receivable
             </div>
             <div>
               <span className="text-zinc-500">[07:00:31]</span>{" "}
-              <span className="text-emerald-400">✓</span> ledger balanced — 1 charge
-              flagged for review
+              <span className="text-emerald-400">✓</span> ledger balanced — 1 charge flagged for
+              review
             </div>
             <div>
-              <span className="text-zinc-500">[07:00:33]</span> send_workspace_message
-              → #finance
+              <span className="text-zinc-500">[07:00:33]</span> send_workspace_message → #finance
             </div>
           </div>
           <div className="mt-3 flex items-center justify-between text-[11px] text-zinc-500">
@@ -202,10 +222,7 @@ function WorkspacePreview() {
           name="Sam"
           time="9:12 AM"
           message={
-            <>
-              @Alex the launch brief is attached — can you turn it into the Friday
-              digest?
-            </>
+            <>@Alex the launch brief is attached — can you turn it into the Friday digest?</>
           }
           attachment="launch-brief.pdf"
         />
@@ -217,9 +234,8 @@ function WorkspacePreview() {
           isAI
           message={
             <>
-              Read it. Draft coming to <span className="font-medium">#marketing</span>{" "}
-              by 4 PM — pricing section needs one number from @Mira, pinged her in a
-              DM.
+              Read it. Draft coming to <span className="font-medium">#marketing</span> by 4 PM —
+              pricing section needs one number from @Mira, pinged her in a DM.
             </>
           }
           reaction="👍 2"
@@ -271,9 +287,7 @@ function ChatLine({
           )}
           <span className="text-[11px] text-zinc-400">{time}</span>
         </div>
-        <div className="mt-0.5 text-[12.5px] leading-relaxed text-zinc-700">
-          {message}
-        </div>
+        <div className="mt-0.5 text-[12.5px] leading-relaxed text-zinc-700">{message}</div>
         {attachment && (
           <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-[11px] font-medium text-zinc-600">
             <Paperclip className="h-3 w-3" />
@@ -296,29 +310,66 @@ function TasksPreview() {
   const cols: Array<{
     label: string;
     count: number;
-    cards: Array<{ id: string; title: string; who: string; color: string; isAI?: boolean; review?: boolean }>;
+    cards: Array<{
+      id: string;
+      title: string;
+      who: string;
+      color: string;
+      isAI?: boolean;
+      review?: boolean;
+    }>;
   }> = [
     {
       label: "In progress",
       count: 3,
       cards: [
-        { id: "ENG-42", title: "Ship pricing page A/B test", who: "SS", color: "bg-emerald-100 text-emerald-700" },
-        { id: "MKT-7", title: "Draft Friday digest", who: "AB", color: "bg-sky-100 text-sky-700", isAI: true },
+        {
+          id: "ENG-42",
+          title: "Ship pricing page A/B test",
+          who: "SS",
+          color: "bg-emerald-100 text-emerald-700",
+        },
+        {
+          id: "MKT-7",
+          title: "Draft Friday digest",
+          who: "AB",
+          color: "bg-sky-100 text-sky-700",
+          isAI: true,
+        },
       ],
     },
     {
       label: "In review",
       count: 2,
       cards: [
-        { id: "FIN-19", title: "March close checklist", who: "MF", color: "bg-amber-100 text-amber-700", isAI: true, review: true },
-        { id: "ENG-38", title: "Rotate webhook secrets", who: "SS", color: "bg-emerald-100 text-emerald-700", review: true },
+        {
+          id: "FIN-19",
+          title: "March close checklist",
+          who: "MF",
+          color: "bg-amber-100 text-amber-700",
+          isAI: true,
+          review: true,
+        },
+        {
+          id: "ENG-38",
+          title: "Rotate webhook secrets",
+          who: "SS",
+          color: "bg-emerald-100 text-emerald-700",
+          review: true,
+        },
       ],
     },
     {
       label: "Done",
       count: 14,
       cards: [
-        { id: "MKT-5", title: "Q2 newsletter calendar", who: "AB", color: "bg-sky-100 text-sky-700", isAI: true },
+        {
+          id: "MKT-5",
+          title: "Q2 newsletter calendar",
+          who: "AB",
+          color: "bg-sky-100 text-sky-700",
+          isAI: true,
+        },
       ],
     },
   ];
@@ -333,9 +384,14 @@ function TasksPreview() {
             </div>
             <div className="space-y-2">
               {col.cards.map((card) => (
-                <div key={card.id} className="rounded-lg border border-zinc-200 bg-white p-3 shadow-card">
+                <div
+                  key={card.id}
+                  className="rounded-lg border border-zinc-200 bg-white p-3 shadow-card"
+                >
                   <div className="flex items-center justify-between">
-                    <span className="font-mono text-[10px] font-medium text-zinc-400">{card.id}</span>
+                    <span className="font-mono text-[10px] font-medium text-zinc-400">
+                      {card.id}
+                    </span>
                     {card.review && (
                       <Tag tone="bg-amber-50 text-amber-700 ring-amber-200">awaiting review</Tag>
                     )}
@@ -344,7 +400,9 @@ function TasksPreview() {
                     {card.title}
                   </div>
                   <div className="mt-2.5 flex items-center justify-between">
-                    <span className={`flex h-5 w-5 items-center justify-center rounded-md text-[8px] font-semibold ${card.color}`}>
+                    <span
+                      className={`flex h-5 w-5 items-center justify-center rounded-md text-[8px] font-semibold ${card.color}`}
+                    >
                       {card.who}
                     </span>
                     {card.isAI && (
@@ -366,11 +424,46 @@ function TasksPreview() {
 // ────────────────────────────────── Bases ───────────────────────────────────
 
 function BasesPreview() {
-  const rows: Array<{ name: string; stage: string; tone: string; owner: string; ownerColor: string; acv: string }> = [
-    { name: "Acme Co.", stage: "Won", tone: "bg-emerald-50 text-emerald-700 ring-emerald-200", owner: "SS", ownerColor: "bg-emerald-100 text-emerald-700", acv: "$14,400" },
-    { name: "Globex", stage: "Proposal", tone: "bg-violet-50 text-violet-700 ring-violet-200", owner: "AB", ownerColor: "bg-sky-100 text-sky-700", acv: "$32,000" },
-    { name: "Initech", stage: "Discovery", tone: "bg-amber-50 text-amber-700 ring-amber-200", owner: "SS", ownerColor: "bg-emerald-100 text-emerald-700", acv: "$9,600" },
-    { name: "Umbrella", stage: "Won", tone: "bg-emerald-50 text-emerald-700 ring-emerald-200", owner: "AB", ownerColor: "bg-sky-100 text-sky-700", acv: "$21,000" },
+  const rows: Array<{
+    name: string;
+    stage: string;
+    tone: string;
+    owner: string;
+    ownerColor: string;
+    acv: string;
+  }> = [
+    {
+      name: "Acme Co.",
+      stage: "Won",
+      tone: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+      owner: "SS",
+      ownerColor: "bg-emerald-100 text-emerald-700",
+      acv: "$14,400",
+    },
+    {
+      name: "Globex",
+      stage: "Proposal",
+      tone: "bg-violet-50 text-violet-700 ring-violet-200",
+      owner: "AB",
+      ownerColor: "bg-sky-100 text-sky-700",
+      acv: "$32,000",
+    },
+    {
+      name: "Initech",
+      stage: "Discovery",
+      tone: "bg-amber-50 text-amber-700 ring-amber-200",
+      owner: "SS",
+      ownerColor: "bg-emerald-100 text-emerald-700",
+      acv: "$9,600",
+    },
+    {
+      name: "Umbrella",
+      stage: "Won",
+      tone: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+      owner: "AB",
+      ownerColor: "bg-sky-100 text-sky-700",
+      acv: "$21,000",
+    },
   ];
   return (
     <Window url="genosyn.com / bases / sales-crm">
@@ -386,37 +479,39 @@ function BasesPreview() {
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[340px]">
-        <thead>
-          <tr className="border-b border-zinc-100 text-[10px] uppercase tracking-wider text-zinc-500">
-            <th className="px-5 py-2 text-left font-medium">Company</th>
-            <th className="px-3 py-2 text-left font-medium">Stage</th>
-            <th className="px-3 py-2 text-left font-medium">Owner</th>
-            <th className="px-5 py-2 text-right font-medium">ACV</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-zinc-100 text-[12.5px]">
-          {rows.map((r) => (
-            <tr key={r.name}>
-              <td className="px-5 py-2.5 font-medium text-zinc-800">{r.name}</td>
-              <td className="px-3 py-2.5">
-                <Tag tone={r.tone}>{r.stage}</Tag>
-              </td>
-              <td className="px-3 py-2.5">
-                <span className={`flex h-5 w-5 items-center justify-center rounded-md text-[8px] font-semibold ${r.ownerColor}`}>
-                  {r.owner}
-                </span>
-              </td>
-              <td className="px-5 py-2.5 text-right tabular-nums text-zinc-800">{r.acv}</td>
+          <thead>
+            <tr className="border-b border-zinc-100 text-[10px] uppercase tracking-wider text-zinc-500">
+              <th className="px-5 py-2 text-left font-medium">Company</th>
+              <th className="px-3 py-2 text-left font-medium">Stage</th>
+              <th className="px-3 py-2 text-left font-medium">Owner</th>
+              <th className="px-5 py-2 text-right font-medium">ACV</th>
             </tr>
-          ))}
-        </tbody>
+          </thead>
+          <tbody className="divide-y divide-zinc-100 text-[12.5px]">
+            {rows.map((r) => (
+              <tr key={r.name}>
+                <td className="px-5 py-2.5 font-medium text-zinc-800">{r.name}</td>
+                <td className="px-3 py-2.5">
+                  <Tag tone={r.tone}>{r.stage}</Tag>
+                </td>
+                <td className="px-3 py-2.5">
+                  <span
+                    className={`flex h-5 w-5 items-center justify-center rounded-md text-[8px] font-semibold ${r.ownerColor}`}
+                  >
+                    {r.owner}
+                  </span>
+                </td>
+                <td className="px-5 py-2.5 text-right tabular-nums text-zinc-800">{r.acv}</td>
+              </tr>
+            ))}
+          </tbody>
         </table>
       </div>
       <div className="flex items-center gap-2 border-t border-zinc-100 bg-zinc-50/60 px-5 py-2.5 text-[11px] text-zinc-500">
         <Sparkles className="h-3.5 w-3.5 text-violet-500" />
         <span>
-          <span className="font-medium text-zinc-700">Alex (AI)</span> updated 3 rows
-          from yesterday&apos;s calls · audit-logged
+          <span className="font-medium text-zinc-700">Alex (AI)</span> updated 3 rows from
+          yesterday&apos;s calls · audit-logged
         </span>
       </div>
     </Window>
@@ -459,8 +554,8 @@ function NotesPreview() {
         <div className="p-5 md:col-span-2">
           <div className="text-lg font-semibold text-zinc-950">🚨 Incident runbook</div>
           <div className="mt-1 text-[11px] text-zinc-400">
-            Last edited by <span className="font-medium text-zinc-600">Sam (AI)</span> ·
-            2 hours ago · audit-logged
+            Last edited by <span className="font-medium text-zinc-600">Sam (AI)</span> · 2 hours ago
+            · audit-logged
           </div>
           <div className="mt-4 space-y-2.5 text-[12.5px] leading-relaxed text-zinc-700">
             <div className="font-semibold text-zinc-900">## First five minutes</div>
@@ -488,11 +583,41 @@ function NotesPreview() {
 // ──────────────────────────────── Resources ─────────────────────────────────
 
 function ResourcesPreview() {
-  const items: Array<{ icon: typeof Globe; label: string; kind: string; tone: string; meta: string }> = [
-    { icon: Globe, label: "stripe.com/docs/billing", kind: "URL", tone: "bg-sky-50 text-sky-700 ring-sky-200", meta: "extracted · 41k chars" },
-    { icon: FileText, label: "SOC 2 readiness guide.pdf", kind: "PDF", tone: "bg-emerald-50 text-emerald-700 ring-emerald-200", meta: "18 pages" },
-    { icon: Library, label: "The Mom Test", kind: "EPUB", tone: "bg-fuchsia-50 text-fuchsia-700 ring-fuchsia-200", meta: "12 chapters" },
-    { icon: Mic, label: "All-hands · Q1 retro", kind: "Transcript", tone: "bg-amber-50 text-amber-700 ring-amber-200", meta: "48 min" },
+  const items: Array<{
+    icon: typeof Globe;
+    label: string;
+    kind: string;
+    tone: string;
+    meta: string;
+  }> = [
+    {
+      icon: Globe,
+      label: "stripe.com/docs/billing",
+      kind: "URL",
+      tone: "bg-sky-50 text-sky-700 ring-sky-200",
+      meta: "extracted · 41k chars",
+    },
+    {
+      icon: FileText,
+      label: "SOC 2 readiness guide.pdf",
+      kind: "PDF",
+      tone: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+      meta: "18 pages",
+    },
+    {
+      icon: Library,
+      label: "The Mom Test",
+      kind: "EPUB",
+      tone: "bg-fuchsia-50 text-fuchsia-700 ring-fuchsia-200",
+      meta: "12 chapters",
+    },
+    {
+      icon: Mic,
+      label: "All-hands · Q1 retro",
+      kind: "Transcript",
+      tone: "bg-amber-50 text-amber-700 ring-amber-200",
+      meta: "48 min",
+    },
   ];
   return (
     <Window url="genosyn.com / resources">
@@ -505,7 +630,10 @@ function ResourcesPreview() {
       </div>
       <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4">
         {items.map((it) => (
-          <div key={it.label} className="flex flex-col rounded-xl border border-zinc-200 bg-white p-3 shadow-card">
+          <div
+            key={it.label}
+            className="flex flex-col rounded-xl border border-zinc-200 bg-white p-3 shadow-card"
+          >
             <Tag tone={it.tone}>
               <it.icon className="h-3 w-3" />
               {it.kind}
@@ -520,9 +648,8 @@ function ResourcesPreview() {
       <div className="flex items-center gap-2 border-t border-zinc-100 bg-zinc-50/60 px-5 py-2.5 text-[11px] text-zinc-500">
         <Sparkles className="h-3.5 w-3.5 text-violet-500" />
         <span>
-          <span className="font-medium text-zinc-700">Alex (AI)</span> cited the
-          Stripe docs in today&apos;s pricing brief — every employee holds a read
-          Grant
+          <span className="font-medium text-zinc-700">Alex (AI)</span> cited the Stripe docs in
+          today&apos;s pricing brief — every employee holds a read Grant
         </span>
       </div>
     </Window>
@@ -546,13 +673,33 @@ function PipelinesPreview() {
         </span>
       </div>
       <div className="flex items-stretch gap-2 overflow-x-auto p-5 sm:gap-3">
-        <PipelineNode icon={Webhook} title="Stripe webhook" subtitle="Trigger" tone="bg-amber-50 text-amber-700 ring-amber-200" />
+        <PipelineNode
+          icon={Webhook}
+          title="Stripe webhook"
+          subtitle="Trigger"
+          tone="bg-amber-50 text-amber-700 ring-amber-200"
+        />
         <PipelineConnector />
-        <PipelineNode icon={GitBranch} title="amount &gt; $1,000" subtitle="Branch" tone="bg-violet-50 text-violet-700 ring-violet-200" />
+        <PipelineNode
+          icon={GitBranch}
+          title="amount &gt; $1,000"
+          subtitle="Branch"
+          tone="bg-violet-50 text-violet-700 ring-violet-200"
+        />
         <PipelineConnector />
-        <PipelineNode icon={Sparkles} title="Ask Alex to summarize" subtitle="AI employee" tone="bg-sky-50 text-sky-700 ring-sky-200" />
+        <PipelineNode
+          icon={Sparkles}
+          title="Ask Alex to summarize"
+          subtitle="AI employee"
+          tone="bg-sky-50 text-sky-700 ring-sky-200"
+        />
         <PipelineConnector />
-        <PipelineNode icon={MessageSquare} title="Post to #wins" subtitle="Message" tone="bg-indigo-50 text-indigo-700 ring-indigo-200" />
+        <PipelineNode
+          icon={MessageSquare}
+          title="Post to #wins"
+          subtitle="Message"
+          tone="bg-indigo-50 text-indigo-700 ring-indigo-200"
+        />
       </div>
       <div className="border-t border-zinc-100 bg-zinc-50/60 px-5 py-2.5 font-mono text-[10.5px] text-zinc-500">
         {"{{trigger.body.amount}}"} → $4,200 · branch: true · reply captured →{" "}
@@ -576,7 +723,9 @@ function PipelineNode({
   return (
     <div className="flex min-w-[150px] flex-1 flex-col rounded-xl border border-zinc-200 bg-white px-3 py-2.5 shadow-card">
       <div className="flex items-center gap-2">
-        <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ring-1 ${tone}`}>
+        <span
+          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ring-1 ${tone}`}
+        >
           <Icon className="h-3.5 w-3.5" />
         </span>
         <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
@@ -623,9 +772,7 @@ function MarketingPreview() {
                 className="flex items-center justify-between rounded-lg border border-zinc-100 px-3 py-2"
               >
                 <span className="text-[11px] font-medium text-zinc-800">{r.name}</span>
-                <span className="font-mono text-[10px] tabular-nums text-zinc-500">
-                  {r.spend}
-                </span>
+                <span className="font-mono text-[10px] tabular-nums text-zinc-500">{r.spend}</span>
                 <span
                   className={`rounded-full px-2 py-0.5 font-mono text-[9px] ${
                     r.ok ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
@@ -639,8 +786,8 @@ function MarketingPreview() {
           <div className="mt-3 rounded-lg bg-zinc-950 p-3 font-mono text-[10px] leading-4 text-zinc-400">
             <div className="text-zinc-500">-- journal · 09:02</div>
             <div>
-              Prospecting — PMax pacing 173% → <span className="text-amber-400">paused</span>{" "}
-              (never gated). Proposal filed for review.
+              Prospecting — PMax pacing 173% → <span className="text-amber-400">paused</span> (never
+              gated). Proposal filed for review.
             </div>
           </div>
         </div>
@@ -747,14 +894,7 @@ function ExplorePreview() {
 
 // ───────────────────────────────── Revenue ──────────────────────────────────
 
-const REVENUE_LOOP = [
-  "ad click",
-  "contact",
-  "deal",
-  "invoice",
-  "collected cash",
-  "ledger",
-];
+const REVENUE_LOOP = ["ad click", "contact", "deal", "invoice", "collected cash", "ledger"];
 
 function RevenuePreview() {
   const stages: Array<{
@@ -887,9 +1027,7 @@ function RevenuePreview() {
           </div>
           <div className="mt-3 flex items-center gap-2 text-[11px] text-zinc-500">
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-            <span>
-              Won deals bill from the same database — invoice, payment, journal entry
-            </span>
+            <span>Won deals bill from the same database — invoice, payment, journal entry</span>
           </div>
         </div>
         <div className="p-5 md:col-span-2">
@@ -908,9 +1046,7 @@ function RevenuePreview() {
                   <t.icon className="h-3 w-3" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[11.5px] font-medium text-zinc-800">
-                    {t.label}
-                  </div>
+                  <div className="truncate text-[11.5px] font-medium text-zinc-800">{t.label}</div>
                   <div className="text-[10px] leading-4 text-zinc-500">{t.detail}</div>
                 </div>
                 <span className="font-mono text-[9.5px] text-zinc-400">{t.time}</span>
@@ -950,7 +1086,12 @@ function EmailPreview() {
           {[
             { from: "Dana · Acme Co.", subject: "Invoice question", tag: "billing", active: true },
             { from: "signups@", subject: "3 new trials today", tag: null, active: false },
-            { from: "Lee · Globex", subject: "Renewal call next week?", tag: "renewal", active: false },
+            {
+              from: "Lee · Globex",
+              subject: "Renewal call next week?",
+              tag: "renewal",
+              active: false,
+            },
           ].map((m) => (
             <div key={m.subject} className={`px-4 py-3 ${m.active ? "bg-zinc-50" : ""}`}>
               <div className="flex items-center justify-between">
@@ -968,14 +1109,12 @@ function EmailPreview() {
         <div className="p-5 md:col-span-3">
           <div className="flex items-center gap-2">
             <Mail className="h-3.5 w-3.5 text-zinc-400" />
-            <span className="text-[12.5px] font-semibold text-zinc-900">
-              Invoice question
-            </span>
+            <span className="text-[12.5px] font-semibold text-zinc-900">Invoice question</span>
             <span className="ml-auto font-mono text-[10px] text-zinc-400">9:41 AM</span>
           </div>
           <p className="mt-2.5 text-[12px] leading-relaxed text-zinc-600">
-            Hi — our March invoice shows two seats but we downgraded to one on the
-            3rd. Can you take a look?
+            Hi — our March invoice shows two seats but we downgraded to one on the 3rd. Can you take
+            a look?
           </p>
           <div className="mt-4 rounded-xl border border-violet-200 bg-violet-50/50 p-3.5">
             <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-violet-700">
@@ -983,9 +1122,8 @@ function EmailPreview() {
               Draft by Mira (AI) · rule: to contains support@
             </div>
             <p className="mt-2 text-[12px] leading-relaxed text-zinc-700">
-              Hi Dana — you&apos;re right, the seat change landed after the invoice
-              was issued. I&apos;ve credited the difference ($29) to your April
-              invoice…
+              Hi Dana — you&apos;re right, the seat change landed after the invoice was issued.
+              I&apos;ve credited the difference ($29) to your April invoice…
             </p>
             <div className="mt-3 flex items-center gap-2">
               <span className="rounded-lg bg-zinc-950 px-3 py-1.5 text-[11px] font-semibold text-white">
@@ -1051,10 +1189,15 @@ function CustomersPreview() {
               { label: "Payment — wire", date: "May 12", amt: "$1,200", credit: true },
               { label: "ACME-CORP-INV-0006", date: "May 1", amt: "$1,200", credit: false },
             ].map((row) => (
-              <div key={row.label + row.date} className="flex items-center justify-between rounded-lg border border-zinc-100 bg-white px-3 py-2">
+              <div
+                key={row.label + row.date}
+                className="flex items-center justify-between rounded-lg border border-zinc-100 bg-white px-3 py-2"
+              >
                 <span className="font-medium text-zinc-700">{row.label}</span>
                 <span className="text-[10px] text-zinc-400">{row.date}</span>
-                <span className={`tabular-nums font-medium ${row.credit ? "text-emerald-600" : "text-zinc-800"}`}>
+                <span
+                  className={`tabular-nums font-medium ${row.credit ? "text-emerald-600" : "text-zinc-800"}`}
+                >
                   {row.credit ? "−" : ""}
                   {row.amt}
                 </span>
@@ -1089,9 +1232,7 @@ function FinancePreview() {
       <div className="grid grid-cols-1 md:grid-cols-2">
         <div className="border-b border-zinc-100 p-5 md:border-b-0 md:border-r">
           <div className="flex items-center justify-between">
-            <span className="text-[12.5px] font-semibold text-zinc-900">
-              ACME-CORP-INV-0007
-            </span>
+            <span className="text-[12.5px] font-semibold text-zinc-900">ACME-CORP-INV-0007</span>
             <Tag tone="bg-emerald-50 text-emerald-700 ring-emerald-200">Paid</Tag>
           </div>
           <div className="mt-3 space-y-1.5 text-[12px]">
@@ -1126,7 +1267,10 @@ function FinancePreview() {
               { acct: "1100 Bank", dr: "$1,440.00", cr: "" },
               { acct: "1200 Accounts Receivable", dr: "", cr: "$1,440.00" },
             ].map((l) => (
-              <div key={l.acct} className="flex items-center justify-between rounded-lg border border-zinc-100 bg-zinc-50/60 px-3 py-2">
+              <div
+                key={l.acct}
+                className="flex items-center justify-between rounded-lg border border-zinc-100 bg-zinc-50/60 px-3 py-2"
+              >
                 <span className="text-zinc-700">{l.acct}</span>
                 <span className="w-20 text-right tabular-nums text-zinc-900">{l.dr}</span>
                 <span className="w-20 text-right tabular-nums text-zinc-500">{l.cr}</span>
@@ -1144,7 +1288,10 @@ function FinancePreview() {
           </div>
           <div className="mt-4 grid grid-cols-3 gap-1.5 text-center text-[10px]">
             {["P&L", "Balance sheet", "Cash flow"].map((r) => (
-              <span key={r} className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 font-medium text-zinc-600">
+              <span
+                key={r}
+                className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 font-medium text-zinc-600"
+              >
                 {r}
               </span>
             ))}
@@ -1167,11 +1314,26 @@ function CodePreview() {
           </div>
           <div className="mt-2 space-y-2">
             {[
-              { name: "api-server", grant: "read & push", tone: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
-              { name: "marketing-site", grant: "read & push", tone: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
-              { name: "infra", grant: "read only", tone: "bg-zinc-100 text-zinc-600 ring-zinc-200" },
+              {
+                name: "api-server",
+                grant: "read & push",
+                tone: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+              },
+              {
+                name: "marketing-site",
+                grant: "read & push",
+                tone: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+              },
+              {
+                name: "infra",
+                grant: "read only",
+                tone: "bg-zinc-100 text-zinc-600 ring-zinc-200",
+              },
             ].map((r) => (
-              <div key={r.name} className="flex items-center justify-between rounded-lg border border-zinc-200 bg-white px-3 py-2">
+              <div
+                key={r.name}
+                className="flex items-center justify-between rounded-lg border border-zinc-200 bg-white px-3 py-2"
+              >
                 <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-zinc-700">
                   <GitBranch className="h-3 w-3 text-zinc-400" />
                   {r.name}
@@ -1191,10 +1353,10 @@ function CodePreview() {
               <Terminal className="h-3 w-3" />
               sam@genosyn · code-repos/api-server
             </div>
+            <div className="text-zinc-400">$ git checkout -b fix/rate-limit-headers</div>
             <div className="text-zinc-400">
-              $ git checkout -b fix/rate-limit-headers
+              $ git commit -m &quot;Return Retry-After on 429s&quot;
             </div>
-            <div className="text-zinc-400">$ git commit -m &quot;Return Retry-After on 429s&quot;</div>
             <div className="text-zinc-500">
               [fix/rate-limit-headers 3f2a91c] 2 files changed, 18 insertions(+)
             </div>

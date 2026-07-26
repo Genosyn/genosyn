@@ -5,6 +5,7 @@ import { SectionEyebrow } from "@/sections/Primitives";
 import { Link } from "@/lib/router";
 import { PRODUCTS, PRODUCT_CATEGORIES, type ProductDef } from "@/products/data";
 import { productIcon } from "@/products/productIcons";
+import { ProductPrototype } from "@/products/ProductPrototype";
 
 const CHECKS = [
   "All built in, on by default",
@@ -32,14 +33,12 @@ export function ProductsIndex() {
             <div className="mx-auto flex max-w-3xl flex-col items-center text-center">
               <SectionEyebrow>Products</SectionEyebrow>
               <h1 className="mt-6 text-balance font-semibold leading-[1.05] tracking-[-0.03em] text-zinc-950 text-[2.75rem] sm:text-[3.5rem]">
-                Everything a company runs on.{" "}
-                <span className="text-zinc-500">In one box.</span>
+                Everything a company runs on. <span className="text-zinc-500">In one box.</span>
               </h1>
               <p className="mt-6 max-w-2xl text-balance text-lg leading-[1.6] text-zinc-600">
-                Genosyn is not just AI workers — it ships the chat, tasks, data,
-                knowledge, automation, analytics, inbox, CRM, books, and code
-                access a real company needs. Every tool is shared by humans and
-                AI employees, on your own server.
+                Genosyn is not just AI workers — it ships the chat, tasks, data, knowledge,
+                automation, analytics, inbox, CRM, books, and code access a real company needs.
+                Every tool is shared by humans and AI employees, on your own server.
               </p>
               <ul className="mt-9 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs font-medium text-zinc-500">
                 {CHECKS.map((c) => (
@@ -50,6 +49,8 @@ export function ProductsIndex() {
                 ))}
               </ul>
             </div>
+
+            <ProductPrototype compact className="mx-auto mt-12 max-w-6xl text-left" />
 
             {flagship && <FlagshipCard product={flagship} />}
 
@@ -85,16 +86,12 @@ function FlagshipCard({ product }: { product: ProductDef }) {
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2.5">
-            <h2 className="text-xl font-semibold text-white sm:text-2xl">
-              {product.name}
-            </h2>
+            <h2 className="text-xl font-semibold text-white sm:text-2xl">{product.name}</h2>
             <span className="rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-300">
               The core
             </span>
           </div>
-          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-400">
-            {product.summary}
-          </p>
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-400">{product.summary}</p>
         </div>
         <span className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-white/15 px-5 py-2.5 text-sm font-semibold text-white transition group-hover:bg-white/5">
           Meet them
@@ -123,9 +120,7 @@ function ProductCard({ product }: { product: ProductDef }) {
         </span>
       </div>
       <h3 className="mt-5 text-base font-semibold text-zinc-950">{product.name}</h3>
-      <p className="mt-2 flex-1 text-sm leading-relaxed text-zinc-600">
-        {product.summary}
-      </p>
+      <p className="mt-2 flex-1 text-sm leading-relaxed text-zinc-600">{product.summary}</p>
       <span className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-zinc-500 transition group-hover:text-zinc-900">
         Learn more
         <ArrowRight className="h-3 w-3 transition group-hover:translate-x-0.5" />

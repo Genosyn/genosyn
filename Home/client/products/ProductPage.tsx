@@ -5,10 +5,9 @@ import { SectionEyebrow } from "@/sections/Primitives";
 import { Link } from "@/lib/router";
 import { PRODUCTS, type ProductDef } from "@/products/data";
 import { productIcon } from "@/products/productIcons";
-import { productPreview } from "@/products/previews";
+import { ProductPrototype } from "@/products/ProductPrototype";
 
 export function ProductPage({ product }: { product: ProductDef }) {
-  const Preview = productPreview(product.slug);
   const Icon = productIcon(product.icon);
 
   return (
@@ -16,72 +15,89 @@ export function ProductPage({ product }: { product: ProductDef }) {
       <Nav />
       <main>
         {/* ───────────────────────────── Hero ───────────────────────────── */}
-        <section className="relative overflow-hidden bg-white">
+        <section className="relative overflow-hidden border-b border-zinc-100 bg-zinc-50/60">
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[560px] bg-[radial-gradient(60%_80%_at_50%_0%,rgba(15,23,42,0.05),transparent_70%)]"
+            className="pointer-events-none absolute inset-x-0 top-0 h-[660px] bg-[radial-gradient(55%_70%_at_72%_8%,rgba(148,163,184,0.18),transparent_72%)]"
           />
-          <div className="mx-auto max-w-7xl px-6 pt-12 pb-16 sm:pt-16 sm:pb-20">
-            <div className="mx-auto flex max-w-3xl flex-col items-center text-center">
-              <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs font-medium text-zinc-500">
-                <Link href="/products" className="transition hover:text-zinc-900">
-                  Products
-                </Link>
-                <span className="text-zinc-300">/</span>
-                <span className="text-zinc-700">{product.category}</span>
-              </nav>
+          <div
+            aria-hidden
+            className="bg-grid-soft pointer-events-none absolute inset-x-0 top-0 h-[660px] opacity-35 [mask-image:linear-gradient(to_bottom,black,transparent_82%)]"
+          />
+          <div className="relative mx-auto max-w-[88rem] px-5 pb-16 pt-12 sm:px-6 sm:pb-20 sm:pt-16 lg:py-20">
+            <div className="grid gap-10 lg:grid-cols-[0.78fr_1.22fr] lg:grid-rows-[auto_auto] lg:gap-x-10 lg:gap-y-0 xl:gap-x-16">
+              <div className="order-1 max-w-xl self-end lg:order-none lg:col-start-1 lg:row-start-1">
+                <nav
+                  aria-label="Breadcrumb"
+                  className="flex items-center gap-2 text-xs font-medium text-zinc-500"
+                >
+                  <Link href="/products" className="transition hover:text-zinc-900">
+                    Products
+                  </Link>
+                  <span className="text-zinc-300">/</span>
+                  <span className="text-zinc-700">{product.category}</span>
+                </nav>
 
-              <div
-                className={`mt-6 flex h-12 w-12 items-center justify-center rounded-2xl ring-1 ${product.accent}`}
-              >
-                <Icon className="h-6 w-6" />
+                <div
+                  className={`mt-6 flex h-12 w-12 items-center justify-center rounded-2xl ring-1 ${product.accent}`}
+                >
+                  <Icon className="h-6 w-6" />
+                </div>
+
+                <h1 className="mt-5 text-balance text-[2.6rem] font-semibold leading-[1.02] tracking-[-0.04em] text-zinc-950 sm:text-[3.3rem]">
+                  {product.tagline} <span className="text-zinc-500">{product.taglineAccent}</span>
+                </h1>
               </div>
 
-              <h1 className="mt-5 text-balance font-semibold leading-[1.06] tracking-[-0.03em] text-zinc-950 text-[2.5rem] sm:text-[3.25rem]">
-                {product.tagline}{" "}
-                <span className="text-zinc-500">{product.taglineAccent}</span>
-              </h1>
+              <div className="order-3 max-w-xl lg:order-none lg:col-start-1 lg:row-start-2">
+                <p className="mt-6 max-w-xl text-pretty text-base leading-[1.7] text-zinc-600">
+                  {product.intro}
+                </p>
 
-              <p className="mt-6 max-w-2xl text-balance text-lg leading-[1.6] text-zinc-600">
-                {product.intro}
-              </p>
+                <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                  <a
+                    href="/#quickstart"
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-950 px-6 py-3 text-sm font-semibold text-white shadow-lift transition hover:bg-zinc-800 sm:w-auto"
+                  >
+                    Get started for free
+                    <ArrowRight className="h-4 w-4" />
+                  </a>
+                  <Link
+                    href={product.docsPath ?? "/docs"}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-6 py-3 text-sm font-semibold text-zinc-800 shadow-card transition hover:border-zinc-300 hover:bg-zinc-50 sm:w-auto"
+                  >
+                    <BookOpen className="h-4 w-4" />
+                    Read the docs
+                  </Link>
+                </div>
 
-              <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row">
-                <a
-                  href="/#quickstart"
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-950 px-6 py-3 text-sm font-semibold text-white shadow-lift transition hover:bg-zinc-800 sm:w-auto"
-                >
-                  Get started for free
-                  <ArrowRight className="h-4 w-4" />
-                </a>
-                <Link
-                  href={product.docsPath ?? "/docs"}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-6 py-3 text-sm font-semibold text-zinc-800 shadow-card transition hover:border-zinc-300 hover:bg-zinc-50 sm:w-auto"
-                >
-                  <BookOpen className="h-4 w-4" />
-                  Read the docs
-                </Link>
+                <ul className="mt-8 grid gap-x-4 gap-y-2 text-xs font-medium text-zinc-500 sm:grid-cols-2">
+                  {product.checks.map((check) => (
+                    <li key={check} className="inline-flex items-center gap-1.5">
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                      {check}
+                    </li>
+                  ))}
+                </ul>
               </div>
 
-              <ul className="mt-9 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs font-medium text-zinc-500">
-                {product.checks.map((c) => (
-                  <li key={c} className="inline-flex items-center gap-1.5">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-zinc-700" />
-                    {c}
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            {Preview && (
-              <div className="relative mx-auto mt-14 max-w-5xl">
+              <div className="relative order-2 min-w-0 lg:order-none lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:self-center">
                 <div
                   aria-hidden
-                  className="pointer-events-none absolute -inset-x-8 -inset-y-12 -z-10 rounded-[3rem] bg-gradient-to-b from-zinc-100/60 via-white to-white blur-2xl"
+                  className="pointer-events-none absolute -inset-x-8 -inset-y-10 -z-10 rounded-[3rem] bg-white/80 blur-2xl"
                 />
-                <Preview />
+                <div className="mb-3 flex items-center justify-between px-1">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+                    Watch {product.name} do the work
+                  </span>
+                  <span className="hidden items-center gap-1.5 text-[10px] font-medium text-zinc-400 sm:inline-flex">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+                    Running now
+                  </span>
+                </div>
+                <ProductPrototype product={product} compact />
               </div>
-            )}
+            </div>
           </div>
         </section>
 
@@ -107,12 +123,8 @@ export function ProductPage({ product }: { product: ProductDef }) {
                     >
                       <FeatureIcon className="h-5 w-5" />
                     </div>
-                    <h3 className="mt-5 text-base font-semibold text-zinc-950">
-                      {f.title}
-                    </h3>
-                    <p className="mt-2 text-sm leading-relaxed text-zinc-600">
-                      {f.body}
-                    </p>
+                    <h3 className="mt-5 text-base font-semibold text-zinc-950">{f.title}</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-zinc-600">{f.body}</p>
                   </article>
                 );
               })}
@@ -148,9 +160,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
                       className="rounded-2xl border border-white/10 bg-white/[0.04] p-5"
                     >
                       <h3 className="text-sm font-semibold text-white">{b.title}</h3>
-                      <p className="mt-1.5 text-sm leading-relaxed text-zinc-400">
-                        {b.body}
-                      </p>
+                      <p className="mt-1.5 text-sm leading-relaxed text-zinc-400">{b.body}</p>
                     </div>
                   ))}
                 </div>
@@ -178,9 +188,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
                     {f.q}
                     <ChevronDown className="h-4 w-4 shrink-0 text-zinc-400 transition group-open:rotate-180" />
                   </summary>
-                  <p className="px-6 pb-5 text-sm leading-relaxed text-zinc-600">
-                    {f.a}
-                  </p>
+                  <p className="px-6 pb-5 text-sm leading-relaxed text-zinc-600">{f.a}</p>
                 </details>
               ))}
             </div>
@@ -217,9 +225,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
                       >
                         <RelIcon className="h-4 w-4" />
                       </span>
-                      <span className="text-sm font-semibold text-zinc-950">
-                        {p.name}
-                      </span>
+                      <span className="text-sm font-semibold text-zinc-950">{p.name}</span>
                     </div>
                     <p className="mt-3 line-clamp-2 text-[12.5px] leading-relaxed text-zinc-600">
                       {p.summary}
