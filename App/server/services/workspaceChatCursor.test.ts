@@ -8,7 +8,14 @@ test("formats workspace message cursors for SQLite datetime comparison", () => {
       "2026-07-26T18:00:56.000Z",
       "better-sqlite3",
     ),
-    "2026-07-26 18:00:56.000",
+    "2026-07-26 18:00:56",
+  );
+  assert.equal(
+    formatMessageBeforeCursor(
+      "2026-07-26T18:00:56.123Z",
+      "better-sqlite3",
+    ),
+    "2026-07-26 18:00:56.123",
   );
 });
 

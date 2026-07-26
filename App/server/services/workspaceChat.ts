@@ -651,7 +651,8 @@ export function formatMessageBeforeCursor(
     throw new Error("Invalid message cursor");
   }
   if (databaseType === "better-sqlite3") {
-    return date.toISOString().replace("T", " ").replace("Z", "");
+    const cursor = date.toISOString().replace("T", " ").replace("Z", "");
+    return cursor.endsWith(".000") ? cursor.slice(0, -4) : cursor;
   }
   return date;
 }
