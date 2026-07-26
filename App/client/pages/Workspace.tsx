@@ -33,10 +33,7 @@ import {
   WsInboundEvent,
   workspaceApi,
 } from "../lib/workspace";
-import {
-  useCompanySocket,
-  useCompanySocketSubscription,
-} from "../components/CompanySocket";
+import { useCompanySocket, useCompanySocketSubscription } from "../components/CompanySocket";
 import { EmojiPicker } from "../components/workspace/EmojiPicker";
 import { Avatar as UIAvatar } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
@@ -75,18 +72,23 @@ type WorkspaceProps = {
   me: Me;
 };
 
+const WORKSPACE_MESSAGE_PAGE_SIZE = 40;
+
 export default function Workspace({ company, me }: WorkspaceProps) {
   const { channelId: urlChannelId } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast();
 
   const [channels, setChannels] = React.useState<WorkspaceChannel[] | null>(null);
-  const [activeChannelId, setActiveChannelId] = React.useState<string | null>(
-    urlChannelId ?? null,
-  );
+  const [activeChannelId, setActiveChannelId] = React.useState<string | null>(urlChannelId ?? null);
   const [directory, setDirectory] = React.useState<WorkspaceDirectory | null>(null);
   const [mentionables, setMentionables] = React.useState<Mentionable[]>([]);
-  const [messages, setMessages] = React.useState<Record<string, WorkspaceMessage[]>>(
+  const [messages, setMessages] = React.useState<Record<string, WorkspaceMessage[]>>({});
+  const [messageHistoryLoaded, setMessageHistoryLoaded] = React.useState<Record<string, boolean>>(
+    {},
+  );
+  const [hasOlderMessages, setHasOlderMessages] = React.useState<Record<string, boolean>>({});
+  const [loadingOlderMessages, setLoadingOlderMessages] = React.useState<Record<string, boolean>>(
     {},
   );
   const [onlineUsers, setOnlineUsers] = React.useState<Set<string>>(new Set());
@@ -111,6 +113,7 @@ export default function Workspace({ company, me }: WorkspaceProps) {
   // overlapping during a remount, etc.) doesn't compound the badge past the
   // server-authoritative count.
   const countedMessageIdsRef = React.useRef<Set<string>>(new Set());
+  const loadingOlderChannelIdsRef = React.useRef<Set<string>>(new Set());
 
   // ──────────────── Initial load + realtime wiring ─────────────────────
 
@@ -122,6 +125,15 @@ export default function Workspace({ company, me }: WorkspaceProps) {
   // user had already opened.
   React.useEffect(() => {
     let cancelled = false;
+    setChannels(null);
+    setDirectory(null);
+    setMentionables([]);
+    setMessages({});
+    setMessageHistoryLoaded({});
+    setHasOlderMessages({});
+    setLoadingOlderMessages({});
+    countedMessageIdsRef.current.clear();
+    loadingOlderChannelIdsRef.current.clear();
     (async () => {
       try {
         const [list, dir, ments] = await Promise.all([
@@ -152,9 +164,7 @@ export default function Workspace({ company, me }: WorkspaceProps) {
     try {
       const list = await workspaceApi.listChannels(company.id);
       setChannels(() =>
-        list.map((c) =>
-          c.id === activeChannelIdRef.current ? { ...c, unreadCount: 0 } : c,
-        ),
+        list.map((c) => (c.id === activeChannelIdRef.current ? { ...c, unreadCount: 0 } : c)),
       );
     } catch {
       // Silent — background reconciliation, not a user action.
@@ -248,9 +258,7 @@ export default function Workspace({ company, me }: WorkspaceProps) {
           setTyping((prev) => {
             const cur = prev[ev.channelId];
             if (!cur || cur.length === 0) return prev;
-            const pruned = cur.filter(
-              (t) => !(t.kind === author.kind && t.id === author.id),
-            );
+            const pruned = cur.filter((t) => !(t.kind === author.kind && t.id === author.id));
             if (pruned.length === cur.length) return prev;
             return { ...prev, [ev.channelId]: pruned };
           });
@@ -264,9 +272,7 @@ export default function Workspace({ company, me }: WorkspaceProps) {
           return {
             ...prev,
             [ev.channelId]: cur.map((m) =>
-              m.id === ev.messageId
-                ? { ...m, content: ev.content, editedAt: ev.editedAt }
-                : m,
+              m.id === ev.messageId ? { ...m, content: ev.content, editedAt: ev.editedAt } : m,
             ),
           };
         });
@@ -330,9 +336,7 @@ export default function Workspace({ company, me }: WorkspaceProps) {
                     ...rs[idx],
                     count: remaining.length,
                     actors: remaining,
-                    byMe: remaining.some(
-                      (a) => a.kind === "user" && a.id === me.id,
-                    ),
+                    byMe: remaining.some((a) => a.kind === "user" && a.id === me.id),
                   };
                 }
               }
@@ -357,9 +361,7 @@ export default function Workspace({ company, me }: WorkspaceProps) {
         if (ev.by.kind === "user" && ev.by.id === me.id) return;
         setTyping((prev) => {
           const cur = prev[ev.channelId] ?? [];
-          const without = cur.filter(
-            (t) => !(t.kind === ev.by.kind && t.id === ev.by.id),
-          );
+          const without = cur.filter((t) => !(t.kind === ev.by.kind && t.id === ev.by.id));
           return {
             ...prev,
             [ev.channelId]: [
@@ -383,7 +385,9 @@ export default function Workspace({ company, me }: WorkspaceProps) {
           setActiveChannelId(next?.id ?? null);
           navigate(
             next ? `/c/${company.slug}/workspace/${next.id}` : `/c/${company.slug}/workspace`,
-            { replace: true },
+            {
+              replace: true,
+            },
           );
         }
         return;
@@ -395,18 +399,72 @@ export default function Workspace({ company, me }: WorkspaceProps) {
 
   // ──────────────── Channel selection + history ────────────────────────
 
+  const activeMessageHistoryLoaded = activeChannelId
+    ? messageHistoryLoaded[activeChannelId] === true
+    : false;
+
   React.useEffect(() => {
     if (!activeChannelId) return;
-    if (messages[activeChannelId]) return;
+    if (activeMessageHistoryLoaded) return;
+    let cancelled = false;
     (async () => {
       try {
-        const list = await workspaceApi.listMessages(company.id, activeChannelId);
-        setMessages((prev) => ({ ...prev, [activeChannelId]: list }));
+        const list = await workspaceApi.listMessages(company.id, activeChannelId, {
+          limit: WORKSPACE_MESSAGE_PAGE_SIZE,
+        });
+        if (cancelled) return;
+        setMessages((prev) => ({
+          ...prev,
+          [activeChannelId]: mergeWorkspaceMessages(list, prev[activeChannelId] ?? []),
+        }));
+        setHasOlderMessages((prev) => ({
+          ...prev,
+          [activeChannelId]: list.length === WORKSPACE_MESSAGE_PAGE_SIZE,
+        }));
+        setMessageHistoryLoaded((prev) => ({
+          ...prev,
+          [activeChannelId]: true,
+        }));
       } catch (e) {
+        if (cancelled) return;
         toast((e as Error).message, "error");
       }
     })();
-  }, [activeChannelId, company.id, messages, toast]);
+    return () => {
+      cancelled = true;
+    };
+  }, [activeChannelId, activeMessageHistoryLoaded, company.id, toast]);
+
+  async function loadOlderChannelMessages(channelId: string): Promise<boolean> {
+    if (loadingOlderChannelIdsRef.current.has(channelId)) return false;
+    if (!hasOlderMessages[channelId]) return false;
+    const current = messages[channelId];
+    if (!current || current.length === 0) return false;
+
+    loadingOlderChannelIdsRef.current.add(channelId);
+    setLoadingOlderMessages((prev) => ({ ...prev, [channelId]: true }));
+    try {
+      const list = await workspaceApi.listMessages(company.id, channelId, {
+        before: current[0].createdAt,
+        limit: WORKSPACE_MESSAGE_PAGE_SIZE,
+      });
+      setMessages((prev) => ({
+        ...prev,
+        [channelId]: mergeWorkspaceMessages(list, prev[channelId] ?? []),
+      }));
+      setHasOlderMessages((prev) => ({
+        ...prev,
+        [channelId]: list.length === WORKSPACE_MESSAGE_PAGE_SIZE,
+      }));
+      return list.length > 0;
+    } catch (e) {
+      toast((e as Error).message, "error");
+      return false;
+    } finally {
+      loadingOlderChannelIdsRef.current.delete(channelId);
+      setLoadingOlderMessages((prev) => ({ ...prev, [channelId]: false }));
+    }
+  }
 
   // Mark the active channel read whenever it changes, AND once the channel
   // list finishes loading (depending on `channelsLoaded`). Without the
@@ -486,13 +544,20 @@ export default function Workspace({ company, me }: WorkspaceProps) {
         onArchive={archiveWorkspaceChannel}
       />
       <main className="flex min-w-0 flex-1 flex-col bg-white dark:bg-slate-950">
-        {activeChannel ? (
+        {channels === null ? (
+          <WorkspaceLoading label="Loading workspace…" />
+        ) : activeChannel ? (
           <ChannelView
             key={activeChannel.id}
             company={company}
             me={me}
             channel={activeChannel}
-            messages={messages[activeChannel.id] ?? null}
+            messages={
+              messageHistoryLoaded[activeChannel.id] ? (messages[activeChannel.id] ?? []) : null
+            }
+            hasOlderMessages={hasOlderMessages[activeChannel.id] ?? false}
+            loadingOlderMessages={loadingOlderMessages[activeChannel.id] ?? false}
+            onLoadOlderMessages={() => loadOlderChannelMessages(activeChannel.id)}
             directory={directory}
             mentionables={mentionables}
             typing={typing[activeChannel.id] ?? []}
@@ -578,68 +643,80 @@ function WorkspaceSidebar({
           Workspace chat
         </div>
       </div>
-      <SidebarSection
-        title="Channels"
-        action={<AddButton onClick={onNewChannel} label="Create channel" />}
-      >
-        {publicChannels.map((c) => (
-          <ChannelRow
-            key={c.id}
-            icon={<Hash size={14} />}
-            label={c.name || "channel"}
-            active={c.id === activeChannelId}
-            unread={c.unreadCount}
-            onClick={() => onSelect(c.id)}
-          />
-        ))}
-        {privateChannels.map((c) => (
-          <ChannelRow
-            key={c.id}
-            icon={<Lock size={14} />}
-            label={c.name || "channel"}
-            active={c.id === activeChannelId}
-            unread={c.unreadCount}
-            onClick={() => onSelect(c.id)}
-          />
-        ))}
-        {publicChannels.length === 0 && privateChannels.length === 0 && (
-          <EmptyHint label="No channels yet." />
-        )}
-      </SidebarSection>
-      <SidebarSection
-        title="Direct messages"
-        action={<AddButton onClick={onNewDM} label="New DM" />}
-      >
-        {dms.map((c) => {
-          const other = dmCounterpart(c, me.id);
-          const onlineDot =
-            other?.kind === "user" && onlineUsers.has(other.id) ? (
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            ) : null;
-          return (
-            <ChannelRow
-              key={c.id}
-              icon={other?.kind === "ai" ? <Bot size={14} /> : <UserIcon size={14} />}
-              label={other?.name ?? "(empty)"}
-              right={onlineDot}
-              active={c.id === activeChannelId}
-              unread={c.unreadCount}
-              onClick={() => onSelect(c.id)}
-              action={
-                <button
-                  onClick={() => onArchive(c.id)}
-                  className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                  title="Archive direct message"
-                  aria-label={`Archive direct message with ${other?.name ?? "former employee"}`}
-                >
-                  <Archive size={12} />
-                </button>
-              }
-            />
-          );
-        })}
-        {dms.length === 0 && <EmptyHint label="No direct messages." />}
-      </SidebarSection>
+      {channels === null ? (
+        <div
+          className="flex items-center gap-2 px-4 py-4 text-xs text-slate-500 dark:text-slate-400"
+          role="status"
+        >
+          <Spinner size={14} />
+          Loading channels…
+        </div>
+      ) : (
+        <>
+          <SidebarSection
+            title="Channels"
+            action={<AddButton onClick={onNewChannel} label="Create channel" />}
+          >
+            {publicChannels.map((c) => (
+              <ChannelRow
+                key={c.id}
+                icon={<Hash size={14} />}
+                label={c.name || "channel"}
+                active={c.id === activeChannelId}
+                unread={c.unreadCount}
+                onClick={() => onSelect(c.id)}
+              />
+            ))}
+            {privateChannels.map((c) => (
+              <ChannelRow
+                key={c.id}
+                icon={<Lock size={14} />}
+                label={c.name || "channel"}
+                active={c.id === activeChannelId}
+                unread={c.unreadCount}
+                onClick={() => onSelect(c.id)}
+              />
+            ))}
+            {publicChannels.length === 0 && privateChannels.length === 0 && (
+              <EmptyHint label="No channels yet." />
+            )}
+          </SidebarSection>
+          <SidebarSection
+            title="Direct messages"
+            action={<AddButton onClick={onNewDM} label="New DM" />}
+          >
+            {dms.map((c) => {
+              const other = dmCounterpart(c, me.id);
+              const onlineDot =
+                other?.kind === "user" && onlineUsers.has(other.id) ? (
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                ) : null;
+              return (
+                <ChannelRow
+                  key={c.id}
+                  icon={other?.kind === "ai" ? <Bot size={14} /> : <UserIcon size={14} />}
+                  label={other?.name ?? "(empty)"}
+                  right={onlineDot}
+                  active={c.id === activeChannelId}
+                  unread={c.unreadCount}
+                  onClick={() => onSelect(c.id)}
+                  action={
+                    <button
+                      onClick={() => onArchive(c.id)}
+                      className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                      title="Archive direct message"
+                      aria-label={`Archive direct message with ${other?.name ?? "former employee"}`}
+                    >
+                      <Archive size={12} />
+                    </button>
+                  }
+                />
+              );
+            })}
+            {dms.length === 0 && <EmptyHint label="No direct messages." />}
+          </SidebarSection>
+        </>
+      )}
       <nav className="mt-auto border-t border-slate-100 p-2 dark:border-slate-800">
         <SidebarLink
           to={`/c/${companySlug}/workspace/integrations`}
@@ -668,10 +745,7 @@ function SidebarSection({
           className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
           onClick={() => setOpen((o) => !o)}
         >
-          <ChevronDown
-            size={12}
-            className={`transition-transform ${open ? "" : "-rotate-90"}`}
-          />
+          <ChevronDown size={12} className={`transition-transform ${open ? "" : "-rotate-90"}`} />
           {title}
         </button>
         {action}
@@ -744,19 +818,11 @@ function ChannelRow({
 }
 
 function EmptyHint({ label }: { label: string }) {
-  return (
-    <div className="px-2 py-1 text-xs italic text-slate-400 dark:text-slate-500">
-      {label}
-    </div>
-  );
+  return <div className="px-2 py-1 text-xs italic text-slate-400 dark:text-slate-500">{label}</div>;
 }
 
 function dmCounterpart(c: WorkspaceChannel, meId: string): WorkspaceAuthor | null {
-  return (
-    c.members.find(
-      (m) => !(m.kind === "user" && "id" in m && m.id === meId),
-    ) ?? null
-  );
+  return c.members.find((m) => !(m.kind === "user" && "id" in m && m.id === meId)) ?? null;
 }
 
 // ────────────────────────── Channel view ────────────────────────────────
@@ -766,6 +832,9 @@ function ChannelView({
   me,
   channel,
   messages,
+  hasOlderMessages,
+  loadingOlderMessages,
+  onLoadOlderMessages,
   directory,
   mentionables,
   typing,
@@ -777,6 +846,9 @@ function ChannelView({
   me: Me;
   channel: WorkspaceChannel;
   messages: WorkspaceMessage[] | null;
+  hasOlderMessages: boolean;
+  loadingOlderMessages: boolean;
+  onLoadOlderMessages: () => Promise<boolean>;
   directory: WorkspaceDirectory | null;
   mentionables: Mentionable[];
   typing: { kind: "user" | "ai"; id: string; name: string; until: number }[];
@@ -784,13 +856,68 @@ function ChannelView({
   onChannelUpdated: (c: WorkspaceChannel) => void;
   onArchive: () => void;
 }) {
+  const scrollRef = React.useRef<HTMLDivElement | null>(null);
   const endRef = React.useRef<HTMLDivElement | null>(null);
+  const lastMessageIdRef = React.useRef<string | null>(null);
+  const loadingOlderLocallyRef = React.useRef(false);
+  const scrollPreservationRef = React.useRef<{
+    firstMessageId: string;
+    scrollHeight: number;
+    scrollTop: number;
+  } | null>(null);
   const [showMembers, setShowMembers] = React.useState(false);
   const [editingMessageId, setEditingMessageId] = React.useState<string | null>(null);
 
-  React.useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
-  }, [messages?.length, channel.id]);
+  React.useLayoutEffect(() => {
+    if (messages === null) return;
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+
+    const preservation = scrollPreservationRef.current;
+    if (preservation) {
+      const firstMessageId = messages[0]?.id ?? null;
+      if (firstMessageId !== preservation.firstMessageId) {
+        viewport.scrollTop =
+          viewport.scrollHeight - preservation.scrollHeight + preservation.scrollTop;
+        scrollPreservationRef.current = null;
+      } else {
+        // A realtime message can arrive at the bottom while an older page is
+        // in flight. Move the baseline forward so the later prepend only
+        // compensates for rows inserted above the reader.
+        preservation.scrollHeight = viewport.scrollHeight;
+        preservation.scrollTop = viewport.scrollTop;
+      }
+      lastMessageIdRef.current = messages.at(-1)?.id ?? null;
+      return;
+    }
+
+    const lastMessageId = messages.at(-1)?.id ?? null;
+    if (
+      lastMessageIdRef.current === null ||
+      (lastMessageId !== null && lastMessageId !== lastMessageIdRef.current)
+    ) {
+      endRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+    }
+    lastMessageIdRef.current = lastMessageId;
+  }, [messages]);
+
+  async function loadOlderFromScroll(viewport: HTMLDivElement) {
+    if (loadingOlderLocallyRef.current || loadingOlderMessages) return;
+    loadingOlderLocallyRef.current = true;
+    scrollPreservationRef.current = {
+      firstMessageId: messages?.[0]?.id ?? "",
+      scrollHeight: viewport.scrollHeight,
+      scrollTop: viewport.scrollTop,
+    };
+    try {
+      const loaded = await onLoadOlderMessages();
+      if (!loaded) scrollPreservationRef.current = null;
+    } finally {
+      window.requestAnimationFrame(() => {
+        loadingOlderLocallyRef.current = false;
+      });
+    }
+  }
 
   // Cancel any in-progress edit when switching channels.
   React.useEffect(() => {
@@ -831,11 +958,22 @@ function ChannelView({
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 overflow-y-auto px-6 py-4"
+        onScroll={(event) => {
+          if (
+            messages !== null &&
+            messages.length > 0 &&
+            hasOlderMessages &&
+            event.currentTarget.scrollTop <= 96
+          ) {
+            void loadOlderFromScroll(event.currentTarget);
+          }
+        }}
+      >
         {messages === null ? (
-          <div className="flex h-full items-center justify-center">
-            <Spinner size={18} />
-          </div>
+          <WorkspaceLoading label="Loading messages…" />
         ) : messages.length === 0 ? (
           <div className="flex h-full items-center justify-center text-center text-sm text-slate-400 dark:text-slate-500">
             <div>
@@ -846,23 +984,38 @@ function ChannelView({
             </div>
           </div>
         ) : (
-          <MessageList
-            messages={messages}
-            meId={me.id}
-            mentionables={mentionables}
-            onAttachmentUrl={onAttachmentUrl}
-            editingMessageId={editingMessageId}
-            onSetEditing={setEditingMessageId}
-            onEdit={async (m, content) => {
-              await workspaceApi.editMessage(company.id, m.id, content);
-            }}
-            onDelete={async (m) => {
-              await workspaceApi.deleteMessage(company.id, m.id);
-            }}
-            onReact={async (m, emoji) => {
-              await workspaceApi.toggleReaction(company.id, m.id, emoji);
-            }}
-          />
+          <>
+            {hasOlderMessages && (
+              <div
+                className="flex h-8 items-center justify-center gap-2 text-xs text-slate-500 dark:text-slate-400"
+                role={loadingOlderMessages ? "status" : undefined}
+              >
+                {loadingOlderMessages && (
+                  <>
+                    <Spinner size={14} />
+                    Loading earlier messages…
+                  </>
+                )}
+              </div>
+            )}
+            <MessageList
+              messages={messages}
+              meId={me.id}
+              mentionables={mentionables}
+              onAttachmentUrl={onAttachmentUrl}
+              editingMessageId={editingMessageId}
+              onSetEditing={setEditingMessageId}
+              onEdit={async (m, content) => {
+                await workspaceApi.editMessage(company.id, m.id, content);
+              }}
+              onDelete={async (m) => {
+                await workspaceApi.deleteMessage(company.id, m.id);
+              }}
+              onReact={async (m, emoji) => {
+                await workspaceApi.toggleReaction(company.id, m.id, emoji);
+              }}
+            />
+          </>
         )}
         <div ref={endRef} />
       </div>
@@ -900,8 +1053,7 @@ function ChannelIcon({ channel, meId }: { channel: WorkspaceChannel; meId: strin
       <UserIcon size={16} className="text-slate-400" />
     );
   }
-  if (channel.kind === "private")
-    return <Lock size={16} className="text-slate-400" />;
+  if (channel.kind === "private") return <Lock size={16} className="text-slate-400" />;
   return <Hash size={16} className="text-slate-400" />;
 }
 
@@ -911,6 +1063,17 @@ function channelTitle(c: WorkspaceChannel, meId: string): string {
     return other?.name ?? "Direct message";
   }
   return c.name ?? "channel";
+}
+
+function mergeWorkspaceMessages(...groups: WorkspaceMessage[][]): WorkspaceMessage[] {
+  const byId = new Map<string, WorkspaceMessage>();
+  for (const group of groups) {
+    for (const message of group) byId.set(message.id, message);
+  }
+  return Array.from(byId.values()).sort((a, b) => {
+    const timeDelta = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    return timeDelta || a.id.localeCompare(b.id);
+  });
 }
 
 // ────────────────────────── Message list ────────────────────────────────
@@ -1132,11 +1295,7 @@ function MessageRow({
         {!isDeleted && message.attachments.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-2">
             {message.attachments.map((a) => (
-              <AttachmentPreview
-                key={a.id}
-                attachment={a}
-                url={onAttachmentUrl(a.id)}
-              />
+              <AttachmentPreview key={a.id} attachment={a} url={onAttachmentUrl(a.id)} />
             ))}
           </div>
         )}
@@ -1191,10 +1350,7 @@ function MessageRow({
           )}
           {menuOpen && (
             <>
-              <div
-                className="fixed inset-0 z-20"
-                onClick={() => setMenuOpen(false)}
-              />
+              <div className="fixed inset-0 z-20" onClick={() => setMenuOpen(false)} />
               <div className="absolute right-0 top-full z-30 mt-1 w-32 rounded-md border border-slate-200 bg-white py-1 text-sm shadow-lg dark:border-slate-700 dark:bg-slate-900">
                 <button
                   onClick={() => {
@@ -1235,8 +1391,7 @@ function MessageRow({
 }
 
 function Avatar({ author }: { author: WorkspaceAuthor | null }) {
-  if (!author)
-    return <div className="h-9 w-9 rounded-md bg-slate-200 dark:bg-slate-700" />;
+  if (!author) return <div className="h-9 w-9 rounded-md bg-slate-200 dark:bg-slate-700" />;
   if (author.kind === "ai") {
     return (
       <div className="flex h-9 w-9 items-center justify-center rounded-md bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300">
@@ -1264,13 +1419,7 @@ function initials(s: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function MessageBody({
-  content,
-  mentionables,
-}: {
-  content: string;
-  mentionables: Mentionable[];
-}) {
+function MessageBody({ content, mentionables }: { content: string; mentionables: Mentionable[] }) {
   // Full GitHub-flavored markdown (bold, lists, code fences, tables, links)
   // via marked + DOMPurify — same pipeline as the 1:1 EmployeeChat. We
   // post-process the sanitized HTML to wrap `@handle` and `#base/foo`
@@ -1308,8 +1457,7 @@ function handleMentionClickCapture(_e: React.MouseEvent<HTMLDivElement>): void {
   // that we might want to intercept without a full page nav.
 }
 
-const MENTION_RE =
-  /(^|[\s(])([@#][a-z0-9][a-z0-9/_-]{0,80}[a-z0-9])/gi;
+const MENTION_RE = /(^|[\s(])([@#][a-z0-9][a-z0-9/_-]{0,80}[a-z0-9])/gi;
 
 function linkifyMentions(html: string, mentionables: Mentionable[]): string {
   if (typeof document === "undefined") return html;
@@ -1398,13 +1546,7 @@ function mentionPillClass(kind: Mentionable["kind"]): string {
   }
 }
 
-function AttachmentPreview({
-  attachment,
-  url,
-}: {
-  attachment: WorkspaceAttachment;
-  url: string;
-}) {
+function AttachmentPreview({ attachment, url }: { attachment: WorkspaceAttachment; url: string }) {
   if (attachment.isImage) {
     return (
       <a href={url} target="_blank" rel="noreferrer" className="block">
@@ -1440,10 +1582,7 @@ function formatBytes(n: number): string {
 
 // ────────────────────────── Composer ────────────────────────────────────
 
-function findLastOwnMessage(
-  messages: WorkspaceMessage[],
-  meId: string,
-): WorkspaceMessage | null {
+function findLastOwnMessage(messages: WorkspaceMessage[], meId: string): WorkspaceMessage | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
     if (m.deletedAt) continue;
@@ -1635,10 +1774,7 @@ function Composer({
       .filter((x) => {
         if (!mentionQuery) return true;
         const q = mentionQuery;
-        return (
-          x.handle.toLowerCase().includes(q) ||
-          x.label.toLowerCase().includes(q)
-        );
+        return x.handle.toLowerCase().includes(q) || x.label.toLowerCase().includes(q);
       })
       .slice(0, 30);
   }, [mentionables, mentionPrefix, mentionQuery]);
@@ -1668,9 +1804,7 @@ function Composer({
               <span className="max-w-[180px] truncate">{a.filename}</span>
               <span className="text-slate-400">{formatBytes(a.sizeBytes)}</span>
               <button
-                onClick={() =>
-                  setAttachments((prev) => prev.filter((x) => x.id !== a.id))
-                }
+                onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
                 className="ml-1 rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-700"
               >
                 <X size={12} />
@@ -1739,24 +1873,19 @@ function Composer({
             if (mentionOpen && mentionCandidates.length > 0) {
               if (e.key === "ArrowDown") {
                 e.preventDefault();
-                setMentionIndex(
-                  (i) => (i + 1) % mentionCandidates.length,
-                );
+                setMentionIndex((i) => (i + 1) % mentionCandidates.length);
                 return;
               }
               if (e.key === "ArrowUp") {
                 e.preventDefault();
                 setMentionIndex(
-                  (i) =>
-                    (i - 1 + mentionCandidates.length) %
-                    mentionCandidates.length,
+                  (i) => (i - 1 + mentionCandidates.length) % mentionCandidates.length,
                 );
                 return;
               }
               if (e.key === "Enter" || e.key === "Tab") {
                 e.preventDefault();
-                const pick =
-                  mentionCandidates[mentionIndex] ?? mentionCandidates[0];
+                const pick = mentionCandidates[mentionIndex] ?? mentionCandidates[0];
                 if (pick) insertMention(pick.handle);
                 return;
               }
@@ -1820,59 +1949,59 @@ function Composer({
         {mentionOpen &&
           mentionCandidates.length > 0 &&
           (mentionPrefix === "@" || (!referencesLoading && references.length === 0)) && (
-          <div className="absolute bottom-full left-12 z-20 mb-2 w-80 rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
-            <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-              {mentionPrefix === "@" ? "People" : "Resources"}
-            </div>
-            <div className="max-h-72 overflow-y-auto pb-1">
-              {mentionCandidates.map((x, i) => (
-                <button
-                  key={`${x.kind}-${x.handle}`}
-                  onMouseDown={(ev) => {
-                    ev.preventDefault();
-                    insertMention(x.handle);
-                  }}
-                  onMouseEnter={() => setMentionIndex(i)}
-                  className={
-                    "flex w-full items-center gap-2.5 px-3 py-1.5 text-left " +
-                    (i === mentionIndex
-                      ? "bg-slate-100 dark:bg-slate-800"
-                      : "hover:bg-slate-50 dark:hover:bg-slate-800")
-                  }
-                >
-                  {x.kind === "user" || x.kind === "ai" ? (
-                    <UIAvatar
-                      name={x.label}
-                      src={x.avatarUrl ?? null}
-                      kind={x.kind === "ai" ? "ai" : "human"}
-                      size="sm"
-                    />
-                  ) : (
-                    <span className="flex h-6 w-6 items-center justify-center rounded-md bg-slate-100 dark:bg-slate-800">
-                      <MentionIcon kind={x.kind} />
-                    </span>
-                  )}
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-1.5">
-                      <span className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
-                        {x.label}
+            <div className="absolute bottom-full left-12 z-20 mb-2 w-80 rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
+              <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                {mentionPrefix === "@" ? "People" : "Resources"}
+              </div>
+              <div className="max-h-72 overflow-y-auto pb-1">
+                {mentionCandidates.map((x, i) => (
+                  <button
+                    key={`${x.kind}-${x.handle}`}
+                    onMouseDown={(ev) => {
+                      ev.preventDefault();
+                      insertMention(x.handle);
+                    }}
+                    onMouseEnter={() => setMentionIndex(i)}
+                    className={
+                      "flex w-full items-center gap-2.5 px-3 py-1.5 text-left " +
+                      (i === mentionIndex
+                        ? "bg-slate-100 dark:bg-slate-800"
+                        : "hover:bg-slate-50 dark:hover:bg-slate-800")
+                    }
+                  >
+                    {x.kind === "user" || x.kind === "ai" ? (
+                      <UIAvatar
+                        name={x.label}
+                        src={x.avatarUrl ?? null}
+                        kind={x.kind === "ai" ? "ai" : "human"}
+                        size="sm"
+                      />
+                    ) : (
+                      <span className="flex h-6 w-6 items-center justify-center rounded-md bg-slate-100 dark:bg-slate-800">
+                        <MentionIcon kind={x.kind} />
                       </span>
-                      {x.kind === "ai" && (
-                        <span className="shrink-0 rounded bg-indigo-50 px-1 text-[10px] font-medium uppercase tracking-wide text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">
-                          AI
+                    )}
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                          {x.label}
                         </span>
-                      )}
+                        {x.kind === "ai" && (
+                          <span className="shrink-0 rounded bg-indigo-50 px-1 text-[10px] font-medium uppercase tracking-wide text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">
+                            AI
+                          </span>
+                        )}
+                      </span>
+                      <span className="block truncate text-xs text-slate-500 dark:text-slate-400">
+                        <span className="font-mono">{x.handle}</span>
+                        {x.sublabel ? ` · ${x.sublabel}` : ""}
+                      </span>
                     </span>
-                    <span className="block truncate text-xs text-slate-500 dark:text-slate-400">
-                      <span className="font-mono">{x.handle}</span>
-                      {x.sublabel ? ` · ${x.sublabel}` : ""}
-                    </span>
-                  </span>
-                </button>
-              ))}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
         {resourceQuery !== null && (referencesLoading || references.length > 0) && (
           <ResourceReferencePicker
             references={references}
@@ -1885,10 +2014,20 @@ function Composer({
         )}
       </div>
       <div className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-        Press <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">Enter</kbd> to send · <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">Shift+Enter</kbd> newline · <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">↑</kbd> edit last · <span className="font-mono">@</span> for people · <span className="font-mono">#</span> for any resource
+        Press{" "}
+        <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">Enter</kbd> to
+        send ·{" "}
+        <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">
+          Shift+Enter
+        </kbd>{" "}
+        newline ·{" "}
+        <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">↑</kbd> edit
+        last · <span className="font-mono">@</span> for people ·{" "}
+        <span className="font-mono">#</span> for any resource
         {channel.kind === "dm" ? (
           <>
-            {" "}· <span className="font-mono">/new</span> for new context
+            {" "}
+            · <span className="font-mono">/new</span> for new context
           </>
         ) : null}
       </div>
@@ -1953,13 +2092,20 @@ function TypingDots() {
 
 // ────────────────────────── Empty state ─────────────────────────────────
 
-function EmptyWorkspace({
-  onCreate,
-  onStartDm,
-}: {
-  onCreate: () => void;
-  onStartDm: () => void;
-}) {
+function WorkspaceLoading({ label }: { label: string }) {
+  return (
+    <div
+      className="flex h-full flex-1 items-center justify-center gap-2 text-sm text-slate-500 dark:text-slate-400"
+      role="status"
+      aria-live="polite"
+    >
+      <Spinner size={18} />
+      {label}
+    </div>
+  );
+}
+
+function EmptyWorkspace({ onCreate, onStartDm }: { onCreate: () => void; onStartDm: () => void }) {
   return (
     <div className="flex flex-1 items-center justify-center">
       <div className="max-w-md p-8 text-center">
@@ -2237,9 +2383,7 @@ function NewDMModal({
             </div>
           )}
           {users.length === 0 && emps.length === 0 && (
-            <div className="py-8 text-center text-sm text-slate-400">
-              No matches.
-            </div>
+            <div className="py-8 text-center text-sm text-slate-400">No matches.</div>
           )}
         </div>
       </div>
@@ -2263,9 +2407,7 @@ function MembersModal({
   onChanged: (c: WorkspaceChannel) => void;
 }) {
   const [adding, setAdding] = React.useState<
-    | null
-    | { kind: "user"; id: string }
-    | { kind: "ai"; id: string }
+    null | { kind: "user"; id: string } | { kind: "ai"; id: string }
   >(null);
   const { toast } = useToast();
 
@@ -2285,17 +2427,17 @@ function MembersModal({
   }
 
   const memberUserIds = new Set(
-    channel.members.filter((m) => m.kind === "user").map((m) => (m as WorkspaceAuthor & { id: string }).id),
+    channel.members
+      .filter((m) => m.kind === "user")
+      .map((m) => (m as WorkspaceAuthor & { id: string }).id),
   );
   const memberEmpIds = new Set(
-    channel.members.filter((m) => m.kind === "ai").map((m) => (m as WorkspaceAuthor & { id: string }).id),
+    channel.members
+      .filter((m) => m.kind === "ai")
+      .map((m) => (m as WorkspaceAuthor & { id: string }).id),
   );
-  const addableUsers = (directory?.members ?? []).filter(
-    (u) => !memberUserIds.has(u.id),
-  );
-  const addableEmps = (directory?.employees ?? []).filter(
-    (e) => !memberEmpIds.has(e.id),
-  );
+  const addableUsers = (directory?.members ?? []).filter((u) => !memberUserIds.has(u.id));
+  const addableEmps = (directory?.employees ?? []).filter((e) => !memberEmpIds.has(e.id));
 
   return (
     <Modal open={open} onClose={onClose} title="Members">
@@ -2315,9 +2457,7 @@ function MembersModal({
                 ) : (
                   <UserIcon size={14} className="text-slate-400" />
                 )}
-                <span className="font-medium text-slate-900 dark:text-slate-100">
-                  {m.name}
-                </span>
+                <span className="font-medium text-slate-900 dark:text-slate-100">{m.name}</span>
                 {m.kind === "ai" && (
                   <span className="rounded bg-indigo-50 px-1 text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
                     AI
@@ -2334,10 +2474,7 @@ function MembersModal({
             </div>
             <div className="space-y-1">
               {addableUsers.map((u) => (
-                <div
-                  key={u.id}
-                  className="flex items-center gap-2 rounded-md px-2 py-1 text-sm"
-                >
+                <div key={u.id} className="flex items-center gap-2 rounded-md px-2 py-1 text-sm">
                   <UserIcon size={14} className="text-slate-400" />
                   <span className="font-medium">{u.name}</span>
                   <Button
@@ -2352,10 +2489,7 @@ function MembersModal({
                 </div>
               ))}
               {addableEmps.map((e) => (
-                <div
-                  key={e.id}
-                  className="flex items-center gap-2 rounded-md px-2 py-1 text-sm"
-                >
+                <div key={e.id} className="flex items-center gap-2 rounded-md px-2 py-1 text-sm">
                   <Bot size={14} className="text-indigo-500" />
                   <span className="font-medium">{e.name}</span>
                   <Button
@@ -2416,9 +2550,7 @@ function MemberPicker({
         >
           <UserIcon size={14} className="text-slate-400" />
           <span>{u.name}</span>
-          {selectedUsers.has(u.id) && (
-            <CheckCheck size={14} className="ml-auto text-indigo-500" />
-          )}
+          {selectedUsers.has(u.id) && <CheckCheck size={14} className="ml-auto text-indigo-500" />}
         </button>
       ))}
       {directory.employees.map((e) => (
@@ -2435,9 +2567,7 @@ function MemberPicker({
           <Bot size={14} className="text-indigo-500" />
           <span>{e.name}</span>
           <span className="text-xs text-slate-400">({e.slug})</span>
-          {selectedEmps.has(e.id) && (
-            <CheckCheck size={14} className="ml-auto text-indigo-500" />
-          )}
+          {selectedEmps.has(e.id) && <CheckCheck size={14} className="ml-auto text-indigo-500" />}
         </button>
       ))}
     </div>

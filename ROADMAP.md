@@ -600,6 +600,8 @@ sends system mail); this is the company's real inbox. Internal namespace is
       deleted), `/new` context boundaries, and `#` resource references across
       every AI-employee chat composer
 - [x] Unread badges + read markers
+- [x] Recent-first message history with upward-scroll pagination and visible
+      loading states
 - [x] Edit / soft-delete own messages, broadcast over WS
 - [ ] Typing indicators UI (plumbing exists, UI deferred)
 - [ ] Threaded replies UI (column exists, UI deferred)
