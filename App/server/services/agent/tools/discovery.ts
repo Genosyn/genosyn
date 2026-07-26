@@ -162,7 +162,7 @@ function renderTool(tool: AgentTool, isGrantDead: boolean): string {
  */
 function buildDomainFooter(searchable: AgentTool[]): string {
   const present = new Set(searchable.map((t) => t.name));
-  const lines = ["--- full catalogue (names only; use find_tools or call_tool) ---"];
+  const lines = ["--- catalogue names; use find_tools or call_tool ---"];
 
   for (const [key, domain] of Object.entries(TOOL_DOMAINS)) {
     const names = domain.tools.filter((n) => present.has(n));

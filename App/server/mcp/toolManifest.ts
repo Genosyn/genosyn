@@ -2925,6 +2925,10 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         ownedByMe: { type: "boolean" },
         customFieldKey: { type: "string" },
         customFieldValue: { type: "string" },
+        includeArchived: {
+          type: "boolean",
+          description: "Include archived source Accounts in the result.",
+        },
         limit: { type: "integer", minimum: 1, maximum: 200 },
         offset: { type: "integer", minimum: 0 },
       },
@@ -2990,6 +2994,38 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         ownerEmployeeId: { type: ["string", "null"] },
       },
       required: ["accountId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "archive_revenue_account",
+    description:
+      "Archive or restore an Account without deleting its Revenue or Finance history. Archived Accounts leave the default list but remain addressable and can be restored. Set `archived` false to restore; restoration refuses an active domain collision. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        accountId: { type: "string" },
+        archived: { type: "boolean" },
+      },
+      required: ["accountId", "archived"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "merge_revenue_accounts",
+    description:
+      "Merge a duplicate source Account into an active destination Account in one transaction. Reparents Revenue and Finance history, preserves issued document identities, keeps destination fields on conflicts, copies missing Account custom values, and archives the source. Pass the source's exact current name in `confirmSourceName`. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sourceAccountId: { type: "string" },
+        targetAccountId: { type: "string" },
+        confirmSourceName: {
+          type: "string",
+          description: "The source Account's exact current name, as an explicit confirmation.",
+        },
+      },
+      required: ["sourceAccountId", "targetAccountId", "confirmSourceName"],
       additionalProperties: false,
     },
   },

@@ -264,6 +264,8 @@ import {
   createRevenueAccount,
   getRevenueAccount,
   listRevenueAccounts,
+  mergeRevenueAccounts,
+  setRevenueAccountArchived,
   updateRevenueAccount,
 } from "../services/revenue/accounts.js";
 import {
@@ -3050,6 +3052,7 @@ mcpInternalRouter.post(
         ownedByMe: z.boolean().optional(),
         customFieldKey: z.string().max(80).optional(),
         customFieldValue: z.string().max(500).optional(),
+        includeArchived: z.boolean().optional(),
         limit: z.number().int().min(1).max(200).optional(),
         offset: z.number().int().min(0).optional(),
       })
@@ -3063,6 +3066,7 @@ mcpInternalRouter.post(
       ownedByMe?: boolean;
       customFieldKey?: string;
       customFieldValue?: string;
+      includeArchived?: boolean;
       limit?: number;
       offset?: number;
     };
@@ -3139,6 +3143,82 @@ mcpInternalRouter.post(
       res.json({ account });
     } catch (error) {
       res.status(409).json({ error: (error as Error).message });
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/archive_revenue_account",
+  validateBody(
+    z
+      .object({
+        accountId: z.string().uuid(),
+        archived: z.boolean(),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const { accountId, archived } = req.body as {
+      accountId: string;
+      archived: boolean;
+    };
+    try {
+      const account = await setRevenueAccountArchived(req.mcpCompany!.id, accountId, archived);
+      if (!account) return res.status(404).json({ error: "Account not found" });
+      await aiWriteTrail(req, {
+        action: `revenue.account.${archived ? "archive" : "restore"}`,
+        targetType: "customer",
+        targetId: account.id,
+        targetLabel: account.name,
+        journalTitle: `${req.mcpEmployee!.name} ${
+          archived ? "archived" : "restored"
+        } account ${account.name}`,
+      });
+      res.json({ account });
+    } catch (error) {
+      res.status(409).json({ error: (error as Error).message });
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/merge_revenue_accounts",
+  validateBody(
+    z
+      .object({
+        sourceAccountId: z.string().uuid(),
+        targetAccountId: z.string().uuid(),
+        confirmSourceName: z.string().min(1).max(120),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const { sourceAccountId, targetAccountId, confirmSourceName } = req.body as {
+      sourceAccountId: string;
+      targetAccountId: string;
+      confirmSourceName: string;
+    };
+    try {
+      const result = await mergeRevenueAccounts(
+        req.mcpCompany!.id,
+        sourceAccountId,
+        targetAccountId,
+        confirmSourceName,
+      );
+      await aiWriteTrail(req, {
+        action: "revenue.account.merge",
+        targetType: "customer",
+        targetId: result.source.id,
+        targetLabel: `${result.source.name} → ${result.target.name}`,
+        journalTitle: `${req.mcpEmployee!.name} merged account ${result.source.name} into ${result.target.name}`,
+        metadata: { targetAccountId: result.target.id, moved: result.counts },
+      });
+      res.json(result);
+    } catch (error) {
+      const message = (error as Error).message;
+      res.status(message.endsWith("not found") ? 404 : 409).json({ error: message });
     }
   },
 );

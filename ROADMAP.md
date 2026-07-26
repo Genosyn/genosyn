@@ -1330,6 +1330,13 @@ pipeline, and the PQL tools have neither.
       service is exposed through granular deferred AI tools behind
       `EmployeeRevenueGrant`; Base imports additionally require a grant to the
       source Base.
+- [x] **Safe Account consolidation.** Revenue Accounts can be archived and
+      restored without losing history, or transactionally merged into an
+      active destination after a counted preflight and exact-name
+      confirmation. The merge reparents both Revenue and Finance references,
+      preserves issued document identities, keeps destination fields and
+      conflicting custom values, copies missing custom values, archives the
+      source, and is available to AI Employees with Revenue write access.
 - [x] **The timeline fills itself.** Mail sync matches thread participants
       against known contacts and writes `email_in` / `email_out` activities, so
       opening a Contact shows every conversation you have ever had with that

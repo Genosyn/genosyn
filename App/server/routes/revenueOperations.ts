@@ -30,6 +30,9 @@ import {
   createRevenueAccount,
   getRevenueAccount,
   listRevenueAccounts,
+  mergeRevenueAccounts,
+  previewRevenueAccountMerge,
+  setRevenueAccountArchived,
   updateRevenueAccount,
 } from "../services/revenue/accounts.js";
 import {
@@ -176,6 +179,7 @@ revenueOperationsRouter.get(
         ownerEmployeeId: z.string().uuid().optional(),
         customFieldKey: z.string().max(80).optional(),
         customFieldValue: z.string().max(500).optional(),
+        includeArchived: boolQuery,
         limit: z.coerce.number().int().min(1).max(200).optional(),
         offset: z.coerce.number().int().min(0).optional(),
       })
@@ -195,6 +199,78 @@ revenueOperationsRouter.post(
       return res.status(201).json(row);
     } catch (error) {
       return res.status(409).json({ error: (error as Error).message });
+    }
+  }),
+);
+
+for (const [action, archived] of [
+  ["archive", true],
+  ["restore", false],
+] as const) {
+  revenueOperationsRouter.post(
+    `/revenue/accounts/:id/${action}`,
+    h(async (req, res) => {
+      try {
+        const row = await setRevenueAccountArchived(cidOf(req), req.params.id, archived);
+        if (!row) return res.status(404).json({ error: "Account not found" });
+        await audit(req, `revenue.account.${action}`, "customer", row.id, row.name);
+        return res.json(row);
+      } catch (error) {
+        return res.status(409).json({ error: (error as Error).message });
+      }
+    }),
+  );
+}
+
+revenueOperationsRouter.get(
+  "/revenue/accounts/:id/merge-preview",
+  h(async (req, res) => {
+    const parsed = z.object({ targetAccountId: z.string().uuid() }).safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "A valid destination Account is required" });
+    }
+    try {
+      return res.json(
+        await previewRevenueAccountMerge(cidOf(req), req.params.id, parsed.data.targetAccountId),
+      );
+    } catch (error) {
+      const message = (error as Error).message;
+      return res.status(message.endsWith("not found") ? 404 : 409).json({ error: message });
+    }
+  }),
+);
+
+revenueOperationsRouter.post(
+  "/revenue/accounts/:id/merge",
+  validateBody(
+    z.object({
+      targetAccountId: z.string().uuid(),
+      confirmSourceName: z.string().min(1).max(120),
+    }),
+  ),
+  h(async (req, res) => {
+    try {
+      const result = await mergeRevenueAccounts(
+        cidOf(req),
+        req.params.id,
+        req.body.targetAccountId,
+        req.body.confirmSourceName,
+      );
+      await audit(
+        req,
+        "revenue.account.merge",
+        "customer",
+        result.source.id,
+        `${result.source.name} → ${result.target.name}`,
+        {
+          targetAccountId: result.target.id,
+          moved: result.counts,
+        },
+      );
+      return res.json(result);
+    } catch (error) {
+      const message = (error as Error).message;
+      return res.status(message.endsWith("not found") ? 404 : 409).json({ error: message });
     }
   }),
 );

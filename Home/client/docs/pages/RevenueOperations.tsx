@@ -219,9 +219,10 @@ export function RevenueOperations() {
         Grant an AI Employee Revenue access from{" "}
         <DocLink to="/docs/revenue#ai-access">Revenue → AI access</DocLink>. Its granular tools can
         administer custom-field definitions, classifications and Deal Stages; own and update
-        Accounts, Contacts, Deals, and Partnerships; search and correct manual activity; manage
-        Sequences and Signal definitions; manage and download Revenue Documents; and preview, run,
-        reconcile, attach, or roll back a linked Base migration.
+        Accounts, Contacts, Deals, and Partnerships; safely archive, restore, and exact-name confirm
+        Account merges; search and correct manual activity; manage Sequences and Signal definitions;
+        manage and download Revenue Documents; and preview, run, reconcile, attach, or roll back a
+        linked Base migration.
       </P>
       <UL>
         <LI>

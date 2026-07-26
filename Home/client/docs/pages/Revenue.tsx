@@ -121,6 +121,26 @@ export function Revenue() {
         from the list without removing them from historical activities and deals.
       </P>
 
+      <H2 id="account-merge">Archive or merge an Account</H2>
+      <P>
+        Open an Account under <Code>Revenue → Accounts</Code> to archive it, restore it, or merge a
+        duplicate. Archiving only removes the Account from default lists: every Contact, Deal,
+        invoice, contract, document, and Activity stays linked, and restoring brings the Account
+        back.
+      </P>
+      <P>
+        <Strong>Merge</Strong> is for two rows that represent the same company. Choose the active
+        destination Account and review the counted preflight, then type the source Account&apos;s
+        exact name. Genosyn moves every Revenue and Finance reference in one transaction and
+        archives the source. Issued invoice, estimate, and credit identifiers never change.
+        Destination fields win; missing custom-field values are copied, while a conflicting source
+        value stays visible on the archived source instead of silently overwriting the destination.
+      </P>
+      <Callout kind="info" title="A merge is atomic and the source is kept.">
+        Either every linked record moves or none do. The source Account is archived rather than
+        deleted, so its original fields and any custom-value conflicts remain available for review.
+      </Callout>
+
       <H2 id="deals">Deals</H2>
       <P>
         A <Strong>Deal</Strong> is one opportunity: a title, an amount, a currency, an expected

@@ -94,6 +94,7 @@ const RECALL_CASES: Array<{ query: string; expect: string }> = [
     query: "split legacy CRM rows into accounts contacts and deals",
     expect: "preview_linked_base_revenue_import",
   },
+  { query: "merge duplicate company accounts", expect: "merge_revenue_accounts" },
   { query: "search the company CRM activity audit", expect: "list_activities" },
   { query: "build an outbound sequence and its steps", expect: "create_sequence" },
   { query: "view product signal firing history", expect: "list_signal_events" },
@@ -129,7 +130,7 @@ describe("find_tools recall", () => {
 
   test("the domain footer rides on every result, including hits", async () => {
     const out = await tool.run({ query: "record a payment" });
-    assert.ok(out.content.includes("full catalogue"));
+    assert.ok(out.content.includes("catalogue names"));
   });
 
   test("a grant-dead tool is annotated, never hidden", async () => {

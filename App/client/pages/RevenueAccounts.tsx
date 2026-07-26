@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useOutletContext } from "react-router-dom";
-import { Building2, ExternalLink, Plus, Search, Users } from "lucide-react";
+import { Archive, Building2, ExternalLink, Plus, Search, Users } from "lucide-react";
 import { api, type Employee, type Member } from "../lib/api";
 import type { RevenueAccount } from "../lib/revenue";
 import { Breadcrumbs } from "../components/AppShell";
@@ -28,6 +28,7 @@ export default function RevenueAccounts() {
   const sectionUrl = `/c/${company.slug}/revenue`;
   const [rows, setRows] = React.useState<RevenueAccount[] | null>(null);
   const [status, setStatus] = React.useState<"all" | AccountStatus>("all");
+  const [showArchived, setShowArchived] = React.useState(false);
   const [search, setSearch] = React.useState("");
   const [query, setQuery] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
@@ -44,12 +45,13 @@ export default function RevenueAccounts() {
     const params = new URLSearchParams({ limit: "200" });
     if (status !== "all") params.set("status", status);
     if (query) params.set("q", query);
+    if (showArchived) params.set("includeArchived", "true");
     const result = await api.get<{ rows: RevenueAccount[] }>(
       `${base}/accounts?${params.toString()}`,
     );
     setRows(result.rows);
     setError(null);
-  }, [base, query, status]);
+  }, [base, query, showArchived, status]);
 
   React.useEffect(() => {
     reload().catch((cause) => {
@@ -103,16 +105,30 @@ export default function RevenueAccounts() {
           <option value="customer">Customers</option>
           <option value="former">Former customers</option>
         </Select>
+        <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+          <input
+            type="checkbox"
+            checked={showArchived}
+            onChange={(event) => setShowArchived(event.target.checked)}
+            className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+          />
+          <Archive size={14} />
+          Show archived
+        </label>
       </div>
 
       {error && <FormError message={error} />}
       {rows === null ? (
-        <div className="flex justify-center py-20"><Spinner /></div>
+        <div className="flex justify-center py-20">
+          <Spinner />
+        </div>
       ) : rows.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 py-16 text-center dark:border-slate-700">
           <Building2 className="mx-auto mb-3 text-slate-400" size={28} />
           <p className="font-medium text-slate-800 dark:text-slate-200">No accounts found</p>
-          <p className="mt-1 text-sm text-slate-500">Create a prospect without creating a finance record twice.</p>
+          <p className="mt-1 text-sm text-slate-500">
+            Create a prospect without creating a finance record twice.
+          </p>
         </div>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
@@ -120,7 +136,9 @@ export default function RevenueAccounts() {
             <Link
               key={account.id}
               to={`/c/${company.slug}/revenue/accounts/${account.id}`}
-              className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-indigo-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-indigo-700"
+              className={`rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-indigo-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-indigo-700 ${
+                account.archivedAt ? "opacity-60" : ""
+              }`}
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -134,14 +152,20 @@ export default function RevenueAccounts() {
                     {account.domain || account.industry || "No firmographic details yet"}
                   </p>
                 </div>
-                <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${STATUS_CLASS[account.accountStatus]}`}>
-                  {account.accountStatus}
+                <span
+                  className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${STATUS_CLASS[account.accountStatus]}`}
+                >
+                  {account.archivedAt ? "archived" : account.accountStatus}
                 </span>
               </div>
               <div className="mt-4 flex flex-wrap gap-4 text-xs text-slate-500">
-                <span className="inline-flex items-center gap-1"><Users size={13} /> {account.contactCount} contacts</span>
+                <span className="inline-flex items-center gap-1">
+                  <Users size={13} /> {account.contactCount} contacts
+                </span>
                 <span>{account.openDealCount} open deals</span>
-                {account.employeeCount > 0 && <span>{account.employeeCount.toLocaleString()} employees</span>}
+                {account.employeeCount > 0 && (
+                  <span>{account.employeeCount.toLocaleString()} employees</span>
+                )}
                 {account.industry && <span>{account.industry}</span>}
               </div>
             </Link>
@@ -217,28 +241,71 @@ function NewAccountModal({
   return (
     <Modal open={open} onClose={onClose} title="New account" size="lg">
       <form onSubmit={submit} className="space-y-4">
-        <Input label="Company name" value={name} onChange={(e) => setName(e.target.value)} required />
+        <Input
+          label="Company name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
         <div className="grid gap-4 sm:grid-cols-2">
-          <Input label="Domain" placeholder="example.com" value={domain} onChange={(e) => setDomain(e.target.value)} />
-          <Input label="Website" type="url" placeholder="https://example.com" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} />
+          <Input
+            label="Domain"
+            placeholder="example.com"
+            value={domain}
+            onChange={(e) => setDomain(e.target.value)}
+          />
+          <Input
+            label="Website"
+            type="url"
+            placeholder="https://example.com"
+            value={websiteUrl}
+            onChange={(e) => setWebsiteUrl(e.target.value)}
+          />
           <Input label="Industry" value={industry} onChange={(e) => setIndustry(e.target.value)} />
-          <Input label="Employee count" type="number" min="0" value={employeeCount} onChange={(e) => setEmployeeCount(e.target.value)} />
-          <Select label="Status" value={status} onChange={(e) => setStatus(e.target.value as AccountStatus)}>
+          <Input
+            label="Employee count"
+            type="number"
+            min="0"
+            value={employeeCount}
+            onChange={(e) => setEmployeeCount(e.target.value)}
+          />
+          <Select
+            label="Status"
+            value={status}
+            onChange={(e) => setStatus(e.target.value as AccountStatus)}
+          >
             <option value="prospect">Prospect</option>
             <option value="customer">Customer</option>
             <option value="former">Former customer</option>
           </Select>
           <Select label="Owner" value={owner} onChange={(e) => setOwner(e.target.value)}>
             <option value="">Unassigned</option>
-            {members.map((member) => <option key={member.userId} value={`user:${member.userId}`}>{member.name || member.email || "Member"}</option>)}
-            {employees.map((employee) => <option key={employee.id} value={`employee:${employee.id}`}>{employee.name} · AI Employee</option>)}
+            {members.map((member) => (
+              <option key={member.userId} value={`user:${member.userId}`}>
+                {member.name || member.email || "Member"}
+              </option>
+            ))}
+            {employees.map((employee) => (
+              <option key={employee.id} value={`employee:${employee.id}`}>
+                {employee.name} · AI Employee
+              </option>
+            ))}
           </Select>
         </div>
-        <Textarea label="Account notes" rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        <Textarea
+          label="Account notes"
+          rows={4}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
         {error && <FormError message={error} />}
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={busy}>{busy ? "Creating…" : "Create account"}</Button>
+          <Button type="button" variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={busy}>
+            {busy ? "Creating…" : "Create account"}
+          </Button>
         </div>
       </form>
     </Modal>

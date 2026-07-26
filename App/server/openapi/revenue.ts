@@ -12,9 +12,7 @@ import { defaultSecurity, registry } from "./registry.js";
  * remain UI-led configuration surfaces.
  */
 
-const ErrorResponse = z
-  .object({ error: z.string() })
-  .openapi("RevenueErrorResponse");
+const ErrorResponse = z.object({ error: z.string() }).openapi("RevenueErrorResponse");
 
 const CompanyParam = z.object({ cid: z.string().uuid() });
 
@@ -31,9 +29,7 @@ const Contact = z
       ),
     phone: z.string(),
     title: z.string(),
-    companyName: z
-      .string()
-      .describe("Free-text employer, kept even once `customerId` is set."),
+    companyName: z.string().describe("Free-text employer, kept even once `customerId` is set."),
     customerId: z
       .string()
       .uuid()
@@ -208,6 +204,43 @@ const RevenueAccount = z
   })
   .openapi("RevenueAccount");
 
+const AccountMergeCounts = z
+  .object({
+    contacts: z.number().int(),
+    deals: z.number().int(),
+    activities: z.number().int(),
+    partnerships: z.number().int(),
+    revenueDocuments: z.number().int(),
+    signalEvents: z.number().int(),
+    billingContacts: z.number().int(),
+    contracts: z.number().int(),
+    invoices: z.number().int(),
+    estimates: z.number().int(),
+    recurringInvoices: z.number().int(),
+    credits: z.number().int(),
+    customValuesCopied: z.number().int(),
+    customValueConflicts: z.number().int(),
+  })
+  .openapi("RevenueAccountMergeCounts");
+
+const AccountMergePreview = z
+  .object({
+    source: RevenueAccount.pick({
+      id: true,
+      name: true,
+      slug: true,
+      archivedAt: true,
+    }),
+    target: RevenueAccount.pick({
+      id: true,
+      name: true,
+      slug: true,
+      archivedAt: true,
+    }),
+    counts: AccountMergeCounts,
+  })
+  .openapi("RevenueAccountMergePreview");
+
 const FollowUp = z
   .object({
     id: z.string().uuid(),
@@ -255,12 +288,7 @@ const Partnership = z
 const RevenueClassification = z
   .object({
     id: z.string().uuid(),
-    kind: z.enum([
-      "deal_source",
-      "committee_role",
-      "partnership_type",
-      "partnership_status",
-    ]),
+    kind: z.enum(["deal_source", "committee_role", "partnership_type", "partnership_status"]),
     value: z.string(),
     label: z.string(),
     sortOrder: z.number().int(),
@@ -274,15 +302,7 @@ const RevenueCustomField = z
     resourceType: z.enum(["contact", "account", "deal", "partnership"]),
     key: z.string(),
     name: z.string(),
-    fieldType: z.enum([
-      "text",
-      "number",
-      "date",
-      "boolean",
-      "select",
-      "multi_select",
-      "url",
-    ]),
+    fieldType: z.enum(["text", "number", "date", "boolean", "select", "multi_select", "url"]),
     optionsJson: z.string(),
     required: z.boolean(),
     sortOrder: z.number().int(),
@@ -422,6 +442,7 @@ registry.registerPath({
       ownerEmployeeId: z.string().uuid().optional(),
       customFieldKey: z.string().optional(),
       customFieldValue: z.string().optional(),
+      includeArchived: z.coerce.boolean().optional(),
       limit: z.coerce.number().int().min(1).max(200).optional(),
       offset: z.coerce.number().int().min(0).optional(),
     }),
@@ -472,6 +493,91 @@ registry.registerPath({
     201: { description: "Created", content: { "application/json": { schema: RevenueAccount } } },
     409: {
       description: "An account with the same normalized domain already exists",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    ...commonErrors,
+  },
+});
+
+for (const action of ["archive", "restore"] as const) {
+  registry.registerPath({
+    method: "post",
+    path: `/api/companies/{cid}/revenue/accounts/{id}/${action}`,
+    summary: `${action === "archive" ? "Archive" : "Restore"} a revenue account`,
+    description:
+      action === "archive"
+        ? "Hides the Account from default lists without deleting any Revenue or Finance history."
+        : "Restores an archived Account. Refuses a normalized-domain collision with an active Account.",
+    tags: ["Revenue"],
+    security: defaultSecurity,
+    request: { params: CompanyParam.extend({ id: z.string().uuid() }) },
+    responses: {
+      200: {
+        description: action === "archive" ? "Archived" : "Restored",
+        content: { "application/json": { schema: RevenueAccount } },
+      },
+      409: {
+        description: "The Account cannot be restored safely",
+        content: { "application/json": { schema: ErrorResponse } },
+      },
+      ...commonErrors,
+    },
+  });
+}
+
+registry.registerPath({
+  method: "get",
+  path: "/api/companies/{cid}/revenue/accounts/{id}/merge-preview",
+  summary: "Preview an Account merge",
+  description:
+    "Counts every Revenue and Finance reference that would move, plus Account custom-field values copied or left on the source because the destination already has a value.",
+  tags: ["Revenue"],
+  security: defaultSecurity,
+  request: {
+    params: CompanyParam.extend({ id: z.string().uuid() }),
+    query: z.object({ targetAccountId: z.string().uuid() }),
+  },
+  responses: {
+    200: {
+      description: "Merge preview",
+      content: { "application/json": { schema: AccountMergePreview } },
+    },
+    409: {
+      description: "Source and destination are not safe to merge",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    ...commonErrors,
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/companies/{cid}/revenue/accounts/{id}/merge",
+  summary: "Merge and archive an Account",
+  description:
+    "Transactionally reparents Revenue and Finance history into an active destination Account, preserves issued document identifiers, keeps destination custom-field values on conflicts, and archives the source Account.",
+  tags: ["Revenue"],
+  security: defaultSecurity,
+  request: {
+    params: CompanyParam.extend({ id: z.string().uuid() }),
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            targetAccountId: z.string().uuid(),
+            confirmSourceName: z.string().min(1).max(120),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Merged",
+      content: { "application/json": { schema: AccountMergePreview } },
+    },
+    409: {
+      description: "The merge confirmation or destination is invalid",
       content: { "application/json": { schema: ErrorResponse } },
     },
     ...commonErrors,
@@ -753,12 +859,7 @@ registry.registerPath({
     params: CompanyParam,
     query: z.object({
       kind: z
-        .enum([
-          "deal_source",
-          "committee_role",
-          "partnership_type",
-          "partnership_status",
-        ])
+        .enum(["deal_source", "committee_role", "partnership_type", "partnership_status"])
         .optional(),
       includeArchived: z.coerce.boolean().optional(),
     }),

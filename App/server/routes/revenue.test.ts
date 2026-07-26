@@ -690,6 +690,70 @@ describe("revenue routes — operating system", () => {
     assert.ok(accounts.body.rows.some((account) => account.name === "Member-visible prospect"));
   });
 
+  test("previews, confirms, audits, and exposes archived Accounts after a merge", async () => {
+    const source = await call<{ id: string; name: string }>("POST", "/revenue/accounts", {
+      name: "Duplicate Account",
+      domain: "duplicate-account.example",
+    });
+    const target = await call<{ id: string; name: string }>("POST", "/revenue/accounts", {
+      name: "Canonical Account",
+      domain: "canonical-account.example",
+    });
+    const contact = await call<{ id: string }>("POST", "/revenue/contacts", {
+      name: "Merge Contact",
+      email: "merge-contact@example.com",
+      customerId: source.body.id,
+    });
+    const deal = await call<{ id: string }>("POST", "/revenue/deals", {
+      title: "Merge Deal",
+      customerId: source.body.id,
+      primaryContactId: contact.body.id,
+    });
+    assert.equal(deal.status, 201);
+
+    const preview = await call<{ counts: { contacts: number; deals: number } }>(
+      "GET",
+      `/revenue/accounts/${source.body.id}/merge-preview?targetAccountId=${target.body.id}`,
+    );
+    assert.equal(preview.status, 200);
+    assert.equal(preview.body.counts.contacts, 1);
+    assert.equal(preview.body.counts.deals, 1);
+
+    const refused = await call("POST", `/revenue/accounts/${source.body.id}/merge`, {
+      targetAccountId: target.body.id,
+      confirmSourceName: "not the source name",
+    });
+    assert.equal(refused.status, 409);
+
+    const merged = await call<{ target: { id: string } }>(
+      "POST",
+      `/revenue/accounts/${source.body.id}/merge`,
+      {
+        targetAccountId: target.body.id,
+        confirmSourceName: source.body.name,
+      },
+    );
+    assert.equal(merged.status, 200);
+    assert.equal(merged.body.target.id, target.body.id);
+    assert.ok((await auditActions()).includes("revenue.account.merge"));
+
+    const active = await call<{ rows: Array<{ id: string }> }>("GET", "/revenue/accounts");
+    assert.deepEqual(
+      active.body.rows.map((account) => account.id),
+      [target.body.id],
+    );
+    const all = await call<{ rows: Array<{ id: string; archivedAt: string | null }> }>(
+      "GET",
+      "/revenue/accounts?includeArchived=true",
+    );
+    assert.equal(all.body.rows.length, 2);
+    assert.ok(all.body.rows.find((account) => account.id === source.body.id)?.archivedAt);
+
+    const restored = await call("POST", `/revenue/accounts/${source.body.id}/restore`);
+    assert.equal(restored.status, 200);
+    assert.ok((await auditActions()).includes("revenue.account.restore"));
+  });
+
   test("uses controlled classifications and typed fields for filterable deal data", async () => {
     const field = await call<{ key: string }>("POST", "/revenue/custom-fields", {
       resourceType: "deal",

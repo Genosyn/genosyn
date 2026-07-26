@@ -66,7 +66,9 @@ export function Customers() {
         <DocLink to="/docs/finance">Finance</DocLink>, so the numbers stay
         unique and self-identify across accounts. Accounts with linked Revenue or finance history
         cannot be deleted — archive them instead to keep the full relationship and billing history
-        intact.
+        intact. If two rows represent the same company, use{" "}
+        <DocLink to="/docs/revenue#account-merge">Revenue → Accounts → Merge</DocLink> to
+        transactionally consolidate both Revenue and Finance history and archive the duplicate.
       </P>
 
       <H2 id="overview">Customer overview</H2>

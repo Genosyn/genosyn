@@ -1,8 +1,19 @@
-import { Brackets, In, IsNull } from "typeorm";
+import { Brackets, EntityManager, In, IsNull } from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
+import { Activity } from "../../db/entities/Activity.js";
 import { Customer } from "../../db/entities/Customer.js";
 import { Contact } from "../../db/entities/Contact.js";
+import { CustomerContact } from "../../db/entities/CustomerContact.js";
+import { CustomerContract } from "../../db/entities/CustomerContract.js";
+import { CustomerCredit } from "../../db/entities/CustomerCredit.js";
 import { Deal } from "../../db/entities/Deal.js";
+import { Estimate } from "../../db/entities/Estimate.js";
+import { Invoice } from "../../db/entities/Invoice.js";
+import { Partnership } from "../../db/entities/Partnership.js";
+import { RecurringInvoice } from "../../db/entities/RecurringInvoice.js";
+import { RevenueCustomValue } from "../../db/entities/RevenueCustomValue.js";
+import { RevenueDocument } from "../../db/entities/RevenueDocument.js";
+import { SignalEvent } from "../../db/entities/SignalEvent.js";
 import { uniqueCustomerSlug } from "../finance.js";
 import { toSlug } from "../../lib/slug.js";
 import { matchingResourceIds } from "./customFields.js";
@@ -24,6 +35,29 @@ export type AccountWrite = {
   ownerEmployeeId?: string | null;
 };
 
+export type AccountMergeCounts = {
+  contacts: number;
+  deals: number;
+  activities: number;
+  partnerships: number;
+  revenueDocuments: number;
+  signalEvents: number;
+  billingContacts: number;
+  contracts: number;
+  invoices: number;
+  estimates: number;
+  recurringInvoices: number;
+  credits: number;
+  customValuesCopied: number;
+  customValueConflicts: number;
+};
+
+export type AccountMergePreview = {
+  source: Pick<Customer, "id" | "name" | "slug" | "archivedAt">;
+  target: Pick<Customer, "id" | "name" | "slug" | "archivedAt">;
+  counts: AccountMergeCounts;
+};
+
 export function normalizeAccountDomain(value: string): string {
   const trimmed = value.trim().toLowerCase();
   if (!trimmed) return "";
@@ -31,7 +65,10 @@ export function normalizeAccountDomain(value: string): string {
     const url = new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`);
     return url.hostname.replace(/^www\./, "");
   } catch {
-    return trimmed.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
+    return trimmed
+      .replace(/^https?:\/\//, "")
+      .replace(/^www\./, "")
+      .split("/")[0];
   }
 }
 
@@ -68,14 +105,18 @@ export async function listRevenueAccounts(
     ownerEmployeeId?: string;
     customFieldKey?: string;
     customFieldValue?: string;
+    includeArchived?: boolean;
     limit?: number;
     offset?: number;
   } = {},
-): Promise<{ rows: Array<Customer & { contactCount: number; openDealCount: number }>; total: number }> {
+): Promise<{
+  rows: Array<Customer & { contactCount: number; openDealCount: number }>;
+  total: number;
+}> {
   const qb = AppDataSource.getRepository(Customer)
     .createQueryBuilder("a")
-    .where("a.companyId = :companyId", { companyId })
-    .andWhere("a.archivedAt IS NULL");
+    .where("a.companyId = :companyId", { companyId });
+  if (!opts.includeArchived) qb.andWhere("a.archivedAt IS NULL");
   if (opts.q) {
     qb.andWhere(
       new Brackets((where) =>
@@ -133,14 +174,11 @@ export async function listRevenueAccounts(
 export async function getRevenueAccount(
   companyId: string,
   id: string,
-): Promise<
-  | {
-      account: Customer;
-      contacts: Contact[];
-      deals: Deal[];
-    }
-  | null
-> {
+): Promise<{
+  account: Customer;
+  contacts: Contact[];
+  deals: Deal[];
+} | null> {
   const account = await AppDataSource.getRepository(Customer).findOneBy({ companyId, id });
   if (!account) return null;
   const [contacts, deals] = await Promise.all([
@@ -207,8 +245,207 @@ export async function updateRevenueAccount(
     const existing = domain
       ? await repo.findOneBy({ companyId, domain, archivedAt: IsNull() })
       : null;
-    if (existing && existing.id !== row.id) throw new Error("An account with that domain already exists");
+    if (existing && existing.id !== row.id)
+      throw new Error("An account with that domain already exists");
   }
   applyAccountWrite(row, patch);
   return repo.save(row);
+}
+
+export async function setRevenueAccountArchived(
+  companyId: string,
+  id: string,
+  archived: boolean,
+): Promise<Customer | null> {
+  const repo = AppDataSource.getRepository(Customer);
+  const row = await repo.findOneBy({ companyId, id });
+  if (!row) return null;
+  if (!archived && row.domain) {
+    const existing = await repo.findOneBy({
+      companyId,
+      domain: row.domain,
+      archivedAt: IsNull(),
+    });
+    if (existing && existing.id !== row.id) {
+      throw new Error(`Restore blocked: ${existing.name} already uses the domain ${row.domain}`);
+    }
+  }
+  row.archivedAt = archived ? new Date() : null;
+  return repo.save(row);
+}
+
+async function loadMergeAccounts(
+  manager: EntityManager,
+  companyId: string,
+  sourceId: string,
+  targetId: string,
+): Promise<{ source: Customer; target: Customer }> {
+  if (sourceId === targetId) {
+    throw new Error("An account cannot be merged into itself");
+  }
+  const [source, target] = await Promise.all([
+    manager.findOneBy(Customer, { companyId, id: sourceId }),
+    manager.findOneBy(Customer, { companyId, id: targetId }),
+  ]);
+  if (!source) throw new Error("Source account not found");
+  if (!target) throw new Error("Destination account not found");
+  if (target.archivedAt) {
+    throw new Error("Restore the destination account before merging into it");
+  }
+  return { source, target };
+}
+
+async function accountMergeCounts(
+  manager: EntityManager,
+  companyId: string,
+  sourceId: string,
+  targetId: string,
+): Promise<AccountMergeCounts> {
+  const [
+    contacts,
+    deals,
+    activities,
+    partnerships,
+    revenueDocuments,
+    signalEvents,
+    billingContacts,
+    contracts,
+    invoices,
+    estimates,
+    recurringInvoices,
+    credits,
+    sourceCustomValues,
+    targetCustomValues,
+  ] = await Promise.all([
+    manager.count(Contact, { where: { companyId, customerId: sourceId } }),
+    manager.count(Deal, { where: { companyId, customerId: sourceId } }),
+    manager.count(Activity, { where: { companyId, customerId: sourceId } }),
+    manager.count(Partnership, { where: { companyId, customerId: sourceId } }),
+    manager.count(RevenueDocument, { where: { companyId, customerId: sourceId } }),
+    manager.count(SignalEvent, { where: { companyId, customerId: sourceId } }),
+    manager.count(CustomerContact, { where: { companyId, customerId: sourceId } }),
+    manager.count(CustomerContract, { where: { companyId, customerId: sourceId } }),
+    manager.count(Invoice, { where: { companyId, customerId: sourceId } }),
+    manager.count(Estimate, { where: { companyId, customerId: sourceId } }),
+    manager.count(RecurringInvoice, { where: { companyId, customerId: sourceId } }),
+    manager.count(CustomerCredit, { where: { companyId, customerId: sourceId } }),
+    manager.find(RevenueCustomValue, {
+      where: { companyId, resourceType: "account", resourceId: sourceId },
+      select: { id: true, fieldId: true },
+    }),
+    manager.find(RevenueCustomValue, {
+      where: { companyId, resourceType: "account", resourceId: targetId },
+      select: { id: true, fieldId: true },
+    }),
+  ]);
+  const targetFieldIds = new Set(targetCustomValues.map((value) => value.fieldId));
+  const customValueConflicts = sourceCustomValues.filter((value) =>
+    targetFieldIds.has(value.fieldId),
+  ).length;
+  return {
+    contacts,
+    deals,
+    activities,
+    partnerships,
+    revenueDocuments,
+    signalEvents,
+    billingContacts,
+    contracts,
+    invoices,
+    estimates,
+    recurringInvoices,
+    credits,
+    customValuesCopied: sourceCustomValues.length - customValueConflicts,
+    customValueConflicts,
+  };
+}
+
+export async function previewRevenueAccountMerge(
+  companyId: string,
+  sourceId: string,
+  targetId: string,
+): Promise<AccountMergePreview> {
+  const manager = AppDataSource.manager;
+  const { source, target } = await loadMergeAccounts(manager, companyId, sourceId, targetId);
+  return {
+    source,
+    target,
+    counts: await accountMergeCounts(manager, companyId, sourceId, targetId),
+  };
+}
+
+/**
+ * Consolidate every Account reference into one destination without deleting
+ * the source row. Existing destination fields and custom values win; missing
+ * custom values move across. Document numbers and slugs remain unchanged, so
+ * issued finance history keeps its immutable public identity.
+ */
+export async function mergeRevenueAccounts(
+  companyId: string,
+  sourceId: string,
+  targetId: string,
+  confirmSourceName: string,
+): Promise<AccountMergePreview> {
+  return AppDataSource.transaction(async (manager) => {
+    const { source, target } = await loadMergeAccounts(manager, companyId, sourceId, targetId);
+    if (confirmSourceName !== source.name) {
+      throw new Error("Type the source account name exactly to confirm the merge");
+    }
+    const counts = await accountMergeCounts(manager, companyId, source.id, target.id);
+
+    await Promise.all([
+      manager.update(Contact, { companyId, customerId: source.id }, { customerId: target.id }),
+      manager.update(Deal, { companyId, customerId: source.id }, { customerId: target.id }),
+      manager.update(Activity, { companyId, customerId: source.id }, { customerId: target.id }),
+      manager.update(Partnership, { companyId, customerId: source.id }, { customerId: target.id }),
+      manager.update(
+        RevenueDocument,
+        { companyId, customerId: source.id },
+        { customerId: target.id },
+      ),
+      manager.update(SignalEvent, { companyId, customerId: source.id }, { customerId: target.id }),
+      manager.update(
+        CustomerContact,
+        { companyId, customerId: source.id },
+        { customerId: target.id, isPrimary: false },
+      ),
+      manager.update(
+        CustomerContract,
+        { companyId, customerId: source.id },
+        { customerId: target.id },
+      ),
+      manager.update(Invoice, { companyId, customerId: source.id }, { customerId: target.id }),
+      manager.update(Estimate, { companyId, customerId: source.id }, { customerId: target.id }),
+      manager.update(
+        RecurringInvoice,
+        { companyId, customerId: source.id },
+        { customerId: target.id },
+      ),
+      manager.update(
+        CustomerCredit,
+        { companyId, customerId: source.id },
+        { customerId: target.id },
+      ),
+    ]);
+
+    const [sourceCustomValues, targetCustomValues] = await Promise.all([
+      manager.find(RevenueCustomValue, {
+        where: { companyId, resourceType: "account", resourceId: source.id },
+      }),
+      manager.find(RevenueCustomValue, {
+        where: { companyId, resourceType: "account", resourceId: target.id },
+        select: { id: true, fieldId: true },
+      }),
+    ]);
+    const targetFieldIds = new Set(targetCustomValues.map((value) => value.fieldId));
+    const movableValues = sourceCustomValues.filter((value) => !targetFieldIds.has(value.fieldId));
+    for (const value of movableValues) value.resourceId = target.id;
+    if (movableValues.length > 0) {
+      await manager.save(RevenueCustomValue, movableValues);
+    }
+
+    source.archivedAt = new Date();
+    await manager.save(Customer, source);
+    return { source, target, counts };
+  });
 }

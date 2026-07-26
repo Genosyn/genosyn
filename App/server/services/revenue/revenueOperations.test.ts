@@ -12,14 +12,23 @@ import { BaseTable } from "../../db/entities/BaseTable.js";
 import { Company } from "../../db/entities/Company.js";
 import { Contact } from "../../db/entities/Contact.js";
 import { Customer } from "../../db/entities/Customer.js";
+import { CustomerContact } from "../../db/entities/CustomerContact.js";
 import { Deal } from "../../db/entities/Deal.js";
 import { DealStage } from "../../db/entities/DealStage.js";
+import { Invoice } from "../../db/entities/Invoice.js";
 import { Membership } from "../../db/entities/Membership.js";
 import { Notification } from "../../db/entities/Notification.js";
-import { closeTestDb, initTestDb, resetTestDb } from "../../test/dbHarness.js";
+import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
 import { recordEmployeeAttachment, resolveBaseAttachmentFile } from "../baseRecordUploads.js";
 import { resolveAttachmentFile } from "../uploads.js";
-import { createRevenueAccount, listRevenueAccounts, normalizeAccountDomain } from "./accounts.js";
+import {
+  createRevenueAccount,
+  listRevenueAccounts,
+  mergeRevenueAccounts,
+  normalizeAccountDomain,
+  previewRevenueAccountMerge,
+  setRevenueAccountArchived,
+} from "./accounts.js";
 import { createRevenueClassification, listRevenueClassifications } from "./classifications.js";
 import {
   createCustomField,
@@ -56,6 +65,7 @@ import {
 } from "./imports.js";
 import { addPartnershipContact, createPartnership, getPartnership } from "./partnerships.js";
 import { createContact } from "./contacts.js";
+import { createDeal } from "./deals.js";
 
 before(initTestDb);
 beforeEach(resetTestDb);
@@ -83,6 +93,132 @@ describe("revenue accounts", () => {
     assert.equal(listed.total, 1);
     assert.equal(listed.rows[0].contactCount, 0);
     assert.equal(listed.rows[0].openDealCount, 0);
+  });
+
+  test("previews and transactionally merges Revenue and Finance history, then archives the source", async () => {
+    const source = await createRevenueAccount(CO, {
+      name: "Acme duplicate",
+      domain: "duplicate.example",
+    });
+    const target = await createRevenueAccount(CO, {
+      name: "Acme",
+      domain: "acme.example",
+    });
+    const contact = await createContact(CO, {
+      name: "Ada",
+      email: "ada@duplicate.example",
+      customerId: source.id,
+    });
+    const deal = await createDeal(CO, {
+      title: "Enterprise renewal",
+      customerId: source.id,
+      primaryContactId: contact.id,
+      amountCents: 250_000,
+    });
+    const billingContact = await insert(CustomerContact, {
+      companyId: CO,
+      customerId: source.id,
+      name: "Accounts payable",
+      email: "ap@duplicate.example",
+      isPrimary: true,
+      sortOrder: 0,
+    });
+    const invoice = await insert(Invoice, {
+      companyId: CO,
+      customerId: source.id,
+      slug: "draft-merge-test",
+      status: "draft",
+      issueDate: new Date("2026-07-01T00:00:00.000Z"),
+      dueDate: new Date("2026-07-15T00:00:00.000Z"),
+    });
+    await createCustomField(CO, {
+      resourceType: "account",
+      name: "Territory",
+      fieldType: "text",
+    });
+    await createCustomField(CO, {
+      resourceType: "account",
+      name: "Segment",
+      fieldType: "text",
+    });
+    await setCustomValues(CO, "account", source.id, {
+      territory: "North",
+      segment: "Source value",
+    });
+    await setCustomValues(CO, "account", target.id, {
+      segment: "Destination value",
+    });
+
+    const preview = await previewRevenueAccountMerge(CO, source.id, target.id);
+    assert.equal(preview.counts.contacts, 1);
+    assert.equal(preview.counts.deals, 1);
+    assert.equal(preview.counts.activities, 1);
+    assert.equal(preview.counts.billingContacts, 1);
+    assert.equal(preview.counts.invoices, 1);
+    assert.equal(preview.counts.customValuesCopied, 1);
+    assert.equal(preview.counts.customValueConflicts, 1);
+
+    await assert.rejects(
+      () => mergeRevenueAccounts(CO, source.id, target.id, "Wrong name"),
+      /source account name exactly/,
+    );
+    assert.equal(
+      (await AppDataSource.getRepository(Contact).findOneByOrFail({ id: contact.id })).customerId,
+      source.id,
+    );
+
+    const merged = await mergeRevenueAccounts(CO, source.id, target.id, source.name);
+    assert.equal(merged.target.id, target.id);
+    assert.equal(
+      (await AppDataSource.getRepository(Contact).findOneByOrFail({ id: contact.id })).customerId,
+      target.id,
+    );
+    assert.equal(
+      (await AppDataSource.getRepository(Deal).findOneByOrFail({ id: deal.id })).customerId,
+      target.id,
+    );
+    assert.equal(
+      (
+        await AppDataSource.getRepository(CustomerContact).findOneByOrFail({
+          id: billingContact.id,
+        })
+      ).customerId,
+      target.id,
+    );
+    assert.equal(
+      (await AppDataSource.getRepository(Invoice).findOneByOrFail({ id: invoice.id })).customerId,
+      target.id,
+    );
+    assert.ok(
+      (await AppDataSource.getRepository(Customer).findOneByOrFail({ id: source.id })).archivedAt,
+    );
+    const targetValues = await getCustomValues(CO, "account", target.id);
+    assert.equal(targetValues.find((value) => value.field.key === "territory")?.value, "North");
+    assert.equal(
+      targetValues.find((value) => value.field.key === "segment")?.value,
+      "Destination value",
+    );
+    assert.equal((await listRevenueAccounts(CO)).total, 1);
+    assert.equal((await listRevenueAccounts(CO, { includeArchived: true })).total, 2);
+  });
+
+  test("archives reversibly and refuses to restore into an active domain collision", async () => {
+    const archived = await createRevenueAccount(CO, {
+      name: "Old Acme",
+      domain: "restore.example",
+    });
+    await setRevenueAccountArchived(CO, archived.id, true);
+    await createRevenueAccount(CO, {
+      name: "Current Acme",
+      domain: "restore.example",
+    });
+    await assert.rejects(
+      () => setRevenueAccountArchived(CO, archived.id, false),
+      /already uses the domain/,
+    );
+    assert.ok(
+      (await AppDataSource.getRepository(Customer).findOneByOrFail({ id: archived.id })).archivedAt,
+    );
   });
 });
 
