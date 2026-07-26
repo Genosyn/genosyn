@@ -2,11 +2,8 @@ import assert from "node:assert/strict";
 import { before, describe, test } from "node:test";
 
 import { DOCS_FLAT, DOCS_NAV, findPageMeta } from "../client/docs/nav.js";
-import {
-  PRODUCT_CATEGORIES,
-  PRODUCTS,
-  findProduct,
-} from "../client/products/data.js";
+import { PRODUCT_CATEGORIES, PRODUCTS, findProduct } from "../client/products/data.js";
+import { SHOWCASE_USE_CASES, getUseCasesForProduct } from "../client/products/useCases.js";
 
 type SiteMetaModule = typeof import("../client/lib/siteMeta.js");
 let siteMeta: SiteMetaModule;
@@ -39,7 +36,10 @@ describe("product catalogue", () => {
       }
       assert.ok(product.checks.length >= 3, `${product.slug}: too few hero checks`);
       assert.ok(product.features.length >= 3, `${product.slug}: too few features`);
-      assert.ok(product.employees.bullets.length >= 2, `${product.slug}: too few employee examples`);
+      assert.ok(
+        product.employees.bullets.length >= 2,
+        `${product.slug}: too few employee examples`,
+      );
       assert.ok(product.faqs.length >= 2, `${product.slug}: too few FAQs`);
       assert.ok(product.keywords.length > 0, `${product.slug}: no search terms`);
       assert.equal(new Set(product.keywords).size, product.keywords.length);
@@ -53,6 +53,25 @@ describe("product catalogue", () => {
       if (product.docsPath) {
         assert.ok(docs.has(product.docsPath), `${product.slug}: missing ${product.docsPath}`);
       }
+    }
+  });
+
+  test("shows concrete team use cases on every product page", () => {
+    for (const product of PRODUCTS) {
+      assert.ok(
+        getUseCasesForProduct(product.slug).length >= 3,
+        `${product.slug}: too few use cases`,
+      );
+    }
+    for (const role of [
+      "Sales Development Rep",
+      "Software Engineer",
+      "Customer Support Specialist",
+    ]) {
+      assert.ok(
+        SHOWCASE_USE_CASES.some((useCase) => useCase.role === role),
+        `${role}: missing from homepage showcase`,
+      );
     }
   });
 });

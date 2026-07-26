@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { ArrowRight } from "lucide-react";
 import { Nav } from "@/sections/Nav";
 import { Hero } from "@/sections/Hero";
+import { UseCases } from "@/sections/UseCases";
 import { Primitives } from "@/sections/Primitives";
 import { DayInTheLife } from "@/sections/DayInTheLife";
 import { Features } from "@/sections/Features";
@@ -28,7 +29,7 @@ export function App() {
     if (head) {
       applyHead(head);
     } else {
-      document.title = "Genosyn — Run companies autonomously";
+      document.title = "Genosyn — Run your company with AI employees";
     }
   }, [path]);
 
@@ -53,6 +54,7 @@ function Landing() {
       <Nav />
       <main>
         <Hero />
+        <UseCases />
         <Primitives />
         <DayInTheLife />
         <Features />
@@ -101,15 +103,13 @@ function ProductNotFound() {
     <div className="min-h-screen bg-white text-zinc-950">
       <Nav />
       <main className="mx-auto flex max-w-7xl flex-col items-center px-6 py-32 text-center">
-        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-          404
-        </div>
+        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">404</div>
         <h1 className="mt-4 text-3xl font-semibold tracking-[-0.02em] text-zinc-950">
           No product lives here.
         </h1>
         <p className="mt-3 max-w-md text-sm leading-relaxed text-zinc-600">
-          The page you were looking for does not exist — but every tool Genosyn
-          ships is one click away.
+          The page you were looking for does not exist — but every tool Genosyn ships is one click
+          away.
         </p>
         <Link
           href="/products"

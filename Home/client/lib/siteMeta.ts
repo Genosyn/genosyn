@@ -19,7 +19,7 @@ export type RouteHead = {
 };
 
 const SITE_DESCRIPTION =
-  "Open-source, self-hostable platform for running companies with AI employees. Souls, Skills, and Routines.";
+  "Open-source, self-hosted company operating system where sales, engineering, support, finance, and operations run with AI employees.";
 
 const ORGANIZATION = {
   "@context": "https://schema.org",
@@ -119,7 +119,7 @@ export function allRoutes(): RouteHead[] {
   const routes: RouteHead[] = [
     {
       path: "/",
-      title: "Genosyn — Run companies autonomously",
+      title: "Genosyn — Run your company with AI employees",
       description: SITE_DESCRIPTION,
       jsonLd: [ORGANIZATION, WEBSITE, SOFTWARE_APPLICATION],
     },
@@ -203,9 +203,7 @@ export function llmsTxt(): string {
     "",
     "## Products",
     "",
-    ...PRODUCTS.map(
-      (p) => `- [${p.name}](${SITE_URL}/products/${p.slug}): ${p.summary}`,
-    ),
+    ...PRODUCTS.map((p) => `- [${p.name}](${SITE_URL}/products/${p.slug}): ${p.summary}`),
     "",
     "## Docs",
     "",

@@ -6,6 +6,7 @@ import { Link } from "@/lib/router";
 import { PRODUCTS, PRODUCT_CATEGORIES, type ProductDef } from "@/products/data";
 import { productIcon } from "@/products/productIcons";
 import { ProductPrototype } from "@/products/ProductPrototype";
+import { UseCases } from "@/sections/UseCases";
 
 const CHECKS = [
   "All built in, on by default",
@@ -24,21 +25,26 @@ export function ProductsIndex() {
     <div className="min-h-screen bg-white text-zinc-950">
       <Nav />
       <main>
-        <section className="relative overflow-hidden bg-white">
+        <section className="relative overflow-hidden border-b border-zinc-200 bg-[#f4f4f1]">
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[480px] bg-[radial-gradient(60%_80%_at_50%_0%,rgba(15,23,42,0.05),transparent_70%)]"
+            className="bg-grid-soft pointer-events-none absolute inset-0 opacity-30"
           />
-          <div className="mx-auto max-w-7xl px-6 pt-14 pb-16 sm:pt-20 sm:pb-20">
-            <div className="mx-auto flex max-w-3xl flex-col items-center text-center">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 top-0 h-[40rem] bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.95),transparent_68%)]"
+          />
+          <div className="relative mx-auto max-w-[92rem] px-5 pb-20 pt-14 sm:px-6 sm:pb-24 sm:pt-20">
+            <div className="mx-auto flex max-w-4xl flex-col items-center text-center">
               <SectionEyebrow>Products</SectionEyebrow>
-              <h1 className="mt-6 text-balance font-semibold leading-[1.05] tracking-[-0.03em] text-zinc-950 text-[2.75rem] sm:text-[3.5rem]">
-                Everything a company runs on. <span className="text-zinc-500">In one box.</span>
+              <h1 className="mt-6 text-balance text-[3.25rem] font-semibold leading-[0.95] tracking-[-0.055em] text-zinc-950 sm:text-[5rem]">
+                One system for the whole company.{" "}
+                <span className="text-zinc-500">People and AI included.</span>
               </h1>
-              <p className="mt-6 max-w-2xl text-balance text-lg leading-[1.6] text-zinc-600">
-                Genosyn is not just AI workers — it ships the chat, tasks, data, knowledge,
-                automation, analytics, inbox, CRM, books, and code access a real company needs.
-                Every tool is shared by humans and AI employees, on your own server.
+              <p className="mt-7 max-w-3xl text-pretty text-lg leading-8 text-zinc-600">
+                Genosyn ships the workspace, Tasks, data, knowledge, automation, analytics, inbox,
+                Revenue, finance, and code access a company needs. AI Employees work in the same
+                products as your team—on your infrastructure.
               </p>
               <ul className="mt-9 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs font-medium text-zinc-500">
                 {CHECKS.map((c) => (
@@ -50,7 +56,7 @@ export function ProductsIndex() {
               </ul>
             </div>
 
-            <ProductPrototype compact className="mx-auto mt-12 max-w-6xl text-left" />
+            <ProductPrototype compact className="mx-auto mt-14 max-w-[86rem] text-left" />
 
             {flagship && <FlagshipCard product={flagship} />}
 
@@ -61,6 +67,8 @@ export function ProductsIndex() {
             </div>
           </div>
         </section>
+
+        <UseCases includeAll />
 
         <InstallCta />
       </main>

@@ -77,11 +77,11 @@ body {
 @keyframes prototype-enter {
   from {
     opacity: 0;
-    transform: translateY(6px) scale(0.995);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 
@@ -105,41 +105,61 @@ body {
   }
 }
 
+@keyframes prototype-live {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(52, 211, 153, 0);
+  }
+}
+
+.prototype-shell {
+  contain: layout paint;
+  touch-action: pan-y;
+}
+
 .prototype-stage {
-  min-height: 22rem;
+  min-height: 23rem;
 }
 
 .prototype-stage > :first-child {
-  animation: prototype-enter 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: prototype-enter 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .prototype-stage-compact {
-  max-height: 28rem;
+  max-height: 29rem;
   overflow: hidden;
 }
 
 .prototype-activity {
-  animation: prototype-activity-enter 480ms 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: prototype-activity-enter 460ms 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .prototype-progress {
-  animation: prototype-progress 3.6s linear both;
+  animation: prototype-progress 3.2s linear both;
+}
+
+.prototype-live-dot {
+  animation: prototype-live 2s ease-out infinite;
 }
 
 @media (max-width: 639px) {
   .prototype-stage {
-    min-height: 20rem;
+    min-height: 19rem;
   }
 
   .prototype-stage-compact {
-    max-height: 25rem;
+    max-height: 24rem;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .prototype-stage > :first-child,
   .prototype-activity,
-  .prototype-progress {
+  .prototype-progress,
+  .prototype-live-dot {
     animation: none;
   }
 }

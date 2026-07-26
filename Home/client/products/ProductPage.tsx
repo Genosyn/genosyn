@@ -6,6 +6,7 @@ import { Link } from "@/lib/router";
 import { PRODUCTS, type ProductDef } from "@/products/data";
 import { productIcon } from "@/products/productIcons";
 import { ProductPrototype } from "@/products/ProductPrototype";
+import { UseCases } from "@/sections/UseCases";
 
 export function ProductPage({ product }: { product: ProductDef }) {
   const Icon = productIcon(product.icon);
@@ -15,18 +16,18 @@ export function ProductPage({ product }: { product: ProductDef }) {
       <Nav />
       <main>
         {/* ───────────────────────────── Hero ───────────────────────────── */}
-        <section className="relative overflow-hidden border-b border-zinc-100 bg-zinc-50/60">
+        <section className="relative overflow-hidden border-b border-zinc-200 bg-[#f4f4f1]">
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 h-[660px] bg-[radial-gradient(55%_70%_at_72%_8%,rgba(148,163,184,0.18),transparent_72%)]"
+            className="bg-grid-soft pointer-events-none absolute inset-0 opacity-30"
           />
           <div
             aria-hidden
-            className="bg-grid-soft pointer-events-none absolute inset-x-0 top-0 h-[660px] opacity-35 [mask-image:linear-gradient(to_bottom,black,transparent_82%)]"
+            className="pointer-events-none absolute inset-x-0 top-0 h-[40rem] bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.95),transparent_68%)]"
           />
-          <div className="relative mx-auto max-w-[88rem] px-5 pb-16 pt-12 sm:px-6 sm:pb-20 sm:pt-16 lg:py-20">
-            <div className="grid gap-10 lg:grid-cols-[0.78fr_1.22fr] lg:grid-rows-[auto_auto] lg:gap-x-10 lg:gap-y-0 xl:gap-x-16">
-              <div className="order-1 max-w-xl self-end lg:order-none lg:col-start-1 lg:row-start-1">
+          <div className="relative mx-auto max-w-[92rem] px-5 pb-16 pt-12 sm:px-6 sm:pb-20 sm:pt-16 lg:pb-24 lg:pt-20">
+            <div className="grid gap-8 lg:grid-cols-[1.08fr_0.92fr] lg:items-end lg:gap-16">
+              <div className="max-w-3xl">
                 <nav
                   aria-label="Breadcrumb"
                   className="flex items-center gap-2 text-xs font-medium text-zinc-500"
@@ -39,39 +40,39 @@ export function ProductPage({ product }: { product: ProductDef }) {
                 </nav>
 
                 <div
-                  className={`mt-6 flex h-12 w-12 items-center justify-center rounded-2xl ring-1 ${product.accent}`}
+                  className={`mt-7 flex h-12 w-12 items-center justify-center rounded-2xl ring-1 ${product.accent}`}
                 >
                   <Icon className="h-6 w-6" />
                 </div>
 
-                <h1 className="mt-5 text-balance text-[2.6rem] font-semibold leading-[1.02] tracking-[-0.04em] text-zinc-950 sm:text-[3.3rem]">
+                <h1 className="mt-6 text-balance text-[3rem] font-semibold leading-[0.98] tracking-[-0.055em] text-zinc-950 sm:text-[4rem] lg:text-[4.8rem]">
                   {product.tagline} <span className="text-zinc-500">{product.taglineAccent}</span>
                 </h1>
               </div>
 
-              <div className="order-3 max-w-xl lg:order-none lg:col-start-1 lg:row-start-2">
-                <p className="mt-6 max-w-xl text-pretty text-base leading-[1.7] text-zinc-600">
+              <div className="max-w-xl lg:justify-self-end">
+                <p className="text-pretty text-base leading-[1.75] text-zinc-600 sm:text-lg">
                   {product.intro}
                 </p>
 
-                <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                   <a
                     href="/#quickstart"
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-950 px-6 py-3 text-sm font-semibold text-white shadow-lift transition hover:bg-zinc-800 sm:w-auto"
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-950 px-6 py-3.5 text-sm font-semibold text-white shadow-lift transition hover:-translate-y-0.5 hover:bg-zinc-800 sm:w-auto"
                   >
                     Get started for free
                     <ArrowRight className="h-4 w-4" />
                   </a>
                   <Link
                     href={product.docsPath ?? "/docs"}
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-6 py-3 text-sm font-semibold text-zinc-800 shadow-card transition hover:border-zinc-300 hover:bg-zinc-50 sm:w-auto"
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-300 bg-white px-6 py-3.5 text-sm font-semibold text-zinc-800 shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-400 sm:w-auto"
                   >
                     <BookOpen className="h-4 w-4" />
                     Read the docs
                   </Link>
                 </div>
 
-                <ul className="mt-8 grid gap-x-4 gap-y-2 text-xs font-medium text-zinc-500 sm:grid-cols-2">
+                <ul className="mt-7 grid gap-x-4 gap-y-2 text-xs font-medium text-zinc-500 sm:grid-cols-2">
                   {product.checks.map((check) => (
                     <li key={check} className="inline-flex items-center gap-1.5">
                       <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
@@ -80,26 +81,24 @@ export function ProductPage({ product }: { product: ProductDef }) {
                   ))}
                 </ul>
               </div>
+            </div>
 
-              <div className="relative order-2 min-w-0 lg:order-none lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:self-center">
-                <div
-                  aria-hidden
-                  className="pointer-events-none absolute -inset-x-8 -inset-y-10 -z-10 rounded-[3rem] bg-white/80 blur-2xl"
-                />
-                <div className="mb-3 flex items-center justify-between px-1">
-                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500">
-                    Watch {product.name} do the work
-                  </span>
-                  <span className="hidden items-center gap-1.5 text-[10px] font-medium text-zinc-400 sm:inline-flex">
-                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-                    Running now
-                  </span>
-                </div>
-                <ProductPrototype product={product} compact />
+            <div className="mx-auto mt-12 max-w-[86rem] lg:mt-16">
+              <div className="mb-4 flex items-center justify-between px-1">
+                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">
+                  {product.name} · one complete run
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-zinc-500">
+                  <span className="prototype-live-dot h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  Runs automatically
+                </span>
               </div>
+              <ProductPrototype product={product} compact />
             </div>
           </div>
         </section>
+
+        <UseCases product={product} />
 
         {/* ─────────────────────────── Features ─────────────────────────── */}
         <section className="border-t border-zinc-100 bg-white">

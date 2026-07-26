@@ -1,15 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
-import { Check, CirclePause, CirclePlay, MousePointer2, Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, Clock3, LockKeyhole, Sparkles } from "lucide-react";
 import { PRODUCTS, type ProductDef } from "@/products/data";
 import { productIcon } from "@/products/productIcons";
 import { productPreview } from "@/products/previews";
+import {
+  primaryUseCaseForProduct,
+  SHOWCASE_USE_CASES,
+  type ProductUseCase,
+} from "@/products/useCases";
 
 type PrototypeStory = {
   label: string;
   detail: string;
 };
 
-const STORY_DURATION_MS = 3600;
+const STORY_DURATION_MS = 3200;
 
 const PRODUCT_STORIES: Record<string, PrototypeStory[]> = {
   "ai-employees": [
@@ -23,7 +28,7 @@ const PRODUCT_STORIES: Record<string, PrototypeStory[]> = {
     },
     {
       label: "Run shipped",
-      detail: "0 anomalies found · full transcript saved.",
+      detail: "One exception routed for a Member to review.",
     },
   ],
   workspace: [
@@ -37,7 +42,7 @@ const PRODUCT_STORIES: Record<string, PrototypeStory[]> = {
     },
     {
       label: "Reply posted",
-      detail: "Preview shared with the team for review.",
+      detail: "The draft was shared with the team for review.",
     },
   ],
   tasks: [
@@ -75,7 +80,7 @@ const PRODUCT_STORIES: Record<string, PrototypeStory[]> = {
     },
     {
       label: "Page updated",
-      detail: "Research and customer language added to the draft.",
+      detail: "Research and customer language were added to the draft.",
     },
     {
       label: "Change saved",
@@ -89,7 +94,7 @@ const PRODUCT_STORIES: Record<string, PrototypeStory[]> = {
     },
     {
       label: "Content extracted",
-      detail: "The document is searchable and ready for AI employees.",
+      detail: "The document is searchable by AI Employees.",
     },
     {
       label: "Resource cited",
@@ -107,7 +112,7 @@ const PRODUCT_STORIES: Record<string, PrototypeStory[]> = {
     },
     {
       label: "Action completed",
-      detail: "A win was posted and the account record updated.",
+      detail: "The account record was updated and the team notified.",
     },
   ],
   explore: [
@@ -121,7 +126,7 @@ const PRODUCT_STORIES: Record<string, PrototypeStory[]> = {
     },
     {
       label: "Dashboard shared",
-      detail: "The latest view is available to the company.",
+      detail: "The latest operating view is available to the company.",
     },
   ],
   marketing: [
@@ -131,7 +136,7 @@ const PRODUCT_STORIES: Record<string, PrototypeStory[]> = {
     },
     {
       label: "Change proposed",
-      detail: "Brand Search budget increase is ready for approval.",
+      detail: "A Brand Search budget increase is ready for approval.",
     },
     {
       label: "Human check required",
@@ -141,15 +146,15 @@ const PRODUCT_STORIES: Record<string, PrototypeStory[]> = {
   revenue: [
     {
       label: "Signal fired",
-      detail: "Acme crossed the product-usage threshold.",
+      detail: "Acme crossed the high-intent usage threshold.",
     },
     {
-      label: "Deal updated",
-      detail: "The expansion value and next step were refreshed.",
+      label: "Context assembled",
+      detail: "The Contact, activity, and Deal were reviewed.",
     },
     {
       label: "Sequence queued",
-      detail: "A personal follow-up is ready for review.",
+      detail: "A personal follow-up is ready for human review.",
     },
   ],
   email: [
@@ -159,7 +164,7 @@ const PRODUCT_STORIES: Record<string, PrototypeStory[]> = {
     },
     {
       label: "Draft prepared",
-      detail: "The customer context was pulled from the company.",
+      detail: "Customer context was pulled from the company.",
     },
     {
       label: "Waiting for review",
@@ -177,12 +182,12 @@ const PRODUCT_STORIES: Record<string, PrototypeStory[]> = {
     },
     {
       label: "Owner notified",
-      detail: "A recovery task was created for the account team.",
+      detail: "A recovery todo was created for the account team.",
     },
   ],
   finance: [
     {
-      label: "Payment imported",
+      label: "Payments imported",
       detail: "42 Stripe charges arrived for reconciliation.",
     },
     {
@@ -197,7 +202,7 @@ const PRODUCT_STORIES: Record<string, PrototypeStory[]> = {
   code: [
     {
       label: "Repository opened",
-      detail: "Sam checked the failing checkout service.",
+      detail: "Sam inspected the failing checkout service.",
     },
     {
       label: "Patch prepared",
@@ -221,182 +226,227 @@ export function ProductPrototype({
   className = "",
   compact = false,
 }: ProductPrototypeProps) {
-  const [activeSlug, setActiveSlug] = useState(product?.slug ?? "ai-employees");
+  const [showcaseIndex, setShowcaseIndex] = useState(0);
   const [storyIndex, setStoryIndex] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(true);
+  const [motionEnabled, setMotionEnabled] = useState(true);
 
-  const activeProduct = useMemo(
-    () => PRODUCTS.find((candidate) => candidate.slug === activeSlug) ?? PRODUCTS[0],
-    [activeSlug],
-  );
+  const activeUseCase = product
+    ? primaryUseCaseForProduct(product.slug)
+    : SHOWCASE_USE_CASES[showcaseIndex];
+  const activeProduct =
+    product ??
+    PRODUCTS.find((candidate) => candidate.slug === activeUseCase.primaryProductSlug) ??
+    PRODUCTS[0];
   const stories = PRODUCT_STORIES[activeProduct.slug] ?? [];
   const story = stories[storyIndex] ?? stories[0];
   const Preview = productPreview(activeProduct.slug);
+  const ActiveIcon = productIcon(activeProduct.icon);
 
   useEffect(() => {
-    setActiveSlug(product?.slug ?? "ai-employees");
+    setShowcaseIndex(0);
     setStoryIndex(0);
   }, [product?.slug]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setIsPlaying(false);
+      setMotionEnabled(false);
     }
   }, []);
 
   useEffect(() => {
-    if (!isPlaying || stories.length === 0) return;
+    if (!motionEnabled || stories.length === 0) return;
     const timer = window.setTimeout(() => {
-      const nextStory = storyIndex + 1;
-      if (nextStory < stories.length) {
-        setStoryIndex(nextStory);
+      if (storyIndex < stories.length - 1) {
+        setStoryIndex((current) => current + 1);
         return;
       }
 
       setStoryIndex(0);
       if (!product) {
-        const currentProductIndex = PRODUCTS.findIndex(
-          (candidate) => candidate.slug === activeSlug,
-        );
-        setActiveSlug(PRODUCTS[(currentProductIndex + 1) % PRODUCTS.length].slug);
+        setShowcaseIndex((current) => (current + 1) % SHOWCASE_USE_CASES.length);
       }
     }, STORY_DURATION_MS);
     return () => window.clearTimeout(timer);
-  }, [activeSlug, isPlaying, product, stories.length, storyIndex]);
-
-  function selectProduct(slug: string) {
-    setActiveSlug(slug);
-    setStoryIndex(0);
-    setIsPlaying(true);
-  }
-
-  function selectStory(index: number) {
-    setStoryIndex(index);
-    setIsPlaying(false);
-  }
+  }, [motionEnabled, product, stories.length, storyIndex]);
 
   return (
     <section
-      aria-label={`Interactive ${activeProduct.name} product preview`}
-      className={`prototype-shell overflow-hidden rounded-[1.4rem] border border-zinc-200 bg-white shadow-[0_24px_70px_-30px_rgba(15,23,42,0.35)] ${className}`}
+      aria-label={`Animated ${activeProduct.name} product preview`}
+      className={`prototype-shell pointer-events-none select-none overflow-hidden rounded-[1.75rem] border border-zinc-800 bg-zinc-950 p-2 shadow-[0_38px_100px_-42px_rgba(9,9,11,0.75)] sm:p-3 ${className}`}
     >
-      <div className="flex items-center gap-3 border-b border-zinc-800 bg-zinc-950 px-3.5 py-3 text-white sm:px-4">
-        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-400/10 px-2 py-1 text-[9px] font-bold uppercase tracking-[0.16em] text-emerald-300 ring-1 ring-emerald-400/20">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-          Live prototype
+      <span className="sr-only">
+        Genosyn running a {activeUseCase.role} use case in {activeProduct.name}.
+      </span>
+
+      <div aria-hidden className="flex min-w-0 items-center gap-3 px-2 pb-2 pt-0.5 sm:px-3 sm:pb-3">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-[10px] font-black tracking-tight text-zinc-950">
+          G
         </span>
         <div className="min-w-0">
-          <div className="truncate text-[11px] font-semibold text-white">{activeProduct.name}</div>
-          <div className="hidden truncate text-[9px] text-zinc-400 sm:block">
-            Follow the work as it moves through Genosyn
+          <div className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-white">
+            Northstar
           </div>
+          <div className="truncate text-[9px] text-zinc-500">Autonomous company workspace</div>
         </div>
-        <button
-          type="button"
-          onClick={() => setIsPlaying((playing) => !playing)}
-          className="ml-auto inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 text-[10px] font-semibold text-zinc-200 transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/40"
-          aria-label={isPlaying ? "Pause prototype" : "Play prototype"}
-        >
-          {isPlaying ? (
-            <CirclePause className="h-3.5 w-3.5" />
-          ) : (
-            <CirclePlay className="h-3.5 w-3.5" />
-          )}
-          <span className="hidden sm:inline">{isPlaying ? "Pause" : "Play"}</span>
-        </button>
+        <div className="ml-auto flex shrink-0 items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/[0.08] px-2.5 py-1.5">
+          <span className="prototype-live-dot h-1.5 w-1.5 rounded-full bg-emerald-400" />
+          <span className="text-[9px] font-bold uppercase tracking-[0.16em] text-emerald-300">
+            Live
+          </span>
+        </div>
       </div>
-
-      {product ? (
-        <div
-          className="grid grid-cols-3 border-b border-zinc-200 bg-zinc-50/80"
-          aria-label="Prototype steps"
-        >
-          {stories.map((candidate, index) => (
-            <button
-              key={candidate.label}
-              type="button"
-              onClick={() => selectStory(index)}
-              className={`relative min-w-0 px-2 py-2.5 text-left transition sm:px-3 ${
-                index === storyIndex
-                  ? "bg-white text-zinc-950"
-                  : "text-zinc-500 hover:bg-white/70 hover:text-zinc-800"
-              }`}
-              aria-pressed={index === storyIndex}
-            >
-              <span className="flex items-center gap-1.5">
-                <span
-                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[8px] font-bold ${
-                    index < storyIndex
-                      ? "bg-emerald-100 text-emerald-700"
-                      : index === storyIndex
-                        ? "bg-zinc-950 text-white"
-                        : "bg-zinc-200 text-zinc-500"
-                  }`}
-                >
-                  {index < storyIndex ? <Check className="h-2.5 w-2.5" /> : index + 1}
-                </span>
-                <span className="truncate text-[9px] font-semibold sm:text-[10px]">
-                  {candidate.label}
-                </span>
-              </span>
-              {index === storyIndex && isPlaying && (
-                <span className="prototype-progress absolute inset-x-0 bottom-0 h-0.5 origin-left bg-zinc-950" />
-              )}
-            </button>
-          ))}
-        </div>
-      ) : (
-        <div
-          className="scrollbar-none flex gap-1 overflow-x-auto border-b border-zinc-200 bg-zinc-50/80 p-1.5"
-          aria-label="Choose a product to preview"
-        >
-          {PRODUCTS.map((candidate) => {
-            const Icon = productIcon(candidate.icon);
-            const active = candidate.slug === activeSlug;
-            return (
-              <button
-                key={candidate.slug}
-                type="button"
-                onClick={() => selectProduct(candidate.slug)}
-                className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-2 text-[10px] font-semibold transition focus:outline-none focus:ring-2 focus:ring-zinc-400 ${
-                  active
-                    ? "bg-zinc-950 text-white shadow-sm"
-                    : "text-zinc-600 hover:bg-white hover:text-zinc-950"
-                }`}
-                aria-pressed={active}
-              >
-                <Icon className="h-3 w-3" />
-                {candidate.name}
-              </button>
-            );
-          })}
-        </div>
-      )}
 
       <div
-        key={`${activeSlug}-${storyIndex}`}
-        className={`prototype-stage relative bg-zinc-100/70 ${compact ? "prototype-stage-compact" : ""}`}
+        aria-hidden
+        className="grid overflow-hidden rounded-[1.25rem] border border-white/10 bg-zinc-900 lg:grid-cols-[11.5rem_minmax(0,1fr)]"
       >
-        {Preview && <Preview />}
+        <PrototypeSidebar useCase={activeUseCase} activeProduct={activeProduct} />
 
-        {story && (
-          <div className="prototype-activity pointer-events-none absolute bottom-3 left-3 right-3 flex items-center gap-2.5 rounded-xl border border-zinc-200/90 bg-white/95 px-3 py-2.5 shadow-lift backdrop-blur sm:left-auto sm:max-w-[21rem]">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-zinc-950 text-white">
-              <Sparkles className="h-3.5 w-3.5" />
+        <div className="min-w-0 overflow-hidden bg-[#f7f7f5]">
+          <div className="flex h-12 items-center gap-3 border-b border-zinc-200 bg-white px-3.5 sm:px-4">
+            <span
+              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ring-1 ${activeProduct.accent}`}
+            >
+              <ActiveIcon className="h-3.5 w-3.5" />
             </span>
-            <span className="min-w-0">
-              <span className="flex items-center gap-1.5 text-[10px] font-semibold text-zinc-950">
-                {story.label}
-                <MousePointer2 className="h-2.5 w-2.5 text-zinc-400" />
-              </span>
-              <span className="mt-0.5 block truncate text-[9px] text-zinc-500 sm:text-[10px]">
-                {story.detail}
-              </span>
-            </span>
+            <div className="min-w-0">
+              <div className="truncate text-[11px] font-semibold text-zinc-950">
+                {activeProduct.name}
+              </div>
+              <div className="truncate text-[9px] text-zinc-500">{activeUseCase.role}</div>
+            </div>
+            <div className="ml-auto hidden items-center gap-1.5 text-[9px] font-medium text-zinc-400 sm:flex">
+              <LockKeyhole className="h-3 w-3" />
+              Approval gates on
+            </div>
+            <span className="hidden h-4 w-px bg-zinc-200 sm:block" />
+            <div className="flex items-center gap-1.5 text-[9px] font-semibold tabular text-zinc-500">
+              <Clock3 className="h-3 w-3" />
+              08:42
+            </div>
           </div>
-        )}
+
+          <div
+            key={`${activeProduct.slug}-${showcaseIndex}`}
+            className={`prototype-stage relative overflow-hidden ${compact ? "prototype-stage-compact" : ""}`}
+          >
+            {Preview && <Preview />}
+
+            {story && (
+              <div
+                key={`${activeProduct.slug}-${storyIndex}`}
+                className="prototype-activity absolute bottom-3 left-3 right-3 flex items-center gap-3 rounded-xl border border-zinc-200 bg-white/95 px-3 py-2.5 shadow-[0_16px_38px_-18px_rgba(24,24,27,0.45)] sm:left-auto sm:max-w-[22rem]"
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-950 text-white">
+                  <Sparkles className="h-3.5 w-3.5" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[10px] font-semibold text-zinc-950">
+                    {story.label}
+                  </span>
+                  <span className="mt-0.5 block truncate text-[9px] text-zinc-500 sm:text-[10px]">
+                    {story.detail}
+                  </span>
+                </span>
+                <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-3 border-t border-zinc-200 bg-white">
+            {stories.map((candidate, index) => (
+              <div
+                key={candidate.label}
+                className={`relative min-w-0 px-2.5 py-2.5 sm:px-3 ${
+                  index === storyIndex ? "bg-zinc-50 text-zinc-950" : "text-zinc-400"
+                }`}
+              >
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[8px] font-bold ${
+                      index < storyIndex
+                        ? "bg-emerald-100 text-emerald-700"
+                        : index === storyIndex
+                          ? "bg-zinc-950 text-white"
+                          : "bg-zinc-100 text-zinc-400"
+                    }`}
+                  >
+                    {index < storyIndex ? <Check className="h-2.5 w-2.5" /> : index + 1}
+                  </span>
+                  <span className="truncate text-[9px] font-semibold sm:text-[10px]">
+                    {candidate.label}
+                  </span>
+                </span>
+                {index === storyIndex && motionEnabled && (
+                  <span className="prototype-progress absolute inset-x-0 bottom-0 h-0.5 origin-left bg-emerald-500" />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </section>
+  );
+}
+
+function PrototypeSidebar({
+  useCase,
+  activeProduct,
+}: {
+  useCase: ProductUseCase;
+  activeProduct: ProductDef;
+}) {
+  return (
+    <aside className="hidden min-w-0 border-r border-white/10 bg-zinc-950 p-3 lg:flex lg:flex-col">
+      <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-zinc-600">
+        Employee on duty
+      </div>
+      <div className="mt-3 flex items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.045] p-2.5">
+        <span
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[9px] font-bold ring-1 ${useCase.accent}`}
+        >
+          {useCase.initials}
+        </span>
+        <div className="min-w-0">
+          <div className="truncate text-[10px] font-semibold text-white">{useCase.role}</div>
+          <div className="mt-0.5 truncate text-[9px] text-zinc-500">{useCase.team}</div>
+        </div>
+      </div>
+
+      <div className="mt-5 text-[9px] font-bold uppercase tracking-[0.18em] text-zinc-600">
+        Working set
+      </div>
+      <div className="mt-2 space-y-1">
+        {useCase.productSlugs.slice(0, 4).map((slug) => {
+          const candidate = PRODUCTS.find((item) => item.slug === slug);
+          if (!candidate) return null;
+          const Icon = productIcon(candidate.icon);
+          const active = candidate.slug === activeProduct.slug;
+          return (
+            <div
+              key={slug}
+              className={`flex items-center gap-2 rounded-lg px-2 py-2 text-[10px] font-medium ${
+                active ? "bg-white text-zinc-950" : "text-zinc-500"
+              }`}
+            >
+              <Icon className="h-3 w-3 shrink-0" />
+              <span className="truncate">{candidate.name}</span>
+              {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-emerald-500" />}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-auto rounded-xl border border-white/10 bg-white/[0.03] p-2.5">
+        <div className="flex items-center gap-2 text-[9px] font-semibold text-zinc-300">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+          Run policy
+        </div>
+        <div className="mt-1.5 text-[9px] leading-4 text-zinc-600">
+          Act inside Grants. Ask before sensitive changes.
+        </div>
+      </div>
+    </aside>
   );
 }
