@@ -1,29 +1,26 @@
-import { type EntityManager } from "typeorm";
+import { In, IsNull, type EntityManager } from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
 import {
   Activity,
   type ActivityPriority,
   type ActivityTaskStatus,
 } from "../../db/entities/Activity.js";
-import {
-  Contact,
-  type ContactLifecycleStage,
-} from "../../db/entities/Contact.js";
+import { Contact, type ContactLifecycleStage } from "../../db/entities/Contact.js";
 import { Customer } from "../../db/entities/Customer.js";
 import { Deal, type DealStatus } from "../../db/entities/Deal.js";
+import { DealHistoryEvent } from "../../db/entities/DealHistoryEvent.js";
+import { DealStage, type DealStageKind } from "../../db/entities/DealStage.js";
 import { Partnership } from "../../db/entities/Partnership.js";
 import { RevenueCustomField } from "../../db/entities/RevenueCustomField.js";
 import { RevenueCustomValue } from "../../db/entities/RevenueCustomValue.js";
+import { RevenueFieldEvidence } from "../../db/entities/RevenueFieldEvidence.js";
 import { RevenueOperation } from "../../db/entities/RevenueOperation.js";
 import {
   createRevenueOperation,
   type OperationRowWrite,
   type RevenueOperationActor,
 } from "./operations.js";
-import {
-  normalizedCustomFieldSearchValue,
-  validateCustomFieldValue,
-} from "./customFields.js";
+import { normalizedCustomFieldSearchValue, validateCustomFieldValue } from "./customFields.js";
 import { assertRevenueOwner } from "./integrity.js";
 
 export type BulkResourceType = "account" | "contact" | "deal" | "partnership" | "follow_up";
@@ -33,26 +30,36 @@ export type BulkTarget = {
   ids?: string[];
   followUpIds?: Array<{ source: FollowUpSource; id: string }>;
   filter?: {
+    state?: "all" | "overdue" | "today" | "upcoming";
     q?: string;
     includeArchived?: boolean;
     ownerId?: string;
     ownerEmployeeId?: string;
+    assignedUserId?: string;
+    assignedEmployeeId?: string;
     unassigned?: boolean;
     accountStatus?: "prospect" | "customer" | "former";
     lifecycleStage?: ContactLifecycleStage;
     dealStatus?: DealStatus;
     dealStageId?: string;
     partnershipStatus?: string;
+    source?: FollowUpSource;
     followUpSource?: FollowUpSource;
+    status?: ActivityTaskStatus;
     taskStatus?: ActivityTaskStatus;
     priority?: ActivityPriority;
     linkedResourceType?: "account" | "contact" | "deal" | "partnership";
     linkedResourceId?: string;
     dueFrom?: Date;
     dueTo?: Date;
+    reminderFrom?: Date;
+    reminderTo?: Date;
+    overdueMinDays?: number;
+    overdueMaxDays?: number;
     staleBefore?: Date;
     createdBefore?: Date;
     closedDeals?: "include" | "only" | "exclude";
+    archivedResources?: "include" | "only" | "exclude";
   };
 };
 
@@ -66,6 +73,7 @@ export type BulkAction =
   | { type: "set_account_status"; accountStatus: "prospect" | "customer" | "former" }
   | { type: "set_custom_fields"; values: Record<string, unknown> }
   | { type: "archive"; archived: boolean }
+  | { type: "move_deal_stage"; stageId: string; lostReason?: string }
   | {
       type: "update_follow_up";
       taskStatus?: ActivityTaskStatus;
@@ -82,6 +90,7 @@ export type BulkRequest = {
   action: BulkAction;
   dryRun: boolean;
   idempotencyKey?: string;
+  mode?: "atomic" | "partial";
 };
 
 export type BulkRowResult = {
@@ -107,23 +116,40 @@ export type BulkResult = {
   rows: BulkRowResult[];
 };
 
+export type BulkExecutionProgress = {
+  total: number;
+  processed: number;
+  applied: number;
+  skipped: number;
+  failed: number;
+};
+
+export class BulkAtomicValidationError extends Error {
+  constructor(public readonly result: BulkResult) {
+    super(`Atomic bulk operation refused because ${result.failed} record(s) failed validation`);
+  }
+}
+
 type CoreRow = Customer | Contact | Deal | Partnership;
 type FollowUpRow =
   | { source: "task"; row: Activity }
   | { source: "deal"; row: Deal }
   | { source: "partnership"; row: Partnership };
 type SelectedRow = CoreRow | FollowUpRow;
+const BULK_SELECTION_LIMIT = 5_000;
 
 function isFollowUpRow(row: SelectedRow): row is FollowUpRow {
   return "source" in row && "row" in row;
 }
 
 function uniqueIds(ids: string[] | undefined): string[] {
-  return [...new Set(ids ?? [])].slice(0, 5_000);
+  return [...new Set(ids ?? [])].slice(0, BULK_SELECTION_LIMIT);
 }
 
 function coreLabel(resourceType: Exclude<BulkResourceType, "follow_up">, row: CoreRow): string {
-  return resourceType === "deal" ? (row as Deal).title : (row as Customer | Contact | Partnership).name;
+  return resourceType === "deal"
+    ? (row as Deal).title
+    : (row as Customer | Contact | Partnership).name;
 }
 
 async function selectedCoreRows(
@@ -189,7 +215,10 @@ async function selectedCoreRows(
       });
     }
   }
-  const rows = (await qb.orderBy("row.updatedAt", "DESC").take(5_000).getMany()) as CoreRow[];
+  const rows = (await qb
+    .orderBy("row.updatedAt", "DESC")
+    .take(BULK_SELECTION_LIMIT)
+    .getMany()) as CoreRow[];
   const found = new Set(rows.map((row) => row.id));
   return { rows, missing: ids.filter((id) => !found.has(id)) };
 }
@@ -199,25 +228,53 @@ async function selectedFollowUps(
   companyId: string,
   target: BulkTarget,
 ): Promise<{ rows: FollowUpRow[]; missing: Array<{ source: FollowUpSource; id: string }> }> {
-  const requested = target.followUpIds?.slice(0, 5_000) ?? [];
-  const bySource = (source: FollowUpSource) =>
-    [...new Set(requested.filter((item) => item.source === source).map((item) => item.id))];
+  const requested = target.followUpIds?.slice(0, BULK_SELECTION_LIMIT) ?? [];
+  const bySource = (source: FollowUpSource) => [
+    ...new Set(requested.filter((item) => item.source === source).map((item) => item.id)),
+  ];
   const filter = target.filter ?? {};
   const taskQb = manager
     .getRepository(Activity)
     .createQueryBuilder("row")
     .where("row.companyId = :companyId", { companyId })
-    .andWhere("row.kind = 'task'");
+    .andWhere("row.kind = 'task'")
+    .andWhere("row.dueAt IS NOT NULL")
+    .leftJoin(Deal, "taskDeal", "taskDeal.companyId = row.companyId AND taskDeal.id = row.dealId")
+    .leftJoin(
+      Contact,
+      "taskContact",
+      "taskContact.companyId = row.companyId AND taskContact.id = row.contactId",
+    )
+    .leftJoin(
+      Partnership,
+      "taskPartnership",
+      "taskPartnership.companyId = row.companyId AND taskPartnership.id = row.partnershipId",
+    )
+    .leftJoin(
+      Customer,
+      "taskAccount",
+      "taskAccount.companyId = row.companyId AND taskAccount.id = COALESCE(row.customerId, taskDeal.customerId, taskPartnership.customerId)",
+    );
   const dealQb = manager
     .getRepository(Deal)
     .createQueryBuilder("row")
     .where("row.companyId = :companyId", { companyId })
-    .andWhere("row.nextFollowUpAt IS NOT NULL");
+    .andWhere("row.nextFollowUpAt IS NOT NULL")
+    .leftJoin(
+      Customer,
+      "dealAccount",
+      "dealAccount.companyId = row.companyId AND dealAccount.id = row.customerId",
+    );
   const partnershipQb = manager
     .getRepository(Partnership)
     .createQueryBuilder("row")
     .where("row.companyId = :companyId", { companyId })
-    .andWhere("row.nextFollowUpAt IS NOT NULL");
+    .andWhere("row.nextFollowUpAt IS NOT NULL")
+    .leftJoin(
+      Customer,
+      "partnershipAccount",
+      "partnershipAccount.companyId = row.companyId AND partnershipAccount.id = row.customerId",
+    );
 
   if (requested.length > 0) {
     const taskIds = bySource("task");
@@ -231,29 +288,63 @@ async function selectedFollowUps(
       partnershipQb.andWhere("row.id IN (:...partnershipIds)", { partnershipIds });
     } else partnershipQb.andWhere("1 = 0");
   } else {
-    if (filter.followUpSource && filter.followUpSource !== "task") taskQb.andWhere("1 = 0");
-    if (filter.followUpSource && filter.followUpSource !== "deal") dealQb.andWhere("1 = 0");
-    if (filter.followUpSource && filter.followUpSource !== "partnership") {
+    const source = filter.source ?? filter.followUpSource;
+    const taskStatus = filter.status ?? filter.taskStatus ?? "open";
+    const assignedUserId = filter.assignedUserId ?? filter.ownerId;
+    const assignedEmployeeId = filter.assignedEmployeeId ?? filter.ownerEmployeeId;
+    if (source && source !== "task") taskQb.andWhere("1 = 0");
+    if (source && source !== "deal") dealQb.andWhere("1 = 0");
+    if (source && source !== "partnership") {
       partnershipQb.andWhere("1 = 0");
     }
-    taskQb.andWhere("row.taskStatus = :taskStatus", {
-      taskStatus: filter.taskStatus ?? "open",
-    });
-    if (filter.priority) taskQb.andWhere("row.priority = :priority", { priority: filter.priority });
-    if (filter.ownerId) {
-      taskQb.andWhere("row.assignedUserId = :ownerId", { ownerId: filter.ownerId });
-      dealQb.andWhere("row.ownerId = :ownerId", { ownerId: filter.ownerId });
-      partnershipQb.andWhere("row.ownerId = :ownerId", { ownerId: filter.ownerId });
+    taskQb.andWhere("row.taskStatus = :taskStatus", { taskStatus });
+    if (taskStatus !== "open") {
+      dealQb.andWhere("1 = 0");
+      partnershipQb.andWhere("1 = 0");
     }
-    if (filter.ownerEmployeeId) {
-      taskQb.andWhere("row.assignedEmployeeId = :ownerEmployeeId", {
-        ownerEmployeeId: filter.ownerEmployeeId,
+    if (filter.archivedResources === "only") {
+      taskQb.andWhere(
+        "(taskDeal.archivedAt IS NOT NULL OR taskContact.archivedAt IS NOT NULL OR taskPartnership.archivedAt IS NOT NULL OR taskAccount.archivedAt IS NOT NULL)",
+      );
+      dealQb.andWhere("row.archivedAt IS NOT NULL");
+      partnershipQb.andWhere("row.archivedAt IS NOT NULL");
+    } else if (filter.archivedResources !== "include") {
+      taskQb
+        .andWhere("(row.dealId IS NULL OR taskDeal.archivedAt IS NULL)")
+        .andWhere("(row.contactId IS NULL OR taskContact.archivedAt IS NULL)")
+        .andWhere("(row.partnershipId IS NULL OR taskPartnership.archivedAt IS NULL)")
+        .andWhere("(taskAccount.id IS NULL OR taskAccount.archivedAt IS NULL)");
+      dealQb.andWhere("row.archivedAt IS NULL");
+      partnershipQb.andWhere("row.archivedAt IS NULL");
+    }
+    if (filter.priority) {
+      taskQb.andWhere("row.priority = :priority", { priority: filter.priority });
+      dealQb.andWhere("1 = 0");
+      partnershipQb.andWhere("1 = 0");
+    }
+    if (filter.q) {
+      const q = `%${filter.q.toLowerCase()}%`;
+      taskQb.andWhere("(LOWER(row.subject) LIKE :q OR LOWER(row.bodyText) LIKE :q)", { q });
+      dealQb.andWhere("(LOWER(row.title) LIKE :q OR LOWER(row.nextStep) LIKE :q)", { q });
+      partnershipQb.andWhere(
+        "(LOWER(row.name) LIKE :q OR LOWER(row.notes) LIKE :q OR LOWER(row.integrationContext) LIKE :q)",
+        { q },
+      );
+    }
+    if (assignedUserId) {
+      taskQb.andWhere("row.assignedUserId = :assignedUserId", { assignedUserId });
+      dealQb.andWhere("row.ownerId = :assignedUserId", { assignedUserId });
+      partnershipQb.andWhere("row.ownerId = :assignedUserId", { assignedUserId });
+    }
+    if (assignedEmployeeId) {
+      taskQb.andWhere("row.assignedEmployeeId = :assignedEmployeeId", {
+        assignedEmployeeId,
       });
-      dealQb.andWhere("row.ownerEmployeeId = :ownerEmployeeId", {
-        ownerEmployeeId: filter.ownerEmployeeId,
+      dealQb.andWhere("row.ownerEmployeeId = :assignedEmployeeId", {
+        assignedEmployeeId,
       });
-      partnershipQb.andWhere("row.ownerEmployeeId = :ownerEmployeeId", {
-        ownerEmployeeId: filter.ownerEmployeeId,
+      partnershipQb.andWhere("row.ownerEmployeeId = :assignedEmployeeId", {
+        assignedEmployeeId,
       });
     }
     if (filter.unassigned) {
@@ -261,15 +352,95 @@ async function selectedFollowUps(
       dealQb.andWhere("row.ownerId IS NULL AND row.ownerEmployeeId IS NULL");
       partnershipQb.andWhere("row.ownerId IS NULL AND row.ownerEmployeeId IS NULL");
     }
-    const dueClauses: Array<[string, Date]> = [];
-    if (filter.dueFrom) dueClauses.push([">=", filter.dueFrom]);
-    if (filter.dueTo) dueClauses.push(["<=", filter.dueTo]);
-    if (filter.staleBefore) dueClauses.push(["<=", filter.staleBefore]);
-    for (const [operator, date] of dueClauses) {
-      const key = `date${operator === ">=" ? "From" : "To"}${date.getTime()}`;
-      taskQb.andWhere(`row.dueAt ${operator} :${key}`, { [key]: date });
-      dealQb.andWhere(`row.nextFollowUpAt ${operator} :${key}`, { [key]: date });
-      partnershipQb.andWhere(`row.nextFollowUpAt ${operator} :${key}`, { [key]: date });
+    if (filter.accountStatus) {
+      taskQb.andWhere("taskAccount.accountStatus = :accountStatus", {
+        accountStatus: filter.accountStatus,
+      });
+      dealQb.andWhere("dealAccount.accountStatus = :accountStatus", {
+        accountStatus: filter.accountStatus,
+      });
+      partnershipQb.andWhere("partnershipAccount.accountStatus = :accountStatus", {
+        accountStatus: filter.accountStatus,
+      });
+    }
+    if (filter.dueFrom) {
+      taskQb.andWhere("row.dueAt >= :dueFrom", { dueFrom: filter.dueFrom });
+      dealQb.andWhere("row.nextFollowUpAt >= :dueFrom", { dueFrom: filter.dueFrom });
+      partnershipQb.andWhere("row.nextFollowUpAt >= :dueFrom", { dueFrom: filter.dueFrom });
+    }
+    if (filter.dueTo) {
+      taskQb.andWhere("row.dueAt <= :dueTo", { dueTo: filter.dueTo });
+      dealQb.andWhere("row.nextFollowUpAt <= :dueTo", { dueTo: filter.dueTo });
+      partnershipQb.andWhere("row.nextFollowUpAt <= :dueTo", { dueTo: filter.dueTo });
+    }
+    if (filter.reminderFrom) {
+      taskQb.andWhere("row.reminderAt >= :reminderFrom", {
+        reminderFrom: filter.reminderFrom,
+      });
+      dealQb.andWhere("row.followUpReminderAt >= :reminderFrom", {
+        reminderFrom: filter.reminderFrom,
+      });
+      partnershipQb.andWhere("row.reminderAt >= :reminderFrom", {
+        reminderFrom: filter.reminderFrom,
+      });
+    }
+    if (filter.reminderTo) {
+      taskQb.andWhere("row.reminderAt <= :reminderTo", { reminderTo: filter.reminderTo });
+      dealQb.andWhere("row.followUpReminderAt <= :reminderTo", {
+        reminderTo: filter.reminderTo,
+      });
+      partnershipQb.andWhere("row.reminderAt <= :reminderTo", {
+        reminderTo: filter.reminderTo,
+      });
+    }
+    const now = new Date();
+    const endToday = new Date(now);
+    endToday.setHours(23, 59, 59, 999);
+    if (filter.state === "overdue") {
+      taskQb.andWhere("row.dueAt < :now", { now });
+      dealQb.andWhere("row.nextFollowUpAt < :now", { now });
+      partnershipQb.andWhere("row.nextFollowUpAt < :now", { now });
+    } else if (filter.state === "today") {
+      taskQb.andWhere("row.dueAt >= :now AND row.dueAt <= :endToday", { now, endToday });
+      dealQb.andWhere("row.nextFollowUpAt >= :now AND row.nextFollowUpAt <= :endToday", {
+        now,
+        endToday,
+      });
+      partnershipQb.andWhere("row.nextFollowUpAt >= :now AND row.nextFollowUpAt <= :endToday", {
+        now,
+        endToday,
+      });
+    } else if (filter.state === "upcoming") {
+      taskQb.andWhere("row.dueAt > :endToday", { endToday });
+      dealQb.andWhere("row.nextFollowUpAt > :endToday", { endToday });
+      partnershipQb.andWhere("row.nextFollowUpAt > :endToday", { endToday });
+    }
+    const overdueMinDate =
+      filter.overdueMinDays === undefined
+        ? null
+        : new Date(now.getTime() - Math.max(filter.overdueMinDays, 0) * 86_400_000);
+    const overdueMaxDate =
+      filter.overdueMaxDays === undefined
+        ? null
+        : new Date(now.getTime() - Math.max(filter.overdueMaxDays, 0) * 86_400_000);
+    if (overdueMinDate) {
+      taskQb.andWhere("row.dueAt <= :overdueMinDate", { overdueMinDate });
+      dealQb.andWhere("row.nextFollowUpAt <= :overdueMinDate", { overdueMinDate });
+      partnershipQb.andWhere("row.nextFollowUpAt <= :overdueMinDate", { overdueMinDate });
+    }
+    if (overdueMaxDate) {
+      taskQb.andWhere("row.dueAt >= :overdueMaxDate", { overdueMaxDate });
+      dealQb.andWhere("row.nextFollowUpAt >= :overdueMaxDate", { overdueMaxDate });
+      partnershipQb.andWhere("row.nextFollowUpAt >= :overdueMaxDate", { overdueMaxDate });
+    }
+    if (filter.staleBefore) {
+      taskQb.andWhere("row.dueAt <= :staleBefore", { staleBefore: filter.staleBefore });
+      dealQb.andWhere("row.nextFollowUpAt <= :staleBefore", {
+        staleBefore: filter.staleBefore,
+      });
+      partnershipQb.andWhere("row.nextFollowUpAt <= :staleBefore", {
+        staleBefore: filter.staleBefore,
+      });
     }
     if (filter.createdBefore) {
       taskQb.andWhere("row.createdAt <= :createdBefore", {
@@ -283,17 +454,21 @@ async function selectedFollowUps(
       });
     }
     if (filter.linkedResourceType && filter.linkedResourceId) {
-      const field =
-        filter.linkedResourceType === "account"
-          ? "customerId"
-          : `${filter.linkedResourceType}Id`;
-      taskQb.andWhere(`row.${field} = :linkedResourceId`, {
-        linkedResourceId: filter.linkedResourceId,
-      });
+      if (filter.linkedResourceType === "account") {
+        taskQb.andWhere(
+          "COALESCE(row.customerId, taskDeal.customerId, taskPartnership.customerId) = :linkedResourceId",
+          { linkedResourceId: filter.linkedResourceId },
+        );
+      } else {
+        taskQb.andWhere(`row.${filter.linkedResourceType}Id = :linkedResourceId`, {
+          linkedResourceId: filter.linkedResourceId,
+        });
+      }
       if (filter.linkedResourceType === "deal") {
         dealQb.andWhere("row.id = :linkedResourceId", {
           linkedResourceId: filter.linkedResourceId,
         });
+        partnershipQb.andWhere("1 = 0");
       } else if (filter.linkedResourceType === "account") {
         dealQb.andWhere("row.customerId = :linkedResourceId", {
           linkedResourceId: filter.linkedResourceId,
@@ -302,6 +477,7 @@ async function selectedFollowUps(
           linkedResourceId: filter.linkedResourceId,
         });
       } else if (filter.linkedResourceType === "partnership") {
+        dealQb.andWhere("1 = 0");
         partnershipQb.andWhere("row.id = :linkedResourceId", {
           linkedResourceId: filter.linkedResourceId,
         });
@@ -314,24 +490,55 @@ async function selectedFollowUps(
     }
     if (filter.dealStageId) {
       dealQb.andWhere("row.stageId = :dealStageId", { dealStageId: filter.dealStageId });
+      taskQb.andWhere("taskDeal.stageId = :dealStageId", {
+        dealStageId: filter.dealStageId,
+      });
     }
     if (filter.dealStatus) {
       dealQb.andWhere("row.status = :dealStatus", { dealStatus: filter.dealStatus });
+      taskQb.andWhere("taskDeal.status = :dealStatus", { dealStatus: filter.dealStatus });
+    } else if (filter.closedDeals === "only") {
+      dealQb.andWhere("row.status IN ('won', 'lost')");
+      taskQb.andWhere("taskDeal.status IN ('won', 'lost')");
+    } else if (filter.closedDeals !== "include") {
+      dealQb.andWhere("row.status = 'open'");
     }
-    if (filter.closedDeals === "only") dealQb.andWhere("row.status IN ('won', 'lost')");
-    if (filter.closedDeals === "exclude") dealQb.andWhere("row.status = 'open'");
+    if (filter.closedDeals === "exclude") {
+      taskQb.andWhere("(row.dealId IS NULL OR taskDeal.status = 'open')");
+    }
   }
 
   const [tasks, deals, partnerships] = await Promise.all([
-    taskQb.orderBy("row.dueAt", "ASC").take(5_000).getMany(),
-    dealQb.orderBy("row.nextFollowUpAt", "ASC").take(5_000).getMany(),
-    partnershipQb.orderBy("row.nextFollowUpAt", "ASC").take(5_000).getMany(),
+    taskQb
+      .orderBy("row.dueAt", "ASC")
+      .addOrderBy("row.id", "ASC")
+      .take(BULK_SELECTION_LIMIT)
+      .getMany(),
+    dealQb
+      .orderBy("row.nextFollowUpAt", "ASC")
+      .addOrderBy("row.id", "ASC")
+      .take(BULK_SELECTION_LIMIT)
+      .getMany(),
+    partnershipQb
+      .orderBy("row.nextFollowUpAt", "ASC")
+      .addOrderBy("row.id", "ASC")
+      .take(BULK_SELECTION_LIMIT)
+      .getMany(),
   ]);
+  const dueAt = ({ source, row }: FollowUpRow): Date =>
+    source === "task" ? (row as Activity).dueAt! : (row as Deal | Partnership).nextFollowUpAt!;
   const rows: FollowUpRow[] = [
     ...tasks.map((row) => ({ source: "task" as const, row })),
     ...deals.map((row) => ({ source: "deal" as const, row })),
     ...partnerships.map((row) => ({ source: "partnership" as const, row })),
-  ];
+  ]
+    .sort(
+      (a, b) =>
+        dueAt(a).getTime() - dueAt(b).getTime() ||
+        a.source.localeCompare(b.source) ||
+        a.row.id.localeCompare(b.row.id),
+    )
+    .slice(0, BULK_SELECTION_LIMIT);
   const found = new Set(rows.map(({ source, row }) => `${source}:${row.id}`));
   return {
     rows,
@@ -343,6 +550,7 @@ function standardPatch(
   resourceType: BulkResourceType,
   row: SelectedRow,
   action: BulkAction,
+  destinationKind?: DealStageKind,
 ): { before: Record<string, unknown>; after: Record<string, unknown>; entityType: string } {
   const current = isFollowUpRow(row) ? row.row : row;
   if (action.type === "assign_owner") {
@@ -377,6 +585,37 @@ function standardPatch(
       before: { archivedAt: archivable.archivedAt },
       after: { archivedAt: action.archived ? new Date() : null },
       entityType: resourceType,
+    };
+  }
+  if (action.type === "move_deal_stage") {
+    if (resourceType !== "deal" || !destinationKind) {
+      throw new Error("Deal Stage movement applies only to Deals");
+    }
+    if (destinationKind === "lost" && !action.lostReason?.trim()) {
+      throw new Error("A lost reason is required when moving Deals to Closed Lost");
+    }
+    const deal = current as Deal;
+    const now = new Date();
+    return {
+      before: {
+        stageId: deal.stageId,
+        status: deal.status,
+        closedAt: deal.closedAt,
+        lostReason: deal.lostReason,
+        nextFollowUpAt: deal.nextFollowUpAt,
+        followUpReminderAt: deal.followUpReminderAt,
+        lastActivityAt: deal.lastActivityAt,
+      },
+      after: {
+        stageId: action.stageId,
+        status: destinationKind,
+        closedAt: destinationKind === "open" ? null : (deal.closedAt ?? now),
+        lostReason: destinationKind === "lost" ? action.lostReason!.trim() : "",
+        nextFollowUpAt: destinationKind === "open" ? deal.nextFollowUpAt : null,
+        followUpReminderAt: destinationKind === "open" ? deal.followUpReminderAt : null,
+        lastActivityAt: now,
+      },
+      entityType: "deal",
     };
   }
   if (action.type !== "update_follow_up" || resourceType !== "follow_up" || !isFollowUpRow(row)) {
@@ -421,7 +660,9 @@ function standardPatch(
   if (action.taskStatus && action.taskStatus !== "open") {
     before[dueField] = scheduled.nextFollowUpAt;
     before[reminderField] =
-      row.source === "deal" ? (scheduled as Deal).followUpReminderAt : (scheduled as Partnership).reminderAt;
+      row.source === "deal"
+        ? (scheduled as Deal).followUpReminderAt
+        : (scheduled as Partnership).reminderAt;
     after[dueField] = null;
     after[reminderField] = null;
   }
@@ -437,7 +678,9 @@ function standardPatch(
   }
   if (action.reminderAt !== undefined) {
     before[reminderField] =
-      row.source === "deal" ? (scheduled as Deal).followUpReminderAt : (scheduled as Partnership).reminderAt;
+      row.source === "deal"
+        ? (scheduled as Deal).followUpReminderAt
+        : (scheduled as Partnership).reminderAt;
     after[reminderField] = action.reminderAt;
   }
   return { before, after, entityType: row.source };
@@ -450,6 +693,106 @@ function samePatch(before: Record<string, unknown>, after: Record<string, unknow
   );
 }
 
+function operationSnapshot(entity: object): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(entity).map(([key, value]) => [
+      key,
+      value instanceof Date ? value.toISOString() : value,
+    ]),
+  );
+}
+
+async function recordBulkCustomFieldEvidence(
+  manager: EntityManager,
+  companyId: string,
+  resourceType: Exclude<BulkResourceType, "follow_up">,
+  resourceId: string,
+  field: RevenueCustomField,
+  value: unknown,
+  idempotencyKey: string,
+  actor: RevenueOperationActor,
+): Promise<OperationRowWrite[]> {
+  const rows: OperationRowWrite[] = [];
+  const activeEvidence = await manager.find(RevenueFieldEvidence, {
+    where: {
+      companyId,
+      resourceType,
+      resourceId,
+      fieldKey: `custom:${field.key}`,
+      status: In(["proposed", "accepted"]),
+    },
+  });
+  for (const evidence of activeEvidence) {
+    const before = {
+      status: evidence.status,
+      verificationState: evidence.verificationState,
+    };
+    evidence.status = "superseded";
+    evidence.verificationState = "superseded";
+    await manager.save(RevenueFieldEvidence, evidence);
+    rows.push({
+      resourceType,
+      resourceId: evidence.id,
+      entityType: "revenue_field_evidence",
+      action: "supersede_custom_field_evidence",
+      before,
+      after: {
+        status: evidence.status,
+        verificationState: evidence.verificationState,
+      },
+    });
+  }
+
+  const observedAt = new Date();
+  const verifyingActor = actor.userId
+    ? { kind: "member" as const, id: actor.userId }
+    : actor.employeeId
+      ? { kind: "ai_employee" as const, id: actor.employeeId }
+      : { kind: "system" as const, id: null };
+  const evidence = await manager.save(
+    RevenueFieldEvidence,
+    manager.create(RevenueFieldEvidence, {
+      companyId,
+      resourceType,
+      resourceId,
+      fieldKey: `custom:${field.key}`,
+      sourceType: "manual",
+      sourceId: `bulk:${idempotencyKey}:${resourceType}:${resourceId}:${field.key}`,
+      sourceLabel: "Revenue bulk operation",
+      extractedValueJson: JSON.stringify(value),
+      normalizedValue: normalizedCustomFieldSearchValue(
+        value as string | number | boolean | string[] | null,
+      ),
+      confidence: 100,
+      status: "accepted",
+      verificationState: "verified",
+      extractionMethod: "bulk_update",
+      observedAt,
+      extractedAt: observedAt,
+      lastVerifiedAt: observedAt,
+      humanConfirmedAt: actor.userId ? observedAt : null,
+      humanConfirmedById: actor.userId ?? null,
+      verifyingActorType: verifyingActor.kind,
+      verifyingActorId: verifyingActor.id,
+      metadataJson: JSON.stringify({
+        extractionMethod: "bulk_update",
+        verificationState: "verified",
+        verifyingActor,
+        bulkIdempotencyKey: idempotencyKey,
+      }),
+    }),
+  );
+  rows.push({
+    resourceType,
+    resourceId: evidence.id,
+    entityType: "revenue_field_evidence",
+    action: "create_custom_field_evidence",
+    before: null,
+    after: operationSnapshot(evidence),
+  });
+  return rows;
+}
+
 async function applyCustomFields(
   manager: EntityManager,
   companyId: string,
@@ -457,11 +800,19 @@ async function applyCustomFields(
   resourceId: string,
   values: Record<string, unknown>,
   apply: boolean,
-): Promise<{ rows: OperationRowWrite[]; before: Record<string, unknown>; after: Record<string, unknown> }> {
+  idempotencyKey: string | undefined,
+  actor: RevenueOperationActor,
+): Promise<{
+  rows: OperationRowWrite[];
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+}> {
   const fields = await manager.find(RevenueCustomField, {
     where: { companyId, resourceType },
   });
-  const byKey = new Map(fields.filter((field) => !field.archivedAt).map((field) => [field.key, field]));
+  const byKey = new Map(
+    fields.filter((field) => !field.archivedAt).map((field) => [field.key, field]),
+  );
   const changes: OperationRowWrite[] = [];
   const before: Record<string, unknown> = {};
   const after: Record<string, unknown> = {};
@@ -485,12 +836,7 @@ async function applyCustomFields(
         resourceId: existing.id,
         entityType: "revenue_custom_value",
         action: "clear_custom_field",
-        before: Object.fromEntries(
-          Object.entries(existing).map(([name, item]) => [
-            name,
-            item instanceof Date ? item.toISOString() : item,
-          ]),
-        ),
+        before: operationSnapshot(existing),
         after: null,
       });
       if (apply) await manager.delete(RevenueCustomValue, { companyId, id: existing.id });
@@ -514,14 +860,24 @@ async function applyCustomFields(
           ? { valueJson: existing.valueJson, searchValue: existing.searchValue }
           : null,
         after: apply
-          ? Object.fromEntries(
-              Object.entries(next).map(([name, item]) => [
-                name,
-                item instanceof Date ? item.toISOString() : item,
-              ]),
-            )
+          ? operationSnapshot(next)
           : { valueJson: next.valueJson, searchValue: next.searchValue },
       });
+    }
+    if (apply) {
+      if (!idempotencyKey) throw new Error("An idempotency key is required");
+      changes.push(
+        ...(await recordBulkCustomFieldEvidence(
+          manager,
+          companyId,
+          resourceType,
+          resourceId,
+          field,
+          value,
+          idempotencyKey,
+          actor,
+        )),
+      );
     }
   }
   return { rows: changes, before, after };
@@ -531,8 +887,13 @@ export async function runRevenueBulkOperation(
   companyId: string,
   request: BulkRequest,
   actor: RevenueOperationActor = {},
+  onProgress?: (progress: BulkExecutionProgress) => void | Promise<void>,
 ): Promise<BulkResult> {
-  if (!request.target.ids?.length && !request.target.followUpIds?.length && !request.target.filter) {
+  if (
+    !request.target.ids?.length &&
+    !request.target.followUpIds?.length &&
+    !request.target.filter
+  ) {
     throw new Error("Choose selected IDs or a filter");
   }
   if (!request.dryRun && !request.idempotencyKey) {
@@ -570,10 +931,44 @@ export async function runRevenueBulkOperation(
       request.resourceType === "follow_up"
         ? await selectedFollowUps(manager, companyId, request.target)
         : await selectedCoreRows(manager, companyId, request.resourceType, request.target);
+    const destinationStage =
+      request.action.type === "move_deal_stage"
+        ? await manager.findOneBy(DealStage, {
+            companyId,
+            id: request.action.stageId,
+            archivedAt: IsNull(),
+          })
+        : null;
+    if (request.action.type === "move_deal_stage" && !destinationStage) {
+      throw new Error("Destination Deal Stage not found");
+    }
     const rows = selected.rows as SelectedRow[];
     const results: BulkRowResult[] = [];
     const operationRows: OperationRowWrite[] = [];
-    for (const missing of selected.missing as Array<string | { source: FollowUpSource; id: string }>) {
+    const total = rows.length + selected.missing.length;
+    let reported = 0;
+    let applied = 0;
+    let skipped = 0;
+    let failed = 0;
+    const reportProgress = async (): Promise<void> => {
+      while (reported < results.length) {
+        const status = results[reported].status;
+        if (status === "applied") applied += 1;
+        else if (status === "skipped") skipped += 1;
+        else if (status === "failed") failed += 1;
+        reported += 1;
+      }
+      await onProgress?.({
+        total,
+        processed: reported,
+        applied,
+        skipped,
+        failed,
+      });
+    };
+    for (const missing of selected.missing as Array<
+      string | { source: FollowUpSource; id: string }
+    >) {
       const source = typeof missing === "string" ? undefined : missing.source;
       const resourceId = typeof missing === "string" ? missing : missing.id;
       results.push({
@@ -594,6 +989,7 @@ export async function runRevenueBulkOperation(
         status: "failed",
         detail: "Record not found",
       });
+      await reportProgress();
     }
 
     for (const selectedRow of rows) {
@@ -605,10 +1001,7 @@ export async function runRevenueBulkOperation(
           : selectedRow.source === "deal"
             ? (selectedRow.row as Deal).title
             : (selectedRow.row as Partnership).name
-        : coreLabel(
-            request.resourceType as Exclude<BulkResourceType, "follow_up">,
-            selectedRow,
-          );
+        : coreLabel(request.resourceType as Exclude<BulkResourceType, "follow_up">, selectedRow);
       try {
         if (request.action.type === "set_custom_fields") {
           if (request.resourceType === "follow_up") {
@@ -621,6 +1014,8 @@ export async function runRevenueBulkOperation(
             row.id,
             request.action.values,
             !request.dryRun,
+            request.idempotencyKey,
+            actor,
           );
           const skipped = custom.rows.length === 0;
           results.push({
@@ -653,7 +1048,12 @@ export async function runRevenueBulkOperation(
             );
           }
         }
-        const patch = standardPatch(request.resourceType, selectedRow, request.action);
+        const patch = standardPatch(
+          request.resourceType,
+          selectedRow,
+          request.action,
+          destinationStage?.kind,
+        );
         if (Object.keys(patch.after).length === 0 || samePatch(patch.before, patch.after)) {
           results.push({
             resourceType: request.resourceType,
@@ -680,6 +1080,98 @@ export async function runRevenueBulkOperation(
                       : Activity,
             )
             .update({ companyId, id: row.id }, patch.after);
+          if (request.action.type === "move_deal_stage" && destinationStage) {
+            const deal = row as Deal;
+            const occurredAt = patch.after.lastActivityAt as Date;
+            const activity = await manager.save(
+              Activity,
+              manager.create(Activity, {
+                companyId,
+                kind:
+                  destinationStage.kind === "won"
+                    ? "deal_won"
+                    : destinationStage.kind === "lost"
+                      ? "deal_lost"
+                      : "stage_change",
+                subject: `Bulk move to ${destinationStage.name}`,
+                bodyText: "",
+                occurredAt,
+                contactId: deal.primaryContactId,
+                dealId: deal.id,
+                customerId: deal.customerId,
+                partnershipId: null,
+                mailThreadId: null,
+                mailMessageId: null,
+                actorUserId: actor.userId ?? null,
+                actorEmployeeId: actor.employeeId ?? null,
+                metaJson: JSON.stringify({
+                  fromStageId: deal.stageId,
+                  toStageId: destinationStage.id,
+                  lostReason:
+                    destinationStage.kind === "lost"
+                      ? request.action.lostReason?.trim()
+                      : undefined,
+                }),
+                taskStatus: null,
+                dueAt: null,
+                completedAt: null,
+                assignedUserId: null,
+                assignedEmployeeId: null,
+                priority: null,
+                reminderAt: null,
+                recurrenceRule: null,
+              }),
+            );
+            const history = await manager.save(
+              DealHistoryEvent,
+              manager.create(DealHistoryEvent, {
+                companyId,
+                dealId: deal.id,
+                kind:
+                  destinationStage.kind === "won"
+                    ? "won"
+                    : destinationStage.kind === "lost"
+                      ? "lost"
+                      : "stage_changed",
+                occurredAt,
+                fromStageId: deal.stageId,
+                toStageId: destinationStage.id,
+                fromAmountCents: null,
+                toAmountCents: deal.amountCents,
+                currency: deal.currency,
+                fromOwnerId: null,
+                fromOwnerEmployeeId: null,
+                toOwnerId: null,
+                toOwnerEmployeeId: null,
+                lostReason:
+                  destinationStage.kind === "lost" ? (request.action.lostReason?.trim() ?? "") : "",
+                sourceKind: "live",
+                sourceKey: `activity:${activity.id}`,
+                sourceActivityId: activity.id,
+                metadataJson: JSON.stringify({ bulk: true }),
+                createdByUserId: actor.userId ?? null,
+                createdByEmployeeId: actor.employeeId ?? null,
+              }),
+            );
+            operationRows.push(
+              {
+                resourceType: "deal",
+                resourceId: activity.id,
+                entityType: "activity",
+                action: "move_deal_stage_activity",
+                before: null,
+                after: operationSnapshot(activity),
+              },
+              {
+                resourceType: "deal",
+                resourceId: history.id,
+                entityType: "deal_history_event",
+                action: "move_deal_stage_history",
+                before: null,
+                after: operationSnapshot(history),
+              },
+            );
+          }
         }
         results.push({
           resourceType: request.resourceType,
@@ -718,6 +1210,8 @@ export async function runRevenueBulkOperation(
           status: "failed",
           detail: message,
         });
+      } finally {
+        await reportProgress();
       }
     }
     const result: BulkResult = {
@@ -730,16 +1224,14 @@ export async function runRevenueBulkOperation(
       rows: results,
     };
     if (request.dryRun) return result;
+    if (request.mode === "atomic" && result.failed > 0) {
+      throw new BulkAtomicValidationError(result);
+    }
     const operation = await createRevenueOperation(manager, {
       companyId,
       kind: "bulk",
       resourceType: request.resourceType,
-      status:
-        result.failed > 0
-          ? result.applied > 0
-            ? "partial"
-            : "failed"
-          : "completed",
+      status: result.failed > 0 ? (result.applied > 0 ? "partial" : "failed") : "completed",
       idempotencyKey: request.idempotencyKey,
       request,
       summary: result,

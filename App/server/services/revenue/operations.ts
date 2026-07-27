@@ -115,10 +115,7 @@ function patchMatches(row: EntityRow, patch: Record<string, unknown>): boolean {
   );
 }
 
-function deserializePatch(
-  row: EntityRow,
-  patch: Record<string, unknown>,
-): Record<string, unknown> {
+function deserializePatch(row: EntityRow, patch: Record<string, unknown>): Record<string, unknown> {
   const next: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(patch)) {
     next[key] = row[key] instanceof Date && typeof value === "string" ? new Date(value) : value;
@@ -216,11 +213,7 @@ export async function listRevenueOperations(
   }
   if (opts.status) qb.andWhere("operation.status = :status", { status: opts.status });
   const total = await qb.clone().getCount();
-  const rows = await qb
-    .orderBy("operation.createdAt", "DESC")
-    .skip(offset)
-    .take(limit)
-    .getMany();
+  const rows = await qb.orderBy("operation.createdAt", "DESC").skip(offset).take(limit).getMany();
   return { rows, total };
 }
 
@@ -254,17 +247,34 @@ export async function findMergedRecordRedirect(
   resourceType: "account" | "contact" | "deal" | "partnership",
   sourceId: string,
 ): Promise<{ operationId: string; targetId: string } | null> {
-  const row = await AppDataSource.getRepository(RevenueOperation).findOne({
-    where: {
-      companyId,
-      kind: "merge",
-      resourceType,
-      sourceId,
-      status: "completed",
-    },
-    order: { createdAt: "DESC" },
-  });
-  return row?.targetId ? { operationId: row.id, targetId: row.targetId } : null;
+  const repo = AppDataSource.getRepository(RevenueOperation);
+  const visited = new Set([sourceId]);
+  let currentId = sourceId;
+  let firstOperationId: string | null = null;
+
+  for (let hop = 0; hop < 100; hop += 1) {
+    const row = await repo.findOne({
+      where: {
+        companyId,
+        kind: "merge",
+        resourceType,
+        sourceId: currentId,
+        status: "completed",
+      },
+      order: { createdAt: "DESC" },
+    });
+    if (!row?.targetId) {
+      return firstOperationId ? { operationId: firstOperationId, targetId: currentId } : null;
+    }
+    firstOperationId ??= row.id;
+    if (visited.has(row.targetId)) {
+      throw new Error(`Merge redirect cycle detected for ${resourceType} ${sourceId}`);
+    }
+    visited.add(row.targetId);
+    currentId = row.targetId;
+  }
+
+  throw new Error(`Merge redirect chain is too deep for ${resourceType} ${sourceId}`);
 }
 
 async function loadOperationEntity(
@@ -326,6 +336,9 @@ export async function rollbackRevenueOperation(
         }),
       };
     }
+    if (operation.status === "queued" || operation.status === "running") {
+      throw new Error("A queued or running operation cannot be rolled back");
+    }
     if (operation.status === "failed") {
       throw new Error("A failed operation has no applied changes to roll back");
     }
@@ -339,12 +352,7 @@ export async function rollbackRevenueOperation(
     for (const row of rows) {
       const before = parsed(row.beforeJson);
       const after = parsed(row.afterJson);
-      const loaded = await loadOperationEntity(
-        manager,
-        row.entityType,
-        companyId,
-        row.resourceId,
-      );
+      const loaded = await loadOperationEntity(manager, row.entityType, companyId, row.resourceId);
       if (before === null && after && typeof after === "object") {
         if (!loaded.row) {
           conflicts.push(`${row.entityType}:${row.resourceId} was already removed`);

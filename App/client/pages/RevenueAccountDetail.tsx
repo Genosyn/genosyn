@@ -47,7 +47,22 @@ type AccountMergePreview = {
   source: Pick<Customer, "id" | "name" | "slug" | "archivedAt">;
   target: Pick<Customer, "id" | "name" | "slug" | "archivedAt">;
   counts: AccountMergeCounts;
+  fieldConflicts?: MergeConflict[];
+  customFieldConflicts?: MergeConflict[];
 };
+
+type MergeConflict = {
+  field: string;
+  label: string;
+  sourceValue: unknown;
+  targetValue: unknown;
+  resolution: "source" | "target";
+};
+
+function displayMergeValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "Empty";
+  return typeof value === "object" ? JSON.stringify(value) : String(value);
+}
 
 function ownerValue(account: Customer): string {
   if (account.ownerId) return `user:${account.ownerId}`;
@@ -422,6 +437,7 @@ function AccountMergeModal({
   const [targetId, setTargetId] = React.useState("");
   const [preview, setPreview] = React.useState<AccountMergePreview | null>(null);
   const [confirmName, setConfirmName] = React.useState("");
+  const [resolutions, setResolutions] = React.useState<Record<string, "source" | "target">>({});
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -430,6 +446,7 @@ function AccountMergeModal({
     setTargetId("");
     setPreview(null);
     setConfirmName("");
+    setResolutions({});
     setError(null);
     setAccounts(null);
     api
@@ -452,7 +469,16 @@ function AccountMergeModal({
       .get<AccountMergePreview>(
         `${base}/accounts/${source.id}/merge-preview?targetAccountId=${targetId}`,
       )
-      .then(setPreview)
+      .then((result) => {
+        setPreview(result);
+        setResolutions(
+          Object.fromEntries(
+            [...(result.fieldConflicts ?? []), ...(result.customFieldConflicts ?? [])].map(
+              (conflict) => [conflict.field, conflict.resolution],
+            ),
+          ),
+        );
+      })
       .catch((cause) => {
         setError(cause instanceof Error ? cause.message : String(cause));
       });
@@ -467,6 +493,7 @@ function AccountMergeModal({
       const result = await api.post<AccountMergePreview>(`${base}/accounts/${source.id}/merge`, {
         targetAccountId: targetId,
         confirmSourceName: confirmName,
+        resolutions,
       });
       onMerged(result);
     } catch (cause) {
@@ -503,8 +530,8 @@ function AccountMergeModal({
           <p className="text-sm text-slate-600 dark:text-slate-300">
             Move all Revenue and Finance history from{" "}
             <span className="font-semibold text-slate-900 dark:text-slate-100">{source.name}</span>{" "}
-            into one active Account. Issued document numbers stay unchanged, destination fields win
-            on conflicts, and the source is archived.
+            into one active Account. Issued document numbers stay unchanged, you choose each
+            conflicting value, and the source is archived.
           </p>
           <p className="mt-2 text-xs text-slate-500">
             This is one transaction: either every linked record moves, or none do.
@@ -567,12 +594,62 @@ function AccountMergeModal({
             {preview.counts.customValueConflicts > 0 && (
               <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
                 {preview.counts.customValueConflicts} Account custom{" "}
-                {preview.counts.customValueConflicts === 1 ? "value stays" : "values stay"} on the
-                archived source because the destination already has a value.
+                {preview.counts.customValueConflicts === 1 ? "value needs" : "values need"} a
+                resolution below.
               </p>
             )}
           </div>
         )}
+
+        {preview &&
+          [...(preview.fieldConflicts ?? []), ...(preview.customFieldConflicts ?? [])].length >
+            0 && (
+            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-800/60">
+                  <tr>
+                    <th className="px-3 py-2">Field</th>
+                    <th className="px-3 py-2">Archived source</th>
+                    <th className="px-3 py-2">Destination</th>
+                    <th className="px-3 py-2">Keep</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...(preview.fieldConflicts ?? []), ...(preview.customFieldConflicts ?? [])].map(
+                    (conflict) => (
+                      <tr
+                        key={conflict.field}
+                        className="border-t border-slate-100 dark:border-slate-800"
+                      >
+                        <td className="px-3 py-2 font-medium">{conflict.label}</td>
+                        <td className="px-3 py-2 text-slate-600 dark:text-slate-300">
+                          {displayMergeValue(conflict.sourceValue)}
+                        </td>
+                        <td className="px-3 py-2 text-slate-600 dark:text-slate-300">
+                          {displayMergeValue(conflict.targetValue)}
+                        </td>
+                        <td className="px-3 py-2">
+                          <Select
+                            aria-label={`Choose ${conflict.label} value`}
+                            value={resolutions[conflict.field] ?? conflict.resolution}
+                            onChange={(event) =>
+                              setResolutions((current) => ({
+                                ...current,
+                                [conflict.field]: event.target.value as "source" | "target",
+                              }))
+                            }
+                          >
+                            <option value="target">Destination</option>
+                            <option value="source">Source</option>
+                          </Select>
+                        </td>
+                      </tr>
+                    ),
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
 
         {preview && (
           <Input

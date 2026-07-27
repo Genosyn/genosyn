@@ -102,7 +102,10 @@ const MARKETING_CAMPAIGN_PROPERTIES = {
   },
   ownerEmployeeId: { type: ["string", "null"] },
   brief: { type: "string", description: "Strategy, constraints, and positioning in markdown." },
-  audience: { type: "string", description: "The target audience and exclusions. Never include PII." },
+  audience: {
+    type: "string",
+    description: "The target audience and exclusions. Never include PII.",
+  },
   offer: { type: "string" },
   landingPageUrl: { type: "string" },
   successMetric: { type: "string", description: "Primary KPI, e.g. qualified_leads or roas." },
@@ -158,6 +161,185 @@ const MARKETING_EXPERIMENT_PROPERTIES = {
   decisionRationale: { type: "string" },
   startsAt: { type: ["string", "null"] },
   endsAt: { type: ["string", "null"] },
+} as const;
+
+const REVENUE_BULK_TARGET_PROPERTY = {
+  type: "object",
+  properties: {
+    ids: { type: "array", items: { type: "string" }, maxItems: 5000 },
+    followUpIds: {
+      type: "array",
+      maxItems: 5000,
+      items: {
+        type: "object",
+        properties: {
+          source: { type: "string", enum: ["task", "deal", "partnership"] },
+          id: { type: "string" },
+        },
+        required: ["source", "id"],
+        additionalProperties: false,
+      },
+    },
+    filter: {
+      type: "object",
+      properties: {
+        state: { type: "string", enum: ["all", "overdue", "today", "upcoming"] },
+        q: { type: "string" },
+        includeArchived: { type: "boolean" },
+        ownerId: { type: "string" },
+        ownerEmployeeId: { type: "string" },
+        assignedUserId: { type: "string" },
+        assignedEmployeeId: { type: "string" },
+        unassigned: { type: "boolean" },
+        accountStatus: { type: "string", enum: ["prospect", "customer", "former"] },
+        lifecycleStage: {
+          type: "string",
+          enum: [
+            "subscriber",
+            "lead",
+            "qualified",
+            "opportunity",
+            "customer",
+            "churned",
+            "unqualified",
+          ],
+        },
+        dealStatus: { type: "string", enum: ["open", "won", "lost"] },
+        dealStageId: { type: "string" },
+        partnershipStatus: { type: "string" },
+        source: { type: "string", enum: ["task", "deal", "partnership"] },
+        followUpSource: { type: "string", enum: ["task", "deal", "partnership"] },
+        status: { type: "string", enum: ["open", "completed", "cancelled"] },
+        taskStatus: { type: "string", enum: ["open", "completed", "cancelled"] },
+        priority: { type: "string", enum: ["low", "normal", "high", "urgent"] },
+        linkedResourceType: {
+          type: "string",
+          enum: ["account", "contact", "deal", "partnership"],
+        },
+        linkedResourceId: { type: "string" },
+        dueFrom: { type: "string" },
+        dueTo: { type: "string" },
+        reminderFrom: { type: "string" },
+        reminderTo: { type: "string" },
+        overdueMinDays: { type: "integer", minimum: 0, maximum: 36500 },
+        overdueMaxDays: { type: "integer", minimum: 0, maximum: 36500 },
+        staleBefore: { type: "string" },
+        createdBefore: { type: "string" },
+        closedDeals: { type: "string", enum: ["include", "only", "exclude"] },
+        archivedResources: { type: "string", enum: ["include", "only", "exclude"] },
+      },
+      additionalProperties: false,
+    },
+  },
+  additionalProperties: false,
+} as const;
+
+const REVENUE_BULK_ACTION_PROPERTY = {
+  type: "object",
+  description:
+    "One action. Required fields by type: assign_owner(ownerId, ownerEmployeeId); set_contact_lifecycle(lifecycleStage); set_account_status(accountStatus); set_custom_fields(values); archive(archived); move_deal_stage(stageId and lostReason when the destination is Closed Lost); update_follow_up(at least one patch field).",
+  properties: {
+    type: {
+      type: "string",
+      enum: [
+        "assign_owner",
+        "set_contact_lifecycle",
+        "set_account_status",
+        "set_custom_fields",
+        "archive",
+        "move_deal_stage",
+        "update_follow_up",
+      ],
+    },
+    ownerId: { type: ["string", "null"] },
+    ownerEmployeeId: { type: ["string", "null"] },
+    lifecycleStage: {
+      type: "string",
+      enum: [
+        "subscriber",
+        "lead",
+        "qualified",
+        "opportunity",
+        "customer",
+        "churned",
+        "unqualified",
+      ],
+    },
+    accountStatus: { type: "string", enum: ["prospect", "customer", "former"] },
+    values: { type: "object", additionalProperties: true },
+    archived: { type: "boolean" },
+    stageId: { type: "string" },
+    lostReason: { type: "string" },
+    taskStatus: { type: "string", enum: ["open", "completed", "cancelled"] },
+    priority: { type: "string", enum: ["low", "normal", "high", "urgent"] },
+    assignedUserId: { type: ["string", "null"] },
+    assignedEmployeeId: { type: ["string", "null"] },
+    dueAt: { type: ["string", "null"] },
+    reminderAt: { type: ["string", "null"] },
+  },
+  required: ["type"],
+  additionalProperties: false,
+} as const;
+
+const HISTORICAL_DEAL_ROWS_PROPERTY = {
+  type: "array",
+  maxItems: 200,
+  items: {
+    type: "object",
+    properties: {
+      sourceRecordId: { type: "string" },
+      dealId: { type: "string" },
+      historyCompleteness: {
+        type: "string",
+        enum: ["complete", "partial", "snapshot_only"],
+      },
+      originalCreatedAt: { type: "string", description: "Original ISO creation datetime." },
+      initialStageId: { type: ["string", "null"] },
+      snapshotAt: { type: "string", description: "Effective ISO snapshot datetime." },
+      events: {
+        type: "array",
+        maxItems: 2000,
+        items: {
+          type: "object",
+          properties: {
+            sourceEventId: { type: "string" },
+            eventType: {
+              type: "string",
+              enum: [
+                "stage_changed",
+                "amount_changed",
+                "owner_changed",
+                "expected_close_changed",
+                "won",
+                "lost",
+              ],
+            },
+            effectiveAt: { type: "string", description: "ISO effective datetime." },
+            fromStageId: { type: ["string", "null"] },
+            toStageId: { type: ["string", "null"] },
+            fromAmountCents: { type: ["integer", "null"] },
+            toAmountCents: { type: ["integer", "null"] },
+            fromCurrency: { type: ["string", "null"] },
+            toCurrency: { type: ["string", "null"] },
+            currency: { type: "string" },
+            fromOwnerId: { type: ["string", "null"] },
+            fromOwnerEmployeeId: { type: ["string", "null"] },
+            toOwnerId: { type: ["string", "null"] },
+            toOwnerEmployeeId: { type: ["string", "null"] },
+            fromExpectedCloseDate: { type: ["string", "null"] },
+            toExpectedCloseDate: { type: ["string", "null"] },
+            lostReason: { type: "string" },
+            sourceActor: { type: "string" },
+            metadata: { type: "object", additionalProperties: true },
+          },
+          required: ["sourceEventId", "eventType", "effectiveAt"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["sourceRecordId", "dealId", "historyCompleteness", "events"],
+    additionalProperties: false,
+  },
 } as const;
 
 export const STATIC_TOOLS: McpToolSpec[] = [
@@ -2942,14 +3124,160 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_follow_ups",
     description:
-      "Read the unified sales follow-up queue: dated Deal next steps, Partnership follow-ups, and open task activities. Each row says whether it is overdue and who owns it. Use `assignedToMe` for your own daily queue. Needs `read` revenue access.",
+      "Query the unified follow-up queue: task Activities plus Deal and Partnership dates. Supports arbitrary/unassigned assignees, priority/status, due and reminder windows, overdue age, resource, Deal Stage/status, Account status, archived/closed resources, text search, and cursor pagination. Needs `read` revenue access.",
     inputSchema: {
       type: "object",
       properties: {
         state: { type: "string", enum: ["all", "overdue", "today", "upcoming"] },
+        q: { type: "string" },
+        source: { type: "string", enum: ["task", "deal", "partnership"] },
         assignedToMe: { type: "boolean" },
+        assignedUserId: { type: "string" },
+        assignedEmployeeId: { type: "string" },
+        unassigned: { type: "boolean" },
+        priority: { type: "string", enum: ["low", "normal", "high", "urgent"] },
+        status: { type: "string", enum: ["open", "completed", "cancelled"] },
+        linkedResourceType: {
+          type: "string",
+          enum: ["account", "contact", "deal", "partnership"],
+        },
+        linkedResourceId: { type: "string" },
+        dueFrom: { type: "string", description: "ISO datetime." },
+        dueTo: { type: "string", description: "ISO datetime." },
+        reminderFrom: { type: "string", description: "ISO datetime." },
+        reminderTo: { type: "string", description: "ISO datetime." },
+        overdueMinDays: { type: "integer", minimum: 0, maximum: 36500 },
+        overdueMaxDays: { type: "integer", minimum: 0, maximum: 36500 },
+        createdBefore: { type: "string", description: "ISO datetime." },
+        staleBefore: { type: "string", description: "ISO datetime." },
+        dealStageId: { type: "string" },
+        dealStatus: { type: "string", enum: ["open", "won", "lost"] },
+        accountStatus: { type: "string", enum: ["prospect", "customer", "former"] },
+        closedDeals: { type: "string", enum: ["include", "only", "exclude"] },
+        archivedResources: { type: "string", enum: ["include", "only", "exclude"] },
+        cursor: { type: "string" },
         limit: { type: "integer", minimum: 1, maximum: 500 },
+        offset: { type: "integer", minimum: 0 },
       },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_follow_up_views",
+    description:
+      "List the company’s shared saved Follow-up filters so Members and AI Employees can triage from the same queue definitions. Needs `read` revenue access.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "create_follow_up_view",
+    description:
+      "Save a named company-wide Follow-up filter covering assignee, status, priority, due/reminder/overdue ranges, linked resource, Deal/Account state, text, and archived resources. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        filters: {
+          type: "object",
+          properties: {
+            state: { type: "string", enum: ["all", "overdue", "today", "upcoming"] },
+            q: { type: "string" },
+            source: { type: "string", enum: ["task", "deal", "partnership"] },
+            assignedUserId: { type: "string" },
+            assignedEmployeeId: { type: "string" },
+            unassigned: { type: "boolean" },
+            priority: { type: "string", enum: ["low", "normal", "high", "urgent"] },
+            status: { type: "string", enum: ["open", "completed", "cancelled"] },
+            linkedResourceType: {
+              type: "string",
+              enum: ["account", "contact", "deal", "partnership"],
+            },
+            linkedResourceId: { type: "string" },
+            dueFrom: { type: "string" },
+            dueTo: { type: "string" },
+            reminderFrom: { type: "string" },
+            reminderTo: { type: "string" },
+            overdueMinDays: { type: "integer", minimum: 0, maximum: 36500 },
+            overdueMaxDays: { type: "integer", minimum: 0, maximum: 36500 },
+            createdBefore: { type: "string" },
+            staleBefore: { type: "string" },
+            dealStageId: { type: "string" },
+            dealStatus: { type: "string", enum: ["open", "won", "lost"] },
+            accountStatus: { type: "string", enum: ["prospect", "customer", "former"] },
+            closedDeals: { type: "string", enum: ["include", "only", "exclude"] },
+            archivedResources: {
+              type: "string",
+              enum: ["include", "only", "exclude"],
+            },
+          },
+          additionalProperties: false,
+        },
+        sortOrder: { type: "number" },
+      },
+      required: ["name", "filters"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_follow_up_view",
+    description:
+      "Rename, reorder, or replace the filters of a shared Follow-up view. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        viewId: { type: "string" },
+        name: { type: "string" },
+        filters: {
+          type: "object",
+          properties: {
+            state: { type: "string", enum: ["all", "overdue", "today", "upcoming"] },
+            q: { type: "string" },
+            source: { type: "string", enum: ["task", "deal", "partnership"] },
+            assignedUserId: { type: "string" },
+            assignedEmployeeId: { type: "string" },
+            unassigned: { type: "boolean" },
+            priority: { type: "string", enum: ["low", "normal", "high", "urgent"] },
+            status: { type: "string", enum: ["open", "completed", "cancelled"] },
+            linkedResourceType: {
+              type: "string",
+              enum: ["account", "contact", "deal", "partnership"],
+            },
+            linkedResourceId: { type: "string" },
+            dueFrom: { type: "string" },
+            dueTo: { type: "string" },
+            reminderFrom: { type: "string" },
+            reminderTo: { type: "string" },
+            overdueMinDays: { type: "integer", minimum: 0, maximum: 36500 },
+            overdueMaxDays: { type: "integer", minimum: 0, maximum: 36500 },
+            createdBefore: { type: "string" },
+            staleBefore: { type: "string" },
+            dealStageId: { type: "string" },
+            dealStatus: { type: "string", enum: ["open", "won", "lost"] },
+            accountStatus: { type: "string", enum: ["prospect", "customer", "former"] },
+            closedDeals: { type: "string", enum: ["include", "only", "exclude"] },
+            archivedResources: {
+              type: "string",
+              enum: ["include", "only", "exclude"],
+            },
+          },
+          additionalProperties: false,
+        },
+        sortOrder: { type: "number" },
+      },
+      required: ["viewId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_follow_up_view",
+    description:
+      "Delete a shared Follow-up view without affecting any Follow-ups. Pass confirm `DELETE`. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        viewId: { type: "string" },
+        confirm: { type: "string", enum: ["DELETE"] },
+      },
+      required: ["viewId", "confirm"],
       additionalProperties: false,
     },
   },
@@ -3100,7 +3428,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "merge_revenue_accounts",
     description:
-      "Merge a duplicate source Account into an active destination Account in one transaction. Reparents Revenue and Finance history, preserves issued document identities, keeps destination fields on conflicts, copies missing Account custom values, and archives the source. Pass the source's exact current name in `confirmSourceName`. Needs `write` revenue access.",
+      "Merge a duplicate source Account into an active destination Account in one transaction. Reparents Revenue and Finance history, preserves issued document identities, applies explicit source/target choices for standard and custom field conflicts, copies missing Account custom values, and archives the source. Preview first, then pass conflict choices in `resolutions` and the source's exact current name in `confirmSourceName`. Needs `write` revenue access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -3109,6 +3437,12 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         confirmSourceName: {
           type: "string",
           description: "The source Account's exact current name, as an explicit confirmation.",
+        },
+        resolutions: {
+          type: "object",
+          description:
+            "Conflict field keys mapped to `source` or `target`. Custom keys use `custom:<field-id>`. Omitted conflicts keep the preview default.",
+          additionalProperties: { type: "string", enum: ["source", "target"] },
         },
       },
       required: ["sourceAccountId", "targetAccountId", "confirmSourceName"],
@@ -3230,7 +3564,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "set_revenue_custom_fields",
     description:
-      "Set custom fields by stable field key on one Contact, account, Deal or Partnership. Values are type-checked against the definitions; null clears a value. Needs `write` revenue access.",
+      "Set custom fields by stable field key on one Contact, Account, Deal or Partnership. Values are type-checked; null clears a value. With provenance, verificationState must explicitly be `verified`; the source must exist in this company, and Finance, email, and Integration sources also require the corresponding Grant. Omitting provenance records an AI-authored manual update. Needs `write` revenue access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -3240,6 +3574,28 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
         resourceId: { type: "string" },
         values: { type: "object", additionalProperties: true },
+        provenance: {
+          type: "object",
+          properties: {
+            sourceType: {
+              type: "string",
+              enum: ["email", "document", "integration", "finance", "website", "import", "manual"],
+            },
+            sourceId: { type: "string" },
+            sourceLabel: { type: "string" },
+            extractionMethod: { type: "string" },
+            confidence: { type: "integer", minimum: 0, maximum: 100 },
+            observedAt: { type: "string", description: "ISO datetime." },
+            verificationState: {
+              type: "string",
+              enum: ["verified", "unverified"],
+            },
+            lastVerifiedAt: { type: ["string", "null"], description: "ISO datetime." },
+            metadata: { type: "object", additionalProperties: true },
+          },
+          required: ["sourceType", "sourceId", "verificationState"],
+          additionalProperties: false,
+        },
       },
       required: ["resourceType", "resourceId", "values"],
       additionalProperties: false,
@@ -3450,18 +3806,620 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "preview_revenue_record_merge",
+    description:
+      "Preview merging an Account, Contact, Deal, or Partnership into a chosen survivor. Returns standard/custom field conflicts, proposed source/target resolutions, and relationship counts without writing. Pass tentative `resolutions` to recalculate the preview. Always inspect this before `merge_revenue_records`. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resourceType: {
+          type: "string",
+          enum: ["account", "contact", "deal", "partnership"],
+        },
+        sourceId: { type: "string" },
+        targetId: { type: "string" },
+        resolutions: {
+          type: "object",
+          description: "Optional conflict field choices. Custom keys use `custom:<field-id>`.",
+          additionalProperties: { type: "string", enum: ["source", "target"] },
+        },
+      },
+      required: ["resourceType", "sourceId", "targetId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "merge_revenue_records",
+    description:
+      "Merge a reviewed duplicate candidate for an Account, Contact, Deal, or Partnership into the selected survivor. First use `preview_revenue_record_merge`; then pass its explicit standard/custom conflict choices, the exact source label, and the source/target ids. Relationships and aliases are preserved, the source becomes a redirecting tombstone, and the operation has guarded undo. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resourceType: {
+          type: "string",
+          enum: ["account", "contact", "deal", "partnership"],
+        },
+        sourceId: { type: "string" },
+        targetId: { type: "string" },
+        confirmSourceLabel: { type: "string" },
+        resolutions: {
+          type: "object",
+          description:
+            "Conflict field keys mapped to `source` or `target`. Custom keys use `custom:<field-id>`.",
+          additionalProperties: { type: "string", enum: ["source", "target"] },
+        },
+      },
+      required: ["resourceType", "sourceId", "targetId", "confirmSourceLabel"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "resolve_revenue_record_redirect",
+    description:
+      "Resolve a merged record’s tombstone to its surviving Account, Contact, Deal, or Partnership and merge operation. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resourceType: {
+          type: "string",
+          enum: ["account", "contact", "deal", "partnership"],
+        },
+        sourceId: { type: "string" },
+      },
+      required: ["resourceType", "sourceId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_revenue_operations",
+    description:
+      "List merge, bulk, and historical-import audit operations, including queued/running progress and rollback state. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        kind: { type: "string", enum: ["merge", "bulk", "history_import"] },
+        resourceType: {
+          type: "string",
+          enum: ["account", "contact", "deal", "partnership", "follow_up"],
+        },
+        status: {
+          type: "string",
+          enum: ["queued", "running", "completed", "partial", "failed", "rolled_back"],
+        },
+        limit: { type: "integer", minimum: 1, maximum: 200 },
+        offset: { type: "integer", minimum: 0 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_revenue_operation",
+    description:
+      "Retrieve one Revenue merge/bulk/history operation and a paginated page of per-record before/after audit rows. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        operationId: { type: "string" },
+        rowLimit: { type: "integer", minimum: 1, maximum: 500 },
+        rowOffset: { type: "integer", minimum: 0 },
+      },
+      required: ["operationId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "undo_revenue_operation",
+    description:
+      "Guardedly undo a merge, asynchronous bulk job, or historical Deal import. It refuses atomically if any affected row changed later. Pass confirm `UNDO`; use `get_revenue_operation` first to inspect the audit rows and current rollback state. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        operationId: { type: "string" },
+        confirm: { type: "string", enum: ["UNDO"] },
+      },
+      required: ["operationId", "confirm"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "preview_revenue_bulk_operation",
+    description:
+      "Dry-run a bulk Account, Contact, Deal, Partnership, or Follow-up mutation with a frozen selection preview and per-record validation. Actions cover archive/restore, owner/lifecycle/status/custom-field changes, Deal Stage movement, and Follow-up reschedule/reassign/complete/cancel. Selected IDs or a filter are required; Closed Lost movement requires a lost reason. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resourceType: {
+          type: "string",
+          enum: ["account", "contact", "deal", "partnership", "follow_up"],
+        },
+        target: REVENUE_BULK_TARGET_PROPERTY,
+        action: REVENUE_BULK_ACTION_PROPERTY,
+        mode: { type: "string", enum: ["atomic", "partial"] },
+      },
+      required: ["resourceType", "target", "action"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "start_revenue_bulk_job",
+    description:
+      "Freeze the previewed selection and queue an asynchronous Account, Contact, Deal, Partnership, or Follow-up bulk job. Supported actions include archive/restore and Follow-up triage. `atomic` rolls back every write on one failure; `partial` commits valid rows and reports failures. The stable idempotency key makes retries safe. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resourceType: {
+          type: "string",
+          enum: ["account", "contact", "deal", "partnership", "follow_up"],
+        },
+        target: REVENUE_BULK_TARGET_PROPERTY,
+        action: REVENUE_BULK_ACTION_PROPERTY,
+        mode: { type: "string", enum: ["atomic", "partial"] },
+        idempotencyKey: { type: "string" },
+      },
+      required: ["resourceType", "target", "action", "idempotencyKey"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_revenue_bulk_job",
+    description:
+      "Read queued/running/completed bulk-job progress plus a paginated JSON page of per-record validation and reconciliation rows. Use `export_revenue_bulk_reconciliation` for CSV. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        operationId: { type: "string" },
+        rowLimit: { type: "integer", minimum: 1, maximum: 500 },
+        rowOffset: { type: "integer", minimum: 0 },
+      },
+      required: ["operationId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "export_revenue_bulk_reconciliation",
+    description:
+      "Export a bulk job’s filtered, paginated per-record reconciliation as CSV for `send_chat_attachment`; use `get_revenue_bulk_job` for JSON status and rows. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        operationId: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 500 },
+        offset: { type: "integer", minimum: 0 },
+      },
+      required: ["operationId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "preview_historical_deal_import",
+    description:
+      "Validate original Deal creation timestamps and ordered historical stage, amount, owner, expected-close, won/lost events without writing. Every event needs a stable source event id and effective timestamp; completeness controls boundary validation. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        batchKey: { type: "string" },
+        sourceSystem: { type: "string" },
+        rows: HISTORICAL_DEAL_ROWS_PROPERTY,
+      },
+      required: ["batchKey", "sourceSystem", "rows"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "run_historical_deal_import",
+    description:
+      "Commit a previewed historical Deal-event batch as immutable, source-identifiable reporting history. Replays are idempotent and the resulting operation has guarded undo. Pass confirm `IMPORT`. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        batchKey: { type: "string" },
+        sourceSystem: { type: "string" },
+        rows: HISTORICAL_DEAL_ROWS_PROPERTY,
+        confirm: { type: "string", enum: ["IMPORT"] },
+      },
+      required: ["batchKey", "sourceSystem", "rows", "confirm"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_deal_history",
+    description:
+      "Page immutable Deal reporting events by Deal, source, event kind, or effective-time range. This is the historical source for conversion, velocity, sales-cycle and time-in-stage analysis. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dealId: { type: "string" },
+        sourceKind: { type: "string", enum: ["live", "import", "activity_backfill"] },
+        kind: {
+          type: "string",
+          enum: [
+            "created",
+            "snapshot",
+            "stage_changed",
+            "amount_changed",
+            "owner_changed",
+            "expected_close_changed",
+            "won",
+            "lost",
+          ],
+        },
+        from: { type: "string", description: "ISO datetime." },
+        to: { type: "string", description: "ISO datetime." },
+        limit: { type: "integer", minimum: 1, maximum: 500 },
+        offset: { type: "integer", minimum: 0 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "backfill_deal_history",
+    description:
+      "Idempotently convert existing Deal lifecycle Activities into immutable Deal history for records created before the history ledger shipped. Pass confirm `BACKFILL`. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: { confirm: { type: "string", enum: ["BACKFILL"] } },
+      required: ["confirm"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "export_revenue_snapshot",
+    description:
+      "Export a stable paginated JSON or CSV snapshot of Accounts, Contacts, Deals, Partnerships, Partnership Contacts, buying committees, follow-ups, documents, stages, custom-field definitions/values, or import reconciliation. CSV returns `contentText` for `send_chat_attachment`. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resource: {
+          type: "string",
+          enum: [
+            "accounts",
+            "contacts",
+            "deals",
+            "partnerships",
+            "partnership_contacts",
+            "buying_committees",
+            "follow_ups",
+            "documents",
+            "stage_definitions",
+            "custom_fields",
+            "custom_values",
+            "import_reconciliation",
+          ],
+        },
+        format: { type: "string", enum: ["json", "csv"] },
+        limit: { type: "integer", minimum: 1, maximum: 500 },
+        offset: { type: "integer", minimum: 0 },
+      },
+      required: ["resource"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "propose_revenue_account_domains",
+    description:
+      "Generate reviewable canonical-domain evidence from linked business Contact email domains, Account websites, redirects, aliases and normalized Account names. Accepted email evidence raises confidence; caller-supplied IDs do not verify a Contact. Public/disposable mail hosts are excluded and collisions become merge candidates. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        accountIds: { type: "array", items: { type: "string" }, maxItems: 5_000 },
+        verifiedContactIds: { type: "array", items: { type: "string" }, maxItems: 20_000 },
+        followWebsiteRedirects: { type: "boolean" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "propose_finance_commercial_values",
+    description:
+      "Create reviewable Deal-value evidence from accepted estimates, Finance invoices and payments, and Account ACV, normalized into amount, MRR, ARR, ACV, TCV, one-time value, billing interval, confidence and verification state. Pass confirm `PROPOSE`. Needs `write` revenue access and `read` Finance access.",
+    inputSchema: {
+      type: "object",
+      properties: { confirm: { type: "string", enum: ["PROPOSE"] } },
+      required: ["confirm"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "propose_stripe_commercial_values",
+    description:
+      "Create reviewable Deal-value evidence from one explicitly selected, granted Stripe Connection's subscriptions and invoices, normalized into amount, MRR, ARR, ACV, TCV, one-time value, billing interval, confidence and verification state. Pass connectionId and confirm `PROPOSE`. Needs `write` revenue access and a Grant to that Connection.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connectionId: {
+          type: "string",
+          description:
+            "Granted Stripe Connection ID to reconcile; no implicit all-Connection scan.",
+        },
+        confirm: { type: "string", enum: ["PROPOSE"] },
+      },
+      required: ["connectionId", "confirm"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_commercial_value_proposal",
+    description:
+      "Record normalized commercial evidence for one Deal from a proposal, confirmed terms, document, email, integration, Finance, or a manual source. The evidence stays reviewable until accepted. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dealId: { type: "string" },
+        sourceType: {
+          type: "string",
+          enum: ["email", "document", "integration", "finance", "manual"],
+        },
+        sourceId: { type: "string" },
+        sourceLabel: { type: "string" },
+        sourceVerified: { type: "boolean" },
+        confidence: { type: "integer", minimum: 0, maximum: 100 },
+        extractedAt: { type: "string", description: "ISO datetime." },
+        value: {
+          type: "object",
+          properties: {
+            amountCents: { type: "integer", minimum: 0 },
+            currency: { type: "string" },
+            revenueType: { type: "string", enum: ["one_time", "recurring"] },
+            billingInterval: {
+              type: ["string", "null"],
+              enum: ["month", "quarter", "year", null],
+            },
+            quantity: { type: ["integer", "null"], minimum: 0 },
+            seats: { type: ["integer", "null"], minimum: 0 },
+            mrrCents: { type: ["integer", "null"], minimum: 0 },
+            arrCents: { type: ["integer", "null"], minimum: 0 },
+            acvCents: { type: ["integer", "null"], minimum: 0 },
+            tcvCents: { type: ["integer", "null"], minimum: 0 },
+            oneTimeCents: { type: ["integer", "null"], minimum: 0 },
+          },
+          required: ["amountCents", "currency", "revenueType"],
+          additionalProperties: false,
+        },
+        metadata: {},
+      },
+      required: ["dealId", "sourceType", "sourceId", "sourceVerified", "confidence", "value"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_revenue_field_evidence",
+    description:
+      "List reviewable or historical field-level Revenue evidence, including source object, extraction method, confidence, observed/verified timestamps, verification state and superseded values. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resourceType: {
+          type: "string",
+          enum: ["account", "contact", "deal", "partnership"],
+        },
+        resourceId: { type: "string" },
+        fieldKey: { type: "string" },
+        sourceType: {
+          type: "string",
+          enum: ["email", "document", "integration", "finance", "website", "import", "manual"],
+        },
+        status: {
+          type: "string",
+          enum: ["proposed", "accepted", "rejected", "superseded"],
+        },
+        limit: { type: "integer", minimum: 1, maximum: 500 },
+        offset: { type: "integer", minimum: 0 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "review_revenue_field_evidence",
+    description:
+      "Accept or reject one Revenue field proposal. Conflicting accepted evidence requires explicit supersedeExisting so the previous value remains in history. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        evidenceId: { type: "string" },
+        decision: { type: "string", enum: ["accept", "reject"] },
+        supersedeExisting: { type: "boolean" },
+      },
+      required: ["evidenceId", "decision"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "scan_revenue_duplicates",
+    description:
+      "Refresh persistent, explainable Revenue duplicate candidates using canonical/alias domains, normalized names, Contact emails, Finance/Stripe identifiers and Deal-title similarity. Prior dismissals are remembered. Pass confirm `SCAN`. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: { confirm: { type: "string", enum: ["SCAN"] } },
+      required: ["confirm"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_revenue_duplicate_candidates",
+    description:
+      "List persistent Revenue duplicate candidates with score, matching evidence, status and dismissal memory. Use the generic merge tools after review. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resourceType: {
+          type: "string",
+          enum: ["account", "contact", "deal", "partnership"],
+        },
+        status: { type: "string", enum: ["open", "dismissed", "merged"] },
+        minScore: { type: "integer", minimum: 0, maximum: 100 },
+        limit: { type: "integer", minimum: 1, maximum: 500 },
+        offset: { type: "integer", minimum: 0 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "dismiss_revenue_duplicate_candidate",
+    description:
+      "Dismiss one duplicate candidate and preserve that decision so later scans do not reopen the same pair. Pass confirm `DISMISS`. Needs `write` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        candidateId: { type: "string" },
+        confirm: { type: "string", enum: ["DISMISS"] },
+      },
+      required: ["candidateId", "confirm"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "scan_revenue_mail_documents",
+    description:
+      "Scan a granted Gmail mailbox for Revenue attachments, classify and match them to Accounts, Contacts, Deals or Partnerships, and deduplicate by file hash plus immutable Gmail message/attachment provenance. Needs `write` revenue and `read` access to the named Mail Connection.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        accountId: { type: "string" },
+        from: { type: "string", description: "ISO datetime." },
+        to: { type: "string", description: "ISO datetime." },
+        limit: { type: "integer", minimum: 1, maximum: 500 },
+        offset: { type: "integer", minimum: 0 },
+      },
+      required: ["accountId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_revenue_document_candidates",
+    description:
+      "List the Gmail attachment review queue for a granted mailbox, including classification, resource match, deduplication and immutable message/thread provenance. Needs `read` Revenue and Mail access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        accountId: { type: "string" },
+        status: {
+          type: "string",
+          enum: ["pending", "processing", "accepted", "rejected", "duplicate"],
+        },
+        limit: { type: "integer", minimum: 1, maximum: 500 },
+        offset: { type: "integer", minimum: 0 },
+      },
+      required: ["accountId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "review_revenue_document_candidate",
+    description:
+      "Accept or reject a Gmail attachment candidate. Acceptance creates a deduplicated Revenue Document linked to the chosen resource while retaining message, thread and attachment provenance. Needs `write` Revenue and `read` Mail access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        candidateId: { type: "string" },
+        decision: { type: "string", enum: ["accept", "reject"] },
+        kind: {
+          type: "string",
+          enum: [
+            "proposal",
+            "rfp",
+            "contract",
+            "security_questionnaire",
+            "email_attachment",
+            "other",
+          ],
+        },
+        resourceType: {
+          type: "string",
+          enum: ["account", "contact", "deal", "partnership"],
+        },
+        resourceId: { type: "string" },
+        note: { type: "string" },
+      },
+      required: ["candidateId", "decision"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_revenue_imports",
     description:
-      "List the company’s durable Revenue import history with ids, source, resource type, status, reconciliation mapping, report, and rollback timestamp. Needs `read` revenue access.",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      "List summary-only Revenue import history without returning serialized row maps. Filter and paginate the compact headers, then use `get_revenue_import` for counts or `list_revenue_import_rows` for decisions. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sourceKind: { type: "string", enum: ["base", "csv"] },
+        status: { type: "string", enum: ["completed", "rolled_back", "failed"] },
+        resourceType: {
+          type: "string",
+          enum: ["account", "contact", "deal", "partnership", "account_contact_deal"],
+        },
+        from: { type: "string", description: "ISO datetime." },
+        to: { type: "string", description: "ISO datetime." },
+        limit: { type: "integer", minimum: 1, maximum: 200 },
+        offset: { type: "integer", minimum: 0 },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: "get_revenue_import",
     description:
-      "Retrieve one past Revenue import by id with its parsed mapping, source-row reconciliation map, and complete report for later investigation or rollback. Needs `read` revenue access.",
+      "Retrieve one compact Revenue import summary with action/status counts. It deliberately omits the large row map; use `list_revenue_import_rows` for JSON decisions or `export_revenue_import_reconciliation` for CSV. Needs `read` revenue access.",
     inputSchema: {
       type: "object",
       properties: { importId: { type: "string" } },
+      required: ["importId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_revenue_import_rows",
+    description:
+      "Page through one import’s JSON reconciliation decisions. Filter by resource, action/status, source id, native id, error text, or error presence; exact source/native ids provide direct row lookup. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        importId: { type: "string" },
+        resourceType: {
+          type: "string",
+          enum: ["contact", "account", "deal", "partnership"],
+        },
+        status: {
+          type: "string",
+          enum: ["created", "matched", "skipped", "failed", "rolled_back"],
+        },
+        action: { type: "string" },
+        q: { type: "string" },
+        sourceId: { type: "string" },
+        nativeId: { type: "string" },
+        error: { type: "string" },
+        hasError: { type: "boolean" },
+        limit: { type: "integer", minimum: 1, maximum: 500 },
+        offset: { type: "integer", minimum: 0 },
+      },
+      required: ["importId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "export_revenue_import_reconciliation",
+    description:
+      "Export a filtered page of import decisions as CSV for `send_chat_attachment`. Use status/action filters for separate failed, skipped, or duplicate/matched files. Needs `read` revenue access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        importId: { type: "string" },
+        resourceType: {
+          type: "string",
+          enum: ["contact", "account", "deal", "partnership"],
+        },
+        status: {
+          type: "string",
+          enum: ["created", "matched", "skipped", "failed", "rolled_back"],
+        },
+        action: { type: "string" },
+        q: { type: "string" },
+        sourceId: { type: "string" },
+        nativeId: { type: "string" },
+        error: { type: "string" },
+        hasError: { type: "boolean" },
+        limit: { type: "integer", minimum: 1, maximum: 500 },
+        offset: { type: "integer", minimum: 0 },
+      },
       required: ["importId"],
       additionalProperties: false,
     },

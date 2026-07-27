@@ -1,4 +1,4 @@
-import { In, IsNull } from "typeorm";
+import { In, IsNull, MoreThan, type EntityManager } from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
 import { Contact } from "../../db/entities/Contact.js";
 import { Customer } from "../../db/entities/Customer.js";
@@ -10,8 +10,49 @@ import {
   type RevenueResourceType,
 } from "../../db/entities/RevenueCustomField.js";
 import { RevenueCustomValue } from "../../db/entities/RevenueCustomValue.js";
+import {
+  RevenueFieldEvidence,
+  type RevenueEvidenceSourceType,
+} from "../../db/entities/RevenueFieldEvidence.js";
+import type { RevenueOperationActor } from "./operations.js";
 
 export type CustomFieldValue = string | number | boolean | string[] | null;
+export type CustomValueProvenance = {
+  sourceType: RevenueEvidenceSourceType;
+  sourceId: string;
+  sourceLabel?: string;
+  extractionMethod?: string;
+  confidence?: number;
+  observedAt?: Date;
+  verificationState: "verified" | "unverified";
+  lastVerifiedAt?: Date | null;
+  metadata?: Record<string, unknown>;
+};
+
+type CustomValueResult = {
+  field: RevenueCustomField;
+  value: CustomFieldValue;
+  provenance: RevenueFieldEvidence | null;
+  provenanceHistoryCount: number;
+};
+
+function currentValueProvenance(
+  history: RevenueFieldEvidence[],
+  value: CustomFieldValue,
+): RevenueFieldEvidence | null {
+  const matchesCurrentValue = (evidence: RevenueFieldEvidence): boolean => {
+    try {
+      return JSON.stringify(JSON.parse(evidence.extractedValueJson)) === JSON.stringify(value);
+    } catch {
+      return false;
+    }
+  };
+  return (
+    history.find((evidence) => evidence.status === "accepted" && matchesCurrentValue(evidence)) ??
+    history.find((evidence) => evidence.status === "proposed" && matchesCurrentValue(evidence)) ??
+    null
+  );
+}
 
 export const BASE_MIGRATION_CUSTOM_FIELDS: Array<{
   resourceType: RevenueResourceType;
@@ -182,24 +223,6 @@ export function validateCustomFieldValue(
   }
 }
 
-async function resourceExists(
-  companyId: string,
-  resourceType: RevenueResourceType,
-  resourceId: string,
-): Promise<boolean> {
-  const entity =
-    resourceType === "contact"
-      ? Contact
-      : resourceType === "account"
-        ? Customer
-        : resourceType === "deal"
-          ? Deal
-          : Partnership;
-  return (
-    (await AppDataSource.getRepository(entity).count({ where: { companyId, id: resourceId } })) > 0
-  );
-}
-
 export async function listCustomFields(
   companyId: string,
   resourceType?: RevenueResourceType,
@@ -310,22 +333,121 @@ export async function getCustomValues(
   companyId: string,
   resourceType: RevenueResourceType,
   resourceId: string,
-): Promise<Array<{ field: RevenueCustomField; value: CustomFieldValue }>> {
+): Promise<CustomValueResult[]> {
   const fields = await listCustomFields(companyId, resourceType);
   if (fields.length === 0) return [];
   const values = await AppDataSource.getRepository(RevenueCustomValue).find({
     where: { companyId, resourceType, resourceId, fieldId: In(fields.map((field) => field.id)) },
   });
   const byField = new Map(values.map((row) => [row.fieldId, row]));
+  const evidence = await AppDataSource.getRepository(RevenueFieldEvidence).find({
+    where: {
+      companyId,
+      resourceType,
+      resourceId,
+      fieldKey: In(fields.map((field) => `custom:${field.key}`)),
+    },
+    order: { createdAt: "DESC" },
+  });
+  const evidenceByKey = new Map<string, RevenueFieldEvidence[]>();
+  for (const row of evidence) {
+    const rows = evidenceByKey.get(row.fieldKey) ?? [];
+    rows.push(row);
+    evidenceByKey.set(row.fieldKey, rows);
+  }
   return fields.map((field) => {
     const row = byField.get(field.id);
-    if (!row) return { field, value: null };
+    const history = evidenceByKey.get(`custom:${field.key}`) ?? [];
+    if (!row) {
+      return {
+        field,
+        value: null,
+        provenance: currentValueProvenance(history, null),
+        provenanceHistoryCount: history.length,
+      };
+    }
     try {
-      return { field, value: JSON.parse(row.valueJson) as CustomFieldValue };
+      const value = JSON.parse(row.valueJson) as CustomFieldValue;
+      return {
+        field,
+        value,
+        provenance: currentValueProvenance(history, value),
+        provenanceHistoryCount: history.length,
+      };
     } catch {
-      return { field, value: null };
+      return {
+        field,
+        value: null,
+        provenance: null,
+        provenanceHistoryCount: history.length,
+      };
     }
   });
+}
+
+async function recordCustomValueEvidence(
+  manager: EntityManager,
+  companyId: string,
+  resourceType: RevenueResourceType,
+  resourceId: string,
+  field: RevenueCustomField,
+  value: CustomFieldValue,
+  provenance: CustomValueProvenance | undefined,
+  actor: RevenueOperationActor,
+): Promise<void> {
+  await manager
+    .createQueryBuilder()
+    .update(RevenueFieldEvidence)
+    .set({ status: "superseded", verificationState: "superseded" })
+    .where("companyId = :companyId", { companyId })
+    .andWhere("resourceType = :resourceType", { resourceType })
+    .andWhere("resourceId = :resourceId", { resourceId })
+    .andWhere("fieldKey = :fieldKey", { fieldKey: `custom:${field.key}` })
+    .andWhere("status IN (:...statuses)", { statuses: ["proposed", "accepted"] })
+    .execute();
+  const observedAt = provenance?.observedAt ?? new Date();
+  const verified = !provenance || provenance.verificationState === "verified";
+  const verifyingActor: {
+    kind: "member" | "ai_employee" | "system";
+    id: string | null;
+  } = actor.userId
+    ? { kind: "member", id: actor.userId }
+    : actor.employeeId
+      ? { kind: "ai_employee", id: actor.employeeId }
+      : { kind: "system", id: null };
+  await manager.save(
+    RevenueFieldEvidence,
+    manager.create(RevenueFieldEvidence, {
+      companyId,
+      resourceType,
+      resourceId,
+      fieldKey: `custom:${field.key}`,
+      sourceType: provenance?.sourceType ?? "manual",
+      sourceId:
+        provenance?.sourceId ??
+        `${verifyingActor.kind}:${verifyingActor.id ?? "unknown"}:${resourceId}:${field.key}:${observedAt.toISOString()}`,
+      sourceLabel: provenance?.sourceLabel ?? "Direct Revenue field update",
+      extractedValueJson: JSON.stringify(value),
+      normalizedValue: normalizedCustomFieldSearchValue(value),
+      confidence: Math.min(Math.max(Math.round(provenance?.confidence ?? 100), 0), 100),
+      status: verified ? "accepted" : "proposed",
+      verificationState: verified ? "verified" : "unverified",
+      extractionMethod: provenance?.extractionMethod ?? "manual",
+      observedAt,
+      extractedAt: observedAt,
+      lastVerifiedAt: verified ? (provenance?.lastVerifiedAt ?? observedAt) : null,
+      humanConfirmedAt: verified && actor.userId ? observedAt : null,
+      humanConfirmedById: verified ? (actor.userId ?? null) : null,
+      verifyingActorType: verified ? verifyingActor.kind : null,
+      verifyingActorId: verified ? verifyingActor.id : null,
+      metadataJson: JSON.stringify({
+        extractionMethod: provenance?.extractionMethod ?? "manual",
+        verificationState: verified ? "verified" : "unverified",
+        verifyingActor,
+        ...(provenance?.metadata ?? {}),
+      }),
+    }),
+  );
 }
 
 export async function setCustomValues(
@@ -333,34 +455,78 @@ export async function setCustomValues(
   resourceType: RevenueResourceType,
   resourceId: string,
   values: Record<string, unknown>,
-): Promise<Array<{ field: RevenueCustomField; value: CustomFieldValue }>> {
-  if (!(await resourceExists(companyId, resourceType, resourceId))) {
-    throw new Error("Revenue resource not found");
-  }
-  const fields = await listCustomFields(companyId, resourceType);
-  const byKey = new Map(fields.map((field) => [field.key, field]));
-  const repo = AppDataSource.getRepository(RevenueCustomValue);
-  for (const [key, rawValue] of Object.entries(values)) {
-    const field = byKey.get(key);
-    if (!field) throw new Error(`Unknown custom field: ${key}`);
-    const value = validateCustomFieldValue(field, rawValue);
-    const existing = await repo.findOneBy({ companyId, fieldId: field.id, resourceId });
-    if (value === null) {
-      if (existing) await repo.delete({ id: existing.id });
-      continue;
-    }
-    await repo.save(
-      repo.create({
-        ...existing,
-        companyId,
-        fieldId: field.id,
-        resourceType,
-        resourceId,
-        valueJson: JSON.stringify(value),
-        searchValue: normalizedCustomFieldSearchValue(value),
-      }),
+  options: { provenance?: CustomValueProvenance; actor?: RevenueOperationActor } = {},
+): Promise<CustomValueResult[]> {
+  if (options.provenance && options.provenance.verificationState !== "verified") {
+    throw new Error(
+      "Unverified evidence cannot replace a current custom-field value; review it first",
     );
   }
+  await AppDataSource.transaction(async (manager) => {
+    const entity =
+      resourceType === "contact"
+        ? Contact
+        : resourceType === "account"
+          ? Customer
+          : resourceType === "deal"
+            ? Deal
+            : Partnership;
+    if ((await manager.count(entity, { where: { companyId, id: resourceId } })) === 0) {
+      throw new Error("Revenue resource not found");
+    }
+    const fields = await manager.find(RevenueCustomField, {
+      where: { companyId, resourceType, archivedAt: IsNull() },
+      order: { sortOrder: "ASC" },
+    });
+    const byKey = new Map(fields.map((field) => [field.key, field]));
+    for (const [key, rawValue] of Object.entries(values)) {
+      const field = byKey.get(key);
+      if (!field) throw new Error(`Unknown custom field: ${key}`);
+      const value = validateCustomFieldValue(field, rawValue);
+      const existing = await manager.findOneBy(RevenueCustomValue, {
+        companyId,
+        fieldId: field.id,
+        resourceId,
+      });
+      let existingValue: CustomFieldValue = null;
+      if (existing) {
+        try {
+          existingValue = JSON.parse(existing.valueJson) as CustomFieldValue;
+        } catch {
+          existingValue = null;
+        }
+      }
+      if (JSON.stringify(existingValue) === JSON.stringify(value) && !options.provenance) {
+        continue;
+      }
+      if (value === null) {
+        if (existing) await manager.delete(RevenueCustomValue, { companyId, id: existing.id });
+      } else {
+        await manager.save(
+          RevenueCustomValue,
+          manager.create(RevenueCustomValue, {
+            ...existing,
+            companyId,
+            fieldId: field.id,
+            resourceType,
+            resourceId,
+            valueJson: JSON.stringify(value),
+            searchValue: normalizedCustomFieldSearchValue(value),
+          }),
+        );
+      }
+      await recordCustomValueEvidence(
+        manager,
+        companyId,
+        resourceType,
+        resourceId,
+        field,
+        value,
+        options.provenance,
+        options.actor ?? {},
+      );
+    }
+  });
   return getCustomValues(companyId, resourceType, resourceId);
 }
 
@@ -387,4 +553,111 @@ export async function matchingResourceIds(
     select: { resourceId: true },
   });
   return rows.map((row) => row.resourceId);
+}
+
+/**
+ * Backfill honest provenance for rows created before field-level evidence
+ * existed, and normalize metadata on older enrichment evidence. This is
+ * deliberately idempotent and runs in bounded pages from Revenue boot.
+ */
+export async function backfillRevenueProvenanceMetadata(): Promise<{
+  evidenceUpdated: number;
+  legacyValuesRecorded: number;
+}> {
+  const evidenceRepo = AppDataSource.getRepository(RevenueFieldEvidence);
+  let evidenceUpdated = 0;
+  for (;;) {
+    const rows = await evidenceRepo.find({
+      where: [{ observedAt: IsNull() }, { extractionMethod: "" }],
+      order: { id: "ASC" },
+      take: 500,
+    });
+    if (rows.length === 0) break;
+    for (const row of rows) {
+      row.observedAt ??= row.extractedAt;
+      row.extractionMethod ||= `${row.sourceType}_legacy`;
+      row.verificationState =
+        row.status === "accepted"
+          ? "verified"
+          : row.status === "rejected"
+            ? "rejected"
+            : row.status === "superseded"
+              ? "superseded"
+              : "unverified";
+      if (row.humanConfirmedById && !row.verifyingActorType) {
+        row.verifyingActorType = "member";
+        row.verifyingActorId = row.humanConfirmedById;
+      }
+      if (row.status === "accepted" && !row.lastVerifiedAt) {
+        row.lastVerifiedAt = row.humanConfirmedAt ?? row.extractedAt;
+      }
+    }
+    await evidenceRepo.save(rows, { chunk: 500 });
+    evidenceUpdated += rows.length;
+  }
+
+  const valueRepo = AppDataSource.getRepository(RevenueCustomValue);
+  const fieldRepo = AppDataSource.getRepository(RevenueCustomField);
+  const fields = new Map((await fieldRepo.find()).map((field) => [field.id, field]));
+  let cursor = "";
+  let legacyValuesRecorded = 0;
+  for (;;) {
+    const values = await valueRepo.find({
+      where: cursor ? { id: MoreThan(cursor) } : {},
+      order: { id: "ASC" },
+      take: 250,
+    });
+    if (values.length === 0) break;
+    cursor = values.at(-1)!.id;
+    const legacyIds = values.map((value) => `legacy:${value.id}`);
+    const existing = new Set(
+      (
+        await evidenceRepo.find({
+          where: { sourceType: "manual", sourceId: In(legacyIds) },
+          select: { sourceId: true },
+        })
+      ).map((row) => row.sourceId),
+    );
+    const missing = values.flatMap((value) => {
+      const field = fields.get(value.fieldId);
+      const sourceId = `legacy:${value.id}`;
+      if (!field || existing.has(sourceId)) return [];
+      let parsed: unknown = null;
+      try {
+        parsed = JSON.parse(value.valueJson) as unknown;
+      } catch {
+        parsed = null;
+      }
+      return [
+        evidenceRepo.create({
+          companyId: value.companyId,
+          resourceType: value.resourceType,
+          resourceId: value.resourceId,
+          fieldKey: `custom:${field.key}`,
+          sourceType: "manual",
+          sourceId,
+          sourceLabel: "Legacy value — source unknown",
+          extractedValueJson: JSON.stringify(parsed),
+          normalizedValue: value.searchValue,
+          confidence: 0,
+          status: "proposed",
+          verificationState: "unverified",
+          extractionMethod: "legacy_backfill",
+          observedAt: value.createdAt,
+          extractedAt: value.createdAt,
+          lastVerifiedAt: null,
+          humanConfirmedAt: null,
+          humanConfirmedById: null,
+          verifyingActorType: null,
+          verifyingActorId: null,
+          metadataJson: JSON.stringify({ legacyValueId: value.id }),
+        }),
+      ];
+    });
+    if (missing.length > 0) {
+      await evidenceRepo.save(missing, { chunk: 250 });
+      legacyValuesRecorded += missing.length;
+    }
+  }
+  return { evidenceUpdated, legacyValuesRecorded };
 }

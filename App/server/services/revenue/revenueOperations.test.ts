@@ -18,6 +18,8 @@ import { DealStage } from "../../db/entities/DealStage.js";
 import { Invoice } from "../../db/entities/Invoice.js";
 import { Membership } from "../../db/entities/Membership.js";
 import { Notification } from "../../db/entities/Notification.js";
+import { RevenueFieldEvidence } from "../../db/entities/RevenueFieldEvidence.js";
+import { RevenueCustomValue } from "../../db/entities/RevenueCustomValue.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
 import { recordEmployeeAttachment, resolveBaseAttachmentFile } from "../baseRecordUploads.js";
 import { resolveAttachmentFile } from "../uploads.js";
@@ -31,6 +33,7 @@ import {
 } from "./accounts.js";
 import { createRevenueClassification, listRevenueClassifications } from "./classifications.js";
 import {
+  backfillRevenueProvenanceMetadata,
   createCustomField,
   getCustomValues,
   installBaseMigrationCustomFields,
@@ -241,6 +244,14 @@ describe("typed custom fields", () => {
       infrastructure_size: 250,
     });
     assert.equal(values.find((row) => row.field.key === "plan_interest")?.value, "Enterprise");
+    assert.equal(
+      values.find((row) => row.field.key === "plan_interest")?.provenance?.verificationState,
+      "verified",
+    );
+    assert.equal(
+      values.find((row) => row.field.key === "plan_interest")?.provenanceHistoryCount,
+      1,
+    );
     assert.deepEqual(await matchingResourceIds(CO, "account", "plan_interest", "enterprise"), [
       account.id,
     ]);
@@ -249,6 +260,82 @@ describe("typed custom fields", () => {
       /unknown option/,
     );
     assert.equal((await getCustomValues(CO, "account", account.id)).length, 2);
+  });
+
+  test("commits values with provenance atomically and refuses unverified overwrites", async () => {
+    const account = await createRevenueAccount(CO, { name: "Provenance Co" });
+    await createCustomField(CO, {
+      resourceType: "account",
+      name: "Plan interest",
+      fieldType: "select",
+      options: ["Growth", "Enterprise"],
+    });
+    await createCustomField(CO, {
+      resourceType: "account",
+      name: "Infrastructure size",
+      fieldType: "number",
+    });
+    await setCustomValues(CO, "account", account.id, {
+      plan_interest: "Enterprise",
+      infrastructure_size: 250,
+    });
+
+    await assert.rejects(
+      () =>
+        setCustomValues(
+          CO,
+          "account",
+          account.id,
+          { plan_interest: "Growth" },
+          {
+            provenance: {
+              sourceType: "email",
+              sourceId: "message-1",
+              verificationState: "unverified",
+            },
+          },
+        ),
+      /Unverified evidence cannot replace/,
+    );
+    await assert.rejects(
+      () =>
+        setCustomValues(CO, "account", account.id, {
+          plan_interest: "Growth",
+          infrastructure_size: "not-a-number",
+        }),
+      /must be a number/,
+    );
+    let rows = await getCustomValues(CO, "account", account.id);
+    assert.equal(rows.find((row) => row.field.key === "plan_interest")?.value, "Enterprise");
+
+    rows = await setCustomValues(
+      CO,
+      "account",
+      account.id,
+      { plan_interest: "Growth" },
+      {
+        provenance: {
+          sourceType: "import",
+          sourceId: "batch-1:row-7",
+          sourceLabel: "CRM migration row 7",
+          extractionMethod: "mapped_csv_column",
+          confidence: 100,
+          verificationState: "verified",
+        },
+      },
+    );
+    const plan = rows.find((row) => row.field.key === "plan_interest");
+    assert.equal(plan?.value, "Growth");
+    assert.equal(plan?.provenance?.sourceType, "import");
+    assert.equal(plan?.provenanceHistoryCount, 2);
+    assert.equal(
+      await AppDataSource.getRepository(RevenueFieldEvidence).countBy({
+        companyId: CO,
+        resourceId: account.id,
+        fieldKey: "custom:plan_interest",
+      }),
+      2,
+    );
   });
 
   test("installs the Base migration field set idempotently", async () => {
@@ -268,6 +355,29 @@ describe("typed custom fields", () => {
       ),
     );
     assert.equal(fields.filter((field) => field.key === "original_base_row_id").length, 3);
+  });
+
+  test("backfills legacy current values as unverified instead of inventing trust", async () => {
+    const account = await createRevenueAccount(CO, { name: "Legacy Co" });
+    const field = await createCustomField(CO, {
+      resourceType: "account",
+      name: "Legacy source",
+      fieldType: "text",
+    });
+    await AppDataSource.getRepository(RevenueCustomValue).save({
+      companyId: CO,
+      fieldId: field.id,
+      resourceType: "account",
+      resourceId: account.id,
+      valueJson: JSON.stringify("unknown"),
+      searchValue: "unknown",
+    });
+    const result = await backfillRevenueProvenanceMetadata();
+    assert.equal(result.legacyValuesRecorded, 1);
+    const row = (await getCustomValues(CO, "account", account.id))[0];
+    assert.equal(row.provenance?.verificationState, "unverified");
+    assert.equal(row.provenance?.extractionMethod, "legacy_backfill");
+    assert.equal((await backfillRevenueProvenanceMetadata()).legacyValuesRecorded, 0);
   });
 });
 

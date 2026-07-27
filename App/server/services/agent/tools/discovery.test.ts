@@ -95,6 +95,75 @@ const RECALL_CASES: Array<{ query: string; expect: string }> = [
     expect: "preview_linked_base_revenue_import",
   },
   { query: "merge duplicate company accounts", expect: "merge_revenue_accounts" },
+  {
+    query: "import historical deal owner and amount changes with effective timestamps",
+    expect: "preview_historical_deal_import",
+  },
+  { query: "review deal time in stage history", expect: "list_deal_history" },
+  {
+    query: "preview merge duplicate contacts with conflict resolution",
+    expect: "preview_revenue_record_merge",
+  },
+  { query: "merge this reviewed duplicate candidate", expect: "merge_revenue_records" },
+  {
+    query: "resolve an old merged partnership tombstone",
+    expect: "resolve_revenue_record_redirect",
+  },
+  { query: "show per-record merge audit rows", expect: "get_revenue_operation" },
+  { query: "undo a bulk revenue job", expect: "undo_revenue_operation" },
+  {
+    query: "preview archive selected partnerships",
+    expect: "preview_revenue_bulk_operation",
+  },
+  {
+    query: "queue an atomic asynchronous bulk follow-up completion",
+    expect: "start_revenue_bulk_job",
+  },
+  { query: "check bulk job progress", expect: "get_revenue_bulk_job" },
+  {
+    query: "download failed bulk reconciliation",
+    expect: "export_revenue_bulk_reconciliation",
+  },
+  {
+    query: "find unassigned urgent overdue follow-ups for lost deals",
+    expect: "list_follow_ups",
+  },
+  {
+    query: "save this follow-up filter as a shared view",
+    expect: "create_follow_up_view",
+  },
+  { query: "show CRM import summary counts", expect: "get_revenue_import" },
+  { query: "find import row by source ID", expect: "list_revenue_import_rows" },
+  {
+    query: "download skipped import reconciliation",
+    expect: "export_revenue_import_reconciliation",
+  },
+  { query: "export buying committees as CSV", expect: "export_revenue_snapshot" },
+  {
+    query: "propose canonical account domains from website redirects",
+    expect: "propose_revenue_account_domains",
+  },
+  {
+    query: "reconcile zero-value deals from Stripe subscriptions",
+    expect: "propose_stripe_commercial_values",
+  },
+  {
+    query: "review superseded field provenance",
+    expect: "list_revenue_field_evidence",
+  },
+  { query: "find duplicate contacts by email", expect: "scan_revenue_duplicates" },
+  {
+    query: "backfill Gmail proposal attachments",
+    expect: "scan_revenue_mail_documents",
+  },
+  {
+    query: "review Gmail attachment candidates",
+    expect: "list_revenue_document_candidates",
+  },
+  {
+    query: "write CRM custom field with source confidence",
+    expect: "set_revenue_custom_fields",
+  },
   { query: "search the company CRM activity audit", expect: "list_activities" },
   { query: "build an outbound sequence and its steps", expect: "create_sequence" },
   { query: "view product signal firing history", expect: "list_signal_events" },

@@ -6,14 +6,19 @@ import { Deal } from "../../db/entities/Deal.js";
 import { Partnership } from "../../db/entities/Partnership.js";
 import { RevenueCustomField } from "../../db/entities/RevenueCustomField.js";
 import { RevenueCustomValue } from "../../db/entities/RevenueCustomValue.js";
-import {
-  RevenueDuplicateCandidate,
-} from "../../db/entities/RevenueDuplicateCandidate.js";
+import { RevenueDuplicateCandidate } from "../../db/entities/RevenueDuplicateCandidate.js";
 import { RevenueFieldEvidence } from "../../db/entities/RevenueFieldEvidence.js";
 import { RevenueRecordAlias } from "../../db/entities/RevenueRecordAlias.js";
 import type { MergeResourceType } from "./merge.js";
 
 type Reason = { kind: string; value?: string; score: number };
+
+type CandidatePair = {
+  type: MergeResourceType;
+  leftId: string;
+  rightId: string;
+  reasons: Reason[];
+};
 
 function normalizedName(value: string): string {
   return value
@@ -39,60 +44,26 @@ function similarity(left: string, right: string): number {
   return [...a].filter((token) => b.has(token)).length / union.size;
 }
 
-async function upsertCandidate(
-  companyId: string,
-  resourceType: MergeResourceType,
-  leftId: string,
-  rightId: string,
-  reasons: Reason[],
-): Promise<"created" | "updated" | "unchanged"> {
-  if (leftId === rightId || reasons.length === 0) return "unchanged";
-  const [sortedLeftId, sortedRightId] = [leftId, rightId].sort();
-  const repo = AppDataSource.getRepository(RevenueDuplicateCandidate);
-  const existing = await repo.findOneBy({
-    companyId,
-    resourceType,
-    leftId: sortedLeftId,
-    rightId: sortedRightId,
-  });
-  const score = Math.min(
-    100,
-    reasons.reduce((total, reason) => total + reason.score, 0),
+function candidateKey(resourceType: MergeResourceType, leftId: string, rightId: string): string {
+  const [left, right] = [leftId, rightId].sort();
+  return `${resourceType}:${left}:${right}`;
+}
+
+function canonicalReasons(reasons: Reason[]): Reason[] {
+  return [...new Map(reasons.map((reason) => [JSON.stringify(reason), reason])).values()].sort(
+    (left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)),
   );
-  if (existing) {
-    const prior = JSON.parse(existing.reasonsJson || "[]") as Reason[];
-    const merged = new Map([...prior, ...reasons].map((reason) => [JSON.stringify(reason), reason]));
-    const nextReasons = [...merged.values()];
-    const nextScore = Math.max(
-      existing.score,
-      Math.min(
-        100,
-        nextReasons.reduce((total, reason) => total + reason.score, 0),
-      ),
-    );
-    if (nextScore === existing.score && nextReasons.length === prior.length) return "unchanged";
-    existing.score = nextScore;
-    existing.reasonsJson = JSON.stringify(nextReasons);
-    if (existing.status === "dismissed") existing.status = "open";
-    await repo.save(existing);
-    return "updated";
-  }
-  await repo.save(
-    repo.create({
-      companyId,
-      resourceType,
-      leftId: sortedLeftId,
-      rightId: sortedRightId,
-      score,
-      reasonsJson: JSON.stringify(reasons),
-      status: "open",
-      mergeOperationId: null,
-      detectedAt: new Date(),
-      resolvedAt: null,
-      resolvedByUserId: null,
-    }),
-  );
-  return "created";
+}
+
+function candidateEvidence(reasons: Reason[]): { reasonsJson: string; score: number } {
+  const canonical = canonicalReasons(reasons);
+  return {
+    reasonsJson: JSON.stringify(canonical),
+    score: Math.min(
+      100,
+      canonical.reduce((total, reason) => total + reason.score, 0),
+    ),
+  };
 }
 
 async function groupPairs<T extends { id: string }>(
@@ -123,6 +94,7 @@ export async function scanRevenueDuplicates(companyId: string): Promise<{
   created: number;
   updated: number;
   unchanged: number;
+  closed: number;
   evaluatedPairs: number;
 }> {
   const [accounts, contacts, deals, partnerships, aliases, domainEvidence] = await Promise.all([
@@ -141,10 +113,18 @@ export async function scanRevenueDuplicates(companyId: string): Promise<{
       },
     }),
   ]);
-  const pairReasons = new Map<string, { type: MergeResourceType; leftId: string; rightId: string; reasons: Reason[] }>();
+  const activeIds = {
+    account: new Set(accounts.map((row) => row.id)),
+    contact: new Set(contacts.map((row) => row.id)),
+    deal: new Set(deals.map((row) => row.id)),
+    partnership: new Set(partnerships.map((row) => row.id)),
+  };
+  const pairReasons = new Map<string, CandidatePair>();
   const add = (type: MergeResourceType, leftId: string, rightId: string, reason: Reason) => {
+    if (leftId === rightId) return;
+    if (!activeIds[type].has(leftId) || !activeIds[type].has(rightId)) return;
     const [left, right] = [leftId, rightId].sort();
-    const key = `${type}:${left}:${right}`;
+    const key = candidateKey(type, left, right);
     const item = pairReasons.get(key) ?? { type, leftId: left, rightId: right, reasons: [] };
     if (!item.reasons.some((existing) => JSON.stringify(existing) === JSON.stringify(reason))) {
       item.reasons.push(reason);
@@ -156,31 +136,39 @@ export async function scanRevenueDuplicates(companyId: string): Promise<{
     accounts,
     (account) => account.domain || null,
     (domain) => ({ kind: "exact_domain", value: domain, score: 100 }),
-  )) add("account", pair.leftId, pair.rightId, pair.reason);
+  ))
+    add("account", pair.leftId, pair.rightId, pair.reason);
   for (const pair of await groupPairs(
     accounts,
     (account) => normalizedName(account.name) || null,
     (name) => ({ kind: "normalized_name", value: name, score: 60 }),
-  )) add("account", pair.leftId, pair.rightId, pair.reason);
+  ))
+    add("account", pair.leftId, pair.rightId, pair.reason);
   for (const pair of await groupPairs(
     contacts,
     (contact) => contact.email || null,
     (email) => ({ kind: "exact_email", value: email, score: 100 }),
-  )) add("contact", pair.leftId, pair.rightId, pair.reason);
+  ))
+    add("contact", pair.leftId, pair.rightId, pair.reason);
   for (const pair of await groupPairs(
     partnerships,
     (partnership) => normalizedName(partnership.name) || null,
     (name) => ({ kind: "normalized_name", value: name, score: 70 }),
-  )) add("partnership", pair.leftId, pair.rightId, pair.reason);
+  ))
+    add("partnership", pair.leftId, pair.rightId, pair.reason);
   for (const pair of await groupPairs(
     partnerships,
     (partnership) => partnership.websiteUrl.toLowerCase() || null,
     (website) => ({ kind: "exact_website", value: website, score: 100 }),
-  )) add("partnership", pair.leftId, pair.rightId, pair.reason);
+  ))
+    add("partnership", pair.leftId, pair.rightId, pair.reason);
 
   const accountDomainOwners = new Map<string, Set<string>>();
   for (const account of accounts) {
-    if (account.domain) accountDomainOwners.set(account.domain, new Set([account.id]));
+    if (!account.domain) continue;
+    const owners = accountDomainOwners.get(account.domain) ?? new Set<string>();
+    owners.add(account.id);
+    accountDomainOwners.set(account.domain, owners);
   }
   for (const alias of aliases.filter(
     (row) => row.resourceType === "account" && row.aliasType === "domain",
@@ -209,7 +197,10 @@ export async function scanRevenueDuplicates(companyId: string): Promise<{
   }
   const contactEmailOwners = new Map<string, Set<string>>();
   for (const contact of contacts) {
-    if (contact.email) contactEmailOwners.set(contact.email, new Set([contact.id]));
+    if (!contact.email) continue;
+    const owners = contactEmailOwners.get(contact.email) ?? new Set<string>();
+    owners.add(contact.id);
+    contactEmailOwners.set(contact.email, owners);
   }
   for (const alias of aliases.filter(
     (row) => row.resourceType === "contact" && row.aliasType === "email",
@@ -231,19 +222,36 @@ export async function scanRevenueDuplicates(companyId: string): Promise<{
     }
   }
 
-  const stripeField = await AppDataSource.getRepository(RevenueCustomField).findOneBy({
-    companyId,
-    resourceType: "account",
-    key: "stripe_customer_id",
+  const sourceAliases = aliases.filter((row) => row.aliasType === "source_id");
+  for (const type of ["account", "contact", "deal", "partnership"] as const) {
+    for (const pair of await groupPairs(
+      sourceAliases.filter((alias) => alias.resourceType === type),
+      (alias) => alias.normalizedValue || null,
+      (sourceId) => ({ kind: "shared_source_id", value: sourceId, score: 100 }),
+    )) {
+      const left = sourceAliases.find((alias) => alias.id === pair.leftId);
+      const right = sourceAliases.find((alias) => alias.id === pair.rightId);
+      if (left && right) add(type, left.recordId, right.recordId, pair.reason);
+    }
+  }
+
+  const identifierFields = await AppDataSource.getRepository(RevenueCustomField).find({
+    where: { companyId, resourceType: "account" },
   });
-  if (stripeField) {
+  for (const field of identifierFields.filter((candidate) =>
+    /(?:stripe|finance|billing|external|source|customer).*id/i.test(candidate.key),
+  )) {
     const values = await AppDataSource.getRepository(RevenueCustomValue).find({
-      where: { companyId, fieldId: stripeField.id },
+      where: { companyId, fieldId: field.id },
     });
     for (const pair of await groupPairs(
       values,
       (value) => value.searchValue || null,
-      (customerId) => ({ kind: "stripe_customer_id", value: customerId, score: 100 }),
+      (externalId) => ({
+        kind: `shared_${field.key}`,
+        value: externalId,
+        score: 100,
+      }),
     )) {
       const left = values.find((value) => value.id === pair.leftId);
       const right = values.find((value) => value.id === pair.rightId);
@@ -272,22 +280,67 @@ export async function scanRevenueDuplicates(companyId: string): Promise<{
     }
   }
 
-  let created = 0;
-  let updated = 0;
-  let unchanged = 0;
-  for (const pair of pairReasons.values()) {
-    const result = await upsertCandidate(
-      companyId,
-      pair.type,
-      pair.leftId,
-      pair.rightId,
-      pair.reasons,
+  const reconciliation = await AppDataSource.transaction(async (manager) => {
+    const repo = manager.getRepository(RevenueDuplicateCandidate);
+    const existing = await repo.find({ where: { companyId } });
+    const existingByKey = new Map(
+      existing.map((candidate) => [
+        candidateKey(candidate.resourceType, candidate.leftId, candidate.rightId),
+        candidate,
+      ]),
     );
-    if (result === "created") created += 1;
-    else if (result === "updated") updated += 1;
-    else unchanged += 1;
-  }
-  return { created, updated, unchanged, evaluatedPairs: pairReasons.size };
+    let created = 0;
+    let updated = 0;
+    let unchanged = 0;
+
+    for (const [key, pair] of pairReasons) {
+      const evidence = candidateEvidence(pair.reasons);
+      const candidate = existingByKey.get(key);
+      if (!candidate) {
+        await repo.save(
+          repo.create({
+            companyId,
+            resourceType: pair.type,
+            leftId: pair.leftId,
+            rightId: pair.rightId,
+            score: evidence.score,
+            reasonsJson: evidence.reasonsJson,
+            status: "open",
+            mergeOperationId: null,
+            detectedAt: new Date(),
+            resolvedAt: null,
+            resolvedByUserId: null,
+          }),
+        );
+        created += 1;
+        continue;
+      }
+      if (candidate.status === "merged") {
+        unchanged += 1;
+        continue;
+      }
+      if (candidate.score === evidence.score && candidate.reasonsJson === evidence.reasonsJson) {
+        unchanged += 1;
+        continue;
+      }
+      candidate.score = evidence.score;
+      candidate.reasonsJson = evidence.reasonsJson;
+      await repo.save(candidate);
+      updated += 1;
+    }
+
+    // There is no stale status in the existing schema. Removing only vanished
+    // open proposals keeps the live queue truthful while dismissed rows remain
+    // durable pair-level memory and merged rows remain part of the audit trail.
+    const stale = existing.filter(
+      (candidate) =>
+        candidate.status === "open" &&
+        !pairReasons.has(candidateKey(candidate.resourceType, candidate.leftId, candidate.rightId)),
+    );
+    if (stale.length > 0) await repo.remove(stale);
+    return { created, updated, unchanged, closed: stale.length };
+  });
+  return { ...reconciliation, evaluatedPairs: pairReasons.size };
 }
 
 export async function listRevenueDuplicateCandidates(

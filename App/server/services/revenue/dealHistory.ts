@@ -648,7 +648,7 @@ export async function importHistoricalDealEvents(
           );
           continue;
         }
-        if (event.kind === "lost" && !(event.lostReason?.trim() || deal.lostReason.trim())) {
+        if (event.kind === "lost" && !event.lostReason?.trim()) {
           setDecision(candidate, "rejected", "A lost event requires a lost reason");
           continue;
         }
@@ -821,7 +821,7 @@ export async function importHistoricalDealEvents(
             toOwnerEmployeeId:
               event?.toOwnerEmployeeId ??
               (candidate.kind === "created" ? deal.ownerEmployeeId : null),
-            lostReason: event?.kind === "lost" ? event.lostReason?.trim() || deal.lostReason : "",
+            lostReason: event?.kind === "lost" ? (event.lostReason?.trim() ?? "") : "",
             sourceKind: "import",
             sourceKey: candidate.sourceKey,
             sourceActivityId: null,

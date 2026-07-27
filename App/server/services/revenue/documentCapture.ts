@@ -4,22 +4,18 @@ import { AppDataSource } from "../../db/datasource.js";
 import { Company } from "../../db/entities/Company.js";
 import { Contact } from "../../db/entities/Contact.js";
 import { Deal } from "../../db/entities/Deal.js";
+import { Attachment } from "../../db/entities/Attachment.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { Partnership } from "../../db/entities/Partnership.js";
 import { PartnershipContact } from "../../db/entities/PartnershipContact.js";
-import {
-  RevenueDocument,
-  type RevenueDocumentKind,
-} from "../../db/entities/RevenueDocument.js";
+import { RevenueDocument, type RevenueDocumentKind } from "../../db/entities/RevenueDocument.js";
 import { RevenueDocumentCandidate } from "../../db/entities/RevenueDocumentCandidate.js";
+import { normalizeEmail, parseAddressList } from "../../lib/emailAddress.js";
 import { accessTokenForAccount } from "../mail/accounts.js";
-import {
-  getAttachment,
-  type ParsedAttachment,
-} from "../mail/gmailClient.js";
-import { recordAttachmentBytes } from "../uploads.js";
-import { createRevenueDocument } from "./documents.js";
+import { getAttachment, type ParsedAttachment } from "../mail/gmailClient.js";
+import { discardUnboundAttachment, recordAttachmentBytes } from "../uploads.js";
+import { assertRevenueLinks } from "./integrity.js";
 import type { RevenueOperationActor } from "./operations.js";
 
 type ResourceSuggestion = {
@@ -29,6 +25,15 @@ type ResourceSuggestion = {
   confidence: number;
   reason: string;
 };
+
+export type PublicRevenueDocumentCandidate = Omit<RevenueDocumentCandidate, "processingToken">;
+
+function publicDocumentCandidate(
+  candidate: RevenueDocumentCandidate,
+): PublicRevenueDocumentCandidate {
+  const { processingToken: _processingToken, ...publicCandidate } = candidate;
+  return publicCandidate;
+}
 
 const RELEVANT_EXTENSIONS = new Set([
   "csv",
@@ -50,13 +55,12 @@ function attachmentMetadata(message: MailMessage): ParsedAttachment[] {
   try {
     const parsed = JSON.parse(message.attachmentsJson) as unknown;
     return Array.isArray(parsed)
-      ? parsed.filter(
-          (item): item is ParsedAttachment =>
-            Boolean(
-              item &&
-                typeof item === "object" &&
-                typeof (item as ParsedAttachment).attachmentId === "string",
-            ),
+      ? parsed.filter((item): item is ParsedAttachment =>
+          Boolean(
+            item &&
+            typeof item === "object" &&
+            typeof (item as ParsedAttachment).attachmentId === "string",
+          ),
         )
       : [];
   } catch {
@@ -80,14 +84,13 @@ function classify(filename: string, subject: string): RevenueDocumentKind | null
 }
 
 function participantEmails(message: MailMessage): string[] {
+  const from = normalizeEmail(message.fromEmail);
   return [
-    message.fromEmail,
-    ...message.toEmails.split(","),
-    ...message.ccEmails.split(","),
-    ...message.bccEmails.split(","),
-  ]
-    .map((email) => email.trim().toLowerCase())
-    .filter((email) => email.includes("@"));
+    ...(from ? [from] : []),
+    ...parseAddressList(message.toEmails).addresses,
+    ...parseAddressList(message.ccEmails).addresses,
+    ...parseAddressList(message.bccEmails).addresses,
+  ].filter((email, index, all) => all.indexOf(email) === index);
 }
 
 async function suggestionsForMessage(
@@ -109,7 +112,9 @@ async function suggestionsForMessage(
   }));
   const contactIds = contacts.map((contact) => contact.id);
   const accountIds = [
-    ...new Set(contacts.map((contact) => contact.customerId).filter((id): id is string => Boolean(id))),
+    ...new Set(
+      contacts.map((contact) => contact.customerId).filter((id): id is string => Boolean(id)),
+    ),
   ];
   for (const contact of contacts) {
     if (contact.customerId) {
@@ -137,15 +142,32 @@ async function suggestionsForMessage(
     } else {
       dealQb.andWhere("deal.customerId IN (:...accountIds)", { accountIds });
     }
-    const deals = await dealQb.orderBy("deal.updatedAt", "DESC").take(20).getMany();
+    const deals = await dealQb
+      .orderBy("CASE WHEN deal.status = 'open' THEN 0 ELSE 1 END", "ASC")
+      .addOrderBy("deal.updatedAt", "DESC")
+      .take(20)
+      .getMany();
     for (const deal of deals) {
       const titleMatch = message.subject.toLowerCase().includes(deal.title.toLowerCase());
+      const isOpen = deal.status === "open";
       suggestions.push({
         resourceType: "deal",
         resourceId: deal.id,
         label: deal.title,
-        confidence: titleMatch ? 95 : deals.length === 1 ? 88 : deal.status === "open" ? 75 : 55,
-        reason: titleMatch ? "Deal title appears in the subject" : "Deal matches a message participant",
+        confidence: titleMatch
+          ? isOpen
+            ? 95
+            : 70
+          : deals.length === 1
+            ? isOpen
+              ? 88
+              : 55
+            : isOpen
+              ? 75
+              : 55,
+        reason: titleMatch
+          ? "Deal title appears in the subject"
+          : "Deal matches a message participant",
       });
     }
   }
@@ -162,7 +184,9 @@ async function suggestionsForMessage(
           },
         })
       : [];
-    const partnershipById = new Map(partnerships.map((partnership) => [partnership.id, partnership]));
+    const partnershipById = new Map(
+      partnerships.map((partnership) => [partnership.id, partnership]),
+    );
     for (const link of partnerLinks) {
       const partnership = partnershipById.get(link.partnershipId);
       if (!partnership) continue;
@@ -199,33 +223,66 @@ export async function createRevenueDocumentCandidatesForMessage(
       skipped += 1;
       continue;
     }
-    const existing = await candidateRepo.findOneBy({
+    const source = {
       companyId,
-      mailMessageId: message.id,
-      attachmentIndex,
+      gmailMessageId: message.gmailMessageId,
+      gmailAttachmentId: attachment.attachmentId,
+    };
+    const existing = await candidateRepo.findOne({
+      where: [
+        source,
+        {
+          companyId,
+          mailMessageId: message.id,
+          attachmentIndex,
+        },
+      ],
     });
     if (existing) continue;
-    await candidateRepo.save(
-      candidateRepo.create({
-        companyId,
-        mailMessageId: message.id,
-        attachmentIndex,
-        filename: attachment.filename,
-        mimeType: attachment.mimeType,
-        sizeBytes: attachment.size,
-        contentHash: "",
-        proposedKind: kind,
-        proposedResourceType: best?.resourceType ?? null,
-        proposedResourceId: best?.resourceId ?? null,
-        confidence: best?.confidence ?? 20,
-        alternativesJson: JSON.stringify(suggestions),
-        status: "pending",
-        revenueDocumentId: null,
-        reviewNote: "",
-        reviewedAt: null,
-        reviewedByUserId: null,
-      }),
-    );
+    try {
+      await candidateRepo.insert(
+        candidateRepo.create({
+          companyId,
+          mailMessageId: message.id,
+          attachmentIndex,
+          gmailMessageId: message.gmailMessageId,
+          gmailThreadId: message.gmailThreadId,
+          gmailAttachmentId: attachment.attachmentId,
+          filename: attachment.filename,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.size,
+          contentHash: "",
+          proposedKind: kind,
+          proposedResourceType: best?.resourceType ?? null,
+          proposedResourceId: best?.resourceId ?? null,
+          confidence: best?.confidence ?? 20,
+          alternativesJson: JSON.stringify(suggestions),
+          status: "pending",
+          processingAt: null,
+          processingToken: null,
+          revenueDocumentId: null,
+          reviewNote: "",
+          reviewedAt: null,
+          reviewedByUserId: null,
+        }),
+      );
+    } catch (error) {
+      // A mailbox sync and a manual backfill can enqueue the same immutable
+      // Gmail attachment concurrently. The database is the arbiter; only
+      // suppress the error when the winning row is now visible.
+      const winner = await candidateRepo.findOne({
+        where: [
+          source,
+          {
+            companyId,
+            mailMessageId: message.id,
+            attachmentIndex,
+          },
+        ],
+      });
+      if (winner) continue;
+      throw error;
+    }
     created += 1;
   }
   return { created, skipped };
@@ -280,21 +337,161 @@ export async function listRevenueDocumentCandidates(
   companyId: string,
   opts: {
     status?: RevenueDocumentCandidate["status"];
+    accountId?: string;
     limit?: number;
     offset?: number;
   } = {},
-): Promise<{ rows: RevenueDocumentCandidate[]; total: number }> {
+): Promise<{ rows: PublicRevenueDocumentCandidate[]; total: number }> {
   const qb = AppDataSource.getRepository(RevenueDocumentCandidate)
     .createQueryBuilder("candidate")
     .where("candidate.companyId = :companyId", { companyId });
   if (opts.status) qb.andWhere("candidate.status = :status", { status: opts.status });
+  if (opts.accountId) {
+    qb.innerJoin(
+      MailMessage,
+      "sourceMessage",
+      "sourceMessage.id = candidate.mailMessageId AND sourceMessage.companyId = candidate.companyId",
+    ).andWhere("sourceMessage.accountId = :accountId", { accountId: opts.accountId });
+  }
   const total = await qb.clone().getCount();
   const rows = await qb
     .orderBy("candidate.createdAt", "DESC")
     .skip(Math.max(opts.offset ?? 0, 0))
     .take(Math.min(Math.max(opts.limit ?? 100, 1), 500))
     .getMany();
-  return { rows, total };
+  return { rows: rows.map(publicDocumentCandidate), total };
+}
+
+const DOCUMENT_REVIEW_LEASE_MS = 15 * 60 * 1000;
+
+async function claimDocumentCandidate(
+  companyId: string,
+  id: string,
+): Promise<{ candidate: RevenueDocumentCandidate; token: string }> {
+  const repo = AppDataSource.getRepository(RevenueDocumentCandidate);
+  const token = crypto.randomUUID();
+  const now = new Date();
+  const staleBefore = new Date(now.getTime() - DOCUMENT_REVIEW_LEASE_MS);
+  const claimed = await repo
+    .createQueryBuilder()
+    .update(RevenueDocumentCandidate)
+    .set({
+      status: "processing",
+      processingAt: now,
+      processingToken: token,
+    })
+    .where("companyId = :companyId", { companyId })
+    .andWhere("id = :id", { id })
+    .andWhere(
+      "(status = :pending OR (status = :processing AND (processingAt IS NULL OR processingAt <= :staleBefore)))",
+      {
+        pending: "pending",
+        processing: "processing",
+        staleBefore,
+      },
+    )
+    .execute();
+  if (claimed.affected !== 1) {
+    const current = await repo.findOneBy({ companyId, id });
+    if (!current) throw new Error("Document candidate not found");
+    if (current.status === "processing") {
+      throw new Error("Document candidate is currently being reviewed");
+    }
+    throw new Error("Document candidate was already reviewed");
+  }
+  return {
+    candidate: await repo.findOneByOrFail({
+      companyId,
+      id,
+      status: "processing",
+      processingToken: token,
+    }),
+    token,
+  };
+}
+
+async function releaseDocumentCandidateClaim(
+  companyId: string,
+  id: string,
+  token: string,
+): Promise<void> {
+  await AppDataSource.getRepository(RevenueDocumentCandidate).update(
+    {
+      companyId,
+      id,
+      status: "processing",
+      processingToken: token,
+    },
+    {
+      status: "pending",
+      processingAt: null,
+      processingToken: null,
+    },
+  );
+}
+
+async function finishDocumentCandidate(
+  companyId: string,
+  id: string,
+  token: string,
+  patch: Pick<
+    RevenueDocumentCandidate,
+    | "status"
+    | "contentHash"
+    | "revenueDocumentId"
+    | "reviewNote"
+    | "reviewedAt"
+    | "reviewedByUserId"
+  >,
+): Promise<PublicRevenueDocumentCandidate> {
+  const repo = AppDataSource.getRepository(RevenueDocumentCandidate);
+  const result = await repo.update(
+    {
+      companyId,
+      id,
+      status: "processing",
+      processingToken: token,
+    },
+    {
+      ...patch,
+      processingAt: null,
+      processingToken: null,
+    },
+  );
+  if (result.affected !== 1) {
+    throw new Error("Document candidate review lease was lost");
+  }
+  return publicDocumentCandidate(await repo.findOneByOrFail({ companyId, id }));
+}
+
+type DocumentCaptureReviewDependencies = {
+  fetchAttachmentBytes?: () => Promise<Buffer>;
+  recordAttachmentBytes?: typeof recordAttachmentBytes;
+};
+
+async function findCapturedDocument(
+  companyId: string,
+  source: {
+    gmailMessageId: string;
+    gmailAttachmentId: string;
+    contentHash?: string;
+  },
+): Promise<RevenueDocument | null> {
+  const qb = AppDataSource.getRepository(RevenueDocument)
+    .createQueryBuilder("document")
+    .where("document.companyId = :companyId", { companyId });
+  if (source.contentHash) {
+    qb.andWhere(
+      "((document.sourceGmailMessageId = :gmailMessageId AND document.sourceGmailAttachmentId = :gmailAttachmentId) OR document.sourceAttachmentHash = :contentHash)",
+      source,
+    );
+  } else {
+    qb.andWhere(
+      "document.sourceGmailMessageId = :gmailMessageId AND document.sourceGmailAttachmentId = :gmailAttachmentId",
+      source,
+    );
+  }
+  return qb.orderBy("document.createdAt", "ASC").getOne();
 }
 
 export async function reviewRevenueDocumentCandidate(
@@ -310,89 +507,189 @@ export async function reviewRevenueDocumentCandidate(
         note?: string;
       },
   actor: RevenueOperationActor,
-): Promise<RevenueDocumentCandidate> {
-  const repo = AppDataSource.getRepository(RevenueDocumentCandidate);
-  const candidate = await repo.findOneBy({ companyId, id });
-  if (!candidate) throw new Error("Document candidate not found");
-  if (candidate.status !== "pending") throw new Error("Document candidate was already reviewed");
-  if (input.decision === "reject") {
-    candidate.status = "rejected";
-    candidate.reviewNote = input.note ?? "";
-    candidate.reviewedAt = new Date();
-    candidate.reviewedByUserId = actor.userId ?? null;
-    return repo.save(candidate);
+  dependencies: DocumentCaptureReviewDependencies = {},
+): Promise<PublicRevenueDocumentCandidate> {
+  const { candidate, token: claimToken } = await claimDocumentCandidate(companyId, id);
+  let attachment: Attachment | null = null;
+  let company: Company | null = null;
+  try {
+    if (input.decision === "reject") {
+      return await finishDocumentCandidate(companyId, id, claimToken, {
+        status: "rejected",
+        contentHash: candidate.contentHash,
+        revenueDocumentId: null,
+        reviewNote: input.note ?? "",
+        reviewedAt: new Date(),
+        reviewedByUserId: actor.userId ?? null,
+      });
+    }
+
+    const resourceType = input.resourceType ?? candidate.proposedResourceType;
+    const resourceId = input.resourceId ?? candidate.proposedResourceId;
+    if (!resourceType || !resourceId) {
+      throw new Error("Choose the Revenue record for this document");
+    }
+    if (candidate.confidence < 80 && (!input.resourceType || !input.resourceId)) {
+      throw new Error("This link is ambiguous; choose the Revenue record explicitly");
+    }
+    const links = {
+      dealId: resourceType === "deal" ? resourceId : null,
+      customerId: resourceType === "account" ? resourceId : null,
+      partnershipId: resourceType === "partnership" ? resourceId : null,
+      contactId: resourceType === "contact" ? resourceId : null,
+    };
+    await assertRevenueLinks(companyId, links, { requireOne: true });
+
+    const message = await AppDataSource.getRepository(MailMessage).findOneBy({
+      companyId,
+      id: candidate.mailMessageId,
+    });
+    if (!message) throw new Error("Source mail message no longer exists");
+    const metadata = attachmentMetadata(message)[candidate.attachmentIndex];
+    if (!metadata) throw new Error("Source attachment no longer exists on the message");
+
+    const source = {
+      gmailMessageId: candidate.gmailMessageId || message.gmailMessageId,
+      gmailAttachmentId: candidate.gmailAttachmentId || metadata.attachmentId,
+    };
+    const sourceWinner = await findCapturedDocument(companyId, source);
+    if (sourceWinner) {
+      return await finishDocumentCandidate(companyId, id, claimToken, {
+        status: "duplicate",
+        contentHash: candidate.contentHash,
+        revenueDocumentId: sourceWinner.id,
+        reviewNote: input.note ?? "Duplicate Gmail attachment",
+        reviewedAt: new Date(),
+        reviewedByUserId: actor.userId ?? null,
+      });
+    }
+
+    let bytes: Buffer;
+    if (dependencies.fetchAttachmentBytes) {
+      bytes = await dependencies.fetchAttachmentBytes();
+    } else {
+      const mailAccount = await AppDataSource.getRepository(MailAccount).findOneBy({
+        companyId,
+        id: message.accountId,
+      });
+      if (!mailAccount) throw new Error("Source mailbox no longer exists");
+      const accessToken = await accessTokenForAccount(mailAccount);
+      const payload = await getAttachment(
+        accessToken,
+        message.gmailMessageId,
+        metadata.attachmentId,
+      );
+      if (!payload.data) throw new Error("Gmail returned an empty attachment");
+      bytes = Buffer.from(payload.data.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+    }
+    if (bytes.length === 0) throw new Error("Gmail returned an empty attachment");
+    const contentHash = crypto.createHash("sha256").update(bytes).digest("hex");
+    const contentWinner = await findCapturedDocument(companyId, {
+      ...source,
+      contentHash,
+    });
+    if (contentWinner) {
+      return await finishDocumentCandidate(companyId, id, claimToken, {
+        status: "duplicate",
+        contentHash,
+        revenueDocumentId: contentWinner.id,
+        reviewNote: input.note ?? "Duplicate file hash",
+        reviewedAt: new Date(),
+        reviewedByUserId: actor.userId ?? null,
+      });
+    }
+
+    company = await AppDataSource.getRepository(Company).findOneBy({ id: companyId });
+    if (!company) throw new Error("Company not found");
+    attachment = await (dependencies.recordAttachmentBytes ?? recordAttachmentBytes)({
+      companyId,
+      companySlug: company.slug,
+      filename: candidate.filename,
+      mimeType: candidate.mimeType,
+      bytes,
+      uploadedByUserId: actor.userId ?? null,
+    });
+
+    try {
+      return await AppDataSource.transaction(async (manager) => {
+        const document = await manager.getRepository(RevenueDocument).save(
+          manager.getRepository(RevenueDocument).create({
+            companyId,
+            kind: input.kind ?? (candidate.proposedKind as RevenueDocumentKind),
+            title: candidate.filename,
+            notes: input.note ?? `Captured from mail: ${message.subject}`,
+            attachmentId: attachment!.id,
+            sourceMailMessageId: message.id,
+            sourceGmailMessageId: source.gmailMessageId,
+            sourceGmailThreadId: candidate.gmailThreadId || message.gmailThreadId,
+            sourceGmailAttachmentId: source.gmailAttachmentId,
+            sourceAttachmentIndex: candidate.attachmentIndex,
+            sourceAttachmentHash: contentHash,
+            captureDedupeHash: contentHash,
+            externalUrl: "",
+            createdByUserId: actor.userId ?? null,
+            createdByEmployeeId: actor.employeeId ?? null,
+            ...links,
+          }),
+        );
+        const finalized = await manager.getRepository(RevenueDocumentCandidate).update(
+          {
+            companyId,
+            id,
+            status: "processing",
+            processingToken: claimToken,
+          },
+          {
+            status: "accepted",
+            processingAt: null,
+            processingToken: null,
+            contentHash,
+            revenueDocumentId: document.id,
+            reviewNote: input.note ?? "",
+            reviewedAt: new Date(),
+            reviewedByUserId: actor.userId ?? null,
+          },
+        );
+        if (finalized.affected !== 1) {
+          throw new Error("Document candidate review lease was lost");
+        }
+        return publicDocumentCandidate(
+          await manager.getRepository(RevenueDocumentCandidate).findOneByOrFail({
+            companyId,
+            id,
+          }),
+        );
+      });
+    } catch (error) {
+      const winner = await findCapturedDocument(companyId, {
+        ...source,
+        contentHash,
+      });
+      if (!winner) throw error;
+      await discardUnboundAttachment({
+        attachmentId: attachment.id,
+        companyId,
+        companySlug: company.slug,
+      });
+      attachment = null;
+      return await finishDocumentCandidate(companyId, id, claimToken, {
+        status: "duplicate",
+        contentHash,
+        revenueDocumentId: winner.id,
+        reviewNote: input.note ?? "Duplicate attachment captured concurrently",
+        reviewedAt: new Date(),
+        reviewedByUserId: actor.userId ?? null,
+      });
+    }
+  } catch (error) {
+    if (attachment && company) {
+      await discardUnboundAttachment({
+        attachmentId: attachment.id,
+        companyId,
+        companySlug: company.slug,
+      }).catch(() => undefined);
+    }
+    await releaseDocumentCandidateClaim(companyId, id, claimToken).catch(() => undefined);
+    throw error;
   }
-  const resourceType = input.resourceType ?? candidate.proposedResourceType;
-  const resourceId = input.resourceId ?? candidate.proposedResourceId;
-  if (!resourceType || !resourceId) throw new Error("Choose the Revenue record for this document");
-  if (candidate.confidence < 80 && (!input.resourceType || !input.resourceId)) {
-    throw new Error("This link is ambiguous; choose the Revenue record explicitly");
-  }
-  const message = await AppDataSource.getRepository(MailMessage).findOneBy({
-    companyId,
-    id: candidate.mailMessageId,
-  });
-  if (!message) throw new Error("Source mail message no longer exists");
-  const metadata = attachmentMetadata(message)[candidate.attachmentIndex];
-  if (!metadata) throw new Error("Source attachment no longer exists on the message");
-  const mailAccount = await AppDataSource.getRepository(MailAccount).findOneBy({
-    companyId,
-    id: message.accountId,
-  });
-  if (!mailAccount) throw new Error("Source mailbox no longer exists");
-  const token = await accessTokenForAccount(mailAccount);
-  const payload = await getAttachment(token, message.gmailMessageId, metadata.attachmentId);
-  if (!payload.data) throw new Error("Gmail returned an empty attachment");
-  const bytes = Buffer.from(payload.data.replace(/-/g, "+").replace(/_/g, "/"), "base64");
-  const contentHash = crypto.createHash("sha256").update(bytes).digest("hex");
-  const existingDocument = await AppDataSource.getRepository(RevenueDocument).findOneBy({
-    companyId,
-    sourceAttachmentHash: contentHash,
-  });
-  if (existingDocument) {
-    candidate.status = "duplicate";
-    candidate.contentHash = contentHash;
-    candidate.revenueDocumentId = existingDocument.id;
-    candidate.reviewNote = input.note ?? "Duplicate file hash";
-    candidate.reviewedAt = new Date();
-    candidate.reviewedByUserId = actor.userId ?? null;
-    return repo.save(candidate);
-  }
-  const company = await AppDataSource.getRepository(Company).findOneBy({ id: companyId });
-  if (!company) throw new Error("Company not found");
-  const attachment = await recordAttachmentBytes({
-    companyId,
-    companySlug: company.slug,
-    filename: candidate.filename,
-    mimeType: candidate.mimeType,
-    bytes,
-    uploadedByUserId: actor.userId ?? null,
-  });
-  const links = {
-    dealId: resourceType === "deal" ? resourceId : null,
-    customerId: resourceType === "account" ? resourceId : null,
-    partnershipId: resourceType === "partnership" ? resourceId : null,
-    contactId: resourceType === "contact" ? resourceId : null,
-  };
-  const document = await createRevenueDocument(
-    companyId,
-    {
-      kind: input.kind ?? (candidate.proposedKind as RevenueDocumentKind),
-      title: candidate.filename,
-      notes: input.note ?? `Captured from mail: ${message.subject}`,
-      attachmentId: attachment.id,
-      sourceMailMessageId: message.id,
-      sourceAttachmentIndex: candidate.attachmentIndex,
-      sourceAttachmentHash: contentHash,
-      ...links,
-    },
-    actor,
-  );
-  candidate.status = "accepted";
-  candidate.contentHash = contentHash;
-  candidate.revenueDocumentId = document.id;
-  candidate.reviewNote = input.note ?? "";
-  candidate.reviewedAt = new Date();
-  candidate.reviewedByUserId = actor.userId ?? null;
-  return repo.save(candidate);
 }

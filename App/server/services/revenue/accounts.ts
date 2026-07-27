@@ -10,6 +10,8 @@ import { assertRevenueOwner } from "./integrity.js";
 import {
   mergeRevenueRecords,
   previewRevenueMerge,
+  type MergeConflictResolutions,
+  type MergeCustomFieldConflict,
   type MergeFieldConflict,
   type RevenueMergePreview,
 } from "./merge.js";
@@ -53,6 +55,7 @@ export type AccountMergePreview = {
   target: Pick<Customer, "id" | "name" | "slug" | "archivedAt">;
   counts: AccountMergeCounts;
   fieldConflicts?: MergeFieldConflict[];
+  customFieldConflicts?: MergeCustomFieldConflict[];
   operationId?: string;
 };
 
@@ -313,6 +316,7 @@ async function accountMergePreview(
       customValueConflicts: preview.customValueConflicts,
     },
     fieldConflicts: preview.fieldConflicts,
+    customFieldConflicts: preview.customFieldConflicts,
     operationId: preview.operationId,
   };
 }
@@ -321,16 +325,17 @@ export async function previewRevenueAccountMerge(
   companyId: string,
   sourceId: string,
   targetId: string,
+  resolutions: MergeConflictResolutions = {},
 ): Promise<AccountMergePreview> {
-  const preview = await previewRevenueMerge(companyId, "account", sourceId, targetId);
+  const preview = await previewRevenueMerge(companyId, "account", sourceId, targetId, resolutions);
   return accountMergePreview(companyId, sourceId, targetId, preview);
 }
 
 /**
  * Consolidate every Account reference into one destination without deleting
- * the source row. Existing destination fields and custom values win; missing
- * custom values move across. Document numbers and slugs remain unchanged, so
- * issued finance history keeps its immutable public identity.
+ * the source row. Each conflict uses the operator's source/target choice;
+ * missing custom values move across. Document numbers and slugs remain
+ * unchanged, so issued finance history keeps its immutable public identity.
  */
 export async function mergeRevenueAccounts(
   companyId: string,
@@ -338,6 +343,7 @@ export async function mergeRevenueAccounts(
   targetId: string,
   confirmSourceName: string,
   actor: RevenueOperationActor = {},
+  resolutions: MergeConflictResolutions = {},
 ): Promise<AccountMergePreview> {
   const preview = await mergeRevenueRecords(
     companyId,
@@ -346,6 +352,7 @@ export async function mergeRevenueAccounts(
     targetId,
     confirmSourceName,
     actor,
+    resolutions,
   );
   return accountMergePreview(companyId, sourceId, targetId, preview);
 }

@@ -1,8 +1,18 @@
 import React from "react";
 import { Link, useOutletContext } from "react-router-dom";
-import { Bot, CalendarCheck, Check, Clock3, Plus, User, X } from "lucide-react";
+import {
+  BookmarkPlus,
+  Bot,
+  CalendarCheck,
+  Check,
+  Clock3,
+  Plus,
+  Trash2,
+  User,
+  X,
+} from "lucide-react";
 import { api, type Employee, type Member } from "../lib/api";
-import type { FollowUpItem } from "../lib/revenue";
+import type { FollowUpItem, FollowUpView, FollowUpViewFilters } from "../lib/revenue";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -28,6 +38,14 @@ function localDateTime(iso: string): string {
   });
 }
 
+function localInputValue(iso: string | undefined): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
 function itemUrl(companySlug: string, item: FollowUpItem): string | null {
   if (item.dealId) return `/c/${companySlug}/revenue/deals/${item.dealId}`;
   if (item.partnershipId) {
@@ -43,6 +61,7 @@ export default function RevenueFollowUps() {
   const base = `/api/companies/${company.id}/revenue`;
   const sectionUrl = `/c/${company.slug}/revenue`;
   const [state, setState] = React.useState<QueueState>("all");
+  const [q, setQ] = React.useState("");
   const [source, setSource] = React.useState("");
   const [assignee, setAssignee] = React.useState("");
   const [priorityFilter, setPriorityFilter] = React.useState("");
@@ -52,17 +71,36 @@ export default function RevenueFollowUps() {
   const [linkedId, setLinkedId] = React.useState("");
   const [dueFrom, setDueFrom] = React.useState("");
   const [dueTo, setDueTo] = React.useState("");
+  const [reminderFrom, setReminderFrom] = React.useState("");
+  const [reminderTo, setReminderTo] = React.useState("");
+  const [overdueMinDays, setOverdueMinDays] = React.useState("");
+  const [overdueMaxDays, setOverdueMaxDays] = React.useState("");
   const [staleBefore, setStaleBefore] = React.useState("");
   const [createdBefore, setCreatedBefore] = React.useState("");
   const [dealStatus, setDealStatus] = React.useState("");
   const [dealStageId, setDealStageId] = React.useState("");
+  const [accountStatus, setAccountStatus] = React.useState("");
+  const [archivedResources, setArchivedResources] = React.useState("exclude");
+  const [views, setViews] = React.useState<FollowUpView[]>([]);
+  const [selectedViewId, setSelectedViewId] = React.useState("");
+  const [viewName, setViewName] = React.useState("");
+  const [nextCursor, setNextCursor] = React.useState<string | null>(null);
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [bulkAction, setBulkAction] = React.useState("complete");
+  const [bulkMode, setBulkMode] = React.useState<"atomic" | "partial">("partial");
   const [bulkValue, setBulkValue] = React.useState("");
   const [bulkPreview, setBulkPreview] = React.useState<{
     matched: number;
     valid: number;
     skipped: number;
+    failed: number;
+  } | null>(null);
+  const [bulkJob, setBulkJob] = React.useState<{
+    id: string;
+    status: string;
+    processed: number;
+    total: number;
+    applied: number;
     failed: number;
   } | null>(null);
   const [rows, setRows] = React.useState<FollowUpItem[] | null>(null);
@@ -71,36 +109,45 @@ export default function RevenueFollowUps() {
   const [members, setMembers] = React.useState<Member[]>([]);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
 
-  const reload = React.useCallback(async () => {
-    const params = new URLSearchParams({ state, limit: "500" });
-    if (source) params.set("source", source);
-    if (assignee === "unassigned") params.set("unassigned", "true");
-    else if (assignee.startsWith("user:")) params.set("assignedUserId", assignee.slice(5));
+  const currentFilters = React.useCallback((): FollowUpViewFilters => {
+    const filters: FollowUpViewFilters = {
+      state,
+      status: statusFilter as FollowUpViewFilters["status"],
+      closedDeals: closedDeals as FollowUpViewFilters["closedDeals"],
+      archivedResources: archivedResources as FollowUpViewFilters["archivedResources"],
+    };
+    if (q) filters.q = q;
+    if (source) filters.source = source as FollowUpViewFilters["source"];
+    if (assignee === "unassigned") filters.unassigned = true;
+    else if (assignee.startsWith("user:")) filters.assignedUserId = assignee.slice(5);
     else if (assignee.startsWith("employee:")) {
-      params.set("assignedEmployeeId", assignee.slice(9));
+      filters.assignedEmployeeId = assignee.slice(9);
     }
-    if (priorityFilter) params.set("priority", priorityFilter);
-    if (statusFilter) params.set("status", statusFilter);
-    if (closedDeals) params.set("closedDeals", closedDeals);
+    if (priorityFilter) {
+      filters.priority = priorityFilter as FollowUpViewFilters["priority"];
+    }
     if (linkedType && linkedId) {
-      params.set("linkedResourceType", linkedType);
-      params.set("linkedResourceId", linkedId);
+      filters.linkedResourceType = linkedType as FollowUpViewFilters["linkedResourceType"];
+      filters.linkedResourceId = linkedId;
     }
-    if (dueFrom) params.set("dueFrom", new Date(dueFrom).toISOString());
-    if (dueTo) params.set("dueTo", new Date(dueTo).toISOString());
-    if (staleBefore) params.set("staleBefore", new Date(staleBefore).toISOString());
-    if (createdBefore) params.set("createdBefore", new Date(createdBefore).toISOString());
-    if (dealStatus) params.set("dealStatus", dealStatus);
-    if (dealStageId) params.set("dealStageId", dealStageId);
-    const result = await api.get<{ rows: FollowUpItem[] }>(
-      `${base}/follow-ups?${params.toString()}`,
-    );
-    setRows(result.rows);
-    setSelected(new Set());
-    setLoadError(null);
+    if (dueFrom) filters.dueFrom = new Date(dueFrom).toISOString();
+    if (dueTo) filters.dueTo = new Date(dueTo).toISOString();
+    if (reminderFrom) filters.reminderFrom = new Date(reminderFrom).toISOString();
+    if (reminderTo) filters.reminderTo = new Date(reminderTo).toISOString();
+    if (overdueMinDays) filters.overdueMinDays = Number(overdueMinDays);
+    if (overdueMaxDays) filters.overdueMaxDays = Number(overdueMaxDays);
+    if (staleBefore) filters.staleBefore = new Date(staleBefore).toISOString();
+    if (createdBefore) filters.createdBefore = new Date(createdBefore).toISOString();
+    if (dealStatus) filters.dealStatus = dealStatus as FollowUpViewFilters["dealStatus"];
+    if (dealStageId) filters.dealStageId = dealStageId;
+    if (accountStatus) {
+      filters.accountStatus = accountStatus as FollowUpViewFilters["accountStatus"];
+    }
+    return filters;
   }, [
+    accountStatus,
+    archivedResources,
     assignee,
-    base,
     closedDeals,
     createdBefore,
     dealStageId,
@@ -109,12 +156,38 @@ export default function RevenueFollowUps() {
     dueTo,
     linkedId,
     linkedType,
+    overdueMaxDays,
+    overdueMinDays,
     priorityFilter,
+    q,
+    reminderFrom,
+    reminderTo,
     source,
     staleBefore,
     state,
     statusFilter,
   ]);
+
+  const loadPage = React.useCallback(
+    async (cursor?: string, append = false) => {
+      const params = new URLSearchParams({ limit: "100" });
+      const filters = currentFilters();
+      for (const [key, value] of Object.entries(filters)) {
+        if (value !== undefined) params.set(key, String(value));
+      }
+      if (cursor) params.set("cursor", cursor);
+      const result = await api.get<{ rows: FollowUpItem[]; nextCursor: string | null }>(
+        `${base}/follow-ups?${params.toString()}`,
+      );
+      setRows((current) => (append ? [...(current ?? []), ...result.rows] : result.rows));
+      setNextCursor(result.nextCursor);
+      setSelected(new Set());
+      setLoadError(null);
+    },
+    [base, currentFilters],
+  );
+
+  const reload = React.useCallback(() => loadPage(), [loadPage]);
 
   React.useEffect(() => {
     reload().catch((error) => {
@@ -127,11 +200,76 @@ export default function RevenueFollowUps() {
     void Promise.all([
       api.get<Member[]>(`/api/companies/${company.id}/members`).catch(() => []),
       api.get<Employee[]>(`/api/companies/${company.id}/employees`).catch(() => []),
-    ]).then(([memberRows, employeeRows]) => {
+      api.get<FollowUpView[]>(`${base}/follow-up-views`).catch(() => []),
+    ]).then(([memberRows, employeeRows, savedViews]) => {
       setMembers(memberRows);
       setEmployees(employeeRows);
+      setViews(savedViews);
     });
-  }, [company.id]);
+  }, [base, company.id]);
+
+  function applyView(view: FollowUpView) {
+    const filters = view.filters;
+    setState(filters.state ?? "all");
+    setQ(filters.q ?? "");
+    setSource(filters.source ?? "");
+    setAssignee(
+      filters.unassigned
+        ? "unassigned"
+        : filters.assignedUserId
+          ? `user:${filters.assignedUserId}`
+          : filters.assignedEmployeeId
+            ? `employee:${filters.assignedEmployeeId}`
+            : "",
+    );
+    setPriorityFilter(filters.priority ?? "");
+    setStatusFilter(filters.status ?? "open");
+    setClosedDeals(filters.closedDeals ?? "exclude");
+    setArchivedResources(filters.archivedResources ?? "exclude");
+    setLinkedType(filters.linkedResourceType ?? "");
+    setLinkedId(filters.linkedResourceId ?? "");
+    setDueFrom(localInputValue(filters.dueFrom));
+    setDueTo(localInputValue(filters.dueTo));
+    setReminderFrom(localInputValue(filters.reminderFrom));
+    setReminderTo(localInputValue(filters.reminderTo));
+    setOverdueMinDays(filters.overdueMinDays?.toString() ?? "");
+    setOverdueMaxDays(filters.overdueMaxDays?.toString() ?? "");
+    setStaleBefore(localInputValue(filters.staleBefore));
+    setCreatedBefore(localInputValue(filters.createdBefore));
+    setDealStatus(filters.dealStatus ?? "");
+    setDealStageId(filters.dealStageId ?? "");
+    setAccountStatus(filters.accountStatus ?? "");
+    setSelectedViewId(view.id);
+  }
+
+  async function saveView() {
+    if (!viewName.trim()) return;
+    try {
+      const view = await api.post<FollowUpView>(`${base}/follow-up-views`, {
+        name: viewName.trim(),
+        filters: currentFilters(),
+        sortOrder: views.length,
+      });
+      setViews((current) => [...current, view]);
+      setSelectedViewId(view.id);
+      setViewName("");
+      toast("Follow-up view saved", "success");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : String(error), "error");
+    }
+  }
+
+  async function deleteSelectedView() {
+    if (!selectedViewId) return;
+    try {
+      await api.del(`${base}/follow-up-views/${selectedViewId}`);
+      setViews((current) => current.filter((view) => view.id !== selectedViewId));
+      setSelectedViewId("");
+      toast("Follow-up view deleted", "success");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : String(error), "error");
+    }
+  }
 
   useLiveRefetch(["activity", "deal", "partnership"], reload);
 
@@ -140,7 +278,10 @@ export default function RevenueFollowUps() {
     try {
       await api.patch(`${base}/follow-ups/${item.id}`, { taskStatus: "completed" });
       setRows((current) => current?.filter((row) => row.id !== item.id) ?? current);
-      toast(item.recurrenceRule ? "Completed and scheduled the next follow-up" : "Follow-up completed", "success");
+      toast(
+        item.recurrenceRule ? "Completed and scheduled the next follow-up" : "Follow-up completed",
+        "success",
+      );
     } catch (error) {
       toast(error instanceof Error ? error.message : String(error), "error");
     }
@@ -176,18 +317,10 @@ export default function RevenueFollowUps() {
             : {
                 type: "update_follow_up",
                 assignedUserId: bulkValue.startsWith("user:") ? bulkValue.slice(5) : null,
-                assignedEmployeeId: bulkValue.startsWith("employee:")
-                  ? bulkValue.slice(9)
-                  : null,
+                assignedEmployeeId: bulkValue.startsWith("employee:") ? bulkValue.slice(9) : null,
               };
     try {
-      const result = await api.post<{
-        matched: number;
-        valid: number;
-        applied: number;
-        skipped: number;
-        failed: number;
-      }>(`${base}/bulk`, {
+      const request = {
         resourceType: "follow_up",
         target: {
           followUpIds: [...selected].map((key) => {
@@ -196,20 +329,88 @@ export default function RevenueFollowUps() {
           }),
         },
         action,
-        dryRun,
-        ...(dryRun ? {} : { idempotencyKey: crypto.randomUUID() }),
-      });
-      if (dryRun) {
-        setBulkPreview(result);
-        toast(
-          `Previewed ${result.matched} follow-ups; ${result.failed} failed validation.`,
-          result.failed ? "error" : "success",
-        );
-      } else {
-        toast(`Updated ${result.applied} follow-ups; ${result.failed} failed.`, "success");
-        setBulkPreview(null);
-        await reload();
+        mode: bulkMode,
+      };
+      if (!dryRun) {
+        const queued = await api.post<{
+          job: { id: string; status: string };
+          preview: { matched: number; failed: number };
+        }>(`${base}/bulk/jobs`, {
+          ...request,
+          dryRun: false,
+          idempotencyKey: crypto.randomUUID(),
+        });
+        setBulkJob({
+          id: queued.job.id,
+          status: queued.job.status,
+          processed: 0,
+          total: queued.preview.matched,
+          applied: 0,
+          failed: queued.preview.failed,
+        });
+        for (let attempt = 0; attempt < 240; attempt += 1) {
+          const detail = await api.get<{
+            operation: { id: string; status: string };
+            summary: {
+              progress?: { processed?: number; total?: number };
+              result?: { applied?: number; failed?: number };
+              error?: string;
+            };
+          }>(`${base}/bulk/jobs/${queued.job.id}?rowLimit=1`);
+          const status = detail.operation.status;
+          const progress = detail.summary.progress ?? {};
+          const result = detail.summary.result ?? {};
+          setBulkJob({
+            id: queued.job.id,
+            status,
+            processed: progress.processed ?? 0,
+            total: progress.total ?? queued.preview.matched,
+            applied: result.applied ?? 0,
+            failed: result.failed ?? queued.preview.failed,
+          });
+          if (["completed", "partial", "failed", "rolled_back"].includes(status)) {
+            if (status === "failed") {
+              throw new Error(detail.summary.error ?? "Bulk job failed");
+            }
+            toast(
+              `Updated ${result.applied ?? 0} follow-ups; ${result.failed ?? 0} failed.`,
+              status === "partial" ? "error" : "success",
+            );
+            setBulkPreview(null);
+            await reload();
+            return;
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, 500));
+        }
+        throw new Error("Bulk job is still running; its status remains available here");
       }
+      const result = await api.post<{
+        matched: number;
+        valid: number;
+        applied: number;
+        skipped: number;
+        failed: number;
+      }>(`${base}/bulk`, {
+        ...request,
+        dryRun: true,
+      });
+      setBulkPreview(result);
+      toast(
+        `Previewed ${result.matched} follow-ups; ${result.failed} failed validation.`,
+        result.failed ? "error" : "success",
+      );
+    } catch (error) {
+      toast(error instanceof Error ? error.message : String(error), "error");
+    }
+  }
+
+  async function undoBulkJob() {
+    if (!bulkJob) return;
+    try {
+      await api.post(`${base}/bulk/jobs/${bulkJob.id}/undo`, { confirm: "UNDO" });
+      setBulkJob((current) => (current ? { ...current, status: "rolled_back" } : current));
+      toast("Bulk Follow-up changes rolled back", "success");
+      await reload();
     } catch (error) {
       toast(error instanceof Error ? error.message : String(error), "error");
     }
@@ -222,9 +423,7 @@ export default function RevenueFollowUps() {
       </div>
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-            Follow-ups
-          </h1>
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Follow-ups</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             One queue for due work across tasks, deals, and partnerships.
           </p>
@@ -248,6 +447,48 @@ export default function RevenueFollowUps() {
       </div>
 
       <div className="mb-4 grid gap-2 rounded-xl border border-slate-200 bg-white p-3 sm:grid-cols-2 lg:grid-cols-5 dark:border-slate-800 dark:bg-slate-900">
+        <div className="col-span-full flex flex-wrap items-end gap-2 border-b border-slate-100 pb-3 dark:border-slate-800">
+          <Select
+            label="Saved view"
+            value={selectedViewId}
+            onChange={(event) => {
+              const view = views.find((candidate) => candidate.id === event.target.value);
+              if (view) applyView(view);
+              else setSelectedViewId("");
+            }}
+          >
+            <option value="">Current filters</option>
+            {views.map((view) => (
+              <option key={view.id} value={view.id}>
+                {view.name}
+              </option>
+            ))}
+          </Select>
+          <Input
+            label="Save current filters"
+            value={viewName}
+            onChange={(event) => setViewName(event.target.value)}
+            placeholder="e.g. Enterprise overdue"
+          />
+          <Button size="sm" disabled={!viewName.trim()} onClick={() => void saveView()}>
+            <BookmarkPlus size={14} /> Save view
+          </Button>
+          {selectedViewId && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => void deleteSelectedView()}
+              aria-label="Delete saved Follow-up view"
+            >
+              <Trash2 size={14} /> Delete view
+            </Button>
+          )}
+        </div>
+        <Input
+          value={q}
+          onChange={(event) => setQ(event.target.value)}
+          placeholder="Search Follow-ups"
+        />
         <Select value={source} onChange={(event) => setSource(event.target.value)}>
           <option value="">All sources</option>
           <option value="task">Tasks</option>
@@ -311,6 +552,32 @@ export default function RevenueFollowUps() {
         />
         <Input
           type="datetime-local"
+          value={reminderFrom}
+          onChange={(event) => setReminderFrom(event.target.value)}
+          aria-label="Reminder from"
+        />
+        <Input
+          type="datetime-local"
+          value={reminderTo}
+          onChange={(event) => setReminderTo(event.target.value)}
+          aria-label="Reminder to"
+        />
+        <Input
+          type="number"
+          min="0"
+          value={overdueMinDays}
+          onChange={(event) => setOverdueMinDays(event.target.value)}
+          placeholder="Min overdue days"
+        />
+        <Input
+          type="number"
+          min="0"
+          value={overdueMaxDays}
+          onChange={(event) => setOverdueMaxDays(event.target.value)}
+          placeholder="Max overdue days"
+        />
+        <Input
+          type="datetime-local"
           value={staleBefore}
           onChange={(event) => setStaleBefore(event.target.value)}
           aria-label="Stale due before"
@@ -332,9 +599,24 @@ export default function RevenueFollowUps() {
           onChange={(event) => setDealStageId(event.target.value)}
           placeholder="Deal Stage ID"
         />
+        <Select value={accountStatus} onChange={(event) => setAccountStatus(event.target.value)}>
+          <option value="">Any Account status</option>
+          <option value="prospect">Prospect Accounts</option>
+          <option value="customer">Customer Accounts</option>
+          <option value="former">Former Accounts</option>
+        </Select>
+        <Select
+          value={archivedResources}
+          onChange={(event) => setArchivedResources(event.target.value)}
+        >
+          <option value="exclude">Exclude archived resources</option>
+          <option value="include">Include archived resources</option>
+          <option value="only">Archived resources only</option>
+        </Select>
         <Button
           variant="ghost"
           onClick={() => {
+            setQ("");
             setSource("");
             setAssignee("");
             setPriorityFilter("");
@@ -344,10 +626,17 @@ export default function RevenueFollowUps() {
             setLinkedId("");
             setDueFrom("");
             setDueTo("");
+            setReminderFrom("");
+            setReminderTo("");
+            setOverdueMinDays("");
+            setOverdueMaxDays("");
             setStaleBefore("");
             setCreatedBefore("");
             setDealStatus("");
             setDealStageId("");
+            setAccountStatus("");
+            setArchivedResources("exclude");
+            setSelectedViewId("");
           }}
         >
           <X size={14} /> Clear filters
@@ -363,6 +652,13 @@ export default function RevenueFollowUps() {
             <option value="priority">Reprioritize</option>
             <option value="reschedule">Reschedule</option>
             <option value="reassign">Reassign</option>
+          </Select>
+          <Select
+            value={bulkMode}
+            onChange={(event) => setBulkMode(event.target.value as "atomic" | "partial")}
+          >
+            <option value="partial">Apply valid rows</option>
+            <option value="atomic">All or nothing</option>
           </Select>
           {bulkAction === "priority" && (
             <Select value={bulkValue} onChange={(event) => setBulkValue(event.target.value)}>
@@ -397,18 +693,14 @@ export default function RevenueFollowUps() {
           )}
           <Button
             size="sm"
-            disabled={
-              (bulkAction === "priority" || bulkAction === "reschedule") && !bulkValue
-            }
+            disabled={(bulkAction === "priority" || bulkAction === "reschedule") && !bulkValue}
             onClick={() => void applyBulk(true)}
           >
             Preview
           </Button>
           <Button
             size="sm"
-            disabled={
-              (bulkAction === "priority" || bulkAction === "reschedule") && !bulkValue
-            }
+            disabled={(bulkAction === "priority" || bulkAction === "reschedule") && !bulkValue}
             onClick={() => void applyBulk(false)}
           >
             Apply
@@ -418,6 +710,27 @@ export default function RevenueFollowUps() {
               Preview: {bulkPreview.valid} valid, {bulkPreview.skipped} skipped,{" "}
               {bulkPreview.failed} failed
             </span>
+          )}
+        </div>
+      )}
+
+      {bulkJob && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-sm dark:border-slate-800 dark:bg-slate-900">
+          <span className="font-medium capitalize">Bulk job: {bulkJob.status}</span>
+          <span className="text-slate-500">
+            {bulkJob.processed}/{bulkJob.total} processed · {bulkJob.applied} applied ·{" "}
+            {bulkJob.failed} failed
+          </span>
+          <a
+            href={`${base}/bulk/jobs/${bulkJob.id}/reconciliation?format=csv`}
+            className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+          >
+            Download reconciliation
+          </a>
+          {["completed", "partial"].includes(bulkJob.status) && (
+            <Button size="sm" variant="ghost" onClick={() => void undoBulkJob()}>
+              Undo
+            </Button>
           )}
         </div>
       )}
@@ -434,66 +747,78 @@ export default function RevenueFollowUps() {
           <p className="mt-1 text-sm text-slate-500">Your queue is clear for this view.</p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-          {rows.map((item) => {
-            const to = itemUrl(company.slug, item);
-            return (
-              <div
-                key={`${item.source}-${item.id}`}
-                className="flex flex-wrap items-center gap-4 border-b border-slate-100 px-4 py-3 last:border-0 dark:border-slate-800"
-              >
-                <input
-                  type="checkbox"
-                  checked={selected.has(selectedKey(item))}
-                  onChange={() => toggleSelected(item)}
-                  aria-label={`Select ${item.title}`}
-                  className="h-4 w-4 rounded border-slate-300 text-indigo-600"
-                />
-                {item.source === "task" ? (
-                  <button
-                    type="button"
-                    onClick={() => void complete(item)}
-                    className="rounded-full border border-slate-300 p-1.5 text-slate-400 hover:border-emerald-500 hover:text-emerald-600 dark:border-slate-600"
-                    aria-label={`Complete ${item.title}`}
-                  >
-                    <Check size={14} />
-                  </button>
-                ) : (
-                  <Clock3 size={17} className={item.overdue ? "text-rose-500" : "text-slate-400"} />
-                )}
-                <div className="min-w-0 flex-1">
-                  {to ? (
-                    <Link
-                      to={to}
-                      className="font-medium text-slate-900 hover:text-indigo-600 dark:text-slate-100"
+        <>
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            {rows.map((item) => {
+              const to = itemUrl(company.slug, item);
+              return (
+                <div
+                  key={`${item.source}-${item.id}`}
+                  className="flex flex-wrap items-center gap-4 border-b border-slate-100 px-4 py-3 last:border-0 dark:border-slate-800"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected.has(selectedKey(item))}
+                    onChange={() => toggleSelected(item)}
+                    aria-label={`Select ${item.title}`}
+                    className="h-4 w-4 rounded border-slate-300 text-indigo-600"
+                  />
+                  {item.source === "task" ? (
+                    <button
+                      type="button"
+                      onClick={() => void complete(item)}
+                      className="rounded-full border border-slate-300 p-1.5 text-slate-400 hover:border-emerald-500 hover:text-emerald-600 dark:border-slate-600"
+                      aria-label={`Complete ${item.title}`}
                     >
-                      {item.title}
-                    </Link>
+                      <Check size={14} />
+                    </button>
                   ) : (
-                    <p className="font-medium text-slate-900 dark:text-slate-100">{item.title}</p>
+                    <Clock3
+                      size={17}
+                      className={item.overdue ? "text-rose-500" : "text-slate-400"}
+                    />
                   )}
-                  <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500">
-                    <span className={item.overdue ? "font-medium text-rose-600" : ""}>
-                      {item.overdue ? "Overdue · " : ""}
-                      {localDateTime(item.dueAt)}
-                    </span>
-                    <span className="capitalize">{item.source}</span>
-                    {item.priority !== "normal" && (
-                      <span className="font-medium capitalize">{item.priority}</span>
+                  <div className="min-w-0 flex-1">
+                    {to ? (
+                      <Link
+                        to={to}
+                        className="font-medium text-slate-900 hover:text-indigo-600 dark:text-slate-100"
+                      >
+                        {item.title}
+                      </Link>
+                    ) : (
+                      <p className="font-medium text-slate-900 dark:text-slate-100">{item.title}</p>
                     )}
-                    {item.assigneeName && (
-                      <span className="inline-flex items-center gap-1">
-                        {item.assignedEmployeeId ? <Bot size={12} /> : <User size={12} />}
-                        {item.assigneeName}
+                    <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                      <span className={item.overdue ? "font-medium text-rose-600" : ""}>
+                        {item.overdue ? "Overdue · " : ""}
+                        {localDateTime(item.dueAt)}
                       </span>
-                    )}
-                    {item.recurrenceRule && <span>Recurring</span>}
+                      <span className="capitalize">{item.source}</span>
+                      {item.priority !== "normal" && (
+                        <span className="font-medium capitalize">{item.priority}</span>
+                      )}
+                      {item.assigneeName && (
+                        <span className="inline-flex items-center gap-1">
+                          {item.assignedEmployeeId ? <Bot size={12} /> : <User size={12} />}
+                          {item.assigneeName}
+                        </span>
+                      )}
+                      {item.recurrenceRule && <span>Recurring</span>}
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+          {nextCursor && (
+            <div className="mt-4 flex justify-center">
+              <Button variant="secondary" onClick={() => void loadPage(nextCursor, true)}>
+                Load more
+              </Button>
+            </div>
+          )}
+        </>
       )}
 
       <NewFollowUpModal
@@ -569,11 +894,32 @@ function NewFollowUpModal({
   return (
     <Modal open={open} onClose={onClose} title="New follow-up" size="lg">
       <form onSubmit={submit} className="space-y-4">
-        <Input label="What needs doing?" value={subject} onChange={(e) => setSubject(e.target.value)} required />
-        <Textarea label="Context" value={bodyText} onChange={(e) => setBodyText(e.target.value)} rows={3} />
+        <Input
+          label="What needs doing?"
+          value={subject}
+          onChange={(e) => setSubject(e.target.value)}
+          required
+        />
+        <Textarea
+          label="Context"
+          value={bodyText}
+          onChange={(e) => setBodyText(e.target.value)}
+          rows={3}
+        />
         <div className="grid gap-4 sm:grid-cols-2">
-          <Input label="Due" type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)} required />
-          <Input label="Reminder" type="datetime-local" value={reminderAt} onChange={(e) => setReminderAt(e.target.value)} />
+          <Input
+            label="Due"
+            type="datetime-local"
+            value={dueAt}
+            onChange={(e) => setDueAt(e.target.value)}
+            required
+          />
+          <Input
+            label="Reminder"
+            type="datetime-local"
+            value={reminderAt}
+            onChange={(e) => setReminderAt(e.target.value)}
+          />
           <Select label="Priority" value={priority} onChange={(e) => setPriority(e.target.value)}>
             <option value="low">Low</option>
             <option value="normal">Normal</option>
@@ -602,8 +948,12 @@ function NewFollowUpModal({
         </div>
         {error && <FormError message={error} />}
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={busy}>{busy ? "Creating…" : "Create follow-up"}</Button>
+          <Button type="button" variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={busy}>
+            {busy ? "Creating…" : "Create follow-up"}
+          </Button>
         </div>
       </form>
     </Modal>

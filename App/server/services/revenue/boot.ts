@@ -1,6 +1,7 @@
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
 import { Contact } from "../../db/entities/Contact.js";
+import { Company } from "../../db/entities/Company.js";
 import { Deal } from "../../db/entities/Deal.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailThread } from "../../db/entities/MailThread.js";
@@ -15,11 +16,10 @@ import { chatWithEmployee } from "../chat.js";
 import { withSchedulerLease } from "../schedulerLeases.js";
 import { listActivities } from "./activities.js";
 import { hasRevenueAccess } from "./grants.js";
-import {
-  type TouchOutcome,
-  setTouchDrafter,
-  tickSequences,
-} from "./sequenceTick.js";
+import { resumeRevenueBulkJobs } from "./bulkJobs.js";
+import { backfillRevenueProvenanceMetadata } from "./customFields.js";
+import { scanRevenueDuplicates } from "./duplicates.js";
+import { type TouchOutcome, setTouchDrafter, tickSequences } from "./sequenceTick.js";
 import { setSignalHandler, tickSignals } from "./signalTick.js";
 
 /**
@@ -40,9 +40,11 @@ import { setSignalHandler, tickSignals } from "./signalTick.js";
  */
 
 const HEARTBEAT_INTERVAL_MS = 60 * 1000;
+const DUPLICATE_SCAN_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 let sequenceTimer: NodeJS.Timeout | null = null;
 let signalTimer: NodeJS.Timeout | null = null;
+let duplicateTimer: NodeJS.Timeout | null = null;
 let sequenceTicking = false;
 let signalTicking = false;
 
@@ -254,6 +256,37 @@ async function handleSignal(handoff: {
 export function bootRevenue(): void {
   setTouchDrafter(draftTouch);
   setSignalHandler(handleSignal);
+  void resumeRevenueBulkJobs().catch((error) => {
+    // eslint-disable-next-line no-console
+    console.warn("[revenue] failed to resume queued bulk jobs", error);
+  });
+  void withSchedulerLease(
+    "revenue-provenance-backfill",
+    15 * 60_000,
+    backfillRevenueProvenanceMetadata,
+  ).catch((error) => {
+    // eslint-disable-next-line no-console
+    console.warn("[revenue] failed to backfill field provenance", error);
+  });
+
+  const scanDuplicates = () =>
+    withSchedulerLease("revenue-duplicate-scan", DUPLICATE_SCAN_INTERVAL_MS, async () => {
+      const companies = await AppDataSource.getRepository(Company).find({
+        select: { id: true },
+      });
+      for (const company of companies) {
+        await scanRevenueDuplicates(company.id);
+      }
+    }).catch((error) => {
+      // eslint-disable-next-line no-console
+      console.warn("[revenue] duplicate scan failed", error);
+    });
+  void scanDuplicates();
+  if (duplicateTimer) clearInterval(duplicateTimer);
+  duplicateTimer = setInterval(() => {
+    void scanDuplicates();
+  }, DUPLICATE_SCAN_INTERVAL_MS);
+  duplicateTimer.unref();
 
   if (sequenceTimer) clearInterval(sequenceTimer);
   sequenceTimer = setInterval(() => {

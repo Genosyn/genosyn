@@ -15,6 +15,9 @@ export type RevenueDocumentInput = {
   contactId?: string | null;
   attachmentId?: string | null;
   sourceMailMessageId?: string | null;
+  sourceGmailMessageId?: string;
+  sourceGmailThreadId?: string;
+  sourceGmailAttachmentId?: string;
   sourceAttachmentIndex?: number | null;
   sourceAttachmentHash?: string;
   externalUrl?: string;
@@ -112,6 +115,9 @@ export async function createRevenueDocument(
       contactId: input.contactId ?? null,
       attachmentId: input.attachmentId ?? null,
       sourceMailMessageId: input.sourceMailMessageId ?? null,
+      sourceGmailMessageId: input.sourceGmailMessageId ?? "",
+      sourceGmailThreadId: input.sourceGmailThreadId ?? "",
+      sourceGmailAttachmentId: input.sourceGmailAttachmentId ?? "",
       sourceAttachmentIndex: input.sourceAttachmentIndex ?? null,
       sourceAttachmentHash: input.sourceAttachmentHash ?? "",
       externalUrl: input.externalUrl?.trim() ?? "",

@@ -2,6 +2,7 @@ import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 
 import { dateTimeColumnType } from "./columnTypes.js";
 
 export type RevenueEvidenceStatus = "proposed" | "accepted" | "rejected" | "superseded";
+export type RevenueVerificationState = "unverified" | "verified" | "rejected" | "superseded";
 export type RevenueEvidenceSourceType =
   | "email"
   | "document"
@@ -59,6 +60,15 @@ export class RevenueFieldEvidence {
   @Column({ type: "varchar" })
   status!: RevenueEvidenceStatus;
 
+  @Column({ type: "varchar", default: "unverified" })
+  verificationState!: RevenueVerificationState;
+
+  @Column({ type: "varchar", default: "" })
+  extractionMethod!: string;
+
+  @Column({ type: dateTimeColumnType, nullable: true })
+  observedAt!: Date | null;
+
   @Column({ type: dateTimeColumnType })
   extractedAt!: Date;
 
@@ -70,6 +80,12 @@ export class RevenueFieldEvidence {
 
   @Column({ type: "varchar", nullable: true })
   humanConfirmedById!: string | null;
+
+  @Column({ type: "varchar", nullable: true })
+  verifyingActorType!: "member" | "ai_employee" | "system" | null;
+
+  @Column({ type: "varchar", nullable: true })
+  verifyingActorId!: string | null;
 
   @Column({ type: "text", default: "" })
   metadataJson!: string;

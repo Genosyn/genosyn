@@ -36,6 +36,21 @@ export type RevenueCustomField = {
 export type RevenueCustomValue = {
   field: RevenueCustomField;
   value: string | number | boolean | string[] | null;
+  provenance: {
+    id: string;
+    sourceType: "email" | "document" | "integration" | "finance" | "website" | "import" | "manual";
+    sourceId: string;
+    sourceLabel: string;
+    confidence: number;
+    status: "proposed" | "accepted" | "rejected" | "superseded";
+    verificationState: "unverified" | "verified" | "rejected" | "superseded";
+    extractionMethod: string;
+    observedAt: string | null;
+    lastVerifiedAt: string | null;
+    verifyingActorType: "member" | "ai_employee" | "system" | null;
+    createdAt: string;
+  } | null;
+  provenanceHistoryCount: number;
 };
 
 export type FollowUpItem = {
@@ -55,6 +70,44 @@ export type FollowUpItem = {
   assignedEmployeeId: string | null;
   assigneeName: string | null;
   recurrenceRule: string | null;
+};
+
+export type FollowUpViewFilters = {
+  state?: "all" | "overdue" | "today" | "upcoming";
+  q?: string;
+  source?: "task" | "deal" | "partnership";
+  assignedUserId?: string;
+  assignedEmployeeId?: string;
+  unassigned?: boolean;
+  priority?: "low" | "normal" | "high" | "urgent";
+  status?: "open" | "completed" | "cancelled";
+  linkedResourceType?: "account" | "contact" | "deal" | "partnership";
+  linkedResourceId?: string;
+  dueFrom?: string;
+  dueTo?: string;
+  reminderFrom?: string;
+  reminderTo?: string;
+  overdueMinDays?: number;
+  overdueMaxDays?: number;
+  createdBefore?: string;
+  staleBefore?: string;
+  dealStageId?: string;
+  dealStatus?: "open" | "won" | "lost";
+  closedDeals?: "include" | "only" | "exclude";
+  archivedResources?: "include" | "only" | "exclude";
+  accountStatus?: "prospect" | "customer" | "former";
+};
+
+export type FollowUpView = {
+  id: string;
+  companyId: string;
+  name: string;
+  filters: FollowUpViewFilters;
+  sortOrder: number;
+  createdByUserId: string | null;
+  createdByEmployeeId: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type RevenueAccount = Customer & {
@@ -113,6 +166,9 @@ export type RevenueDocument = {
   notes: string;
   externalUrl: string;
   sourceMailMessageId: string | null;
+  sourceGmailMessageId: string;
+  sourceGmailThreadId: string;
+  sourceGmailAttachmentId: string;
   attachmentId: string | null;
   attachment: {
     id: string;

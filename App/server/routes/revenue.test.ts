@@ -5,6 +5,7 @@ import { after, before, beforeEach, describe, test } from "node:test";
 
 import express from "express";
 import type { Server } from "node:http";
+import { In } from "typeorm";
 
 import { AppDataSource } from "../db/datasource.js";
 import { Activity } from "../db/entities/Activity.js";
@@ -16,6 +17,8 @@ import { Deal } from "../db/entities/Deal.js";
 import { DealHistoryEvent } from "../db/entities/DealHistoryEvent.js";
 import { DealStage } from "../db/entities/DealStage.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
+import { RevenueDocument } from "../db/entities/RevenueDocument.js";
+import { RevenueOperation } from "../db/entities/RevenueOperation.js";
 import { Suppression } from "../db/entities/Suppression.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
@@ -793,6 +796,142 @@ describe("revenue routes — operating system", () => {
     assert.equal(filtered.body.rows[0].id, deal.body.id);
   });
 
+  test("requires verified, company-scoped provenance and Finance access for custom fields", async () => {
+    const field = await call<{ key: string }>("POST", "/revenue/custom-fields", {
+      resourceType: "account",
+      name: "Source-backed note",
+      fieldType: "text",
+    });
+    const target = await call<{ id: string }>("POST", "/revenue/accounts", {
+      name: "Provenance target",
+    });
+    assert.equal(field.status, 201);
+    assert.equal(target.status, 201);
+
+    const implicitTrust = await call("PUT", `/revenue/custom-values/account/${target.body.id}`, {
+      values: { [field.body.key]: "Observed" },
+      provenance: {
+        sourceType: "manual",
+        sourceId: "manual-observation",
+      },
+    });
+    assert.equal(implicitTrust.status, 400);
+
+    const otherCompany = await insert(Company, {
+      name: "Other",
+      slug: "other",
+      ownerId,
+    });
+    const foreignDocument = await insert(RevenueDocument, {
+      companyId: otherCompany.id,
+      kind: "proposal",
+      title: "Foreign proposal",
+    });
+    const foreignSource = await call<{ error: string }>(
+      "PUT",
+      `/revenue/custom-values/account/${target.body.id}`,
+      {
+        values: { [field.body.key]: "Foreign" },
+        provenance: {
+          sourceType: "document",
+          sourceId: foreignDocument.id,
+          verificationState: "verified",
+        },
+      },
+    );
+    assert.equal(foreignSource.status, 400);
+    assert.match(foreignSource.body.error, /not found in this company/i);
+
+    await AppDataSource.getRepository(Membership).update(
+      { companyId, userId: memberId },
+      { financeAccess: "none" },
+    );
+    actingUserId = memberId;
+    const financeWithoutAccess = await call<{ error: string }>(
+      "PUT",
+      `/revenue/custom-values/account/${target.body.id}`,
+      {
+        values: { [field.body.key]: "Finance" },
+        provenance: {
+          sourceType: "finance",
+          sourceId: target.body.id,
+          verificationState: "verified",
+        },
+      },
+    );
+    assert.equal(financeWithoutAccess.status, 403);
+    assert.match(financeWithoutAccess.body.error, /finances/i);
+
+    actingUserId = ownerId;
+    const manual = await call("PUT", `/revenue/custom-values/account/${target.body.id}`, {
+      values: { [field.body.key]: "Confirmed" },
+      provenance: {
+        sourceType: "manual",
+        sourceId: "manual-confirmation",
+        verificationState: "verified",
+      },
+    });
+    assert.equal(manual.status, 200);
+  });
+
+  test("generic undo follows an asynchronous bulk job to its execution operation", async () => {
+    const first = await createContact("Bulk first", "bulk-first@example.com");
+    const second = await createContact("Bulk second", "bulk-second@example.com");
+    const queued = await call<{ job: { id: string } }>("POST", "/revenue/bulk/jobs", {
+      resourceType: "contact",
+      target: { ids: [first.id, second.id] },
+      action: { type: "set_contact_lifecycle", lifecycleStage: "qualified" },
+      dryRun: false,
+      mode: "partial",
+      idempotencyKey: "route-generic-undo-bulk-job",
+    });
+    assert.equal(queued.status, 202);
+
+    let detail: ApiResponse<{
+      operation: { status: string };
+      summary: { executionOperationId?: string };
+    }> | null = null;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      detail = await call<{
+        operation: { status: string };
+        summary: { executionOperationId?: string };
+      }>("GET", `/revenue/bulk/jobs/${queued.body.job.id}`);
+      if (["completed", "partial", "failed"].includes(detail.body.operation.status)) break;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.equal(detail?.body.operation.status, "completed");
+    assert.ok(detail?.body.summary.executionOperationId);
+
+    const undo = await call<{
+      operation: { id: string; status: string };
+      rolledBack: number;
+    }>("POST", `/revenue/operations/${queued.body.job.id}/undo`, {
+      confirm: "UNDO",
+    });
+    assert.equal(undo.status, 200);
+    assert.equal(undo.body.operation.id, queued.body.job.id);
+    assert.equal(undo.body.operation.status, "rolled_back");
+    assert.equal(undo.body.rolledBack, 2);
+
+    const [parent, execution, restored] = await Promise.all([
+      AppDataSource.getRepository(RevenueOperation).findOneByOrFail({
+        id: queued.body.job.id,
+      }),
+      AppDataSource.getRepository(RevenueOperation).findOneByOrFail({
+        id: detail!.body.summary.executionOperationId!,
+      }),
+      AppDataSource.getRepository(Contact).findBy({
+        id: In([first.id, second.id]),
+      }),
+    ]);
+    assert.equal(parent.status, "rolled_back");
+    assert.equal(execution.status, "rolled_back");
+    assert.deepEqual(
+      restored.map((contact) => contact.lifecycleStage),
+      ["lead", "lead"],
+    );
+  });
+
   test("round-trips a partnership, Reply-All contacts, and a formal document link", async () => {
     const partnership = await call<{ id: string }>("POST", "/revenue/partnerships", {
       name: "Cloud Partner",
@@ -853,14 +992,22 @@ describe("revenue routes — operating system", () => {
     const preview = await call<{ createCount: number }>("POST", "/revenue/imports/preview", input);
     assert.equal(preview.status, 200);
     assert.equal(preview.body.createCount, 1);
-    const batch = await call<{ id: string; status: string }>("POST", "/revenue/imports", input);
+    const batch = await call<{
+      batch: { id: string; status: string };
+      counts: Record<string, number>;
+    }>("POST", "/revenue/imports", input);
     assert.equal(batch.status, 201);
-    assert.equal(batch.body.status, "completed");
-    const rollback = await call<{ deleted: number; blocked: unknown[] }>(
-      "POST",
-      `/revenue/imports/${batch.body.id}/rollback`,
-    );
+    assert.equal(batch.body.batch.status, "completed");
+    assert.equal(batch.body.counts.created, 1);
+    const rollback = await call<{
+      batch: { id: string; status: string };
+      counts: Record<string, number>;
+      deleted: number;
+      blocked: unknown[];
+    }>("POST", `/revenue/imports/${batch.body.batch.id}/rollback`);
     assert.equal(rollback.status, 200);
+    assert.equal(rollback.body.batch.status, "rolled_back");
+    assert.equal(rollback.body.counts.rolled_back, 1);
     assert.equal(rollback.body.deleted, 1);
     assert.deepEqual(rollback.body.blocked, []);
   });
@@ -900,20 +1047,21 @@ describe("revenue routes — operating system", () => {
     );
     assert.equal(preview.status, 200);
     assert.equal(preview.body.createCount, 1);
-    const batch = await call<{ id: string; resourceType: string }>(
-      "POST",
-      "/revenue/imports/linked",
-      input,
-    );
+    const batch = await call<{
+      batch: { id: string; resourceType: string };
+      counts: Record<string, number>;
+    }>("POST", "/revenue/imports/linked", input);
     assert.equal(batch.status, 201);
-    assert.equal(batch.body.resourceType, "account_contact_deal");
-    const retrieved = await call<{ id: string; rowMapJson: string }>(
-      "GET",
-      `/revenue/imports/${batch.body.id}`,
-    );
+    assert.equal(batch.body.batch.resourceType, "account_contact_deal");
+    assert.equal(batch.body.counts.created, 3);
+    const retrieved = await call<{
+      batch: { id: string; resourceType: string };
+      counts: Record<string, number>;
+    }>("GET", `/revenue/imports/${batch.body.batch.id}`);
     assert.equal(retrieved.status, 200);
-    assert.equal(retrieved.body.id, batch.body.id);
-    assert.match(retrieved.body.rowMapJson, /csv-1/);
+    assert.equal(retrieved.body.batch.id, batch.body.batch.id);
+    assert.equal(retrieved.body.counts.created, 3);
+    assert.equal("rowMapJson" in retrieved.body.batch, false);
   });
 });
 

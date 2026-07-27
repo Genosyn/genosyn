@@ -11,6 +11,14 @@ import { dateTimeColumnType } from "./columnTypes.js";
 @Index(["companyId", "status", "createdAt"])
 @Index(["companyId", "mailMessageId", "attachmentIndex"], { unique: true })
 @Index(["companyId", "contentHash"])
+@Index(
+  "UQ_revenue_document_candidates_gmail_attachment",
+  ["companyId", "gmailMessageId", "gmailAttachmentId"],
+  {
+    unique: true,
+    where: `"gmailMessageId" <> '' AND "gmailAttachmentId" <> ''`,
+  },
+)
 export class RevenueDocumentCandidate {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -23,6 +31,16 @@ export class RevenueDocumentCandidate {
 
   @Column({ type: "int" })
   attachmentIndex!: number;
+
+  /** Immutable Gmail provenance, retained even if the local Mail row is removed. */
+  @Column({ type: "varchar", default: "" })
+  gmailMessageId!: string;
+
+  @Column({ type: "varchar", default: "" })
+  gmailThreadId!: string;
+
+  @Column({ type: "varchar", default: "" })
+  gmailAttachmentId!: string;
 
   @Column({ type: "varchar" })
   filename!: string;
@@ -52,7 +70,18 @@ export class RevenueDocumentCandidate {
   alternativesJson!: string;
 
   @Column({ type: "varchar" })
-  status!: "pending" | "accepted" | "rejected" | "duplicate";
+  status!: "pending" | "processing" | "accepted" | "rejected" | "duplicate";
+
+  /**
+   * Short lease used while Gmail bytes are fetched and persisted. A token
+   * prevents a stale reviewer from finalizing a claim recovered by another
+   * process.
+   */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  processingAt!: Date | null;
+
+  @Column({ type: "varchar", nullable: true })
+  processingToken!: string | null;
 
   @Column({ type: "varchar", nullable: true })
   revenueDocumentId!: string | null;

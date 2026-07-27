@@ -111,6 +111,19 @@ const FINANCE_GATED_TOOLS = new Set([
  * could bring the surface to life for an employee holding nothing.
  */
 const REVENUE_GATED_TOOLS = new Set([
+  "list_follow_ups",
+  "create_follow_up",
+  "update_follow_up",
+  "list_follow_up_views",
+  "create_follow_up_view",
+  "update_follow_up_view",
+  "delete_follow_up_view",
+  "list_revenue_accounts",
+  "create_revenue_account",
+  "get_revenue_account",
+  "update_revenue_account",
+  "archive_revenue_account",
+  "merge_revenue_accounts",
   "list_contacts",
   "search_contacts",
   "get_contact",
@@ -131,6 +144,37 @@ const REVENUE_GATED_TOOLS = new Set([
   "add_deal_contact",
   "enroll_in_sequence",
   "suppress_email",
+  "list_revenue_imports",
+  "get_revenue_import",
+  "list_revenue_import_rows",
+  "export_revenue_import_reconciliation",
+  "preview_revenue_record_merge",
+  "merge_revenue_records",
+  "resolve_revenue_record_redirect",
+  "list_revenue_operations",
+  "get_revenue_operation",
+  "undo_revenue_operation",
+  "preview_revenue_bulk_operation",
+  "start_revenue_bulk_job",
+  "get_revenue_bulk_job",
+  "export_revenue_bulk_reconciliation",
+  "preview_historical_deal_import",
+  "run_historical_deal_import",
+  "list_deal_history",
+  "backfill_deal_history",
+  "export_revenue_snapshot",
+  "propose_revenue_account_domains",
+  "propose_finance_commercial_values",
+  "propose_stripe_commercial_values",
+  "create_commercial_value_proposal",
+  "list_revenue_field_evidence",
+  "review_revenue_field_evidence",
+  "scan_revenue_duplicates",
+  "list_revenue_duplicate_candidates",
+  "dismiss_revenue_duplicate_candidate",
+  "scan_revenue_mail_documents",
+  "list_revenue_document_candidates",
+  "review_revenue_document_candidate",
 ]);
 
 /**
@@ -175,17 +219,17 @@ export async function deadToolNames(employeeId: string): Promise<Set<string>> {
       where: { employeeId },
     });
     if (bases === 0) for (const t of BASE_GATED_TOOLS) dead.add(t);
-    const mailboxes = await AppDataSource.getRepository(
-      EmployeeMailAccountGrant,
-    ).count({ where: { employeeId } });
+    const mailboxes = await AppDataSource.getRepository(EmployeeMailAccountGrant).count({
+      where: { employeeId },
+    });
     if (mailboxes === 0) for (const t of MAIL_GATED_TOOLS) dead.add(t);
-    const finance = await AppDataSource.getRepository(
-      EmployeeFinanceGrant,
-    ).count({ where: { employeeId } });
+    const finance = await AppDataSource.getRepository(EmployeeFinanceGrant).count({
+      where: { employeeId },
+    });
     if (finance === 0) for (const t of FINANCE_GATED_TOOLS) dead.add(t);
-    const revenue = await AppDataSource.getRepository(
-      EmployeeRevenueGrant,
-    ).count({ where: { employeeId } });
+    const revenue = await AppDataSource.getRepository(EmployeeRevenueGrant).count({
+      where: { employeeId },
+    });
     if (revenue === 0) for (const t of REVENUE_GATED_TOOLS) dead.add(t);
     return dead;
   } catch {

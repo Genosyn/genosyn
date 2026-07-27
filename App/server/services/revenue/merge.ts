@@ -9,6 +9,7 @@ import { CustomerCredit } from "../../db/entities/CustomerCredit.js";
 import { Deal } from "../../db/entities/Deal.js";
 import { DealContact } from "../../db/entities/DealContact.js";
 import { DealHistoryEvent } from "../../db/entities/DealHistoryEvent.js";
+import { DealStage } from "../../db/entities/DealStage.js";
 import { Estimate } from "../../db/entities/Estimate.js";
 import { Invoice } from "../../db/entities/Invoice.js";
 import { Partnership } from "../../db/entities/Partnership.js";
@@ -41,7 +42,13 @@ export type MergeFieldConflict = {
   label: string;
   sourceValue: unknown;
   targetValue: unknown;
-  resolution: "destination_wins" | "source_used_when_destination_empty";
+  resolution: "source" | "target";
+  resolvedValue: unknown;
+};
+
+export type MergeCustomFieldConflict = MergeFieldConflict & {
+  fieldId: string;
+  fieldKey: string;
 };
 
 export type RevenueMergePreview = {
@@ -52,8 +59,11 @@ export type RevenueMergePreview = {
   relationshipCounts: Record<string, number>;
   customValuesCopied: number;
   customValueConflicts: number;
+  customFieldConflicts: MergeCustomFieldConflict[];
   operationId?: string;
 };
+
+export type MergeConflictResolutions = Record<string, "source" | "target">;
 
 type MergeDescriptor = {
   labelKey: "name" | "title";
@@ -199,22 +209,84 @@ function fieldConflicts(
   type: MergeResourceType,
   source: MergeRecord,
   target: MergeRecord,
+  resolutions: MergeConflictResolutions = {},
 ): MergeFieldConflict[] {
   const sourceValues = source as unknown as Record<string, unknown>;
   const targetValues = target as unknown as Record<string, unknown>;
   return DESCRIPTORS[type].fields
     .filter(({ key }) => !same(sourceValues[key], targetValues[key]))
     .filter(({ key }) => !empty(sourceValues[key]) || !empty(targetValues[key]))
-    .map(({ key, label, sourceWhenTargetEmpty }) => ({
-      field: key,
-      label,
-      sourceValue: sourceValues[key] ?? null,
-      targetValue: targetValues[key] ?? null,
-      resolution:
-        sourceWhenTargetEmpty && empty(targetValues[key])
-          ? ("source_used_when_destination_empty" as const)
-          : ("destination_wins" as const),
-    }));
+    .map(({ key, label, sourceWhenTargetEmpty }) => {
+      const resolution =
+        resolutions[key] ??
+        (sourceWhenTargetEmpty && empty(targetValues[key]) ? "source" : "target");
+      return {
+        field: key,
+        label,
+        sourceValue: sourceValues[key] ?? null,
+        targetValue: targetValues[key] ?? null,
+        resolution,
+        resolvedValue:
+          resolution === "source" ? (sourceValues[key] ?? null) : (targetValues[key] ?? null),
+      };
+    });
+}
+
+function resolvedSurvivor(
+  type: MergeResourceType,
+  source: MergeRecord,
+  target: MergeRecord,
+  resolutions: MergeConflictResolutions,
+): MergeRecord {
+  const survivor = { ...target } as unknown as Record<string, unknown>;
+  for (const conflict of fieldConflicts(type, source, target, resolutions)) {
+    if (conflict.resolution === "source") survivor[conflict.field] = conflict.sourceValue;
+  }
+  return survivor as unknown as MergeRecord;
+}
+
+async function assertSurvivorInvariants(
+  manager: EntityManager,
+  companyId: string,
+  type: MergeResourceType,
+  survivor: MergeRecord,
+): Promise<void> {
+  const owned = survivor as MergeRecord & {
+    ownerId: string | null;
+    ownerEmployeeId: string | null;
+  };
+  if (owned.ownerId && owned.ownerEmployeeId) {
+    throw new Error(`Merged ${type} cannot have both a Member owner and an AI Employee owner`);
+  }
+  if (type !== "deal") return;
+
+  const deal = survivor as Deal;
+  const stage = await manager.findOneBy(DealStage, {
+    companyId,
+    id: deal.stageId,
+  });
+  if (!stage) {
+    throw new Error(`Merged Deal stage ${deal.stageId} does not belong to this company`);
+  }
+  if (deal.status !== stage.kind) {
+    throw new Error(
+      `Merged Deal status ${deal.status} does not match Deal Stage kind ${stage.kind}`,
+    );
+  }
+
+  const validClosedAt = deal.closedAt instanceof Date && !Number.isNaN(deal.closedAt.getTime());
+  if (stage.kind === "open") {
+    if (deal.closedAt !== null || deal.lostReason.trim() !== "") {
+      throw new Error("Merged open Deal cannot have a close date or lost reason");
+    }
+    return;
+  }
+  if (!validClosedAt) {
+    throw new Error("Merged terminal Deal must have a valid close date");
+  }
+  if (stage.kind === "won" && deal.lostReason.trim() !== "") {
+    throw new Error("Merged won Deal cannot have a lost reason");
+  }
 }
 
 async function loadRecord(
@@ -419,25 +491,25 @@ async function relationshipCounts(
       historyEvents,
       committeeConflicts,
     ] = await Promise.all([
-        countWhere(manager, Activity, { companyId, dealId: sourceId }),
-        countWhere(manager, DealContact, { companyId, dealId: sourceId }),
-        countWhere(manager, RevenueDocument, { companyId, dealId: sourceId }),
-        countWhere(manager, SequenceEnrollment, { companyId, dealId: sourceId }),
-        countWhere(manager, SignalEvent, { companyId, dealId: sourceId }),
-        countWhere(manager, DealHistoryEvent, { companyId, dealId: sourceId }),
-        manager
-          .getRepository(DealContact)
-          .createQueryBuilder("source")
-          .innerJoin(
-            DealContact,
-            "target",
-            "target.companyId = source.companyId AND target.dealId = :targetId AND target.contactId = source.contactId",
-            { targetId },
-          )
-          .where("source.companyId = :companyId", { companyId })
-          .andWhere("source.dealId = :sourceId", { sourceId })
-          .getCount(),
-      ]);
+      countWhere(manager, Activity, { companyId, dealId: sourceId }),
+      countWhere(manager, DealContact, { companyId, dealId: sourceId }),
+      countWhere(manager, RevenueDocument, { companyId, dealId: sourceId }),
+      countWhere(manager, SequenceEnrollment, { companyId, dealId: sourceId }),
+      countWhere(manager, SignalEvent, { companyId, dealId: sourceId }),
+      countWhere(manager, DealHistoryEvent, { companyId, dealId: sourceId }),
+      manager
+        .getRepository(DealContact)
+        .createQueryBuilder("source")
+        .innerJoin(
+          DealContact,
+          "target",
+          "target.companyId = source.companyId AND target.dealId = :targetId AND target.contactId = source.contactId",
+          { targetId },
+        )
+        .where("source.companyId = :companyId", { companyId })
+        .andWhere("source.dealId = :sourceId", { sourceId })
+        .getCount(),
+    ]);
     return {
       ...sharedCounts,
       activities,
@@ -469,26 +541,52 @@ async function relationshipCounts(
   return { ...sharedCounts, activities, contacts, documents, contactConflicts };
 }
 
-async function customValueCounts(
+async function customValuePreview(
   manager: EntityManager,
   companyId: string,
   type: MergeResourceType,
   sourceId: string,
   targetId: string,
-): Promise<{ copied: number; conflicts: number }> {
-  const [source, target] = await Promise.all([
+  resolutions: MergeConflictResolutions = {},
+): Promise<{
+  copied: number;
+  conflicts: number;
+  fieldConflicts: MergeCustomFieldConflict[];
+}> {
+  const [source, target, fields] = await Promise.all([
     manager.find(RevenueCustomValue, {
       where: { companyId, resourceType: type, resourceId: sourceId },
-      select: { id: true, fieldId: true },
     }),
     manager.find(RevenueCustomValue, {
       where: { companyId, resourceType: type, resourceId: targetId },
-      select: { id: true, fieldId: true },
     }),
+    manager.find(RevenueCustomField, { where: { companyId, resourceType: type } }),
   ]);
-  const targetFields = new Set(target.map((value) => value.fieldId));
-  const conflicts = source.filter((value) => targetFields.has(value.fieldId)).length;
-  return { copied: source.length - conflicts, conflicts };
+  const targetByField = new Map(target.map((value) => [value.fieldId, value]));
+  const fieldsById = new Map(fields.map((field) => [field.id, field]));
+  const conflicting = source.filter((value) => targetByField.has(value.fieldId));
+  return {
+    copied: source.length - conflicting.length,
+    conflicts: conflicting.length,
+    fieldConflicts: conflicting.map((sourceValue) => {
+      const targetValue = targetByField.get(sourceValue.fieldId)!;
+      const field = fieldsById.get(sourceValue.fieldId);
+      const key = `custom:${sourceValue.fieldId}`;
+      const resolution = resolutions[key] ?? "target";
+      const parsedSource = JSON.parse(sourceValue.valueJson) as unknown;
+      const parsedTarget = JSON.parse(targetValue.valueJson) as unknown;
+      return {
+        field: key,
+        fieldId: sourceValue.fieldId,
+        fieldKey: field?.key ?? sourceValue.fieldId,
+        label: field?.name ?? field?.key ?? "Custom field",
+        sourceValue: parsedSource,
+        targetValue: parsedTarget,
+        resolution,
+        resolvedValue: resolution === "source" ? parsedSource : parsedTarget,
+      };
+    }),
+  };
 }
 
 export async function previewRevenueMerge(
@@ -496,21 +594,23 @@ export async function previewRevenueMerge(
   type: MergeResourceType,
   sourceId: string,
   targetId: string,
+  resolutions: MergeConflictResolutions = {},
 ): Promise<RevenueMergePreview> {
   const manager = AppDataSource.manager;
   const { source, target } = await loadPair(manager, companyId, type, sourceId, targetId);
   const [counts, custom] = await Promise.all([
     relationshipCounts(manager, companyId, type, sourceId, targetId),
-    customValueCounts(manager, companyId, type, sourceId, targetId),
+    customValuePreview(manager, companyId, type, sourceId, targetId, resolutions),
   ]);
   return {
     resourceType: type,
     source: { id: source.id, label: labelOf(type, source), archivedAt: source.archivedAt },
     target: { id: target.id, label: labelOf(type, target), archivedAt: target.archivedAt },
-    fieldConflicts: fieldConflicts(type, source, target),
+    fieldConflicts: fieldConflicts(type, source, target, resolutions),
     relationshipCounts: counts,
     customValuesCopied: custom.copied,
     customValueConflicts: custom.conflicts,
+    customFieldConflicts: custom.fieldConflicts,
   };
 }
 
@@ -521,6 +621,145 @@ function serializeEntity(row: ObjectLiteral): Record<string, unknown> {
       value instanceof Date ? value.toISOString() : value,
     ]),
   );
+}
+
+type DuplicateReason = { kind?: unknown; value?: unknown; score?: unknown };
+
+function mergedDuplicateEvidence(...serializedReasons: string[]): {
+  reasonsJson: string;
+  score: number;
+} {
+  const reasons = new Map<string, DuplicateReason>();
+  for (const serialized of serializedReasons) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(serialized);
+    } catch {
+      parsed = [];
+    }
+    if (!Array.isArray(parsed)) continue;
+    for (const reason of parsed) {
+      if (!reason || typeof reason !== "object") continue;
+      const typed = reason as DuplicateReason;
+      reasons.set(JSON.stringify(typed), typed);
+    }
+  }
+  const merged = [...reasons.values()].sort((left, right) =>
+    JSON.stringify(left).localeCompare(JSON.stringify(right)),
+  );
+  const score = Math.min(
+    100,
+    merged.reduce(
+      (total, reason) =>
+        total +
+        (typeof reason.score === "number" && Number.isFinite(reason.score) ? reason.score : 0),
+      0,
+    ),
+  );
+  return { reasonsJson: JSON.stringify(merged), score };
+}
+
+async function reconcileDuplicateCandidatesAfterMerge(
+  manager: EntityManager,
+  rows: OperationRowWrite[],
+  operation: RevenueOperation,
+  type: MergeResourceType,
+  sourceId: string,
+  targetId: string,
+  actor: RevenueOperationActor,
+): Promise<void> {
+  const candidates = await manager.find(RevenueDuplicateCandidate, {
+    where: [
+      { companyId: operation.companyId, resourceType: type, leftId: sourceId },
+      { companyId: operation.companyId, resourceType: type, rightId: sourceId },
+    ],
+  });
+
+  for (const candidate of candidates) {
+    const otherId = candidate.leftId === sourceId ? candidate.rightId : candidate.leftId;
+    if (otherId === targetId) {
+      if (candidate.status === "merged") continue;
+      const before = {
+        status: candidate.status,
+        mergeOperationId: candidate.mergeOperationId,
+        resolvedAt: candidate.resolvedAt,
+        resolvedByUserId: candidate.resolvedByUserId,
+      };
+      const after = {
+        status: "merged",
+        mergeOperationId: operation.id,
+        resolvedAt: operation.completedAt,
+        resolvedByUserId: actor.userId ?? null,
+      };
+      rows.push({
+        resourceType: type,
+        resourceId: candidate.id,
+        entityType: "revenue_duplicate_candidate",
+        action: "resolve_duplicate_candidate",
+        before,
+        after,
+      });
+      Object.assign(candidate, after);
+      await manager.save(RevenueDuplicateCandidate, candidate);
+      continue;
+    }
+
+    if (candidate.status !== "open") continue;
+    const [leftId, rightId] = [targetId, otherId].sort();
+    const existing = await manager.findOneBy(RevenueDuplicateCandidate, {
+      companyId: operation.companyId,
+      resourceType: type,
+      leftId,
+      rightId,
+    });
+    if (existing && existing.id !== candidate.id) {
+      if (existing.status === "open") {
+        const before = {
+          score: existing.score,
+          reasonsJson: existing.reasonsJson,
+        };
+        const after = mergedDuplicateEvidence(existing.reasonsJson, candidate.reasonsJson);
+        if (before.score !== after.score || before.reasonsJson !== after.reasonsJson) {
+          rows.push({
+            resourceType: type,
+            resourceId: existing.id,
+            entityType: "revenue_duplicate_candidate",
+            action: "combine_duplicate_candidate_evidence",
+            before,
+            after,
+          });
+          existing.score = after.score;
+          existing.reasonsJson = after.reasonsJson;
+          await manager.save(RevenueDuplicateCandidate, existing);
+        }
+      }
+      rows.push({
+        resourceType: type,
+        resourceId: candidate.id,
+        entityType: "revenue_duplicate_candidate",
+        action: "deduplicate_duplicate_candidate",
+        before: serializeEntity(candidate),
+        after: null,
+      });
+      await manager.delete(RevenueDuplicateCandidate, {
+        companyId: operation.companyId,
+        id: candidate.id,
+      });
+      continue;
+    }
+
+    rows.push({
+      resourceType: type,
+      resourceId: candidate.id,
+      entityType: "revenue_duplicate_candidate",
+      action: "reparent_duplicate_candidate",
+      before: { leftId: candidate.leftId, rightId: candidate.rightId },
+      after: { leftId, rightId },
+    });
+    candidate.leftId = leftId;
+    candidate.rightId = rightId;
+    await manager.save(RevenueDuplicateCandidate, candidate);
+  }
 }
 
 async function moveSimple<T extends ObjectLiteral & { id: string }>(
@@ -583,6 +822,7 @@ async function mergeCustomValues(
   type: MergeResourceType,
   sourceId: string,
   targetId: string,
+  resolutions: MergeConflictResolutions,
 ): Promise<void> {
   const [source, target] = await Promise.all([
     manager.find(RevenueCustomValue, {
@@ -590,10 +830,31 @@ async function mergeCustomValues(
     }),
     manager.find(RevenueCustomValue, {
       where: { companyId, resourceType: type, resourceId: targetId },
-      select: { fieldId: true },
     }),
   ]);
-  const targetFields = new Set(target.map((value) => value.fieldId));
+  const targetByField = new Map(target.map((value) => [value.fieldId, value]));
+  for (const sourceValue of source) {
+    const targetValue = targetByField.get(sourceValue.fieldId);
+    if (!targetValue || resolutions[`custom:${sourceValue.fieldId}`] !== "source") continue;
+    rows.push({
+      resourceType: type,
+      resourceId: targetValue.id,
+      entityType: "revenue_custom_value",
+      action: "resolve_custom_field_conflict",
+      before: {
+        valueJson: targetValue.valueJson,
+        searchValue: targetValue.searchValue,
+      },
+      after: {
+        valueJson: sourceValue.valueJson,
+        searchValue: sourceValue.searchValue,
+      },
+    });
+    targetValue.valueJson = sourceValue.valueJson;
+    targetValue.searchValue = sourceValue.searchValue;
+    await manager.save(RevenueCustomValue, targetValue);
+  }
+  const targetFields = new Set(targetByField.keys());
   const movable = source.filter((value) => !targetFields.has(value.fieldId));
   for (const value of movable) {
     rows.push({
@@ -611,6 +872,143 @@ async function mergeCustomValues(
       { companyId, id: In(movable.map((value) => value.id)) },
       { resourceId: targetId },
     );
+  }
+}
+
+type CurrentEvidenceValue =
+  | { kind: "exact"; value: unknown }
+  | { kind: "commercial"; amountCents: number; currency: string }
+  | { kind: "unmatchable" };
+
+function comparableEvidenceValue(value: unknown): unknown {
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(comparableEvidenceValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, comparableEvidenceValue(item)]),
+    );
+  }
+  return value;
+}
+
+function evidenceMatchesCurrentValue(
+  evidence: RevenueFieldEvidence,
+  currentValues: Map<string, CurrentEvidenceValue>,
+): boolean | null {
+  const current = currentValues.get(evidence.fieldKey);
+  if (!current) return evidence.fieldKey.startsWith("custom:") ? false : null;
+  if (current.kind === "unmatchable") return false;
+
+  let extracted: unknown;
+  try {
+    extracted = JSON.parse(evidence.extractedValueJson) as unknown;
+  } catch {
+    return false;
+  }
+  if (current.kind === "commercial") {
+    if (!extracted || typeof extracted !== "object") return false;
+    const commercial = extracted as Record<string, unknown>;
+    return (
+      commercial.amountCents === current.amountCents &&
+      typeof commercial.currency === "string" &&
+      commercial.currency.toUpperCase() === current.currency.toUpperCase()
+    );
+  }
+  return (
+    JSON.stringify(comparableEvidenceValue(extracted)) ===
+    JSON.stringify(comparableEvidenceValue(current.value))
+  );
+}
+
+async function reconcileFieldEvidence(
+  manager: EntityManager,
+  rows: OperationRowWrite[],
+  companyId: string,
+  type: MergeResourceType,
+  sourceId: string,
+  target: MergeRecord,
+): Promise<void> {
+  const targetId = target.id;
+  const [customFields, customValues, evidenceRows] = await Promise.all([
+    manager.find(RevenueCustomField, { where: { companyId, resourceType: type } }),
+    manager.find(RevenueCustomValue, {
+      where: { companyId, resourceType: type, resourceId: targetId },
+    }),
+    manager.find(RevenueFieldEvidence, {
+      where: [
+        { companyId, resourceType: type, resourceId: sourceId },
+        { companyId, resourceType: type, resourceId: targetId },
+      ],
+    }),
+  ]);
+  const currentValues = new Map<string, CurrentEvidenceValue>();
+  const targetValues = target as unknown as Record<string, unknown>;
+  for (const { key } of DESCRIPTORS[type].fields) {
+    currentValues.set(key, { kind: "exact", value: targetValues[key] ?? null });
+  }
+  if (type === "deal") {
+    const deal = target as Deal;
+    currentValues.set("commercial_value", {
+      kind: "commercial",
+      amountCents: deal.amountCents,
+      currency: deal.currency,
+    });
+  }
+  const customValuesByField = new Map(customValues.map((value) => [value.fieldId, value]));
+  for (const field of customFields) {
+    const fieldKey = `custom:${field.key}`;
+    const value = customValuesByField.get(field.id);
+    if (!value) {
+      currentValues.set(fieldKey, { kind: "exact", value: null });
+      continue;
+    }
+    try {
+      currentValues.set(fieldKey, {
+        kind: "exact",
+        value: JSON.parse(value.valueJson) as unknown,
+      });
+    } catch {
+      currentValues.set(fieldKey, { kind: "unmatchable" });
+    }
+  }
+
+  for (const evidence of evidenceRows) {
+    const before: Record<string, unknown> = {};
+    const after: Record<string, unknown> = {};
+    const reparented = evidence.resourceId === sourceId;
+    if (reparented) {
+      before.resourceId = sourceId;
+      after.resourceId = targetId;
+    }
+    const matchesCurrent = evidenceMatchesCurrentValue(evidence, currentValues);
+    const superseded =
+      (evidence.status === "accepted" || evidence.status === "proposed") &&
+      matchesCurrent === false;
+    if (superseded) {
+      before.status = evidence.status;
+      before.verificationState = evidence.verificationState;
+      after.status = "superseded";
+      after.verificationState = "superseded";
+    }
+    if (Object.keys(after).length === 0) continue;
+
+    rows.push({
+      resourceType: type,
+      resourceId: evidence.id,
+      entityType: "revenue_field_evidence",
+      action: reparented
+        ? superseded
+          ? "reparent_and_supersede_evidence"
+          : "reparent_evidence"
+        : "supersede_conflicting_evidence",
+      before,
+      after,
+      detail: `Reconciled ${evidence.fieldKey} evidence with the merged ${type}`,
+    });
+    Object.assign(evidence, after);
+    await manager.save(RevenueFieldEvidence, evidence);
   }
 }
 
@@ -939,66 +1337,52 @@ async function addAliases(
   }
 }
 
-async function applyFollowUpFallback(
+async function applyFieldResolutions(
   manager: EntityManager,
   rows: OperationRowWrite[],
   type: MergeResourceType,
   source: MergeRecord,
   target: MergeRecord,
+  resolutions: MergeConflictResolutions,
 ): Promise<void> {
-  if (type === "deal") {
-    const sourceDeal = source as Deal;
-    const targetDeal = target as Deal;
-    const before: Record<string, unknown> = {};
-    const after: Record<string, unknown> = {};
-    if (!targetDeal.nextFollowUpAt && sourceDeal.nextFollowUpAt) {
-      before.nextFollowUpAt = null;
-      after.nextFollowUpAt = sourceDeal.nextFollowUpAt;
-      targetDeal.nextFollowUpAt = sourceDeal.nextFollowUpAt;
-    }
-    if (!targetDeal.followUpReminderAt && sourceDeal.followUpReminderAt) {
-      before.followUpReminderAt = null;
-      after.followUpReminderAt = sourceDeal.followUpReminderAt;
-      targetDeal.followUpReminderAt = sourceDeal.followUpReminderAt;
-    }
-    if (Object.keys(after).length > 0) {
-      rows.push({
-        resourceType: type,
-        resourceId: target.id,
-        entityType: "deal",
-        action: "adopt_follow_up",
-        before,
-        after,
-      });
-      await manager.save(Deal, targetDeal);
-    }
+  const conflicts = fieldConflicts(type, source, target, resolutions);
+  const invalidKeys = Object.keys(resolutions)
+    .filter((key) => !key.startsWith("custom:"))
+    .filter((key) => !conflicts.some((conflict) => conflict.field === key));
+  if (invalidKeys.length > 0) {
+    throw new Error(`Unknown or non-conflicting merge field: ${invalidKeys.join(", ")}`);
   }
-  if (type === "partnership") {
-    const sourcePartnership = source as Partnership;
-    const targetPartnership = target as Partnership;
-    const before: Record<string, unknown> = {};
-    const after: Record<string, unknown> = {};
-    if (!targetPartnership.nextFollowUpAt && sourcePartnership.nextFollowUpAt) {
-      before.nextFollowUpAt = null;
-      after.nextFollowUpAt = sourcePartnership.nextFollowUpAt;
-      targetPartnership.nextFollowUpAt = sourcePartnership.nextFollowUpAt;
-    }
-    if (!targetPartnership.reminderAt && sourcePartnership.reminderAt) {
-      before.reminderAt = null;
-      after.reminderAt = sourcePartnership.reminderAt;
-      targetPartnership.reminderAt = sourcePartnership.reminderAt;
-    }
-    if (Object.keys(after).length > 0) {
-      rows.push({
-        resourceType: type,
-        resourceId: target.id,
-        entityType: "partnership",
-        action: "adopt_follow_up",
-        before,
-        after,
-      });
-      await manager.save(Partnership, targetPartnership);
-    }
+  const before: Record<string, unknown> = {};
+  const after: Record<string, unknown> = {};
+  const targetValues = target as unknown as Record<string, unknown>;
+  for (const conflict of conflicts) {
+    if (conflict.resolution !== "source") continue;
+    before[conflict.field] = targetValues[conflict.field] ?? null;
+    after[conflict.field] = conflict.sourceValue;
+    targetValues[conflict.field] = conflict.sourceValue;
+  }
+  if (Object.keys(after).length === 0) return;
+  rows.push({
+    resourceType: type,
+    resourceId: target.id,
+    entityType: type,
+    action: "resolve_field_conflicts",
+    before,
+    after,
+  });
+  switch (type) {
+    case "account":
+      await manager.save(Customer, target as Customer);
+      break;
+    case "contact":
+      await manager.save(Contact, target as Contact);
+      break;
+    case "deal":
+      await manager.save(Deal, target as Deal);
+      break;
+    case "partnership":
+      await manager.save(Partnership, target as Partnership);
+      break;
   }
 }
 
@@ -1009,6 +1393,7 @@ async function applyRelationships(
   type: MergeResourceType,
   sourceId: string,
   targetId: string,
+  resolutions: MergeConflictResolutions,
 ): Promise<void> {
   const move = <T extends ObjectLiteral & { id: string }>(
     entity: EntityTarget<T>,
@@ -1029,13 +1414,6 @@ async function applyRelationships(
       extraWhere,
     });
 
-  await move(
-    RevenueFieldEvidence,
-    "revenue_field_evidence",
-    "resourceId",
-    undefined,
-    { resourceType: type },
-  );
   await move(
     RevenueDocumentCandidate,
     "revenue_document_candidate",
@@ -1076,7 +1454,7 @@ async function applyRelationships(
     await move(RevenueDocument, "revenue_document", "partnershipId");
     await mergePartnershipContacts(manager, rows, companyId, sourceId, targetId);
   }
-  await mergeCustomValues(manager, rows, companyId, type, sourceId, targetId);
+  await mergeCustomValues(manager, rows, companyId, type, sourceId, targetId, resolutions);
 }
 
 export async function mergeRevenueRecords(
@@ -1086,6 +1464,7 @@ export async function mergeRevenueRecords(
   targetId: string,
   confirmSourceLabel: string,
   actor: RevenueOperationActor = {},
+  resolutions: MergeConflictResolutions = {},
 ): Promise<RevenueMergePreview> {
   return AppDataSource.transaction("SERIALIZABLE", async (manager) => {
     const { source, target } = await loadPair(manager, companyId, type, sourceId, targetId);
@@ -1099,7 +1478,7 @@ export async function mergeRevenueRecords(
     }
     const [counts, custom] = await Promise.all([
       relationshipCounts(manager, companyId, type, sourceId, targetId),
-      customValueCounts(manager, companyId, type, sourceId, targetId),
+      customValuePreview(manager, companyId, type, sourceId, targetId, resolutions),
     ]);
     const preview: RevenueMergePreview = {
       resourceType: type,
@@ -1109,11 +1488,30 @@ export async function mergeRevenueRecords(
         label: labelOf(type, target),
         archivedAt: target.archivedAt,
       },
-      fieldConflicts: fieldConflicts(type, source, target),
+      fieldConflicts: fieldConflicts(type, source, target, resolutions),
       relationshipCounts: counts,
       customValuesCopied: custom.copied,
       customValueConflicts: custom.conflicts,
+      customFieldConflicts: custom.fieldConflicts,
     };
+    const validResolutionKeys = new Set([
+      ...preview.fieldConflicts.map((conflict) => conflict.field),
+      ...preview.customFieldConflicts.map((conflict) => conflict.field),
+    ]);
+    const invalidResolutionKeys = Object.keys(resolutions).filter(
+      (key) => !validResolutionKeys.has(key),
+    );
+    if (invalidResolutionKeys.length > 0) {
+      throw new Error(
+        `Unknown or non-conflicting merge field: ${invalidResolutionKeys.join(", ")}`,
+      );
+    }
+    await assertSurvivorInvariants(
+      manager,
+      companyId,
+      type,
+      resolvedSurvivor(type, source, target, resolutions),
+    );
     const operation = await createRevenueOperation(manager, {
       companyId,
       kind: "merge",
@@ -1125,6 +1523,7 @@ export async function mergeRevenueRecords(
         sourceId,
         targetId,
         confirmSourceLabel,
+        resolutions,
       },
       summary: preview,
       actor,
@@ -1133,8 +1532,9 @@ export async function mergeRevenueRecords(
     const rows: OperationRowWrite[] = [];
 
     await addAliases(manager, rows, operation, type, source, target);
-    await applyRelationships(manager, rows, companyId, type, sourceId, targetId);
-    await applyFollowUpFallback(manager, rows, type, source, target);
+    await applyFieldResolutions(manager, rows, type, source, target, resolutions);
+    await applyRelationships(manager, rows, companyId, type, sourceId, targetId, resolutions);
+    await reconcileFieldEvidence(manager, rows, companyId, type, sourceId, target);
 
     const beforeArchivedAt = source.archivedAt;
     source.archivedAt = new Date();
@@ -1161,38 +1561,15 @@ export async function mergeRevenueRecords(
       after: { archivedAt: source.archivedAt },
     });
 
-    const [leftId, rightId] = [sourceId, targetId].sort();
-    const duplicate = await manager.findOneBy(RevenueDuplicateCandidate, {
-      companyId,
-      resourceType: type,
-      leftId,
-      rightId,
-    });
-    if (duplicate) {
-      rows.push({
-        resourceType: type,
-        resourceId: duplicate.id,
-        entityType: "revenue_duplicate_candidate",
-        action: "resolve_duplicate_candidate",
-        before: {
-          status: duplicate.status,
-          mergeOperationId: duplicate.mergeOperationId,
-          resolvedAt: duplicate.resolvedAt,
-          resolvedByUserId: duplicate.resolvedByUserId,
-        },
-        after: {
-          status: "merged",
-          mergeOperationId: operation.id,
-          resolvedAt: operation.completedAt,
-          resolvedByUserId: actor.userId ?? null,
-        },
-      });
-      duplicate.status = "merged";
-      duplicate.mergeOperationId = operation.id;
-      duplicate.resolvedAt = operation.completedAt;
-      duplicate.resolvedByUserId = actor.userId ?? null;
-      await manager.save(RevenueDuplicateCandidate, duplicate);
-    }
+    await reconcileDuplicateCandidatesAfterMerge(
+      manager,
+      rows,
+      operation,
+      type,
+      sourceId,
+      targetId,
+      actor,
+    );
 
     await appendRevenueOperationRows(manager, operation, rows);
     preview.operationId = operation.id;

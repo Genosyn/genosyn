@@ -322,14 +322,69 @@ import {
 } from "../services/revenue/documents.js";
 import {
   createFollowUpTask,
-  listFollowUps,
+  listFollowUpPage,
   updateFollowUpTask,
 } from "../services/revenue/followUps.js";
+import {
+  createFollowUpView,
+  deleteFollowUpView,
+  listFollowUpViews,
+  updateFollowUpView,
+  type FollowUpViewFilters,
+} from "../services/revenue/followUpViews.js";
+import { runRevenueBulkOperation } from "../services/revenue/bulk.js";
+import {
+  createRevenueBulkJob,
+  getRevenueBulkJob,
+  rollbackRevenueBulkJob,
+} from "../services/revenue/bulkJobs.js";
+import {
+  mergeRevenueRecords,
+  previewRevenueMerge,
+  type MergeResourceType,
+} from "../services/revenue/merge.js";
+import {
+  findMergedRecordRedirect,
+  getRevenueOperation,
+  listRevenueOperations,
+  rollbackRevenueOperation,
+} from "../services/revenue/operations.js";
+import {
+  backfillDealHistoryFromActivities,
+  importHistoricalDealEvents,
+  listDealHistory,
+} from "../services/revenue/dealHistory.js";
+import {
+  assertRevenueEvidenceSource,
+  createCommercialValueProposal,
+  listRevenueEvidence,
+  proposeCanonicalDomains,
+  proposeCommercialValuesFromFinance,
+  proposeCommercialValuesFromStripe,
+  reviewRevenueEvidence,
+} from "../services/revenue/enrichment.js";
+import {
+  dismissRevenueDuplicateCandidate,
+  listRevenueDuplicateCandidates,
+  scanRevenueDuplicates,
+} from "../services/revenue/duplicates.js";
+import {
+  REVENUE_EXPORT_RESOURCES,
+  exportRevenueSnapshotPage,
+  revenueExportCsv,
+} from "../services/revenue/exports.js";
+import {
+  listRevenueDocumentCandidates,
+  reviewRevenueDocumentCandidate,
+  scanMailForRevenueDocuments,
+} from "../services/revenue/documentCapture.js";
 import {
   commitLinkedRevenueImport,
   commitRevenueImport,
   getRevenueImport,
-  listRevenueImports,
+  getRevenueImportRows,
+  getRevenueImportSummary,
+  queryRevenueImports,
   loadBaseImportRows,
   migrateBaseAttachmentsForImport,
   previewLinkedRevenueImport,
@@ -354,6 +409,7 @@ import {
   REVENUE_DOCUMENT_KINDS,
   type RevenueDocumentKind,
 } from "../db/entities/RevenueDocument.js";
+import { RevenueDocumentCandidate } from "../db/entities/RevenueDocumentCandidate.js";
 import {
   EmployeeFinanceGrant,
   FINANCE_ACCESS_RANK,
@@ -2956,24 +3012,201 @@ mcpInternalRouter.post(
     z
       .object({
         state: z.enum(["all", "overdue", "today", "upcoming"]).optional(),
+        q: z.string().max(200).optional(),
+        source: z.enum(["task", "deal", "partnership"]).optional(),
         assignedToMe: z.boolean().optional(),
+        assignedUserId: z.string().uuid().optional(),
+        assignedEmployeeId: z.string().uuid().optional(),
+        unassigned: z.boolean().optional(),
+        priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
+        status: z.enum(["open", "completed", "cancelled"]).optional(),
+        linkedResourceType: z.enum(["account", "contact", "deal", "partnership"]).optional(),
+        linkedResourceId: z.string().uuid().optional(),
+        dueFrom: z.string().datetime().optional(),
+        dueTo: z.string().datetime().optional(),
+        reminderFrom: z.string().datetime().optional(),
+        reminderTo: z.string().datetime().optional(),
+        overdueMinDays: z.number().int().min(0).max(36_500).optional(),
+        overdueMaxDays: z.number().int().min(0).max(36_500).optional(),
+        createdBefore: z.string().datetime().optional(),
+        staleBefore: z.string().datetime().optional(),
+        dealStageId: z.string().uuid().optional(),
+        dealStatus: z.enum(["open", "won", "lost"]).optional(),
+        accountStatus: z.enum(["prospect", "customer", "former"]).optional(),
+        closedDeals: z.enum(["include", "only", "exclude"]).optional(),
+        archivedResources: z.enum(["include", "only", "exclude"]).optional(),
+        cursor: z.string().max(1_000).optional(),
         limit: z.number().int().min(1).max(500).optional(),
+        offset: z.number().int().min(0).optional(),
       })
       .strict(),
   ),
   async (req: McpRequest, res) => {
     if (!(await requireRevenue(req, res, "read"))) return;
-    const body = req.body as {
-      state?: "all" | "overdue" | "today" | "upcoming";
+    const body = req.body as Record<string, unknown> & {
       assignedToMe?: boolean;
-      limit?: number;
+      assignedEmployeeId?: string;
+      dueFrom?: string;
+      dueTo?: string;
+      reminderFrom?: string;
+      reminderTo?: string;
+      createdBefore?: string;
+      staleBefore?: string;
     };
-    const rows = await listFollowUps(req.mcpCompany!.id, {
-      state: body.state,
-      assignedEmployeeId: body.assignedToMe ? req.mcpEmployee!.id : undefined,
-      limit: body.limit,
+    const options = {
+      ...body,
+      assignedEmployeeId: body.assignedToMe ? req.mcpEmployee!.id : body.assignedEmployeeId,
+      dueFrom: body.dueFrom ? new Date(body.dueFrom) : undefined,
+      dueTo: body.dueTo ? new Date(body.dueTo) : undefined,
+      reminderFrom: body.reminderFrom ? new Date(body.reminderFrom) : undefined,
+      reminderTo: body.reminderTo ? new Date(body.reminderTo) : undefined,
+      createdBefore: body.createdBefore ? new Date(body.createdBefore) : undefined,
+      staleBefore: body.staleBefore ? new Date(body.staleBefore) : undefined,
+    } as NonNullable<Parameters<typeof listFollowUpPage>[1]>;
+    const page = await listFollowUpPage(req.mcpCompany!.id, options);
+    res.json({ followUps: page.rows, nextCursor: page.nextCursor });
+  },
+);
+
+const followUpViewToolFiltersSchema = z
+  .object({
+    state: z.enum(["all", "overdue", "today", "upcoming"]).optional(),
+    q: z.string().max(200).optional(),
+    source: z.enum(["task", "deal", "partnership"]).optional(),
+    assignedUserId: z.string().uuid().optional(),
+    assignedEmployeeId: z.string().uuid().optional(),
+    unassigned: z.boolean().optional(),
+    priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
+    status: z.enum(["open", "completed", "cancelled"]).optional(),
+    linkedResourceType: z.enum(["account", "contact", "deal", "partnership"]).optional(),
+    linkedResourceId: z.string().uuid().optional(),
+    dueFrom: z.string().datetime().optional(),
+    dueTo: z.string().datetime().optional(),
+    reminderFrom: z.string().datetime().optional(),
+    reminderTo: z.string().datetime().optional(),
+    overdueMinDays: z.number().int().min(0).max(36_500).optional(),
+    overdueMaxDays: z.number().int().min(0).max(36_500).optional(),
+    createdBefore: z.string().datetime().optional(),
+    staleBefore: z.string().datetime().optional(),
+    dealStageId: z.string().uuid().optional(),
+    dealStatus: z.enum(["open", "won", "lost"]).optional(),
+    accountStatus: z.enum(["prospect", "customer", "former"]).optional(),
+    closedDeals: z.enum(["include", "only", "exclude"]).optional(),
+    archivedResources: z.enum(["include", "only", "exclude"]).optional(),
+  })
+  .strict();
+
+function followUpViewToolFilters(
+  filters: z.infer<typeof followUpViewToolFiltersSchema>,
+): FollowUpViewFilters {
+  return {
+    ...filters,
+    dueFrom: filters.dueFrom ? new Date(filters.dueFrom) : undefined,
+    dueTo: filters.dueTo ? new Date(filters.dueTo) : undefined,
+    reminderFrom: filters.reminderFrom ? new Date(filters.reminderFrom) : undefined,
+    reminderTo: filters.reminderTo ? new Date(filters.reminderTo) : undefined,
+    createdBefore: filters.createdBefore ? new Date(filters.createdBefore) : undefined,
+    staleBefore: filters.staleBefore ? new Date(filters.staleBefore) : undefined,
+  };
+}
+
+mcpInternalRouter.post(
+  "/tools/list_follow_up_views",
+  validateBody(z.object({}).strict()),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    res.json({ views: await listFollowUpViews(req.mcpCompany!.id) });
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/create_follow_up_view",
+  validateBody(
+    z
+      .object({
+        name: z.string().min(1).max(120),
+        filters: followUpViewToolFiltersSchema,
+        sortOrder: z.number().finite().optional(),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const body = req.body as {
+      name: string;
+      filters: z.infer<typeof followUpViewToolFiltersSchema>;
+      sortOrder?: number;
+    };
+    const view = await createFollowUpView(
+      req.mcpCompany!.id,
+      { ...body, filters: followUpViewToolFilters(body.filters) },
+      revenueActor(req),
+    );
+    await aiWriteTrail(req, {
+      action: "revenue.follow_up_view.create",
+      targetType: "revenue_follow_up_view",
+      targetId: view.id,
+      targetLabel: view.name,
+      journalTitle: `${req.mcpEmployee!.name} created Follow-up view ${view.name}`,
     });
-    res.json({ followUps: rows });
+    res.json({ view });
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/update_follow_up_view",
+  validateBody(
+    z
+      .object({
+        viewId: z.string().uuid(),
+        name: z.string().min(1).max(120).optional(),
+        filters: followUpViewToolFiltersSchema.optional(),
+        sortOrder: z.number().finite().optional(),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const body = req.body as {
+      viewId: string;
+      name?: string;
+      filters?: z.infer<typeof followUpViewToolFiltersSchema>;
+      sortOrder?: number;
+    };
+    const view = await updateFollowUpView(req.mcpCompany!.id, body.viewId, {
+      name: body.name,
+      sortOrder: body.sortOrder,
+      filters: body.filters ? followUpViewToolFilters(body.filters) : undefined,
+    });
+    if (!view) return res.status(404).json({ error: "Follow-up view not found" });
+    await aiWriteTrail(req, {
+      action: "revenue.follow_up_view.update",
+      targetType: "revenue_follow_up_view",
+      targetId: view.id,
+      targetLabel: view.name,
+      journalTitle: `${req.mcpEmployee!.name} updated Follow-up view ${view.name}`,
+    });
+    res.json({ view });
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/delete_follow_up_view",
+  validateBody(z.object({ viewId: z.string().uuid(), confirm: z.literal("DELETE") }).strict()),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const { viewId } = req.body as { viewId: string };
+    if (!(await deleteFollowUpView(req.mcpCompany!.id, viewId))) {
+      return res.status(404).json({ error: "Follow-up view not found" });
+    }
+    await aiWriteTrail(req, {
+      action: "revenue.follow_up_view.delete",
+      targetType: "revenue_follow_up_view",
+      targetId: viewId,
+      targetLabel: "Follow-up view",
+      journalTitle: `${req.mcpEmployee!.name} deleted a Follow-up view`,
+    });
+    res.json({ deleted: true, viewId });
   },
 );
 
@@ -3222,6 +3455,7 @@ mcpInternalRouter.post(
         sourceAccountId: z.string().uuid(),
         targetAccountId: z.string().uuid(),
         confirmSourceName: z.string().min(1).max(120),
+        resolutions: z.record(z.enum(["source", "target"])).default({}),
       })
       .strict(),
   ),
@@ -3231,6 +3465,7 @@ mcpInternalRouter.post(
       sourceAccountId: string;
       targetAccountId: string;
       confirmSourceName: string;
+      resolutions: Record<string, "source" | "target">;
     };
     try {
       const result = await mergeRevenueAccounts(
@@ -3238,6 +3473,8 @@ mcpInternalRouter.post(
         sourceAccountId,
         targetAccountId,
         confirmSourceName,
+        {},
+        req.body.resolutions,
       );
       await aiWriteTrail(req, {
         action: "revenue.account.merge",
@@ -3463,6 +3700,12 @@ mcpInternalRouter.post(
   },
 );
 
+export function hasSafeDirectWriteProvenance(
+  provenance: { verificationState: "verified" | "unverified" } | undefined,
+): boolean {
+  return !provenance || provenance.verificationState === "verified";
+}
+
 mcpInternalRouter.post(
   "/tools/set_revenue_custom_fields",
   validateBody(
@@ -3471,6 +3714,27 @@ mcpInternalRouter.post(
         resourceType: revenueResourceTypeEnum,
         resourceId: z.string().uuid(),
         values: z.record(z.unknown()),
+        provenance: z
+          .object({
+            sourceType: z.enum([
+              "email",
+              "document",
+              "integration",
+              "finance",
+              "website",
+              "import",
+              "manual",
+            ]),
+            sourceId: z.string().min(1).max(500),
+            sourceLabel: z.string().max(500).optional(),
+            extractionMethod: z.string().max(200).optional(),
+            confidence: z.number().int().min(0).max(100).optional(),
+            observedAt: z.string().datetime().optional(),
+            verificationState: z.enum(["verified", "unverified"]),
+            lastVerifiedAt: z.string().datetime().nullable().optional(),
+            metadata: z.record(z.unknown()).optional(),
+          })
+          .optional(),
       })
       .strict(),
   ),
@@ -3480,13 +3744,82 @@ mcpInternalRouter.post(
       resourceType: RevenueResourceType;
       resourceId: string;
       values: Record<string, unknown>;
+      provenance?: {
+        sourceType:
+          | "email"
+          | "document"
+          | "integration"
+          | "finance"
+          | "website"
+          | "import"
+          | "manual";
+        sourceId: string;
+        sourceLabel?: string;
+        extractionMethod?: string;
+        confidence?: number;
+        observedAt?: string;
+        verificationState: "verified" | "unverified";
+        lastVerifiedAt?: string | null;
+        metadata?: Record<string, unknown>;
+      };
     };
     try {
+      if (body.provenance) {
+        if (!hasSafeDirectWriteProvenance(body.provenance)) {
+          return res.status(400).json({
+            error:
+              "set_revenue_custom_fields is a direct-write tool; provenance must explicitly be verified",
+          });
+        }
+        if (body.provenance.sourceType === "finance") {
+          if (!(await requireFinance(req, res, "read"))) return;
+        } else if (body.provenance.sourceType === "email") {
+          const message = await AppDataSource.getRepository(MailMessage).findOneBy({
+            companyId: req.mcpCompany!.id,
+            id: body.provenance.sourceId,
+          });
+          if (!message) {
+            return res.status(400).json({ error: "Source mail message not found" });
+          }
+          if (!(await loadGrantedMailAccount(req, res, message.accountId, "read"))) return;
+        } else if (body.provenance.sourceType === "integration") {
+          const connectionId = body.provenance.metadata?.connectionId;
+          if (typeof connectionId !== "string" || !connectionId) {
+            return res.status(400).json({
+              error: "Integration provenance needs metadata.connectionId",
+            });
+          }
+          const pair = await getGrantWithConnection(req.mcpEmployee!.id, connectionId);
+          if (!pair || pair.connection.companyId !== req.mcpCompany!.id) {
+            return res.status(403).json({
+              error: "This AI Employee needs a Grant to the source Connection",
+            });
+          }
+        }
+        await assertRevenueEvidenceSource(req.mcpCompany!.id, body.provenance);
+      }
       const values = await setCustomValues(
         req.mcpCompany!.id,
         body.resourceType,
         body.resourceId,
         body.values,
+        {
+          actor: revenueActor(req),
+          provenance: body.provenance
+            ? {
+                ...body.provenance,
+                observedAt: body.provenance.observedAt
+                  ? new Date(body.provenance.observedAt)
+                  : undefined,
+                lastVerifiedAt:
+                  body.provenance.lastVerifiedAt === null
+                    ? null
+                    : body.provenance.lastVerifiedAt
+                      ? new Date(body.provenance.lastVerifiedAt)
+                      : undefined,
+              }
+            : undefined,
+        },
       );
       await aiWriteTrail(req, {
         action: "revenue.custom_values.update",
@@ -3494,7 +3827,10 @@ mcpInternalRouter.post(
         targetId: body.resourceId,
         targetLabel: body.resourceType,
         journalTitle: `${req.mcpEmployee!.name} updated ${body.resourceType} custom fields`,
-        metadata: { keys: Object.keys(body.values) },
+        metadata: {
+          keys: Object.keys(body.values),
+          sourceType: body.provenance?.sourceType ?? "manual",
+        },
       });
       res.json({ values });
     } catch (error) {
@@ -3870,10 +4206,39 @@ async function checkedBaseImportSource(req: McpRequest, body: { baseId: string; 
 
 mcpInternalRouter.post(
   "/tools/list_revenue_imports",
-  validateBody(emptyToolSchema),
+  validateBody(
+    z
+      .object({
+        sourceKind: z.enum(["base", "csv"]).optional(),
+        status: z.enum(["completed", "rolled_back", "failed"]).optional(),
+        resourceType: z
+          .enum(["account", "contact", "deal", "partnership", "account_contact_deal"])
+          .optional(),
+        from: z.string().datetime().optional(),
+        to: z.string().datetime().optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+        offset: z.number().int().min(0).optional(),
+      })
+      .strict(),
+  ),
   async (req: McpRequest, res) => {
     if (!(await requireRevenue(req, res, "read"))) return;
-    res.json({ imports: await listRevenueImports(req.mcpCompany!.id) });
+    const body = req.body as {
+      sourceKind?: "base" | "csv";
+      status?: "completed" | "rolled_back" | "failed";
+      resourceType?: "account" | "contact" | "deal" | "partnership" | "account_contact_deal";
+      from?: string;
+      to?: string;
+      limit?: number;
+      offset?: number;
+    };
+    const result = await queryRevenueImports(req.mcpCompany!.id, {
+      ...body,
+      summaryOnly: true,
+      from: body.from ? new Date(body.from) : undefined,
+      to: body.to ? new Date(body.to) : undefined,
+    });
+    res.json({ imports: result.rows, total: result.total });
   },
 );
 
@@ -3882,22 +4247,69 @@ mcpInternalRouter.post(
   validateBody(z.object({ importId: z.string().uuid() }).strict()),
   async (req: McpRequest, res) => {
     if (!(await requireRevenue(req, res, "read"))) return;
-    const batch = await getRevenueImport(
+    const summary = await getRevenueImportSummary(
       req.mcpCompany!.id,
       (req.body as { importId: string }).importId,
     );
-    if (!batch) return res.status(404).json({ error: "Revenue import not found" });
-    let report: unknown = null;
-    let mapping: unknown = null;
-    let rowMap: unknown = null;
-    try {
-      report = JSON.parse(batch.reportJson);
-      mapping = JSON.parse(batch.mappingJson);
-      rowMap = JSON.parse(batch.rowMapJson);
-    } catch {
-      // The raw durable fields remain in `import` for forensic recovery.
-    }
-    res.json({ import: batch, report, mapping, rowMap });
+    if (!summary) return res.status(404).json({ error: "Revenue import not found" });
+    res.json(summary);
+  },
+);
+
+const revenueImportRowsToolSchema = z
+  .object({
+    importId: z.string().uuid(),
+    resourceType: revenueResourceTypeEnum.optional(),
+    status: z.enum(["created", "matched", "skipped", "failed", "rolled_back"]).optional(),
+    action: z.string().max(80).optional(),
+    q: z.string().max(200).optional(),
+    sourceId: z.string().max(300).optional(),
+    nativeId: z.string().uuid().optional(),
+    error: z.string().max(500).optional(),
+    hasError: z.boolean().optional(),
+    limit: z.number().int().min(1).max(500).optional(),
+    offset: z.number().int().min(0).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/list_revenue_import_rows",
+  validateBody(revenueImportRowsToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    const { importId, ...query } = req.body as z.infer<typeof revenueImportRowsToolSchema>;
+    const result = await getRevenueImportRows(req.mcpCompany!.id, importId, query);
+    if (!result) return res.status(404).json({ error: "Revenue import not found" });
+    res.json(result);
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/export_revenue_import_reconciliation",
+  validateBody(revenueImportRowsToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    const { importId, ...query } = req.body as z.infer<typeof revenueImportRowsToolSchema>;
+    const result = await getRevenueImportRows(req.mcpCompany!.id, importId, query);
+    if (!result) return res.status(404).json({ error: "Revenue import not found" });
+    const contentText = revenueExportCsv({
+      resource: "import_reconciliation",
+      generatedAt: new Date(),
+      offset: query.offset ?? 0,
+      limit: query.limit ?? 100,
+      total: result.total,
+      nextOffset:
+        (query.offset ?? 0) + result.rows.length < result.total
+          ? (query.offset ?? 0) + result.rows.length
+          : null,
+      rows: result.rows.map((row) => ({ ...row })),
+    });
+    res.json({
+      filename: `revenue-import-${importId}-${query.offset ?? 0}.csv`,
+      mimeType: "text/csv; charset=utf-8",
+      contentText,
+      total: result.total,
+    });
   },
 );
 
@@ -3956,7 +4368,7 @@ mcpInternalRouter.post(
         targetLabel: batch.sourceLabel,
         journalTitle: `${req.mcpEmployee!.name} imported ${source.sourceLabel} into Revenue`,
       });
-      res.json({ import: batch, report: JSON.parse(batch.reportJson) });
+      res.json(await getRevenueImportSummary(req.mcpCompany!.id, batch.id));
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
     }
@@ -4028,7 +4440,7 @@ mcpInternalRouter.post(
         targetLabel: batch.sourceLabel,
         journalTitle: `${req.mcpEmployee!.name} atomically imported linked Accounts, Contacts, and Deals from ${source.sourceLabel}`,
       });
-      res.json({ import: batch, report: JSON.parse(batch.reportJson) });
+      res.json(await getRevenueImportSummary(req.mcpCompany!.id, batch.id));
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
     }
@@ -4098,7 +4510,1127 @@ mcpInternalRouter.post(
       journalTitle: `${req.mcpEmployee!.name} rolled back revenue import ${result.batch.sourceLabel}`,
       metadata: { deleted: result.deleted, blocked: result.blocked },
     });
+    res.json({
+      ...(await getRevenueImportSummary(req.mcpCompany!.id, result.batch.id)),
+      deleted: result.deleted,
+      blocked: result.blocked,
+    });
+  },
+);
+
+const revenueMergeResourceToolEnum = z.enum(["account", "contact", "deal", "partnership"]);
+
+mcpInternalRouter.post(
+  "/tools/preview_revenue_record_merge",
+  validateBody(
+    z
+      .object({
+        resourceType: revenueMergeResourceToolEnum,
+        sourceId: z.string().uuid(),
+        targetId: z.string().uuid(),
+        resolutions: z.record(z.enum(["source", "target"])).default({}),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    const body = req.body as {
+      resourceType: MergeResourceType;
+      sourceId: string;
+      targetId: string;
+      resolutions: Record<string, "source" | "target">;
+    };
+    try {
+      res.json(
+        await previewRevenueMerge(
+          req.mcpCompany!.id,
+          body.resourceType,
+          body.sourceId,
+          body.targetId,
+          body.resolutions,
+        ),
+      );
+    } catch (error) {
+      res.status(409).json({ error: (error as Error).message });
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/merge_revenue_records",
+  validateBody(
+    z
+      .object({
+        resourceType: revenueMergeResourceToolEnum,
+        sourceId: z.string().uuid(),
+        targetId: z.string().uuid(),
+        confirmSourceLabel: z.string().min(1).max(500),
+        resolutions: z.record(z.enum(["source", "target"])).default({}),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const body = req.body as {
+      resourceType: MergeResourceType;
+      sourceId: string;
+      targetId: string;
+      confirmSourceLabel: string;
+      resolutions: Record<string, "source" | "target">;
+    };
+    try {
+      const result = await mergeRevenueRecords(
+        req.mcpCompany!.id,
+        body.resourceType,
+        body.sourceId,
+        body.targetId,
+        body.confirmSourceLabel,
+        revenueActor(req),
+        body.resolutions,
+      );
+      await aiWriteTrail(req, {
+        action: `revenue.${body.resourceType}.merge`,
+        targetType: body.resourceType,
+        targetId: result.source.id,
+        targetLabel: `${result.source.label} → ${result.target.label}`,
+        journalTitle: `${req.mcpEmployee!.name} merged ${result.source.label} into ${result.target.label}`,
+        metadata: { operationId: result.operationId, moved: result.relationshipCounts },
+      });
+      res.json(result);
+    } catch (error) {
+      res.status(409).json({ error: (error as Error).message });
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/resolve_revenue_record_redirect",
+  validateBody(
+    z
+      .object({
+        resourceType: revenueMergeResourceToolEnum,
+        sourceId: z.string().uuid(),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    const body = req.body as { resourceType: MergeResourceType; sourceId: string };
+    const redirect = await findMergedRecordRedirect(
+      req.mcpCompany!.id,
+      body.resourceType,
+      body.sourceId,
+    );
+    if (!redirect) return res.status(404).json({ error: "Revenue redirect not found" });
+    res.json(redirect);
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/list_revenue_operations",
+  validateBody(
+    z
+      .object({
+        kind: z.enum(["merge", "bulk", "history_import"]).optional(),
+        resourceType: z.enum(["account", "contact", "deal", "partnership", "follow_up"]).optional(),
+        status: z
+          .enum(["queued", "running", "completed", "partial", "failed", "rolled_back"])
+          .optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+        offset: z.number().int().min(0).optional(),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    res.json(await listRevenueOperations(req.mcpCompany!.id, req.body));
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/get_revenue_operation",
+  validateBody(
+    z
+      .object({
+        operationId: z.string().uuid(),
+        rowLimit: z.number().int().min(1).max(500).optional(),
+        rowOffset: z.number().int().min(0).optional(),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    const { operationId, ...query } = req.body as {
+      operationId: string;
+      rowLimit?: number;
+      rowOffset?: number;
+    };
+    const result = await getRevenueOperation(req.mcpCompany!.id, operationId, query);
+    if (!result) return res.status(404).json({ error: "Revenue operation not found" });
     res.json(result);
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/undo_revenue_operation",
+  validateBody(z.object({ operationId: z.string().uuid(), confirm: z.literal("UNDO") }).strict()),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const { operationId } = req.body as { operationId: string };
+    try {
+      const bulkJob = await getRevenueBulkJob(req.mcpCompany!.id, operationId, {
+        rowLimit: 1,
+      });
+      const result = bulkJob
+        ? await rollbackRevenueBulkJob(req.mcpCompany!.id, operationId)
+        : await rollbackRevenueOperation(req.mcpCompany!.id, operationId);
+      await aiWriteTrail(req, {
+        action: "revenue.operation.undo",
+        targetType: "revenue_operation",
+        targetId: operationId,
+        targetLabel: operationId,
+        journalTitle: `${req.mcpEmployee!.name} undid a Revenue operation`,
+        metadata: { rolledBack: result.rolledBack },
+      });
+      res.json(result);
+    } catch (error) {
+      res.status(409).json({ error: (error as Error).message });
+    }
+  },
+);
+
+const revenueBulkTargetToolSchema = z
+  .object({
+    ids: z.array(z.string().uuid()).max(5_000).optional(),
+    followUpIds: z
+      .array(
+        z.object({
+          source: z.enum(["task", "deal", "partnership"]),
+          id: z.string().uuid(),
+        }),
+      )
+      .max(5_000)
+      .optional(),
+    filter: z
+      .object({
+        state: z.enum(["all", "overdue", "today", "upcoming"]).optional(),
+        q: z.string().max(200).optional(),
+        includeArchived: z.boolean().optional(),
+        ownerId: z.string().uuid().optional(),
+        ownerEmployeeId: z.string().uuid().optional(),
+        assignedUserId: z.string().uuid().optional(),
+        assignedEmployeeId: z.string().uuid().optional(),
+        unassigned: z.boolean().optional(),
+        accountStatus: z.enum(["prospect", "customer", "former"]).optional(),
+        lifecycleStage: contactLifecycleEnum.optional(),
+        dealStatus: z.enum(["open", "won", "lost"]).optional(),
+        dealStageId: z.string().uuid().optional(),
+        partnershipStatus: z.string().max(80).optional(),
+        source: z.enum(["task", "deal", "partnership"]).optional(),
+        followUpSource: z.enum(["task", "deal", "partnership"]).optional(),
+        status: z.enum(["open", "completed", "cancelled"]).optional(),
+        taskStatus: z.enum(["open", "completed", "cancelled"]).optional(),
+        priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
+        linkedResourceType: z.enum(["account", "contact", "deal", "partnership"]).optional(),
+        linkedResourceId: z.string().uuid().optional(),
+        dueFrom: z.string().datetime().optional(),
+        dueTo: z.string().datetime().optional(),
+        reminderFrom: z.string().datetime().optional(),
+        reminderTo: z.string().datetime().optional(),
+        overdueMinDays: z.number().int().min(0).max(36_500).optional(),
+        overdueMaxDays: z.number().int().min(0).max(36_500).optional(),
+        staleBefore: z.string().datetime().optional(),
+        createdBefore: z.string().datetime().optional(),
+        closedDeals: z.enum(["include", "only", "exclude"]).optional(),
+        archivedResources: z.enum(["include", "only", "exclude"]).optional(),
+      })
+      .optional(),
+  })
+  .refine(
+    (target) => Boolean(target.ids?.length || target.followUpIds?.length || target.filter),
+    "Choose selected IDs or a filter",
+  );
+
+const revenueBulkActionToolSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("assign_owner"),
+    ownerId: z.string().uuid().nullable(),
+    ownerEmployeeId: z.string().uuid().nullable(),
+  }),
+  z.object({ type: z.literal("set_contact_lifecycle"), lifecycleStage: contactLifecycleEnum }),
+  z.object({
+    type: z.literal("set_account_status"),
+    accountStatus: z.enum(["prospect", "customer", "former"]),
+  }),
+  z.object({ type: z.literal("set_custom_fields"), values: z.record(z.unknown()) }),
+  z.object({ type: z.literal("archive"), archived: z.boolean() }),
+  z.object({
+    type: z.literal("move_deal_stage"),
+    stageId: z.string().uuid(),
+    lostReason: z.string().min(1).max(2_000).optional(),
+  }),
+  z.object({
+    type: z.literal("update_follow_up"),
+    taskStatus: z.enum(["open", "completed", "cancelled"]).optional(),
+    priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
+    assignedUserId: z.string().uuid().nullable().optional(),
+    assignedEmployeeId: z.string().uuid().nullable().optional(),
+    dueAt: z.string().datetime().nullable().optional(),
+    reminderAt: z.string().datetime().nullable().optional(),
+  }),
+]);
+
+const revenueBulkToolSchema = z
+  .object({
+    resourceType: z.enum(["account", "contact", "deal", "partnership", "follow_up"]),
+    target: revenueBulkTargetToolSchema,
+    action: revenueBulkActionToolSchema,
+    idempotencyKey: z.string().min(8).max(200).optional(),
+    mode: z.enum(["atomic", "partial"]).default("partial"),
+  })
+  .strict();
+
+function normalizeRevenueBulkToolInput(
+  body: z.infer<typeof revenueBulkToolSchema>,
+): Parameters<typeof runRevenueBulkOperation>[1] {
+  const filter = body.target.filter;
+  return {
+    ...body,
+    dryRun: false,
+    target: {
+      ...body.target,
+      filter: filter
+        ? {
+            ...filter,
+            dueFrom: filter.dueFrom ? new Date(filter.dueFrom) : undefined,
+            dueTo: filter.dueTo ? new Date(filter.dueTo) : undefined,
+            reminderFrom: filter.reminderFrom ? new Date(filter.reminderFrom) : undefined,
+            reminderTo: filter.reminderTo ? new Date(filter.reminderTo) : undefined,
+            staleBefore: filter.staleBefore ? new Date(filter.staleBefore) : undefined,
+            createdBefore: filter.createdBefore ? new Date(filter.createdBefore) : undefined,
+          }
+        : undefined,
+    },
+    action:
+      body.action.type === "update_follow_up"
+        ? {
+            ...body.action,
+            dueAt:
+              body.action.dueAt === null
+                ? null
+                : body.action.dueAt
+                  ? new Date(body.action.dueAt)
+                  : undefined,
+            reminderAt:
+              body.action.reminderAt === null
+                ? null
+                : body.action.reminderAt
+                  ? new Date(body.action.reminderAt)
+                  : undefined,
+          }
+        : body.action,
+  };
+}
+
+mcpInternalRouter.post(
+  "/tools/preview_revenue_bulk_operation",
+  validateBody(revenueBulkToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const input = normalizeRevenueBulkToolInput(req.body as z.infer<typeof revenueBulkToolSchema>);
+    try {
+      res.json(
+        await runRevenueBulkOperation(
+          req.mcpCompany!.id,
+          { ...input, dryRun: true, idempotencyKey: undefined },
+          revenueActor(req),
+        ),
+      );
+    } catch (error) {
+      res.status(409).json({ error: (error as Error).message });
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/start_revenue_bulk_job",
+  validateBody(
+    revenueBulkToolSchema.extend({
+      idempotencyKey: z.string().min(8).max(200),
+    }),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const input = normalizeRevenueBulkToolInput(req.body as z.infer<typeof revenueBulkToolSchema>);
+    try {
+      const result = await createRevenueBulkJob(req.mcpCompany!.id, input, revenueActor(req));
+      if (!result.replayed) {
+        await aiWriteTrail(req, {
+          action: "revenue.bulk.queue",
+          targetType: "revenue_operation",
+          targetId: result.job.id,
+          targetLabel: input.resourceType,
+          journalTitle: `${req.mcpEmployee!.name} queued a ${input.resourceType} bulk operation`,
+          metadata: {
+            action: input.action.type,
+            mode: input.mode,
+            frozenSelection: result.preview.matched,
+          },
+        });
+      }
+      res.status(result.replayed ? 200 : 202).json(result);
+    } catch (error) {
+      res.status(409).json({ error: (error as Error).message });
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/get_revenue_bulk_job",
+  validateBody(
+    z
+      .object({
+        operationId: z.string().uuid(),
+        rowLimit: z.number().int().min(1).max(500).optional(),
+        rowOffset: z.number().int().min(0).optional(),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    const { operationId, ...query } = req.body as {
+      operationId: string;
+      rowLimit?: number;
+      rowOffset?: number;
+    };
+    const result = await getRevenueBulkJob(req.mcpCompany!.id, operationId, query);
+    if (!result) return res.status(404).json({ error: "Revenue bulk job not found" });
+    res.json(result);
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/export_revenue_bulk_reconciliation",
+  validateBody(
+    z
+      .object({
+        operationId: z.string().uuid(),
+        limit: z.number().int().min(1).max(500).optional(),
+        offset: z.number().int().min(0).optional(),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    const body = req.body as { operationId: string; limit?: number; offset?: number };
+    const result = await getRevenueBulkJob(req.mcpCompany!.id, body.operationId, {
+      rowLimit: body.limit,
+      rowOffset: body.offset,
+    });
+    if (!result) return res.status(404).json({ error: "Revenue bulk job not found" });
+    const contentText = revenueExportCsv({
+      resource: "import_reconciliation",
+      generatedAt: new Date(),
+      offset: body.offset ?? 0,
+      limit: body.limit ?? 100,
+      total: result.rowTotal,
+      nextOffset:
+        (body.offset ?? 0) + result.rows.length < result.rowTotal
+          ? (body.offset ?? 0) + result.rows.length
+          : null,
+      rows: result.rows,
+    });
+    res.json({
+      filename: `revenue-bulk-${body.operationId}-${body.offset ?? 0}.csv`,
+      mimeType: "text/csv; charset=utf-8",
+      contentText,
+      total: result.rowTotal,
+    });
+  },
+);
+
+const historicalDealEventToolSchema = z.object({
+  sourceEventId: z.string().min(1).max(300),
+  eventType: z.enum([
+    "stage_changed",
+    "amount_changed",
+    "owner_changed",
+    "expected_close_changed",
+    "won",
+    "lost",
+  ]),
+  effectiveAt: z.string().datetime(),
+  fromStageId: z.string().uuid().nullable().optional(),
+  toStageId: z.string().uuid().nullable().optional(),
+  fromAmountCents: z.number().int().min(0).max(2_000_000_000).nullable().optional(),
+  toAmountCents: z.number().int().min(0).max(2_000_000_000).nullable().optional(),
+  fromCurrency: z.string().length(3).nullable().optional(),
+  toCurrency: z.string().length(3).nullable().optional(),
+  currency: z.string().length(3).optional(),
+  fromOwnerId: z.string().uuid().nullable().optional(),
+  fromOwnerEmployeeId: z.string().uuid().nullable().optional(),
+  toOwnerId: z.string().uuid().nullable().optional(),
+  toOwnerEmployeeId: z.string().uuid().nullable().optional(),
+  fromExpectedCloseDate: z.string().datetime().nullable().optional(),
+  toExpectedCloseDate: z.string().datetime().nullable().optional(),
+  lostReason: z.string().max(2_000).optional(),
+  sourceActor: z.string().max(300).optional(),
+  metadata: z.unknown().optional(),
+});
+
+const historicalDealImportToolSchema = z
+  .object({
+    batchKey: z.string().min(8).max(200),
+    sourceSystem: z.string().min(1).max(200),
+    rows: z
+      .array(
+        z.object({
+          sourceRecordId: z.string().min(1).max(300),
+          dealId: z.string().uuid(),
+          historyCompleteness: z.enum(["complete", "partial", "snapshot_only"]),
+          originalCreatedAt: z.string().datetime().optional(),
+          initialStageId: z.string().uuid().nullable().optional(),
+          snapshotAt: z.string().datetime().optional(),
+          events: z.array(historicalDealEventToolSchema).max(2_000),
+        }),
+      )
+      .min(1)
+      .max(200),
+  })
+  .strict();
+
+function historicalDealImportRows(rows: z.infer<typeof historicalDealImportToolSchema>["rows"]) {
+  return rows.map((row) => ({
+    sourceId: row.sourceRecordId,
+    dealId: row.dealId,
+    historyCompleteness: row.historyCompleteness,
+    originalCreatedAt: row.originalCreatedAt ? new Date(row.originalCreatedAt) : undefined,
+    initialStageId: row.initialStageId,
+    snapshotAt: row.snapshotAt ? new Date(row.snapshotAt) : undefined,
+    events: row.events.map((event) => ({
+      sourceId: event.sourceEventId,
+      kind: event.eventType,
+      occurredAt: new Date(event.effectiveAt),
+      fromStageId: event.fromStageId,
+      toStageId: event.toStageId,
+      fromAmountCents: event.fromAmountCents,
+      toAmountCents: event.toAmountCents,
+      fromCurrency: event.fromCurrency,
+      toCurrency: event.toCurrency,
+      currency: event.currency,
+      fromOwnerId: event.fromOwnerId,
+      fromOwnerEmployeeId: event.fromOwnerEmployeeId,
+      toOwnerId: event.toOwnerId,
+      toOwnerEmployeeId: event.toOwnerEmployeeId,
+      fromExpectedCloseDate:
+        event.fromExpectedCloseDate === null
+          ? null
+          : event.fromExpectedCloseDate
+            ? new Date(event.fromExpectedCloseDate)
+            : undefined,
+      toExpectedCloseDate:
+        event.toExpectedCloseDate === null
+          ? null
+          : event.toExpectedCloseDate
+            ? new Date(event.toExpectedCloseDate)
+            : undefined,
+      lostReason: event.lostReason,
+      sourceActor: event.sourceActor,
+      metadata: event.metadata,
+    })),
+  }));
+}
+
+mcpInternalRouter.post(
+  "/tools/preview_historical_deal_import",
+  validateBody(historicalDealImportToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const body = req.body as z.infer<typeof historicalDealImportToolSchema>;
+    try {
+      res.json(
+        await importHistoricalDealEvents(
+          req.mcpCompany!.id,
+          body.batchKey,
+          historicalDealImportRows(body.rows),
+          revenueActor(req),
+          { sourceSystem: body.sourceSystem, dryRun: true },
+        ),
+      );
+    } catch (error) {
+      res.status(409).json({ error: (error as Error).message });
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/run_historical_deal_import",
+  validateBody(
+    historicalDealImportToolSchema.extend({
+      confirm: z.literal("IMPORT"),
+    }),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const body = req.body as z.infer<typeof historicalDealImportToolSchema> & {
+      confirm: "IMPORT";
+    };
+    try {
+      const result = await importHistoricalDealEvents(
+        req.mcpCompany!.id,
+        body.batchKey,
+        historicalDealImportRows(body.rows),
+        revenueActor(req),
+        { sourceSystem: body.sourceSystem, dryRun: false },
+      );
+      if (!result.replayed) {
+        await aiWriteTrail(req, {
+          action: "revenue.deal_history.import",
+          targetType: "revenue_operation",
+          targetId: result.operationId ?? body.batchKey,
+          targetLabel: body.batchKey,
+          journalTitle: `${req.mcpEmployee!.name} imported historical Deal events`,
+          metadata: {
+            imported: result.imported,
+            rejected: result.rejected,
+            conflicting: result.conflicting,
+            duplicates: result.duplicates,
+          },
+        });
+      }
+      res.json(result);
+    } catch (error) {
+      res.status(409).json({ error: (error as Error).message });
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/list_deal_history",
+  validateBody(
+    z
+      .object({
+        dealId: z.string().uuid().optional(),
+        sourceKind: z.enum(["live", "import", "activity_backfill"]).optional(),
+        kind: z
+          .enum([
+            "created",
+            "snapshot",
+            "stage_changed",
+            "amount_changed",
+            "owner_changed",
+            "expected_close_changed",
+            "won",
+            "lost",
+          ])
+          .optional(),
+        from: z.string().datetime().optional(),
+        to: z.string().datetime().optional(),
+        limit: z.number().int().min(1).max(500).optional(),
+        offset: z.number().int().min(0).optional(),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    const body = req.body as Record<string, unknown> & { from?: string; to?: string };
+    const options = {
+      ...body,
+      from: body.from ? new Date(body.from) : undefined,
+      to: body.to ? new Date(body.to) : undefined,
+    } as NonNullable<Parameters<typeof listDealHistory>[1]>;
+    res.json(await listDealHistory(req.mcpCompany!.id, options));
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/backfill_deal_history",
+  validateBody(z.object({ confirm: z.literal("BACKFILL") }).strict()),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const result = await backfillDealHistoryFromActivities(req.mcpCompany!.id, revenueActor(req));
+    if (result.imported > 0) {
+      await aiWriteTrail(req, {
+        action: "revenue.deal_history.backfill",
+        targetType: "deal_history_event",
+        targetId: req.mcpCompany!.id,
+        targetLabel: "Activity backfill",
+        journalTitle: `${req.mcpEmployee!.name} backfilled Deal history from Activities`,
+        metadata: result,
+      });
+    }
+    res.json(result);
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/export_revenue_snapshot",
+  validateBody(
+    z
+      .object({
+        resource: z.enum(
+          REVENUE_EXPORT_RESOURCES as unknown as [
+            (typeof REVENUE_EXPORT_RESOURCES)[number],
+            ...(typeof REVENUE_EXPORT_RESOURCES)[number][],
+          ],
+        ),
+        format: z.enum(["json", "csv"]).default("json"),
+        limit: z.number().int().min(1).max(500).optional(),
+        offset: z.number().int().min(0).optional(),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    const body = req.body as {
+      resource: (typeof REVENUE_EXPORT_RESOURCES)[number];
+      format: "json" | "csv";
+      limit?: number;
+      offset?: number;
+    };
+    const page = await exportRevenueSnapshotPage(req.mcpCompany!.id, body.resource, body);
+    if (body.format === "csv") {
+      return res.json({
+        filename: `revenue-${body.resource}-${page.offset}.csv`,
+        mimeType: "text/csv; charset=utf-8",
+        contentText: revenueExportCsv(page),
+        nextOffset: page.nextOffset,
+        total: page.total,
+      });
+    }
+    res.json(page);
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/propose_revenue_account_domains",
+  validateBody(
+    z
+      .object({
+        accountIds: z.array(z.string().uuid()).max(5_000).optional(),
+        verifiedContactIds: z.array(z.string().uuid()).max(20_000).optional(),
+        followWebsiteRedirects: z.boolean().optional(),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const result = await proposeCanonicalDomains(req.mcpCompany!.id, req.body);
+    await aiWriteTrail(req, {
+      action: "revenue.enrichment.domains.propose",
+      targetType: "revenue_field_evidence",
+      targetId: req.mcpCompany!.id,
+      targetLabel: "Canonical domains",
+      journalTitle: `${req.mcpEmployee!.name} proposed canonical Account domains`,
+      metadata: result,
+    });
+    res.json(result);
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/propose_finance_commercial_values",
+  validateBody(z.object({ confirm: z.literal("PROPOSE") }).strict()),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    if (!(await requireFinance(req, res, "read"))) return;
+    const result = await proposeCommercialValuesFromFinance(req.mcpCompany!.id);
+    await aiWriteTrail(req, {
+      action: "revenue.enrichment.commercial_values.propose",
+      targetType: "revenue_field_evidence",
+      targetId: req.mcpCompany!.id,
+      targetLabel: "Finance evidence",
+      journalTitle: `${req.mcpEmployee!.name} proposed Deal values from Finance`,
+      metadata: result,
+    });
+    res.json(result);
+  },
+);
+
+export const proposeStripeCommercialValuesToolSchema = z
+  .object({
+    connectionId: z.string().uuid(),
+    confirm: z.literal("PROPOSE"),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/propose_stripe_commercial_values",
+  validateBody(proposeStripeCommercialValuesToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const { connectionId } = req.body as { connectionId: string };
+    const pair = await getGrantWithConnection(req.mcpEmployee!.id, connectionId);
+    if (!pair || pair.connection.companyId !== req.mcpCompany!.id) {
+      return res.status(403).json({
+        error: "This AI Employee needs a Grant to the selected Stripe Connection",
+      });
+    }
+    if (pair.connection.provider !== "stripe") {
+      return res.status(400).json({ error: "The selected Connection is not Stripe" });
+    }
+    if (pair.connection.status !== "connected") {
+      return res.status(409).json({ error: "The selected Stripe Connection is not connected" });
+    }
+    const result = await proposeCommercialValuesFromStripe(req.mcpCompany!.id, {
+      connectionId,
+    });
+    await aiWriteTrail(req, {
+      action: "revenue.enrichment.commercial_values.propose",
+      targetType: "revenue_field_evidence",
+      targetId: req.mcpCompany!.id,
+      targetLabel: "Stripe evidence",
+      journalTitle: `${req.mcpEmployee!.name} proposed Deal values from Stripe`,
+      metadata: result,
+    });
+    res.json(result);
+  },
+);
+
+const commercialValueProposalToolSchema = z
+  .object({
+    dealId: z.string().uuid(),
+    sourceType: z.enum(["email", "document", "integration", "finance", "manual"]),
+    sourceId: z.string().min(1).max(500),
+    sourceLabel: z.string().max(500).optional(),
+    sourceVerified: z.boolean(),
+    confidence: z.number().int().min(0).max(100),
+    extractedAt: z.string().datetime().optional(),
+    value: z.object({
+      amountCents: z.number().int().min(0).max(2_000_000_000),
+      currency: z.string().length(3),
+      revenueType: z.enum(["one_time", "recurring"]),
+      billingInterval: z.enum(["month", "quarter", "year"]).nullable().optional(),
+      quantity: z.number().int().min(0).nullable().optional(),
+      seats: z.number().int().min(0).nullable().optional(),
+      mrrCents: z.number().int().min(0).nullable().optional(),
+      arrCents: z.number().int().min(0).nullable().optional(),
+      acvCents: z.number().int().min(0).nullable().optional(),
+      tcvCents: z.number().int().min(0).nullable().optional(),
+      oneTimeCents: z.number().int().min(0).nullable().optional(),
+    }),
+    metadata: z.unknown().optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/create_commercial_value_proposal",
+  validateBody(commercialValueProposalToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const body = req.body as z.infer<typeof commercialValueProposalToolSchema>;
+    if (body.sourceType === "finance" && !(await requireFinance(req, res, "read"))) return;
+    if (body.sourceType === "email") {
+      const message = await AppDataSource.getRepository(MailMessage).findOneBy({
+        companyId: req.mcpCompany!.id,
+        id: body.sourceId,
+      });
+      if (!message) return res.status(400).json({ error: "Source mail message not found" });
+      if (!(await loadGrantedMailAccount(req, res, message.accountId, "read"))) return;
+    }
+    if (body.sourceType === "integration") {
+      const metadata =
+        body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
+          ? (body.metadata as Record<string, unknown>)
+          : {};
+      const connectionId = metadata.connectionId;
+      if (typeof connectionId !== "string" || !connectionId) {
+        return res.status(400).json({
+          error: "Integration evidence needs metadata.connectionId",
+        });
+      }
+      const pair = await getGrantWithConnection(req.mcpEmployee!.id, connectionId);
+      if (!pair || pair.connection.companyId !== req.mcpCompany!.id) {
+        return res.status(403).json({
+          error: "This AI Employee needs a Grant to the source Connection",
+        });
+      }
+    }
+    try {
+      const evidence = await createCommercialValueProposal(req.mcpCompany!.id, {
+        ...body,
+        extractedAt: body.extractedAt ? new Date(body.extractedAt) : undefined,
+      });
+      await aiWriteTrail(req, {
+        action: "revenue.enrichment.commercial_value.propose",
+        targetType: "revenue_field_evidence",
+        targetId: evidence.id,
+        targetLabel: evidence.sourceLabel,
+        journalTitle: `${req.mcpEmployee!.name} proposed a commercial value for a Deal`,
+        metadata: { dealId: evidence.resourceId, confidence: evidence.confidence },
+      });
+      res.json(evidence);
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/list_revenue_field_evidence",
+  validateBody(
+    z
+      .object({
+        resourceType: revenueMergeResourceToolEnum.optional(),
+        resourceId: z.string().uuid().optional(),
+        fieldKey: z.string().max(120).optional(),
+        sourceType: z
+          .enum(["email", "document", "integration", "finance", "website", "import", "manual"])
+          .optional(),
+        status: z.enum(["proposed", "accepted", "rejected", "superseded"]).optional(),
+        limit: z.number().int().min(1).max(500).optional(),
+        offset: z.number().int().min(0).optional(),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    res.json(await listRevenueEvidence(req.mcpCompany!.id, req.body));
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/review_revenue_field_evidence",
+  validateBody(
+    z
+      .object({
+        evidenceId: z.string().uuid(),
+        decision: z.enum(["accept", "reject"]),
+        supersedeExisting: z.boolean().optional(),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const body = req.body as {
+      evidenceId: string;
+      decision: "accept" | "reject";
+      supersedeExisting?: boolean;
+    };
+    try {
+      const evidence = await reviewRevenueEvidence(
+        req.mcpCompany!.id,
+        body.evidenceId,
+        body.decision,
+        revenueActor(req),
+        { supersedeExisting: body.supersedeExisting },
+      );
+      await aiWriteTrail(req, {
+        action: `revenue.enrichment.evidence.${body.decision}`,
+        targetType: "revenue_field_evidence",
+        targetId: evidence.id,
+        targetLabel: evidence.fieldKey,
+        journalTitle: `${req.mcpEmployee!.name} ${body.decision}ed Revenue field evidence`,
+        metadata: {
+          resourceType: evidence.resourceType,
+          resourceId: evidence.resourceId,
+          supersedeExisting: body.supersedeExisting ?? false,
+        },
+      });
+      res.json(evidence);
+    } catch (error) {
+      res.status(409).json({ error: (error as Error).message });
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/scan_revenue_duplicates",
+  validateBody(z.object({ confirm: z.literal("SCAN") }).strict()),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const result = await scanRevenueDuplicates(req.mcpCompany!.id);
+    await aiWriteTrail(req, {
+      action: "revenue.duplicates.scan",
+      targetType: "revenue_duplicate_candidate",
+      targetId: req.mcpCompany!.id,
+      targetLabel: "Revenue duplicates",
+      journalTitle: `${req.mcpEmployee!.name} scanned Revenue duplicates`,
+      metadata: result,
+    });
+    res.json(result);
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/list_revenue_duplicate_candidates",
+  validateBody(
+    z
+      .object({
+        resourceType: revenueMergeResourceToolEnum.optional(),
+        status: z.enum(["open", "dismissed", "merged"]).optional(),
+        minScore: z.number().int().min(0).max(100).optional(),
+        limit: z.number().int().min(1).max(500).optional(),
+        offset: z.number().int().min(0).optional(),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    res.json(await listRevenueDuplicateCandidates(req.mcpCompany!.id, req.body));
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/dismiss_revenue_duplicate_candidate",
+  validateBody(
+    z.object({ candidateId: z.string().uuid(), confirm: z.literal("DISMISS") }).strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const { candidateId } = req.body as { candidateId: string };
+    try {
+      const candidate = await dismissRevenueDuplicateCandidate(
+        req.mcpCompany!.id,
+        candidateId,
+        null,
+      );
+      if (!candidate) {
+        return res.status(404).json({ error: "Revenue duplicate candidate not found" });
+      }
+      await aiWriteTrail(req, {
+        action: "revenue.duplicate.dismiss",
+        targetType: "revenue_duplicate_candidate",
+        targetId: candidate.id,
+        targetLabel: candidate.resourceType,
+        journalTitle: `${req.mcpEmployee!.name} dismissed a Revenue duplicate candidate`,
+      });
+      res.json(candidate);
+    } catch (error) {
+      res.status(409).json({ error: (error as Error).message });
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/scan_revenue_mail_documents",
+  validateBody(
+    z
+      .object({
+        accountId: z.string().uuid(),
+        from: z.string().datetime().optional(),
+        to: z.string().datetime().optional(),
+        limit: z.number().int().min(1).max(500).optional(),
+        offset: z.number().int().min(0).optional(),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const body = req.body as {
+      accountId: string;
+      from?: string;
+      to?: string;
+      limit?: number;
+      offset?: number;
+    };
+    if (!(await loadGrantedMailAccount(req, res, body.accountId, "read"))) return;
+    const result = await scanMailForRevenueDocuments(req.mcpCompany!.id, {
+      ...body,
+      from: body.from ? new Date(body.from) : undefined,
+      to: body.to ? new Date(body.to) : undefined,
+    });
+    await aiWriteTrail(req, {
+      action: "revenue.document_capture.scan",
+      targetType: "revenue_document_candidate",
+      targetId: body.accountId,
+      targetLabel: "Mail attachments",
+      journalTitle: `${req.mcpEmployee!.name} scanned Gmail attachments for Revenue documents`,
+      metadata: result,
+    });
+    res.json(result);
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/list_revenue_document_candidates",
+  validateBody(
+    z
+      .object({
+        accountId: z.string().uuid(),
+        status: z.enum(["pending", "processing", "accepted", "rejected", "duplicate"]).optional(),
+        limit: z.number().int().min(1).max(500).optional(),
+        offset: z.number().int().min(0).optional(),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    const body = req.body as {
+      accountId: string;
+      status?: "pending" | "processing" | "accepted" | "rejected" | "duplicate";
+      limit?: number;
+      offset?: number;
+    };
+    if (!(await loadGrantedMailAccount(req, res, body.accountId, "read"))) return;
+    res.json(await listRevenueDocumentCandidates(req.mcpCompany!.id, body));
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/review_revenue_document_candidate",
+  validateBody(
+    z
+      .object({
+        candidateId: z.string().uuid(),
+        decision: z.enum(["accept", "reject"]),
+        kind: revenueDocumentKindEnum.optional(),
+        resourceType: revenueMergeResourceToolEnum.optional(),
+        resourceId: z.string().uuid().optional(),
+        note: z.string().max(2_000).optional(),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const body = req.body as {
+      candidateId: string;
+      decision: "accept" | "reject";
+      kind?: RevenueDocumentKind;
+      resourceType?: "account" | "contact" | "deal" | "partnership";
+      resourceId?: string;
+      note?: string;
+    };
+    const candidate = await AppDataSource.getRepository(RevenueDocumentCandidate).findOneBy({
+      companyId: req.mcpCompany!.id,
+      id: body.candidateId,
+    });
+    if (!candidate) {
+      return res.status(404).json({ error: "Revenue document candidate not found" });
+    }
+    const message = await AppDataSource.getRepository(MailMessage).findOneBy({
+      companyId: req.mcpCompany!.id,
+      id: candidate.mailMessageId,
+    });
+    if (!message) return res.status(404).json({ error: "Source mail message not found" });
+    if (!(await loadGrantedMailAccount(req, res, message.accountId, "read"))) return;
+    try {
+      const result = await reviewRevenueDocumentCandidate(
+        req.mcpCompany!.id,
+        candidate.id,
+        body.decision === "reject"
+          ? { decision: "reject", note: body.note }
+          : {
+              decision: "accept",
+              kind: body.kind,
+              resourceType: body.resourceType,
+              resourceId: body.resourceId,
+              note: body.note,
+            },
+        revenueActor(req),
+      );
+      await aiWriteTrail(req, {
+        action: `revenue.document_capture.${body.decision}`,
+        targetType: "revenue_document_candidate",
+        targetId: result.id,
+        targetLabel: result.filename,
+        journalTitle: `${req.mcpEmployee!.name} ${body.decision}ed a Revenue document candidate`,
+        metadata: { revenueDocumentId: result.revenueDocumentId },
+      });
+      res.json(result);
+    } catch (error) {
+      res.status(409).json({ error: (error as Error).message });
+    }
   },
 );
 
@@ -9791,9 +11323,7 @@ function marketingActor(req: McpRequest): { employeeId: string } {
   return { employeeId: req.mcpEmployee!.id };
 }
 
-function marketingTool(
-  fn: (req: McpRequest, res: Response) => Promise<unknown>,
-): RequestHandler {
+function marketingTool(fn: (req: McpRequest, res: Response) => Promise<unknown>): RequestHandler {
   return (req, res, next) => {
     fn(req as McpRequest, res).catch((error: unknown) => {
       if (error instanceof MarketingValidationError) {
@@ -9846,7 +11376,11 @@ const marketingCampaignFields = {
   successMetric: z.string().trim().max(80).optional(),
   targetValue: z.string().trim().max(80).optional(),
   dailyBudgetMinor: z.number().int().min(0).max(2_147_483_647).optional(),
-  currency: z.string().trim().regex(/^[A-Za-z]{3}$/).optional(),
+  currency: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z]{3}$/)
+    .optional(),
   startsAt: z.string().datetime().nullable().optional(),
   endsAt: z.string().datetime().nullable().optional(),
 };
@@ -9910,9 +11444,20 @@ const recordMarketingPerformanceToolSchema = z
     spendMinor: z.number().int().min(0).max(2_147_483_647),
     impressions: z.number().int().min(0).max(2_147_483_647).optional(),
     clicks: z.number().int().min(0).max(2_147_483_647).optional(),
-    conversions: z.string().trim().regex(/^\d+(\.\d+)?$/).optional(),
-    conversionValue: z.string().trim().regex(/^\d+(\.\d+)?$/).optional(),
-    currency: z.string().trim().regex(/^[A-Za-z]{3}$/),
+    conversions: z
+      .string()
+      .trim()
+      .regex(/^\d+(\.\d+)?$/)
+      .optional(),
+    conversionValue: z
+      .string()
+      .trim()
+      .regex(/^\d+(\.\d+)?$/)
+      .optional(),
+    currency: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z]{3}$/),
     source: z.string().trim().min(1).max(120),
     raw: z.record(z.unknown()).optional(),
   })
@@ -9969,11 +11514,7 @@ mcpInternalRouter.post(
       });
       return;
     }
-    const row = await createMarketingCampaign(
-      req.mcpCompany!.id,
-      req.body,
-      marketingActor(req),
-    );
+    const row = await createMarketingCampaign(req.mcpCompany!.id, req.body, marketingActor(req));
     await auditMarketingTool(
       req,
       "marketing.campaign.create",
@@ -10029,11 +11570,7 @@ mcpInternalRouter.post(
       });
       return;
     }
-    const row = await createMarketingCreative(
-      req.mcpCompany!.id,
-      req.body,
-      marketingActor(req),
-    );
+    const row = await createMarketingCreative(req.mcpCompany!.id, req.body, marketingActor(req));
     await auditMarketingTool(
       req,
       "marketing.creative.create",
@@ -10083,11 +11620,7 @@ mcpInternalRouter.post(
     const required: MarketingAccessLevel =
       req.body.status && req.body.status !== "draft" ? "operate" : "write";
     if (!(await requireMarketing(req, res, required))) return;
-    const row = await createMarketingExperiment(
-      req.mcpCompany!.id,
-      req.body,
-      marketingActor(req),
-    );
+    const row = await createMarketingExperiment(req.mcpCompany!.id, req.body, marketingActor(req));
     await auditMarketingTool(
       req,
       "marketing.experiment.create",
@@ -10124,11 +11657,7 @@ mcpInternalRouter.post(
   validateBody(recordMarketingPerformanceToolSchema),
   marketingTool(async (req, res) => {
     if (!(await requireMarketing(req, res, "operate"))) return;
-    const row = await recordMarketingPerformance(
-      req.mcpCompany!.id,
-      req.body,
-      marketingActor(req),
-    );
+    const row = await recordMarketingPerformance(req.mcpCompany!.id, req.body, marketingActor(req));
     await auditMarketingTool(
       req,
       "marketing.performance.record",

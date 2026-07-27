@@ -57,7 +57,16 @@ import { RevenueCustomValue } from "../db/entities/RevenueCustomValue.js";
 import { Partnership } from "../db/entities/Partnership.js";
 import { PartnershipContact } from "../db/entities/PartnershipContact.js";
 import { RevenueDocument } from "../db/entities/RevenueDocument.js";
+import { RevenueDocumentCandidate } from "../db/entities/RevenueDocumentCandidate.js";
+import { RevenueDuplicateCandidate } from "../db/entities/RevenueDuplicateCandidate.js";
+import { RevenueFieldEvidence } from "../db/entities/RevenueFieldEvidence.js";
+import { RevenueFollowUpView } from "../db/entities/RevenueFollowUpView.js";
 import { RevenueImportBatch } from "../db/entities/RevenueImportBatch.js";
+import { RevenueImportRow } from "../db/entities/RevenueImportRow.js";
+import { RevenueOperation } from "../db/entities/RevenueOperation.js";
+import { RevenueOperationRow } from "../db/entities/RevenueOperationRow.js";
+import { RevenueRecordAlias } from "../db/entities/RevenueRecordAlias.js";
+import { DealHistoryEvent } from "../db/entities/DealHistoryEvent.js";
 import { CustomerContract } from "../db/entities/CustomerContract.js";
 import { Dashboard } from "../db/entities/Dashboard.js";
 import { DashboardCard } from "../db/entities/DashboardCard.js";
@@ -143,15 +152,13 @@ export async function deleteCompanyCascade(args: {
 
   await AppDataSource.transaction(async (m) => {
     // ── 1. Collect parent IDs we'll cascade through ────────────────────
-    const employeeIds = (
-      await m.find(AIEmployee, { where: { companyId }, select: ["id"] })
-    ).map((e) => e.id);
-    const channelIds = (
-      await m.find(Channel, { where: { companyId }, select: ["id"] })
-    ).map((c) => c.id);
-    const baseIds = (
-      await m.find(Base, { where: { companyId }, select: ["id"] })
-    ).map((b) => b.id);
+    const employeeIds = (await m.find(AIEmployee, { where: { companyId }, select: ["id"] })).map(
+      (e) => e.id,
+    );
+    const channelIds = (await m.find(Channel, { where: { companyId }, select: ["id"] })).map(
+      (c) => c.id,
+    );
+    const baseIds = (await m.find(Base, { where: { companyId }, select: ["id"] })).map((b) => b.id);
     const baseTableIds = baseIds.length
       ? (
           await m.find(BaseTable, {
@@ -168,9 +175,9 @@ export async function deleteCompanyCascade(args: {
           })
         ).map((r) => r.id)
       : [];
-    const projectIds = (
-      await m.find(Project, { where: { companyId }, select: ["id"] })
-    ).map((p) => p.id);
+    const projectIds = (await m.find(Project, { where: { companyId }, select: ["id"] })).map(
+      (p) => p.id,
+    );
     const todoIds = projectIds.length
       ? (
           await m.find(Todo, {
@@ -179,15 +186,13 @@ export async function deleteCompanyCascade(args: {
           })
         ).map((t) => t.id)
       : [];
-    const billIds = (
-      await m.find(Bill, { where: { companyId }, select: ["id"] })
-    ).map((b) => b.id);
-    const invoiceIds = (
-      await m.find(Invoice, { where: { companyId }, select: ["id"] })
-    ).map((i) => i.id);
-    const pipelineIds = (
-      await m.find(Pipeline, { where: { companyId }, select: ["id"] })
-    ).map((p) => p.id);
+    const billIds = (await m.find(Bill, { where: { companyId }, select: ["id"] })).map((b) => b.id);
+    const invoiceIds = (await m.find(Invoice, { where: { companyId }, select: ["id"] })).map(
+      (i) => i.id,
+    );
+    const pipelineIds = (await m.find(Pipeline, { where: { companyId }, select: ["id"] })).map(
+      (p) => p.id,
+    );
     const routineIds = employeeIds.length
       ? (
           await m.find(Routine, {
@@ -212,12 +217,12 @@ export async function deleteCompanyCascade(args: {
           })
         ).map((cm) => cm.id)
       : [];
-    const dashboardIds = (
-      await m.find(Dashboard, { where: { companyId }, select: ["id"] })
-    ).map((d) => d.id);
-    const estimateIds = (
-      await m.find(Estimate, { where: { companyId }, select: ["id"] })
-    ).map((e) => e.id);
+    const dashboardIds = (await m.find(Dashboard, { where: { companyId }, select: ["id"] })).map(
+      (d) => d.id,
+    );
+    const estimateIds = (await m.find(Estimate, { where: { companyId }, select: ["id"] })).map(
+      (e) => e.id,
+    );
     const recurringInvoiceIds = (
       await m.find(RecurringInvoice, { where: { companyId }, select: ["id"] })
     ).map((r) => r.id);
@@ -362,6 +367,14 @@ export async function deleteCompanyCascade(args: {
     await m.delete(SignalEvent, { companyId });
     await m.delete(Signal, { companyId });
     await m.delete(Activity, { companyId });
+    await m.delete(RevenueOperationRow, { companyId });
+    await m.delete(RevenueRecordAlias, { companyId });
+    await m.delete(RevenueOperation, { companyId });
+    await m.delete(RevenueImportRow, { companyId });
+    await m.delete(RevenueDocumentCandidate, { companyId });
+    await m.delete(RevenueDuplicateCandidate, { companyId });
+    await m.delete(RevenueFieldEvidence, { companyId });
+    await m.delete(RevenueFollowUpView, { companyId });
     await m.delete(RevenueDocument, { companyId });
     await m.delete(PartnershipContact, { companyId });
     await m.delete(Partnership, { companyId });
@@ -370,6 +383,7 @@ export async function deleteCompanyCascade(args: {
     await m.delete(RevenueClassification, { companyId });
     await m.delete(RevenueImportBatch, { companyId });
     await m.delete(DealContact, { companyId });
+    await m.delete(DealHistoryEvent, { companyId });
     await m.delete(Deal, { companyId });
     await m.delete(DealStage, { companyId });
     await m.delete(Contact, { companyId });
@@ -394,9 +408,7 @@ export async function deleteCompanyCascade(args: {
     fs.rmSync(companyDir(companySlug), { recursive: true, force: true });
   } catch (err) {
     console.warn(
-      `[companyDelete] failed to remove ${companyDir(companySlug)}: ${
-        (err as Error).message
-      }`,
+      `[companyDelete] failed to remove ${companyDir(companySlug)}: ${(err as Error).message}`,
     );
   }
 }

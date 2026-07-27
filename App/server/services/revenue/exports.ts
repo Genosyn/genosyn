@@ -5,7 +5,9 @@ import { Deal } from "../../db/entities/Deal.js";
 import { DealContact } from "../../db/entities/DealContact.js";
 import { DealStage } from "../../db/entities/DealStage.js";
 import { Partnership } from "../../db/entities/Partnership.js";
+import { PartnershipContact } from "../../db/entities/PartnershipContact.js";
 import { RevenueCustomField } from "../../db/entities/RevenueCustomField.js";
+import { RevenueCustomValue } from "../../db/entities/RevenueCustomValue.js";
 import { RevenueDocument } from "../../db/entities/RevenueDocument.js";
 import { RevenueImportRow } from "../../db/entities/RevenueImportRow.js";
 import { listFollowUps } from "./followUps.js";
@@ -15,11 +17,13 @@ export const REVENUE_EXPORT_RESOURCES = [
   "contacts",
   "deals",
   "partnerships",
+  "partnership_contacts",
   "buying_committees",
   "follow_ups",
   "documents",
   "stage_definitions",
   "custom_fields",
+  "custom_values",
   "import_reconciliation",
 ] as const;
 
@@ -55,6 +59,7 @@ export async function exportRevenueSnapshotPage(
     const items = await listFollowUps(companyId, {
       state: "all",
       closedDeals: "include",
+      archivedResources: "include",
       limit: limit + 1,
       offset,
     });
@@ -78,19 +83,21 @@ export async function exportRevenueSnapshotPage(
           ? Deal
           : resource === "partnerships"
             ? Partnership
-            : resource === "buying_committees"
-              ? DealContact
-              : resource === "documents"
-                ? RevenueDocument
-                : resource === "stage_definitions"
-                  ? DealStage
-                  : resource === "custom_fields"
-                    ? RevenueCustomField
-                    : RevenueImportRow;
+            : resource === "partnership_contacts"
+              ? PartnershipContact
+              : resource === "buying_committees"
+                ? DealContact
+                : resource === "documents"
+                  ? RevenueDocument
+                  : resource === "stage_definitions"
+                    ? DealStage
+                    : resource === "custom_fields"
+                      ? RevenueCustomField
+                      : resource === "custom_values"
+                        ? RevenueCustomValue
+                        : RevenueImportRow;
   const repo = AppDataSource.getRepository(entity);
-  const qb = repo
-    .createQueryBuilder("row")
-    .where("row.companyId = :companyId", { companyId });
+  const qb = repo.createQueryBuilder("row").where("row.companyId = :companyId", { companyId });
   const total = await qb.clone().getCount();
   const rows = await qb
     .orderBy(resource === "import_reconciliation" ? "row.sortOrder" : "row.createdAt", "ASC")
@@ -110,12 +117,25 @@ export async function exportRevenueSnapshotPage(
 }
 
 function csvValue(value: unknown): string {
-  const text =
+  let text =
     value === null || value === undefined
       ? ""
       : typeof value === "object"
         ? JSON.stringify(value)
         : String(value);
+  // Quoting is not enough to stop spreadsheet applications interpreting
+  // attacker-controlled text as a formula. Preserve the text while forcing
+  // formula-looking strings (including those hidden behind whitespace or
+  // control characters) to be imported as literal cells.
+  if (typeof value === "string") {
+    let firstVisible = 0;
+    while (firstVisible < text.length && text.charCodeAt(firstVisible) <= 0x20) {
+      firstVisible += 1;
+    }
+    if (["=", "+", "-", "@"].includes(text[firstVisible] ?? "")) {
+      text = `'${text}`;
+    }
+  }
   return `"${text.replace(/"/g, '""')}"`;
 }
 

@@ -2,9 +2,11 @@ import path from "node:path";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import multer from "multer";
+import { IsNull } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Attachment } from "../db/entities/Attachment.js";
 import { Company } from "../db/entities/Company.js";
+import { RevenueDocument } from "../db/entities/RevenueDocument.js";
 import { companyDir, ensureDir } from "./paths.js";
 
 /**
@@ -117,9 +119,7 @@ export async function recordAttachmentBytes(params: {
     throw new Error("Cannot record an empty attachment");
   }
   if (params.bytes.length > ATTACHMENTS_MAX_BYTES) {
-    throw new Error(
-      `Attachment exceeds the ${ATTACHMENTS_MAX_BYTES / (1024 * 1024)} MB cap`,
-    );
+    throw new Error(`Attachment exceeds the ${ATTACHMENTS_MAX_BYTES / (1024 * 1024)} MB cap`);
   }
   const ext = safeExt(params.filename);
   const storageKey = `${crypto.randomUUID()}${ext}`;
@@ -137,8 +137,48 @@ export async function recordAttachmentBytes(params: {
     storageKey,
     uploadedByUserId: params.uploadedByUserId ?? null,
   });
-  await repo.save(attachment);
+  try {
+    await repo.save(attachment);
+  } catch (error) {
+    await fs.promises.rm(abs, { force: true }).catch(() => undefined);
+    throw error;
+  }
   return attachment;
+}
+
+/**
+ * Remove a freshly-created attachment that never became part of a message or
+ * Revenue Document. This is intentionally narrow: attachments already bound
+ * to either owner are never removed.
+ */
+export async function discardUnboundAttachment(params: {
+  attachmentId: string;
+  companyId: string;
+  companySlug: string;
+}): Promise<boolean> {
+  const repo = AppDataSource.getRepository(Attachment);
+  const attachment = await repo.findOneBy({
+    id: params.attachmentId,
+    companyId: params.companyId,
+  });
+  if (!attachment || attachment.messageId) return false;
+  const linkedDocument = await AppDataSource.getRepository(RevenueDocument).exist({
+    where: {
+      companyId: params.companyId,
+      attachmentId: attachment.id,
+    },
+  });
+  if (linkedDocument) return false;
+
+  const abs = path.join(attachmentsRoot(params.companySlug), path.basename(attachment.storageKey));
+  const deleted = await repo.delete({
+    id: attachment.id,
+    companyId: params.companyId,
+    messageId: IsNull(),
+  });
+  if (deleted.affected !== 1) return false;
+  await fs.promises.rm(abs, { force: true });
+  return true;
 }
 
 /**
@@ -179,9 +219,7 @@ export async function bindAttachmentsToMessage(
   if (attachmentIds.length === 0) return [];
   const repo = AppDataSource.getRepository(Attachment);
   const rows = await repo.findByIds(attachmentIds);
-  const scoped = rows.filter(
-    (r) => r.companyId === companyId && r.messageId === null,
-  );
+  const scoped = rows.filter((r) => r.companyId === companyId && r.messageId === null);
   for (const r of scoped) r.messageId = messageId;
   await repo.save(scoped);
   return scoped;

@@ -9,7 +9,13 @@ import {
 import { dateTimeColumnType } from "./columnTypes.js";
 
 export type RevenueOperationKind = "merge" | "bulk" | "history_import";
-export type RevenueOperationStatus = "completed" | "partial" | "failed" | "rolled_back";
+export type RevenueOperationStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "partial"
+  | "failed"
+  | "rolled_back";
 export type RevenueOperationResourceType =
   | "account"
   | "contact"

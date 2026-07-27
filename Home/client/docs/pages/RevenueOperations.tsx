@@ -44,10 +44,10 @@ export function RevenueOperations() {
         occurrence automatically.
       </P>
       <P>
-        Filter by arbitrary assignee or unassigned, priority, resource type and ID, status,
-        due-date range, age, Deal Stage/status, or closed Deals. Select rows to complete, cancel,
-        reassign, reprioritize, or reschedule them together. For filter-wide dry runs and rollback,
-        use <DocLink to="/docs/revenue-data-quality#bulk">Data quality → Bulk operations</DocLink>.
+        Filter by arbitrary assignee or unassigned, priority, resource type and ID, status, due-date
+        range, age, Deal Stage/status, or closed Deals. Select rows to complete, cancel, reassign,
+        reprioritize, or reschedule them together. For filter-wide dry runs and rollback, use{" "}
+        <DocLink to="/docs/revenue-data-quality#bulk">Data quality → Bulk operations</DocLink>.
       </P>
       <Callout kind="tip" title="Use the queue as the daily sales home.">
         Deal close dates forecast revenue. Follow-up dates decide what you do today. Keep both; they
@@ -97,6 +97,13 @@ export function RevenueOperations() {
         read and write the same typed values through Revenue tools.
       </P>
       <P>
+        Each current value also shows field-level provenance: source type and label, extraction
+        method and observed date, confidence, verification state, verifying Member or AI Employee,
+        and the number of earlier evidence records. Direct Member edits are verified writes. Imports
+        and bulk updates carry stable batch or operation sources; unverified proposals must pass
+        through the review queue before they can replace a current value.
+      </P>
+      <P>
         Use <Strong>Install Base migration fields</Strong> in Setup or Imports to add the
         recommended definitions for current monitoring stack, competitor/current provider, product
         interest, infrastructure size, geographic/compliance requirements, Stripe customer ID,
@@ -144,7 +151,8 @@ export function RevenueOperations() {
       <P>
         Mail sync can also classify relevant attachments and queue reviewed links with source and
         hash provenance. See{" "}
-        <DocLink to="/docs/revenue-data-quality#document-capture">Revenue document capture</DocLink>.
+        <DocLink to="/docs/revenue-data-quality#document-capture">Revenue document capture</DocLink>
+        .
       </P>
 
       <H2 id="activity-audit">Company-wide activity audit</H2>
@@ -186,8 +194,8 @@ export function RevenueOperations() {
         </LI>
         <LI>
           Run a <Strong>dry run</Strong> to see creates, duplicate matches, skipped rows, and the
-          result for each of the three resources. Every Deal decision shows the resolved target
-          Deal Stage and Source.
+          result for each of the three resources. Every Deal decision shows the resolved target Deal
+          Stage and Source.
         </LI>
         <LI>
           Commit only after reviewing the preview. All three resources and their links are written
@@ -206,17 +214,17 @@ export function RevenueOperations() {
         shown in the Base before Revenue validates them. Deal Stage accepts an existing Deal Stage
         name; the common legacy labels <Code>Lead</Code>, <Code>Demo Scheduled</Code>, and{" "}
         <Code>Proposal Sent</Code> resolve to <Code>New</Code>, <Code>Demo</Code>, and{" "}
-        <Code>Proposal</Code>. If Deal Stage is not mapped, the preview explicitly shows the
-        default Deal Stage that will be used.
+        <Code>Proposal</Code>. If Deal Stage is not mapped, the preview explicitly shows the default
+        Deal Stage that will be used.
       </P>
       <P>
         Every committed batch stores the field mapping, duplicate decisions, and source-row to
         native-ID map for reconciliation. Open <Strong>Report</Strong> to page through decisions
-        without loading the whole batch. For a Base import, <Strong>Migrate attachments</Strong> copies the
-        source row attachments into Revenue Documents after the structured records exist; the pass
-        is idempotent and reports failures separately. Rollback deletes the linked Deals, Contacts,
-        then Accounts only when they are still safe to remove; anything that gained activities,
-        documents, or finance history is kept and reported as blocked.
+        without loading the whole batch. For a Base import, <Strong>Migrate attachments</Strong>{" "}
+        copies the source row attachments into Revenue Documents after the structured records exist;
+        the pass is idempotent and reports failures separately. Rollback deletes the linked Deals,
+        Contacts, then Accounts only when they are still safe to remove; anything that gained
+        activities, documents, or finance history is kept and reported as blocked.
       </P>
       <P>
         The history list loads summaries rather than every source decision. Open one Import ID for
@@ -236,10 +244,12 @@ export function RevenueOperations() {
         Grant an AI Employee Revenue access from{" "}
         <DocLink to="/docs/revenue#ai-access">Revenue → AI access</DocLink>. Its granular tools can
         administer custom-field definitions, classifications and Deal Stages; own and update
-        Accounts, Contacts, Deals, and Partnerships; safely archive, restore, and exact-name confirm
-        Account merges; search and correct manual activity; manage Sequences and Signal definitions;
-        manage and download Revenue Documents; and preview, run, reconcile, attach, or roll back a
-        linked Base migration.
+        Accounts, Contacts, Deals, and Partnerships; preview and merge every core record type with
+        explicit conflict choices; resolve tombstone redirects; archive, restore, bulk triage,
+        audit, reconcile, and undo; search and correct manual activity; manage Sequences and Signal
+        definitions; review duplicate, domain, commercial-value, and Gmail document evidence; export
+        native Revenue datasets; and preview, run, reconcile, attach, or roll back Base, CSV,
+        linked, and historical Deal migrations.
       </P>
       <UL>
         <LI>
@@ -253,6 +263,11 @@ export function RevenueOperations() {
         <LI>
           A Base migration also requires access to the source Base, so a Revenue grant cannot be
           used to read an unrelated Base.
+        </LI>
+        <LI>
+          Finance-derived proposals additionally require a Finance Grant; Stripe evidence requires a
+          Grant to the chosen Stripe Connection; Gmail capture requires the relevant Mail Grant.
+          Revenue access never bypasses those boundaries.
         </LI>
       </UL>
       <H3 id="suggested-routine">A useful sales Routine</H3>

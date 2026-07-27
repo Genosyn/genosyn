@@ -29,6 +29,18 @@ export const REVENUE_DOCUMENT_KINDS: RevenueDocumentKind[] = [
 @Index(["companyId", "customerId"])
 @Index(["companyId", "partnershipId"])
 @Index(["companyId", "contactId"])
+@Index(
+  "UQ_revenue_documents_gmail_attachment",
+  ["companyId", "sourceGmailMessageId", "sourceGmailAttachmentId"],
+  {
+    unique: true,
+    where: `"sourceGmailMessageId" <> '' AND "sourceGmailAttachmentId" <> ''`,
+  },
+)
+@Index("UQ_revenue_documents_capture_dedupe_hash", ["companyId", "captureDedupeHash"], {
+  unique: true,
+  where: `"captureDedupeHash" IS NOT NULL`,
+})
 export class RevenueDocument {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -64,6 +76,16 @@ export class RevenueDocument {
   @Column({ type: "varchar", nullable: true })
   sourceMailMessageId!: string | null;
 
+  /** Immutable Gmail provenance, retained independently of the Mail mirror. */
+  @Column({ type: "varchar", default: "" })
+  sourceGmailMessageId!: string;
+
+  @Column({ type: "varchar", default: "" })
+  sourceGmailThreadId!: string;
+
+  @Column({ type: "varchar", default: "" })
+  sourceGmailAttachmentId!: string;
+
   /** Positional Gmail attachment index within `sourceMailMessageId`. */
   @Column({ type: "int", nullable: true })
   sourceAttachmentIndex!: number | null;
@@ -71,6 +93,14 @@ export class RevenueDocument {
   /** SHA-256 of the captured bytes for cross-message deduplication. */
   @Column({ type: "varchar", default: "" })
   sourceAttachmentHash!: string;
+
+  /**
+   * Race-safe hash key for new automatic captures. Kept nullable so an upgrade
+   * never has to enforce uniqueness across legacy rows that predate the claim
+   * protocol.
+   */
+  @Column({ type: "varchar", nullable: true })
+  captureDedupeHash!: string | null;
 
   @Column({ type: "varchar", default: "" })
   externalUrl!: string;

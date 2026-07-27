@@ -14,7 +14,9 @@ import { Select } from "../ui/Select";
 function optionsFor(field: RevenueCustomField): string[] {
   try {
     const parsed = JSON.parse(field.optionsJson);
-    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((value): value is string => typeof value === "string")
+      : [];
   } catch {
     return [];
   }
@@ -24,6 +26,35 @@ function formValue(value: RevenueCustomValue["value"]): string | number | readon
   if (Array.isArray(value)) return value;
   if (typeof value === "boolean") return value ? "true" : "false";
   return value ?? "";
+}
+
+function ProvenanceLine({ row }: { row: RevenueCustomValue }) {
+  const evidence = row.provenance;
+  if (!evidence) {
+    return (
+      <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">No provenance recorded</p>
+    );
+  }
+  const observed = evidence.observedAt
+    ? new Date(evidence.observedAt).toLocaleDateString()
+    : "date unknown";
+  const source = evidence.sourceLabel || evidence.sourceType;
+  return (
+    <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+      <span
+        className={
+          evidence.verificationState === "verified"
+            ? "font-medium text-emerald-700 dark:text-emerald-400"
+            : "font-medium text-amber-700 dark:text-amber-400"
+        }
+      >
+        {evidence.verificationState === "verified" ? "Verified" : "Unverified"}
+      </span>
+      {" · "}
+      {source} · {observed}
+      {row.provenanceHistoryCount > 1 ? ` · ${row.provenanceHistoryCount} provenance records` : ""}
+    </p>
+  );
 }
 
 export function RevenueCustomFieldsPanel({
@@ -81,94 +112,113 @@ export function RevenueCustomFieldsPanel({
           </h2>
           <p className="mt-1 text-xs text-slate-500">Structured, filterable company data.</p>
         </div>
-        {rows.length > 0 && <Button size="sm" onClick={() => void save()} disabled={busy}>{busy ? "Saving…" : "Save"}</Button>}
+        {rows.length > 0 && (
+          <Button size="sm" onClick={() => void save()} disabled={busy}>
+            {busy ? "Saving…" : "Save"}
+          </Button>
+        )}
       </div>
       {error && <FormError message={error} />}
       <div className="grid gap-4 sm:grid-cols-2">
-        {rows.map(({ field }) => {
+        {rows.map((row) => {
+          const { field } = row;
           const value = draft[field.key];
           const options = optionsFor(field);
           if (field.fieldType === "boolean") {
             return (
-              <Select
-                key={field.id}
+              <div key={field.id}>
+                <Select
+                  label={field.name}
+                  value={String(formValue(value))}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      [field.key]: event.target.value === "" ? null : event.target.value === "true",
+                    }))
+                  }
+                >
+                  <option value="">Not set</option>
+                  <option value="true">Yes</option>
+                  <option value="false">No</option>
+                </Select>
+                <ProvenanceLine row={row} />
+              </div>
+            );
+          }
+          if (field.fieldType === "select") {
+            return (
+              <div key={field.id}>
+                <Select
+                  label={field.name}
+                  value={String(formValue(value))}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, [field.key]: event.target.value || null }))
+                  }
+                >
+                  <option value="">Not set</option>
+                  {options.map((option) => (
+                    <option key={option}>{option}</option>
+                  ))}
+                </Select>
+                <ProvenanceLine row={row} />
+              </div>
+            );
+          }
+          if (field.fieldType === "multi_select") {
+            return (
+              <div key={field.id}>
+                <Select
+                  label={field.name}
+                  multiple
+                  className="h-24"
+                  value={Array.isArray(value) ? value : []}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      [field.key]: Array.from(
+                        event.target.selectedOptions,
+                        (option) => option.value,
+                      ),
+                    }))
+                  }
+                >
+                  {options.map((option) => (
+                    <option key={option}>{option}</option>
+                  ))}
+                </Select>
+                <ProvenanceLine row={row} />
+              </div>
+            );
+          }
+          return (
+            <div key={field.id}>
+              <Input
                 label={field.name}
+                required={field.required}
+                type={
+                  field.fieldType === "number"
+                    ? "number"
+                    : field.fieldType === "date"
+                      ? "date"
+                      : field.fieldType === "url"
+                        ? "url"
+                        : "text"
+                }
                 value={String(formValue(value))}
                 onChange={(event) =>
                   setDraft((current) => ({
                     ...current,
                     [field.key]:
-                      event.target.value === "" ? null : event.target.value === "true",
+                      field.fieldType === "number"
+                        ? event.target.value === ""
+                          ? null
+                          : Number(event.target.value)
+                        : event.target.value || null,
                   }))
                 }
-              >
-                <option value="">Not set</option>
-                <option value="true">Yes</option>
-                <option value="false">No</option>
-              </Select>
-            );
-          }
-          if (field.fieldType === "select") {
-            return (
-              <Select
-                key={field.id}
-                label={field.name}
-                value={String(formValue(value))}
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, [field.key]: event.target.value || null }))
-                }
-              >
-                <option value="">Not set</option>
-                {options.map((option) => <option key={option}>{option}</option>)}
-              </Select>
-            );
-          }
-          if (field.fieldType === "multi_select") {
-            return (
-              <Select
-                key={field.id}
-                label={field.name}
-                multiple
-                className="h-24"
-                value={Array.isArray(value) ? value : []}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    [field.key]: Array.from(event.target.selectedOptions, (option) => option.value),
-                  }))
-                }
-              >
-                {options.map((option) => <option key={option}>{option}</option>)}
-              </Select>
-            );
-          }
-          return (
-            <Input
-              key={field.id}
-              label={field.name}
-              required={field.required}
-              type={
-                field.fieldType === "number"
-                  ? "number"
-                  : field.fieldType === "date"
-                    ? "date"
-                    : field.fieldType === "url"
-                      ? "url"
-                      : "text"
-              }
-              value={String(formValue(value))}
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  [field.key]:
-                    field.fieldType === "number"
-                      ? event.target.value === ""
-                        ? null
-                        : Number(event.target.value)
-                      : event.target.value || null,
-                }))
-              }
-            />
+              />
+              <ProvenanceLine row={row} />
+            </div>
           );
         })}
       </div>

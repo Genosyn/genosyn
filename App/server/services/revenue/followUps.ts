@@ -6,6 +6,8 @@ import {
   type ActivityTaskStatus,
 } from "../../db/entities/Activity.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
+import { Contact } from "../../db/entities/Contact.js";
+import { Customer } from "../../db/entities/Customer.js";
 import { Deal } from "../../db/entities/Deal.js";
 import { Membership } from "../../db/entities/Membership.js";
 import { Partnership } from "../../db/entities/Partnership.js";
@@ -35,6 +37,46 @@ export type FollowUpItem = {
   dealStageId: string | null;
 };
 
+type DecodedFollowUpCursor = {
+  dueAt: Date;
+  source: FollowUpItem["source"];
+  id: string;
+};
+
+const FOLLOW_UP_SOURCE_ORDER: FollowUpItem["source"][] = ["deal", "partnership", "task"];
+
+function compareFollowUpSources(
+  left: FollowUpItem["source"],
+  right: FollowUpItem["source"],
+): number {
+  return FOLLOW_UP_SOURCE_ORDER.indexOf(left) - FOLLOW_UP_SOURCE_ORDER.indexOf(right);
+}
+
+function followUpCursorClause(
+  source: FollowUpItem["source"],
+  dueAtColumn: string,
+  idColumn: string,
+  cursor: DecodedFollowUpCursor,
+): { sql: string; params: { cursorDueAt: Date; cursorId?: string } } {
+  const sourceOrder = compareFollowUpSources(source, cursor.source);
+  if (sourceOrder < 0) {
+    return {
+      sql: `${dueAtColumn} > :cursorDueAt`,
+      params: { cursorDueAt: cursor.dueAt },
+    };
+  }
+  if (sourceOrder > 0) {
+    return {
+      sql: `${dueAtColumn} >= :cursorDueAt`,
+      params: { cursorDueAt: cursor.dueAt },
+    };
+  }
+  return {
+    sql: `(${dueAtColumn} > :cursorDueAt OR (${dueAtColumn} = :cursorDueAt AND ${idColumn} > :cursorId))`,
+    params: { cursorDueAt: cursor.dueAt, cursorId: cursor.id },
+  };
+}
+
 export type FollowUpListOptions = {
   state?: "all" | "overdue" | "today" | "upcoming";
   source?: "task" | "deal" | "partnership";
@@ -52,6 +94,14 @@ export type FollowUpListOptions = {
   dealStageId?: string;
   dealStatus?: "open" | "won" | "lost";
   closedDeals?: "include" | "only" | "exclude";
+  archivedResources?: "include" | "only" | "exclude";
+  accountStatus?: "prospect" | "customer" | "former";
+  q?: string;
+  reminderFrom?: Date;
+  reminderTo?: Date;
+  overdueMinDays?: number;
+  overdueMaxDays?: number;
+  cursor?: string;
   limit?: number;
   offset?: number;
 };
@@ -107,23 +157,66 @@ export async function listFollowUps(
   const now = new Date();
   const endToday = new Date(now);
   endToday.setHours(23, 59, 59, 999);
-  const maxRows = Math.min(Math.max((opts.limit ?? 200) + (opts.offset ?? 0), 1), 5_000);
+  const cursor = opts.cursor ? decodeFollowUpCursor(opts.cursor) : null;
+  const pageLimit = Math.min(Math.max(opts.limit ?? 200, 1), 5_000);
+  const rowOffset = opts.cursor ? 0 : Math.max(opts.offset ?? 0, 0);
+  const maxRows = pageLimit + rowOffset;
   const taskQb = AppDataSource.getRepository(Activity)
     .createQueryBuilder("a")
     .where("a.companyId = :companyId", { companyId })
     .andWhere("a.kind = 'task'")
     .andWhere("a.taskStatus = :taskStatus", { taskStatus: opts.status ?? "open" })
-    .andWhere("a.dueAt IS NOT NULL");
+    .andWhere("a.dueAt IS NOT NULL")
+    .leftJoin(Deal, "taskDeal", "taskDeal.companyId = a.companyId AND taskDeal.id = a.dealId")
+    .leftJoin(
+      Contact,
+      "taskContact",
+      "taskContact.companyId = a.companyId AND taskContact.id = a.contactId",
+    )
+    .leftJoin(
+      Partnership,
+      "taskPartnership",
+      "taskPartnership.companyId = a.companyId AND taskPartnership.id = a.partnershipId",
+    )
+    .leftJoin(
+      Customer,
+      "taskAccount",
+      "taskAccount.companyId = a.companyId AND taskAccount.id = COALESCE(a.customerId, taskDeal.customerId, taskPartnership.customerId)",
+    );
   const dealQb = AppDataSource.getRepository(Deal)
     .createQueryBuilder("d")
     .where("d.companyId = :companyId", { companyId })
-    .andWhere("d.archivedAt IS NULL")
-    .andWhere("d.nextFollowUpAt IS NOT NULL");
+    .andWhere("d.nextFollowUpAt IS NOT NULL")
+    .leftJoin(
+      Customer,
+      "dealAccount",
+      "dealAccount.companyId = d.companyId AND dealAccount.id = d.customerId",
+    );
   const partnershipQb = AppDataSource.getRepository(Partnership)
     .createQueryBuilder("p")
     .where("p.companyId = :companyId", { companyId })
-    .andWhere("p.archivedAt IS NULL")
-    .andWhere("p.nextFollowUpAt IS NOT NULL");
+    .andWhere("p.nextFollowUpAt IS NOT NULL")
+    .leftJoin(
+      Customer,
+      "partnershipAccount",
+      "partnershipAccount.companyId = p.companyId AND partnershipAccount.id = p.customerId",
+    );
+
+  if (opts.archivedResources === "only") {
+    taskQb.andWhere(
+      "(taskDeal.archivedAt IS NOT NULL OR taskContact.archivedAt IS NOT NULL OR taskPartnership.archivedAt IS NOT NULL OR taskAccount.archivedAt IS NOT NULL)",
+    );
+    dealQb.andWhere("d.archivedAt IS NOT NULL");
+    partnershipQb.andWhere("p.archivedAt IS NOT NULL");
+  } else if (opts.archivedResources !== "include") {
+    taskQb
+      .andWhere("(a.dealId IS NULL OR taskDeal.archivedAt IS NULL)")
+      .andWhere("(a.contactId IS NULL OR taskContact.archivedAt IS NULL)")
+      .andWhere("(a.partnershipId IS NULL OR taskPartnership.archivedAt IS NULL)")
+      .andWhere("(taskAccount.id IS NULL OR taskAccount.archivedAt IS NULL)");
+    dealQb.andWhere("d.archivedAt IS NULL");
+    partnershipQb.andWhere("p.archivedAt IS NULL");
+  }
 
   if (opts.source && opts.source !== "task") taskQb.andWhere("1 = 0");
   if (opts.source && opts.source !== "deal") dealQb.andWhere("1 = 0");
@@ -160,12 +253,37 @@ export async function listFollowUps(
     dealQb.andWhere("1 = 0");
     partnershipQb.andWhere("1 = 0");
   }
-  if (opts.linkedResourceType && opts.linkedResourceId) {
-    const taskField =
-      opts.linkedResourceType === "account" ? "customerId" : `${opts.linkedResourceType}Id`;
-    taskQb.andWhere(`a.${taskField} = :linkedResourceId`, {
-      linkedResourceId: opts.linkedResourceId,
+  if (opts.q) {
+    const q = `%${opts.q.toLowerCase()}%`;
+    taskQb.andWhere("(LOWER(a.subject) LIKE :q OR LOWER(a.bodyText) LIKE :q)", { q });
+    dealQb.andWhere("(LOWER(d.title) LIKE :q OR LOWER(d.nextStep) LIKE :q)", { q });
+    partnershipQb.andWhere(
+      "(LOWER(p.name) LIKE :q OR LOWER(p.notes) LIKE :q OR LOWER(p.integrationContext) LIKE :q)",
+      { q },
+    );
+  }
+  if (opts.accountStatus) {
+    taskQb.andWhere("taskAccount.accountStatus = :accountStatus", {
+      accountStatus: opts.accountStatus,
     });
+    dealQb.andWhere("dealAccount.accountStatus = :accountStatus", {
+      accountStatus: opts.accountStatus,
+    });
+    partnershipQb.andWhere("partnershipAccount.accountStatus = :accountStatus", {
+      accountStatus: opts.accountStatus,
+    });
+  }
+  if (opts.linkedResourceType && opts.linkedResourceId) {
+    if (opts.linkedResourceType === "account") {
+      taskQb.andWhere(
+        "COALESCE(a.customerId, taskDeal.customerId, taskPartnership.customerId) = :linkedResourceId",
+        { linkedResourceId: opts.linkedResourceId },
+      );
+    } else {
+      taskQb.andWhere(`a.${opts.linkedResourceType}Id = :linkedResourceId`, {
+        linkedResourceId: opts.linkedResourceId,
+      });
+    }
     if (opts.linkedResourceType === "deal") {
       dealQb.andWhere("d.id = :linkedResourceId", { linkedResourceId: opts.linkedResourceId });
       partnershipQb.andWhere("1 = 0");
@@ -198,6 +316,57 @@ export async function listFollowUps(
     dealQb.andWhere("d.nextFollowUpAt <= :dueTo", { dueTo: opts.dueTo });
     partnershipQb.andWhere("p.nextFollowUpAt <= :dueTo", { dueTo: opts.dueTo });
   }
+  if (opts.state === "overdue") {
+    taskQb.andWhere("a.dueAt < :now", { now });
+    dealQb.andWhere("d.nextFollowUpAt < :now", { now });
+    partnershipQb.andWhere("p.nextFollowUpAt < :now", { now });
+  } else if (opts.state === "today") {
+    taskQb.andWhere("a.dueAt >= :now AND a.dueAt <= :endToday", { now, endToday });
+    dealQb.andWhere("d.nextFollowUpAt >= :now AND d.nextFollowUpAt <= :endToday", {
+      now,
+      endToday,
+    });
+    partnershipQb.andWhere("p.nextFollowUpAt >= :now AND p.nextFollowUpAt <= :endToday", {
+      now,
+      endToday,
+    });
+  } else if (opts.state === "upcoming") {
+    taskQb.andWhere("a.dueAt > :endToday", { endToday });
+    dealQb.andWhere("d.nextFollowUpAt > :endToday", { endToday });
+    partnershipQb.andWhere("p.nextFollowUpAt > :endToday", { endToday });
+  }
+  if (opts.reminderFrom) {
+    taskQb.andWhere("a.reminderAt >= :reminderFrom", { reminderFrom: opts.reminderFrom });
+    dealQb.andWhere("d.followUpReminderAt >= :reminderFrom", {
+      reminderFrom: opts.reminderFrom,
+    });
+    partnershipQb.andWhere("p.reminderAt >= :reminderFrom", {
+      reminderFrom: opts.reminderFrom,
+    });
+  }
+  if (opts.reminderTo) {
+    taskQb.andWhere("a.reminderAt <= :reminderTo", { reminderTo: opts.reminderTo });
+    dealQb.andWhere("d.followUpReminderAt <= :reminderTo", { reminderTo: opts.reminderTo });
+    partnershipQb.andWhere("p.reminderAt <= :reminderTo", { reminderTo: opts.reminderTo });
+  }
+  const overdueMinDate =
+    opts.overdueMinDays === undefined
+      ? null
+      : new Date(now.getTime() - Math.max(opts.overdueMinDays, 0) * 86_400_000);
+  const overdueMaxDate =
+    opts.overdueMaxDays === undefined
+      ? null
+      : new Date(now.getTime() - Math.max(opts.overdueMaxDays, 0) * 86_400_000);
+  if (overdueMinDate) {
+    taskQb.andWhere("a.dueAt <= :overdueMinDate", { overdueMinDate });
+    dealQb.andWhere("d.nextFollowUpAt <= :overdueMinDate", { overdueMinDate });
+    partnershipQb.andWhere("p.nextFollowUpAt <= :overdueMinDate", { overdueMinDate });
+  }
+  if (overdueMaxDate) {
+    taskQb.andWhere("a.dueAt >= :overdueMaxDate", { overdueMaxDate });
+    dealQb.andWhere("d.nextFollowUpAt >= :overdueMaxDate", { overdueMaxDate });
+    partnershipQb.andWhere("p.nextFollowUpAt >= :overdueMaxDate", { overdueMaxDate });
+  }
   if (opts.staleBefore) {
     taskQb.andWhere("a.dueAt <= :staleBefore", { staleBefore: opts.staleBefore });
     dealQb.andWhere("d.nextFollowUpAt <= :staleBefore", {
@@ -214,18 +383,7 @@ export async function listFollowUps(
       createdBefore: opts.createdBefore,
     });
   }
-  if (opts.dealStageId || opts.dealStatus || opts.closedDeals === "only") {
-    taskQb.innerJoin(
-      Deal,
-      "taskDeal",
-      "taskDeal.companyId = a.companyId AND taskDeal.id = a.dealId",
-    );
-  } else if (opts.closedDeals === "exclude") {
-    taskQb.leftJoin(
-      Deal,
-      "taskDeal",
-      "taskDeal.companyId = a.companyId AND taskDeal.id = a.dealId",
-    );
+  if (opts.closedDeals === "exclude") {
     taskQb.andWhere("(a.dealId IS NULL OR taskDeal.status = 'open')");
   }
   if (opts.dealStageId) {
@@ -241,10 +399,27 @@ export async function listFollowUps(
   } else if (opts.closedDeals !== "include") {
     dealQb.andWhere("d.status = 'open'");
   }
+  if (cursor) {
+    const taskCursor = followUpCursorClause("task", "a.dueAt", "a.id", cursor);
+    taskQb.andWhere(taskCursor.sql, taskCursor.params);
+    const dealCursor = followUpCursorClause("deal", "d.nextFollowUpAt", "d.id", cursor);
+    dealQb.andWhere(dealCursor.sql, dealCursor.params);
+    const partnershipCursor = followUpCursorClause(
+      "partnership",
+      "p.nextFollowUpAt",
+      "p.id",
+      cursor,
+    );
+    partnershipQb.andWhere(partnershipCursor.sql, partnershipCursor.params);
+  }
   const [tasks, deals, partnerships] = await Promise.all([
-    taskQb.orderBy("a.dueAt", "ASC").take(maxRows).getMany(),
-    dealQb.orderBy("d.nextFollowUpAt", "ASC").take(maxRows).getMany(),
-    partnershipQb.orderBy("p.nextFollowUpAt", "ASC").take(maxRows).getMany(),
+    taskQb.orderBy("a.dueAt", "ASC").addOrderBy("a.id", "ASC").take(maxRows).getMany(),
+    dealQb.orderBy("d.nextFollowUpAt", "ASC").addOrderBy("d.id", "ASC").take(maxRows).getMany(),
+    partnershipQb
+      .orderBy("p.nextFollowUpAt", "ASC")
+      .addOrderBy("p.id", "ASC")
+      .take(maxRows)
+      .getMany(),
   ]);
   const userIds = [
     ...tasks.map((row) => row.assignedUserId),
@@ -330,22 +505,62 @@ export async function listFollowUps(
         dealStageId: null,
       })),
   ];
-  const filtered = items.filter((item) => {
-    if (opts.assignedUserId && item.assignedUserId !== opts.assignedUserId) return false;
+  const sorted = items.sort(
+    (a, b) =>
+      a.dueAt.getTime() - b.dueAt.getTime() ||
+      compareFollowUpSources(a.source, b.source) ||
+      a.id.localeCompare(b.id),
+  );
+  return sorted.slice(rowOffset, rowOffset + pageLimit);
+}
+
+function decodeFollowUpCursor(cursor: string): DecodedFollowUpCursor | null {
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as {
+      dueAt?: unknown;
+      source?: unknown;
+      id?: unknown;
+    };
     if (
-      opts.assignedEmployeeId &&
-      item.assignedEmployeeId !== opts.assignedEmployeeId
+      typeof parsed.dueAt !== "string" ||
+      !["task", "deal", "partnership"].includes(String(parsed.source)) ||
+      typeof parsed.id !== "string"
     ) {
-      return false;
+      return null;
     }
-    if (opts.state === "overdue") return item.overdue;
-    if (opts.state === "today") return !item.overdue && item.dueAt <= endToday;
-    if (opts.state === "upcoming") return item.dueAt > endToday;
-    return true;
-  });
-  return filtered
-    .sort((a, b) => a.dueAt.getTime() - b.dueAt.getTime())
-    .slice(opts.offset ?? 0, (opts.offset ?? 0) + Math.min(opts.limit ?? 200, 5_000));
+    const dueAt = new Date(parsed.dueAt);
+    if (Number.isNaN(dueAt.getTime())) return null;
+    return {
+      dueAt,
+      source: parsed.source as FollowUpItem["source"],
+      id: parsed.id,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function followUpCursor(item: FollowUpItem): string {
+  return Buffer.from(
+    JSON.stringify({
+      dueAt: item.dueAt.toISOString(),
+      source: item.source,
+      id: item.id,
+    }),
+  ).toString("base64url");
+}
+
+export async function listFollowUpPage(
+  companyId: string,
+  opts: FollowUpListOptions = {},
+): Promise<{ rows: FollowUpItem[]; nextCursor: string | null }> {
+  const limit = Math.min(Math.max(opts.limit ?? 200, 1), 500);
+  const rows = await listFollowUps(companyId, { ...opts, limit: limit + 1 });
+  const page = rows.slice(0, limit);
+  return {
+    rows: page,
+    nextCursor: rows.length > limit && page.length > 0 ? followUpCursor(page.at(-1)!) : null,
+  };
 }
 
 export async function createFollowUpTask(
@@ -443,7 +658,9 @@ export async function updateFollowUpTask(
           bodyText: row.bodyText,
           dueAt: nextDue,
           reminderAt: row.reminderAt
-            ? new Date(nextDue.getTime() - Math.max(0, row.dueAt.getTime() - row.reminderAt.getTime()))
+            ? new Date(
+                nextDue.getTime() - Math.max(0, row.dueAt.getTime() - row.reminderAt.getTime()),
+              )
             : null,
           assignedUserId: row.assignedUserId,
           assignedEmployeeId: row.assignedEmployeeId,

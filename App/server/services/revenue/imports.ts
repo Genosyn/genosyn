@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { In, IsNull, type EntityManager } from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
@@ -22,6 +23,7 @@ import {
   type RevenueResourceType,
 } from "../../db/entities/RevenueCustomField.js";
 import { RevenueDocument, type RevenueDocumentKind } from "../../db/entities/RevenueDocument.js";
+import { RevenueFieldEvidence } from "../../db/entities/RevenueFieldEvidence.js";
 import { RevenueImportBatch } from "../../db/entities/RevenueImportBatch.js";
 import { RevenueImportRow } from "../../db/entities/RevenueImportRow.js";
 import { normalizeEmail } from "../../lib/emailAddress.js";
@@ -84,6 +86,46 @@ export type LinkedImportReport = {
 };
 
 type ImportActor = { userId?: string | null; employeeId?: string | null };
+
+type ImportProvenanceContext = {
+  sourceKind: "base" | "csv";
+  sourceLabel: string;
+  sourceBaseId?: string | null;
+  sourceTableId?: string | null;
+};
+
+function importEvidenceSourceId(
+  batchId: string,
+  sourceRowId: string,
+  resourceType: RevenueResourceType,
+): string {
+  return `import:${batchId}:${sourceRowId}:${resourceType}`;
+}
+
+function importEvidenceMetadata(
+  batchId: string,
+  sourceRowId: string,
+  resourceType: RevenueResourceType,
+  input: ImportProvenanceContext,
+): Record<string, unknown> {
+  return {
+    importBatchId: batchId,
+    importSourceRowId: sourceRowId,
+    importedResourceType: resourceType,
+    sourceKind: input.sourceKind,
+    sourceBaseId: input.sourceBaseId ?? null,
+    sourceTableId: input.sourceTableId ?? null,
+  };
+}
+
+function importVerifyingActor(actor: ImportActor): {
+  kind: "member" | "ai_employee" | "system";
+  id: string | null;
+} {
+  if (actor.userId) return { kind: "member", id: actor.userId };
+  if (actor.employeeId) return { kind: "ai_employee", id: actor.employeeId };
+  return { kind: "system", id: null };
+}
 
 function mapped(row: ImportRow, mapping: ImportMapping, key: string): unknown {
   const sourceKey = mapping[key];
@@ -158,9 +200,7 @@ function resolveBaseSelectValue(
     return options.get(value) ?? value;
   }
   if (field.type === "multiselect" && Array.isArray(value)) {
-    return value.map((item) =>
-      typeof item === "string" ? (options.get(item) ?? item) : item,
-    );
+    return value.map((item) => (typeof item === "string" ? (options.get(item) ?? item) : item));
   }
   return value;
 }
@@ -324,9 +364,7 @@ export async function previewRevenueImport(
   const customFields = await listCustomFields(companyId, resourceType);
   const dealStages = resourceType === "deal" ? await listDealStages(companyId) : [];
   const dealSources =
-    resourceType === "deal"
-      ? await listRevenueClassifications(companyId, "deal_source")
-      : [];
+    resourceType === "deal" ? await listRevenueClassifications(companyId, "deal_source") : [];
   for (const row of rows.slice(0, 10_000)) {
     const preview = previewFor(resourceType, row, mapping);
     const required = asText(preview[resourceType === "deal" ? "title" : "name"]);
@@ -755,6 +793,7 @@ export async function commitRevenueImport(
     input.mapping,
     input.rows,
   );
+  const batchId = randomUUID();
   const createdIds: string[] = [];
   for (const decision of report.decisions) {
     if (decision.action !== "create") continue;
@@ -773,7 +812,27 @@ export async function commitRevenueImport(
           : {};
       if (Object.keys(customValues).length > 0) {
         try {
-          await setCustomValues(companyId, input.resourceType, id, customValues);
+          const observedAt = new Date();
+          await setCustomValues(companyId, input.resourceType, id, customValues, {
+            actor,
+            provenance: {
+              sourceType: "import",
+              sourceId: importEvidenceSourceId(batchId, decision.sourceId, input.resourceType),
+              sourceLabel: `${input.sourceLabel} / ${decision.sourceId}`,
+              extractionMethod:
+                input.sourceKind === "base" ? "base_field_mapping" : "csv_column_mapping",
+              confidence: 100,
+              observedAt,
+              verificationState: "verified",
+              lastVerifiedAt: observedAt,
+              metadata: importEvidenceMetadata(
+                batchId,
+                decision.sourceId,
+                input.resourceType,
+                input,
+              ),
+            },
+          });
         } catch (error) {
           await AppDataSource.getRepository(RevenueCustomValue).delete({
             companyId,
@@ -810,6 +869,7 @@ export async function commitRevenueImport(
   const repo = AppDataSource.getRepository(RevenueImportBatch);
   const batch = await repo.save(
     repo.create({
+      id: batchId,
       companyId,
       resourceType: input.resourceType,
       sourceKind: input.sourceKind,
@@ -871,6 +931,12 @@ async function saveImportedCustomValues(
   resourceId: string,
   preview: Record<string, unknown>,
   fields: RevenueCustomField[],
+  provenance: {
+    batchId: string;
+    sourceRowId: string;
+    input: ImportProvenanceContext;
+    actor: ImportActor;
+  },
 ): Promise<void> {
   const values =
     preview.customValues &&
@@ -883,6 +949,7 @@ async function saveImportedCustomValues(
       .filter((field) => field.resourceType === resourceType && !field.archivedAt)
       .map((field) => [field.key, field]),
   );
+  const verifyingActor = importVerifyingActor(provenance.actor);
   for (const [key, value] of Object.entries(values)) {
     const field = byKey.get(key);
     if (!field || value === null) continue;
@@ -894,6 +961,45 @@ async function saveImportedCustomValues(
         resourceId,
         valueJson: JSON.stringify(value),
         searchValue: customSearchValue(value),
+      }),
+    );
+    const observedAt = new Date();
+    await manager.save(
+      RevenueFieldEvidence,
+      manager.create(RevenueFieldEvidence, {
+        companyId,
+        resourceType,
+        resourceId,
+        fieldKey: `custom:${field.key}`,
+        sourceType: "import",
+        sourceId: importEvidenceSourceId(provenance.batchId, provenance.sourceRowId, resourceType),
+        sourceLabel: `${provenance.input.sourceLabel} / ${provenance.sourceRowId}`,
+        extractedValueJson: JSON.stringify(value),
+        normalizedValue: customSearchValue(value),
+        confidence: 100,
+        status: "accepted",
+        verificationState: "verified",
+        extractionMethod:
+          provenance.input.sourceKind === "base" ? "base_field_mapping" : "csv_column_mapping",
+        observedAt,
+        extractedAt: observedAt,
+        lastVerifiedAt: observedAt,
+        humanConfirmedAt: provenance.actor.userId ? observedAt : null,
+        humanConfirmedById: provenance.actor.userId ?? null,
+        verifyingActorType: verifyingActor.kind,
+        verifyingActorId: verifyingActor.id,
+        metadataJson: JSON.stringify({
+          extractionMethod:
+            provenance.input.sourceKind === "base" ? "base_field_mapping" : "csv_column_mapping",
+          verificationState: "verified",
+          verifyingActor,
+          ...importEvidenceMetadata(
+            provenance.batchId,
+            provenance.sourceRowId,
+            resourceType,
+            provenance.input,
+          ),
+        }),
       }),
     );
   }
@@ -1116,6 +1222,7 @@ export async function commitLinkedRevenueImport(
   const stagesById = new Map(stages.map((stage) => [stage.id, stage]));
   const customFields = await listCustomFields(companyId);
   const createdIds: LinkedCreatedIds = { account: [], contact: [], deal: [] };
+  const batchId = randomUUID();
 
   return AppDataSource.transaction(async (manager) => {
     for (const decision of report.decisions) {
@@ -1143,6 +1250,12 @@ export async function commitLinkedRevenueImport(
           account.id,
           accountDecision.preview,
           customFields,
+          {
+            batchId,
+            sourceRowId: decision.sourceId,
+            input,
+            actor,
+          },
         );
       } else if (accountDecision.action === "create") {
         accountDecision.action = "duplicate";
@@ -1178,6 +1291,12 @@ export async function commitLinkedRevenueImport(
           contact.id,
           contactDecision.preview,
           customFields,
+          {
+            batchId,
+            sourceRowId: decision.sourceId,
+            input,
+            actor,
+          },
         );
       } else if (contactDecision.action === "create") {
         contactDecision.action = "duplicate";
@@ -1226,6 +1345,12 @@ export async function commitLinkedRevenueImport(
           deal.id,
           dealDecision.preview,
           customFields,
+          {
+            batchId,
+            sourceRowId: decision.sourceId,
+            input,
+            actor,
+          },
         );
       } else if (dealDecision.action === "create") {
         dealDecision.action = "duplicate";
@@ -1285,6 +1410,7 @@ export async function commitLinkedRevenueImport(
     const repo = manager.getRepository(RevenueImportBatch);
     const batch = await repo.save(
       repo.create({
+        id: batchId,
         companyId,
         resourceType: "account_contact_deal",
         sourceKind: input.sourceKind,
@@ -1350,6 +1476,88 @@ export async function getRevenueImport(
   return AppDataSource.getRepository(RevenueImportBatch).findOneBy({ companyId, id });
 }
 
+type CompactRevenueImportBatch = Pick<
+  RevenueImportBatch,
+  | "id"
+  | "companyId"
+  | "resourceType"
+  | "sourceKind"
+  | "sourceLabel"
+  | "sourceBaseId"
+  | "sourceTableId"
+  | "status"
+  | "rolledBackAt"
+  | "createdByUserId"
+  | "createdByEmployeeId"
+  | "createdAt"
+  | "updatedAt"
+>;
+
+export type RevenueImportSummary = {
+  batch: Omit<CompactRevenueImportBatch, "companyId">;
+  counts: Record<string, number>;
+};
+
+async function getCompactRevenueImport(
+  companyId: string,
+  id: string,
+): Promise<CompactRevenueImportBatch | null> {
+  return (await AppDataSource.getRepository(RevenueImportBatch)
+    .createQueryBuilder("batch")
+    .select([
+      "batch.id",
+      "batch.companyId",
+      "batch.resourceType",
+      "batch.sourceKind",
+      "batch.sourceLabel",
+      "batch.sourceBaseId",
+      "batch.sourceTableId",
+      "batch.status",
+      "batch.rolledBackAt",
+      "batch.createdByUserId",
+      "batch.createdByEmployeeId",
+      "batch.createdAt",
+      "batch.updatedAt",
+    ])
+    .where("batch.companyId = :companyId", { companyId })
+    .andWhere("batch.id = :id", { id })
+    .getOne()) as CompactRevenueImportBatch | null;
+}
+
+export async function getRevenueImportSummary(
+  companyId: string,
+  id: string,
+): Promise<RevenueImportSummary | null> {
+  const batch = await getCompactRevenueImport(companyId, id);
+  if (!batch) return null;
+  await ensureRevenueImportRows(batch);
+  const grouped = await AppDataSource.getRepository(RevenueImportRow)
+    .createQueryBuilder("row")
+    .select("row.status", "status")
+    .addSelect("COUNT(*)", "count")
+    .where("row.companyId = :companyId", { companyId })
+    .andWhere("row.batchId = :id", { id })
+    .groupBy("row.status")
+    .getRawMany<{ status: string; count: string | number }>();
+  return {
+    batch: {
+      id: batch.id,
+      resourceType: batch.resourceType,
+      sourceKind: batch.sourceKind,
+      sourceLabel: batch.sourceLabel,
+      sourceBaseId: batch.sourceBaseId,
+      sourceTableId: batch.sourceTableId,
+      status: batch.status,
+      rolledBackAt: batch.rolledBackAt,
+      createdByUserId: batch.createdByUserId,
+      createdByEmployeeId: batch.createdByEmployeeId,
+      createdAt: batch.createdAt,
+      updatedAt: batch.updatedAt,
+    },
+    counts: Object.fromEntries(grouped.map((row) => [row.status, Number(row.count)])),
+  };
+}
+
 export async function queryRevenueImports(
   companyId: string,
   opts: {
@@ -1366,7 +1574,8 @@ export async function queryRevenueImports(
   const qb = AppDataSource.getRepository(RevenueImportBatch)
     .createQueryBuilder("batch")
     .where("batch.companyId = :companyId", { companyId });
-  if (opts.sourceKind) qb.andWhere("batch.sourceKind = :sourceKind", { sourceKind: opts.sourceKind });
+  if (opts.sourceKind)
+    qb.andWhere("batch.sourceKind = :sourceKind", { sourceKind: opts.sourceKind });
   if (opts.status) qb.andWhere("batch.status = :status", { status: opts.status });
   if (opts.resourceType) {
     qb.andWhere("batch.resourceType = :resourceType", { resourceType: opts.resourceType });
@@ -1399,11 +1608,18 @@ export async function queryRevenueImports(
   return { rows, total };
 }
 
+type LegacyRevenueImportBatch = Pick<
+  RevenueImportBatch,
+  "id" | "companyId" | "resourceType" | "rowMapJson"
+>;
+
+const legacyImportMaterializations = new Map<string, Promise<void>>();
+
 async function materializeLegacyImportRows(
-  batch: RevenueImportBatch,
+  manager: EntityManager,
+  batch: LegacyRevenueImportBatch,
 ): Promise<void> {
-  const repo = AppDataSource.getRepository(RevenueImportRow);
-  if ((await repo.count({ where: { companyId: batch.companyId, batchId: batch.id } })) > 0) return;
+  const repo = manager.getRepository(RevenueImportRow);
   let rowMap: Array<Record<string, unknown>> = [];
   try {
     const parsed = JSON.parse(batch.rowMapJson) as unknown;
@@ -1431,7 +1647,8 @@ async function materializeLegacyImportRows(
             sourceId: String(decision.sourceId ?? sourceIndex),
             nativeId: typeof resource.nativeId === "string" ? resource.nativeId : null,
             action,
-            status: action === "create" ? "created" : action === "duplicate" ? "matched" : "skipped",
+            status:
+              action === "create" ? "created" : action === "duplicate" ? "matched" : "skipped",
             reason: String(resource.reason ?? decision.reason ?? ""),
             decisionJson: JSON.stringify(resource),
             sortOrder: sourceIndex * 3 + resourceIndex,
@@ -1459,6 +1676,54 @@ async function materializeLegacyImportRows(
   if (rows.length > 0) await repo.save(rows, { chunk: 500 });
 }
 
+async function materializeLegacyImportRowsTransactionally(
+  batch: CompactRevenueImportBatch,
+): Promise<void> {
+  await AppDataSource.transaction(async (manager) => {
+    const batchQb = manager
+      .getRepository(RevenueImportBatch)
+      .createQueryBuilder("batch")
+      .select(["batch.id", "batch.companyId", "batch.resourceType", "batch.rowMapJson"])
+      .where("batch.companyId = :companyId", { companyId: batch.companyId })
+      .andWhere("batch.id = :id", { id: batch.id });
+    if (AppDataSource.options.type === "postgres") {
+      batchQb.setLock("pessimistic_write");
+    }
+    const legacy = (await batchQb.getOne()) as LegacyRevenueImportBatch | null;
+    if (!legacy) return;
+    if (
+      (await manager.count(RevenueImportRow, {
+        where: { companyId: batch.companyId, batchId: batch.id },
+      })) > 0
+    ) {
+      return;
+    }
+    await materializeLegacyImportRows(manager, legacy);
+  });
+}
+
+async function ensureRevenueImportRows(batch: CompactRevenueImportBatch): Promise<void> {
+  if (
+    (await AppDataSource.getRepository(RevenueImportRow).count({
+      where: { companyId: batch.companyId, batchId: batch.id },
+    })) > 0
+  ) {
+    return;
+  }
+  const key = `${batch.companyId}:${batch.id}`;
+  const active = legacyImportMaterializations.get(key);
+  if (active) return active;
+  const materialization = materializeLegacyImportRowsTransactionally(batch);
+  legacyImportMaterializations.set(key, materialization);
+  try {
+    await materialization;
+  } finally {
+    if (legacyImportMaterializations.get(key) === materialization) {
+      legacyImportMaterializations.delete(key);
+    }
+  }
+}
+
 export async function getRevenueImportRows(
   companyId: string,
   batchId: string,
@@ -1467,6 +1732,10 @@ export async function getRevenueImportRows(
     status?: RevenueImportRow["status"];
     action?: string;
     q?: string;
+    sourceId?: string;
+    nativeId?: string;
+    error?: string;
+    hasError?: boolean;
     limit?: number;
     offset?: number;
   } = {},
@@ -1478,9 +1747,9 @@ export async function getRevenueImportRows(
   rows: RevenueImportRow[];
   total: number;
 } | null> {
-  const batch = await getRevenueImport(companyId, batchId);
+  const batch = await getCompactRevenueImport(companyId, batchId);
   if (!batch) return null;
-  await materializeLegacyImportRows(batch);
+  await ensureRevenueImportRows(batch);
   const qb = AppDataSource.getRepository(RevenueImportRow)
     .createQueryBuilder("row")
     .where("row.companyId = :companyId", { companyId })
@@ -1490,10 +1759,23 @@ export async function getRevenueImportRows(
   }
   if (opts.status) qb.andWhere("row.status = :status", { status: opts.status });
   if (opts.action) qb.andWhere("row.action = :action", { action: opts.action });
+  if (opts.sourceId) qb.andWhere("row.sourceId = :sourceId", { sourceId: opts.sourceId });
+  if (opts.nativeId) qb.andWhere("row.nativeId = :nativeId", { nativeId: opts.nativeId });
+  if (opts.error) {
+    qb.andWhere("LOWER(row.reason) LIKE :error", { error: `%${opts.error.toLowerCase()}%` });
+  }
+  if (opts.hasError === true) {
+    qb.andWhere("(row.status = 'failed' OR row.reason != '')");
+  } else if (opts.hasError === false) {
+    qb.andWhere("row.status != 'failed'").andWhere("row.reason = ''");
+  }
   if (opts.q) {
-    qb.andWhere("(LOWER(row.sourceId) LIKE :q OR LOWER(row.reason) LIKE :q)", {
-      q: `%${opts.q.toLowerCase()}%`,
-    });
+    qb.andWhere(
+      "(LOWER(row.sourceId) LIKE :q OR LOWER(COALESCE(row.nativeId, '')) LIKE :q OR LOWER(row.reason) LIKE :q)",
+      {
+        q: `%${opts.q.toLowerCase()}%`,
+      },
+    );
   }
   const total = await qb.clone().getCount();
   const rows = await qb
@@ -1513,6 +1795,24 @@ export async function getRevenueImportRows(
     rows,
     total,
   };
+}
+
+async function deleteImportedFieldData(
+  manager: EntityManager,
+  companyId: string,
+  resourceType: RevenueResourceType,
+  resourceId: string,
+): Promise<void> {
+  await manager.delete(RevenueCustomValue, {
+    companyId,
+    resourceType,
+    resourceId,
+  });
+  await manager.delete(RevenueFieldEvidence, {
+    companyId,
+    resourceType,
+    resourceId,
+  });
 }
 
 async function rollbackLinkedRevenueImport(
@@ -1550,11 +1850,7 @@ async function rollbackLinkedRevenueImport(
       continue;
     }
     await manager.delete(Activity, { companyId: batch.companyId, dealId: resourceId });
-    await manager.delete(RevenueCustomValue, {
-      companyId: batch.companyId,
-      resourceType: "deal",
-      resourceId,
-    });
+    await deleteImportedFieldData(manager, batch.companyId, "deal", resourceId);
     deleted +=
       (await manager.delete(Deal, { companyId: batch.companyId, id: resourceId })).affected ?? 0;
   }
@@ -1588,11 +1884,7 @@ async function rollbackLinkedRevenueImport(
       blocked.push(`contact:${resourceId}`);
       continue;
     }
-    await manager.delete(RevenueCustomValue, {
-      companyId: batch.companyId,
-      resourceType: "contact",
-      resourceId,
-    });
+    await deleteImportedFieldData(manager, batch.companyId, "contact", resourceId);
     deleted +=
       (await manager.delete(Contact, { companyId: batch.companyId, id: resourceId })).affected ?? 0;
   }
@@ -1629,11 +1921,7 @@ async function rollbackLinkedRevenueImport(
       blocked.push(`account:${resourceId}`);
       continue;
     }
-    await manager.delete(RevenueCustomValue, {
-      companyId: batch.companyId,
-      resourceType: "account",
-      resourceId,
-    });
+    await deleteImportedFieldData(manager, batch.companyId, "account", resourceId);
     deleted +=
       (await manager.delete(Customer, { companyId: batch.companyId, id: resourceId })).affected ??
       0;
@@ -1796,7 +2084,12 @@ export async function rollbackRevenueImport(
         deleted += (await manager.delete(Partnership, { companyId, id: resourceId })).affected ?? 0;
       }
       if (!blocked.includes(resourceId)) {
-        await manager.delete(RevenueCustomValue, { companyId, resourceId });
+        await deleteImportedFieldData(
+          manager,
+          companyId,
+          batch.resourceType as RevenueResourceType,
+          resourceId,
+        );
       }
     }
     batch.status = "rolled_back";

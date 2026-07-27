@@ -443,7 +443,9 @@ describe("historical Deal import preview validation", () => {
   test("keeps terminal events consistent with destination stage kind and lost reason", async () => {
     const companyId = testCompanyId();
     const fixture = await stages(companyId);
-    const target = await deal(companyId, fixture.lost, { lostReason: "" });
+    const target = await deal(companyId, fixture.lost, {
+      lostReason: "Current Deal reason must not become imported history",
+    });
 
     const result = await importHistoricalDealEvents(
       companyId,

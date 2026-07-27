@@ -25,6 +25,7 @@ import {
   type RevenueDocumentKind,
 } from "../db/entities/RevenueDocument.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import { effectiveFinanceAccess, requireFinanceRead } from "../middleware/financeAccess.js";
 import { validateBody } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
 import {
@@ -58,9 +59,16 @@ import {
 } from "../services/revenue/documents.js";
 import {
   createFollowUpTask,
-  listFollowUps,
+  listFollowUpPage,
   updateFollowUpTask,
 } from "../services/revenue/followUps.js";
+import {
+  createFollowUpView,
+  deleteFollowUpView,
+  listFollowUpViews,
+  updateFollowUpView,
+  type FollowUpViewFilters,
+} from "../services/revenue/followUpViews.js";
 import {
   mergeRevenueRecords,
   previewRevenueMerge,
@@ -68,11 +76,17 @@ import {
 } from "../services/revenue/merge.js";
 import { runRevenueBulkOperation } from "../services/revenue/bulk.js";
 import {
+  createRevenueBulkJob,
+  getRevenueBulkJob,
+  rollbackRevenueBulkJob,
+} from "../services/revenue/bulkJobs.js";
+import {
   backfillDealHistoryFromActivities,
   importHistoricalDealEvents,
   listDealHistory,
 } from "../services/revenue/dealHistory.js";
 import {
+  assertRevenueEvidenceSource,
   createCommercialValueProposal,
   listRevenueEvidence,
   proposeCanonicalDomains,
@@ -105,7 +119,7 @@ import {
 import {
   commitLinkedRevenueImport,
   commitRevenueImport,
-  getRevenueImport,
+  getRevenueImportSummary,
   getRevenueImportRows,
   loadBaseImportRows,
   migrateBaseAttachmentsForImport,
@@ -290,6 +304,7 @@ revenueOperationsRouter.post(
     z.object({
       targetAccountId: z.string().uuid(),
       confirmSourceName: z.string().min(1).max(120),
+      resolutions: z.record(z.enum(["source", "target"])).default({}),
     }),
   ),
   h(async (req, res) => {
@@ -300,6 +315,7 @@ revenueOperationsRouter.post(
         req.body.targetAccountId,
         req.body.confirmSourceName,
         actorOf(req),
+        req.body.resolutions,
       );
       await audit(
         req,
@@ -382,6 +398,7 @@ revenueOperationsRouter.post(
     z.object({
       targetId: z.string().uuid(),
       confirmSourceLabel: z.string().min(1).max(500),
+      resolutions: z.record(z.enum(["source", "target"])).default({}),
     }),
   ),
   h(async (req, res) => {
@@ -395,6 +412,7 @@ revenueOperationsRouter.post(
         req.body.targetId,
         req.body.confirmSourceLabel,
         actorOf(req),
+        req.body.resolutions,
       );
       await audit(
         req,
@@ -438,7 +456,9 @@ revenueOperationsRouter.get(
       .object({
         kind: z.enum(["merge", "bulk", "history_import"]).optional(),
         resourceType: z.enum(["account", "contact", "deal", "partnership", "follow_up"]).optional(),
-        status: z.enum(["completed", "partial", "failed", "rolled_back"]).optional(),
+        status: z
+          .enum(["queued", "running", "completed", "partial", "failed", "rolled_back"])
+          .optional(),
         limit: z.coerce.number().int().min(1).max(200).optional(),
         offset: z.coerce.number().int().min(0).optional(),
       })
@@ -473,7 +493,13 @@ revenueOperationsRouter.post(
     const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
     if (!params.success) return res.status(400).json({ error: "Invalid operation" });
     try {
-      const result = await rollbackRevenueOperation(cidOf(req), params.data.id);
+      const bulkJob = await getRevenueBulkJob(cidOf(req), params.data.id, { rowLimit: 1 });
+      const result = bulkJob
+        ? await rollbackRevenueBulkJob(cidOf(req), params.data.id).then((rollback) => ({
+            operation: rollback.job,
+            rolledBack: rollback.rolledBack,
+          }))
+        : await rollbackRevenueOperation(cidOf(req), params.data.id);
       await audit(
         req,
         "revenue.operation.undo",
@@ -503,10 +529,13 @@ const bulkTargetSchema = z
       .optional(),
     filter: z
       .object({
+        state: z.enum(["all", "overdue", "today", "upcoming"]).optional(),
         q: z.string().max(200).optional(),
         includeArchived: z.boolean().optional(),
         ownerId: z.string().uuid().optional(),
         ownerEmployeeId: z.string().uuid().optional(),
+        assignedUserId: z.string().uuid().optional(),
+        assignedEmployeeId: z.string().uuid().optional(),
         unassigned: z.boolean().optional(),
         accountStatus: z.enum(["prospect", "customer", "former"]).optional(),
         lifecycleStage: z
@@ -515,16 +544,23 @@ const bulkTargetSchema = z
         dealStatus: z.enum(["open", "won", "lost"]).optional(),
         dealStageId: z.string().uuid().optional(),
         partnershipStatus: z.string().max(80).optional(),
+        source: z.enum(["task", "deal", "partnership"]).optional(),
         followUpSource: z.enum(["task", "deal", "partnership"]).optional(),
+        status: taskStatusEnum.optional(),
         taskStatus: taskStatusEnum.optional(),
         priority: priorityEnum.optional(),
         linkedResourceType: z.enum(["account", "contact", "deal", "partnership"]).optional(),
         linkedResourceId: z.string().uuid().optional(),
         dueFrom: z.string().datetime().optional(),
         dueTo: z.string().datetime().optional(),
+        reminderFrom: z.string().datetime().optional(),
+        reminderTo: z.string().datetime().optional(),
+        overdueMinDays: z.number().int().min(0).max(36_500).optional(),
+        overdueMaxDays: z.number().int().min(0).max(36_500).optional(),
         staleBefore: z.string().datetime().optional(),
         createdBefore: z.string().datetime().optional(),
         closedDeals: z.enum(["include", "only", "exclude"]).optional(),
+        archivedResources: z.enum(["include", "only", "exclude"]).optional(),
       })
       .optional(),
   })
@@ -558,6 +594,11 @@ const bulkActionSchema = z.discriminatedUnion("type", [
     archived: z.boolean(),
   }),
   z.object({
+    type: z.literal("move_deal_stage"),
+    stageId: z.string().uuid(),
+    lostReason: z.string().min(1).max(2_000).optional(),
+  }),
+  z.object({
     type: z.literal("update_follow_up"),
     taskStatus: taskStatusEnum.optional(),
     priority: priorityEnum.optional(),
@@ -574,7 +615,156 @@ const bulkSchema = z.object({
   action: bulkActionSchema,
   dryRun: z.boolean().default(false),
   idempotencyKey: z.string().min(8).max(200).optional(),
+  mode: z.enum(["atomic", "partial"]).default("partial"),
 });
+
+function normalizedBulkBody(
+  body: z.infer<typeof bulkSchema>,
+): Parameters<typeof runRevenueBulkOperation>[1] {
+  const filter = body.target.filter;
+  const action =
+    body.action.type === "update_follow_up"
+      ? {
+          ...body.action,
+          dueAt: optionalDate(body.action.dueAt),
+          reminderAt: optionalDate(body.action.reminderAt),
+        }
+      : body.action;
+  return {
+    ...body,
+    target: {
+      ...body.target,
+      filter: filter
+        ? {
+            ...filter,
+            dueFrom: optionalDate(filter.dueFrom) ?? undefined,
+            dueTo: optionalDate(filter.dueTo) ?? undefined,
+            reminderFrom: optionalDate(filter.reminderFrom) ?? undefined,
+            reminderTo: optionalDate(filter.reminderTo) ?? undefined,
+            staleBefore: optionalDate(filter.staleBefore) ?? undefined,
+            createdBefore: optionalDate(filter.createdBefore) ?? undefined,
+          }
+        : undefined,
+    },
+    action,
+  };
+}
+
+revenueOperationsRouter.post(
+  "/revenue/bulk/jobs",
+  validateBody(bulkSchema),
+  h(async (req, res) => {
+    const body = req.body as z.infer<typeof bulkSchema>;
+    if (body.dryRun) {
+      return res.status(400).json({ error: "Use /revenue/bulk for a synchronous dry run" });
+    }
+    try {
+      const result = await createRevenueBulkJob(cidOf(req), normalizedBulkBody(body), actorOf(req));
+      if (!result.replayed) {
+        await audit(
+          req,
+          "revenue.bulk.queue",
+          "revenue_operation",
+          result.job.id,
+          body.resourceType,
+          {
+            action: body.action.type,
+            mode: body.mode,
+            frozenSelection: result.preview.matched,
+          },
+        );
+      }
+      return res.status(result.replayed ? 200 : 202).json(result);
+    } catch (error) {
+      return res.status(409).json({ error: (error as Error).message });
+    }
+  }),
+);
+
+revenueOperationsRouter.get(
+  "/revenue/bulk/jobs/:id",
+  h(async (req, res) => {
+    const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
+    const query = z
+      .object({
+        rowLimit: z.coerce.number().int().min(1).max(500).optional(),
+        rowOffset: z.coerce.number().int().min(0).optional(),
+      })
+      .safeParse(req.query);
+    if (!params.success || !query.success) {
+      return res.status(400).json({ error: "Invalid bulk job query" });
+    }
+    const job = await getRevenueBulkJob(cidOf(req), params.data.id, query.data);
+    return job ? res.json(job) : res.status(404).json({ error: "Bulk job not found" });
+  }),
+);
+
+revenueOperationsRouter.get(
+  "/revenue/bulk/jobs/:id/reconciliation",
+  h(async (req, res) => {
+    const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
+    const query = z
+      .object({
+        format: z.enum(["json", "csv"]).default("json"),
+        limit: z.coerce.number().int().min(1).max(500).default(500),
+        offset: z.coerce.number().int().min(0).default(0),
+      })
+      .safeParse(req.query);
+    if (!params.success || !query.success) {
+      return res.status(400).json({ error: "Invalid bulk reconciliation query" });
+    }
+    const job = await getRevenueBulkJob(cidOf(req), params.data.id, {
+      rowLimit: query.data.limit,
+      rowOffset: query.data.offset,
+    });
+    if (!job) return res.status(404).json({ error: "Bulk job not found" });
+    if (query.data.format === "csv") {
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="revenue-bulk-${params.data.id}-${query.data.offset}.csv"`,
+      );
+      return res.send(
+        revenueExportCsv({
+          resource: "import_reconciliation",
+          generatedAt: new Date(),
+          offset: query.data.offset,
+          limit: query.data.limit,
+          total: job.rowTotal,
+          nextOffset:
+            query.data.offset + job.rows.length < job.rowTotal
+              ? query.data.offset + job.rows.length
+              : null,
+          rows: job.rows,
+        }),
+      );
+    }
+    return res.json(job);
+  }),
+);
+
+revenueOperationsRouter.post(
+  "/revenue/bulk/jobs/:id/undo",
+  validateBody(z.object({ confirm: z.literal("UNDO") })),
+  h(async (req, res) => {
+    const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
+    if (!params.success) return res.status(400).json({ error: "Invalid bulk job" });
+    try {
+      const result = await rollbackRevenueBulkJob(cidOf(req), params.data.id);
+      await audit(
+        req,
+        "revenue.bulk.undo",
+        "revenue_operation",
+        result.job.id,
+        result.job.resourceType,
+        { rolledBack: result.rolledBack },
+      );
+      return res.json(result);
+    } catch (error) {
+      return res.status(409).json({ error: (error as Error).message });
+    }
+  }),
+);
 
 revenueOperationsRouter.post(
   "/revenue/bulk",
@@ -582,33 +772,9 @@ revenueOperationsRouter.post(
   h(async (req, res) => {
     try {
       const body = req.body as z.infer<typeof bulkSchema>;
-      const filter = body.target.filter;
-      const action =
-        body.action.type === "update_follow_up"
-          ? {
-              ...body.action,
-              dueAt: optionalDate(body.action.dueAt),
-              reminderAt: optionalDate(body.action.reminderAt),
-            }
-          : body.action;
       const result = await runRevenueBulkOperation(
         cidOf(req),
-        {
-          ...body,
-          target: {
-            ...body.target,
-            filter: filter
-              ? {
-                  ...filter,
-                  dueFrom: optionalDate(filter.dueFrom) ?? undefined,
-                  dueTo: optionalDate(filter.dueTo) ?? undefined,
-                  staleBefore: optionalDate(filter.staleBefore) ?? undefined,
-                  createdBefore: optionalDate(filter.createdBefore) ?? undefined,
-                }
-              : undefined,
-          },
-          action,
-        },
+        normalizedBulkBody(body),
         actorOf(req),
       );
       if (!result.dryRun && !result.replayed) {
@@ -857,6 +1023,7 @@ revenueOperationsRouter.post(
 revenueOperationsRouter.post(
   "/revenue/enrichment/commercial-values/propose-from-finance",
   validateBody(z.object({ confirm: z.literal("PROPOSE") })),
+  requireFinanceRead,
   h(async (req, res) => {
     const result = await proposeCommercialValuesFromFinance(cidOf(req));
     await audit(
@@ -909,11 +1076,18 @@ revenueOperationsRouter.post(
         mrrCents: z.number().int().min(0).nullable().optional(),
         arrCents: z.number().int().min(0).nullable().optional(),
         acvCents: z.number().int().min(0).nullable().optional(),
+        tcvCents: z.number().int().min(0).nullable().optional(),
+        oneTimeCents: z.number().int().min(0).nullable().optional(),
       }),
       metadata: z.unknown().optional(),
     }),
   ),
   h(async (req, res) => {
+    if (req.body.sourceType === "finance" && effectiveFinanceAccess(req) === "none") {
+      return res.status(403).json({
+        error: "You don't have access to this company's finances.",
+      });
+    }
     try {
       const evidence = await createCommercialValueProposal(cidOf(req), {
         ...req.body,
@@ -955,7 +1129,12 @@ revenueOperationsRouter.get(
 
 revenueOperationsRouter.post(
   "/revenue/enrichment/evidence/:id/review",
-  validateBody(z.object({ decision: z.enum(["accept", "reject"]) })),
+  validateBody(
+    z.object({
+      decision: z.enum(["accept", "reject"]),
+      supersedeExisting: z.boolean().optional(),
+    }),
+  ),
   h(async (req, res) => {
     const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
     if (!params.success) return res.status(400).json({ error: "Invalid evidence" });
@@ -965,6 +1144,7 @@ revenueOperationsRouter.post(
         params.data.id,
         req.body.decision,
         actorOf(req),
+        { supersedeExisting: req.body.supersedeExisting },
       );
       await audit(
         req,
@@ -1076,7 +1256,8 @@ revenueOperationsRouter.get(
   h(async (req, res) => {
     const parsed = z
       .object({
-        status: z.enum(["pending", "accepted", "rejected", "duplicate"]).optional(),
+        status: z.enum(["pending", "processing", "accepted", "rejected", "duplicate"]).optional(),
+        accountId: z.string().uuid().optional(),
         limit: z.coerce.number().int().min(1).max(500).optional(),
         offset: z.coerce.number().int().min(0).optional(),
       })
@@ -1149,12 +1330,131 @@ const taskWriteSchema = z.object({
   partnershipId: z.string().uuid().nullable().optional(),
 });
 
+const followUpViewFiltersSchema = z
+  .object({
+    state: z.enum(["all", "overdue", "today", "upcoming"]).optional(),
+    q: z.string().max(200).optional(),
+    source: z.enum(["task", "deal", "partnership"]).optional(),
+    assignedUserId: z.string().uuid().optional(),
+    assignedEmployeeId: z.string().uuid().optional(),
+    unassigned: z.boolean().optional(),
+    priority: priorityEnum.optional(),
+    status: taskStatusEnum.optional(),
+    linkedResourceType: z.enum(["account", "contact", "deal", "partnership"]).optional(),
+    linkedResourceId: z.string().uuid().optional(),
+    dueFrom: z.string().datetime().optional(),
+    dueTo: z.string().datetime().optional(),
+    reminderFrom: z.string().datetime().optional(),
+    reminderTo: z.string().datetime().optional(),
+    overdueMinDays: z.number().int().min(0).max(36_500).optional(),
+    overdueMaxDays: z.number().int().min(0).max(36_500).optional(),
+    createdBefore: z.string().datetime().optional(),
+    staleBefore: z.string().datetime().optional(),
+    dealStageId: z.string().uuid().optional(),
+    dealStatus: z.enum(["open", "won", "lost"]).optional(),
+    closedDeals: z.enum(["include", "only", "exclude"]).optional(),
+    archivedResources: z.enum(["include", "only", "exclude"]).optional(),
+    accountStatus: z.enum(["prospect", "customer", "former"]).optional(),
+  })
+  .strict();
+
+function followUpViewFilters(
+  input: z.infer<typeof followUpViewFiltersSchema>,
+): FollowUpViewFilters {
+  return {
+    ...input,
+    dueFrom: optionalDate(input.dueFrom) ?? undefined,
+    dueTo: optionalDate(input.dueTo) ?? undefined,
+    reminderFrom: optionalDate(input.reminderFrom) ?? undefined,
+    reminderTo: optionalDate(input.reminderTo) ?? undefined,
+    createdBefore: optionalDate(input.createdBefore) ?? undefined,
+    staleBefore: optionalDate(input.staleBefore) ?? undefined,
+  };
+}
+
+revenueOperationsRouter.get(
+  "/revenue/follow-up-views",
+  h(async (req, res) => res.json(await listFollowUpViews(cidOf(req)))),
+);
+
+revenueOperationsRouter.post(
+  "/revenue/follow-up-views",
+  validateBody(
+    z
+      .object({
+        name: z.string().min(1).max(120),
+        filters: followUpViewFiltersSchema,
+        sortOrder: z.number().finite().optional(),
+      })
+      .strict(),
+  ),
+  h(async (req, res) => {
+    const body = req.body as {
+      name: string;
+      filters: z.infer<typeof followUpViewFiltersSchema>;
+      sortOrder?: number;
+    };
+    const view = await createFollowUpView(
+      cidOf(req),
+      { ...body, filters: followUpViewFilters(body.filters) },
+      actorOf(req),
+    );
+    await audit(req, "revenue.follow_up_view.create", "revenue_follow_up_view", view.id, view.name);
+    return res.status(201).json(view);
+  }),
+);
+
+revenueOperationsRouter.patch(
+  "/revenue/follow-up-views/:id",
+  validateBody(
+    z
+      .object({
+        name: z.string().min(1).max(120).optional(),
+        filters: followUpViewFiltersSchema.optional(),
+        sortOrder: z.number().finite().optional(),
+      })
+      .strict(),
+  ),
+  h(async (req, res) => {
+    const body = req.body as {
+      name?: string;
+      filters?: z.infer<typeof followUpViewFiltersSchema>;
+      sortOrder?: number;
+    };
+    const view = await updateFollowUpView(cidOf(req), req.params.id, {
+      ...body,
+      filters: body.filters ? followUpViewFilters(body.filters) : undefined,
+    });
+    if (!view) return res.status(404).json({ error: "Follow-up view not found" });
+    await audit(req, "revenue.follow_up_view.update", "revenue_follow_up_view", view.id, view.name);
+    return res.json(view);
+  }),
+);
+
+revenueOperationsRouter.delete(
+  "/revenue/follow-up-views/:id",
+  h(async (req, res) => {
+    if (!(await deleteFollowUpView(cidOf(req), req.params.id))) {
+      return res.status(404).json({ error: "Follow-up view not found" });
+    }
+    await audit(
+      req,
+      "revenue.follow_up_view.delete",
+      "revenue_follow_up_view",
+      req.params.id,
+      "Follow-up view",
+    );
+    return res.status(204).end();
+  }),
+);
+
 revenueOperationsRouter.get(
   "/revenue/follow-ups",
   h(async (req, res) => {
     const parsed = z
       .object({
         state: z.enum(["all", "overdue", "today", "upcoming"]).optional(),
+        q: z.string().max(200).optional(),
         source: z.enum(["task", "deal", "partnership"]).optional(),
         assignedUserId: z.string().uuid().optional(),
         assignedEmployeeId: z.string().uuid().optional(),
@@ -1165,25 +1465,34 @@ revenueOperationsRouter.get(
         linkedResourceId: z.string().uuid().optional(),
         dueFrom: z.string().datetime().optional(),
         dueTo: z.string().datetime().optional(),
+        reminderFrom: z.string().datetime().optional(),
+        reminderTo: z.string().datetime().optional(),
+        overdueMinDays: z.coerce.number().int().min(0).max(36_500).optional(),
+        overdueMaxDays: z.coerce.number().int().min(0).max(36_500).optional(),
         createdBefore: z.string().datetime().optional(),
         staleBefore: z.string().datetime().optional(),
         dealStageId: z.string().uuid().optional(),
         dealStatus: z.enum(["open", "won", "lost"]).optional(),
         closedDeals: z.enum(["include", "only", "exclude"]).optional(),
+        archivedResources: z.enum(["include", "only", "exclude"]).optional(),
+        accountStatus: z.enum(["prospect", "customer", "former"]).optional(),
+        cursor: z.string().max(1_000).optional(),
         limit: z.coerce.number().int().min(1).max(500).optional(),
         offset: z.coerce.number().int().min(0).optional(),
       })
       .safeParse(req.query);
     if (!parsed.success) return res.status(400).json({ error: "Invalid query parameters" });
-    return res.json({
-      rows: await listFollowUps(cidOf(req), {
+    return res.json(
+      await listFollowUpPage(cidOf(req), {
         ...parsed.data,
         dueFrom: optionalDate(parsed.data.dueFrom) ?? undefined,
         dueTo: optionalDate(parsed.data.dueTo) ?? undefined,
+        reminderFrom: optionalDate(parsed.data.reminderFrom) ?? undefined,
+        reminderTo: optionalDate(parsed.data.reminderTo) ?? undefined,
         createdBefore: optionalDate(parsed.data.createdBefore) ?? undefined,
         staleBefore: optionalDate(parsed.data.staleBefore) ?? undefined,
       }),
-    });
+    );
   }),
 );
 
@@ -1389,16 +1698,72 @@ revenueOperationsRouter.get(
 
 revenueOperationsRouter.put(
   "/revenue/custom-values/:resourceType/:resourceId",
-  validateBody(z.object({ values: z.record(z.unknown()) })),
+  validateBody(
+    z.object({
+      values: z.record(z.unknown()),
+      provenance: z
+        .object({
+          sourceType: evidenceSourceTypeEnum,
+          sourceId: z.string().min(1).max(500),
+          sourceLabel: z.string().max(500).optional(),
+          extractionMethod: z.string().max(200).optional(),
+          confidence: z.number().int().min(0).max(100).optional(),
+          observedAt: z.string().datetime().optional(),
+          verificationState: z.enum(["verified", "unverified"]),
+          lastVerifiedAt: z.string().datetime().nullable().optional(),
+          metadata: z.record(z.unknown()).optional(),
+        })
+        .optional(),
+    }),
+  ),
   h(async (req, res) => {
     const resourceType = resourceTypeEnum.safeParse(req.params.resourceType);
     if (!resourceType.success) return res.status(400).json({ error: "Invalid resource type" });
     try {
+      const body = req.body as {
+        values: Record<string, unknown>;
+        provenance?: {
+          sourceType: z.infer<typeof evidenceSourceTypeEnum>;
+          sourceId: string;
+          sourceLabel?: string;
+          extractionMethod?: string;
+          confidence?: number;
+          observedAt?: string;
+          verificationState: "verified" | "unverified";
+          lastVerifiedAt?: string | null;
+          metadata?: Record<string, unknown>;
+        };
+      };
+      if (body.provenance?.sourceType === "finance" && effectiveFinanceAccess(req) === "none") {
+        return res.status(403).json({
+          error: "You don't have access to this company's finances.",
+        });
+      }
+      if (body.provenance) {
+        await assertRevenueEvidenceSource(cidOf(req), body.provenance);
+      }
       const rows = await setCustomValues(
         cidOf(req),
         resourceType.data,
         req.params.resourceId,
-        (req.body as { values: Record<string, unknown> }).values,
+        body.values,
+        {
+          actor: actorOf(req),
+          provenance: body.provenance
+            ? {
+                ...body.provenance,
+                observedAt: body.provenance.observedAt
+                  ? new Date(body.provenance.observedAt)
+                  : undefined,
+                lastVerifiedAt:
+                  body.provenance.lastVerifiedAt === null
+                    ? null
+                    : body.provenance.lastVerifiedAt
+                      ? new Date(body.provenance.lastVerifiedAt)
+                      : undefined,
+              }
+            : undefined,
+        },
       );
       await audit(
         req,
@@ -1406,7 +1771,7 @@ revenueOperationsRouter.put(
         resourceType.data,
         req.params.resourceId,
         resourceType.data,
-        { keys: Object.keys((req.body as { values: Record<string, unknown> }).values) },
+        { keys: Object.keys(body.values), sourceType: body.provenance?.sourceType ?? "manual" },
       );
       return res.json({ rows });
     } catch (error) {
@@ -1823,7 +2188,7 @@ revenueOperationsRouter.post(
       await audit(req, "revenue.import.commit", "revenue_import", batch.id, batch.sourceLabel, {
         resourceType: batch.resourceType,
       });
-      return res.status(201).json(batch);
+      return res.status(201).json(await getRevenueImportSummary(cidOf(req), batch.id));
     } catch (error) {
       return res.status(400).json({ error: (error as Error).message });
     }
@@ -1855,7 +2220,7 @@ revenueOperationsRouter.post(
         batch.sourceLabel,
         { resourceType: batch.resourceType },
       );
-      return res.status(201).json(batch);
+      return res.status(201).json(await getRevenueImportSummary(cidOf(req), batch.id));
     } catch (error) {
       return res.status(400).json({ error: (error as Error).message });
     }
@@ -1883,6 +2248,7 @@ revenueOperationsRouter.get(
     return res.json(
       await queryRevenueImports(cidOf(req), {
         ...parsed.data,
+        summaryOnly: parsed.data.summaryOnly !== false,
         from: optionalDate(parsed.data.from) ?? undefined,
         to: optionalDate(parsed.data.to) ?? undefined,
       }),
@@ -1891,10 +2257,20 @@ revenueOperationsRouter.get(
 );
 
 revenueOperationsRouter.get(
+  "/revenue/imports/:id/summary",
+  h(async (req, res) => {
+    const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
+    if (!params.success) return res.status(400).json({ error: "Invalid import" });
+    const summary = await getRevenueImportSummary(cidOf(req), params.data.id);
+    return summary ? res.json(summary) : res.status(404).json({ error: "Import not found" });
+  }),
+);
+
+revenueOperationsRouter.get(
   "/revenue/imports/:id",
   h(async (req, res) => {
-    const batch = await getRevenueImport(cidOf(req), req.params.id);
-    return batch ? res.json(batch) : res.status(404).json({ error: "Import not found" });
+    const summary = await getRevenueImportSummary(cidOf(req), req.params.id);
+    return summary ? res.json(summary) : res.status(404).json({ error: "Import not found" });
   }),
 );
 
@@ -1908,6 +2284,10 @@ revenueOperationsRouter.get(
         status: z.enum(["created", "matched", "skipped", "failed", "rolled_back"]).optional(),
         action: z.string().max(80).optional(),
         q: z.string().max(200).optional(),
+        sourceId: z.string().max(300).optional(),
+        nativeId: z.string().uuid().optional(),
+        error: z.string().max(500).optional(),
+        hasError: boolQuery,
         limit: z.coerce.number().int().min(1).max(500).optional(),
         offset: z.coerce.number().int().min(0).optional(),
       })
@@ -1931,6 +2311,10 @@ revenueOperationsRouter.get(
         status: z.enum(["created", "matched", "skipped", "failed", "rolled_back"]).optional(),
         action: z.string().max(80).optional(),
         q: z.string().max(200).optional(),
+        sourceId: z.string().max(300).optional(),
+        nativeId: z.string().uuid().optional(),
+        error: z.string().max(500).optional(),
+        hasError: boolQuery,
         limit: z.coerce.number().int().min(1).max(500).optional(),
         offset: z.coerce.number().int().min(0).optional(),
       })
@@ -2055,6 +2439,10 @@ revenueOperationsRouter.post(
         blocked: result.blocked,
       },
     );
-    return res.json(result);
+    return res.json({
+      ...(await getRevenueImportSummary(cidOf(req), result.batch.id)),
+      deleted: result.deleted,
+      blocked: result.blocked,
+    });
   }),
 );

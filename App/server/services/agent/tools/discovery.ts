@@ -157,8 +157,9 @@ function renderTool(tool: AgentTool, isGrantDead: boolean): string {
  * Sent on **every** `find_tools` result, including a miss. A lexical ranker on a
  * hostile corpus will sometimes return nothing useful; the difference between
  * that being a one-round-trip annoyance and a silent capability loss is whether
- * the model can see the shape of what it did not find. Names only — this has to
- * stay small enough to leave room for six schemas inside one tool result.
+ * the model can see the shape of what it did not find. Repeated leading verbs
+ * use brace notation (`list_{contacts,deals}` means `list_contacts` and
+ * `list_deals`) so every exact name stays reconstructable within the budget.
  */
 function buildDomainFooter(searchable: AgentTool[]): string {
   const present = new Set(searchable.map((t) => t.name));
@@ -167,7 +168,7 @@ function buildDomainFooter(searchable: AgentTool[]): string {
   for (const [key, domain] of Object.entries(TOOL_DOMAINS)) {
     const names = domain.tools.filter((n) => present.has(n));
     if (names.length === 0) continue;
-    lines.push(`${key}: ${names.join(",")}`);
+    lines.push(`${key}: ${compactToolNames(names)}`);
   }
 
   // Integration and company-MCP tools have no manifest domain. They are the ones
@@ -178,6 +179,27 @@ function buildDomainFooter(searchable: AgentTool[]): string {
   }
 
   return lines.join("\n");
+}
+
+function compactToolNames(names: string[]): string {
+  const byPrefix = new Map<string, string[]>();
+  for (const name of names) {
+    const separator = name.indexOf("_");
+    const prefix = separator === -1 ? name : name.slice(0, separator);
+    const suffix = separator === -1 ? "" : name.slice(separator + 1);
+    const group = byPrefix.get(prefix) ?? [];
+    group.push(suffix);
+    byPrefix.set(prefix, group);
+  }
+  return [...byPrefix.entries()]
+    .map(([prefix, suffixes]) =>
+      suffixes.length === 1
+        ? suffixes[0]
+          ? `${prefix}_${suffixes[0]}`
+          : prefix
+        : `${prefix}_{${compactToolNames(suffixes)}}`,
+    )
+    .join(",");
 }
 
 // ---------- ranking ----------

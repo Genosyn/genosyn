@@ -30,16 +30,18 @@ export function RevenueDataQuality() {
 
       <H2 id="merge">Merge and archive core records</H2>
       <P>
-        Run <Strong>Scan duplicates</Strong> to find candidates across Accounts, Contacts, Deals,
-        and Partnerships. Detection uses exact or aliased domains, normalized company names, Contact
-        email aliases, website redirects, shared Stripe customer IDs, and similar Deal titles within
-        one Account. It only proposes candidates; it never merges automatically.
+        Genosyn refreshes duplicate candidates on a leased background schedule; run{" "}
+        <Strong>Scan duplicates</Strong> when you want an immediate pass across Accounts, Contacts,
+        Deals, and Partnerships. Detection uses exact or aliased domains, normalized company names,
+        Contact email aliases, website redirects, shared Stripe customer IDs, and similar Deal
+        titles within one Account. It only proposes candidates; it never merges automatically.
       </P>
       <OL>
         <LI>Choose which candidate is the surviving record.</LI>
         <LI>
           Review every conflicting field and the counts of relationships and custom values that will
-          move. The survivor&apos;s populated fields win.
+          move. Choose the source or survivor value for each conflict; coupled ownership and Deal
+          status fields are validated together before the merge can commit.
         </LI>
         <LI>Type the duplicate record&apos;s displayed label and confirm.</LI>
       </OL>
@@ -57,9 +59,9 @@ export function RevenueDataQuality() {
 
       <H2 id="bulk">Bulk record and follow-up operations</H2>
       <P>
-        Target newline-separated selected IDs or a JSON filter, choose an action, and press{" "}
-        <Strong>Preview</Strong>. The dry run resolves the same population as the write, validates
-        every row, and reports valid, skipped, and failed records without changing data.
+        Select records or use a saved filter, choose an action, and press <Strong>Preview</Strong>.
+        The dry run resolves the same population as the write, validates every row, and reports
+        valid, skipped, and failed records without changing data.
       </P>
       <KeyList
         rows={[
@@ -82,6 +84,12 @@ export function RevenueDataQuality() {
         unassigned, priority, linked resource type and ID, status, due-date range, age, Deal Stage
         or status, and whether the linked Deal is closed. This makes rules such as &quot;cancel
         stale follow-ups on closed-lost Deals&quot; previewable before they are applied.
+      </P>
+      <P>
+        Large writes run as durable background jobs. The preview freezes the selected IDs, the job
+        reports progress and row-level reconciliation, and queued or interrupted work resumes after
+        restart. Choose <Code>atomic</Code> when every row must validate or <Code>partial</Code>{" "}
+        when valid rows may proceed and failures should be exported for repair.
       </P>
 
       <H2 id="deal-history">Historical Deal truth and funnel reporting</H2>
@@ -150,7 +158,10 @@ export function RevenueDataQuality() {
       <P>
         Every derived field keeps its source email, document, Integration, import, or manual
         evidence; extracted value and date; confidence; last-verified date; and human-confirmed
-        status. Members accept or reject proposals in the evidence queue.
+        status. Members accept, reject, or explicitly supersede a previously verified value in the
+        evidence queue. Typed custom fields show the current source and verification state beside
+        the value; older values are backfilled honestly as unverified rather than assigned an
+        invented source.
       </P>
 
       <H2 id="document-capture">Revenue document capture</H2>
@@ -169,16 +180,19 @@ export function RevenueDataQuality() {
 
       <H2 id="exports">Exports and import reconciliation</H2>
       <P>
-        Snapshot exports cover Accounts, Contacts, Deals, Partnerships, buying committees,
-        follow-ups, Documents, Deal Stage definitions, custom fields, and import reconciliation. CSV
-        and JSON endpoints are paginated and return the next offset, so operators can continue until
-        the snapshot is complete instead of receiving a truncated first page.
+        Snapshot exports cover Accounts, Contacts, Deals, Partnerships, Partnership contacts, buying
+        committees, follow-ups, Documents, Deal Stage definitions, custom-field definitions and
+        values, and import reconciliation. CSV and JSON endpoints are paginated and return the next
+        offset, so operators can continue until the snapshot is complete instead of receiving a
+        truncated first page.
       </P>
       <P>
         Import history now has a lightweight summary listing, lookup by Import ID, filters for
         source, date, status, and resource, and separately paginated row decisions. Download any
-        reconciliation as CSV or JSON. Opening <Strong>Report</Strong> fetches only the first page
-        of decisions and pages through the rest without loading the legacy payload.
+        reconciliation as CSV or JSON, including a focused failed, skipped, or duplicate export. Row
+        filters include action, resource, error text, source ID, and native ID. Opening{" "}
+        <Strong>Report</Strong> fetches only the first page of decisions and pages through the rest
+        without loading the legacy payload.
       </P>
 
       <H3 id="related">Related workflows</H3>

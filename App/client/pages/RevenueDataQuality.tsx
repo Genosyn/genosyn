@@ -40,10 +40,17 @@ type Evidence = {
   resourceId: string;
   fieldKey: string;
   sourceType: string;
+  sourceId: string;
   sourceLabel: string;
   extractedValueJson: string;
   confidence: number;
   status: "proposed" | "accepted" | "rejected" | "superseded";
+  verificationState: "unverified" | "verified" | "rejected" | "superseded";
+  extractionMethod: string;
+  observedAt: string | null;
+  lastVerifiedAt: string | null;
+  verifyingActorType: "member" | "ai_employee" | "system" | null;
+  verifyingActorId: string | null;
 };
 type DocumentCandidate = {
   id: string;
@@ -52,14 +59,17 @@ type DocumentCandidate = {
   proposedResourceType: ResourceType | null;
   proposedResourceId: string | null;
   confidence: number;
-  status: "pending" | "accepted" | "rejected" | "duplicate";
+  gmailMessageId: string;
+  gmailThreadId: string;
+  gmailAttachmentId: string;
+  status: "pending" | "processing" | "accepted" | "rejected" | "duplicate";
   revenueDocumentId: string | null;
 };
 type Operation = {
   id: string;
   kind: "merge" | "bulk" | "history_import";
   resourceType: ResourceType | "follow_up";
-  status: "completed" | "partial" | "failed" | "rolled_back";
+  status: "queued" | "running" | "completed" | "partial" | "failed" | "rolled_back";
   summaryJson: string;
   createdAt: string;
 };
@@ -72,7 +82,16 @@ type MergePreview = {
     label: string;
     sourceValue: unknown;
     targetValue: unknown;
-    resolution: string;
+    resolution: "source" | "target";
+  }>;
+  customFieldConflicts: Array<{
+    field: string;
+    fieldId: string;
+    fieldKey: string;
+    label: string;
+    sourceValue: unknown;
+    targetValue: unknown;
+    resolution: "source" | "target";
   }>;
   relationshipCounts: Record<string, number>;
   customValuesCopied: number;
@@ -93,6 +112,19 @@ type BulkResult = {
     status: string;
     error?: string;
   }>;
+};
+type BulkJobDetail = {
+  operation: Operation;
+  summary: {
+    progress?: {
+      total: number;
+      processed: number;
+      valid: number;
+      failedValidation: number;
+    };
+    result?: BulkResult;
+    error?: string;
+  };
 };
 type HistoryImportSummary = {
   dryRun: boolean;
@@ -121,11 +153,13 @@ const EXPORTS = [
   "contacts",
   "deals",
   "partnerships",
+  "partnership_contacts",
   "buying_committees",
   "follow_ups",
   "documents",
   "stage_definitions",
   "custom_fields",
+  "custom_values",
   "import_reconciliation",
 ] as const;
 
@@ -193,12 +227,17 @@ export default function RevenueDataQuality() {
   const [survivorId, setSurvivorId] = React.useState("");
   const [mergePreview, setMergePreview] = React.useState<MergePreview | null>(null);
   const [mergeConfirm, setMergeConfirm] = React.useState("");
+  const [mergeResolutions, setMergeResolutions] = React.useState<
+    Record<string, "source" | "target">
+  >({});
   const [bulkResource, setBulkResource] = React.useState<ResourceType | "follow_up">("account");
   const [bulkAction, setBulkAction] = React.useState("archive");
   const [bulkValue, setBulkValue] = React.useState("");
   const [bulkIds, setBulkIds] = React.useState("");
   const [bulkFilter, setBulkFilter] = React.useState("");
+  const [bulkMode, setBulkMode] = React.useState<"atomic" | "partial">("partial");
   const [bulkResult, setBulkResult] = React.useState<BulkResult | null>(null);
+  const [bulkJob, setBulkJob] = React.useState<BulkJobDetail | null>(null);
   const [historyJson, setHistoryJson] = React.useState("");
   const [historyPreview, setHistoryPreview] = React.useState<HistoryImportSummary | null>(null);
   const [historyPreviewPayload, setHistoryPreviewPayload] = React.useState("");
@@ -240,11 +279,20 @@ export default function RevenueDataQuality() {
     setSurvivorId(targetId);
     setMergePreview(null);
     setMergeConfirm("");
+    setMergeResolutions({});
     try {
       const result = await api.get<MergePreview>(
         `${base}/records/${candidate.resourceType}/${sourceId}/merge-preview?targetId=${targetId}`,
       );
       setMergePreview(result);
+      setMergeResolutions(
+        Object.fromEntries(
+          [...result.fieldConflicts, ...result.customFieldConflicts].map((conflict) => [
+            conflict.field,
+            conflict.resolution,
+          ]),
+        ),
+      );
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
@@ -286,6 +334,47 @@ export default function RevenueDataQuality() {
     }
   }
 
+  async function scanAllMailAttachments() {
+    let offset: number | null = 0;
+    let scannedMessages = 0;
+    let createdCandidates = 0;
+    while (offset !== null) {
+      const page: {
+        scannedMessages: number;
+        createdCandidates: number;
+        nextOffset: number | null;
+      } = await api.post(`${base}/document-capture/scan`, {
+        limit: 500,
+        offset,
+      });
+      scannedMessages += page.scannedMessages;
+      createdCandidates += page.createdCandidates;
+      offset = page.nextOffset;
+    }
+    return { scannedMessages, createdCandidates };
+  }
+
+  async function reviewEvidence(id: string, decision: "accept" | "reject") {
+    try {
+      return await api.post(`${base}/enrichment/evidence/${id}/review`, { decision });
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      if (
+        decision === "accept" &&
+        message.includes("verified value already exists") &&
+        window.confirm(
+          "A different verified value already exists. Replace it and retain the old value in provenance history?",
+        )
+      ) {
+        return api.post(`${base}/enrichment/evidence/${id}/review`, {
+          decision,
+          supersedeExisting: true,
+        });
+      }
+      throw cause;
+    }
+  }
+
   async function commitMerge() {
     if (!mergeCandidate || !mergePreview) return;
     try {
@@ -294,6 +383,7 @@ export default function RevenueDataQuality() {
         {
           targetId: survivorId,
           confirmSourceLabel: mergeConfirm,
+          resolutions: mergeResolutions,
         },
       );
       toast(`${mergePreview.source.label} was merged and archived.`, "success");
@@ -324,19 +414,43 @@ export default function RevenueDataQuality() {
 
   async function runBulk(dryRun: boolean) {
     setError(null);
+    setBulkJob(null);
     try {
-      const result = await api.post<BulkResult>(`${base}/bulk`, {
+      const body = {
         resourceType: bulkResource,
         target: bulkTarget(),
         action: actionBody(bulkResource, bulkAction, bulkValue),
         dryRun,
         idempotencyKey: dryRun ? undefined : crypto.randomUUID(),
-      });
-      setBulkResult(result);
-      if (!dryRun) {
-        toast(`Applied ${result.applied} changes; ${result.failed} failed.`, "success");
-        await reload();
+        mode: bulkMode,
+      };
+      if (dryRun) {
+        setBulkResult(await api.post<BulkResult>(`${base}/bulk`, body));
+        return;
       }
+      const queued = await api.post<{
+        job: Operation;
+        preview: BulkResult;
+      }>(`${base}/bulk/jobs`, body);
+      setBulkResult(queued.preview);
+      for (let attempt = 0; attempt < 1_200; attempt += 1) {
+        const detail = await api.get<BulkJobDetail>(`${base}/bulk/jobs/${queued.job.id}`);
+        setBulkJob(detail);
+        if (["completed", "partial", "failed", "rolled_back"].includes(detail.operation.status)) {
+          if (detail.summary.result) setBulkResult(detail.summary.result);
+          if (detail.operation.status === "failed") {
+            throw new Error(detail.summary.error || "The bulk job failed");
+          }
+          toast(
+            `Bulk job ${detail.operation.status}: ${detail.summary.result?.applied ?? 0} applied, ${detail.summary.result?.failed ?? 0} failed.`,
+            detail.operation.status === "completed" ? "success" : "info",
+          );
+          await reload();
+          return;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+      }
+      throw new Error("The bulk job is still running; its status remains in Audit and undo.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
@@ -448,7 +562,7 @@ export default function RevenueDataQuality() {
           onClick={() =>
             runMaintenance(
               "Scanning captured mail…",
-              () => api.post(`${base}/document-capture/scan`, { limit: 500, offset: 0 }),
+              scanAllMailAttachments,
               "Revenue document candidates refreshed.",
             )
           }
@@ -545,19 +659,33 @@ export default function RevenueDataQuality() {
                   </tr>
                 </thead>
                 <tbody>
-                  {mergePreview.fieldConflicts.map((conflict) => (
-                    <tr
-                      key={conflict.field}
-                      className="border-t border-slate-100 dark:border-slate-800"
-                    >
-                      <td className="px-3 py-2 font-medium">{conflict.label}</td>
-                      <td className="px-3 py-2">{displayValue(conflict.sourceValue)}</td>
-                      <td className="px-3 py-2">{displayValue(conflict.targetValue)}</td>
-                      <td className="px-3 py-2 text-slate-500">
-                        {conflict.resolution.replaceAll("_", " ")}
-                      </td>
-                    </tr>
-                  ))}
+                  {[...mergePreview.fieldConflicts, ...mergePreview.customFieldConflicts].map(
+                    (conflict) => (
+                      <tr
+                        key={conflict.field}
+                        className="border-t border-slate-100 dark:border-slate-800"
+                      >
+                        <td className="px-3 py-2 font-medium">{conflict.label}</td>
+                        <td className="px-3 py-2">{displayValue(conflict.sourceValue)}</td>
+                        <td className="px-3 py-2">{displayValue(conflict.targetValue)}</td>
+                        <td className="px-3 py-2">
+                          <Select
+                            aria-label={`Choose ${conflict.label} value`}
+                            value={mergeResolutions[conflict.field] ?? conflict.resolution}
+                            onChange={(event) =>
+                              setMergeResolutions((current) => ({
+                                ...current,
+                                [conflict.field]: event.target.value as "source" | "target",
+                              }))
+                            }
+                          >
+                            <option value="target">Keep survivor</option>
+                            <option value="source">Use duplicate</option>
+                          </Select>
+                        </td>
+                      </tr>
+                    ),
+                  )}
                 </tbody>
               </table>
             </div>
@@ -568,7 +696,7 @@ export default function RevenueDataQuality() {
                 .map(([key, count]) => `${count} ${key}`)
                 .join(", ") || "no linked records"}
               . Custom fields: {mergePreview.customValuesCopied} copied,{" "}
-              {mergePreview.customValueConflicts} kept on the tombstone as conflicts.
+              {mergePreview.customValueConflicts} need an explicit survivor or duplicate choice.
             </p>
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <Input
@@ -583,7 +711,14 @@ export default function RevenueDataQuality() {
               >
                 <GitMerge size={15} /> Merge and archive
               </Button>
-              <Button variant="ghost" onClick={() => setMergeCandidate(null)}>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setMergeCandidate(null);
+                  setMergePreview(null);
+                  setMergeResolutions({});
+                }}
+              >
                 Cancel
               </Button>
             </div>
@@ -604,12 +739,26 @@ export default function RevenueDataQuality() {
               rows={evidence.map((row) => ({
                 id: row.id,
                 title: `${row.resourceType} · ${row.fieldKey.replaceAll("_", " ")}`,
-                detail: `${displayValue(parsedJson(row.extractedValueJson))} · ${row.confidence}% · ${row.sourceType}: ${row.sourceLabel || row.resourceId}`,
+                detail: [
+                  displayValue(parsedJson(row.extractedValueJson)),
+                  `${row.confidence}% confidence`,
+                  `${row.sourceType}: ${row.sourceLabel || row.sourceId}`,
+                  row.extractionMethod || "extraction method unknown",
+                  row.observedAt
+                    ? `observed ${new Date(row.observedAt).toLocaleString()}`
+                    : "observation date unknown",
+                  row.lastVerifiedAt
+                    ? `last verified ${new Date(row.lastVerifiedAt).toLocaleString()}`
+                    : row.verificationState,
+                  row.verifyingActorType
+                    ? `verified by ${row.verifyingActorType.replaceAll("_", " ")}${row.verifyingActorId ? ` ${row.verifyingActorId}` : ""}`
+                    : "not yet verified",
+                ].join(" · "),
               }))}
               onDecision={(id, decision) =>
                 runMaintenance(
                   `${decision === "accept" ? "Accepting" : "Rejecting"} evidence…`,
-                  () => api.post(`${base}/enrichment/evidence/${id}/review`, { decision }),
+                  () => reviewEvidence(id, decision),
                   `Evidence ${decision === "accept" ? "accepted" : "rejected"}.`,
                 )
               }
@@ -642,6 +791,9 @@ export default function RevenueDataQuality() {
                         {row.proposedResourceType
                           ? `${row.proposedResourceType}:${row.proposedResourceId}`
                           : "no confident link"}
+                        {row.gmailMessageId
+                          ? ` · Gmail ${row.gmailMessageId}${row.gmailAttachmentId ? ` · attachment ${row.gmailAttachmentId}` : ""}`
+                          : ""}
                       </p>
                     </div>
                     <div className="grid gap-2 sm:grid-cols-[9rem_1fr_auto_auto]">
@@ -720,7 +872,7 @@ export default function RevenueDataQuality() {
         description="Target selected IDs or a JSON filter. Dry-run validation never writes; committed changes use an idempotency key and can be undone."
         icon={<Archive size={18} />}
       >
-        <div className="grid gap-3 lg:grid-cols-4">
+        <div className="grid gap-3 lg:grid-cols-5">
           <Select
             value={bulkResource}
             onChange={(event) => setBulkResource(event.target.value as ResourceType | "follow_up")}
@@ -758,6 +910,13 @@ export default function RevenueDataQuality() {
             onChange={(event) => setBulkValue(event.target.value)}
             placeholder="Action value (when required)"
           />
+          <Select
+            value={bulkMode}
+            onChange={(event) => setBulkMode(event.target.value as "atomic" | "partial")}
+          >
+            <option value="partial">Partial — apply valid rows</option>
+            <option value="atomic">Atomic — all or nothing</option>
+          </Select>
           <div className="flex gap-2">
             <Button variant="secondary" onClick={() => void runBulk(true)}>
               Preview
@@ -765,6 +924,14 @@ export default function RevenueDataQuality() {
             <Button onClick={() => void runBulk(false)}>Apply</Button>
           </div>
         </div>
+        {bulkJob?.summary.progress && (
+          <p className="mt-3 flex items-center gap-2 text-xs text-slate-500">
+            {["queued", "running"].includes(bulkJob.operation.status) && <Spinner size={13} />}
+            Job {bulkJob.operation.status}: {bulkJob.summary.progress.processed}/
+            {bulkJob.summary.progress.total} processed · {bulkJob.summary.progress.valid} valid ·{" "}
+            {bulkJob.summary.progress.failedValidation} failed validation
+          </p>
+        )}
         <div className="mt-3 grid gap-3 lg:grid-cols-2">
           <textarea
             value={bulkIds}
