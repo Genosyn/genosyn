@@ -8,7 +8,7 @@ import {
 } from "typeorm";
 import { dateTimeColumnType } from "./columnTypes.js";
 
-export type RevenueOperationKind = "merge" | "bulk";
+export type RevenueOperationKind = "merge" | "bulk" | "history_import";
 export type RevenueOperationStatus = "completed" | "partial" | "failed" | "rolled_back";
 export type RevenueOperationResourceType =
   | "account"
@@ -20,9 +20,9 @@ export type RevenueOperationResourceType =
 /**
  * Durable header for a reversible Revenue mutation.
  *
- * Dry runs never write one of these. A committed merge or bulk operation gets
- * one header plus ordered RevenueOperationRow records containing the exact
- * before/after state needed for guarded rollback.
+ * Dry runs never write one of these. A committed merge, bulk operation, or
+ * historical Deal import gets one header plus ordered RevenueOperationRow
+ * records containing the exact before/after state needed for guarded rollback.
  */
 @Entity("revenue_operations")
 @Index(["companyId", "createdAt"])
@@ -45,7 +45,7 @@ export class RevenueOperation {
   @Column({ type: "varchar" })
   status!: RevenueOperationStatus;
 
-  /** Stable caller key for a committed bulk operation. Null for merges. */
+  /** Stable caller key for a committed bulk operation or import. Null for merges. */
   @Column({ type: "varchar", nullable: true })
   idempotencyKey!: string | null;
 

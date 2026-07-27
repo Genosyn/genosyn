@@ -15,9 +15,15 @@ import { RevenueImportRow } from "../../db/entities/RevenueImportRow.js";
 import { RevenueRecordAlias } from "../../db/entities/RevenueRecordAlias.js";
 import { RevenueDocumentCandidate } from "../../db/entities/RevenueDocumentCandidate.js";
 import { AppDataSource } from "../../db/datasource.js";
-import { closeTestDb, initTestDb, insert, resetTestDb, testCompanyId } from "../../test/dbHarness.js";
+import {
+  closeTestDb,
+  initTestDb,
+  insert,
+  resetTestDb,
+  testCompanyId,
+} from "../../test/dbHarness.js";
 import { runRevenueBulkOperation } from "./bulk.js";
-import { importHistoricalDealEvents } from "./dealHistory.js";
+import { historicalFunnelMetrics, importHistoricalDealEvents } from "./dealHistory.js";
 import {
   createCommercialValueProposal,
   listRevenueEvidence,
@@ -27,10 +33,7 @@ import {
 import { exportRevenueSnapshotPage } from "./exports.js";
 import { mergeRevenueRecords, previewRevenueMerge } from "./merge.js";
 import { findMergedRecordRedirect, rollbackRevenueOperation } from "./operations.js";
-import {
-  listRevenueDuplicateCandidates,
-  scanRevenueDuplicates,
-} from "./duplicates.js";
+import { listRevenueDuplicateCandidates, scanRevenueDuplicates } from "./duplicates.js";
 import { createRevenueDocumentCandidatesForMessage } from "./documentCapture.js";
 
 before(initTestDb);
@@ -170,8 +173,12 @@ describe("generic Revenue merge and guarded undo", () => {
     const aliases = await AppDataSource.getRepository(RevenueRecordAlias).find({
       where: { companyId, resourceType: "deal", recordId: target.id },
     });
-    assert.ok(aliases.some((alias) => alias.aliasType === "merged_record_id" && alias.value === source.id));
-    assert.ok(aliases.some((alias) => alias.aliasType === "source_id" && alias.value === "legacy-deal-17"));
+    assert.ok(
+      aliases.some((alias) => alias.aliasType === "merged_record_id" && alias.value === source.id),
+    );
+    assert.ok(
+      aliases.some((alias) => alias.aliasType === "source_id" && alias.value === "legacy-deal-17"),
+    );
     assert.deepEqual(await findMergedRecordRedirect(companyId, "deal", source.id), {
       operationId: merged.operationId,
       targetId: target.id,
@@ -207,8 +214,7 @@ describe("bulk Revenue operations", () => {
     assert.equal(preview.valid, 2);
     assert.equal(preview.failed, 1);
     assert.equal(
-      (await AppDataSource.getRepository(Contact).findOneByOrFail({ id: first.id }))
-        .lifecycleStage,
+      (await AppDataSource.getRepository(Contact).findOneByOrFail({ id: first.id })).lifecycleStage,
       "lead",
     );
 
@@ -224,8 +230,7 @@ describe("bulk Revenue operations", () => {
     assert.equal(committed.failed, 1);
     assert.ok(committed.operationId);
     assert.equal(
-      (await AppDataSource.getRepository(Contact).findOneByOrFail({ id: first.id }))
-        .lifecycleStage,
+      (await AppDataSource.getRepository(Contact).findOneByOrFail({ id: first.id })).lifecycleStage,
       "qualified",
     );
     const replay = await runRevenueBulkOperation(companyId, committedRequest);
@@ -234,15 +239,14 @@ describe("bulk Revenue operations", () => {
 
     await rollbackRevenueOperation(companyId, committed.operationId!);
     assert.equal(
-      (await AppDataSource.getRepository(Contact).findOneByOrFail({ id: first.id }))
-        .lifecycleStage,
+      (await AppDataSource.getRepository(Contact).findOneByOrFail({ id: first.id })).lifecycleStage,
       "lead",
     );
   });
 });
 
 describe("historical Deal import", () => {
-  test("keeps original timestamps and is idempotent", async () => {
+  test("previews, keeps original timestamps, replays idempotently, and rolls back", async () => {
     const companyId = testCompanyId();
     await account(companyId, "History Account");
     const newStage = await insert(DealStage, {
@@ -277,7 +281,9 @@ describe("historical Deal import", () => {
       {
         sourceId: "legacy-win-1",
         dealId: deal.id,
+        historyCompleteness: "complete" as const,
         originalCreatedAt,
+        initialStageId: newStage.id,
         events: [
           {
             sourceId: "amount-1",
@@ -297,18 +303,167 @@ describe("historical Deal import", () => {
         ],
       },
     ];
-    const first = await importHistoricalDealEvents(companyId, "cutover-1", input);
+    const preview = await importHistoricalDealEvents(
+      companyId,
+      "cutover-1",
+      input,
+      { userId: "member-1" },
+      { sourceSystem: "legacy-crm", dryRun: true },
+    );
+    assert.equal(preview.imported, 0);
+    assert.equal(preview.accepted, 3);
+    assert.equal(
+      await AppDataSource.getRepository(DealHistoryEvent).count({ where: { dealId: deal.id } }),
+      0,
+    );
+
+    const first = await importHistoricalDealEvents(
+      companyId,
+      "cutover-1",
+      input,
+      { userId: "member-1" },
+      { sourceSystem: "legacy-crm" },
+    );
     assert.equal(first.imported, 3);
+    assert.ok(first.operationId);
     const restored = await AppDataSource.getRepository(Deal).findOneByOrFail({ id: deal.id });
     assert.equal(restored.createdAt.toISOString(), originalCreatedAt.toISOString());
     assert.equal(restored.closedAt?.toISOString(), originalWonAt.toISOString());
 
-    const replay = await importHistoricalDealEvents(companyId, "cutover-1", input);
+    const replay = await importHistoricalDealEvents(
+      companyId,
+      "cutover-1",
+      input,
+      {},
+      { sourceSystem: "legacy-crm" },
+    );
     assert.equal(replay.imported, 0);
     assert.equal(replay.skipped, 3);
+    assert.equal(replay.duplicates, 3);
+    assert.equal(replay.operationId, first.operationId);
     assert.equal(
       await AppDataSource.getRepository(DealHistoryEvent).count({ where: { dealId: deal.id } }),
       3,
+    );
+
+    await rollbackRevenueOperation(companyId, first.operationId!);
+    assert.equal(
+      await AppDataSource.getRepository(DealHistoryEvent).count({ where: { dealId: deal.id } }),
+      0,
+    );
+    const rolledBack = await AppDataSource.getRepository(Deal).findOneByOrFail({ id: deal.id });
+    assert.equal(rolledBack.createdAt.toISOString(), "2026-06-01T00:00:00.000Z");
+    assert.equal(rolledBack.closedAt?.toISOString(), "2026-07-01T00:00:00.000Z");
+  });
+
+  test("reorders source events, rejects overlap with native history, and labels snapshots", async () => {
+    const companyId = testCompanyId();
+    const newStage = await insert(DealStage, {
+      companyId,
+      name: "New",
+      slug: "new",
+      sortOrder: 0,
+      probability: 10,
+      kind: "open",
+    });
+    const qualifiedStage = await insert(DealStage, {
+      companyId,
+      name: "Qualified",
+      slug: "qualified",
+      sortOrder: 1,
+      probability: 40,
+      kind: "open",
+    });
+    const deal = await insert(Deal, {
+      companyId,
+      title: "Native continuation",
+      stageId: qualifiedStage.id,
+      amountCents: 10_000,
+      status: "open",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      archivedAt: null,
+    });
+    await insert(DealHistoryEvent, {
+      companyId,
+      dealId: deal.id,
+      kind: "stage_changed",
+      occurredAt: new Date("2025-01-01T00:00:00.000Z"),
+      fromStageId: newStage.id,
+      toStageId: qualifiedStage.id,
+      sourceKind: "live",
+      sourceKey: "live:native-stage",
+    });
+
+    const preview = await importHistoricalDealEvents(
+      companyId,
+      "cutover-overlap",
+      [
+        {
+          sourceId: "legacy-native-1",
+          dealId: deal.id,
+          historyCompleteness: "partial",
+          events: [
+            {
+              sourceId: "overlap",
+              kind: "amount_changed",
+              occurredAt: new Date("2025-02-01T00:00:00.000Z"),
+              fromAmountCents: 5_000,
+              toAmountCents: 10_000,
+              currency: "USD",
+            },
+            {
+              sourceId: "old-stage",
+              kind: "stage_changed",
+              occurredAt: new Date("2024-02-01T00:00:00.000Z"),
+              fromStageId: newStage.id,
+              toStageId: qualifiedStage.id,
+            },
+          ],
+        },
+      ],
+      {},
+      { sourceSystem: "legacy-crm", dryRun: true },
+    );
+    assert.equal(preview.accepted, 1);
+    assert.equal(preview.conflicting, 1);
+    assert.equal(preview.reordered, 2);
+
+    const snapshotDeal = await insert(Deal, {
+      companyId,
+      title: "Snapshot only",
+      stageId: newStage.id,
+      amountCents: 0,
+      status: "open",
+      createdAt: new Date("2024-01-01T00:00:00.000Z"),
+      archivedAt: null,
+    });
+    const snapshot = await importHistoricalDealEvents(
+      companyId,
+      "cutover-snapshot",
+      [
+        {
+          sourceId: "legacy-snapshot-1",
+          dealId: snapshotDeal.id,
+          historyCompleteness: "snapshot_only",
+          snapshotAt: new Date("2026-01-01T00:00:00.000Z"),
+          events: [],
+        },
+      ],
+      {},
+      { sourceSystem: "legacy-crm" },
+    );
+    assert.equal(snapshot.imported, 1);
+    const metrics = await historicalFunnelMetrics(
+      companyId,
+      new Date("2023-01-01T00:00:00.000Z"),
+      new Date("2027-01-01T00:00:00.000Z"),
+      [newStage, qualifiedStage],
+    );
+    assert.equal(metrics.historyCoverage.snapshotOnlyDeals, 1);
+    assert.equal(metrics.historyCoverage.partialDeals, 1);
+    assert.equal(
+      metrics.stagePerformance.every((row) => row.enteredDuringPeriod === 0),
+      false,
     );
   });
 });
@@ -455,14 +610,14 @@ describe("ongoing duplicate candidates and document capture", () => {
         },
       ]),
     });
-    assert.deepEqual(
-      await createRevenueDocumentCandidatesForMessage(companyId, message),
-      { created: 1, skipped: 0 },
-    );
-    assert.deepEqual(
-      await createRevenueDocumentCandidatesForMessage(companyId, message),
-      { created: 0, skipped: 0 },
-    );
+    assert.deepEqual(await createRevenueDocumentCandidatesForMessage(companyId, message), {
+      created: 1,
+      skipped: 0,
+    });
+    assert.deepEqual(await createRevenueDocumentCandidatesForMessage(companyId, message), {
+      created: 0,
+      skipped: 0,
+    });
     const documentCandidate = await AppDataSource.getRepository(
       RevenueDocumentCandidate,
     ).findOneByOrFail({ companyId, mailMessageId: message.id });

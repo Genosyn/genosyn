@@ -8,10 +8,7 @@ import {
   type ActivityPriority,
   type ActivityTaskStatus,
 } from "../db/entities/Activity.js";
-import {
-  CONTACT_LIFECYCLE_STAGES,
-  type ContactLifecycleStage,
-} from "../db/entities/Contact.js";
+import { CONTACT_LIFECYCLE_STAGES, type ContactLifecycleStage } from "../db/entities/Contact.js";
 import { Company } from "../db/entities/Company.js";
 import {
   REVENUE_CLASSIFICATION_KINDS,
@@ -439,10 +436,8 @@ revenueOperationsRouter.get(
   h(async (req, res) => {
     const parsed = z
       .object({
-        kind: z.enum(["merge", "bulk"]).optional(),
-        resourceType: z
-          .enum(["account", "contact", "deal", "partnership", "follow_up"])
-          .optional(),
+        kind: z.enum(["merge", "bulk", "history_import"]).optional(),
+        resourceType: z.enum(["account", "contact", "deal", "partnership", "follow_up"]).optional(),
         status: z.enum(["completed", "partial", "failed", "rolled_back"]).optional(),
         limit: z.coerce.number().int().min(1).max(200).optional(),
         offset: z.coerce.number().int().min(0).optional(),
@@ -534,8 +529,7 @@ const bulkTargetSchema = z
       .optional(),
   })
   .refine(
-    (target) =>
-      Boolean(target.ids?.length || target.followUpIds?.length || target.filter),
+    (target) => Boolean(target.ids?.length || target.followUpIds?.length || target.filter),
     "Choose selected IDs or a filter",
   );
 
@@ -640,78 +634,137 @@ revenueOperationsRouter.post(
 );
 
 const historyEventSchema = z.object({
-  sourceId: z.string().min(1).max(300),
-  kind: z.enum(["stage_changed", "amount_changed", "owner_changed", "won", "lost"]),
-  occurredAt: z.string().datetime(),
+  sourceEventId: z.string().min(1).max(300),
+  eventType: z.enum([
+    "stage_changed",
+    "amount_changed",
+    "owner_changed",
+    "expected_close_changed",
+    "won",
+    "lost",
+  ]),
+  effectiveAt: z.string().datetime(),
   fromStageId: z.string().uuid().nullable().optional(),
   toStageId: z.string().uuid().nullable().optional(),
   fromAmountCents: z.number().int().min(0).max(2_000_000_000).nullable().optional(),
   toAmountCents: z.number().int().min(0).max(2_000_000_000).nullable().optional(),
+  fromCurrency: z.string().length(3).nullable().optional(),
+  toCurrency: z.string().length(3).nullable().optional(),
   currency: z.string().length(3).optional(),
   fromOwnerId: z.string().uuid().nullable().optional(),
   fromOwnerEmployeeId: z.string().uuid().nullable().optional(),
   toOwnerId: z.string().uuid().nullable().optional(),
   toOwnerEmployeeId: z.string().uuid().nullable().optional(),
+  fromExpectedCloseDate: z.string().datetime().nullable().optional(),
+  toExpectedCloseDate: z.string().datetime().nullable().optional(),
   lostReason: z.string().max(2_000).optional(),
+  sourceActor: z.string().max(300).optional(),
   metadata: z.unknown().optional(),
 });
 
+const historyImportSchema = z
+  .object({
+    batchKey: z.string().min(8).max(200),
+    sourceSystem: z.string().min(1).max(200),
+    dryRun: z.boolean().default(true),
+    confirm: z.literal("IMPORT").optional(),
+    rows: z
+      .array(
+        z.object({
+          sourceRecordId: z.string().min(1).max(300),
+          dealId: z.string().uuid(),
+          historyCompleteness: z.enum(["complete", "partial", "snapshot_only"]),
+          originalCreatedAt: z.string().datetime().optional(),
+          initialStageId: z.string().uuid().nullable().optional(),
+          snapshotAt: z.string().datetime().optional(),
+          events: z.array(historyEventSchema).max(2_000),
+        }),
+      )
+      .min(1)
+      .max(200),
+  })
+  .superRefine((value, context) => {
+    if (!value.dryRun && value.confirm !== "IMPORT") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["confirm"],
+        message: "Committed historical imports require confirm: IMPORT",
+      });
+    }
+  });
+
 revenueOperationsRouter.post(
   "/revenue/deal-history/import",
-  validateBody(
-    z.object({
-      batchKey: z.string().min(8).max(200),
-      rows: z
-        .array(
-          z.object({
-            sourceId: z.string().min(1).max(300),
-            dealId: z.string().uuid(),
-            originalCreatedAt: z.string().datetime().optional(),
-            events: z.array(historyEventSchema).max(2_000),
-          }),
-        )
-        .min(1)
-        .max(200),
-    }),
-  ),
+  validateBody(historyImportSchema),
   h(async (req, res) => {
-    const body = req.body as {
-      batchKey: string;
-      rows: Array<{
-        sourceId: string;
-        dealId: string;
-        originalCreatedAt?: string;
-        events: Array<z.infer<typeof historyEventSchema>>;
-      }>;
-    };
-    const result = await importHistoricalDealEvents(
-      cidOf(req),
-      body.batchKey,
-      body.rows.map((row) => ({
-        ...row,
-        originalCreatedAt: row.originalCreatedAt
-          ? new Date(row.originalCreatedAt)
-          : undefined,
-        events: row.events.map((event) => ({
-          ...event,
-          occurredAt: new Date(event.occurredAt),
+    const body = req.body as z.infer<typeof historyImportSchema>;
+    try {
+      const result = await importHistoricalDealEvents(
+        cidOf(req),
+        body.batchKey,
+        body.rows.map((row) => ({
+          sourceId: row.sourceRecordId,
+          dealId: row.dealId,
+          historyCompleteness: row.historyCompleteness,
+          originalCreatedAt: row.originalCreatedAt ? new Date(row.originalCreatedAt) : undefined,
+          initialStageId: row.initialStageId,
+          snapshotAt: row.snapshotAt ? new Date(row.snapshotAt) : undefined,
+          events: row.events.map((event) => ({
+            sourceId: event.sourceEventId,
+            kind: event.eventType,
+            occurredAt: new Date(event.effectiveAt),
+            fromStageId: event.fromStageId,
+            toStageId: event.toStageId,
+            fromAmountCents: event.fromAmountCents,
+            toAmountCents: event.toAmountCents,
+            fromCurrency: event.fromCurrency,
+            toCurrency: event.toCurrency,
+            currency: event.currency,
+            fromOwnerId: event.fromOwnerId,
+            fromOwnerEmployeeId: event.fromOwnerEmployeeId,
+            toOwnerId: event.toOwnerId,
+            toOwnerEmployeeId: event.toOwnerEmployeeId,
+            fromExpectedCloseDate:
+              event.fromExpectedCloseDate === null
+                ? null
+                : event.fromExpectedCloseDate
+                  ? new Date(event.fromExpectedCloseDate)
+                  : undefined,
+            toExpectedCloseDate:
+              event.toExpectedCloseDate === null
+                ? null
+                : event.toExpectedCloseDate
+                  ? new Date(event.toExpectedCloseDate)
+                  : undefined,
+            lostReason: event.lostReason,
+            sourceActor: event.sourceActor,
+            metadata: event.metadata,
+          })),
         })),
-      })),
-      actorOf(req),
-    );
-    await audit(
-      req,
-      "revenue.deal_history.import",
-      "deal_history_import",
-      null,
-      body.batchKey,
-      {
-        imported: result.imported,
-        skipped: result.skipped,
-        failed: result.failed,
-      },
-    );
-    return res.status(result.failed > 0 ? 207 : 200).json(result);
+        actorOf(req),
+        { sourceSystem: body.sourceSystem, dryRun: body.dryRun },
+      );
+      if (!body.dryRun && !result.replayed) {
+        await audit(
+          req,
+          "revenue.deal_history.import",
+          "revenue_operation",
+          result.operationId ?? null,
+          body.batchKey,
+          {
+            imported: result.imported,
+            rejected: result.rejected,
+            conflicting: result.conflicting,
+            duplicates: result.duplicates,
+          },
+        );
+      }
+      return res
+        .status(result.rejected > 0 || result.conflicting > 0 || result.failed > 0 ? 207 : 200)
+        .json(result);
+    } catch (error) {
+      return res.status(409).json({ error: (error as Error).message });
+    }
   }),
 );
 
@@ -740,7 +793,16 @@ revenueOperationsRouter.get(
         dealId: z.string().uuid().optional(),
         sourceKind: z.enum(["live", "import", "activity_backfill"]).optional(),
         kind: z
-          .enum(["created", "stage_changed", "amount_changed", "owner_changed", "won", "lost"])
+          .enum([
+            "created",
+            "snapshot",
+            "stage_changed",
+            "amount_changed",
+            "owner_changed",
+            "expected_close_changed",
+            "won",
+            "lost",
+          ])
           .optional(),
         from: z.string().datetime().optional(),
         to: z.string().datetime().optional(),
@@ -1926,11 +1988,7 @@ revenueOperationsRouter.get(
     if (!params.success || !query.success) {
       return res.status(400).json({ error: "Invalid Revenue export query" });
     }
-    const page = await exportRevenueSnapshotPage(
-      cidOf(req),
-      params.data.resource,
-      query.data,
-    );
+    const page = await exportRevenueSnapshotPage(cidOf(req), params.data.resource, query.data);
     if (query.data.format === "csv") {
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("X-Revenue-Export-Next-Offset", page.nextOffset?.toString() ?? "");

@@ -115,6 +115,7 @@ type RevenueOverview = {
       eligibleDeals: number;
       completeDeals: number;
       partialDeals: number;
+      snapshotOnlyDeals: number;
       withoutHistory: number;
       importedDeals: number;
     };
@@ -287,9 +288,7 @@ export default function RevenueIndex() {
 
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-            Insights
-          </h1>
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Insights</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             {overview
               ? `${formatDay(overview.period.from)} — ${formatDay(overview.period.to)} · reported in ${overview.currency}`
@@ -512,16 +511,12 @@ function MrrWaterfall({
   const y = (value: number) => PAD_TOP + ((bounds.max - value) / bounds.span) * PLOT_H;
   const zeroY = y(0);
 
-  const summary = bars
-    .map((bar) => `${bar.label} ${formatMoney(bar.delta, currency)}`)
-    .join(", ");
+  const summary = bars.map((bar) => `${bar.label} ${formatMoney(bar.delta, currency)}`).join(", ");
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
-        <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-          MRR movement
-        </h2>
+        <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">MRR movement</h2>
         <div className="text-xs tabular-nums text-slate-500 dark:text-slate-400">
           {formatMoney(movement.startingCents, currency)} →{" "}
           {formatMoney(movement.endingCents, currency)}
@@ -611,8 +606,8 @@ function MrrWaterfall({
       {coldStart && (
         <p className="border-t border-slate-100 px-4 py-3 text-xs leading-relaxed text-slate-500 dark:border-slate-800 dark:text-slate-400">
           This window is one month long, so it has no month to compare against — every paying
-          customer in it reads as new business rather than as retained. Pick a longer period to
-          see real movement.
+          customer in it reads as new business rather than as retained. Pick a longer period to see
+          real movement.
         </p>
       )}
     </section>
@@ -694,8 +689,8 @@ function StageFunnel({
                   />
                 </div>
                 <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                  {period?.enteredDuringPeriod ?? 0} entered ·{" "}
-                  {period?.progressedDuringPeriod ?? 0} progressed
+                  {period?.enteredDuringPeriod ?? 0} entered · {period?.progressedDuringPeriod ?? 0}{" "}
+                  progressed
                   {period?.medianTimeInStageDays !== null &&
                     period?.medianTimeInStageDays !== undefined &&
                     ` · median ${period.medianTimeInStageDays} days`}
@@ -712,18 +707,18 @@ function StageFunnel({
 
       {orphanedCount > 0 && (
         <p className="border-t border-slate-100 px-4 py-3 text-xs text-amber-700 dark:border-slate-800 dark:text-amber-400">
-          {orphanedCount} open {orphanedCount === 1 ? "deal sits" : "deals sit"} in a stage that
-          no longer exists, so {orphanedCount === 1 ? "it is" : "they are"} missing from the bars
+          {orphanedCount} open {orphanedCount === 1 ? "deal sits" : "deals sit"} in a stage that no
+          longer exists, so {orphanedCount === 1 ? "it is" : "they are"} missing from the bars
           above.
         </p>
       )}
-      {(historyCoverage.withoutHistory > 0 || historyCoverage.partialDeals > 0) && (
-        <p className="border-t border-slate-100 px-4 py-3 text-xs text-amber-700 dark:border-slate-800 dark:text-amber-400">
-          Transition metrics exclude {historyCoverage.withoutHistory} Deals without history and{" "}
-          {historyCoverage.partialDeals} with partial history. Live stage values still include
-          them.
-        </p>
-      )}
+      <p className="border-t border-slate-100 px-4 py-3 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
+        History coverage: {historyCoverage.completeDeals} complete · {historyCoverage.partialDeals}{" "}
+        partial · {historyCoverage.snapshotOnlyDeals} snapshot only ·{" "}
+        {historyCoverage.withoutHistory} missing. Cohort conversion uses complete histories; partial
+        histories contribute only metrics whose entry and exit boundaries are known. Live stage
+        values include every current Deal.
+      </p>
     </section>
   );
 }
@@ -736,13 +731,7 @@ const CAC_NOTES: Record<ChannelCac["note"], string> = {
   organic: "Organic",
 };
 
-function CacByChannel({
-  cac,
-  currency,
-}: {
-  cac: RevenueOverview["cac"];
-  currency: string;
-}) {
+function CacByChannel({ cac, currency }: { cac: RevenueOverview["cac"]; currency: string }) {
   return (
     <section className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
@@ -750,9 +739,8 @@ function CacByChannel({
           Acquisition cost by channel
         </h2>
         <div className="text-xs tabular-nums text-slate-500 dark:text-slate-400">
-          Blended{" "}
-          {cac.blendedCacCents === null ? "—" : formatMoney(cac.blendedCacCents, currency)} ·{" "}
-          {formatCount(cac.wonCount)} won
+          Blended {cac.blendedCacCents === null ? "—" : formatMoney(cac.blendedCacCents, currency)}{" "}
+          · {formatCount(cac.wonCount)} won
         </div>
       </div>
 
@@ -810,14 +798,12 @@ function CacByChannel({
           aria-hidden="true"
         />
         <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-          <span className="font-medium text-slate-700 dark:text-slate-200">
-            Spend is a proxy.
-          </span>{" "}
-          These figures come from authorized budget changes recorded against your ad accounts,
-          not from settled platform spend. A budget authorized on the 1st and paused on the 2nd
-          counts in full here; a campaign left running on an untouched budget counts as nothing.
-          Treat CAC on this page as a direction, and reconcile against each platform&apos;s
-          billing before quoting it.
+          <span className="font-medium text-slate-700 dark:text-slate-200">Spend is a proxy.</span>{" "}
+          These figures come from authorized budget changes recorded against your ad accounts, not
+          from settled platform spend. A budget authorized on the 1st and paused on the 2nd counts
+          in full here; a campaign left running on an untouched budget counts as nothing. Treat CAC
+          on this page as a direction, and reconcile against each platform&apos;s billing before
+          quoting it.
         </p>
       </div>
     </section>
@@ -838,10 +824,10 @@ function NothingYet({ slug }: { slug: string }) {
         Nothing to report yet
       </h3>
       <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-slate-500 dark:text-slate-400">
-        Insights reads your deals and your billing history and answers four questions:
-        what recurring revenue did, what is still in play, how much of it closes, and what
-        each channel costs to acquire. It fills in on its own once there is something to
-        measure — add the people you are selling to, then the deals you are working.
+        Insights reads your deals and your billing history and answers four questions: what
+        recurring revenue did, what is still in play, how much of it closes, and what each channel
+        costs to acquire. It fills in on its own once there is something to measure — add the people
+        you are selling to, then the deals you are working.
       </p>
       <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
         <Link to={`/c/${slug}/revenue/deals`}>

@@ -31,15 +31,15 @@ export function RevenueDataQuality() {
       <H2 id="merge">Merge and archive core records</H2>
       <P>
         Run <Strong>Scan duplicates</Strong> to find candidates across Accounts, Contacts, Deals,
-        and Partnerships. Detection uses exact or aliased domains, normalized company names,
-        Contact email aliases, website redirects, shared Stripe customer IDs, and similar Deal
-        titles within one Account. It only proposes candidates; it never merges automatically.
+        and Partnerships. Detection uses exact or aliased domains, normalized company names, Contact
+        email aliases, website redirects, shared Stripe customer IDs, and similar Deal titles within
+        one Account. It only proposes candidates; it never merges automatically.
       </P>
       <OL>
         <LI>Choose which candidate is the surviving record.</LI>
         <LI>
-          Review every conflicting field and the counts of relationships and custom values that
-          will move. The survivor&apos;s populated fields win.
+          Review every conflicting field and the counts of relationships and custom values that will
+          move. The survivor&apos;s populated fields win.
         </LI>
         <LI>Type the duplicate record&apos;s displayed label and confirm.</LI>
       </OL>
@@ -47,8 +47,8 @@ export function RevenueDataQuality() {
         Genosyn moves Contacts, Deals, Activities, follow-ups, Documents, buying committees,
         Partnership contacts, finance references, and compatible custom values in one transaction.
         It keeps names, domains, emails, websites, original IDs, and source IDs as searchable
-        aliases. The duplicate becomes an archived tombstone that redirects callers to the
-        survivor instead of disappearing.
+        aliases. The duplicate becomes an archived tombstone that redirects callers to the survivor
+        instead of disappearing.
       </P>
       <Callout kind="info" title="Every merge has guarded undo.">
         The audit history stores exact before-and-after rows. Undo first verifies that none of those
@@ -87,27 +87,58 @@ export function RevenueDataQuality() {
       <H2 id="deal-history">Historical Deal truth and funnel reporting</H2>
       <P>
         Use <Strong>Historical Deal import</Strong> for original creation timestamps, Deal Stage
-        transitions, won or lost timestamps, amount changes, lost reasons, and owner changes. Each
-        row carries a stable batch/source key, so replaying an import is idempotent. Events retain
-        their original timestamps rather than pretending the migration happened today.{" "}
+        transitions, won or lost timestamps, amount and currency changes, expected-close changes,
+        lost reasons, and owner changes. Name the source system, give every source record and event
+        a stable ID, set its effective timestamp, and label each Deal&apos;s history as{" "}
+        <Code>complete</Code>, <Code>partial</Code>, or <Code>snapshot_only</Code>. Source identity
+        stays stable across batches, so replaying an event is idempotent. Events retain their
+        original timestamps rather than pretending the migration happened today.{" "}
         <Strong>Backfill Deal activities</Strong> can materialize history from existing immutable
         Deal Activities.
       </P>
       <P>
+        Change events must carry a real boundary: amount events need a before or after amount or
+        currency, owner events need a before or after Member or AI Employee owner, and
+        expected-close events need a before or after date. Use an explicit <Code>null</Code> after
+        value when a source event cleared an owner or date.
+      </P>
+      <H3>Preview, commit, and undo</H3>
+      <OL>
+        <LI>
+          Paste the import contract and choose <Strong>Preview import</Strong>. Genosyn reports
+          every accepted, rejected, chronologically reordered, conflicting, and duplicate source
+          event without writing.
+        </LI>
+        <LI>
+          Resolve unknown Deal Stages, broken stage boundaries, missing lost reasons, or timestamps
+          that overlap native post-migration history.
+        </LI>
+        <LI>
+          Choose <Strong>Import accepted events</Strong>. The batch preserves source actor and
+          metadata provenance and appears under <Strong>Audit and undo</Strong>.
+        </LI>
+      </OL>
+      <Callout kind="warn" title="Native history always wins.">
+        An imported event cannot overlap the Deal&apos;s live ledger. Undo removes only events
+        created by that import and restores only original creation or close fields changed by the
+        batch; it refuses if later work changed those fields.
+      </Callout>
+      <P>
         <Code>Revenue → Insights</Code> uses these events for entered-stage and progressed-stage
         counts, original-cohort conversion, period won/lost counts, median time in stage, and median
-        sales cycle. Current-stage cards remain a point-in-time view, but they are never divided to
-        claim conversion. A coverage notice identifies complete, partial, imported, and
-        history-free Deals so pre-cutover gaps stay explicit.
+        sales cycle. Complete histories participate in cohort conversion. Partial histories
+        contribute only metrics whose entry and exit boundaries are known. Snapshot-only and
+        history-free Deals stay in current totals but never enter historical transition metrics.
+        Every funnel shows all four coverage counts so pre-cutover gaps stay explicit.
       </P>
 
       <H2 id="enrichment">Controlled enrichment and provenance</H2>
       <P>
-        Domain proposals come only from verified business email evidence or Account websites.
-        Public mailbox providers are rejected, known host aliases and subdomains are normalized,
-        website redirects are followed through the safe outbound-request guard, and name mismatch
-        lowers confidence. A collision creates a merge candidate. A proposal never replaces a
-        verified domain automatically.
+        Domain proposals come only from verified business email evidence or Account websites. Public
+        mailbox providers are rejected, known host aliases and subdomains are normalized, website
+        redirects are followed through the safe outbound-request guard, and name mismatch lowers
+        confidence. A collision creates a merge candidate. A proposal never replaces a verified
+        domain automatically.
       </P>
       <P>
         Commercial-value proposals can use paid or sent Finance invoices, Account ACV, verified
@@ -139,9 +170,9 @@ export function RevenueDataQuality() {
       <H2 id="exports">Exports and import reconciliation</H2>
       <P>
         Snapshot exports cover Accounts, Contacts, Deals, Partnerships, buying committees,
-        follow-ups, Documents, Deal Stage definitions, custom fields, and import reconciliation.
-        CSV and JSON endpoints are paginated and return the next offset, so operators can continue
-        until the snapshot is complete instead of receiving a truncated first page.
+        follow-ups, Documents, Deal Stage definitions, custom fields, and import reconciliation. CSV
+        and JSON endpoints are paginated and return the next offset, so operators can continue until
+        the snapshot is complete instead of receiving a truncated first page.
       </P>
       <P>
         Import history now has a lightweight summary listing, lookup by Import ID, filters for

@@ -14,10 +14,7 @@ import type {
   StageLike,
   WinRateResult,
 } from "./funnel.js";
-import {
-  computePipelineCoverage,
-  computeStageFunnel,
-} from "./funnel.js";
+import { computePipelineCoverage, computeStageFunnel } from "./funnel.js";
 import {
   historicalFunnelMetrics,
   type HistoricalStageConversion,
@@ -214,6 +211,7 @@ export type FunnelSection = {
     eligibleDeals: number;
     completeDeals: number;
     partialDeals: number;
+    snapshotOnlyDeals: number;
     withoutHistory: number;
     importedDeals: number;
   };
@@ -392,7 +390,8 @@ export async function getRevenueOverview(
 
   const firstMonth = mrr.months[0];
   const lastMonth = mrr.months[mrr.months.length - 1];
-  const cohort = firstMonth === undefined ? new Map() : (mrr.snapshots.get(firstMonth) ?? new Map());
+  const cohort =
+    firstMonth === undefined ? new Map() : (mrr.snapshots.get(firstMonth) ?? new Map());
   const latest = lastMonth === undefined ? new Map() : (mrr.snapshots.get(lastMonth) ?? new Map());
   const funnel = await buildFunnel(companyId, deals, stages, period);
 

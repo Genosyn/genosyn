@@ -57,7 +57,7 @@ type DocumentCandidate = {
 };
 type Operation = {
   id: string;
-  kind: "merge" | "bulk";
+  kind: "merge" | "bulk" | "history_import";
   resourceType: ResourceType | "follow_up";
   status: "completed" | "partial" | "failed" | "rolled_back";
   summaryJson: string;
@@ -92,6 +92,27 @@ type BulkResult = {
     label: string;
     status: string;
     error?: string;
+  }>;
+};
+type HistoryImportSummary = {
+  dryRun: boolean;
+  operationId?: string;
+  imported: number;
+  accepted: number;
+  rejected: number;
+  reordered: number;
+  conflicting: number;
+  duplicates: number;
+  rows: Array<{
+    sourceId: string;
+    status: string;
+    decisions: Array<{
+      sourceId: string;
+      kind: string;
+      status: string;
+      reordered: boolean;
+      reason?: string;
+    }>;
   }>;
 };
 
@@ -179,6 +200,8 @@ export default function RevenueDataQuality() {
   const [bulkFilter, setBulkFilter] = React.useState("");
   const [bulkResult, setBulkResult] = React.useState<BulkResult | null>(null);
   const [historyJson, setHistoryJson] = React.useState("");
+  const [historyPreview, setHistoryPreview] = React.useState<HistoryImportSummary | null>(null);
+  const [historyPreviewPayload, setHistoryPreviewPayload] = React.useState("");
   const [documentLinks, setDocumentLinks] = React.useState<
     Record<string, { resourceType: ResourceType; resourceId: string }>
   >({});
@@ -188,9 +211,7 @@ export default function RevenueDataQuality() {
     const [duplicatePage, evidencePage, documentPage, operationPage] = await Promise.all([
       api.get<{ rows: DuplicateCandidate[] }>(`${base}/duplicates?status=open`),
       api.get<{ rows: Evidence[] }>(`${base}/enrichment/evidence?status=proposed`),
-      api.get<{ rows: DocumentCandidate[] }>(
-        `${base}/document-capture/candidates?status=pending`,
-      ),
+      api.get<{ rows: DocumentCandidate[] }>(`${base}/document-capture/candidates?status=pending`),
       api.get<{ rows: Operation[] }>(`${base}/operations?limit=25`),
     ]);
     setDuplicates(duplicatePage.rows);
@@ -205,11 +226,7 @@ export default function RevenueDataQuality() {
     );
   }, [reload]);
 
-  function runMaintenance(
-    label: string,
-    action: () => Promise<unknown>,
-    success: string,
-  ) {
+  function runMaintenance(label: string, action: () => Promise<unknown>, success: string) {
     background(action, {
       loading: label,
       success,
@@ -243,9 +260,7 @@ export default function RevenueDataQuality() {
         const snapshotPage: {
           rows: Array<Record<string, unknown>>;
           nextOffset: number | null;
-        } = await api.get(
-          `${base}/exports/${resource}?format=json&limit=500&offset=${offset}`,
-        );
+        } = await api.get(`${base}/exports/${resource}?format=json&limit=500&offset=${offset}`);
         rows.push(...snapshotPage.rows);
         offset = snapshotPage.nextOffset;
       }
@@ -327,14 +342,25 @@ export default function RevenueDataQuality() {
     }
   }
 
-  async function importHistory() {
+  async function importHistory(dryRun: boolean) {
     try {
       const payload = parsedJson(historyJson) as Record<string, unknown>;
-      const result = await api.post<{ imported: number; failed: number }>(
-        `${base}/deal-history/import`,
-        payload,
-      );
-      toast(`Imported ${result.imported} historical Deal events.`, "success");
+      const result = await api.post<HistoryImportSummary>(`${base}/deal-history/import`, {
+        ...payload,
+        dryRun,
+        confirm: dryRun ? undefined : "IMPORT",
+      });
+      setHistoryPreview(result);
+      if (dryRun) {
+        setHistoryPreviewPayload(historyJson);
+        toast(
+          `Previewed ${result.accepted} accepted and ${result.rejected + result.conflicting} rejected or conflicting events.`,
+          "success",
+        );
+      } else {
+        toast(`Imported ${result.imported} historical Deal events.`, "success");
+        await reload();
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
@@ -356,8 +382,8 @@ export default function RevenueDataQuality() {
           <ShieldCheck size={24} /> Revenue data quality
         </h1>
         <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
-          Preview and reconcile duplicates, enrichment evidence, historical truth, and bulk
-          cleanup. No proposal changes a verified record until a Member accepts it.
+          Preview and reconcile duplicates, enrichment evidence, historical truth, and bulk cleanup.
+          No proposal changes a verified record until a Member accepts it.
         </p>
       </div>
       {error && <FormError message={error} />}
@@ -520,7 +546,10 @@ export default function RevenueDataQuality() {
                 </thead>
                 <tbody>
                   {mergePreview.fieldConflicts.map((conflict) => (
-                    <tr key={conflict.field} className="border-t border-slate-100 dark:border-slate-800">
+                    <tr
+                      key={conflict.field}
+                      className="border-t border-slate-100 dark:border-slate-800"
+                    >
                       <td className="px-3 py-2 font-medium">{conflict.label}</td>
                       <td className="px-3 py-2">{displayValue(conflict.sourceValue)}</td>
                       <td className="px-3 py-2">{displayValue(conflict.targetValue)}</td>
@@ -781,13 +810,55 @@ export default function RevenueDataQuality() {
         >
           <textarea
             value={historyJson}
-            onChange={(event) => setHistoryJson(event.target.value)}
-            placeholder='{"batchKey":"legacy-2026-07","rows":[{"sourceId":"deal-1","dealId":"…","originalCreatedAt":"2024-01-01T00:00:00.000Z","events":[]}]}'
+            onChange={(event) => {
+              setHistoryJson(event.target.value);
+              setHistoryPreview(null);
+              setHistoryPreviewPayload("");
+            }}
+            placeholder='{"batchKey":"legacy-2026-07","sourceSystem":"legacy-crm","rows":[{"sourceRecordId":"deal-1","dealId":"…","historyCompleteness":"complete","originalCreatedAt":"2024-01-01T00:00:00.000Z","initialStageId":"…","events":[{"sourceEventId":"stage-1","eventType":"stage_changed","effectiveAt":"2024-01-10T00:00:00.000Z","fromStageId":"…","toStageId":"…"}]}]}'
             className="min-h-40 w-full rounded-lg border border-slate-200 bg-white p-3 font-mono text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
           />
-          <Button className="mt-3" disabled={!historyJson.trim()} onClick={() => void importHistory()}>
-            Import historical events
-          </Button>
+          <div className="mt-3 flex gap-2">
+            <Button
+              variant="secondary"
+              disabled={!historyJson.trim()}
+              onClick={() => void importHistory(true)}
+            >
+              Preview import
+            </Button>
+            <Button
+              disabled={
+                !historyJson.trim() ||
+                historyPreviewPayload !== historyJson ||
+                !historyPreview ||
+                historyPreview.accepted === 0
+              }
+              onClick={() => void importHistory(false)}
+            >
+              Import accepted events
+            </Button>
+          </div>
+          {historyPreview && (
+            <div className="mt-3 rounded-lg bg-slate-50 p-3 text-xs dark:bg-slate-950">
+              <p className="font-medium text-slate-700 dark:text-slate-200">
+                {historyPreview.dryRun ? "Preview" : "Committed"}: {historyPreview.accepted}{" "}
+                accepted · {historyPreview.rejected} rejected · {historyPreview.conflicting}{" "}
+                conflicting · {historyPreview.duplicates} duplicate · {historyPreview.reordered}{" "}
+                reordered
+              </p>
+              <div className="mt-2 max-h-40 space-y-1 overflow-y-auto text-slate-500">
+                {historyPreview.rows.flatMap((row) =>
+                  row.decisions.map((decision) => (
+                    <p key={`${row.sourceId}:${decision.sourceId}`}>
+                      {row.sourceId}/{decision.sourceId} · {decision.kind} · {decision.status}
+                      {decision.reordered ? " · reordered" : ""}
+                      {decision.reason ? ` · ${decision.reason}` : ""}
+                    </p>
+                  )),
+                )}
+              </div>
+            </div>
+          )}
         </Section>
 
         <Section
@@ -804,9 +875,7 @@ export default function RevenueDataQuality() {
                 disabled={exporting !== null}
                 className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
               >
-                {exporting === resource
-                  ? "Exporting all pages…"
-                  : resource.replaceAll("_", " ")}
+                {exporting === resource ? "Exporting all pages…" : resource.replaceAll("_", " ")}
                 {exporting === resource ? <Spinner size={14} /> : <Download size={14} />}
               </button>
             ))}

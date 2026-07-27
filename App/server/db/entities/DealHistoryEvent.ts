@@ -3,9 +3,11 @@ import { dateTimeColumnType } from "./columnTypes.js";
 
 export type DealHistoryEventKind =
   | "created"
+  | "snapshot"
   | "stage_changed"
   | "amount_changed"
   | "owner_changed"
+  | "expected_close_changed"
   | "won"
   | "lost";
 
@@ -72,8 +74,9 @@ export class DealHistoryEvent {
   sourceKind!: DealHistorySourceKind;
 
   /**
-   * Stable idempotency key. Importers use `<batch>:<source-event>`;
-   * live writes use an operation-scoped uuid.
+   * Stable idempotency key. Importers use
+   * `<source-system>:<source-record>:<source-event>`; live writes use an
+   * operation-scoped uuid.
    */
   @Column({ type: "varchar" })
   sourceKey!: string;

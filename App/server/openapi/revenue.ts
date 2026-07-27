@@ -990,6 +990,129 @@ registry.registerPath({
   },
 });
 
+const HistoricalDealEventInput = z
+  .object({
+    sourceEventId: z.string().min(1).max(300),
+    eventType: z.enum([
+      "stage_changed",
+      "amount_changed",
+      "owner_changed",
+      "expected_close_changed",
+      "won",
+      "lost",
+    ]),
+    effectiveAt: z.string().datetime(),
+    fromStageId: z.string().uuid().nullable().optional(),
+    toStageId: z.string().uuid().nullable().optional(),
+    fromAmountCents: z.number().int().min(0).nullable().optional(),
+    toAmountCents: z.number().int().min(0).nullable().optional(),
+    fromCurrency: z.string().length(3).nullable().optional(),
+    toCurrency: z.string().length(3).nullable().optional(),
+    fromOwnerId: z.string().uuid().nullable().optional(),
+    fromOwnerEmployeeId: z.string().uuid().nullable().optional(),
+    toOwnerId: z.string().uuid().nullable().optional(),
+    toOwnerEmployeeId: z.string().uuid().nullable().optional(),
+    fromExpectedCloseDate: z.string().datetime().nullable().optional(),
+    toExpectedCloseDate: z.string().datetime().nullable().optional(),
+    lostReason: z.string().optional(),
+    sourceActor: z.string().optional(),
+    metadata: z.unknown().optional(),
+  })
+  .openapi("HistoricalDealEventInput");
+
+const HistoricalDealImportSummary = z
+  .object({
+    batchKey: z.string(),
+    sourceSystem: z.string(),
+    dryRun: z.boolean(),
+    operationId: z.string().uuid().optional(),
+    replayed: z.boolean().optional(),
+    imported: z.number().int(),
+    accepted: z.number().int(),
+    rejected: z.number().int(),
+    reordered: z.number().int(),
+    conflicting: z.number().int(),
+    duplicates: z.number().int(),
+    skipped: z.number().int(),
+    failed: z.number().int(),
+    rows: z.array(
+      z.object({
+        sourceId: z.string(),
+        dealId: z.string().uuid(),
+        historyCompleteness: z.enum(["complete", "partial", "snapshot_only"]),
+        status: z.enum(["ready", "imported", "partial", "failed", "skipped"]),
+        imported: z.number().int(),
+        skipped: z.number().int(),
+        errors: z.array(z.string()),
+        decisions: z.array(
+          z.object({
+            sourceId: z.string(),
+            kind: z.string(),
+            occurredAt: z.string().datetime(),
+            status: z.enum(["accepted", "rejected", "duplicate", "conflicting"]),
+            reordered: z.boolean(),
+            reason: z.string().optional(),
+          }),
+        ),
+      }),
+    ),
+  })
+  .openapi("HistoricalDealImportSummary");
+
+registry.registerPath({
+  method: "post",
+  path: "/api/companies/{cid}/revenue/deal-history/import",
+  summary: "Preview or import historical Deal events",
+  description:
+    "Dry-run by default. Classifies every source event as accepted, rejected, reordered, " +
+    "conflicting, or duplicate while preserving its effective timestamp. A committed batch " +
+    "requires `confirm: IMPORT`, never overlaps native history, and returns a guarded " +
+    "Revenue operation ID for import-scoped undo.",
+  tags: ["Revenue"],
+  security: defaultSecurity,
+  request: {
+    params: CompanyParam,
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            batchKey: z.string().min(8).max(200),
+            sourceSystem: z.string().min(1).max(200),
+            dryRun: z.boolean().default(true),
+            confirm: z.literal("IMPORT").optional(),
+            rows: z.array(
+              z.object({
+                sourceRecordId: z.string().min(1).max(300),
+                dealId: z.string().uuid(),
+                historyCompleteness: z.enum(["complete", "partial", "snapshot_only"]),
+                originalCreatedAt: z.string().datetime().optional(),
+                initialStageId: z.string().uuid().nullable().optional(),
+                snapshotAt: z.string().datetime().optional(),
+                events: z.array(HistoricalDealEventInput),
+              }),
+            ),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Preview or clean import",
+      content: { "application/json": { schema: HistoricalDealImportSummary } },
+    },
+    207: {
+      description: "Preview or import containing rejected or conflicting rows",
+      content: { "application/json": { schema: HistoricalDealImportSummary } },
+    },
+    409: {
+      description: "Batch-key conflict",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    ...commonErrors,
+  },
+});
+
 // ────────────────────────────── Reports ──────────────────────────────
 
 registry.registerPath({

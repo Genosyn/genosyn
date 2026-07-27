@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { after, before, beforeEach, describe, test } from "node:test";
 
@@ -12,6 +13,7 @@ import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { Company } from "../db/entities/Company.js";
 import { Contact } from "../db/entities/Contact.js";
 import { Deal } from "../db/entities/Deal.js";
+import { DealHistoryEvent } from "../db/entities/DealHistoryEvent.js";
 import { DealStage } from "../db/entities/DealStage.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
 import { Suppression } from "../db/entities/Suppression.js";
@@ -756,10 +758,7 @@ describe("revenue routes — operating system", () => {
       confirm: "UNDO",
     });
     assert.equal(undone.status, 200);
-    const activeAfterUndo = await call<{ rows: Array<{ id: string }> }>(
-      "GET",
-      "/revenue/accounts",
-    );
+    const activeAfterUndo = await call<{ rows: Array<{ id: string }> }>("GET", "/revenue/accounts");
     assert.ok(activeAfterUndo.body.rows.some((account) => account.id === source.body.id));
     assert.ok((await auditActions()).includes("revenue.operation.undo"));
   });
@@ -1227,6 +1226,440 @@ describe("revenue routes — signals", () => {
       {},
     );
     assert.equal(res.status, 404);
+  });
+});
+
+// ── Historical Deal import ─────────────────────────────────────────────────
+
+describe("revenue routes — historical Deal import", () => {
+  test("requires preview and confirmation, then exposes import-scoped undo", async () => {
+    const newStage = await insert(DealStage, {
+      companyId,
+      name: "New",
+      slug: "new",
+      sortOrder: 0,
+      probability: 10,
+      kind: "open",
+    });
+    const qualifiedStage = await insert(DealStage, {
+      companyId,
+      name: "Qualified",
+      slug: "qualified",
+      sortOrder: 1,
+      probability: 40,
+      kind: "open",
+    });
+    const deal = await insert(Deal, {
+      companyId,
+      title: "Historical API Deal",
+      stageId: qualifiedStage.id,
+      amountCents: 50_000,
+      currency: "USD",
+      status: "open",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      archivedAt: null,
+    });
+    const payload = {
+      batchKey: "route-cutover-1",
+      sourceSystem: "legacy-crm",
+      rows: [
+        {
+          sourceRecordId: "legacy-deal-1",
+          dealId: deal.id,
+          historyCompleteness: "complete",
+          originalCreatedAt: "2024-01-01T00:00:00.000Z",
+          initialStageId: newStage.id,
+          events: [
+            {
+              sourceEventId: "stage-qualified",
+              eventType: "stage_changed",
+              effectiveAt: "2024-01-10T00:00:00.000Z",
+              fromStageId: newStage.id,
+              toStageId: qualifiedStage.id,
+            },
+          ],
+        },
+      ],
+    };
+
+    const preview = await call<{ dryRun: boolean; accepted: number; imported: number }>(
+      "POST",
+      "/revenue/deal-history/import",
+      payload,
+    );
+    assert.equal(preview.status, 200);
+    assert.equal(preview.body.dryRun, true);
+    assert.equal(preview.body.accepted, 2);
+    assert.equal(preview.body.imported, 0);
+    assert.equal(
+      await AppDataSource.getRepository(DealHistoryEvent).count({ where: { dealId: deal.id } }),
+      0,
+    );
+
+    const unconfirmed = await call("POST", "/revenue/deal-history/import", {
+      ...payload,
+      dryRun: false,
+    });
+    assert.equal(unconfirmed.status, 400);
+
+    const committed = await call<{ imported: number; operationId: string }>(
+      "POST",
+      "/revenue/deal-history/import",
+      { ...payload, dryRun: false, confirm: "IMPORT" },
+    );
+    assert.equal(committed.status, 200);
+    assert.equal(committed.body.imported, 2);
+    assert.ok(committed.body.operationId);
+
+    const undo = await call("POST", `/revenue/operations/${committed.body.operationId}/undo`, {
+      confirm: "UNDO",
+    });
+    assert.equal(undo.status, 200);
+    assert.equal(
+      await AppDataSource.getRepository(DealHistoryEvent).count({ where: { dealId: deal.id } }),
+      0,
+    );
+  });
+
+  test("rejects malformed contracts before the importer runs", async () => {
+    const invalidBodies = [
+      {
+        batchKey: "short",
+        sourceSystem: "legacy-crm",
+        rows: [],
+      },
+      {
+        batchKey: "valid-batch-key",
+        sourceSystem: "",
+        rows: [],
+      },
+      {
+        batchKey: "valid-batch-key",
+        sourceSystem: "legacy-crm",
+        rows: [
+          {
+            sourceRecordId: "legacy-deal",
+            dealId: "not-a-uuid",
+            historyCompleteness: "complete",
+            events: [],
+          },
+        ],
+      },
+      {
+        batchKey: "valid-batch-key",
+        sourceSystem: "legacy-crm",
+        rows: [
+          {
+            sourceRecordId: "legacy-deal",
+            dealId: randomUUID(),
+            historyCompleteness: "partial",
+            events: [
+              {
+                sourceEventId: "amount",
+                eventType: "amount_changed",
+                effectiveAt: "not-a-date",
+                toAmountCents: -1,
+                currency: "US",
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    for (const body of invalidBodies) {
+      const response = await call("POST", "/revenue/deal-history/import", body);
+      assert.equal(response.status, 400);
+    }
+    assert.equal(await AppDataSource.getRepository(DealHistoryEvent).count(), 0);
+    assert.equal(
+      await AppDataSource.getRepository(AuditEvent).count({
+        where: { companyId, action: "revenue.deal_history.import" },
+      }),
+      0,
+    );
+  });
+
+  test("returns multi-status for a failed row even when it has no event decisions", async () => {
+    const newStage = await insert(DealStage, {
+      companyId,
+      name: "New",
+      slug: "new",
+      sortOrder: 0,
+      probability: 10,
+      kind: "open",
+    });
+    const target = await insert(Deal, {
+      companyId,
+      title: "Snapshot validation",
+      stageId: newStage.id,
+      amountCents: 10_000,
+      currency: "USD",
+      status: "open",
+      archivedAt: null,
+    });
+
+    const response = await call<{ failed: number; rows: Array<{ errors: string[] }> }>(
+      "POST",
+      "/revenue/deal-history/import",
+      {
+        batchKey: "snapshot-without-time",
+        sourceSystem: "legacy-crm",
+        rows: [
+          {
+            sourceRecordId: "snapshot-without-time",
+            dealId: target.id,
+            historyCompleteness: "snapshot_only",
+            events: [],
+          },
+        ],
+      },
+    );
+
+    assert.equal(response.status, 207);
+    assert.equal(response.body.failed, 1);
+    assert.match(response.body.rows[0].errors.join(" "), /requires snapshotAt/);
+  });
+
+  test("commits valid rows in a mixed batch and returns every rejected event decision", async () => {
+    const newStage = await insert(DealStage, {
+      companyId,
+      name: "New",
+      slug: "new",
+      sortOrder: 0,
+      probability: 10,
+      kind: "open",
+    });
+    const target = await insert(Deal, {
+      companyId,
+      title: "Mixed import",
+      stageId: newStage.id,
+      amountCents: 10_000,
+      currency: "USD",
+      status: "open",
+      archivedAt: null,
+    });
+
+    const response = await call<{
+      imported: number;
+      rejected: number;
+      operationId: string;
+      rows: Array<{ status: string; decisions: Array<{ sourceId: string; reason?: string }> }>;
+    }>("POST", "/revenue/deal-history/import", {
+      batchKey: "mixed-route-import",
+      sourceSystem: "legacy-crm",
+      dryRun: false,
+      confirm: "IMPORT",
+      rows: [
+        {
+          sourceRecordId: "mixed-route-import",
+          dealId: target.id,
+          historyCompleteness: "partial",
+          events: [
+            {
+              sourceEventId: "valid-amount",
+              eventType: "amount_changed",
+              effectiveAt: "2024-01-01T00:00:00.000Z",
+              fromAmountCents: 5_000,
+              toAmountCents: 10_000,
+              fromCurrency: "EUR",
+              toCurrency: "USD",
+            },
+            {
+              sourceEventId: "invalid-owner",
+              eventType: "owner_changed",
+              effectiveAt: "2024-01-02T00:00:00.000Z",
+              toOwnerId: randomUUID(),
+              toOwnerEmployeeId: randomUUID(),
+            },
+          ],
+        },
+      ],
+    });
+
+    assert.equal(response.status, 207);
+    assert.equal(response.body.imported, 1);
+    assert.equal(response.body.rejected, 1);
+    assert.equal(response.body.rows[0].status, "partial");
+    assert.match(
+      response.body.rows[0].decisions.find((row) => row.sourceId === "invalid-owner")?.reason ?? "",
+      /both owner types/,
+    );
+    assert.equal(
+      await AppDataSource.getRepository(DealHistoryEvent).count({
+        where: { companyId, dealId: target.id },
+      }),
+      1,
+    );
+  });
+
+  test("maps every typed boundary and records only one audit event for an exact replay", async () => {
+    const newStage = await insert(DealStage, {
+      companyId,
+      name: "New",
+      slug: "new",
+      sortOrder: 0,
+      probability: 10,
+      kind: "open",
+    });
+    const target = await insert(Deal, {
+      companyId,
+      title: "Typed route import",
+      stageId: newStage.id,
+      amountCents: 10_000,
+      currency: "USD",
+      status: "open",
+      archivedAt: null,
+    });
+    const nextOwnerId = randomUUID();
+    const payload = {
+      batchKey: "typed-route-import",
+      sourceSystem: "legacy-crm",
+      dryRun: false,
+      confirm: "IMPORT",
+      rows: [
+        {
+          sourceRecordId: "typed-route-record",
+          dealId: target.id,
+          historyCompleteness: "partial",
+          events: [
+            {
+              sourceEventId: "amount",
+              eventType: "amount_changed",
+              effectiveAt: "2024-01-01T00:00:00.000Z",
+              fromAmountCents: 5_000,
+              toAmountCents: 10_000,
+              fromCurrency: "EUR",
+              toCurrency: "USD",
+              sourceActor: "Legacy member",
+              metadata: { sourceLine: 42 },
+            },
+            {
+              sourceEventId: "owner",
+              eventType: "owner_changed",
+              effectiveAt: "2024-01-02T00:00:00.000Z",
+              fromOwnerId: null,
+              toOwnerId: nextOwnerId,
+            },
+            {
+              sourceEventId: "expected-close",
+              eventType: "expected_close_changed",
+              effectiveAt: "2024-01-03T00:00:00.000Z",
+              fromExpectedCloseDate: "2024-03-01T00:00:00.000Z",
+              toExpectedCloseDate: null,
+            },
+          ],
+        },
+      ],
+    };
+
+    const first = await call<{ operationId: string; imported: number }>(
+      "POST",
+      "/revenue/deal-history/import",
+      payload,
+    );
+    const replay = await call<{ operationId: string; replayed: boolean; duplicates: number }>(
+      "POST",
+      "/revenue/deal-history/import",
+      payload,
+    );
+    assert.equal(first.status, 200);
+    assert.equal(first.body.imported, 3);
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.replayed, true);
+    assert.equal(replay.body.operationId, first.body.operationId);
+    assert.equal(replay.body.duplicates, 3);
+
+    const events = await AppDataSource.getRepository(DealHistoryEvent).find({
+      where: { companyId, dealId: target.id },
+      order: { occurredAt: "ASC" },
+    });
+    assert.equal(events[0].currency, "USD");
+    assert.equal(events[1].toOwnerId, nextOwnerId);
+    const expectedCloseMetadata = JSON.parse(events[2].metadataJson) as Record<string, unknown>;
+    assert.equal(expectedCloseMetadata.fromExpectedCloseDate, "2024-03-01T00:00:00.000Z");
+    assert.equal(expectedCloseMetadata.toExpectedCloseDate, null);
+    assert.equal(
+      await AppDataSource.getRepository(AuditEvent).count({
+        where: { companyId, action: "revenue.deal_history.import" },
+      }),
+      1,
+    );
+  });
+
+  test("returns a conflict for batch-key reuse and exposes history imports in operation APIs", async () => {
+    const newStage = await insert(DealStage, {
+      companyId,
+      name: "New",
+      slug: "new",
+      sortOrder: 0,
+      probability: 10,
+      kind: "open",
+    });
+    const target = await insert(Deal, {
+      companyId,
+      title: "Operation API import",
+      stageId: newStage.id,
+      amountCents: 10_000,
+      currency: "USD",
+      status: "open",
+      archivedAt: null,
+    });
+    const payload = {
+      batchKey: "operation-route-import",
+      sourceSystem: "legacy-crm",
+      dryRun: false,
+      confirm: "IMPORT",
+      rows: [
+        {
+          sourceRecordId: "operation-route-record",
+          dealId: target.id,
+          historyCompleteness: "partial",
+          events: [
+            {
+              sourceEventId: "amount",
+              eventType: "amount_changed",
+              effectiveAt: "2024-01-01T00:00:00.000Z",
+              fromAmountCents: 5_000,
+              toAmountCents: 10_000,
+            },
+          ],
+        },
+      ],
+    };
+    const committed = await call<{ operationId: string }>(
+      "POST",
+      "/revenue/deal-history/import",
+      payload,
+    );
+    assert.equal(committed.status, 200);
+
+    const collision = await call("POST", "/revenue/deal-history/import", {
+      ...payload,
+      rows: [{ ...payload.rows[0], sourceRecordId: "different-record" }],
+    });
+    assert.equal(collision.status, 409);
+    assert.match(String(collision.body.error), /batch key was already used/);
+
+    const operations = await call<{
+      total: number;
+      rows: Array<{ id: string; kind: string; status: string }>;
+    }>("GET", "/revenue/operations?kind=history_import");
+    assert.equal(operations.status, 200);
+    assert.equal(operations.body.total, 1);
+    assert.equal(operations.body.rows[0].id, committed.body.operationId);
+    assert.equal(operations.body.rows[0].kind, "history_import");
+
+    const detail = await call<{
+      operation: { id: string; kind: string };
+      rows: Array<{ entityType: string; action: string }>;
+      rowTotal: number;
+    }>("GET", `/revenue/operations/${committed.body.operationId}`);
+    assert.equal(detail.status, 200);
+    assert.equal(detail.body.operation.kind, "history_import");
+    assert.equal(detail.body.rowTotal, 1);
+    assert.equal(detail.body.rows[0].entityType, "deal_history_event");
+    assert.equal(detail.body.rows[0].action, "import_history_event");
   });
 });
 
