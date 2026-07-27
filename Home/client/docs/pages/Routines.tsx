@@ -280,7 +280,8 @@ Verify the three results, resolve any disagreement, then post one concise brief 
         the in-process agent in the employee&apos;s directory and stores the agent transcript — the
         model&apos;s messages and tool trace, not captured CLI stdout — on{" "}
         <Code>Run.logContent</Code> (capped at 256 KB; longer logs are head-truncated with a
-        notice).
+        notice). While the Run is active, Genosyn checkpoints that transcript to the database about
+        once a second, so it survives a server or container crash.
       </P>
       <P>
         A routine&apos;s full run history lives on its <Strong>Runs</Strong> tab — every Run,
@@ -326,9 +327,10 @@ Verify the three results, resolve any disagreement, then post one concise brief 
       <P>
         A Run that was executing when the process died can&apos;t report its own outcome — nobody
         was left to write the row. The scheduler notices on its next heartbeat and marks it{" "}
-        <Code>interrupted</Code>, appending a line to the transcript saying so. Nothing is known
-        about work the employee did after the last captured line, which is exactly why the status is
-        its own word and not <Code>failed</Code>.
+        <Code>interrupted</Code>, appending a line after the last durable checkpoint. The Run log
+        still shows the model text and tool activity captured before the stop, so the final line
+        identifies where the visible work ended. Nothing is known about work the employee did after
+        that line, which is exactly why the status is its own word and not <Code>failed</Code>.
       </P>
       <P>
         The same pass releases the <Strong>workload lease</Strong> the dead run was holding. That

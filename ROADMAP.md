@@ -291,9 +291,10 @@ export const config = {
 
 ### M29 — Routine crash recovery & retries ✅
 
-- [x] Every heartbeat reconciles Runs orphaned by a crash — a new `interrupted`
-      status, a marker in the transcript, and the stranded `WorkloadLease`
-      cleared so the dead Run stops consuming company workload capacity
+- [x] Every in-flight transcript is checkpointed to `Run.logContent`; each
+      heartbeat reconciles Runs orphaned by a crash with an `interrupted`
+      status and a marker after the last durable line, then clears the stranded
+      `WorkloadLease` so the dead Run stops consuming company workload capacity
 - [x] Missed occurrences recorded on the catch-up Run (`Run.missedSlots`) and
       folded into its brief; per-routine catch-up policy (`once` — the existing
       default — or `skip` for work that is only useful on time)

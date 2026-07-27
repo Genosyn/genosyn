@@ -43,21 +43,19 @@ export class Run {
   status!: RunStatus;
 
   /**
-   * Captured stdout+stderr from the provider CLI, plus runner framing lines
-   * (headers, timeouts, errors). Previously this was a path to a log file on
-   * disk; the DB is now the source of truth and the runner buffers output in
-   * memory until the child closes. Hard-capped at {@link RUN_LOG_MAX_BYTES}
-   * to keep a runaway CLI from blowing up the row — we keep the first N
-   * bytes and append a truncation marker once the cap is hit.
+   * Captured model text and tool activity, plus runner framing lines (headers,
+   * timeouts, errors). The DB is the source of truth: the runner checkpoints
+   * this column while a Run is active, then writes the final transcript when
+   * it finishes. Hard-capped at {@link RUN_LOG_MAX_BYTES} to keep a runaway
+   * Run from blowing up the row — we keep the first N bytes and append a
+   * truncation marker once the cap is hit.
    */
   @Column({ type: "text", default: "" })
   logContent!: string;
 
   /**
-   * CLI exit code when the child closed under its own power. Null for runs
-   * that never reached `close` — `skipped` (no CLI invoked), `timeout` (we
-   * SIGKILL'd it), and `interrupted` (the process died, so nobody was left to
-   * observe an exit). `failed` runs typically have a non-zero code here.
+   * Zero for a completed Run. Null for Runs without a clean completion:
+   * `skipped`, `timeout`, `interrupted`, and model/tool failures.
    */
   @Column({ type: "integer", nullable: true })
   exitCode!: number | null;

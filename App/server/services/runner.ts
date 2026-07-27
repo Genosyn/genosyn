@@ -24,6 +24,9 @@ import { config } from "../../config.js";
 import { composeEmployeeSystemPrompt } from "./agent/systemPrompt.js";
 import { residentNamesForSkills, skillToolsetMap } from "./skillToolset.js";
 import { acquireWorkloadLease, releaseWorkloadLease } from "./workloadLeases.js";
+import { DurableRunLog, RUN_LOG_MAX_BYTES } from "./runLog.js";
+
+export { RUN_LOG_MAX_BYTES } from "./runLog.js";
 
 /**
  * Run seam.
@@ -44,12 +47,8 @@ import { acquireWorkloadLease, releaseWorkloadLease } from "./workloadLeases.js"
  */
 
 /**
- * Hard cap on how many bytes of transcript we keep on a single run row.
- * Output past the cap is dropped and a truncation marker is appended.
+ * Max model turns before the loop stops itself (runaway-loop backstop).
  */
-export const RUN_LOG_MAX_BYTES = 256 * 1024;
-
-/** Max model turns before the loop stops itself (runaway-loop backstop). */
 const RUN_MAX_STEPS = 100;
 
 /**
@@ -58,7 +57,7 @@ const RUN_MAX_STEPS = 100;
  * UI can tail output live; once the run terminates we drop the entry and the
  * endpoint falls back to the persisted `Run.logContent`.
  */
-const liveBuffers = new Map<string, LogBuffer>();
+const liveBuffers = new Map<string, DurableRunLog>();
 
 export function getLiveRunSnapshot(
   runId: string,
@@ -101,9 +100,10 @@ export type StartRunOptions = {
 /**
  * Begin a run and return the saved Run row immediately (status `running`),
  * along with a `completion` promise that resolves once the agent finishes and
- * the row has been finalized. The LogBuffer is registered in {@link liveBuffers}
- * for the lifetime of the run so polling clients can tail output before it lands
- * in the DB.
+ * the row has been finalized. The durable log is registered in
+ * {@link liveBuffers} for the lifetime of the run so polling clients can tail
+ * output, while periodic snapshots are checkpointed to the DB for crash
+ * recovery.
  */
 export async function startRoutineRun(
   routine: Routine,
@@ -151,7 +151,23 @@ export async function startRoutineRun(
     throw error;
   }
 
-  const log = new LogBuffer(RUN_LOG_MAX_BYTES);
+  const log = new DurableRunLog({
+    cap: RUN_LOG_MAX_BYTES,
+    persist: async (content) => {
+      // Never let a late checkpoint overwrite a terminal row recovered or
+      // finalized elsewhere. Only the transcript column changes.
+      await runRepo.update(
+        { id: saved.id, status: "running" },
+        { logContent: content },
+      );
+    },
+    onCheckpointError: (error) => {
+      // A later checkpoint or the final Run save will try again. The Routine
+      // itself should not fail solely because one progress snapshot did.
+      // eslint-disable-next-line no-console
+      console.error(`[runner] failed to checkpoint log for run ${saved.id}:`, error);
+    },
+  });
   liveBuffers.set(saved.id, log);
   log.write(
     [
@@ -176,6 +192,10 @@ export async function startRoutineRun(
       "",
     ].join("\n") + "\n",
   );
+  // Make the framing header durable before any model, repository, or tool work
+  // begins. Even a crash inside the first checkpoint window then leaves a
+  // useful starting boundary instead of an empty interrupted Run.
+  await log.flush();
 
   const completion = (async (): Promise<Run> => {
     let mcpToken: string | null = null;
@@ -191,6 +211,7 @@ export async function startRoutineRun(
         );
         saved.finishedAt = new Date();
         saved.status = "skipped";
+        await log.stopCheckpointing();
         saved.logContent = log.value();
         await runRepo.save(saved);
         await settleAfterRun(routine.id, saved.finishedAt);
@@ -322,6 +343,7 @@ export async function startRoutineRun(
       }
       // Before log.value(): stampRetry writes its own transcript line.
       stampRetry(saved, routine, log);
+      await log.stopCheckpointing();
       saved.logContent = log.value();
       await runRepo.save(saved);
       // Deliberately not inside the try that owns the status: a throw from
@@ -337,6 +359,7 @@ export async function startRoutineRun(
       saved.status = "failed";
       saved.exitCode = null;
       stampRetry(saved, routine, log);
+      await log.stopCheckpointing();
       saved.logContent = log.value();
       await runRepo.save(saved);
       await settleAfterRun(routine.id, saved.finishedAt);
@@ -526,7 +549,7 @@ async function journalQuietly(employeeId: string, routine: Routine, run: Run): P
  * terminal status, so an owed retry survives a crash. Writes a transcript line
  * so the reason a run reappears an hour later is legible from the log alone.
  */
-function stampRetry(run: Run, routine: Routine, log: LogBuffer): void {
+function stampRetry(run: Run, routine: Routine, log: DurableRunLog): void {
   if (
     !shouldRetry({
       status: run.status,
@@ -544,7 +567,6 @@ function stampRetry(run: Run, routine: Routine, log: LogBuffer): void {
     `\n[retry] attempt ${run.attempt + 1} of ${routine.maxAttempts} scheduled in ~${Math.round(delay / 1000)}s`,
   );
 }
-
 
 function composeRoutineMessage(routine: Routine, missedSlots: number): string {
   return [
@@ -565,48 +587,4 @@ function composeRoutineMessage(routine: Routine, missedSlots: number): string {
         ]
       : []),
   ].join("\n");
-}
-
-
-/**
- * Bounded transcript buffer. Keeps the first `cap` bytes; everything after is
- * dropped with a one-shot `[truncated]` marker so a runaway agent can't blow up
- * the run row.
- */
-class LogBuffer {
-  private parts: string[] = [];
-  private size = 0;
-  private truncated = false;
-
-  constructor(private readonly cap: number) {}
-
-  write(s: string): void {
-    if (!s) return;
-    if (this.truncated) return;
-    const b = Buffer.byteLength(s, "utf8");
-    if (this.size + b <= this.cap) {
-      this.parts.push(s);
-      this.size += b;
-      return;
-    }
-    const remaining = this.cap - this.size;
-    if (remaining > 0) {
-      this.parts.push(s.slice(0, remaining));
-      this.size += Buffer.byteLength(s.slice(0, remaining), "utf8");
-    }
-    this.parts.push(`\n[truncated — output exceeded ${this.cap} bytes]\n`);
-    this.truncated = true;
-  }
-
-  line(s: string): void {
-    this.write(s + "\n");
-  }
-
-  value(): string {
-    return this.parts.join("");
-  }
-
-  get isTruncated(): boolean {
-    return this.truncated;
-  }
 }
