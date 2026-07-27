@@ -9,6 +9,7 @@ import {
   ChevronRight,
   CircleSlash,
   Clock,
+  Download,
   MessageSquarePlus,
   Paperclip,
   Plug,
@@ -725,6 +726,13 @@ function TurnBubble({
             </Link>
           )}
         </div>
+        {attachments.length > 0 && (
+          <div className="mt-1.5 flex flex-col items-start gap-1.5">
+            {attachments.map((a) => (
+              <AttachmentPreview key={a.id} attachment={a} url={attachmentUrl(a.id)} />
+            ))}
+          </div>
+        )}
         {message.actions && message.actions.length > 0 && (
           <ActionPills
             actions={message.actions}
@@ -1233,8 +1241,8 @@ function AttachmentPreview({
   return (
     <a
       href={url}
-      target="_blank"
-      rel="noreferrer"
+      download={attachment.filename}
+      title={`Download ${attachment.filename}`}
       className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
     >
       <Paperclip size={12} />
@@ -1242,6 +1250,7 @@ function AttachmentPreview({
       <span className="text-slate-400 dark:text-slate-500">
         {formatBytes(attachment.sizeBytes)}
       </span>
+      <Download size={12} className="shrink-0 text-slate-400 dark:text-slate-500" />
     </a>
   );
 }
