@@ -74,6 +74,92 @@ const MAIL_ATTACHMENTS_PROPERTY = {
   },
 } as const;
 
+const MARKETING_CAMPAIGN_PROPERTIES = {
+  name: { type: "string", description: "Human-readable Campaign name." },
+  objective: {
+    type: "string",
+    enum: ["awareness", "traffic", "leads", "sales", "retention"],
+  },
+  status: {
+    type: "string",
+    enum: ["draft", "ready", "active", "paused", "completed", "archived"],
+  },
+  autonomyMode: {
+    type: "string",
+    enum: ["observe", "optimize", "autonomous"],
+    description:
+      "observe = report only; optimize = propose/perform safe levers; autonomous = operate inside policy and Connection guardrails.",
+  },
+  channel: {
+    type: "string",
+    description: "Provider id such as google-ads, meta-ads, or browser-managed.",
+  },
+  connectionId: { type: ["string", "null"] },
+  externalAccountId: { type: "string" },
+  externalCampaignId: {
+    type: "string",
+    description: "Required before status can become active.",
+  },
+  ownerEmployeeId: { type: ["string", "null"] },
+  brief: { type: "string", description: "Strategy, constraints, and positioning in markdown." },
+  audience: { type: "string", description: "The target audience and exclusions. Never include PII." },
+  offer: { type: "string" },
+  landingPageUrl: { type: "string" },
+  successMetric: { type: "string", description: "Primary KPI, e.g. qualified_leads or roas." },
+  targetValue: { type: "string", description: "Exact decimal target as text." },
+  dailyBudgetMinor: {
+    type: "number",
+    description: "Planned daily budget in minor currency units (e.g. cents).",
+  },
+  currency: { type: "string", description: "Three-letter ISO currency code." },
+  startsAt: { type: ["string", "null"], description: "ISO datetime." },
+  endsAt: { type: ["string", "null"], description: "ISO datetime." },
+} as const;
+
+const MARKETING_CREATIVE_PROPERTIES = {
+  campaignId: { type: "string" },
+  name: { type: "string" },
+  format: {
+    type: "string",
+    enum: ["text", "image", "video", "carousel", "responsive"],
+  },
+  status: {
+    type: "string",
+    enum: ["draft", "review", "approved", "active", "retired", "rejected"],
+  },
+  variantGroup: {
+    type: "string",
+    description: "Shared label for Creative variants intended to compete.",
+  },
+  concept: { type: "string" },
+  headline: { type: "string" },
+  body: { type: "string" },
+  callToAction: { type: "string" },
+  assetUrl: { type: "string", description: "Company-controlled asset or Resource URL." },
+  destinationUrl: { type: "string" },
+  externalCreativeId: { type: "string" },
+  reviewNote: { type: "string" },
+} as const;
+
+const MARKETING_EXPERIMENT_PROPERTIES = {
+  campaignId: { type: "string" },
+  name: { type: "string" },
+  hypothesis: { type: "string" },
+  status: { type: "string", enum: ["draft", "running", "decided", "stopped"] },
+  primaryMetric: { type: "string" },
+  minimumSampleSize: { type: "string", description: "Decision threshold as exact text." },
+  creativeIds: {
+    type: "array",
+    items: { type: "string" },
+    minItems: 2,
+    maxItems: 20,
+  },
+  winnerCreativeId: { type: ["string", "null"] },
+  decisionRationale: { type: "string" },
+  startsAt: { type: ["string", "null"] },
+  endsAt: { type: ["string", "null"] },
+} as const;
+
 export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "get_self",
@@ -3768,6 +3854,156 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         notes: { type: "string", description: "Where the request came from, for the record." },
       },
       required: ["email"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_marketing_overview",
+    description:
+      "Read the autonomous ad-agency dashboard: Campaign counts and policies, Creative waiting for review, running Experiments, planned daily budget, and the latest recorded spend/impressions/clicks/conversions. The performance figures are immutable snapshots recorded from ad-platform reads; they are not the authorized-budget-change ledger. Needs `read` Marketing access.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "list_marketing_campaigns",
+    description:
+      "List Marketing Campaigns — the durable briefs and operating policies that connect ad-platform objects to audience, offer, success metric, owner, budget and autonomy mode. Filter to your Campaigns with `ownedByMe`. Read the live platform separately before changing a linked Campaign. Needs `read` Marketing access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: MARKETING_CAMPAIGN_PROPERTIES.status,
+        channel: MARKETING_CAMPAIGN_PROPERTIES.channel,
+        ownedByMe: { type: "boolean" },
+        includeArchived: { type: "boolean" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_marketing_campaign",
+    description:
+      "Fetch one Marketing Campaign with its full brief, Creative variants, Experiments and recent performance snapshots. Use this before proposing or performing an optimization so you inherit the strategy and the evidence from prior Routines. Needs `read` Marketing access.",
+    inputSchema: {
+      type: "object",
+      properties: { campaignId: { type: "string" } },
+      required: ["campaignId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_marketing_campaign",
+    description:
+      "Create a Marketing Campaign brief. Start as draft while strategy is incomplete or ready when the brief, audience, channel, success metric and positive daily budget are all present. This does not create an external platform Campaign or authorize spend; use a granted ads Connection or guarded browser/MCP tool for that, then link its external id. Needs `write` Marketing access.",
+    inputSchema: {
+      type: "object",
+      properties: MARKETING_CAMPAIGN_PROPERTIES,
+      required: ["name", "objective"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_marketing_campaign",
+    description:
+      "Edit Campaign strategy or link it to the platform object you created. Marking it active, paused or completed needs `operate` Marketing access; active also requires a real external Campaign id. External spend changes remain separate ad-platform calls governed by the Connection's caps, kill switch and Approvals.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        campaignId: { type: "string" },
+        ...MARKETING_CAMPAIGN_PROPERTIES,
+      },
+      required: ["campaignId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_marketing_creatives",
+    description:
+      "List Creative variants across Marketing, or inside one Campaign. Each row carries concept, copy, asset/destination URLs, review state, variant group and external id. Needs `read` Marketing access.",
+    inputSchema: {
+      type: "object",
+      properties: { campaignId: { type: "string" } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_marketing_creative",
+    description:
+      "Draft a Creative variant or submit it for review. Store the reusable concept and copy here; keep binary assets in a company-controlled Resource/URL and never put base64 or customer PII in the row. Approval/activation needs `operate` access and external publishing remains subject to its Connection or browser/MCP Approval. Needs `write` Marketing access.",
+    inputSchema: {
+      type: "object",
+      properties: MARKETING_CREATIVE_PROPERTIES,
+      required: ["campaignId", "name"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_marketing_creative",
+    description:
+      "Revise a Creative or move it through review. Approving, activating, rejecting or retiring needs `operate` Marketing access. This records the workspace decision; publish the Creative through the separately granted external channel and then store its external id.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        creativeId: { type: "string" },
+        ...MARKETING_CREATIVE_PROPERTIES,
+      },
+      required: ["creativeId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_marketing_experiments",
+    description:
+      "List falsifiable Marketing Experiments across the company or within one Campaign, including competing Creative ids, metric, sample threshold, winner and rationale. Needs `read` Marketing access.",
+    inputSchema: {
+      type: "object",
+      properties: { campaignId: { type: "string" } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_marketing_experiment",
+    description:
+      "Create an Experiment comparing at least two Creative variants from the same Campaign. State a falsifiable hypothesis, primary metric and minimum sample before running it. Starting immediately needs `operate`; creating a draft needs `write` Marketing access.",
+    inputSchema: {
+      type: "object",
+      properties: MARKETING_EXPERIMENT_PROPERTIES,
+      required: ["campaignId", "name", "creativeIds"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_marketing_experiment",
+    description:
+      "Edit, start, stop or decide a Marketing Experiment. A decision must name one of its Creative variants as winner and record the evidence-based rationale. Non-draft states need `operate` Marketing access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        experimentId: { type: "string" },
+        ...MARKETING_EXPERIMENT_PROPERTIES,
+      },
+      required: ["experimentId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "record_marketing_performance",
+    description:
+      "Append an immutable Campaign performance snapshot after reading the live ad platform: period, settled spend, impressions, clicks, conversions and conversion value. Currency must match the Campaign. Put the provider/report name in `source`; optional `raw` preserves bounded provider detail. Needs `operate` Marketing access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        campaignId: { type: "string" },
+        periodStart: { type: "string", description: "ISO datetime." },
+        periodEnd: { type: "string", description: "ISO datetime." },
+        spendMinor: { type: "number" },
+        impressions: { type: "number" },
+        clicks: { type: "number" },
+        conversions: { type: "string" },
+        conversionValue: { type: "string" },
+        currency: { type: "string" },
+        source: { type: "string" },
+        raw: { type: "object", additionalProperties: true },
+      },
+      required: ["campaignId", "periodStart", "periodEnd", "spendMinor", "currency", "source"],
       additionalProperties: false,
     },
   },

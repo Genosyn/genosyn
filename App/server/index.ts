@@ -64,6 +64,7 @@ import { inboxRouter } from "./routes/inbox.js";
 import { mailRouter } from "./routes/mail.js";
 import { revenueRouter } from "./routes/revenue.js";
 import { revenueOperationsRouter } from "./routes/revenueOperations.js";
+import { marketingRouter } from "./routes/marketing.js";
 import { unsubscribeRouter } from "./routes/unsubscribe.js";
 import { apiKeysRouter } from "./routes/apiKeys.js";
 import { openapiRouter } from "./routes/openapi.js";
@@ -313,6 +314,10 @@ async function main() {
   // suppressions and the revenue reports.
   app.use("/api/companies/:cid", revenueRouter);
   app.use("/api/companies/:cid", revenueOperationsRouter);
+
+  // Marketing agency (M35) — Campaign strategy, Creative, Experiments,
+  // performance snapshots and per-employee access.
+  app.use("/api/companies/:cid", marketingRouter);
 
   // Client. Dev: mount Vite as middleware so API + UI share one port and
   // HMR still works. Prod: serve the built SPA from dist/client.

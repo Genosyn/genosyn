@@ -21,6 +21,7 @@ export type ProductIntegrationKey =
   | "explore"
   | "code"
   | "pipelines"
+  | "marketing"
   | "revenue"
   | "customers"
   | "finance";
@@ -99,6 +100,22 @@ export const PRODUCT_INTEGRATION_SCOPES: Record<ProductIntegrationKey, ProductIn
     description:
       "Pipelines can call actions from any connected Integration as predictable automation steps.",
     providers: null,
+  },
+  marketing: {
+    label: "Marketing",
+    description:
+      "Connect paid-media, analytics, and publishing channels used by the autonomous Marketing workspace.",
+    providers: [
+      "google-analytics",
+      "google-search-console",
+      "google-ads",
+      "meta-ads",
+      "microsoft-ads",
+      "reddit-ads",
+      "reddit",
+      "linkedin",
+      "x",
+    ],
   },
   revenue: {
     label: "Revenue",

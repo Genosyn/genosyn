@@ -16,6 +16,7 @@ import { materializeReposForEmployee } from "./repoSync.js";
 import { composeCodeReposContext, materializeCodeReposForEmployee } from "./codeRepos.js";
 import { composeFinanceContext } from "./financeGrants.js";
 import { composeRevenueContext } from "./revenue/grants.js";
+import { composeMarketingContext } from "./marketing.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
 import type { AgentMessage } from "./agent/types.js";
 import { config } from "../../config.js";
@@ -195,7 +196,10 @@ export async function streamChatWithEmployee(
     const memoryContext = await composeMemoryContext(emp.id);
     const codeReposContext = await composeCodeReposContext(emp.id);
     const financeContext = await composeFinanceContext(emp.id);
-    const revenueContext = await composeRevenueContext(emp.id);
+    const [revenueContext, marketingContext] = await Promise.all([
+      composeRevenueContext(emp.id),
+      composeMarketingContext(emp.id),
+    ]);
     const helpSource = options.surface === "help" ? createGenosynHelpSource() : null;
     let system = composeEmployeeSystemPrompt({
       co,
@@ -205,6 +209,7 @@ export async function streamChatWithEmployee(
       codeReposContext,
       financeContext,
       revenueContext,
+      marketingContext,
       surface: "chat",
       opening:
         options.surface === "help"

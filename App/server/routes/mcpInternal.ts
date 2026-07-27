@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
-import { Router, Request, Response, NextFunction } from "express";
+import { Router, Request, Response, NextFunction, type RequestHandler } from "express";
 import cron from "node-cron";
 import { z } from "zod";
 import {
@@ -196,6 +196,37 @@ import {
   type RevenueAccessLevel,
 } from "../db/entities/EmployeeRevenueGrant.js";
 import { normalizeEmail } from "../lib/emailAddress.js";
+import {
+  EmployeeMarketingGrant,
+  MARKETING_ACCESS_RANK,
+  type MarketingAccessLevel,
+} from "../db/entities/EmployeeMarketingGrant.js";
+import {
+  MARKETING_AUTONOMY_MODES,
+  MARKETING_CAMPAIGN_OBJECTIVES,
+  MARKETING_CAMPAIGN_STATUSES,
+} from "../db/entities/MarketingCampaign.js";
+import {
+  MARKETING_CREATIVE_FORMATS,
+  MARKETING_CREATIVE_STATUSES,
+} from "../db/entities/MarketingCreative.js";
+import { MARKETING_EXPERIMENT_STATUSES } from "../db/entities/MarketingExperiment.js";
+import {
+  MarketingNotFoundError,
+  MarketingValidationError,
+  createMarketingCampaign,
+  createMarketingCreative,
+  createMarketingExperiment,
+  getMarketingCampaign,
+  getMarketingOverview,
+  listMarketingCampaigns,
+  listMarketingCreatives,
+  listMarketingExperiments,
+  recordMarketingPerformance,
+  updateMarketingCampaign,
+  updateMarketingCreative,
+  updateMarketingExperiment,
+} from "../services/marketing.js";
 import { addSuppression, isSuppressed } from "../services/mail/suppression.js";
 import {
   deleteManualActivity,
@@ -9727,4 +9758,384 @@ mcpInternalRouter.post(
       note: "The buttons will render under your reply in this email's AI chat — mention them briefly instead of repeating their contents.",
     });
   },
+);
+
+// ----- Marketing agency -----
+//
+// The internal Marketing workspace and the external ad platforms have
+// deliberately separate locks. This grant governs strategy, Creative,
+// Experiments and measurement. A Connection Grant still governs each platform
+// credential, while its spend caps / kill switch / Approvals remain
+// authoritative for external mutations.
+
+async function requireMarketing(
+  req: McpRequest,
+  res: Response,
+  required: MarketingAccessLevel,
+): Promise<boolean> {
+  const grant = await AppDataSource.getRepository(EmployeeMarketingGrant).findOneBy({
+    employeeId: req.mcpEmployee!.id,
+  });
+  if (!grant || MARKETING_ACCESS_RANK[grant.accessLevel] < MARKETING_ACCESS_RANK[required]) {
+    res.status(403).json({
+      error: grant
+        ? `No grant: this needs "${required}" Marketing access; yours is "${grant.accessLevel}". Ask an owner or admin to raise it under Marketing → AI access.`
+        : "No grant: you do not have access to the Marketing workspace. Ask an owner or admin to grant it under Marketing → AI access.",
+    });
+    return false;
+  }
+  return true;
+}
+
+function marketingActor(req: McpRequest): { employeeId: string } {
+  return { employeeId: req.mcpEmployee!.id };
+}
+
+function marketingTool(
+  fn: (req: McpRequest, res: Response) => Promise<unknown>,
+): RequestHandler {
+  return (req, res, next) => {
+    fn(req as McpRequest, res).catch((error: unknown) => {
+      if (error instanceof MarketingValidationError) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+      if (error instanceof MarketingNotFoundError) {
+        res.status(404).json({ error: error.message });
+        return;
+      }
+      next(error);
+    });
+  };
+}
+
+async function auditMarketingTool(
+  req: McpRequest,
+  action: string,
+  targetType: string,
+  targetId: string,
+  targetLabel: string,
+): Promise<void> {
+  await Promise.all([
+    recordAudit({
+      companyId: req.mcpCompany!.id,
+      actorEmployeeId: req.mcpEmployee!.id,
+      action,
+      targetType,
+      targetId,
+      targetLabel,
+    }),
+    journal(req.mcpEmployee!.id, action, targetLabel),
+  ]);
+}
+
+const marketingCampaignFields = {
+  name: z.string().trim().min(1).max(160),
+  objective: z.enum(MARKETING_CAMPAIGN_OBJECTIVES as [string, ...string[]]),
+  status: z.enum(MARKETING_CAMPAIGN_STATUSES as [string, ...string[]]).optional(),
+  autonomyMode: z.enum(MARKETING_AUTONOMY_MODES as [string, ...string[]]).optional(),
+  channel: z.string().trim().max(80).optional(),
+  connectionId: z.string().uuid().nullable().optional(),
+  externalAccountId: z.string().trim().max(160).optional(),
+  externalCampaignId: z.string().trim().max(160).optional(),
+  ownerEmployeeId: z.string().uuid().nullable().optional(),
+  brief: z.string().trim().max(30_000).optional(),
+  audience: z.string().trim().max(10_000).optional(),
+  offer: z.string().trim().max(10_000).optional(),
+  landingPageUrl: z.string().trim().url().or(z.literal("")).optional(),
+  successMetric: z.string().trim().max(80).optional(),
+  targetValue: z.string().trim().max(80).optional(),
+  dailyBudgetMinor: z.number().int().min(0).max(2_147_483_647).optional(),
+  currency: z.string().trim().regex(/^[A-Za-z]{3}$/).optional(),
+  startsAt: z.string().datetime().nullable().optional(),
+  endsAt: z.string().datetime().nullable().optional(),
+};
+
+const marketingCampaignObjectSchema = z.object(marketingCampaignFields);
+const createMarketingCampaignToolSchema = marketingCampaignObjectSchema.strict();
+const updateMarketingCampaignToolSchema = marketingCampaignObjectSchema
+  .partial()
+  .extend({ campaignId: z.string().uuid() })
+  .strict();
+
+const marketingCreativeFields = {
+  campaignId: z.string().uuid(),
+  name: z.string().trim().min(1).max(160),
+  format: z.enum(MARKETING_CREATIVE_FORMATS as [string, ...string[]]).optional(),
+  status: z.enum(MARKETING_CREATIVE_STATUSES as [string, ...string[]]).optional(),
+  variantGroup: z.string().trim().max(120).optional(),
+  concept: z.string().trim().max(10_000).optional(),
+  headline: z.string().trim().max(1_000).optional(),
+  body: z.string().trim().max(10_000).optional(),
+  callToAction: z.string().trim().max(120).optional(),
+  assetUrl: z.string().trim().url().or(z.literal("")).optional(),
+  destinationUrl: z.string().trim().url().or(z.literal("")).optional(),
+  externalCreativeId: z.string().trim().max(160).optional(),
+  reviewNote: z.string().trim().max(10_000).optional(),
+};
+
+const marketingCreativeObjectSchema = z.object(marketingCreativeFields);
+const createMarketingCreativeToolSchema = marketingCreativeObjectSchema.strict();
+const updateMarketingCreativeToolSchema = marketingCreativeObjectSchema
+  .partial()
+  .extend({ creativeId: z.string().uuid() })
+  .strict();
+
+const marketingExperimentFields = {
+  campaignId: z.string().uuid(),
+  name: z.string().trim().min(1).max(160),
+  hypothesis: z.string().trim().max(10_000).optional(),
+  status: z.enum(MARKETING_EXPERIMENT_STATUSES as [string, ...string[]]).optional(),
+  primaryMetric: z.string().trim().max(80).optional(),
+  minimumSampleSize: z.string().trim().max(80).optional(),
+  creativeIds: z.array(z.string().uuid()).min(2).max(20),
+  winnerCreativeId: z.string().uuid().nullable().optional(),
+  decisionRationale: z.string().trim().max(10_000).optional(),
+  startsAt: z.string().datetime().nullable().optional(),
+  endsAt: z.string().datetime().nullable().optional(),
+};
+
+const marketingExperimentObjectSchema = z.object(marketingExperimentFields);
+const createMarketingExperimentToolSchema = marketingExperimentObjectSchema.strict();
+const updateMarketingExperimentToolSchema = marketingExperimentObjectSchema
+  .partial()
+  .extend({ experimentId: z.string().uuid() })
+  .strict();
+
+const recordMarketingPerformanceToolSchema = z
+  .object({
+    campaignId: z.string().uuid(),
+    periodStart: z.string().datetime(),
+    periodEnd: z.string().datetime(),
+    spendMinor: z.number().int().min(0).max(2_147_483_647),
+    impressions: z.number().int().min(0).max(2_147_483_647).optional(),
+    clicks: z.number().int().min(0).max(2_147_483_647).optional(),
+    conversions: z.string().trim().regex(/^\d+(\.\d+)?$/).optional(),
+    conversionValue: z.string().trim().regex(/^\d+(\.\d+)?$/).optional(),
+    currency: z.string().trim().regex(/^[A-Za-z]{3}$/),
+    source: z.string().trim().min(1).max(120),
+    raw: z.record(z.unknown()).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/get_marketing_overview",
+  marketingTool(async (req, res) => {
+    if (!(await requireMarketing(req, res, "read"))) return;
+    res.json(await getMarketingOverview(req.mcpCompany!.id));
+  }),
+);
+
+mcpInternalRouter.post(
+  "/tools/list_marketing_campaigns",
+  validateBody(
+    z
+      .object({
+        status: z.enum(MARKETING_CAMPAIGN_STATUSES as [string, ...string[]]).optional(),
+        channel: z.string().trim().max(80).optional(),
+        ownedByMe: z.boolean().optional(),
+        includeArchived: z.boolean().optional(),
+      })
+      .strict(),
+  ),
+  marketingTool(async (req, res) => {
+    if (!(await requireMarketing(req, res, "read"))) return;
+    res.json({
+      rows: await listMarketingCampaigns(req.mcpCompany!.id, {
+        ...req.body,
+        ownerEmployeeId: req.body.ownedByMe ? req.mcpEmployee!.id : undefined,
+      }),
+    });
+  }),
+);
+
+mcpInternalRouter.post(
+  "/tools/get_marketing_campaign",
+  validateBody(z.object({ campaignId: z.string().uuid() }).strict()),
+  marketingTool(async (req, res) => {
+    if (!(await requireMarketing(req, res, "read"))) return;
+    res.json(await getMarketingCampaign(req.mcpCompany!.id, req.body.campaignId));
+  }),
+);
+
+mcpInternalRouter.post(
+  "/tools/create_marketing_campaign",
+  validateBody(createMarketingCampaignToolSchema),
+  marketingTool(async (req, res) => {
+    if (!(await requireMarketing(req, res, "write"))) return;
+    if (req.body.status && !["draft", "ready"].includes(req.body.status)) {
+      res.status(403).json({
+        error: "Create the Campaign as draft or ready; operate access is required to activate it.",
+      });
+      return;
+    }
+    const row = await createMarketingCampaign(
+      req.mcpCompany!.id,
+      req.body,
+      marketingActor(req),
+    );
+    await auditMarketingTool(
+      req,
+      "marketing.campaign.create",
+      "marketing_campaign",
+      row.id,
+      row.name,
+    );
+    res.json(row);
+  }),
+);
+
+mcpInternalRouter.post(
+  "/tools/update_marketing_campaign",
+  validateBody(updateMarketingCampaignToolSchema),
+  marketingTool(async (req, res) => {
+    const required: MarketingAccessLevel =
+      req.body.status && ["active", "paused", "completed"].includes(req.body.status)
+        ? "operate"
+        : "write";
+    if (!(await requireMarketing(req, res, required))) return;
+    const { campaignId, ...patch } = req.body;
+    const row = await updateMarketingCampaign(req.mcpCompany!.id, campaignId, patch);
+    await auditMarketingTool(
+      req,
+      "marketing.campaign.update",
+      "marketing_campaign",
+      row.id,
+      row.name,
+    );
+    res.json(row);
+  }),
+);
+
+mcpInternalRouter.post(
+  "/tools/list_marketing_creatives",
+  validateBody(z.object({ campaignId: z.string().uuid().optional() }).strict()),
+  marketingTool(async (req, res) => {
+    if (!(await requireMarketing(req, res, "read"))) return;
+    res.json({
+      rows: await listMarketingCreatives(req.mcpCompany!.id, req.body.campaignId),
+    });
+  }),
+);
+
+mcpInternalRouter.post(
+  "/tools/create_marketing_creative",
+  validateBody(createMarketingCreativeToolSchema),
+  marketingTool(async (req, res) => {
+    if (!(await requireMarketing(req, res, "write"))) return;
+    if (req.body.status && !["draft", "review"].includes(req.body.status)) {
+      res.status(403).json({
+        error: "Create Creative as draft or review; operate access is required to approve it.",
+      });
+      return;
+    }
+    const row = await createMarketingCreative(
+      req.mcpCompany!.id,
+      req.body,
+      marketingActor(req),
+    );
+    await auditMarketingTool(
+      req,
+      "marketing.creative.create",
+      "marketing_creative",
+      row.id,
+      row.name,
+    );
+    res.json(row);
+  }),
+);
+
+mcpInternalRouter.post(
+  "/tools/update_marketing_creative",
+  validateBody(updateMarketingCreativeToolSchema),
+  marketingTool(async (req, res) => {
+    const required: MarketingAccessLevel =
+      req.body.status && !["draft", "review"].includes(req.body.status) ? "operate" : "write";
+    if (!(await requireMarketing(req, res, required))) return;
+    const { creativeId, ...patch } = req.body;
+    const row = await updateMarketingCreative(req.mcpCompany!.id, creativeId, patch);
+    await auditMarketingTool(
+      req,
+      "marketing.creative.update",
+      "marketing_creative",
+      row.id,
+      row.name,
+    );
+    res.json(row);
+  }),
+);
+
+mcpInternalRouter.post(
+  "/tools/list_marketing_experiments",
+  validateBody(z.object({ campaignId: z.string().uuid().optional() }).strict()),
+  marketingTool(async (req, res) => {
+    if (!(await requireMarketing(req, res, "read"))) return;
+    res.json({
+      rows: await listMarketingExperiments(req.mcpCompany!.id, req.body.campaignId),
+    });
+  }),
+);
+
+mcpInternalRouter.post(
+  "/tools/create_marketing_experiment",
+  validateBody(createMarketingExperimentToolSchema),
+  marketingTool(async (req, res) => {
+    const required: MarketingAccessLevel =
+      req.body.status && req.body.status !== "draft" ? "operate" : "write";
+    if (!(await requireMarketing(req, res, required))) return;
+    const row = await createMarketingExperiment(
+      req.mcpCompany!.id,
+      req.body,
+      marketingActor(req),
+    );
+    await auditMarketingTool(
+      req,
+      "marketing.experiment.create",
+      "marketing_experiment",
+      row.id,
+      row.name,
+    );
+    res.json(row);
+  }),
+);
+
+mcpInternalRouter.post(
+  "/tools/update_marketing_experiment",
+  validateBody(updateMarketingExperimentToolSchema),
+  marketingTool(async (req, res) => {
+    const required: MarketingAccessLevel =
+      req.body.status && req.body.status !== "draft" ? "operate" : "write";
+    if (!(await requireMarketing(req, res, required))) return;
+    const { experimentId, ...patch } = req.body;
+    const row = await updateMarketingExperiment(req.mcpCompany!.id, experimentId, patch);
+    await auditMarketingTool(
+      req,
+      "marketing.experiment.update",
+      "marketing_experiment",
+      row.id,
+      row.name,
+    );
+    res.json(row);
+  }),
+);
+
+mcpInternalRouter.post(
+  "/tools/record_marketing_performance",
+  validateBody(recordMarketingPerformanceToolSchema),
+  marketingTool(async (req, res) => {
+    if (!(await requireMarketing(req, res, "operate"))) return;
+    const row = await recordMarketingPerformance(
+      req.mcpCompany!.id,
+      req.body,
+      marketingActor(req),
+    );
+    await auditMarketingTool(
+      req,
+      "marketing.performance.record",
+      "marketing_performance_snapshot",
+      row.id,
+      row.source,
+    );
+    res.json(row);
+  }),
 );

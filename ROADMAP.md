@@ -166,6 +166,9 @@ genosyn/
   `RevenueImportBatch`, `Suppression`, `Sequence`, `SequenceStep`,
   `SequenceEnrollment`, `SequenceStepRun`, `Signal`, `SignalEvent`,
   `EmployeeRevenueGrant`
+- **Marketing agency (M35):** `MarketingCampaign`, `MarketingCreative`,
+  `MarketingExperiment`, `MarketingPerformanceSnapshot`,
+  `EmployeeMarketingGrant`
 
 ### Stack
 
@@ -1200,11 +1203,12 @@ browser tools + live take-over instead of native providers.
       platform-side spending-limit backstops), browser-fallback recipe for
       LinkedIn / X / TikTok, Marketing product page on Home.
 
-Deferred deliberately: campaign/creative creation (until the read+lever
-loop proves out), audience/PII uploads, a campaign-mirror workspace
-section, LinkedIn/X/TikTok native providers (review-gated; browser
-fallback documented), FX conversion for caps (caps are denominated in the
-ad account's currency).
+The Campaign / Creative workspace and autonomous operating loop shipped in
+M35. Native provider mutations remain deliberately limited to pause / enable /
+budget: platform-side Campaign and Creative publishing uses a granted guarded
+MCP server or the approval-gated browser, which also covers LinkedIn, X and
+TikTok without pretending their review-gated APIs are self-service. Audience /
+PII uploads and FX conversion for caps remain deferred.
 
 ---
 
@@ -1434,6 +1438,48 @@ or enrichment trusts the resulting records:
 - [ ] Enrichment — deliberately bring-your-own-key through the Integration
       framework rather than a bundled provider
 - [ ] A second sales process per company (one nullable `processId` when asked)
+
+### M35 — Autonomous Marketing agency ✅
+
+Turn the safe paid-media levers from M26 into a complete operating system for
+an AI-run ad agency. The external ad platform remains the source of truth for
+delivery and settled spend; Genosyn is the source of truth for strategy,
+Creative decisions, experimentation, delegation, and the evidence carried from
+one Routine run into the next.
+
+- [x] **Marketing workspace.** A first-class `/marketing` section with a command
+      center, Campaign briefs and lifecycle, Creative review, falsifiable
+      Experiments, and explicit AI access. Empty/loading/error states and
+      responsive contextual navigation are included.
+- [x] **Campaign policy.** Every Campaign records objective, audience, offer,
+      landing page, KPI/target, planned daily budget, external account/Campaign
+      ids, owning AI Employee, and one of `observe < optimize < autonomous`.
+      Ready/active transitions validate the brief; active refuses an unlinked
+      platform Campaign; autonomous refuses an unowned Campaign.
+- [x] **Creative system.** Testable text/image/video/carousel/responsive
+      variants move through draft → review → approved/active → retired, keep
+      reusable concept/copy/review notes, and link to company-controlled assets
+      instead of putting binary data in the database.
+- [x] **Experiment discipline.** A test compares at least two Creative variants
+      from the same Campaign, declares its hypothesis, primary metric and
+      minimum sample before running, and cannot be decided without a winner
+      from the tested set plus a recorded rationale.
+- [x] **Real performance snapshots.** Immutable per-Campaign platform readouts
+      capture settled spend, impressions, clicks, conversions and conversion
+      value for an exact period. This is distinct from `AdSpendEvent`, which
+      remains the append-only ledger of authorized budget changes.
+- [x] **AI delegation.** `EmployeeMarketingGrant` adds `read < write < operate`.
+      Twelve granular deferred tools let Routines inspect the dashboard, manage
+      Campaigns/Creative/Experiments, and record performance. Operate access
+      never confers platform credentials: a separate Connection Grant plus the
+      M26 caps, kill switch and Approvals still gate every external action.
+- [x] **Autonomous loop.** The Performance Marketer template now carries an
+      agency operating Skill and a daily optimization Routine that observes
+      the platform, decides against the Campaign policy, acts only through
+      guarded external tools, and records the evidence and decision.
+- [x] **Docs and tests.** Paid Marketing docs now lead with the in-app Marketing
+      flow and explain the two-lock access model, native vs guarded
+      browser/MCP publishing, and the immutable performance record.
 
 ### M33 — AI-native accounting
 

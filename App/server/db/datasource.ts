@@ -152,6 +152,11 @@ import { RevenueImportRow } from "./entities/RevenueImportRow.js";
 import { RevenueFieldEvidence } from "./entities/RevenueFieldEvidence.js";
 import { RevenueDocumentCandidate } from "./entities/RevenueDocumentCandidate.js";
 import { RevenueDuplicateCandidate } from "./entities/RevenueDuplicateCandidate.js";
+import { MarketingCampaign } from "./entities/MarketingCampaign.js";
+import { MarketingCreative } from "./entities/MarketingCreative.js";
+import { MarketingExperiment } from "./entities/MarketingExperiment.js";
+import { MarketingPerformanceSnapshot } from "./entities/MarketingPerformanceSnapshot.js";
+import { EmployeeMarketingGrant } from "./entities/EmployeeMarketingGrant.js";
 
 const entities = [
   User,
@@ -302,6 +307,12 @@ const entities = [
   RevenueFieldEvidence,
   RevenueDocumentCandidate,
   RevenueDuplicateCandidate,
+  // Marketing agency (M35) — strategy, Creative, Experiments and measurements.
+  MarketingCampaign,
+  MarketingCreative,
+  MarketingExperiment,
+  MarketingPerformanceSnapshot,
+  EmployeeMarketingGrant,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

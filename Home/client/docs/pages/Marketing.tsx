@@ -20,21 +20,84 @@ export function Marketing() {
         title="Paid Marketing"
         lead={
           <>
-            AI employees that watch ad spend, report pacing and ROAS, and — behind per-Connection
-            caps and human approvals — pull the budget levers. Native Integrations for{" "}
-            <Strong>Google Ads, Meta Ads, Microsoft Advertising, and Reddit Ads</Strong>, chosen
-            because each lets a self-hosting company bring its own credentials with no partner
-            program and no vendor in the middle.
+            A complete AI-run ad agency: Campaign strategy, Creative review, Experiments,
+            performance history, and autonomous Routines — with per-Connection caps and human
+            approvals still guarding real platform spend. Native Integrations for{" "}
+            <Strong>Google Ads, Meta Ads, Microsoft Advertising, and Reddit Ads</Strong>.
           </>
         }
       />
 
+      <H2 id="workspace">Run the agency from Marketing</H2>
+      <OL>
+        <LI>
+          Open <Strong>Marketing → Campaigns → New Campaign</Strong>. Write the audience, offer,
+          operating brief, success metric and target; choose the channel, daily budget, autonomy
+          mode, and owning AI Employee.
+        </LI>
+        <LI>
+          Build testable variants under <Strong>Marketing → Creative</Strong>. Creative moves
+          through draft, review, approval, active, and retired states. Assets stay in a
+          company-controlled Resource or URL instead of being copied into the database.
+        </LI>
+        <LI>
+          Under <Strong>Marketing → Experiments</Strong>, compare at least two Creative variants.
+          State the hypothesis, primary metric, and minimum sample before starting. A test cannot
+          be decided without a winner from its tested set and a written rationale.
+        </LI>
+        <LI>
+          Under <Strong>Marketing → AI access</Strong>, grant the Performance Marketer{" "}
+          <Code>operate</Code>. Grant each ad account separately from the employee&apos;s
+          Connections tab; the two grants are deliberately independent.
+        </LI>
+        <LI>
+          Create or publish the platform Campaign through the granted native Connection, a guarded
+          external MCP server, or the approval-gated browser, then store its external Campaign id.
+          Genosyn refuses to mark an unlinked Campaign active.
+        </LI>
+      </OL>
+      <KeyList
+        rows={[
+          {
+            term: "Observe",
+            def: <>The employee reads the workspace and live platform, records evidence, and reports.</>,
+          },
+          {
+            term: "Optimize",
+            def: (
+              <>
+                The employee may take safe actions and queue guarded changes, always inside the
+                Connection&apos;s controls.
+              </>
+            ),
+          },
+          {
+            term: "Autonomous",
+            def: (
+              <>
+                The owning AI Employee runs the full observe → decide → act → learn loop unattended.
+                This never disables caps, kill switches, or Approvals.
+              </>
+            ),
+          },
+        ]}
+      />
+
+      <H2 id="performance">Performance that survives the next run</H2>
+      <P>
+        Every platform read can append an immutable Campaign performance snapshot: exact period,
+        settled spend, impressions, clicks, conversions, conversion value, currency, and source.
+        The next Routine inherits the evidence instead of reconstructing it from a previous chat.
+        This is separate from <Code>AdSpendEvent</Code>, which records authorized budget changes
+        rather than settled spend.
+      </P>
+
       <H2 id="model">The safety model, first</H2>
       <P>
         Ad budgets are real money, so the write surface is deliberately tiny and every layer
-        defaults to human control. There is no campaign or creative creation in v1 — AI employees
-        can read everything, and can only <Strong>pause, enable, and change budgets</Strong>, under
-        these rules:
+        defaults to human control. Genosyn&apos;s native ad-platform mutation surface remains{" "}
+        <Strong>pause, enable, and change budget</Strong>. Broader publishing uses a guarded MCP
+        server or approval-gated browser under the same human-visible operating flow:
       </P>
       <KeyList
         rows={[
@@ -120,7 +183,7 @@ export function Marketing() {
           URI shown in Genosyn&apos;s connect modal.
         </LI>
         <LI>
-          Revenue → Integrations → <Strong>Google Ads</Strong> → Connect. Paste the OAuth client
+          Marketing → Connections → <Strong>Google Ads</Strong> → Connect. Paste the OAuth client
           id/secret, the developer token, and your MCC&apos;s customer id, set the spending caps,
           and finish the consent screen.
         </LI>
@@ -148,7 +211,7 @@ export function Marketing() {
           to it, and generate a token with <Code>ads_read</Code> + <Code>ads_management</Code>.
         </LI>
         <LI>
-          Revenue → Integrations → <Strong>Meta Ads</Strong> → paste the token, optionally pin an
+          Marketing → Connections → <Strong>Meta Ads</Strong> → paste the token, optionally pin an
           ad-account allowlist, and set the caps.
         </LI>
       </OL>
@@ -185,11 +248,13 @@ export function Marketing() {
           employee&apos;s Connections tab.
         </LI>
         <LI>
-          The template ships two Routines: a <Strong>daily pacing check</Strong> (flags
+          The template ships three Routines: a <Strong>daily pacing check</Strong> (flags
           over/under-pacing over a 7-day window — single days are noisy by design since platforms
           overdeliver up to 2× — and treats &quot;couldn&apos;t read the account&quot; as itself an
-          alert) and a <Strong>weekly spend report</Strong> that ties spend to GA4 conversions and,
-          where you run <DocLink to="/docs/finance">Finance</DocLink>, to real invoiced revenue.
+          alert), a <Strong>daily Campaign optimization</Strong> that runs the workspace policy and
+          records performance, and a <Strong>weekly spend report</Strong> that ties spend to GA4
+          conversions and, where you run <DocLink to="/docs/finance">Finance</DocLink>, to real
+          invoiced revenue.
         </LI>
       </OL>
 
@@ -229,10 +294,12 @@ export function Marketing() {
         server-side only after a human approves.
       </P>
 
-      <H2 id="deliberately-missing">Deliberately missing (v1)</H2>
+      <H2 id="deliberately-missing">Deliberate boundaries</H2>
       <UL>
         <LI>
-          Campaign and creative <em>creation</em> — the read + lever loop earns trust first.
+          Native provider tools do not attempt to normalize each platform&apos;s sprawling
+          Campaign/Creative creation API. Use the workspace as the source of strategy and the
+          granted guarded MCP/browser path for platform publishing.
         </LI>
         <LI>Audience / customer-list uploads (hashed-PII pipelines).</LI>
         <LI>

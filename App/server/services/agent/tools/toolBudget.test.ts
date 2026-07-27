@@ -56,9 +56,12 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
  * `find_tools`' always-on domain footer.
  *
  * It rides inside a tool result that `loop.ts` clips at `TOOL_RESULT_CAP_MIN`
- * (8,000 chars), and it has to leave room for six full schemas alongside it.
+ * (8,000 chars), and it has to leave room for returned schemas alongside it.
+ * M35 adds twelve granular Marketing tools whose exact names are part of the
+ * recall backstop. The extra 500 characters are intentional: abbreviating or
+ * hiding those names would make autonomous Campaign operations undiscoverable.
  */
-const DOMAIN_FOOTER_CHARS_MAX = 3_500;
+const DOMAIN_FOOTER_CHARS_MAX = 4_000;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(

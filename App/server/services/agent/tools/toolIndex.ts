@@ -284,6 +284,25 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
       "rollback_revenue_import",
     ],
   },
+  marketing: {
+    label: "marketing agency",
+    blurb:
+      "Paid Campaign strategy, Creative, Experiments and performance. Needs a Marketing grant; external ad platforms need Connection Grants.",
+    tools: [
+      "get_marketing_overview",
+      "list_marketing_campaigns",
+      "get_marketing_campaign",
+      "create_marketing_campaign",
+      "update_marketing_campaign",
+      "list_marketing_creatives",
+      "create_marketing_creative",
+      "update_marketing_creative",
+      "list_marketing_experiments",
+      "create_marketing_experiment",
+      "update_marketing_experiment",
+      "record_marketing_performance",
+    ],
+  },
   files: {
     label: "files",
     blurb: "Send a file to a teammate, and read or fill PDF forms.",
@@ -482,6 +501,31 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
     "attachment import",
   ],
   rollback_revenue_import: ["undo crm import", "revert migration", "import rollback"],
+
+  // Marketing agency
+  get_marketing_overview: ["ads dashboard", "paid media", "ad agency", "campaign performance"],
+  list_marketing_campaigns: ["ads", "paid media", "campaign briefs", "media plan"],
+  get_marketing_campaign: ["ad brief", "campaign strategy", "paid acquisition"],
+  create_marketing_campaign: ["new ad campaign", "media plan", "paid campaign"],
+  update_marketing_campaign: ["launch campaign", "pause campaign", "campaign strategy"],
+  list_marketing_creatives: ["ad copy", "assets", "variants", "creative review"],
+  create_marketing_creative: ["write ad", "ad copy", "creative variant", "concept"],
+  update_marketing_creative: ["approve ad", "revise copy", "retire creative"],
+  list_marketing_experiments: ["ab test", "split test", "creative test"],
+  create_marketing_experiment: [
+    "ab test",
+    "split test",
+    "hypothesis",
+    "compare ad creative variants",
+  ],
+  update_marketing_experiment: ["pick winner", "decide test", "stop experiment"],
+  record_marketing_performance: [
+    "settled ad spend",
+    "impressions",
+    "clicks",
+    "conversions",
+    "roas",
+  ],
 
   // Notes / resources — "doc", "page" and "wiki" are the words in use.
   list_notes: ["doc", "document", "page", "wiki"],

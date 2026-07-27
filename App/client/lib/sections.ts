@@ -11,6 +11,7 @@ import {
   type LucideIcon,
   ListChecks,
   Mail,
+  Megaphone,
   MessageSquare,
   NotebookPen,
   NotebookText,
@@ -48,6 +49,7 @@ export type SectionKey =
   | "explore"
   | "code"
   | "revenue"
+  | "marketing"
   | "customers"
   | "finance"
   | "pipelines"
@@ -237,6 +239,26 @@ export const SECTION_GROUPS: SectionGroup[] = [
     label: "Money",
     items: [
       {
+        key: "marketing",
+        label: "Marketing",
+        description: "Campaigns, Creative, Experiments, and performance.",
+        icon: Megaphone,
+        shortcut: "D",
+        path: "/marketing",
+        iconBg: "bg-orange-100 text-orange-600 dark:bg-orange-500/15 dark:text-orange-300",
+        keywords: [
+          "ads",
+          "advertising",
+          "paid media",
+          "campaigns",
+          "creative",
+          "experiments",
+          "roas",
+          "agency",
+          "acquisition",
+        ],
+      },
+      {
         key: "revenue",
         label: "Revenue",
         description: "Deals, contacts, outbound, and signals.",
@@ -412,6 +434,7 @@ export function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/resources(\/|$)/.test(pathname)) return "resources";
   if (/\/c\/[^/]+\/explore(\/|$)/.test(pathname)) return "explore";
   if (/\/c\/[^/]+\/code(\/|$)/.test(pathname)) return "code";
+  if (/\/c\/[^/]+\/marketing(\/|$)/.test(pathname)) return "marketing";
   if (/\/c\/[^/]+\/revenue(\/|$)/.test(pathname)) return "revenue";
   if (/\/c\/[^/]+\/customers(\/|$)/.test(pathname)) return "customers";
   if (/\/c\/[^/]+\/finance(\/|$)/.test(pathname)) return "finance";

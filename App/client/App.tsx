@@ -124,6 +124,14 @@ import RevenuePartnershipDetail from "./pages/RevenuePartnershipDetail";
 import RevenuePartnerships from "./pages/RevenuePartnerships";
 import RevenueSetup from "./pages/RevenueSetup";
 import RevenueDataQuality from "./pages/RevenueDataQuality";
+import MarketingLayout from "./pages/MarketingLayout";
+import {
+  MarketingAiAccessPage,
+  MarketingCampaignsPage,
+  MarketingCreativePage,
+  MarketingExperimentsPage,
+  MarketingOverviewPage,
+} from "./pages/MarketingPages";
 import CustomersIndex from "./pages/CustomersIndex";
 import CustomerNew from "./pages/CustomerNew";
 import CustomerDetail from "./pages/CustomerDetail";
@@ -457,6 +465,14 @@ function CompanyRoutes({
             <Route path="imports" element={<RevenueImports />} />
             <Route path="data-quality" element={<RevenueDataQuality />} />
             <Route path="setup" element={<RevenueSetup />} />
+          </Route>
+
+          <Route path="marketing" element={<MarketingLayout company={company} />}>
+            <Route index element={<MarketingOverviewPage />} />
+            <Route path="campaigns" element={<MarketingCampaignsPage />} />
+            <Route path="creative" element={<MarketingCreativePage />} />
+            <Route path="experiments" element={<MarketingExperimentsPage />} />
+            <Route path="ai-access" element={<MarketingAiAccessPage />} />
           </Route>
 
           {/* Finance (M19 Phase A) — Products, Tax rates, Invoices, Bills,

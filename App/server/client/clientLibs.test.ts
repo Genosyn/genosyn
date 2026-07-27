@@ -233,6 +233,7 @@ describe("section routing and command search", () => {
       "resources",
       "explore",
       "code",
+      "marketing",
       "revenue",
       "customers",
       "finance",

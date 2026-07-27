@@ -912,26 +912,27 @@ export const PRODUCTS: ProductDef[] = [
     category: "Marketing",
     icon: "megaphone",
     accent: "bg-rose-50 text-rose-700 ring-rose-200",
-    tagline: "An AI employee on your ad accounts.",
+    tagline: "A complete AI ad agency in your company.",
     taglineAccent: "With spending caps it cannot talk its way around.",
     summary:
-      "Google, Meta, Microsoft, and Reddit ads watched daily and reported weekly — with pause/enable/budget levers gated behind per-Connection caps and human approvals.",
-    seoTitle: "Paid Marketing — AI ad management with spend caps · Genosyn",
+      "Campaign strategy, Creative review, Experiments, and autonomous optimization across Google, Meta, Microsoft, and Reddit — with real spend still behind hard guardrails.",
+    seoTitle: "Autonomous Paid Marketing — AI ad agency with spend caps · Genosyn",
     description:
-      "AI employees that monitor Google, Meta, Microsoft, and Reddit ad campaigns, report pacing and ROAS, and change budgets only through hard caps and human approvals.",
+      "An AI-run ad agency for Campaign briefs, Creative, Experiments, performance history, and guarded delivery across Google, Meta, Microsoft, and Reddit.",
     intro:
-      "Paid Marketing gives an AI employee read-first access to your ad accounts — campaign spend, pacing, GAQL and Insights reports — and a deliberately tiny set of levers: pause, enable, change a budget. Every spend increase queues in the Approvals inbox by default; pausing a runaway campaign never waits for anyone. Every authorized change lands in a SQL ledger, so what the AI spent is a query, not a guess.",
+      "Paid Marketing gives an AI employee a durable agency workspace and the live ad-account tools to operate it. Campaign policy, Creative variants, Experiments, and immutable performance snapshots survive every Routine run. Every external spend increase still queues in Approvals by default; pausing a runaway Campaign never waits for anyone.",
     checks: [
       "Google, Meta, Microsoft, Reddit Ads",
+      "Campaign, Creative & Experiment workspace",
+      "Autonomous observe → decide → act → learn loop",
       "Every spend increase needs a human — by default",
-      "Pause is never gated",
       "Per-change, daily & monthly hard caps",
     ],
     features: [
       {
-        icon: "keyRound",
-        title: "Your credentials, no middleman",
-        body: "Each platform connects with credentials your company owns — a Google Ads developer token on your own MCC, a non-expiring Meta system-user token, a self-service Microsoft dev token, an instant Reddit app. No partner program, no vendor in your data path.",
+        icon: "layoutDashboard",
+        title: "The whole agency workspace",
+        body: "Campaign briefs carry audience, offer, KPI, target, budget, owner, platform ids, and autonomy policy. Creative moves through review; Experiments require a hypothesis, sample threshold, winner, and rationale.",
       },
       {
         icon: "shieldAlert",
@@ -950,8 +951,8 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         icon: "table2",
-        title: "A ledger, not a log line",
-        body: "Every authorized delta is a row in the AdSpendEvent table: connection, employee, campaign, signed amount, approval id. “How much did this employee authorize this month?” is SQL.",
+        title: "Performance that survives the run",
+        body: "Immutable Campaign snapshots record settled spend, impressions, clicks, conversions, value, period, and source. They stay distinct from the AdSpendEvent ledger of authorized budget changes.",
       },
       {
         icon: "globe",
@@ -961,19 +962,19 @@ export const PRODUCTS: ProductDef[] = [
     ],
     employees: {
       heading: "A performance marketer on the roster",
-      body: "The Performance Marketer template ships a Soul that treats budget discipline as the job: cite spend data for every claim, escalate anomalies instead of quietly fixing them, and never raise a budget without an approval.",
+      body: "The Performance Marketer template ships a Soul, agency operating Skill, and three Routines that treat evidence and budget discipline as the job.",
       bullets: [
         {
           title: "Daily pacing check",
           body: "A Routine reads every granted ad account each morning, judges pacing over a 7-day window (platforms legally overdeliver on single days), flags zero-delivery campaigns, and treats “couldn’t read the account” as itself an alert.",
         },
         {
-          title: "ROAS against real revenue",
-          body: "The weekly report joins ad spend to GA4 conversions by UTM campaign — and where you run Finance in Genosyn, to actual invoiced revenue, not the platform’s self-graded attribution.",
+          title: "Daily Campaign optimization",
+          body: "A Routine reads every assigned Campaign policy and live platform object, records performance, checks Creative fatigue and Experiments, then acts only to observe, optimize, or autonomous mode.",
         },
         {
-          title: "Proposals a CFO can approve",
-          body: "Budget changes arrive in the Approvals inbox with current budget, proposed budget, evidence, and worst-case daily blast radius — a ten-second decision.",
+          title: "ROAS against real revenue",
+          body: "The weekly report joins ad spend to GA4 conversions by UTM campaign — and where you run Finance in Genosyn, to actual invoiced revenue, not the platform’s self-graded attribution.",
         },
       ],
     },

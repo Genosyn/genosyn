@@ -124,7 +124,7 @@ export const DOCS_NAV: DocsSection[] = [
         path: "/docs/marketing",
         title: "Paid Marketing",
         blurb:
-          "Ad-platform Integrations with spending caps, approval-gated budget levers, and a Performance Marketer template.",
+          "Campaigns, Creative, Experiments, autonomous Routines, and guarded ad-platform delivery.",
       },
     ],
   },
