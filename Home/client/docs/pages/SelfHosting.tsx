@@ -59,7 +59,9 @@ export function SelfHosting() {
     previousEncryptionSecrets: [],
     secureCookies: "auto",
     sessionMaxAgeDays: 7,
-    trustedProxyHops: 0,
+    // The standard Docker deployment sits behind one reverse proxy.
+    // Set 0 only when Genosyn is directly reachable.
+    trustedProxyHops: 1,
     outboundPrivateHostAllowlist: [],
     outboundRequestTimeoutMs: 15_000,
     outboundMaxResponseBytes: 25 * 1024 * 1024,

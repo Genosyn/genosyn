@@ -197,7 +197,7 @@ export const config = {
     previousEncryptionSecrets: [],
     secureCookies: "auto",
     sessionMaxAgeDays: 7,
-    trustedProxyHops: 0,
+    trustedProxyHops: 1,
     outboundPrivateHostAllowlist: [],
     bootstrapMasterAdminEmail: "",
   },
