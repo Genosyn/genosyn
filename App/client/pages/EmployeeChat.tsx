@@ -64,6 +64,7 @@ export default function EmployeeChat() {
     loadedConvId,
     messages,
     streamingReply,
+    progress,
     sendingConvId,
     sending,
     queuedMessages,
@@ -154,6 +155,7 @@ export default function EmployeeChat() {
     messages,
     isActiveResponse,
     streamingReply,
+    progress,
     visibleQueuedMessages.length,
   ]);
 
@@ -322,7 +324,15 @@ export default function EmployeeChat() {
                   content={streamingReply}
                 />
               )}
+              {isActiveResponse && progress && (
+                <ProgressIndicator
+                  authorName={emp.name}
+                  percent={progress.percent}
+                  label={progress.label}
+                />
+              )}
               {isActiveResponse &&
+                !progress &&
                 (streamingReply === null || streamingReply.length === 0) && (
                   <TypingIndicator authorName={emp.name} />
                 )}
@@ -791,6 +801,53 @@ function TypingIndicator({ authorName }: { authorName: string }) {
           <Dot delay="0s" />
           <Dot delay="0.15s" />
           <Dot delay="0.3s" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProgressIndicator({
+  authorName,
+  percent,
+  label,
+}: {
+  authorName: string;
+  percent: number;
+  label: string;
+}) {
+  return (
+    <div
+      className="flex justify-start gap-2.5"
+      role="status"
+      aria-live="polite"
+      aria-label={`${authorName} is ${percent}% complete: ${label}`}
+    >
+      <div className="w-9 shrink-0">
+        <Avatar name={authorName} size={32} />
+      </div>
+      <div className="w-full min-w-0 max-w-[85%] sm:max-w-[75%]">
+        <div className="mb-1 text-[11px] font-medium text-slate-700 dark:text-slate-200">
+          {authorName}
+        </div>
+        <div className="rounded-2xl rounded-tl-md border border-indigo-200 bg-white px-3.5 py-3 shadow-sm dark:border-indigo-500/30 dark:bg-slate-900">
+          <div className="mb-2 flex items-center justify-between gap-4 text-xs">
+            <span className="min-w-0 truncate font-medium text-slate-700 dark:text-slate-200">
+              {label}
+            </span>
+            <span className="shrink-0 font-semibold tabular-nums text-indigo-600 dark:text-indigo-300">
+              {percent}%
+            </span>
+          </div>
+          <div
+            className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"
+            aria-hidden="true"
+          >
+            <div
+              className="h-full rounded-full bg-indigo-600 transition-[width] duration-500 ease-out dark:bg-indigo-500"
+              style={{ width: `${percent}%` }}
+            />
+          </div>
         </div>
       </div>
     </div>

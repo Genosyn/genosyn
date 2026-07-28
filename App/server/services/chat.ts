@@ -18,7 +18,7 @@ import { composeFinanceContext } from "./financeGrants.js";
 import { composeRevenueContext } from "./revenue/grants.js";
 import { composeMarketingContext } from "./marketing.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
-import type { AgentMessage } from "./agent/types.js";
+import type { AgentMessage, AgentProgress } from "./agent/types.js";
 import { config } from "../../config.js";
 import { composeEmployeeSystemPrompt } from "./agent/systemPrompt.js";
 import { residentNamesForSkills, skillToolsetMap } from "./skillToolset.js";
@@ -99,6 +99,11 @@ function formatBusyReply(emp: AIEmployee): string {
 
 export type ChatOptions = {
   conversationId?: string;
+  /**
+   * Enables the turn-local `report_progress` control and receives each update.
+   * Omit it on chat surfaces that cannot display ephemeral progress.
+   */
+  onProgress?: (progress: AgentProgress) => void;
   /** `help` adds the shipped Genosyn source snapshot and support briefing. */
   surface?: "chat" | "help";
   /**
@@ -221,6 +226,13 @@ export async function streamChatWithEmployee(
     });
     if (helpSource) system += `\n${helpSource.prompt}`;
     if (options.extraSystem) system += `\n${options.extraSystem}`;
+    if (options.onProgress) {
+      system += [
+        "",
+        "## Live chat progress",
+        "For substantial multi-step work, use `report_progress` after you understand the work and at meaningful milestones so the Member is not left watching typing dots. Keep percentages honest and increasing, describe the current activity briefly, and reserve the final reply for completion. Skip progress reporting for quick answers.",
+      ].join("\n");
+    }
     const messages = buildMessages(history, message);
 
     const cwd = employeeDir(co.slug, emp.slug);
@@ -287,6 +299,7 @@ export async function streamChatWithEmployee(
               // never let a consumer callback break the turn
             }
           },
+          onProgress: options.onProgress,
         },
       });
       const attachmentIds = drainAttachmentsForToken(mcpToken);

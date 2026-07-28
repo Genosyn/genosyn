@@ -541,6 +541,10 @@ export type ChatAttachment = {
   sizeBytes: number;
   isImage: boolean;
 };
+export type ChatProgress = {
+  percent: number;
+  label: string;
+};
 export type ConversationMessage = {
   id: string;
   conversationId: string;

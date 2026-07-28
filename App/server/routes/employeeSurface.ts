@@ -317,6 +317,7 @@ const sendSchema = z.object({
  *   event: user       — persisted user message row (first, so the client can
  *                       swap its optimistic bubble)
  *   event: chunk      — raw stdout delta from the CLI (`{ text: "..." }`)
+ *   event: progress   — live employee-authored progress (`{ percent, label }`)
  *   event: assistant  — persisted assistant message row (final reply text,
  *                       or an error/skipped body)
  *   event: conversation — updated conversation row (for sidebar refresh)
@@ -458,6 +459,7 @@ employeeSurfaceRouter.post(
         {
           conversationId: conv.id,
           surface: conv.source === "help" ? "help" : "chat",
+          onProgress: (progress) => writeEvent("progress", progress),
         },
       );
 

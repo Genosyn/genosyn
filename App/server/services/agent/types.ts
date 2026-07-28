@@ -84,6 +84,8 @@ export type AgentTool = ToolDef & {
 export type StreamCallbacks = {
   /** Human-visible reply prose, streamed token-by-token. */
   onText?: (delta: string) => void;
+  /** Ephemeral direct-chat progress, explicitly reported by the employee. */
+  onProgress?: (progress: AgentProgress) => void;
   /** Fired before retrying a transient model-service or transport failure. */
   onModelRetry?: (info: ModelRetryInfo) => void;
   /** Fired when the model decides to call a tool (before we execute it). */
@@ -114,6 +116,13 @@ export type StreamCallbacks = {
    * something says which happened.
    */
   onToolsDeferred?: (info: ToolDeferralInfo) => void;
+};
+
+export type AgentProgress = {
+  /** Honest completed-work estimate. The final reply owns 100%. */
+  percent: number;
+  /** Short description of the activity happening now. */
+  label: string;
 };
 
 /** How the run's tools were split between the working set and the catalogue. */

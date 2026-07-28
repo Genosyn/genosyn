@@ -2,6 +2,7 @@ import React from "react";
 import {
   api,
   ChatAttachment,
+  ChatProgress,
   ConversationDetail,
   ConversationMessage,
   ConversationSummary,
@@ -21,6 +22,8 @@ export type EmployeeSession = {
   messages: ConversationMessage[];
   /** Running text for the in-flight assistant reply; null when no stream. */
   streamingReply: string | null;
+  /** Latest employee-authored progress update for the in-flight reply. */
+  progress: ChatProgress | null;
   /** Conversation currently receiving the in-flight reply. */
   sendingConvId: string | null;
   sending: boolean;
@@ -52,6 +55,7 @@ const EMPTY: EmployeeSession = Object.freeze({
   loadedConvId: null,
   messages: [],
   streamingReply: null,
+  progress: null,
   sendingConvId: null,
   sending: false,
   queuedMessages: [],
@@ -328,6 +332,7 @@ export function ChatSessionsProvider({
         sending: true,
         sendingConvId: convId,
         streamingReply: "",
+        progress: null,
         input: clearInput ? "" : s.input,
         messages:
           !convId || s.activeConvId === convId
@@ -398,6 +403,26 @@ export function ChatSessionsProvider({
                 if (s.activeConvId !== streamConvId) return s;
                 return { ...s, streamingReply: accumulated };
               });
+            } else if (event === "progress") {
+              const candidate = data as Partial<ChatProgress> | null;
+              if (
+                typeof candidate?.percent !== "number" ||
+                !Number.isInteger(candidate.percent) ||
+                candidate.percent < 1 ||
+                candidate.percent > 99 ||
+                typeof candidate.label !== "string" ||
+                !candidate.label.trim()
+              ) {
+                return;
+              }
+              const progress = {
+                percent: candidate.percent,
+                label: candidate.label.trim(),
+              };
+              update(empId, (s) => {
+                if (s.activeConvId !== streamConvId) return s;
+                return { ...s, progress };
+              });
             } else if (event === "assistant") {
               const assistantMsg = data as ConversationMessage;
               gotAssistant = true;
@@ -407,6 +432,7 @@ export function ChatSessionsProvider({
                   ...s,
                   messages: [...s.messages, assistantMsg],
                   streamingReply: null,
+                  progress: null,
                 };
               });
             } else if (event === "conversation") {
@@ -435,6 +461,7 @@ export function ChatSessionsProvider({
             return {
               ...s,
               streamingReply: null,
+              progress: null,
               messages: [
                 ...s.messages,
                 {
@@ -455,12 +482,13 @@ export function ChatSessionsProvider({
         const m = serverEventError ? raw : formatChatConnectionError(raw);
         update(empId, (s) => {
           if (s.activeConvId !== convId) {
-            return { ...s, streamingReply: null };
+            return { ...s, streamingReply: null, progress: null };
           }
           const userMsg = persistedUser ?? tempUser;
           return {
             ...s,
             streamingReply: null,
+            progress: null,
             messages: [
               ...s.messages.filter(
                 (x) => x.id !== tempId && x.id !== persistedUser?.id,
@@ -481,7 +509,7 @@ export function ChatSessionsProvider({
           ? raw
           : "Chat connection interrupted. See the conversation for details.";
       } finally {
-        update(empId, { sending: false, sendingConvId: null });
+        update(empId, { sending: false, sendingConvId: null, progress: null });
       }
     },
     [update],

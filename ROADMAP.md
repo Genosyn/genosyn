@@ -583,6 +583,9 @@ sends system mail); this is the company's real inbox. Internal namespace is
 - [x] Direct-chat follow-up queue: the composer stays editable during a reply,
       shows queued messages inline, and releases them serially when the AI
       Employee finishes
+- [x] Employee-authored live progress in direct chat: substantial multi-step
+      turns can publish labelled, monotonic percentage updates over the
+      existing reply stream, while quick replies keep the typing indicator
 - [x] Workspace file editor with path-traversal guards, 2 MiB text-only cap
 
 ### M8 — Polish + QA ✅

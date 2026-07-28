@@ -10,6 +10,7 @@ import {
   type DelegatedBrief,
   type DelegationBudget,
 } from "./tools/parallelDelegation.js";
+import { createChatProgressTool } from "./tools/chatProgress.js";
 
 /**
  * Run one employee agent turn end-to-end — the entry point both the chat seam
@@ -95,6 +96,9 @@ export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<Emp
   const delegationBudget = params.delegationBudget ?? { remaining: MAX_DELEGATIONS_PER_TURN };
   const localTools: AgentTool[] = [...(params.extraTools ?? [])];
   if (delegationDepth === 0) {
+    if (params.callbacks?.onProgress) {
+      localTools.push(createChatProgressTool(params.callbacks.onProgress));
+    }
     localTools.push(
       createParallelDelegationTool({
         budget: delegationBudget,

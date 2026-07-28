@@ -170,7 +170,9 @@ export function Employees() {
           <Code>#</Code> and a name to tag any company resource you can see. Attach files with the
           paperclip, or paste a screenshot and drag files onto the composer. When the employee
           creates a file for you, it appears beneath their reply; select the attachment chip to
-          download it. Chat stays available while that employee&apos;s Routines run.
+          download it. During substantial multi-step work, the employee can replace the typing dots
+          with a live, labelled progress bar and update it at meaningful milestones. Chat stays
+          available while that employee&apos;s Routines run.
         </LI>
         <LI>
           <Strong>Workspace.</Strong> File editor scoped to the employee&apos;s directory — read

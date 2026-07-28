@@ -6,6 +6,7 @@ import { collapseStaticTools } from "./genosynFamilies.js";
 import { codingTools } from "./coding.js";
 import { createFindToolsTool, createCallTool, DISCOVERY_TOOL_NAMES } from "./discovery.js";
 import { createParallelDelegationTool, MAX_DELEGATIONS_PER_TURN } from "./parallelDelegation.js";
+import { createChatProgressTool } from "./chatProgress.js";
 import { RESIDENT_GENOSYN_TOOLS } from "./index.js";
 import { assertIndexCoversManifest, TOOL_DOMAINS, TOOL_KEYWORDS } from "./toolIndex.js";
 import { assertAliasesResolve, RETIRED_FAMILIES } from "./familyAliases.js";
@@ -102,13 +103,16 @@ function residentSet(): AgentTool[] {
     budget: { remaining: MAX_DELEGATIONS_PER_TURN },
     runBrief: async () => ({ status: "completed" as const, output: "" }),
   });
+  // Direct chat adds one small, turn-local resident control so a long reply can
+  // keep the Member informed without making every product tool resident.
+  const progress = createChatProgressTool(() => {});
 
   const discovery = [
     createFindToolsTool({ searchable: [], resolve: () => undefined, grantDead: new Set() }),
     createCallTool({ searchable: [], resolve: () => undefined, grantDead: new Set() }),
   ];
 
-  return [...discovery, ...coding, delegation, ...genosyn];
+  return [...discovery, ...coding, progress, delegation, ...genosyn];
 }
 
 describe("resident tool budget", () => {
