@@ -8,6 +8,7 @@ import {
   Bot,
   CheckCheck,
   ChevronDown,
+  Copy,
   Hash,
   Lock,
   MessagesSquare,
@@ -15,7 +16,9 @@ import {
   Paperclip,
   Plug,
   Plus,
+  RefreshCw,
   Send,
+  Settings as SettingsIcon,
   Smile,
   Trash2,
   User as UserIcon,
@@ -28,11 +31,13 @@ import {
   WorkspaceAttachment,
   WorkspaceAuthor,
   WorkspaceChannel,
+  WorkspaceChannelWebhookSettings,
   WorkspaceDirectory,
   WorkspaceMessage,
   WsInboundEvent,
   workspaceApi,
 } from "../lib/workspace";
+import { copyToClipboard } from "../lib/clipboard";
 import { useCompanySocket, useCompanySocketSubscription } from "../components/CompanySocket";
 import { EmojiPicker } from "../components/workspace/EmojiPicker";
 import { Avatar as UIAvatar } from "../components/ui/Avatar";
@@ -866,6 +871,7 @@ function ChannelView({
     scrollTop: number;
   } | null>(null);
   const [showMembers, setShowMembers] = React.useState(false);
+  const [showSettings, setShowSettings] = React.useState(false);
   const [editingMessageId, setEditingMessageId] = React.useState<string | null>(null);
 
   React.useLayoutEffect(() => {
@@ -946,6 +952,15 @@ function ChannelView({
               title="Archive direct message"
             >
               <Archive size={12} /> Archive
+            </button>
+          )}
+          {channel.kind !== "dm" && (
+            <button
+              onClick={() => setShowSettings(true)}
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+              title="Channel settings"
+            >
+              <SettingsIcon size={12} /> Settings
             </button>
           )}
           <button
@@ -1040,6 +1055,16 @@ function ChannelView({
         company={company}
         onChanged={onChannelUpdated}
       />
+      {channel.kind !== "dm" && (
+        <ChannelSettingsModal
+          open={showSettings}
+          onClose={() => setShowSettings(false)}
+          channel={channel}
+          company={company}
+          onChanged={onChannelUpdated}
+          onArchive={onArchive}
+        />
+      )}
     </>
   );
 }
@@ -2386,6 +2411,234 @@ function NewDMModal({
             <div className="py-8 text-center text-sm text-slate-400">No matches.</div>
           )}
         </div>
+      </div>
+    </Modal>
+  );
+}
+
+function ChannelSettingsModal({
+  open,
+  onClose,
+  channel,
+  company,
+  onChanged,
+  onArchive,
+}: {
+  open: boolean;
+  onClose: () => void;
+  channel: WorkspaceChannel;
+  company: Company;
+  onChanged: (c: WorkspaceChannel) => void;
+  onArchive: () => void;
+}) {
+  const [name, setName] = React.useState(channel.name ?? "");
+  const [topic, setTopic] = React.useState(channel.topic);
+  const [saving, setSaving] = React.useState(false);
+  const [webhook, setWebhook] = React.useState<WorkspaceChannelWebhookSettings | null>(null);
+  const [loadingWebhook, setLoadingWebhook] = React.useState(false);
+  const [changingWebhook, setChangingWebhook] = React.useState(false);
+  const { toast } = useToast();
+  const dialog = useDialog();
+
+  React.useEffect(() => {
+    if (!open) return;
+    setName(channel.name ?? "");
+    setTopic(channel.topic);
+    setWebhook(null);
+    setLoadingWebhook(true);
+    workspaceApi
+      .getChannelWebhook(company.id, channel.id)
+      .then(setWebhook)
+      .catch((error: unknown) => {
+        toast(error instanceof Error ? error.message : "Could not load webhook settings", "error");
+      })
+      .finally(() => setLoadingWebhook(false));
+  }, [channel.id, channel.name, channel.topic, company.id, open, toast]);
+
+  async function saveGeneral() {
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      const updated = await workspaceApi.updateChannel(company.id, channel.id, {
+        name: name.trim(),
+        topic: topic.trim(),
+      });
+      onChanged(updated);
+      toast("Channel settings saved", "success");
+    } catch (error) {
+      toast((error as Error).message, "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function changeWebhook(enabled: boolean, regenerate = false) {
+    setChangingWebhook(true);
+    try {
+      const updated = await workspaceApi.updateChannelWebhook(company.id, channel.id, {
+        enabled,
+        regenerate,
+      });
+      setWebhook(updated);
+      toast(
+        !enabled
+          ? "Incoming webhook disabled"
+          : regenerate
+            ? "Webhook URL regenerated"
+            : "Incoming webhook enabled",
+        "success",
+      );
+    } catch (error) {
+      toast((error as Error).message, "error");
+    } finally {
+      setChangingWebhook(false);
+    }
+  }
+
+  async function archive() {
+    const ok = await dialog.confirm({
+      title: `Archive #${channel.name ?? "channel"}?`,
+      message:
+        "The channel will leave the sidebar and its incoming webhook will stop immediately. Message history is preserved.",
+      confirmLabel: "Archive",
+      variant: "danger",
+    });
+    if (!ok) return;
+    onClose();
+    onArchive();
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Channel settings" size="lg">
+      <div className="space-y-6">
+        <section className="space-y-3">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">General</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Change how this channel appears in Workspace.
+            </p>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+              Name
+            </label>
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              maxLength={80}
+              className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+              Topic
+            </label>
+            <textarea
+              value={topic}
+              onChange={(event) => setTopic(event.target.value)}
+              maxLength={280}
+              rows={2}
+              className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+            />
+          </div>
+          <div className="flex justify-end">
+            <Button disabled={saving || !name.trim()} onClick={saveGeneral}>
+              {saving ? "Saving…" : "Save changes"}
+            </Button>
+          </div>
+        </section>
+
+        <section className="space-y-3 border-t border-slate-100 pt-5 dark:border-slate-800">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              Incoming webhook
+            </h3>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Use services that already send Slack incoming webhooks. JSON text, blocks, and
+              attachments become messages in this channel.
+            </p>
+          </div>
+          {loadingWebhook ? (
+            <div className="flex items-center gap-2 py-3 text-xs text-slate-500">
+              <Spinner size={14} /> Loading webhook settings…
+            </div>
+          ) : webhook?.enabled && webhook.url ? (
+            <div className="space-y-3">
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-500/30 dark:bg-emerald-500/10">
+                <div className="mb-2 text-xs font-medium text-emerald-800 dark:text-emerald-200">
+                  Webhook enabled
+                </div>
+                <div className="flex items-center gap-2">
+                  <code className="min-w-0 flex-1 truncate rounded bg-white px-2 py-1.5 font-mono text-[11px] text-slate-700 dark:bg-slate-950 dark:text-slate-200">
+                    {webhook.url}
+                  </code>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={async () => {
+                      const copied = await copyToClipboard(webhook.url!);
+                      toast(
+                        copied ? "Webhook URL copied" : "Could not access clipboard",
+                        copied ? "success" : "error",
+                      );
+                    }}
+                  >
+                    <Copy size={13} /> Copy
+                  </Button>
+                </div>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                The URL is a credential. Keep it secret. This URL always posts to this channel, even
+                if a Slack payload names a different one.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={changingWebhook}
+                  onClick={() => changeWebhook(true, true)}
+                >
+                  <RefreshCw size={13} /> Regenerate URL
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={changingWebhook}
+                  onClick={() => changeWebhook(false)}
+                >
+                  Disable
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+              <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+                Enabling creates a unique Slack-compatible URL for this channel.
+              </p>
+              <Button
+                size="sm"
+                disabled={changingWebhook || loadingWebhook}
+                onClick={() => changeWebhook(true)}
+              >
+                Enable incoming webhook
+              </Button>
+            </div>
+          )}
+        </section>
+
+        <section className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-5 dark:border-slate-800">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              Archive channel
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Hide the channel and disable its webhook while preserving history.
+            </p>
+          </div>
+          <Button variant="danger" onClick={archive}>
+            <Archive size={14} /> Archive
+          </Button>
+        </section>
       </div>
     </Modal>
   );

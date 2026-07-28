@@ -45,6 +45,14 @@ export class Channel {
   @Column({ type: "varchar", default: "" })
   topic!: string;
 
+  /**
+   * Secret carried in a Slack-compatible incoming-webhook URL. Null disables
+   * delivery. DMs never receive a token: webhooks are channel integrations,
+   * not a way to impersonate either side of a private conversation.
+   */
+  @Column({ type: "varchar", nullable: true })
+  webhookToken!: string | null;
+
   /** userId of the human that created the channel. Null for system channels. */
   @Column({ type: "varchar", nullable: true })
   createdByUserId!: string | null;

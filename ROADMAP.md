@@ -615,6 +615,8 @@ sends system mail); this is the company's real inbox. Internal namespace is
 - [x] Recent-first message history with upward-scroll pagination and visible
       loading states
 - [x] Edit / soft-delete own messages, broadcast over WS
+- [x] Per-channel Slack-compatible incoming webhooks, configured from channel
+      settings with copy, regeneration, and disable controls
 - [ ] Typing indicators UI (plumbing exists, UI deferred)
 - [ ] Threaded replies UI (column exists, UI deferred)
 - [ ] Search, link unfurls, desktop notifications

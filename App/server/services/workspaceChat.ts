@@ -3,10 +3,7 @@ import { In, IsNull } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Channel, ChannelKind } from "../db/entities/Channel.js";
 import { ChannelMember } from "../db/entities/ChannelMember.js";
-import {
-  ChannelMessage,
-  ChannelMessageAuthorKind,
-} from "../db/entities/ChannelMessage.js";
+import { ChannelMessage, ChannelMessageAuthorKind } from "../db/entities/ChannelMessage.js";
 import { MessageReaction } from "../db/entities/MessageReaction.js";
 import { Attachment } from "../db/entities/Attachment.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -21,10 +18,7 @@ import { streamChatWithEmployee, ChatTurn } from "./chat.js";
 import { Company } from "../db/entities/Company.js";
 import { createNotifications } from "./notifications.js";
 import { ensureUserHandles } from "./userHandle.js";
-import {
-  historicalAttachmentSummaries,
-  inlineAttachmentsForMessage,
-} from "./attachmentText.js";
+import { historicalAttachmentSummaries, inlineAttachmentsForMessage } from "./attachmentText.js";
 
 /**
  * The workspace-chat service: channels, DMs, messages, reactions.
@@ -165,6 +159,7 @@ export async function createChannel(params: {
     name: params.name,
     slug,
     topic: params.topic || "",
+    webhookToken: null,
     createdByUserId: params.createdByUserId,
     archivedAt: null,
     lastMessageAt: null,
@@ -208,9 +203,7 @@ export async function createChannel(params: {
   return channel;
 }
 
-export type DmActor =
-  | { kind: "user"; userId: string }
-  | { kind: "ai"; employeeId: string };
+export type DmActor = { kind: "user"; userId: string } | { kind: "ai"; employeeId: string };
 
 function dmActorMatchesMember(actor: DmActor, m: ChannelMember): boolean {
   if (actor.kind === "user") {
@@ -301,6 +294,7 @@ export async function findOrCreateDM(params: {
     name: null,
     slug: null,
     topic: "",
+    webhookToken: null,
     createdByUserId: params.from.kind === "user" ? params.from.userId : null,
     archivedAt: null,
     lastMessageAt: null,
@@ -320,7 +314,7 @@ export async function archiveChannel(channelId: string): Promise<void> {
   const c = await channels.findOneBy({ id: channelId });
   if (!c) return;
   if (c.archivedAt) return;
-  await channels.update({ id: channelId }, { archivedAt: new Date() });
+  await channels.update({ id: channelId }, { archivedAt: new Date(), webhookToken: null });
   broadcastToCompany(c.companyId, { type: "channel.archive", channelId });
 }
 
@@ -364,8 +358,7 @@ export async function renameChannel(params: {
 
   if (params.name !== undefined && params.name.trim()) {
     const nextName = params.name.trim();
-    const nextSlug =
-      slugify(nextName, { lower: true, strict: true }) || "channel";
+    const nextSlug = slugify(nextName, { lower: true, strict: true }) || "channel";
     if (nextSlug !== c.slug) {
       const clash = await channels.findOneBy({
         companyId: c.companyId,
@@ -380,10 +373,11 @@ export async function renameChannel(params: {
   }
   if (params.topic !== undefined) c.topic = params.topic;
   await channels.save(c);
+  const { webhookToken: _webhookToken, ...publicChannel } = c;
   broadcastToCompany(c.companyId, {
     type: "channel.update",
     channelId: c.id,
-    channel: c,
+    channel: publicChannel,
   });
   return c;
 }
@@ -395,12 +389,8 @@ export async function addChannelMembers(params: {
 }): Promise<ChannelMember[]> {
   const { members } = repos();
   const existing = await members.find({ where: { channelId: params.channelId } });
-  const seenUsers = new Set(
-    existing.filter((m) => m.userId).map((m) => m.userId!),
-  );
-  const seenEmps = new Set(
-    existing.filter((m) => m.employeeId).map((m) => m.employeeId!),
-  );
+  const seenUsers = new Set(existing.filter((m) => m.userId).map((m) => m.userId!));
+  const seenEmps = new Set(existing.filter((m) => m.employeeId).map((m) => m.employeeId!));
   const toCreate: ChannelMember[] = [];
   for (const uid of params.userIds) {
     if (seenUsers.has(uid)) continue;
@@ -430,10 +420,7 @@ export async function addChannelMembers(params: {
   return toCreate;
 }
 
-export async function removeChannelMember(
-  channelId: string,
-  memberId: string,
-): Promise<void> {
+export async function removeChannelMember(channelId: string, memberId: string): Promise<void> {
   const { members } = repos();
   await members.delete({ id: memberId, channelId });
 }
@@ -466,16 +453,11 @@ export async function postMessage(params: {
   await messages.save(msg);
 
   if (params.attachmentIds && params.attachmentIds.length > 0) {
-    await bindAttachmentsToMessage(
-      params.attachmentIds,
-      msg.id,
-      params.companyId,
-    );
+    await bindAttachmentsToMessage(params.attachmentIds, msg.id, params.companyId);
   }
   await channels.update({ id: channel.id }, { lastMessageAt: msg.createdAt });
 
-  const viewerUserId =
-    params.author.kind === "user" ? params.author.userId : null;
+  const viewerUserId = params.author.kind === "user" ? params.author.userId : null;
   const summary = await hydrateMessage(msg, viewerUserId);
   broadcastToCompany(params.companyId, {
     type: "message.new",
@@ -508,6 +490,65 @@ export async function postMessage(params: {
     });
   }
 
+  return summary;
+}
+
+/**
+ * Persist a message received through a channel's Slack-compatible webhook.
+ * The URL credential is verified by the public route before this seam.
+ */
+export async function postIncomingWebhookMessage(params: {
+  channel: Channel;
+  authorName: string;
+  content: string;
+}): Promise<MessageSummary> {
+  const { channels, messages } = repos();
+  if (params.channel.kind === "dm" || params.channel.archivedAt) {
+    throw new Error("Channel not found");
+  }
+  const message = await messages.save(
+    messages.create({
+      channelId: params.channel.id,
+      authorKind: "system",
+      authorUserId: null,
+      authorEmployeeId: null,
+      authorName: params.authorName,
+      content: params.content,
+      parentMessageId: null,
+      editedAt: null,
+      deletedAt: null,
+    }),
+  );
+  await channels.update({ id: params.channel.id }, { lastMessageAt: message.createdAt });
+  const summary = await hydrateMessage(message, null);
+  broadcastToCompany(params.channel.companyId, {
+    type: "message.new",
+    channelId: params.channel.id,
+    message: summary,
+  });
+
+  if (/@[a-z0-9]/i.test(params.content)) {
+    // Slack-style @employee-slug mentions retain the same behaviour as
+    // messages typed in Genosyn. Public channels auto-join the employee;
+    // private channels still require an explicit membership.
+    void handleMentions({
+      channel: params.channel,
+      message,
+      trigger: { kind: "system", name: params.authorName },
+    }).catch((error: unknown) => {
+      // eslint-disable-next-line no-console
+      console.error("[workspaceChat] webhook mention reply failed:", error);
+    });
+    void notifyHumanRecipients({
+      channel: params.channel,
+      message,
+      authorUserId: null,
+      authorName: params.authorName,
+    }).catch((error: unknown) => {
+      // eslint-disable-next-line no-console
+      console.error("[workspaceChat] webhook recipient notification failed:", error);
+    });
+  }
   return summary;
 }
 
@@ -631,10 +672,7 @@ export async function listMessages(params: {
     .take(params.limit);
   if (params.before) {
     qb.andWhere("m.createdAt < :before", {
-      before: formatMessageBeforeCursor(
-        params.before,
-        AppDataSource.options.type,
-      ),
+      before: formatMessageBeforeCursor(params.before, AppDataSource.options.type),
     });
   }
   const rows = await qb.getMany();
@@ -642,10 +680,7 @@ export async function listMessages(params: {
   return hydrateMessages(rows, params.viewerUserId);
 }
 
-export function formatMessageBeforeCursor(
-  before: string,
-  databaseType: string,
-): string | Date {
+export function formatMessageBeforeCursor(before: string, databaseType: string): string | Date {
   const date = new Date(before);
   if (Number.isNaN(date.getTime())) {
     throw new Error("Invalid message cursor");
@@ -731,24 +766,15 @@ export async function markChannelRead(params: {
 
 // ───────────────── Hydration helpers (DB row → API DTO) ─────────────────
 
-async function hydrateChannel(
-  c: Channel,
-  viewerUserId: string,
-): Promise<ChannelSummary> {
+async function hydrateChannel(c: Channel, viewerUserId: string): Promise<ChannelSummary> {
   const { members, messages, users, employees } = repos();
 
   const memberRows = await members.find({ where: { channelId: c.id } });
-  const userIds = memberRows
-    .filter((m) => m.userId)
-    .map((m) => m.userId as string);
-  const empIds = memberRows
-    .filter((m) => m.employeeId)
-    .map((m) => m.employeeId as string);
+  const userIds = memberRows.filter((m) => m.userId).map((m) => m.userId as string);
+  const empIds = memberRows.filter((m) => m.employeeId).map((m) => m.employeeId as string);
   const [userRows, empRows] = await Promise.all([
     userIds.length ? users.findBy({ id: In(userIds) }) : Promise.resolve([]),
-    empIds.length
-      ? employees.findBy({ id: In(empIds) })
-      : Promise.resolve([]),
+    empIds.length ? employees.findBy({ id: In(empIds) }) : Promise.resolve([]),
   ]);
   const userMap = new Map(userRows.map((u) => [u.id, u]));
   const empMap = new Map(empRows.map((e) => [e.id, e]));
@@ -787,9 +813,7 @@ async function hydrateChannel(
     // SQLite's `TEXT > INTEGER` is unconditionally true under type-affinity
     // rules — which silently turned this whole filter into a no-op and made
     // the unread badge equal the total count of non-self messages.
-    const threshold = lastRead
-      ? lastRead.toISOString().replace("T", " ").replace("Z", "")
-      : null;
+    const threshold = lastRead ? lastRead.toISOString().replace("T", " ").replace("Z", "") : null;
     const qb = messages
       .createQueryBuilder("m")
       .where("m.channelId = :channelId", { channelId: c.id })
@@ -839,12 +863,8 @@ async function hydrateMessages(
   }
 
   const [userRows, empRows, attachmentsByMsg, reactionRows] = await Promise.all([
-    userIds.size
-      ? users.findBy({ id: In(Array.from(userIds)) })
-      : Promise.resolve([]),
-    empIds.size
-      ? employees.findBy({ id: In(Array.from(empIds)) })
-      : Promise.resolve([]),
+    userIds.size ? users.findBy({ id: In(Array.from(userIds)) }) : Promise.resolve([]),
+    empIds.size ? employees.findBy({ id: In(Array.from(empIds)) }) : Promise.resolve([]),
     attachmentsForMessages(msgs.map((m) => m.id)),
     reactions
       .createQueryBuilder("r")
@@ -896,7 +916,7 @@ async function hydrateMessages(
         };
       }
     } else if (m.authorKind === "system") {
-      author = { kind: "system", id: null, name: "system" };
+      author = { kind: "system", id: null, name: m.authorName || "system" };
     }
 
     const files = attachmentsByMsg.get(m.id) ?? [];
@@ -917,8 +937,7 @@ async function hydrateMessages(
     }
     const reactionSummaries: ReactionSummary[] = [];
     for (const [emoji, arr] of byEmoji) {
-      const byMe =
-        viewerUserId !== null && arr.some((r) => r.userId === viewerUserId);
+      const byMe = viewerUserId !== null && arr.some((r) => r.userId === viewerUserId);
       const actors: ReactionSummary["actors"] = arr.map((r) => {
         if (r.userId) {
           const u = reactUserMap.get(r.userId);
@@ -969,7 +988,7 @@ function parseMentionSlugs(content: string): string[] {
 async function handleMentions(args: {
   channel: Channel;
   message: ChannelMessage;
-  trigger: DmActor;
+  trigger: DmActor | { kind: "system"; name: string };
 }): Promise<void> {
   const { employees, members, channels, messages: msgRepo } = repos();
 
@@ -995,10 +1014,7 @@ async function handleMentions(args: {
       (m) =>
         m.memberKind === "ai" &&
         m.employeeId !== null &&
-        !(
-          args.trigger.kind === "ai" &&
-          m.employeeId === args.trigger.employeeId
-        ),
+        !(args.trigger.kind === "ai" && m.employeeId === args.trigger.employeeId),
     );
     if (counterpart?.employeeId) {
       const e = await employees.findOneBy({ id: counterpart.employeeId });
@@ -1020,9 +1036,7 @@ async function handleMentions(args: {
   const memberRows = await members.find({
     where: { channelId: args.channel.id },
   });
-  const memberEmpIds = new Set(
-    memberRows.filter((m) => m.employeeId).map((m) => m.employeeId!),
-  );
+  const memberEmpIds = new Set(memberRows.filter((m) => m.employeeId).map((m) => m.employeeId!));
 
   // For public channels we also auto-join the mentioned AI so they appear in
   // the member list going forward — matches Slack's "bot gets added on first
@@ -1045,9 +1059,7 @@ async function handleMentions(args: {
   for (const m of toJoin) memberEmpIds.add(m.employeeId!);
 
   // Filter to actual members only.
-  respondingEmployees = respondingEmployees.filter((e) =>
-    memberEmpIds.has(e.id),
-  );
+  respondingEmployees = respondingEmployees.filter((e) => memberEmpIds.has(e.id));
 
   for (const emp of respondingEmployees) {
     const recentRows = await msgRepo
@@ -1079,16 +1091,14 @@ async function handleMentions(args: {
     const triggerLabel =
       args.trigger.kind === "user"
         ? await userLabelFor(args.trigger.userId)
-        : await employeeLabelFor(args.trigger.employeeId);
+        : args.trigger.kind === "ai"
+          ? await employeeLabelFor(args.trigger.employeeId)
+          : args.trigger.name;
     const triggerAttachments = await inlineAttachmentsForMessage(
       args.message.id,
       args.channel.companyId,
     );
-    const framed = framedMention(
-      args.message.content,
-      triggerLabel,
-      triggerAttachments,
-    );
+    const framed = framedMention(args.message.content, triggerLabel, triggerAttachments);
 
     // Broadcast typing every 3 s while the CLI is thinking so teammates
     // see a "{name} is typing..." pill instead of silence. The interval
@@ -1128,15 +1138,10 @@ async function handleMentions(args: {
       }),
     );
     if (result.attachmentIds.length > 0) {
-      await bindAttachmentsToMessage(
-        result.attachmentIds,
-        reply.id,
-        args.channel.companyId,
-      );
+      await bindAttachmentsToMessage(result.attachmentIds, reply.id, args.channel.companyId);
     }
     await channels.update({ id: args.channel.id }, { lastMessageAt: reply.createdAt });
-    const viewerUserId =
-      args.trigger.kind === "user" ? args.trigger.userId : null;
+    const viewerUserId = args.trigger.kind === "user" ? args.trigger.userId : null;
     const summary = await hydrateMessage(reply, viewerUserId);
     broadcastToCompany(args.channel.companyId, {
       type: "message.new",
@@ -1163,9 +1168,7 @@ async function historyForEmployee(
   const [u, e, attachmentSummaries] = await Promise.all([
     userIds.length ? users.findBy({ id: In(userIds) }) : Promise.resolve([]),
     empIds.length ? employees.findBy({ id: In(empIds) }) : Promise.resolve([]),
-    historicalAttachmentSummaries(
-      rows.filter((r) => r.id !== triggerMessageId).map((r) => r.id),
-    ),
+    historicalAttachmentSummaries(rows.filter((r) => r.id !== triggerMessageId).map((r) => r.id)),
   ]);
   const uMap = new Map(u.map((x) => [x.id, x.name || x.email]));
   const eMap = new Map(e.map((x) => [x.id, x.name]));
@@ -1180,10 +1183,10 @@ async function historyForEmployee(
     } else {
       const name =
         r.authorKind === "user" && r.authorUserId
-          ? uMap.get(r.authorUserId) ?? "Teammate"
+          ? (uMap.get(r.authorUserId) ?? "Teammate")
           : r.authorKind === "ai" && r.authorEmployeeId
-          ? eMap.get(r.authorEmployeeId) ?? "AI teammate"
-          : "system";
+            ? (eMap.get(r.authorEmployeeId) ?? "AI teammate")
+            : r.authorName || "system";
       turns.push({ role: "user", content: annotate(r.id, `${name}: ${r.content}`) });
     }
   }
@@ -1222,7 +1225,8 @@ async function employeeLabelFor(employeeId: string): Promise<string> {
 async function notifyHumanRecipients(args: {
   channel: Channel;
   message: ChannelMessage;
-  authorUserId: string;
+  authorUserId: string | null;
+  authorName?: string;
 }): Promise<void> {
   const { channel, message, authorUserId } = args;
   const { members, users, memberships } = repos();
@@ -1232,14 +1236,10 @@ async function notifyHumanRecipients(args: {
   });
   if (!company) return;
 
-  const author = await users.findOneBy({ id: authorUserId });
-  const authorName = author?.name || author?.email || "Someone";
+  const author = authorUserId ? await users.findOneBy({ id: authorUserId }) : null;
+  const authorName = args.authorName || author?.name || author?.email || "Someone";
   const channelLabel =
-    channel.kind === "dm"
-      ? null
-      : channel.name
-        ? `#${channel.name}`
-        : "a channel";
+    channel.kind === "dm" ? null : channel.name ? `#${channel.name}` : "a channel";
   const linkBase = `/c/${company.slug}/workspace/${channel.id}`;
 
   const recipients = new Set<string>();
@@ -1269,9 +1269,7 @@ async function notifyHumanRecipients(args: {
         where: { channelId: channel.id },
       });
       const memberUserIds = new Set(
-        channelMemberRows
-          .filter((m) => m.userId)
-          .map((m) => m.userId as string),
+        channelMemberRows.filter((m) => m.userId).map((m) => m.userId as string),
       );
       allowed = allowed.filter((uid) => memberUserIds.has(uid));
     }
@@ -1307,11 +1305,7 @@ function previewText(body: string): string {
   return oneLine.length > 140 ? `${oneLine.slice(0, 140)}…` : oneLine;
 }
 
-function framedMention(
-  content: string,
-  userLabel: string,
-  attachmentBlock: string,
-): string {
+function framedMention(content: string, userLabel: string, attachmentBlock: string): string {
   // Prefix the user name so the AI sees who it's talking to, and strip the
   // @mention token so the model doesn't echo it back. Append any attachment
   // content the user uploaded with this message — without this, files like
@@ -1323,18 +1317,14 @@ function framedMention(
 
 // ──────────────────────── Directory lookups ──────────────────────────────
 
-export async function listCompanyDirectory(
-  companyId: string,
-): Promise<{
+export async function listCompanyDirectory(companyId: string): Promise<{
   members: { id: string; name: string; email: string; handle: string | null }[];
   employees: { id: string; name: string; slug: string; role: string }[];
 }> {
   const { memberships, users, employees } = repos();
   const mems = await memberships.findBy({ companyId });
   const userIds = mems.map((m) => m.userId);
-  const userRows = userIds.length
-    ? await users.findBy({ id: In(userIds) })
-    : [];
+  const userRows = userIds.length ? await users.findBy({ id: In(userIds) }) : [];
   const empRows = await employees.findBy({ companyId });
   return {
     members: userRows.map((u) => ({
@@ -1381,9 +1371,7 @@ export async function listCompanyMentionables(
     channels.findBy({ companyId }),
   ]);
 
-  const userRows = mems.length
-    ? await users.findBy({ id: In(mems.map((m) => m.userId)) })
-    : [];
+  const userRows = mems.length ? await users.findBy({ id: In(mems.map((m) => m.userId)) }) : [];
   // Older accounts can sit without a handle until they touch Profile
   // settings. Backfill on read so every member is tag-able by default.
   await ensureUserHandles(userRows);
@@ -1399,9 +1387,9 @@ export async function listCompanyMentionables(
 
   const baseById = new Map(bases.map((b) => [b.id, b]));
 
-  const connections = await AppDataSource.getRepository(
-    IntegrationConnection,
-  ).findBy({ companyId });
+  const connections = await AppDataSource.getRepository(IntegrationConnection).findBy({
+    companyId,
+  });
 
   const base = `/c/${companySlug}`;
   const out: Mentionable[] = [];
@@ -1514,7 +1502,15 @@ export async function listChannelsForEmployee(
   companyId: string,
   employeeId: string,
 ): Promise<
-  { id: string; name: string | null; slug: string | null; kind: ChannelKind; topic: string; archivedAt: string | null; memberCount: number }[]
+  {
+    id: string;
+    name: string | null;
+    slug: string | null;
+    kind: ChannelKind;
+    topic: string;
+    archivedAt: string | null;
+    memberCount: number;
+  }[]
 > {
   const { channels, members } = repos();
   const rows = await channels.find({ where: { companyId } });

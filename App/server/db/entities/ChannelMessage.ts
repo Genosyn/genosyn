@@ -40,6 +40,13 @@ export class ChannelMessage {
   @Column({ type: "varchar", nullable: true })
   authorEmployeeId!: string | null;
 
+  /**
+   * Display name for system-authored messages such as incoming webhooks.
+   * Human and AI names remain sourced from their live entity rows.
+   */
+  @Column({ type: "varchar", nullable: true })
+  authorName!: string | null;
+
   @Column({ type: "text", default: "" })
   content!: string;
 

@@ -58,6 +58,11 @@ export type WorkspaceChannel = {
   unreadCount: number;
 };
 
+export type WorkspaceChannelWebhookSettings = {
+  enabled: boolean;
+  url: string | null;
+};
+
 export type WorkspaceDirectory = {
   members: {
     id: string;
@@ -88,14 +93,11 @@ export type Mentionable = {
 const base = (companyId: string) => `/api/companies/${companyId}/workspace`;
 
 export const workspaceApi = {
-  directory: (companyId: string) =>
-    api.get<WorkspaceDirectory>(`${base(companyId)}/directory`),
+  directory: (companyId: string) => api.get<WorkspaceDirectory>(`${base(companyId)}/directory`),
 
-  mentionables: (companyId: string) =>
-    api.get<Mentionable[]>(`${base(companyId)}/mentionables`),
+  mentionables: (companyId: string) => api.get<Mentionable[]>(`${base(companyId)}/mentionables`),
 
-  listChannels: (companyId: string) =>
-    api.get<WorkspaceChannel[]>(`${base(companyId)}/channels`),
+  listChannels: (companyId: string) => api.get<WorkspaceChannel[]>(`${base(companyId)}/channels`),
 
   getChannel: (companyId: string, channelId: string) =>
     api.get<WorkspaceChannel>(`${base(companyId)}/channels/${channelId}`),
@@ -111,8 +113,24 @@ export const workspaceApi = {
     },
   ) => api.post<WorkspaceChannel>(`${base(companyId)}/channels`, body),
 
+  updateChannel: (companyId: string, channelId: string, body: { name?: string; topic?: string }) =>
+    api.patch<WorkspaceChannel>(`${base(companyId)}/channels/${channelId}`, body),
+
   archiveChannel: (companyId: string, channelId: string) =>
     api.post(`${base(companyId)}/channels/${channelId}/archive`),
+
+  getChannelWebhook: (companyId: string, channelId: string) =>
+    api.get<WorkspaceChannelWebhookSettings>(`${base(companyId)}/channels/${channelId}/webhook`),
+
+  updateChannelWebhook: (
+    companyId: string,
+    channelId: string,
+    body: { enabled: boolean; regenerate?: boolean },
+  ) =>
+    api.post<WorkspaceChannelWebhookSettings>(
+      `${base(companyId)}/channels/${channelId}/webhook`,
+      body,
+    ),
 
   resetContext: (companyId: string, channelId: string) =>
     api.post<WorkspaceMessage>(`${base(companyId)}/channels/${channelId}/context/reset`, {}),
@@ -121,19 +139,13 @@ export const workspaceApi = {
     companyId: string,
     channelId: string,
     body: { userIds?: string[]; employeeIds?: string[] },
-  ) =>
-    api.post<WorkspaceChannel>(
-      `${base(companyId)}/channels/${channelId}/members`,
-      body,
-    ),
+  ) => api.post<WorkspaceChannel>(`${base(companyId)}/channels/${channelId}/members`, body),
 
   markRead: (companyId: string, channelId: string) =>
     api.post(`${base(companyId)}/channels/${channelId}/read`),
 
-  openDm: (
-    companyId: string,
-    target: { targetUserId: string } | { targetEmployeeId: string },
-  ) => api.post<WorkspaceChannel>(`${base(companyId)}/dms`, target),
+  openDm: (companyId: string, target: { targetUserId: string } | { targetEmployeeId: string }) =>
+    api.post<WorkspaceChannel>(`${base(companyId)}/dms`, target),
 
   listMessages: (
     companyId: string,
@@ -153,31 +165,18 @@ export const workspaceApi = {
     companyId: string,
     channelId: string,
     body: { content: string; attachmentIds?: string[]; parentMessageId?: string | null },
-  ) =>
-    api.post<WorkspaceMessage>(
-      `${base(companyId)}/channels/${channelId}/messages`,
-      body,
-    ),
+  ) => api.post<WorkspaceMessage>(`${base(companyId)}/channels/${channelId}/messages`, body),
 
   editMessage: (companyId: string, messageId: string, content: string) =>
-    api.patch<WorkspaceMessage>(
-      `${base(companyId)}/messages/${messageId}`,
-      { content },
-    ),
+    api.patch<WorkspaceMessage>(`${base(companyId)}/messages/${messageId}`, { content }),
 
   deleteMessage: (companyId: string, messageId: string) =>
     api.del(`${base(companyId)}/messages/${messageId}`),
 
   toggleReaction: (companyId: string, messageId: string, emoji: string) =>
-    api.post<{ added: boolean }>(
-      `${base(companyId)}/messages/${messageId}/reactions`,
-      { emoji },
-    ),
+    api.post<{ added: boolean }>(`${base(companyId)}/messages/${messageId}/reactions`, { emoji }),
 
-  uploadAttachment: async (
-    companyId: string,
-    file: File,
-  ): Promise<WorkspaceAttachment> => {
+  uploadAttachment: async (companyId: string, file: File): Promise<WorkspaceAttachment> => {
     const form = new FormData();
     form.append("file", file);
     const res = await fetch(`${base(companyId)}/attachments`, {
@@ -195,8 +194,7 @@ export const workspaceApi = {
   attachmentUrl: (companyId: string, attachmentId: string) =>
     `${base(companyId)}/attachments/${attachmentId}`,
 
-  wsToken: (companyId: string) =>
-    api.post<{ token: string }>(`${base(companyId)}/ws-token`),
+  wsToken: (companyId: string) => api.post<{ token: string }>(`${base(companyId)}/ws-token`),
 };
 
 // ──────────────────────── WebSocket client ───────────────────────────────

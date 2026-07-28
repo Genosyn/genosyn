@@ -1,4 +1,5 @@
-import { Router } from "express";
+import { Router, urlencoded } from "express";
+import { z } from "zod";
 import { AppDataSource } from "../db/datasource.js";
 import { Routine } from "../db/entities/Routine.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -10,6 +11,13 @@ import { findPipelineByWebhook } from "../services/pipelines/index.js";
 import { runPipeline } from "../services/pipelines/executor.js";
 import { notifyApprovalPending } from "../services/notifications.js";
 import { constantTimeEqual } from "../lib/constantTime.js";
+import { findChannelByWebhookCredential } from "../services/channelWebhooks.js";
+import {
+  renderSlackIncomingWebhook,
+  slackIncomingWebhookSchema,
+  type RenderedSlackIncomingWebhook,
+} from "../services/slackIncomingWebhook.js";
+import { postIncomingWebhookMessage } from "../services/workspaceChat.js";
 
 /**
  * Unauthenticated trigger surface. The URL itself is the credential — each
@@ -21,6 +29,7 @@ import { constantTimeEqual } from "../lib/constantTime.js";
  * separate feature that deserves its own design (security, schema, etc.).
  */
 export const webhooksRouter = Router();
+webhooksRouter.use(urlencoded({ extended: false, limit: "1mb" }));
 
 webhooksRouter.post("/r/:routineId/:token", async (req, res) => {
   const { routineId, token } = req.params;
@@ -89,6 +98,77 @@ webhooksRouter.post("/r/:routineId/:token", async (req, res) => {
     console.error(`[webhook] routine ${routine.id} failed:`, err);
   });
   res.json({ status: "accepted" });
+});
+
+function normalizeSlackWebhookBody(body: unknown): unknown {
+  if (
+    body &&
+    typeof body === "object" &&
+    "payload" in body &&
+    typeof (body as { payload?: unknown }).payload === "string"
+  ) {
+    try {
+      return JSON.parse((body as { payload: string }).payload);
+    } catch {
+      return null;
+    }
+  }
+  return body;
+}
+
+/**
+ * Slack-compatible incoming webhook for a Workspace channel. The URL is
+ * intentionally pinned to one channel; a payload's optional `channel`
+ * override is ignored so a leaked integration cannot address another room.
+ */
+webhooksRouter.post("/channels/:channelId/:token", async (req, res) => {
+  const params = z
+    .object({
+      channelId: z.string().uuid(),
+      token: z.string().regex(/^[a-f0-9]{48}$/),
+    })
+    .safeParse(req.params);
+  if (!params.success) return res.status(404).type("text").send("no_service");
+  const channel = await findChannelByWebhookCredential(
+    params.data.channelId,
+    params.data.token,
+  );
+  if (!channel) return res.status(404).type("text").send("no_service");
+
+  const parsed = slackIncomingWebhookSchema.safeParse(normalizeSlackWebhookBody(req.body));
+  if (!parsed.success) {
+    return res.status(400).type("text").send("invalid_payload");
+  }
+  let rendered: RenderedSlackIncomingWebhook;
+  try {
+    rendered = renderSlackIncomingWebhook(parsed.data);
+  } catch {
+    return res.status(400).type("text").send("no_text");
+  }
+  try {
+    const message = await postIncomingWebhookMessage({
+      channel,
+      authorName: rendered.authorName,
+      content: rendered.content,
+    });
+    await recordAudit({
+      companyId: channel.companyId,
+      actorKind: "webhook",
+      action: "channel.message.webhook",
+      targetType: "channel",
+      targetId: channel.id,
+      targetLabel: channel.name ?? channel.slug ?? "channel",
+      metadata: { messageId: message.id, payloadBytes: JSON.stringify(parsed.data).length },
+    });
+    res.type("text").send("ok");
+  } catch (error) {
+    if (error instanceof Error && error.message === "Channel not found") {
+      return res.status(404).type("text").send("no_service");
+    }
+    // eslint-disable-next-line no-console
+    console.error("[webhook] channel delivery failed:", error);
+    res.status(500).type("text").send("internal_error");
+  }
 });
 
 /**

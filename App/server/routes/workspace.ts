@@ -26,6 +26,11 @@ import {
 } from "../services/workspaceChat.js";
 import { mintWsToken } from "../services/realtime.js";
 import { recordAttachment, resolveAttachmentFile, uploadMiddleware } from "../services/uploads.js";
+import {
+  getChannelWebhookSettings,
+  updateChannelWebhookSettings,
+} from "../services/channelWebhooks.js";
+import { recordAudit } from "../services/audit.js";
 
 /**
  * HTTP surface for the Slack-style workspace chat (channels, DMs, messages,
@@ -159,6 +164,74 @@ workspaceRouter.patch(
       res.json(hydrated);
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : "Rename failed" });
+    }
+  },
+);
+
+const channelWebhookParamsSchema = z.object({ channelId: z.string().uuid() });
+workspaceRouter.get("/channels/:channelId/webhook", async (req, res) => {
+  const params = channelWebhookParamsSchema.safeParse(req.params);
+  if (!params.success) {
+    return res.status(400).json({ error: "ValidationError", issues: params.error.issues });
+  }
+  const co = companyOf(req as unknown as { company?: Company });
+  const ok = await userHasChannelAccess({
+    channelId: params.data.channelId,
+    userId: req.userId!,
+    companyId: co.id,
+  });
+  if (!ok) return res.status(404).json({ error: "Channel not found" });
+  try {
+    res.json(await getChannelWebhookSettings(co.id, params.data.channelId));
+  } catch {
+    res.status(404).json({ error: "Channel not found" });
+  }
+});
+
+const channelWebhookSettingsSchema = z
+  .object({
+    enabled: z.boolean(),
+    regenerate: z.boolean().optional().default(false),
+  })
+  .strict();
+workspaceRouter.post(
+  "/channels/:channelId/webhook",
+  validateBody(channelWebhookSettingsSchema),
+  async (req, res) => {
+    const params = channelWebhookParamsSchema.safeParse(req.params);
+    if (!params.success) {
+      return res.status(400).json({ error: "ValidationError", issues: params.error.issues });
+    }
+    const co = companyOf(req as unknown as { company?: Company });
+    const ok = await userHasChannelAccess({
+      channelId: params.data.channelId,
+      userId: req.userId!,
+      companyId: co.id,
+    });
+    if (!ok) return res.status(404).json({ error: "Channel not found" });
+    const body = req.body as z.infer<typeof channelWebhookSettingsSchema>;
+    try {
+      const settings = await updateChannelWebhookSettings({
+        companyId: co.id,
+        channelId: params.data.channelId,
+        enabled: body.enabled,
+        regenerate: body.regenerate,
+      });
+      await recordAudit({
+        companyId: co.id,
+        actorUserId: req.userId ?? null,
+        action: body.enabled
+          ? body.regenerate
+            ? "channel.webhook.regenerate"
+            : "channel.webhook.enable"
+          : "channel.webhook.disable",
+        targetType: "channel",
+        targetId: params.data.channelId,
+        targetLabel: params.data.channelId,
+      });
+      res.json(settings);
+    } catch {
+      res.status(404).json({ error: "Channel not found" });
     }
   },
 );
