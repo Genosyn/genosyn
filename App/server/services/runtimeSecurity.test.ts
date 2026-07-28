@@ -67,6 +67,10 @@ test("multi-tenant mode always enables automatic secure cookies", () => {
   assert.equal(secureSessionCookies(), true);
 });
 
+test("stock deployments trust the standard ingress hop", () => {
+  assert.equal(config.security.trustedProxyHops, 1);
+});
+
 test("numeric runtime invariants fail before boot", () => {
   mutable.security.trustedProxyHops = -1;
   assert.throws(validateRuntimeSecurity, /trustedProxyHops must be a non-negative integer/);

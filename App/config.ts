@@ -28,9 +28,10 @@ export const config = {
     // and always in multi-tenant mode. Multi-tenant mode rejects false.
     secureCookies: "auto" as "auto" | boolean,
     sessionMaxAgeDays: 7,
-    // Number of trusted reverse-proxy hops in front of Express. Keep 0 when
-    // Genosyn is directly reachable; the common ingress/reverse-proxy setup is 1.
-    trustedProxyHops: 0,
+    // Number of trusted reverse-proxy hops in front of Express. The Docker
+    // deployment is normally reached through one ingress/reverse-proxy hop.
+    // Set this to 0 only when Genosyn is directly reachable.
+    trustedProxyHops: 1,
     // Hosts in this exact, case-insensitive list may resolve to loopback,
     // private, link-local, or other non-public addresses. Leave empty for a
     // public SaaS. Add an internal hostname only when the operator explicitly
