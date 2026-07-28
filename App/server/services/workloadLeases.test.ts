@@ -74,4 +74,32 @@ describe("workload leases", () => {
       WorkloadLimitError,
     );
   });
+
+  test("replaces the abandoned capacity lease for the same durable turn", async () => {
+    const co = await company();
+    const first = await acquireWorkloadLease(
+      co.id,
+      "employee_1",
+      "chat",
+      60_000,
+      { ownerKey: "turn-1" },
+    );
+    const recovered = await acquireWorkloadLease(
+      co.id,
+      "employee_1",
+      "chat",
+      60_000,
+      { ownerKey: "turn-1" },
+    );
+
+    assert.notEqual(recovered.id, first.id);
+    assert.equal(recovered.ownerKey, "turn-1");
+    assert.equal(
+      await AppDataSource.getRepository(WorkloadLease).countBy({
+        employeeId: "employee_1",
+        kind: "chat",
+      }),
+      1,
+    );
+  });
 });

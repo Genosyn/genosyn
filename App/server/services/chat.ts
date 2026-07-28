@@ -87,7 +87,7 @@ export type ChatResult =
  * still prevents a lost model/tool request from holding a workload slot
  * forever.
  */
-const CHAT_HARD_TIMEOUT_MS = 6 * 60 * 60_000;
+export const CHAT_HARD_TIMEOUT_MS = 6 * 60 * 60_000;
 /** Max model turns before the loop stops itself. */
 const CHAT_MAX_STEPS = 100;
 
@@ -124,6 +124,20 @@ export type ChatOptions = {
    * reply.
    */
   extraToolset?: string[];
+  /**
+   * Stable id for a durable turn. Recovery uses it to replace the capacity
+   * lease an interrupted process could not release.
+   */
+  workloadKey?: string;
+  /**
+   * Durable workers retry capacity contention instead of turning it into a
+   * terminal skipped/busy reply.
+   */
+  throwOnWorkloadUnavailable?: boolean;
+  /** Remaining wall-clock budget for a recovered turn. */
+  timeoutMs?: number;
+  /** Aborted when this process loses the durable worker claim. */
+  signal?: AbortSignal;
 };
 
 /** Non-streaming wrapper. */
@@ -177,9 +191,11 @@ export async function streamChatWithEmployee(
       co.id,
       emp.id,
       "chat",
-      CHAT_HARD_TIMEOUT_MS + 60_000,
+      (options.timeoutMs ?? CHAT_HARD_TIMEOUT_MS) + 60_000,
+      { ownerKey: options.workloadKey },
     );
   } catch (error) {
+    if (options.throwOnWorkloadUnavailable) throw error;
     // A second chat turn to the same employee waits. Routine runs never take
     // this branch: they are allowed to overlap with chat and one another.
     if (error instanceof EmployeeWorkloadBusyError) {
@@ -261,7 +277,10 @@ export async function streamChatWithEmployee(
 
     mcpToken = issueMcpToken(emp.id, co.id);
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), CHAT_HARD_TIMEOUT_MS);
+    const timeoutMs = Math.max(1, options.timeoutMs ?? CHAT_HARD_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const abortFromClaim = () => controller.abort();
+    options.signal?.addEventListener("abort", abortFromClaim, { once: true });
     // Buffer everything the model streams. The persisted reply must match what the
     // human saw over SSE — not just the loop's final-turn text, which drops any
     // narration the model streamed before calling a tool.
@@ -316,6 +335,7 @@ export async function streamChatWithEmployee(
       return { status: "ok", reply, attachmentIds, sidecars };
     } finally {
       clearTimeout(timer);
+      options.signal?.removeEventListener("abort", abortFromClaim);
     }
   } finally {
     if (mcpToken) revokeMcpToken(mcpToken);

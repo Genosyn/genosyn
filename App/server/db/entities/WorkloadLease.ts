@@ -18,6 +18,15 @@ export class WorkloadLease {
   @Column({ type: "varchar" })
   kind!: "chat" | "routine";
 
+  /**
+   * Stable durable-work key. A recovered chat turn replaces the workload
+   * lease its interrupted process left behind before re-entering capacity
+   * checks; NULL for ordinary callers and Routine runs.
+   */
+  @Index()
+  @Column({ type: "varchar", nullable: true })
+  ownerKey!: string | null;
+
   @Column({ type: dateTimeColumnType })
   expiresAt!: Date;
 

@@ -16,6 +16,7 @@ type ProgressMessageRepository = Pick<Repository<ConversationMessage>, "update">
 export function createChatTurnProgressRecorder(options: {
   repository: ProgressMessageRepository;
   messageId: string;
+  workerId?: string;
   onProgress?: (progress: AgentProgress) => void;
   onPersistenceError?: (error: unknown) => void;
 }) {
@@ -31,7 +32,11 @@ export function createChatTurnProgressRecorder(options: {
     pending = pending
       .then(async () => {
         await options.repository.update(
-          { id: options.messageId, status: "working" },
+          {
+            id: options.messageId,
+            status: "working",
+            ...(options.workerId ? { turnWorkerId: options.workerId } : {}),
+          },
           {
             progressPercent: progress.percent,
             progressLabel: progress.label,

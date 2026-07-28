@@ -6,6 +6,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from "typeorm";
+import { dateTimeColumnType } from "./columnTypes.js";
 
 /**
  * One turn in a {@link Conversation}. `role` is `user` for humans and
@@ -45,6 +46,32 @@ export class ConversationMessage {
   /** Short current-activity label paired with {@link progressPercent}. */
   @Column({ type: "varchar", nullable: true })
   progressLabel!: string | null;
+
+  /**
+   * User message that owns this durable assistant turn. NULL on ordinary
+   * messages and legacy completed replies. Persisting the link makes recovery
+   * unambiguous even when several messages share the same text.
+   */
+  @Index({ unique: true })
+  @Column({ type: "varchar", nullable: true })
+  turnUserMessageId!: string | null;
+
+  /** Current worker claim. A new process may take over after its lease expires. */
+  @Column({ type: "varchar", nullable: true })
+  turnWorkerId!: string | null;
+
+  /** Short renewable claim that prevents two replicas resuming the same turn. */
+  @Index()
+  @Column({ type: dateTimeColumnType, nullable: true })
+  turnLeaseExpiresAt!: Date | null;
+
+  /** Number of agent attempts, including recoveries after process interruption. */
+  @Column({ type: "integer", default: 0 })
+  turnAttempt!: number;
+
+  /** Absolute limit shared by every retry so restarts cannot extend work forever. */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  turnDeadlineAt!: Date | null;
 
   /**
    * JSON-serialized list of {@link MessageAction}s the AI employee performed

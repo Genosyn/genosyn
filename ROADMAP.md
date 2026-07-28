@@ -588,7 +588,9 @@ sends system mail); this is the company's real inbox. Internal namespace is
       existing reply stream, while quick replies keep the typing indicator
 - [x] Durable long-running direct-chat turns: persist the working reply and
       latest milestone, recover through stream disconnects and page reloads,
-      keep follow-ups queueable, and allow up to six hours per turn
+      resume after server restarts through renewable database worker leases,
+      guard recovered work against repeated side effects, keep follow-ups
+      queueable, and allow up to six hours per turn across every attempt
 - [x] Workspace file editor with path-traversal guards, 2 MiB text-only cap
 
 ### M8 — Polish + QA ✅

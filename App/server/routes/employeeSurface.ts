@@ -11,20 +11,17 @@ import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { EmployeeMemory } from "../db/entities/EmployeeMemory.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
-import { streamChatWithEmployee } from "../services/chat.js";
-import { createChatTurnProgressRecorder } from "../services/chatTurnProgress.js";
-import { captureTurnActions, parseActions } from "../services/turnActions.js";
+import { parseActions } from "../services/turnActions.js";
+import {
+  enqueueDurableChatTurn,
+  executeDurableChatTurn,
+} from "../services/durableChatTurns.js";
 import {
   attachmentsForMessages,
-  bindAttachmentsToMessage,
   recordAttachment,
   resolveAttachmentFile,
   uploadMiddleware,
 } from "../services/uploads.js";
-import {
-  historicalAttachmentSummaries,
-  inlineAttachmentsForMessage,
-} from "../services/attachmentText.js";
 
 /**
  * Chat + per-employee surface endpoints. Split from `employees.ts` to keep
@@ -64,13 +61,6 @@ async function loadEmpAndCompany(
 // ---------- Conversations ----------
 
 /**
- * Up to this many prior turns are replayed to the CLI when the human sends a
- * new message. Same cap as the old browser-local chat; keeps the prompt
- * bounded regardless of how long the thread gets.
- */
-const MAX_REPLAY_TURNS = 20;
-
-/**
  * How often the streamed-send endpoint emits an SSE keepalive comment while a
  * turn is in flight. A single agent turn can spend well over a minute between
  * visible `chunk` events — the model "thinks" before its first token, and
@@ -81,13 +71,6 @@ const MAX_REPLAY_TURNS = 20;
  * `network error`. A comment line every 15s stays under those idle timers.
  */
 const CHAT_STREAM_HEARTBEAT_MS = 15_000;
-
-/** Derive a display title from the first user message. */
-function deriveTitle(message: string): string {
-  const firstLine = message.split("\n")[0].trim();
-  if (firstLine.length <= 60) return firstLine;
-  return firstLine.slice(0, 57).trimEnd() + "…";
-}
 
 function serializeConversation(c: Conversation, lastMessageAt: Date | null = null) {
   return {
@@ -321,7 +304,7 @@ const sendSchema = z.object({
 
 /**
  * Streamed send. Responds with Server-Sent Events so the browser can paint
- * the reply token-by-token as it arrives from the CLI instead of blocking
+ * the reply token-by-token as it arrives from the agent instead of blocking
  * on a single JSON response for 5-10s per message.
  *
  * Event shape:
@@ -335,7 +318,7 @@ const sendSchema = z.object({
  *   event: conversation — updated conversation row (for sidebar refresh)
  *   event: done       — stream end marker; client closes the reader
  *
- * Errors from the CLI seam are still serialized as a normal `assistant`
+ * Errors from the agent seam are still serialized as a normal `assistant`
  * event with `status: "error"` so the client rendering stays uniform.
  */
 employeeSurfaceRouter.post(
@@ -344,6 +327,7 @@ employeeSurfaceRouter.post(
   async (req, res, next) => {
     const { cid, eid, convId } = req.params as Record<string, string>;
     const body = req.body as z.infer<typeof sendSchema>;
+    let acceptedTurn = false;
 
     // Open the SSE channel early so errors below can also be reported to
     // the client via an `assistant` event instead of an HTTP error code the
@@ -380,175 +364,62 @@ employeeSurfaceRouter.post(
         return res.end();
       }
 
-      const convRepo = AppDataSource.getRepository(Conversation);
-      const msgRepo = AppDataSource.getRepository(ConversationMessage);
-
-      const conv = await convRepo.findOneBy({ id: convId, employeeId: eid });
-      if (!conv) {
-        writeEvent("error", { message: "Conversation not found" });
-        writeEvent("done", {});
-        return res.end();
-      }
-
       // Reject empty turns — the schema makes both fields optional so the
       // composer can decide which one is required, but a totally empty
-      // submit shouldn't spawn a CLI.
+      // submit shouldn't start an agent.
       if (!body.message.trim() && body.attachmentIds.length === 0) {
         writeEvent("error", { message: "Message or attachment required" });
         writeEvent("done", {});
         return res.end();
       }
 
-      // Persist the user turn first so it survives a CLI crash / timeout.
-      const userMsg = await msgRepo.save(
-        msgRepo.create({
-          conversationId: conv.id,
-          role: "user",
-          content: body.message,
-          status: null,
-        }),
-      );
-
-      const boundAttachments = body.attachmentIds.length
-        ? await bindAttachmentsToMessage(body.attachmentIds, userMsg.id, cid)
-        : [];
-
-      // Title comes from the typed text when present; falls back to the
-      // first attachment's filename for upload-only turns.
-      if (!conv.title) {
-        const seed = body.message.trim() || boundAttachments[0]?.filename || "";
-        if (seed) conv.title = deriveTitle(seed);
-      }
-      conv.updatedAt = new Date();
-      await convRepo.save(conv);
-
-      writeEvent("user", serializeMessage(userMsg, boundAttachments));
-
-      // Replay the tail of the thread (excluding the just-saved user msg)
-      // to the CLI so it has recent context. History gets a brief
-      // "(attached: foo.pdf)" annotation per turn so the employee can tell
-      // when an earlier message shipped files; the trigger message gets
-      // the full extracted text inlined below.
-      const prior = await msgRepo.find({
-        where: { conversationId: conv.id },
-        order: { createdAt: "ASC" },
+      // User row, input attachments, durable assistant job and conversation
+      // timestamp commit together. Once this returns, browser loss and process
+      // loss are both recoverable.
+      const enqueued = await enqueueDurableChatTurn({
+        companyId: cid,
+        employeeId: eid,
+        conversationId: convId,
+        message: body.message,
+        attachmentIds: body.attachmentIds,
       });
-      const priorIds = prior.filter((m) => m.id !== userMsg.id).map((m) => m.id);
-      const priorAttachmentNotes = await historicalAttachmentSummaries(priorIds);
-      const replay = prior
-        .filter((m) => m.id !== userMsg.id)
-        .slice(-MAX_REPLAY_TURNS)
-        .map((m) => {
-          const note = priorAttachmentNotes.get(m.id);
-          return {
-            role: m.role,
-            content: note ? `${m.content}\n[attached: ${note}]` : m.content,
-          };
-        });
-
-      // Inline the just-uploaded attachments (full extracted text, capped)
-      // into the user-facing prompt so the AI can read PDFs / docs the
-      // teammate just dropped into the composer.
-      const attachmentBlock = boundAttachments.length
-        ? await inlineAttachmentsForMessage(userMsg.id, cid)
-        : "";
-      const promptMessage = attachmentBlock
-        ? body.message.trim()
-          ? `${body.message}\n\n${attachmentBlock}`
-          : attachmentBlock
-        : body.message;
-
-      // Persist an assistant placeholder before the agent starts. The live
-      // response may outlast a browser, proxy, or page load; this row is the
-      // durable rendezvous point that a replacement client polls until the
-      // same row becomes the final reply.
-      const assistantMsg = await msgRepo.save(
-        msgRepo.create({
-          conversationId: conv.id,
-          role: "assistant",
-          content: "",
-          status: "working",
-          progressPercent: 1,
-          progressLabel: "Starting work",
-        }),
+      acceptedTurn = true;
+      writeEvent(
+        "user",
+        serializeMessage(enqueued.userMessage, enqueued.userAttachments),
       );
-      writeEvent("working", serializeMessage(assistantMsg));
+      writeEvent("working", serializeMessage(enqueued.assistantMessage));
+      writeEvent(
+        "conversation",
+        serializeConversation(
+          enqueued.conversation,
+          enqueued.conversation.updatedAt,
+        ),
+      );
 
-      const progressRecorder = createChatTurnProgressRecorder({
-        repository: msgRepo,
-        messageId: assistantMsg.id,
+      await executeDurableChatTurn(enqueued.assistantMessage.id, {
+        onChunk: (chunk) => writeEvent("chunk", { text: chunk }),
         onProgress: (progress) => writeEvent("progress", progress),
-        onPersistenceError: (error) => {
-          console.error(
-            `[chat] progress save failed company=${cid} employee=${eid} ` +
-              `conversation=${convId} message=${assistantMsg.id}`,
-            error,
+        onFinal: ({ message, attachments, conversation }) => {
+          writeEvent("assistant", serializeMessage(message, attachments));
+          writeEvent(
+            "conversation",
+            serializeConversation(conversation, conversation.updatedAt),
           );
         },
       });
-
-      // Watermark just before the spawn — anything the employee audits
-      // after this is attributable to this turn. Subtract a few ms to be
-      // generous with clock skew between SQLite's `datetime('now')` default
-      // and our process clock.
-      const turnStart = new Date(Date.now() - 10);
-      try {
-        const result = await streamChatWithEmployee(
-          cid,
-          eid,
-          promptMessage,
-          replay,
-          (chunk) => writeEvent("chunk", { text: chunk }),
-          {
-            conversationId: conv.id,
-            surface: conv.source === "help" ? "help" : "chat",
-            onProgress: progressRecorder.report,
-          },
-        );
-
-        const actions = await captureTurnActions(cid, eid, turnStart);
-        await progressRecorder.flush();
-        assistantMsg.content = result.reply;
-        assistantMsg.status = result.status;
-        assistantMsg.progressPercent = null;
-        assistantMsg.progressLabel = null;
-        assistantMsg.actionsJson = actions.length > 0 ? JSON.stringify(actions) : "";
-        await msgRepo.save(assistantMsg);
-
-        // Bind any files the AI uploaded mid-turn (via the
-        // `send_chat_attachment` MCP tool) to the assistant message so the
-        // human sees them as download chips on the reply bubble.
-        const replyAttachments = result.attachmentIds.length
-          ? await bindAttachmentsToMessage(result.attachmentIds, assistantMsg.id, cid)
-          : [];
-
-        conv.updatedAt = new Date();
-        await convRepo.save(conv);
-
-        writeEvent("assistant", serializeMessage(assistantMsg, replyAttachments));
-        writeEvent("conversation", serializeConversation(conv, conv.updatedAt));
-        writeEvent("done", {});
-        if (!res.writableEnded && !res.destroyed) res.end();
-      } catch (error) {
-        await progressRecorder.flush();
-        assistantMsg.content = formatChatInfrastructureError(error, conv.id);
-        assistantMsg.status = "error";
-        assistantMsg.progressPercent = null;
-        assistantMsg.progressLabel = null;
-        await msgRepo.save(assistantMsg);
-        conv.updatedAt = new Date();
-        await convRepo.save(conv);
-        console.error(
-          `[chat] turn failed company=${cid} employee=${eid} conversation=${convId}`,
-          error,
-        );
-        writeEvent("assistant", serializeMessage(assistantMsg));
-        writeEvent("conversation", serializeConversation(conv, conv.updatedAt));
-        writeEvent("done", {});
-        if (!res.writableEnded && !res.destroyed) res.end();
-      }
+      writeEvent("done", {});
+      if (!res.writableEnded && !res.destroyed) res.end();
     } catch (e) {
       console.error(`[chat] turn failed company=${cid} employee=${eid} conversation=${convId}`, e);
+      if (acceptedTurn) {
+        // The durable row is the source of truth now. Ending without a final
+        // assistant event makes the client follow that row; surfacing a local
+        // transport error here would falsely claim accepted work was lost.
+        writeEvent("done", {});
+        if (!res.writableEnded && !res.destroyed) res.end();
+        return;
+      }
       // If the stream is still open, surface the error over SSE; otherwise
       // fall back to the normal Express error handler.
       if (!res.writableEnded && !res.destroyed) {

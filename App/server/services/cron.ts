@@ -384,9 +384,10 @@ export async function bootCron(): Promise<void> {
       console.error("[cron] heartbeat failed:", err);
     });
   }, HEARTBEAT_INTERVAL_MS);
-  // Kick an immediate pass so a just-rebooted server catches up without
-  // waiting a full heartbeat interval first.
-  tick().catch((err) => {
+  // Complete the initial reconciliation before startup launches any durable
+  // chat recoveries. Otherwise the asynchronous boot pass could clear the
+  // workload lease a recovered turn just acquired.
+  await tick().catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[cron] initial tick failed:", err);
   });

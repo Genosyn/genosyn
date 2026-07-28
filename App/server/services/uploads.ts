@@ -2,7 +2,7 @@ import path from "node:path";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import multer from "multer";
-import { IsNull } from "typeorm";
+import { IsNull, type EntityManager } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Attachment } from "../db/entities/Attachment.js";
 import { Company } from "../db/entities/Company.js";
@@ -215,9 +215,10 @@ export async function bindAttachmentsToMessage(
   attachmentIds: string[],
   messageId: string,
   companyId: string,
+  manager: EntityManager = AppDataSource.manager,
 ): Promise<Attachment[]> {
   if (attachmentIds.length === 0) return [];
-  const repo = AppDataSource.getRepository(Attachment);
+  const repo = manager.getRepository(Attachment);
   const rows = await repo.findByIds(attachmentIds);
   const scoped = rows.filter((r) => r.companyId === companyId && r.messageId === null);
   for (const r of scoped) r.messageId = messageId;

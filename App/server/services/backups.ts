@@ -19,6 +19,10 @@ import {
   DeliveryResult,
 } from "./backupDestinations.js";
 import { withSchedulerLease } from "./schedulerLeases.js";
+import {
+  bootDurableChatTurnRecovery,
+  stopDurableChatTurnRecovery,
+} from "./durableChatTurns.js";
 
 /**
  * Install-wide backup service. Each backup zips `<dataDir>` (excluding the
@@ -839,6 +843,7 @@ export async function restoreFromBackup(id: string): Promise<{
     // Same reasoning for the routine heartbeat: it polls every 30s and would
     // otherwise keep firing — and starting runs — across the wipe window.
     stopCron();
+    stopDurableChatTurnRecovery();
     await AppDataSource.destroy();
 
     // Last look before the point of no return. The checks above ran before the
@@ -872,6 +877,7 @@ export async function restoreFromBackup(id: string): Promise<{
 
     // Rebuild in-memory schedules from the restored DB rows.
     await bootCron();
+    await bootDurableChatTurnRecovery();
     await bootBackups();
 
     return { safety, restored: target };

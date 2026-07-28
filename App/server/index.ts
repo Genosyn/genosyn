@@ -85,6 +85,7 @@ import {
 } from "./services/runtimeSecurity.js";
 import { installOutboundNetworkPolicy } from "./services/outboundNetworkPolicy.js";
 import { bootPublicUrl } from "./services/publicUrl.js";
+import { bootDurableChatTurnRecovery } from "./services/durableChatTurns.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -103,6 +104,7 @@ async function main() {
   // dashboard stays reachable. No-op once any master admin exists.
   await ensureBootstrapMasterAdmin();
   await bootCron();
+  await bootDurableChatTurnRecovery();
   await bootBackups();
   await bootPipelineCron();
   await bootRecurringInvoices();
