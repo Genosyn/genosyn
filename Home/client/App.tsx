@@ -2,13 +2,10 @@ import { useEffect } from "react";
 import { ArrowRight } from "lucide-react";
 import { Nav } from "@/sections/Nav";
 import { Hero } from "@/sections/Hero";
-import { UseCases } from "@/sections/UseCases";
-import { Primitives } from "@/sections/Primitives";
-import { DayInTheLife } from "@/sections/DayInTheLife";
-import { Features } from "@/sections/Features";
+import { HomepageUseCases } from "@/sections/HomepageUseCases";
+import { HumanControl } from "@/sections/HumanControl";
+import { OutcomeRoster, ValueLoop } from "@/sections/ValueSystem";
 import { HowItWorks } from "@/sections/HowItWorks";
-import { CliShowcase } from "@/sections/CliShowcase";
-import { Principles } from "@/sections/Principles";
 import { Footer, InstallCta } from "@/sections/Footer";
 import { Enterprise } from "@/sections/Enterprise";
 import { DocsApp } from "@/docs/DocsApp";
@@ -29,7 +26,7 @@ export function App() {
     if (head) {
       applyHead(head);
     } else {
-      document.title = "Genosyn — Run your company with AI employees";
+      document.title = "Genosyn — AI employees for work that never stops";
     }
   }, [path]);
 
@@ -54,13 +51,11 @@ function Landing() {
       <Nav />
       <main>
         <Hero />
-        <UseCases />
-        <Primitives />
-        <DayInTheLife />
-        <Features />
+        <HomepageUseCases />
+        <ValueLoop />
+        <OutcomeRoster />
+        <HumanControl />
         <HowItWorks />
-        <CliShowcase />
-        <Principles />
         <InstallCta />
       </main>
       <Footer />

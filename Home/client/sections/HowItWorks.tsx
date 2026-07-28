@@ -1,7 +1,6 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { ArrowRight, Check, Copy } from "lucide-react";
-import { SectionEyebrow } from "@/sections/Primitives";
 
 type Step = {
   number: string;
@@ -12,18 +11,18 @@ type Step = {
 const STEPS: Step[] = [
   {
     number: "01",
-    title: "Hire your first employee",
-    body: "Open the app, give them a name, pick a model. Genosyn opens the Soul editor and seeds a starter constitution you can tear up.",
+    title: "Name the outcome",
+    body: "Start with one recurring job your company already understands: qualify intent, triage support, review reliability, or close the day.",
   },
   {
     number: "02",
-    title: "Write their Soul",
-    body: "Tell them how they think, what they value, and what they will refuse. Add skills as named markdown playbooks. Save.",
+    title: "Define the owner",
+    body: "Create an AI Employee, write the Soul that guides decisions, add the Skills for the job, and connect the context it needs.",
   },
   {
     number: "03",
-    title: "Schedule a routine",
-    body: "Point a cron expression at a brief. Genosyn registers the job, runs it on time, and writes a Run log you can review.",
+    title: "Choose the boundary",
+    body: "Schedule the Routine, decide which actions need approval, and let the employee carry the work to a readable result.",
   },
 ];
 
@@ -41,23 +40,52 @@ const INSTALL_COMMANDS: Record<InstallTab, string> = {
 
 export function HowItWorks() {
   return (
-    <section id="quickstart" className="relative border-t border-zinc-100 bg-white">
-      <div className="mx-auto max-w-7xl px-6 py-24 sm:py-28">
-        <div className="mx-auto max-w-2xl text-center">
-          <SectionEyebrow>Quickstart</SectionEyebrow>
-          <h2 className="mt-4 text-balance text-4xl font-semibold tracking-[-0.02em] text-zinc-950 sm:text-5xl">
-            One command. A whole company.
+    <section id="quickstart" className="relative border-t border-zinc-200 bg-[#f1f1eb]">
+      <div className="mx-auto max-w-[92rem] px-5 py-24 sm:px-6 sm:py-28 lg:py-36">
+        <div className="mx-auto max-w-3xl text-center">
+          <div className="section-kicker">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            Start small
+          </div>
+          <h2 className="mt-5 text-balance text-4xl font-semibold leading-[0.98] tracking-[-0.055em] text-zinc-950 sm:text-6xl">
+            One outcome first.{" "}
+            <span className="text-zinc-400">The roster can follow.</span>
           </h2>
-          <p className="mt-5 text-lg leading-relaxed text-zinc-600">
-            The installer pulls the latest Docker image and starts Genosyn on{" "}
-            <code className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[13px] text-zinc-800">
-              localhost:8471
-            </code>
-            . Re-run any time to upgrade.
+          <p className="mx-auto mt-6 max-w-2xl text-pretty text-base leading-7 text-zinc-600 sm:text-lg sm:leading-8">
+            Install Genosyn on your infrastructure, give one recurring job a clear owner, and add
+            more AI Employees when the first one earns its place.
           </p>
         </div>
 
-        <div className="mx-auto mt-12 max-w-3xl">
+        <ol className="mx-auto mt-14 grid max-w-6xl grid-cols-1 gap-3 md:grid-cols-3">
+          {STEPS.map((step, i) => (
+            <li key={step.number} className="relative">
+              {i < STEPS.length - 1 && (
+                <div
+                  aria-hidden
+                  className="absolute left-full top-10 hidden h-px w-full -translate-x-1/2 md:block"
+                >
+                  <div className="h-px w-full bg-gradient-to-r from-zinc-200 to-transparent" />
+                </div>
+              )}
+              <div className="relative h-full rounded-[1.5rem] border border-zinc-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-300 sm:p-7">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-950 font-mono text-xs font-semibold text-white shadow-card">
+                    {step.number}
+                  </div>
+                  <h3 className="text-base font-semibold tracking-[-0.02em] text-zinc-950">{step.title}</h3>
+                </div>
+                <p className="mt-5 text-xs leading-6 text-zinc-500">{step.body}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+
+        <div className="mx-auto mt-14 max-w-3xl">
+          <div className="mb-3 flex items-center justify-between px-1 text-[10px] font-semibold text-zinc-500">
+            <span>Run Genosyn on your server</span>
+            <span className="font-mono">localhost:8471</span>
+          </div>
           <InstallTerminal />
           <p className="mt-3 text-center text-xs text-zinc-500">
             Requires Docker.{" "}
@@ -70,34 +98,6 @@ export function HowItWorks() {
             before piping it.
           </p>
         </div>
-
-        <ol className="mx-auto mt-16 grid max-w-5xl grid-cols-1 gap-5 md:grid-cols-3">
-          {STEPS.map((step, i) => (
-            <li key={step.number} className="relative">
-              {i < STEPS.length - 1 && (
-                <div
-                  aria-hidden
-                  className="absolute left-full top-12 hidden h-px w-full -translate-x-1/2 md:block"
-                >
-                  <div className="h-px w-full bg-gradient-to-r from-zinc-200 to-transparent" />
-                </div>
-              )}
-              <div className="relative h-full rounded-2xl border border-zinc-200 bg-white p-6 shadow-card transition hover:-translate-y-0.5 hover:shadow-lift">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-950 font-mono text-sm font-semibold text-white shadow-card">
-                    {step.number}
-                  </div>
-                  <h3 className="text-base font-semibold text-zinc-950">
-                    {step.title}
-                  </h3>
-                </div>
-                <p className="mt-4 text-sm leading-relaxed text-zinc-600">
-                  {step.body}
-                </p>
-              </div>
-            </li>
-          ))}
-        </ol>
       </div>
     </section>
   );
