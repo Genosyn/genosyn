@@ -4,18 +4,21 @@ import {
   Entity,
   Index,
   PrimaryGeneratedColumn,
+  UpdateDateColumn,
 } from "typeorm";
 
 /**
  * One turn in a {@link Conversation}. `role` is `user` for humans and
  * `assistant` for the AI employee. `status` mirrors the chat service's result
  * shape so the UI can render skipped/error/busy turns distinctly — NULL on
- * user messages, one of `ok`/`skipped`/`error`/`busy` on assistant replies.
- * `busy` means the employee was already mid-Run or mid-chat, so the turn
- * didn't start — it renders as an in-progress notice, not an error.
+ * user messages, one of `working`/`ok`/`skipped`/`error`/`busy` on assistant
+ * replies. `working` is a durable placeholder for a chat turn still running.
+ * It lets a browser reload or a replacement connection recover the live state
+ * without mistaking a dropped stream for a failed turn. `busy` means the
+ * employee was already mid-Run or mid-chat, so the new turn did not start.
  */
 export type ConversationMessageRole = "user" | "assistant";
-export type ConversationMessageStatus = "ok" | "skipped" | "error" | "busy";
+export type ConversationMessageStatus = "working" | "ok" | "skipped" | "error" | "busy";
 
 @Entity("conversation_messages")
 export class ConversationMessage {
@@ -35,6 +38,14 @@ export class ConversationMessage {
   @Column({ type: "varchar", nullable: true })
   status!: ConversationMessageStatus | null;
 
+  /** Latest employee-authored completion estimate while `status=working`. */
+  @Column({ type: "integer", nullable: true })
+  progressPercent!: number | null;
+
+  /** Short current-activity label paired with {@link progressPercent}. */
+  @Column({ type: "varchar", nullable: true })
+  progressLabel!: string | null;
+
   /**
    * JSON-serialized list of {@link MessageAction}s the AI employee performed
    * during this turn (create_routine, create_todo, ...). Always empty on
@@ -46,6 +57,10 @@ export class ConversationMessage {
 
   @CreateDateColumn()
   createdAt!: Date;
+
+  /** Changes on every persisted milestone and on final completion. */
+  @UpdateDateColumn()
+  updatedAt!: Date;
 }
 
 /**

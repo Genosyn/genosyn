@@ -12,6 +12,7 @@ import { EmployeeMemory } from "../db/entities/EmployeeMemory.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { streamChatWithEmployee } from "../services/chat.js";
+import { createChatTurnProgressRecorder } from "../services/chatTurnProgress.js";
 import { captureTurnActions, parseActions } from "../services/turnActions.js";
 import {
   attachmentsForMessages,
@@ -121,15 +122,25 @@ function summarizeAttachment(a: Attachment): AttachmentSummary {
 }
 
 function serializeMessage(m: ConversationMessage, attachments: Attachment[] = []) {
+  const progress =
+    m.status === "working" &&
+    typeof m.progressPercent === "number" &&
+    m.progressPercent >= 1 &&
+    m.progressPercent <= 99 &&
+    !!m.progressLabel
+      ? { percent: m.progressPercent, label: m.progressLabel }
+      : null;
   return {
     id: m.id,
     conversationId: m.conversationId,
     role: m.role,
     content: m.content,
     status: m.status,
+    progress,
     actions: parseActions(m.actionsJson),
     attachments: attachments.map(summarizeAttachment),
     createdAt: m.createdAt,
+    updatedAt: m.updatedAt,
   };
 }
 
@@ -317,6 +328,7 @@ const sendSchema = z.object({
  *   event: user       — persisted user message row (first, so the client can
  *                       swap its optimistic bubble)
  *   event: chunk      — raw stdout delta from the CLI (`{ text: "..." }`)
+ *   event: working    — durable assistant placeholder for this turn
  *   event: progress   — live employee-authored progress (`{ percent, label }`)
  *   event: assistant  — persisted assistant message row (final reply text,
  *                       or an error/skipped body)
@@ -343,6 +355,7 @@ employeeSurfaceRouter.post(
     res.flushHeaders?.();
 
     const writeEvent = (event: string, data: unknown) => {
+      if (res.writableEnded || res.destroyed) return;
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
@@ -445,61 +458,106 @@ employeeSurfaceRouter.post(
           : attachmentBlock
         : body.message;
 
+      // Persist an assistant placeholder before the agent starts. The live
+      // response may outlast a browser, proxy, or page load; this row is the
+      // durable rendezvous point that a replacement client polls until the
+      // same row becomes the final reply.
+      const assistantMsg = await msgRepo.save(
+        msgRepo.create({
+          conversationId: conv.id,
+          role: "assistant",
+          content: "",
+          status: "working",
+          progressPercent: 1,
+          progressLabel: "Starting work",
+        }),
+      );
+      writeEvent("working", serializeMessage(assistantMsg));
+
+      const progressRecorder = createChatTurnProgressRecorder({
+        repository: msgRepo,
+        messageId: assistantMsg.id,
+        onProgress: (progress) => writeEvent("progress", progress),
+        onPersistenceError: (error) => {
+          console.error(
+            `[chat] progress save failed company=${cid} employee=${eid} ` +
+              `conversation=${convId} message=${assistantMsg.id}`,
+            error,
+          );
+        },
+      });
+
       // Watermark just before the spawn — anything the employee audits
       // after this is attributable to this turn. Subtract a few ms to be
       // generous with clock skew between SQLite's `datetime('now')` default
       // and our process clock.
       const turnStart = new Date(Date.now() - 10);
-      const result = await streamChatWithEmployee(
-        cid,
-        eid,
-        promptMessage,
-        replay,
-        (chunk) => writeEvent("chunk", { text: chunk }),
-        {
-          conversationId: conv.id,
-          surface: conv.source === "help" ? "help" : "chat",
-          onProgress: (progress) => writeEvent("progress", progress),
-        },
-      );
+      try {
+        const result = await streamChatWithEmployee(
+          cid,
+          eid,
+          promptMessage,
+          replay,
+          (chunk) => writeEvent("chunk", { text: chunk }),
+          {
+            conversationId: conv.id,
+            surface: conv.source === "help" ? "help" : "chat",
+            onProgress: progressRecorder.report,
+          },
+        );
 
-      const actions = await captureTurnActions(cid, eid, turnStart);
+        const actions = await captureTurnActions(cid, eid, turnStart);
+        await progressRecorder.flush();
+        assistantMsg.content = result.reply;
+        assistantMsg.status = result.status;
+        assistantMsg.progressPercent = null;
+        assistantMsg.progressLabel = null;
+        assistantMsg.actionsJson = actions.length > 0 ? JSON.stringify(actions) : "";
+        await msgRepo.save(assistantMsg);
 
-      const assistantMsg = await msgRepo.save(
-        msgRepo.create({
-          conversationId: conv.id,
-          role: "assistant",
-          content: result.reply,
-          status: result.status,
-          actionsJson: actions.length > 0 ? JSON.stringify(actions) : "",
-        }),
-      );
+        // Bind any files the AI uploaded mid-turn (via the
+        // `send_chat_attachment` MCP tool) to the assistant message so the
+        // human sees them as download chips on the reply bubble.
+        const replyAttachments = result.attachmentIds.length
+          ? await bindAttachmentsToMessage(result.attachmentIds, assistantMsg.id, cid)
+          : [];
 
-      // Bind any files the AI uploaded mid-turn (via the
-      // `send_chat_attachment` MCP tool) to the assistant message so the
-      // human sees them as download chips on the reply bubble.
-      const replyAttachments = result.attachmentIds.length
-        ? await bindAttachmentsToMessage(result.attachmentIds, assistantMsg.id, cid)
-        : [];
+        conv.updatedAt = new Date();
+        await convRepo.save(conv);
 
-      conv.updatedAt = new Date();
-      await convRepo.save(conv);
-
-      writeEvent("assistant", serializeMessage(assistantMsg, replyAttachments));
-      writeEvent("conversation", serializeConversation(conv, conv.updatedAt));
-      writeEvent("done", {});
-      res.end();
+        writeEvent("assistant", serializeMessage(assistantMsg, replyAttachments));
+        writeEvent("conversation", serializeConversation(conv, conv.updatedAt));
+        writeEvent("done", {});
+        if (!res.writableEnded && !res.destroyed) res.end();
+      } catch (error) {
+        await progressRecorder.flush();
+        assistantMsg.content = formatChatInfrastructureError(error, conv.id);
+        assistantMsg.status = "error";
+        assistantMsg.progressPercent = null;
+        assistantMsg.progressLabel = null;
+        await msgRepo.save(assistantMsg);
+        conv.updatedAt = new Date();
+        await convRepo.save(conv);
+        console.error(
+          `[chat] turn failed company=${cid} employee=${eid} conversation=${convId}`,
+          error,
+        );
+        writeEvent("assistant", serializeMessage(assistantMsg));
+        writeEvent("conversation", serializeConversation(conv, conv.updatedAt));
+        writeEvent("done", {});
+        if (!res.writableEnded && !res.destroyed) res.end();
+      }
     } catch (e) {
       console.error(`[chat] turn failed company=${cid} employee=${eid} conversation=${convId}`, e);
       // If the stream is still open, surface the error over SSE; otherwise
       // fall back to the normal Express error handler.
-      if (!res.writableEnded) {
+      if (!res.writableEnded && !res.destroyed) {
         writeEvent("error", {
           message: formatChatInfrastructureError(e, convId),
         });
         writeEvent("done", {});
         res.end();
-      } else {
+      } else if (!res.destroyed) {
         next(e);
       }
     } finally {

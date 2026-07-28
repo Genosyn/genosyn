@@ -171,8 +171,12 @@ export function Employees() {
           paperclip, or paste a screenshot and drag files onto the composer. When the employee
           creates a file for you, it appears beneath their reply; select the attachment chip to
           download it. During substantial multi-step work, the employee can replace the typing dots
-          with a live, labelled progress bar and update it at meaningful milestones. Chat stays
-          available while that employee&apos;s Routines run.
+          with a live, labelled progress bar and update it at meaningful milestones. Long turns can
+          run for up to six hours. If the live connection drops or you reload the page, Genosyn
+          follows the persisted turn automatically instead of marking it failed; the latest
+          milestone and final reply reappear in the thread. You can keep writing while the employee
+          works — follow-ups queue and send in order. Chat stays available while that
+          employee&apos;s Routines run.
         </LI>
         <LI>
           <Strong>Workspace.</Strong> File editor scoped to the employee&apos;s directory — read

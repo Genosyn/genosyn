@@ -24,6 +24,8 @@ export type EmployeeSession = {
   streamingReply: string | null;
   /** Latest employee-authored progress update for the in-flight reply. */
   progress: ChatProgress | null;
+  /** How this browser is following the durable in-flight turn. */
+  connectionState: "streaming" | "polling" | "reconnecting" | null;
   /** Conversation currently receiving the in-flight reply. */
   sendingConvId: string | null;
   sending: boolean;
@@ -56,6 +58,7 @@ const EMPTY: EmployeeSession = Object.freeze({
   messages: [],
   streamingReply: null,
   progress: null,
+  connectionState: null,
   sendingConvId: null,
   sending: false,
   queuedMessages: [],
@@ -75,6 +78,11 @@ type ChatActions = {
   update: (empId: string, u: Update) => void;
   initEmployee: (companyId: string, empId: string) => Promise<void>;
   selectConversation: (
+    companyId: string,
+    empId: string,
+    convId: string,
+  ) => Promise<void>;
+  refreshConversation: (
     companyId: string,
     empId: string,
     convId: string,
@@ -112,6 +120,7 @@ type ChatSessionsCtx = {
 };
 
 const Ctx = React.createContext<ChatSessionsCtx | null>(null);
+const CHAT_RECOVERY_POLL_MS = 2_000;
 
 type PendingChatMessage = QueuedChatMessage & {
   resolve: (error: string | null) => void;
@@ -142,6 +151,54 @@ export function ChatSessionsProvider({
       return { ...prev, [empId]: next };
     });
   }, []);
+
+  const applyConversationDetail = React.useCallback(
+    (
+      empId: string,
+      convId: string,
+      detail: ConversationDetail,
+      connectionState: "polling" | "reconnecting" = "polling",
+    ) => {
+      const working = latestWorkingMessage(detail.messages);
+      update(empId, (s) => {
+        if (s.activeConvId !== convId) return s;
+        const wasFollowingThisConversation = s.sendingConvId === convId;
+        return {
+          ...s,
+          messages: detail.messages,
+          loadedConvId: convId,
+          convLoading: false,
+          sending: working
+            ? true
+            : wasFollowingThisConversation
+              ? false
+              : s.sending,
+          sendingConvId: working
+            ? convId
+            : wasFollowingThisConversation
+              ? null
+              : s.sendingConvId,
+          streamingReply: working
+            ? s.streamingReply
+            : wasFollowingThisConversation
+              ? null
+              : s.streamingReply,
+          progress: working
+            ? progressForWorkingMessage(working)
+            : wasFollowingThisConversation
+              ? null
+              : s.progress,
+          connectionState: working
+            ? connectionState
+            : wasFollowingThisConversation
+              ? null
+              : s.connectionState,
+        };
+      });
+      return working;
+    },
+    [update],
+  );
 
   const removeQueuedMessage = React.useCallback(
     (empId: string, queuedMessageId: string) => {
@@ -191,11 +248,7 @@ export function ChatSessionsProvider({
         );
         // Drop the response if the user switched away before it returned.
         if (sessionsRef.current[empId]?.activeConvId !== convId) return;
-        update(empId, {
-          messages: detail.messages,
-          loadedConvId: convId,
-          convLoading: false,
-        });
+        applyConversationDetail(empId, convId, detail);
       } catch (err) {
         if (sessionsRef.current[empId]?.activeConvId === convId) {
           update(empId, { convLoading: false });
@@ -203,7 +256,26 @@ export function ChatSessionsProvider({
         throw err;
       }
     },
-    [update],
+    [applyConversationDetail, update],
+  );
+
+  const refreshConversation = React.useCallback(
+    async (companyId: string, empId: string, convId: string) => {
+      const base = `/api/companies/${companyId}/employees/${empId}`;
+      try {
+        const detail = await api.get<ConversationDetail>(
+          `${base}/conversations/${convId}`,
+        );
+        applyConversationDetail(empId, convId, detail);
+      } catch (error) {
+        update(empId, (s) => {
+          if (s.sendingConvId !== convId) return s;
+          return { ...s, connectionState: "reconnecting" };
+        });
+        throw error;
+      }
+    },
+    [applyConversationDetail, update],
   );
 
   const newConversation = React.useCallback(
@@ -333,6 +405,7 @@ export function ChatSessionsProvider({
         sendingConvId: convId,
         streamingReply: "",
         progress: null,
+        connectionState: "streaming",
         input: clearInput ? "" : s.input,
         messages:
           !convId || s.activeConvId === convId
@@ -344,6 +417,10 @@ export function ChatSessionsProvider({
       let gotAssistant = false;
       let serverEventError = false;
       let persistedUser: ConversationMessage | null = null;
+      let workingMessageId: string | null = null;
+      let recoverAcceptedTurn:
+        | ((initialError: string) => Promise<string | null>)
+        | null = null;
 
       try {
         // Lazy-create a conversation on first send so never-chatted
@@ -380,6 +457,59 @@ export function ChatSessionsProvider({
         // they open the conv.
         const streamConvId = convId;
 
+        recoverAcceptedTurn = async (
+          initialError: string,
+        ): Promise<string | null> => {
+          let successfulPolls = 0;
+          let failedPolls = 0;
+          let accepted = Boolean(persistedUser || workingMessageId);
+          update(empId, (s) =>
+            s.sendingConvId === streamConvId
+              ? { ...s, connectionState: "reconnecting" }
+              : s,
+          );
+
+          for (;;) {
+            try {
+              const detail = await api.get<ConversationDetail>(
+                `${base}/conversations/${streamConvId}`,
+              );
+              successfulPolls += 1;
+              failedPolls = 0;
+              const turn = findTurnMessages(
+                detail.messages,
+                persistedUser?.id ?? null,
+                tempUser,
+              );
+              if (turn.user) persistedUser = turn.user;
+              const working = turn.assistant?.status === "working" ? turn.assistant : null;
+              if (working) {
+                accepted = true;
+                workingMessageId = working.id;
+              }
+              if (turn.assistant && turn.assistant.status !== "working") {
+                applyConversationDetail(empId, streamConvId, detail);
+                return null;
+              }
+              applyConversationDetail(empId, streamConvId, detail);
+              if (!accepted && successfulPolls >= 5) {
+                return initialError;
+              }
+            } catch {
+              failedPolls += 1;
+              update(empId, (s) =>
+                s.sendingConvId === streamConvId
+                  ? { ...s, connectionState: "reconnecting" }
+                  : s,
+              );
+              if (!accepted && failedPolls >= 60) {
+                return initialError;
+              }
+            }
+            await wait(CHAT_RECOVERY_POLL_MS);
+          }
+        };
+
         await api.stream(
           `${base}/conversations/${streamConvId}/messages`,
           { message: msg, attachmentIds: attachments.map((a) => a.id) },
@@ -394,6 +524,18 @@ export function ChatSessionsProvider({
                   messages: s.messages.map((m) =>
                     m.id === tempId ? userMsg : m,
                   ),
+                };
+              });
+            } else if (event === "working") {
+              const working = data as ConversationMessage;
+              workingMessageId = working.id;
+              update(empId, (s) => {
+                if (s.activeConvId !== streamConvId) return s;
+                return {
+                  ...s,
+                  messages: upsertMessage(s.messages, working),
+                  progress: progressForWorkingMessage(working),
+                  connectionState: "streaming",
                 };
               });
             } else if (event === "chunk") {
@@ -421,18 +563,31 @@ export function ChatSessionsProvider({
               };
               update(empId, (s) => {
                 if (s.activeConvId !== streamConvId) return s;
-                return { ...s, progress };
+                return {
+                  ...s,
+                  progress,
+                  connectionState: "streaming",
+                  messages: workingMessageId
+                    ? s.messages.map((message) =>
+                        message.id === workingMessageId
+                          ? { ...message, progress }
+                          : message,
+                      )
+                    : s.messages,
+                };
               });
             } else if (event === "assistant") {
               const assistantMsg = data as ConversationMessage;
+              workingMessageId = assistantMsg.id;
               gotAssistant = true;
               update(empId, (s) => {
                 if (s.activeConvId !== streamConvId) return s;
                 return {
                   ...s,
-                  messages: [...s.messages, assistantMsg],
+                  messages: upsertMessage(s.messages, assistantMsg),
                   streamingReply: null,
                   progress: null,
+                  connectionState: null,
                 };
               });
             } else if (event === "conversation") {
@@ -456,29 +611,18 @@ export function ChatSessionsProvider({
         );
 
         if (!gotAssistant) {
-          update(empId, (s) => {
-            if (s.activeConvId !== streamConvId) return s;
-            return {
-              ...s,
-              streamingReply: null,
-              progress: null,
-              messages: [
-                ...s.messages,
-                {
-                  id: `local-${Date.now()}`,
-                  conversationId: streamConvId,
-                  role: "assistant",
-                  content: accumulated.trim() || "(no reply)",
-                  status: accumulated.trim() ? "ok" : "error",
-                  createdAt: new Date().toISOString(),
-                },
-              ],
-            };
-          });
+          return recoverAcceptedTurn(
+            "The live response ended before the final reply arrived.",
+          );
         }
         return null;
       } catch (err) {
-        const raw = (err as Error).message || "Unknown network error";
+        let raw = (err as Error).message || "Unknown network error";
+        if (!serverEventError && convId && recoverAcceptedTurn) {
+          const recovered = await recoverAcceptedTurn(raw);
+          if (!recovered) return null;
+          raw = recovered;
+        }
         const m = serverEventError ? raw : formatChatConnectionError(raw);
         update(empId, (s) => {
           if (s.activeConvId !== convId) {
@@ -489,6 +633,7 @@ export function ChatSessionsProvider({
             ...s,
             streamingReply: null,
             progress: null,
+            connectionState: null,
             messages: [
               ...s.messages.filter(
                 (x) => x.id !== tempId && x.id !== persistedUser?.id,
@@ -509,10 +654,15 @@ export function ChatSessionsProvider({
           ? raw
           : "Chat connection interrupted. See the conversation for details.";
       } finally {
-        update(empId, { sending: false, sendingConvId: null, progress: null });
+        update(empId, {
+          sending: false,
+          sendingConvId: null,
+          progress: null,
+          connectionState: null,
+        });
       }
     },
-    [update],
+    [applyConversationDetail, update],
   );
 
   const send = React.useCallback(
@@ -527,6 +677,7 @@ export function ChatSessionsProvider({
       if (!content && attachments.length === 0) {
         return Promise.resolve(null);
       }
+      const base = `/api/companies/${companyId}/employees/${empId}`;
 
       return new Promise<string | null>((resolve) => {
         const visibleItem: QueuedChatMessage = {
@@ -538,20 +689,6 @@ export function ChatSessionsProvider({
           queuedAt: new Date().toISOString(),
         };
         const item: PendingChatMessage = { ...visibleItem, resolve };
-
-        if (workersRef.current.has(empId)) {
-          const queue = pendingRef.current[empId] ?? [];
-          queue.push(item);
-          pendingRef.current[empId] = queue;
-          update(empId, (s) => ({
-            ...s,
-            input: opts?.clearInput === false ? s.input : "",
-            queuedMessages: [...s.queuedMessages, visibleItem],
-          }));
-          return;
-        }
-
-        workersRef.current.add(empId);
 
         async function drainQueue(first: PendingChatMessage): Promise<void> {
           let current: PendingChatMessage | undefined = first;
@@ -585,10 +722,70 @@ export function ChatSessionsProvider({
           workersRef.current.delete(empId);
         }
 
+        if (workersRef.current.has(empId)) {
+          const queue = pendingRef.current[empId] ?? [];
+          queue.push(item);
+          pendingRef.current[empId] = queue;
+          update(empId, (s) => ({
+            ...s,
+            input: opts?.clearInput === false ? s.input : "",
+            queuedMessages: [...s.queuedMessages, visibleItem],
+          }));
+          return;
+        }
+
+        const existing = sessionsRef.current[empId] ?? EMPTY;
+        if (existing.sending && existing.sendingConvId) {
+          pendingRef.current[empId] = [item];
+          workersRef.current.add(empId);
+          update(empId, (s) => ({
+            ...s,
+            input: opts?.clearInput === false ? s.input : "",
+            queuedMessages: [...s.queuedMessages, visibleItem],
+          }));
+
+          void (async () => {
+            const runningConvId = existing.sendingConvId!;
+            for (;;) {
+              try {
+                const detail = await api.get<ConversationDetail>(
+                  `${base}/conversations/${runningConvId}`,
+                );
+                const working = latestWorkingMessage(detail.messages);
+                applyConversationDetail(empId, runningConvId, detail);
+                if (!working) break;
+              } catch {
+                update(empId, (s) =>
+                  s.sendingConvId === runningConvId
+                    ? { ...s, connectionState: "reconnecting" }
+                    : s,
+                );
+              }
+              await wait(CHAT_RECOVERY_POLL_MS);
+            }
+
+            const queue = pendingRef.current[empId] ?? [];
+            const first = queue.shift();
+            if (!first) {
+              workersRef.current.delete(empId);
+              return;
+            }
+            update(empId, (s) => ({
+              ...s,
+              queuedMessages: s.queuedMessages.filter(
+                (queued) => queued.id !== first.id,
+              ),
+            }));
+            await drainQueue(first);
+          })();
+          return;
+        }
+
+        workersRef.current.add(empId);
         void drainQueue(item);
       });
     },
-    [sendTurn, update],
+    [applyConversationDetail, sendTurn, update],
   );
 
   const actions = React.useMemo<ChatActions>(
@@ -596,6 +793,7 @@ export function ChatSessionsProvider({
       update,
       initEmployee,
       selectConversation,
+      refreshConversation,
       newConversation,
       deleteConversation,
       archiveConversation,
@@ -608,6 +806,7 @@ export function ChatSessionsProvider({
       update,
       initEmployee,
       selectConversation,
+      refreshConversation,
       newConversation,
       deleteConversation,
       archiveConversation,
@@ -624,6 +823,84 @@ export function ChatSessionsProvider({
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+}
+
+function latestWorkingMessage(
+  messages: ConversationMessage[],
+): ConversationMessage | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role === "assistant" && message.status === "working") {
+      return message;
+    }
+  }
+  return null;
+}
+
+function progressForWorkingMessage(
+  message: ConversationMessage,
+): ChatProgress {
+  const progress = message.progress;
+  if (
+    progress &&
+    Number.isInteger(progress.percent) &&
+    progress.percent >= 1 &&
+    progress.percent <= 99 &&
+    progress.label.trim()
+  ) {
+    return { percent: progress.percent, label: progress.label.trim() };
+  }
+  return { percent: 1, label: "Starting work" };
+}
+
+function upsertMessage(
+  messages: ConversationMessage[],
+  incoming: ConversationMessage,
+): ConversationMessage[] {
+  const index = messages.findIndex((message) => message.id === incoming.id);
+  if (index === -1) return [...messages, incoming];
+  const next = [...messages];
+  next[index] = incoming;
+  return next;
+}
+
+function findTurnMessages(
+  messages: ConversationMessage[],
+  persistedUserId: string | null,
+  optimisticUser: ConversationMessage,
+): {
+  user: ConversationMessage | null;
+  assistant: ConversationMessage | null;
+} {
+  let userIndex = persistedUserId
+    ? messages.findIndex((message) => message.id === persistedUserId)
+    : -1;
+  if (userIndex === -1) {
+    const notBefore = Date.parse(optimisticUser.createdAt) - 5 * 60_000;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const candidate = messages[index];
+      if (
+        candidate?.role === "user" &&
+        candidate.content === optimisticUser.content &&
+        Date.parse(candidate.createdAt) >= notBefore
+      ) {
+        userIndex = index;
+        break;
+      }
+    }
+  }
+
+  if (userIndex === -1) return { user: null, assistant: null };
+  const user = messages[userIndex] ?? null;
+  const assistant =
+    messages
+      .slice(userIndex + 1)
+      .find((message) => message.role === "assistant") ?? null;
+  return { user, assistant };
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function formatChatConnectionError(detail: string): string {

@@ -13,6 +13,7 @@ import {
   MessageSquarePlus,
   Paperclip,
   Plug,
+  RefreshCw,
   Send,
   Sparkles,
   Trash2,
@@ -27,6 +28,7 @@ import {
   MessageAction,
 } from "../lib/api";
 import {
+  type EmployeeSession,
   QueuedChatMessage,
   useEmployeeSession,
 } from "../lib/chatSessions";
@@ -65,6 +67,7 @@ export default function EmployeeChat() {
     messages,
     streamingReply,
     progress,
+    connectionState,
     sendingConvId,
     sending,
     queuedMessages,
@@ -95,6 +98,9 @@ export default function EmployeeChat() {
     sending &&
     (sendingConvId === activeConvId ||
       (!sendingConvId && !activeConvId));
+  const visibleMessages = messages.filter(
+    (message) => message.status !== "working",
+  );
 
   // Onboarding and other guided surfaces can hand chat a draft without
   // sending it. The Member still reviews and submits the message, so opening
@@ -146,6 +152,37 @@ export default function EmployeeChat() {
       .catch((err) => toast((err as Error).message, "error"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConvId, loadedConvId, emp.id]);
+
+  // A durable working message can outlive the original response stream or a
+  // full page load. While this browser is not receiving the live stream,
+  // refresh the thread every few seconds so persisted milestones and the final
+  // reply appear automatically.
+  React.useEffect(() => {
+    if (!activeConvId || !isActiveResponse) return;
+    if (connectionState === "streaming") return;
+    let stopped = false;
+    const refresh = () => {
+      if (stopped) return;
+      actions
+        .refreshConversation(company.id, emp.id, activeConvId)
+        .catch(() => {
+          // The progress card already says that reconnection is in progress.
+        });
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 3_000);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [
+    actions,
+    activeConvId,
+    company.id,
+    connectionState,
+    emp.id,
+    isActiveResponse,
+  ]);
 
   // Auto-scroll to bottom on new messages or while the reply streams in.
   React.useEffect(() => {
@@ -297,13 +334,13 @@ export default function EmployeeChat() {
         >
           {isLoadingMessages ? (
             <MessageSkeleton />
-          ) : messages.length === 0 &&
+          ) : visibleMessages.length === 0 &&
             !isActiveResponse &&
             visibleQueuedMessages.length === 0 ? (
             <EmptyState empName={emp.name} empRole={emp.role} onPick={(t) => send(t)} />
           ) : (
             <div className="mx-auto flex max-w-3xl flex-col gap-5">
-              {messages.map((m, i) => (
+              {visibleMessages.map((m, i) => (
                 <TurnBubble
                   key={m.id}
                   message={m}
@@ -312,7 +349,9 @@ export default function EmployeeChat() {
                   companySlug={company.slug}
                   employeeId={emp.id}
                   employeeSlug={emp.slug}
-                  showAvatar={i === 0 || messages[i - 1].role !== m.role}
+                  showAvatar={
+                    i === 0 || visibleMessages[i - 1].role !== m.role
+                  }
                   onInspectAction={setInspectAction}
                 />
               ))}
@@ -329,6 +368,7 @@ export default function EmployeeChat() {
                   authorName={emp.name}
                   percent={progress.percent}
                   label={progress.label}
+                  connectionState={connectionState}
                 />
               )}
               {isActiveResponse &&
@@ -811,11 +851,14 @@ function ProgressIndicator({
   authorName,
   percent,
   label,
+  connectionState,
 }: {
   authorName: string;
   percent: number;
   label: string;
+  connectionState: EmployeeSession["connectionState"];
 }) {
+  const reconnecting = connectionState === "reconnecting";
   return (
     <div
       className="flex justify-start gap-2.5"
@@ -847,6 +890,30 @@ function ProgressIndicator({
               className="h-full rounded-full bg-indigo-600 transition-[width] duration-500 ease-out dark:bg-indigo-500"
               style={{ width: `${percent}%` }}
             />
+          </div>
+          <div className="mt-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px]">
+            <span
+              className={
+                "inline-flex items-center gap-1.5 font-medium " +
+                (reconnecting
+                  ? "text-amber-700 dark:text-amber-300"
+                  : "text-emerald-700 dark:text-emerald-300")
+              }
+            >
+              {reconnecting ? (
+                <RefreshCw size={11} className="animate-spin" />
+              ) : (
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              )}
+              {reconnecting
+                ? "Reconnecting to updates…"
+                : connectionState === "polling"
+                  ? "Following persisted updates"
+                  : "Live"}
+            </span>
+            <span className="text-slate-500 dark:text-slate-400">
+              Add a follow-up below — it will be queued
+            </span>
           </div>
         </div>
       </div>

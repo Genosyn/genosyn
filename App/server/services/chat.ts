@@ -81,10 +81,15 @@ export type ChatResult =
       sidecars: Record<string, unknown[]>;
     };
 
-/** Hard ceiling on a whole chat turn. */
-const CHAT_HARD_TIMEOUT_MS = 60 * 60_000;
+/**
+ * Hard ceiling on a whole chat turn. Direct chat uses the same six-hour
+ * maximum exposed for Routines: substantial work may take hours, while this
+ * still prevents a lost model/tool request from holding a workload slot
+ * forever.
+ */
+const CHAT_HARD_TIMEOUT_MS = 6 * 60 * 60_000;
 /** Max model turns before the loop stops itself. */
-const CHAT_MAX_STEPS = 60;
+const CHAT_MAX_STEPS = 100;
 
 /**
  * Human-facing notice for a chat turn that lost the race to another chat.
