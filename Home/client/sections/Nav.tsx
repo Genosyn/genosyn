@@ -7,10 +7,11 @@ import { Link } from "@/lib/router";
 // Hash links are home-page anchors; the `/#…` form keeps them working from
 // nested routes like /products/* (they fall through to a full navigation).
 const LINKS = [
-  { href: "/#use-cases", label: "Use cases" },
-  { href: "/#how-it-works", label: "How it works" },
-  { href: "/products/ai-employees", label: "AI Employees" },
+  { href: "/products", label: "Products" },
+  { href: "/#primitives", label: "How it works" },
+  { href: "/#quickstart", label: "Install" },
   { href: "/docs", label: "Docs" },
+  { href: "/#cli", label: "CLI" },
   { href: "/enterprise", label: "Enterprise" },
 ];
 
@@ -29,11 +30,11 @@ export function Nav() {
     <header
       className={`sticky top-0 z-50 transition-all ${
         scrolled
-          ? "border-b border-zinc-200/70 bg-white/85 backdrop-blur-xl"
-          : "border-b border-zinc-200/60 bg-[#f1f1eb]"
+          ? "border-b border-zinc-200/70 bg-white/80 backdrop-blur"
+          : "border-b border-transparent bg-white"
       }`}
     >
-      <div className="mx-auto flex h-[4.5rem] max-w-[94rem] items-center justify-between gap-6 px-5 sm:px-6">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-6 px-6">
         <Link href="/" className="flex items-center text-zinc-950" aria-label="Genosyn">
           <Logo className="h-7 w-auto" />
         </Link>
@@ -43,7 +44,7 @@ export function Nav() {
             <Link
               key={l.href}
               href={l.href}
-              className="rounded-lg px-3 py-2 text-xs font-semibold text-zinc-600 transition hover:bg-white/70 hover:text-zinc-950"
+              className="rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 transition hover:bg-zinc-50 hover:text-zinc-950"
             >
               {l.label}
             </Link>
@@ -55,23 +56,23 @@ export function Nav() {
             href={GITHUB_URL}
             target="_blank"
             rel="noreferrer"
-            className="hidden items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-zinc-600 transition hover:bg-white/70 hover:text-zinc-950 sm:inline-flex"
+            className="hidden items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 transition hover:bg-zinc-50 hover:text-zinc-950 sm:inline-flex"
             aria-label="GitHub"
           >
             <Github className="h-4 w-4" />
-            <span className="hidden xl:inline">GitHub</span>
+            <span className="hidden lg:inline">Star on GitHub</span>
           </a>
           <a
             href="/#quickstart"
-            className="hidden items-center gap-1.5 rounded-xl bg-zinc-950 px-4 py-2.5 text-xs font-semibold text-white shadow-card transition hover:-translate-y-0.5 hover:bg-zinc-800 sm:inline-flex"
+            className="hidden items-center gap-1.5 rounded-md bg-zinc-950 px-4 py-1.5 text-sm font-semibold text-white shadow-card transition hover:bg-zinc-800 sm:inline-flex"
           >
-            Self-host Genosyn
+            Get started
           </a>
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
             aria-label="Toggle menu"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-300 bg-white/70 text-zinc-700 hover:bg-white md:hidden"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-zinc-200 text-zinc-700 hover:bg-zinc-50 md:hidden"
           >
             {open ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
           </button>
@@ -79,7 +80,7 @@ export function Nav() {
       </div>
 
       {open && (
-        <div className="border-t border-zinc-200 bg-white/95 backdrop-blur-xl md:hidden">
+        <div className="border-t border-zinc-200 bg-white md:hidden">
           <nav className="mx-auto flex max-w-7xl flex-col gap-1 px-6 py-3">
             {LINKS.map((l) => (
               <Link
@@ -105,7 +106,7 @@ export function Nav() {
               onClick={() => setOpen(false)}
               className="mt-1 inline-flex items-center justify-center rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white"
             >
-              Self-host Genosyn
+              Get started
             </a>
           </nav>
         </div>

@@ -19,7 +19,7 @@ export type RouteHead = {
 };
 
 const SITE_DESCRIPTION =
-  "Give recurring company outcomes a clear AI owner. Genosyn is the open-source, self-hosted operating system for AI employees that work across revenue, engineering, support, and finance.";
+  "Open-source, self-hosted company operating system where sales, engineering, support, finance, and operations run with AI employees.";
 
 const ORGANIZATION = {
   "@context": "https://schema.org",
@@ -119,7 +119,7 @@ export function allRoutes(): RouteHead[] {
   const routes: RouteHead[] = [
     {
       path: "/",
-      title: "Genosyn — AI employees for work that never stops",
+      title: "Genosyn — Run your company with AI employees",
       description: SITE_DESCRIPTION,
       jsonLd: [ORGANIZATION, WEBSITE, SOFTWARE_APPLICATION],
     },

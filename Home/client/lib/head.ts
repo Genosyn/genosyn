@@ -19,11 +19,11 @@ export function applyHead(meta: RouteHead): void {
   setPropertyMeta("og:url", url);
   setPropertyMeta("og:type", "website");
   setPropertyMeta("og:site_name", "Genosyn");
-  setPropertyMeta("og:image", `${SITE_URL}/og-outcomes.png`);
+  setPropertyMeta("og:image", `${SITE_URL}/og.png`);
   setNamedMeta("twitter:card", "summary_large_image");
   setNamedMeta("twitter:title", meta.title);
   setNamedMeta("twitter:description", meta.description);
-  setNamedMeta("twitter:image", `${SITE_URL}/og-outcomes.png`);
+  setNamedMeta("twitter:image", `${SITE_URL}/og.png`);
 
   setJsonLd(meta.jsonLd);
 }

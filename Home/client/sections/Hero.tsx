@@ -1,101 +1,102 @@
-import { ArrowDownRight, ArrowRight, Check, ShieldCheck } from "lucide-react";
+import { ArrowRight, Check, Github, ShieldCheck, Sparkles } from "lucide-react";
 import { GITHUB_URL } from "@/lib/constants";
-import {
-  CompanyDemo,
-  OutcomeTabs,
-  useOutcomeMotion,
-} from "@/sections/CompanyDemo";
+import { ProductPrototype } from "@/products/ProductPrototype";
 
-const TRUST_MARKERS = ["MIT licensed", "Runs on your infrastructure", "Bring any AI model"];
+const CHECKS = ["MIT licensed", "Self-hosted", "Any AI model", "Human approvals"];
+const TEAMS = ["Sales Development", "Engineering", "Support", "Finance", "Operations"];
 
 export function Hero() {
-  const { outcome, outcomeIndex, phase, selectOutcome } = useOutcomeMotion(true);
-
   return (
-    <section className="relative overflow-hidden border-b border-zinc-200 bg-[#f1f1eb]">
-      <div aria-hidden className="homepage-grid pointer-events-none absolute inset-0 opacity-55" />
+    <section className="relative overflow-hidden border-b border-zinc-200 bg-[#f4f4f1]">
+      <div aria-hidden className="bg-grid-soft pointer-events-none absolute inset-0 opacity-35" />
       <div
         aria-hidden
-        className="pointer-events-none absolute -left-48 top-40 h-80 w-80 rounded-full bg-emerald-200/30 blur-3xl"
+        className="pointer-events-none absolute inset-x-0 top-0 h-[42rem] bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.95),transparent_68%)]"
       />
 
-      <div className="relative mx-auto grid min-h-[calc(100svh-4.5rem)] max-w-[94rem] items-center gap-12 px-5 py-14 sm:px-6 sm:py-20 lg:grid-cols-[0.82fr_1.18fr] lg:gap-10 lg:py-16 xl:gap-16">
-        <div className="mx-auto max-w-2xl text-center lg:mx-0 lg:text-left">
+      <div className="relative mx-auto max-w-[92rem] px-5 pb-16 pt-10 sm:px-6 sm:pb-20 sm:pt-20 lg:pb-24 lg:pt-24">
+        <div className="mx-auto max-w-5xl text-center">
           <a
             href={GITHUB_URL}
             target="_blank"
             rel="noreferrer"
-            className="group inline-flex items-center gap-2 rounded-full border border-zinc-300 bg-white/80 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.13em] text-zinc-600 shadow-sm transition hover:border-zinc-400 hover:bg-white"
+            className="group inline-flex items-center gap-2 rounded-full border border-zinc-300 bg-white/80 px-3.5 py-1.5 text-[11px] font-semibold text-zinc-700 shadow-sm transition hover:border-zinc-400 hover:bg-white"
           >
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            Open source · v{__APP_VERSION__}
-            <ArrowRight className="h-3 w-3 text-zinc-400 transition group-hover:translate-x-0.5" />
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-950 text-white">
+              <Sparkles className="h-3 w-3" />
+            </span>
+            Open-source company operating system
+            <span className="text-zinc-300">·</span>v{__APP_VERSION__}
+            <ArrowRight className="h-3.5 w-3.5 text-zinc-400 transition group-hover:translate-x-0.5" />
           </a>
 
-          <h1 className="mt-7 text-balance text-[3.35rem] font-semibold leading-[0.91] tracking-[-0.07em] text-zinc-950 sm:text-[4.7rem] lg:text-[4.9rem] xl:text-[5.75rem]">
-            Give every outcome <span className="text-zinc-500">an owner.</span>
+          <h1 className="mt-7 text-balance text-[3.15rem] font-semibold leading-[0.92] tracking-[-0.065em] text-zinc-950 sm:mt-8 sm:text-[5rem] lg:text-[6.4rem]">
+            Run your company with <span className="text-zinc-500">AI employees.</span>
           </h1>
 
-          <p className="mx-auto mt-6 max-w-xl text-pretty text-base leading-7 text-zinc-600 sm:text-lg sm:leading-8 lg:mx-0">
-            Build AI Employees for the work that never stops. They wake up on schedule, work across
-            your company, and bring people in exactly where judgment matters.
+          <p className="mx-auto mt-6 max-w-3xl text-pretty text-base leading-7 text-zinc-600 sm:mt-7 sm:text-xl sm:leading-8">
+            Sales, engineering, support, finance, and operations—all in one self-hosted workspace
+            where people and AI Employees share the same context, tools, and review queues.
           </p>
 
-          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row lg:justify-start">
+          <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:mt-9 sm:flex-row">
             <a
               href="#quickstart"
-              className="group inline-flex items-center justify-center gap-2 rounded-xl bg-zinc-950 px-6 py-3.5 text-sm font-semibold text-white shadow-[0_16px_34px_-16px_rgba(24,24,27,0.8)] transition hover:-translate-y-0.5 hover:bg-zinc-800"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-950 px-6 py-3.5 text-sm font-semibold text-white shadow-[0_14px_30px_-14px_rgba(24,24,27,0.75)] transition hover:-translate-y-0.5 hover:bg-zinc-800 sm:w-auto"
             >
-              Meet your first AI Employee
-              <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+              Run it on your server
+              <ArrowRight className="h-4 w-4" />
             </a>
             <a
-              href="#use-cases"
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-300 bg-white/75 px-6 py-3.5 text-sm font-semibold text-zinc-800 shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-400 hover:bg-white"
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-300 bg-white px-6 py-3.5 text-sm font-semibold text-zinc-800 shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-400 sm:w-auto"
             >
-              See the work
-              <ArrowDownRight className="h-4 w-4 text-zinc-500" />
+              <Github className="h-4 w-4" />
+              View on GitHub
             </a>
           </div>
 
-          <ul className="mt-7 flex flex-wrap justify-center gap-x-4 gap-y-2 text-[10px] font-semibold text-zinc-500 lg:justify-start">
-            {TRUST_MARKERS.map((marker) => (
-              <li key={marker} className="inline-flex items-center gap-1.5">
-                <Check className="h-3.5 w-3.5 text-emerald-700" />
-                {marker}
+          <ul className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[11px] font-semibold text-zinc-500 sm:mt-8">
+            {CHECKS.map((check) => (
+              <li key={check} className="inline-flex items-center gap-1.5">
+                <Check className="h-3.5 w-3.5 text-emerald-600" />
+                {check}
               </li>
             ))}
           </ul>
-
-          <div className="mt-8 hidden items-center gap-3 border-t border-zinc-300/80 pt-5 text-left lg:flex">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-zinc-300 bg-white text-emerald-700 shadow-sm">
-              <ShieldCheck className="h-4 w-4" />
-            </span>
-            <p className="max-w-sm text-[11px] leading-5 text-zinc-500">
-              Sensitive actions wait behind approval gates. Every decision and tool action stays in
-              a readable Run.
-            </p>
-          </div>
         </div>
 
-        <div className="min-w-0">
-          <div className="mb-3 flex items-end justify-between gap-4 px-1">
+        <div className="mx-auto mt-10 max-w-[86rem] sm:mt-16">
+          <div className="mb-4 flex flex-col gap-3 px-1 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <div className="flex items-center gap-2 text-[9px] font-bold uppercase tracking-[0.18em] text-zinc-500">
-                <span className="company-demo-live h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                One company, working now
+              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">
+                <span className="prototype-live-dot h-1.5 w-1.5 rounded-full bg-emerald-500" />A
+                company working in real time
               </div>
-              <p className="mt-1 text-xs font-medium text-zinc-700">
-                Pick an outcome and watch the handoff disappear.
+              <p className="mt-1.5 text-sm font-medium text-zinc-800">
+                Watch the work move. The showcase runs itself.
               </p>
             </div>
+            <div className="flex items-center gap-2 text-[10px] font-medium text-zinc-500">
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+              Sensitive actions pause for approval
+            </div>
           </div>
-          <OutcomeTabs
-            activeIndex={outcomeIndex}
-            onSelect={selectOutcome}
-            className="mb-3"
-          />
-          <CompanyDemo outcome={outcome} phase={phase} compact />
+
+          <ProductPrototype compact />
+
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+            {TEAMS.map((team) => (
+              <span
+                key={team}
+                className="rounded-full border border-zinc-300 bg-white/60 px-3 py-1.5 text-[10px] font-semibold text-zinc-500"
+              >
+                {team}
+              </span>
+            ))}
+          </div>
         </div>
       </div>
     </section>
