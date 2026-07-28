@@ -4,9 +4,27 @@ import { describe, test } from "node:test";
 import { STATIC_TOOLS } from "../../../mcp/toolManifest.js";
 import {
   hasSafeDirectWriteProvenance,
+  mcpInternalRouter,
   proposeStripeCommercialValuesToolSchema,
 } from "../../../routes/mcpInternal.js";
 import { TOOL_DOMAINS, TOOL_KEYWORDS } from "./toolIndex.js";
+
+const NEW_REVENUE_AI_TOOLS = [
+  "preview_revenue_rows_import",
+  "run_revenue_rows_import",
+  "preview_linked_revenue_rows_import",
+  "run_linked_revenue_rows_import",
+  "list_deal_history_coverage",
+  "preview_deal_history_backfill",
+  "backfill_deal_history",
+  "preview_revenue_firmographics",
+  "propose_revenue_firmographics",
+  "list_revenue_firmographic_lookups",
+  "list_commercial_value_backlog",
+  "propose_finance_commercial_values",
+  "propose_stripe_commercial_values",
+  "export_revenue_snapshot",
+] as const;
 
 function contract(name: string): string {
   const tool = STATIC_TOOLS.find((candidate) => candidate.name === name);
@@ -21,7 +39,80 @@ function includesContract(name: string, fragments: string[]): void {
   }
 }
 
+function requiredProperties(name: string): string[] {
+  const tool = STATIC_TOOLS.find((candidate) => candidate.name === name);
+  assert.ok(tool, `missing Revenue AI tool ${name}`);
+  return (tool.inputSchema as { required?: string[] }).required ?? [];
+}
+
 describe("Revenue AI capability contracts", () => {
+  test("every new Revenue manifest tool resolves to a POST handler", () => {
+    const stack = (
+      mcpInternalRouter as unknown as {
+        stack?: Array<{
+          route?: {
+            path?: unknown;
+            methods?: Record<string, boolean>;
+            stack?: unknown[];
+          };
+        }>;
+      }
+    ).stack;
+    assert.ok(stack, "the internal MCP router exposes no route stack");
+
+    for (const name of NEW_REVENUE_AI_TOOLS) {
+      const route:
+        | {
+            path?: unknown;
+            methods?: Record<string, boolean>;
+            stack?: unknown[];
+          }
+        | undefined = stack
+        .map((layer) => layer.route)
+        .find((candidate) => candidate?.path === `/tools/${name}`);
+      assert.ok(route, `missing internal MCP handler for ${name}`);
+      assert.equal(route.methods?.post, true, `${name} is not wired as a POST handler`);
+      assert.ok((route.stack?.length ?? 0) > 0, `${name} has no handler middleware`);
+    }
+  });
+
+  test("row-based imports expose CSV, JSON, and granted Connection provenance safely", () => {
+    for (const name of [
+      "preview_revenue_rows_import",
+      "run_revenue_rows_import",
+      "preview_linked_revenue_rows_import",
+      "run_linked_revenue_rows_import",
+    ]) {
+      includesContract(name, [
+        "csv",
+        "json",
+        "connection",
+        "sourceConnectionId",
+        "sourceLabel",
+        "rows",
+        "sourceId",
+        "values",
+      ]);
+    }
+    for (const name of ["run_revenue_rows_import", "run_linked_revenue_rows_import"]) {
+      includesContract(name, ["confirm", "IMPORT"]);
+      assert.ok(requiredProperties(name).includes("confirm"));
+    }
+    includesContract("preview_revenue_rows_import", [
+      "account",
+      "contact",
+      "deal",
+      "partnership",
+      "mapping",
+    ]);
+    includesContract("preview_linked_revenue_rows_import", [
+      "account",
+      "contact",
+      "deal",
+      "mapping",
+    ]);
+  });
+
   test("historical Deal import and reporting expose every dated event concept", () => {
     includesContract("preview_historical_deal_import", [
       "originalCreatedAt",
@@ -37,7 +128,25 @@ describe("Revenue AI capability contracts", () => {
     ]);
     includesContract("run_historical_deal_import", ["batchKey", "sourceSystem", "IMPORT"]);
     includesContract("list_deal_history", ["sourceKind", "kind", "from", "to"]);
-    includesContract("backfill_deal_history", ["BACKFILL"]);
+    includesContract("list_deal_history_coverage", [
+      "dealIds",
+      "includeArchived",
+      "limit",
+      "offset",
+    ]);
+    includesContract("preview_deal_history_backfill", ["dealIds"]);
+    includesContract("backfill_deal_history", [
+      "dealIds",
+      "minItems",
+      "idempotencyKey",
+      "confirm",
+      "BACKFILL",
+    ]);
+    assert.deepEqual(requiredProperties("backfill_deal_history"), [
+      "dealIds",
+      "idempotencyKey",
+      "confirm",
+    ]);
   });
 
   test("generic merge, redirect, audit, and guarded undo cover every core record", () => {
@@ -63,6 +172,10 @@ describe("Revenue AI capability contracts", () => {
         "archive",
         "move_deal_stage",
         "lostReason",
+        "update_standard_fields",
+        "UPDATE_STANDARD_FIELDS",
+        "notesMode",
+        "rows",
         "update_follow_up",
       ]);
     }
@@ -118,6 +231,8 @@ describe("Revenue AI capability contracts", () => {
         "offset",
       ]);
     }
+    includesContract("rollback_revenue_import", ["importId", "confirm", "ROLLBACK"]);
+    assert.deepEqual(requiredProperties("rollback_revenue_import"), ["importId", "confirm"]);
   });
 
   test("the native snapshot contract covers every requested Revenue export", () => {
@@ -134,9 +249,40 @@ describe("Revenue AI capability contracts", () => {
       "custom_fields",
       "custom_values",
       "import_reconciliation",
+      "deal_history",
+      "field_evidence",
+      "duplicate_candidates",
+      "operation_audit",
+      "document_candidates",
       "json",
       "csv",
+      "dealId",
+      "sourceKind",
+      "kind",
+      "from",
+      "to",
+      "resourceType",
+      "resourceId",
+      "fieldKey",
+      "sourceType",
+      "status",
+      "minScore",
+      "accountId",
     ]);
+    const snapshot = STATIC_TOOLS.find((candidate) => candidate.name === "export_revenue_snapshot");
+    assert.ok(snapshot);
+    const resource = (
+      snapshot.inputSchema as {
+        properties?: { resource?: { enum?: string[] } };
+      }
+    ).properties?.resource;
+    assert.equal(resource?.enum?.includes("document_candidates"), true);
+    const accountId = (
+      snapshot.inputSchema as {
+        properties?: { accountId?: { description?: string } };
+      }
+    ).properties?.accountId;
+    assert.match(accountId?.description ?? "", /required.*exact Mail Account/i);
   });
 
   test("domain, commercial value, duplicate, Gmail, and provenance workflows are reachable", () => {
@@ -144,6 +290,17 @@ describe("Revenue AI capability contracts", () => {
       "accountIds",
       "verifiedContactIds",
       "followWebsiteRedirects",
+    ]);
+    includesContract("list_commercial_value_backlog", ["dealIds", "stageIds", "limit", "offset"]);
+    includesContract("propose_finance_commercial_values", [
+      "dealIds",
+      "minItems",
+      "confirm",
+      "PROPOSE",
+    ]);
+    assert.deepEqual(requiredProperties("propose_finance_commercial_values"), [
+      "dealIds",
+      "confirm",
     ]);
     for (const name of [
       "propose_finance_commercial_values",
@@ -163,14 +320,19 @@ describe("Revenue AI capability contracts", () => {
       required?: string[];
     };
     assert.ok(stripeSchema.properties?.connectionId);
-    assert.deepEqual(stripeSchema.required, ["connectionId", "confirm"]);
+    assert.ok(stripeSchema.properties?.dealIds);
+    assert.deepEqual(stripeSchema.required, ["connectionId", "dealIds", "confirm"]);
     assert.equal(
-      proposeStripeCommercialValuesToolSchema.safeParse({ confirm: "PROPOSE" }).success,
+      proposeStripeCommercialValuesToolSchema.safeParse({
+        connectionId: "11111111-1111-4111-8111-111111111111",
+        confirm: "PROPOSE",
+      }).success,
       false,
     );
     assert.equal(
       proposeStripeCommercialValuesToolSchema.safeParse({
         connectionId: "11111111-1111-4111-8111-111111111111",
+        dealIds: ["11111111-1111-4111-8111-111111111112"],
         confirm: "PROPOSE",
       }).success,
       true,
@@ -219,12 +381,48 @@ describe("Revenue AI capability contracts", () => {
     assert.ok(TOOL_KEYWORDS.set_revenue_custom_fields.includes("custom field provenance"));
   });
 
+  test("firmographic enrichment is review-first, scoped, confirmed, and Connection-gated", () => {
+    for (const name of ["preview_revenue_firmographics", "propose_revenue_firmographics"]) {
+      includesContract(name, [
+        "connectionId",
+        "accountIds",
+        "missingOnly",
+        "refreshOlderThanDays",
+        "limit",
+        "force",
+      ]);
+      assert.ok(requiredProperties(name).includes("connectionId"));
+    }
+    includesContract("propose_revenue_firmographics", ["confirm", "PROPOSE"]);
+    assert.deepEqual(requiredProperties("propose_revenue_firmographics"), [
+      "connectionId",
+      "confirm",
+    ]);
+    includesContract("list_revenue_firmographic_lookups", [
+      "connectionId",
+      "accountId",
+      "matched",
+      "not_found",
+      "failed",
+      "limit",
+      "offset",
+    ]);
+    assert.deepEqual(requiredProperties("list_revenue_firmographic_lookups"), ["connectionId"]);
+  });
+
   test("every capability remains in the discoverable Revenue domain", () => {
     const revenue = new Set(TOOL_DOMAINS.revenue.tools);
     const expected = [
+      "preview_revenue_rows_import",
+      "run_revenue_rows_import",
+      "preview_linked_revenue_rows_import",
+      "run_linked_revenue_rows_import",
       "preview_historical_deal_import",
       "run_historical_deal_import",
       "list_deal_history",
+      "list_deal_history_coverage",
+      "preview_deal_history_backfill",
+      "backfill_deal_history",
       "preview_revenue_record_merge",
       "merge_revenue_records",
       "resolve_revenue_record_redirect",
@@ -243,6 +441,10 @@ describe("Revenue AI capability contracts", () => {
       "export_revenue_import_reconciliation",
       "export_revenue_snapshot",
       "propose_revenue_account_domains",
+      "preview_revenue_firmographics",
+      "propose_revenue_firmographics",
+      "list_revenue_firmographic_lookups",
+      "list_commercial_value_backlog",
       "propose_finance_commercial_values",
       "propose_stripe_commercial_values",
       "create_commercial_value_proposal",
@@ -259,6 +461,11 @@ describe("Revenue AI capability contracts", () => {
     assert.deepEqual(
       expected.filter((name) => !revenue.has(name)),
       [],
+    );
+    assert.deepEqual(
+      NEW_REVENUE_AI_TOOLS.filter((name) => !(TOOL_KEYWORDS[name]?.length > 0)),
+      [],
+      "new Revenue tools must have explicit discovery keywords",
     );
   });
 });

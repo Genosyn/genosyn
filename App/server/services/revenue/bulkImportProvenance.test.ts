@@ -6,7 +6,10 @@ import { AppDataSource } from "../../db/datasource.js";
 import { Activity } from "../../db/entities/Activity.js";
 import { Contact } from "../../db/entities/Contact.js";
 import { Customer } from "../../db/entities/Customer.js";
+import { CustomerContact } from "../../db/entities/CustomerContact.js";
 import { Deal } from "../../db/entities/Deal.js";
+import { DealHistoryEvent } from "../../db/entities/DealHistoryEvent.js";
+import { DealStage } from "../../db/entities/DealStage.js";
 import { Partnership } from "../../db/entities/Partnership.js";
 import { RevenueCustomField } from "../../db/entities/RevenueCustomField.js";
 import { RevenueCustomValue } from "../../db/entities/RevenueCustomValue.js";
@@ -80,6 +83,121 @@ function followUpFixtureId(index: number): string {
 }
 
 describe("bulk Revenue invariants", () => {
+  test("validates standard-field patches, records Deal history, and supports guarded undo", async () => {
+    const companyId = testCompanyId();
+    const target = await insert(Deal, {
+      companyId,
+      title: "History-safe bulk Deal",
+      stageId: "open-stage",
+      status: "open",
+      amountCents: 0,
+      currency: "USD",
+      expectedCloseDate: null,
+      archivedAt: null,
+    });
+    const result = await runRevenueBulkOperation(
+      companyId,
+      {
+        resourceType: "deal",
+        target: { ids: [target.id] },
+        action: {
+          type: "update_standard_fields",
+          confirm: "UPDATE_STANDARD_FIELDS",
+          values: {
+            amountCents: 125_000,
+            currency: "gbp",
+            expectedCloseDate: new Date("2032-04-15T00:00:00.000Z"),
+            nextStep: "Review the proposal",
+          },
+        },
+        dryRun: false,
+        mode: "atomic",
+        idempotencyKey: "bulk-standard-deal-history",
+      },
+      { userId: "member-owner" },
+    );
+
+    assert.equal(result.applied, 1);
+    const saved = await AppDataSource.getRepository(Deal).findOneByOrFail({ id: target.id });
+    assert.equal(saved.amountCents, 125_000);
+    assert.equal(saved.currency, "GBP");
+    assert.equal(saved.nextStep, "Review the proposal");
+    const history = await AppDataSource.getRepository(DealHistoryEvent).find({
+      where: { companyId, dealId: target.id },
+      order: { kind: "ASC" },
+    });
+    assert.deepEqual(
+      history.map((event) => event.kind),
+      ["amount_changed", "expected_close_changed"],
+    );
+
+    await rollbackRevenueOperation(companyId, result.operationId!);
+    const restored = await AppDataSource.getRepository(Deal).findOneByOrFail({ id: target.id });
+    assert.equal(restored.amountCents, 0);
+    assert.equal(restored.currency, "USD");
+    assert.equal(restored.expectedCloseDate, null);
+    assert.equal(
+      await AppDataSource.getRepository(DealHistoryEvent).countBy({ dealId: target.id }),
+      0,
+    );
+  });
+
+  test("requires per-record patches for unique standard identity fields", async () => {
+    const companyId = testCompanyId();
+    const first = await contact(companyId, "Identity First");
+    const second = await contact(companyId, "Identity Second");
+    await assert.rejects(
+      () =>
+        runRevenueBulkOperation(companyId, {
+          resourceType: "contact",
+          target: { ids: [first.id, second.id] },
+          action: {
+            type: "update_standard_fields",
+            confirm: "UPDATE_STANDARD_FIELDS",
+            values: { email: "same@example.com" },
+          },
+          dryRun: true,
+        }),
+      /Unique identity fields require a per-record patch/,
+    );
+  });
+
+  test("rejects malformed standard-field values before writing data or history", async () => {
+    const companyId = testCompanyId();
+    const target = await insert(Deal, {
+      companyId,
+      title: "Malformed bulk Deal",
+      stageId: "open-stage",
+      status: "open",
+      amountCents: 0,
+      currency: "USD",
+      archivedAt: null,
+    });
+    const result = await runRevenueBulkOperation(companyId, {
+      resourceType: "deal",
+      target: { ids: [target.id] },
+      action: {
+        type: "update_standard_fields",
+        confirm: "UPDATE_STANDARD_FIELDS",
+        values: { amountCents: "125000" },
+      },
+      dryRun: false,
+      mode: "partial",
+      idempotencyKey: "bulk-malformed-standard-value",
+    });
+
+    assert.equal(result.failed, 1);
+    assert.match(result.rows[0]?.error ?? "", /amountCents must be an integer/);
+    assert.equal(
+      (await AppDataSource.getRepository(Deal).findOneByOrFail({ id: target.id })).amountCents,
+      0,
+    );
+    assert.equal(
+      await AppDataSource.getRepository(DealHistoryEvent).countBy({ dealId: target.id }),
+      0,
+    );
+  });
+
   test("records verified custom-field evidence transactionally and includes it in guarded undo", async () => {
     const companyId = testCompanyId();
     const target = await account(companyId, "Evidence Account");
@@ -694,6 +812,272 @@ describe("bulk Revenue invariants", () => {
 });
 
 describe("Revenue import provenance and reconciliation", () => {
+  test("rolls back resources, evidence, batch, and reconciliation rows when commit persistence fails", async () => {
+    const companyId = testCompanyId();
+    await createCustomField(companyId, {
+      resourceType: "contact",
+      name: "Atomic marker",
+      fieldType: "text",
+    });
+    await AppDataSource.query(`
+      CREATE TRIGGER fail_revenue_import_reconciliation
+      BEFORE INSERT ON revenue_import_rows
+      BEGIN
+        SELECT RAISE(ABORT, 'forced reconciliation failure');
+      END
+    `);
+
+    try {
+      await assert.rejects(
+        commitRevenueImport(
+          companyId,
+          {
+            resourceType: "contact",
+            sourceKind: "csv",
+            sourceLabel: "atomic.csv",
+            mapping: {
+              name: "name",
+              email: "email",
+              "custom:atomic_marker": "marker",
+            },
+            rows: [
+              {
+                sourceId: "atomic-row",
+                values: {
+                  name: "Atomic Contact",
+                  email: "atomic@example.com",
+                  marker: "created inside transaction",
+                },
+              },
+            ],
+          },
+          { userId: "member-owner" },
+        ),
+        /forced reconciliation failure/,
+      );
+    } finally {
+      await AppDataSource.query("DROP TRIGGER IF EXISTS fail_revenue_import_reconciliation");
+    }
+
+    assert.equal(await AppDataSource.getRepository(Contact).countBy({ companyId }), 0);
+    assert.equal(await AppDataSource.getRepository(RevenueCustomValue).countBy({ companyId }), 0);
+    assert.equal(await AppDataSource.getRepository(RevenueFieldEvidence).countBy({ companyId }), 0);
+    assert.equal(await AppDataSource.getRepository(RevenueImportBatch).countBy({ companyId }), 0);
+    assert.equal(await AppDataSource.getRepository(RevenueImportRow).countBy({ companyId }), 0);
+  });
+
+  test("uses a row savepoint so evidence failures become skips without leaking the resource", async () => {
+    const companyId = testCompanyId();
+    await createCustomField(companyId, {
+      resourceType: "contact",
+      name: "Savepoint marker",
+      fieldType: "text",
+    });
+    await AppDataSource.query(`
+      CREATE TRIGGER fail_revenue_import_evidence
+      BEFORE INSERT ON revenue_field_evidence
+      BEGIN
+        SELECT RAISE(ABORT, 'forced evidence failure');
+      END
+    `);
+
+    let batch: RevenueImportBatch;
+    try {
+      batch = await commitRevenueImport(
+        companyId,
+        {
+          resourceType: "contact",
+          sourceKind: "csv",
+          sourceLabel: "savepoint.csv",
+          mapping: {
+            name: "name",
+            email: "email",
+            "custom:savepoint_marker": "marker",
+          },
+          rows: [
+            {
+              sourceId: "savepoint-row",
+              values: {
+                name: "Savepoint Contact",
+                email: "savepoint@example.com",
+                marker: "must roll back with the Contact",
+              },
+            },
+          ],
+        },
+        { userId: "member-owner" },
+      );
+    } finally {
+      await AppDataSource.query("DROP TRIGGER IF EXISTS fail_revenue_import_evidence");
+    }
+
+    assert.equal(await AppDataSource.getRepository(Contact).countBy({ companyId }), 0);
+    assert.equal(await AppDataSource.getRepository(RevenueCustomValue).countBy({ companyId }), 0);
+    assert.equal(await AppDataSource.getRepository(RevenueFieldEvidence).countBy({ companyId }), 0);
+    assert.equal(batch!.status, "completed");
+    assert.deepEqual(JSON.parse(batch!.createdIdsJson), []);
+    const reconciliation = await AppDataSource.getRepository(RevenueImportRow).findOneByOrFail({
+      companyId,
+      batchId: batch!.id,
+      sourceId: "savepoint-row",
+    });
+    assert.equal(reconciliation.status, "skipped");
+    assert.match(reconciliation.reason, /forced evidence failure/);
+  });
+
+  test("removes imported Deal history atomically and leaves no orphan ledger rows", async () => {
+    const companyId = testCompanyId();
+    await insert(DealStage, {
+      companyId,
+      name: "New",
+      slug: "new",
+      sortOrder: 0,
+      probability: 10,
+      kind: "open",
+      archivedAt: null,
+    });
+    const batch = await commitRevenueImport(
+      companyId,
+      {
+        resourceType: "deal",
+        sourceKind: "json",
+        sourceLabel: "deals.json",
+        mapping: { title: "title", amountCents: "amount" },
+        rows: [
+          {
+            sourceId: "deal-row-1",
+            values: { title: "Imported Deal", amount: 2500 },
+          },
+        ],
+      },
+      { employeeId: "employee-importer" },
+    );
+    const imported = await AppDataSource.getRepository(RevenueImportRow).findOneByOrFail({
+      companyId,
+      batchId: batch.id,
+      sourceId: "deal-row-1",
+    });
+    assert.ok(imported.nativeId);
+    assert.equal(
+      await AppDataSource.getRepository(DealHistoryEvent).countBy({
+        companyId,
+        dealId: imported.nativeId!,
+      }),
+      1,
+    );
+
+    await AppDataSource.query(`
+      CREATE TRIGGER fail_imported_deal_delete
+      BEFORE DELETE ON deals
+      BEGIN
+        SELECT RAISE(ABORT, 'forced Deal deletion failure');
+      END
+    `);
+    try {
+      await assert.rejects(
+        rollbackRevenueImport(companyId, batch.id),
+        /forced Deal deletion failure/,
+      );
+    } finally {
+      await AppDataSource.query("DROP TRIGGER IF EXISTS fail_imported_deal_delete");
+    }
+    assert.equal(
+      await AppDataSource.getRepository(Deal).countBy({
+        companyId,
+        id: imported.nativeId!,
+      }),
+      1,
+    );
+    assert.equal(
+      await AppDataSource.getRepository(DealHistoryEvent).countBy({
+        companyId,
+        dealId: imported.nativeId!,
+      }),
+      1,
+    );
+    assert.equal(
+      (
+        await AppDataSource.getRepository(RevenueImportBatch).findOneByOrFail({
+          companyId,
+          id: batch.id,
+        })
+      ).status,
+      "completed",
+    );
+
+    assert.equal((await rollbackRevenueImport(companyId, batch.id))?.deleted, 1);
+    assert.equal(
+      await AppDataSource.getRepository(Deal).countBy({
+        companyId,
+        id: imported.nativeId!,
+      }),
+      0,
+    );
+    assert.equal(
+      await AppDataSource.getRepository(DealHistoryEvent).countBy({
+        companyId,
+        dealId: imported.nativeId!,
+      }),
+      0,
+    );
+  });
+
+  test("blocks imported Deal rollback when the history ledger has later non-import evidence", async () => {
+    const companyId = testCompanyId();
+    await insert(DealStage, {
+      companyId,
+      name: "New",
+      slug: "new",
+      sortOrder: 0,
+      probability: 10,
+      kind: "open",
+      archivedAt: null,
+    });
+    const batch = await commitRevenueImport(
+      companyId,
+      {
+        resourceType: "deal",
+        sourceKind: "csv",
+        sourceLabel: "deals.csv",
+        mapping: { title: "title" },
+        rows: [{ sourceId: "deal-row-guarded", values: { title: "Guarded Deal" } }],
+      },
+      { userId: "member-owner" },
+    );
+    const imported = await AppDataSource.getRepository(RevenueImportRow).findOneByOrFail({
+      companyId,
+      batchId: batch.id,
+      sourceId: "deal-row-guarded",
+    });
+    await insert(DealHistoryEvent, {
+      companyId,
+      dealId: imported.nativeId!,
+      kind: "snapshot",
+      occurredAt: new Date(),
+      sourceKind: "import",
+      sourceKey: `external-history:${imported.nativeId}`,
+      metadataJson: "{}",
+    });
+
+    const rollback = await rollbackRevenueImport(companyId, batch.id);
+    assert.equal(rollback?.deleted, 0);
+    assert.deepEqual(rollback?.blocked, [imported.nativeId]);
+    assert.equal(
+      await AppDataSource.getRepository(Deal).countBy({
+        companyId,
+        id: imported.nativeId!,
+      }),
+      1,
+    );
+    assert.equal(
+      await AppDataSource.getRepository(DealHistoryEvent).countBy({
+        companyId,
+        dealId: imported.nativeId!,
+      }),
+      2,
+    );
+  });
+
   test("records stable simple-import provenance and removes it with the imported resource", async () => {
     const companyId = testCompanyId();
     await createCustomField(companyId, {
@@ -753,6 +1137,113 @@ describe("Revenue import provenance and reconciliation", () => {
     );
   });
 
+  test("keeps an imported Account when a later Finance contact depends on it", async () => {
+    const companyId = testCompanyId();
+    const batch = await commitRevenueImport(
+      companyId,
+      {
+        resourceType: "account",
+        sourceKind: "json",
+        sourceLabel: "accounts.json",
+        mapping: { name: "name" },
+        rows: [{ sourceId: "account-row-dependent", values: { name: "Dependent Account" } }],
+      },
+      {},
+    );
+    const imported = await AppDataSource.getRepository(RevenueImportRow).findOneByOrFail({
+      companyId,
+      batchId: batch.id,
+      sourceId: "account-row-dependent",
+    });
+    await insert(CustomerContact, {
+      companyId,
+      customerId: imported.nativeId!,
+      name: "Accounts payable",
+    });
+
+    const rollback = await rollbackRevenueImport(companyId, batch.id);
+    assert.equal(rollback?.deleted, 0);
+    assert.deepEqual(rollback?.blocked, [imported.nativeId]);
+    assert.equal(
+      await AppDataSource.getRepository(Customer).countBy({
+        companyId,
+        id: imported.nativeId!,
+      }),
+      1,
+    );
+  });
+
+  test("does not erase field evidence added after an import", async () => {
+    const companyId = testCompanyId();
+    await createCustomField(companyId, {
+      resourceType: "contact",
+      name: "Imported marker",
+      fieldType: "text",
+    });
+    const batch = await commitRevenueImport(
+      companyId,
+      {
+        resourceType: "contact",
+        sourceKind: "csv",
+        sourceLabel: "contacts-with-marker.csv",
+        mapping: {
+          name: "name",
+          email: "email",
+          "custom:imported_marker": "marker",
+        },
+        rows: [
+          {
+            sourceId: "contact-row-with-later-evidence",
+            values: {
+              name: "Evidence Contact",
+              email: "evidence-contact@example.com",
+              marker: "Imported",
+            },
+          },
+        ],
+      },
+      {},
+    );
+    const imported = await AppDataSource.getRepository(RevenueImportRow).findOneByOrFail({
+      companyId,
+      batchId: batch.id,
+      sourceId: "contact-row-with-later-evidence",
+    });
+    const laterEvidence = await insert(RevenueFieldEvidence, {
+      companyId,
+      resourceType: "contact",
+      resourceId: imported.nativeId!,
+      fieldKey: "custom:imported_marker",
+      sourceType: "manual",
+      sourceId: "manual:after-import",
+      sourceLabel: "Member correction",
+      extractedValueJson: JSON.stringify("Reviewed"),
+      normalizedValue: "reviewed",
+      confidence: 100,
+      status: "accepted",
+      verificationState: "verified",
+      extractionMethod: "manual",
+      extractedAt: new Date(),
+      metadataJson: "{}",
+    });
+
+    const rollback = await rollbackRevenueImport(companyId, batch.id);
+    assert.equal(rollback?.deleted, 0);
+    assert.deepEqual(rollback?.blocked, [imported.nativeId]);
+    assert.equal(
+      await AppDataSource.getRepository(RevenueFieldEvidence).countBy({ id: laterEvidence.id }),
+      1,
+    );
+    assert.equal(
+      await AppDataSource.getRepository(RevenueCustomValue).countBy({
+        companyId,
+        resourceType: "contact",
+        resourceId: imported.nativeId!,
+      }),
+      1,
+    );
+  });
+
   test("records stable linked-import provenance for every created resource", async () => {
     const companyId = testCompanyId();
     await installBaseMigrationCustomFields(companyId);
@@ -809,6 +1300,7 @@ describe("Revenue import provenance and reconciliation", () => {
       }),
       0,
     );
+    assert.equal(await AppDataSource.getRepository(DealHistoryEvent).countBy({ companyId }), 0);
   });
 
   test("paginates reconciliation rows after applying source, native, action, and error filters", async () => {
@@ -912,6 +1404,35 @@ describe("Revenue import provenance and reconciliation", () => {
       )?.rows[0].sourceId,
       "row-a",
     );
+  });
+
+  test("materializes legacy reconciliation rows before a snapshot export", async () => {
+    const companyId = testCompanyId();
+    const batch = await insert(RevenueImportBatch, {
+      companyId,
+      resourceType: "deal",
+      sourceKind: "json",
+      sourceLabel: "legacy-deals.json",
+      status: "completed",
+      mappingJson: "{}",
+      rowMapJson: JSON.stringify([
+        {
+          sourceId: "legacy-deal-row",
+          nativeId: "33333333-3333-4333-8333-333333333333",
+          action: "create",
+        },
+      ]),
+      createdIdsJson: "[]",
+      reportJson: "{}",
+      rolledBackAt: null,
+    });
+
+    const exported = await exportRevenueSnapshotPage(companyId, "import_reconciliation", {
+      limit: 10,
+    });
+    assert.equal(exported.rows.length, 1);
+    assert.equal(exported.rows[0].batchId, batch.id);
+    assert.equal(exported.rows[0].sourceId, "legacy-deal-row");
   });
 
   test("materializes a legacy import ledger once under concurrent readers", async () => {

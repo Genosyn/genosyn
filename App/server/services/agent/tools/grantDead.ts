@@ -80,6 +80,9 @@ const MAIL_GATED_TOOLS = new Set([
   "update_mail_thread",
   "send_mail",
   "suggest_mail_actions",
+  "scan_revenue_mail_documents",
+  "list_revenue_document_candidates",
+  "review_revenue_document_candidate",
 ]);
 
 /**
@@ -102,6 +105,8 @@ const FINANCE_GATED_TOOLS = new Set([
   "send_invoice",
   "record_payment",
   "void_invoice",
+  "list_commercial_value_backlog",
+  "propose_finance_commercial_values",
 ]);
 
 /**
@@ -146,6 +151,10 @@ const REVENUE_GATED_TOOLS = new Set([
   "suppress_email",
   "list_revenue_imports",
   "get_revenue_import",
+  "preview_revenue_rows_import",
+  "run_revenue_rows_import",
+  "preview_linked_revenue_rows_import",
+  "run_linked_revenue_rows_import",
   "list_revenue_import_rows",
   "export_revenue_import_reconciliation",
   "preview_revenue_record_merge",
@@ -161,9 +170,15 @@ const REVENUE_GATED_TOOLS = new Set([
   "preview_historical_deal_import",
   "run_historical_deal_import",
   "list_deal_history",
+  "list_deal_history_coverage",
+  "preview_deal_history_backfill",
   "backfill_deal_history",
   "export_revenue_snapshot",
   "propose_revenue_account_domains",
+  "preview_revenue_firmographics",
+  "propose_revenue_firmographics",
+  "list_revenue_firmographic_lookups",
+  "list_commercial_value_backlog",
   "propose_finance_commercial_values",
   "propose_stripe_commercial_values",
   "create_commercial_value_proposal",

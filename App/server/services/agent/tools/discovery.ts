@@ -112,7 +112,7 @@ export function createFindToolsTool(ctx: DiscoveryContext): AgentTool {
       if (hits.length === 0) {
         lines.push(
           query
-            ? `Nothing matched ${JSON.stringify(query)}. The full catalogue is below — pick a domain and search again, or call a tool by name directly.`
+            ? `Nothing matched ${JSON.stringify(query)}; full catalogue below. Search a domain or call an exact name.`
             : "No tools matched.",
         );
       } else {
@@ -163,7 +163,7 @@ function renderTool(tool: AgentTool, isGrantDead: boolean): string {
  */
 function buildDomainFooter(searchable: AgentTool[]): string {
   const present = new Set(searchable.map((t) => t.name));
-  const lines = ["--- catalogue names; use find_tools or call_tool ---"];
+  const lines = ["catalogue names:"];
 
   for (const [key, domain] of Object.entries(TOOL_DOMAINS)) {
     const names = domain.tools.filter((n) => present.has(n));

@@ -184,7 +184,7 @@ import type { Activity } from "../db/entities/Activity.js";
 import { ACTIVITY_KINDS, type ActivityKind } from "../db/entities/Activity.js";
 import {
   CONTACT_LIFECYCLE_STAGES,
-  type Contact,
+  Contact,
   type ContactLifecycleStage,
 } from "../db/entities/Contact.js";
 import { DEAL_STAGE_KINDS, type DealStage, type DealStageKind } from "../db/entities/DealStage.js";
@@ -353,10 +353,12 @@ import {
   backfillDealHistoryFromActivities,
   importHistoricalDealEvents,
   listDealHistory,
+  listDealHistoryCoverage,
 } from "../services/revenue/dealHistory.js";
 import {
   assertRevenueEvidenceSource,
   createCommercialValueProposal,
+  listCommercialValueBacklog,
   listRevenueEvidence,
   proposeCanonicalDomains,
   proposeCommercialValuesFromFinance,
@@ -374,6 +376,12 @@ import {
   revenueExportCsv,
 } from "../services/revenue/exports.js";
 import {
+  listRevenueFirmographicLookups,
+  MAX_FIRMOGRAPHIC_ACCOUNTS,
+  previewRevenueFirmographics,
+  proposeRevenueFirmographics,
+} from "../services/revenue/firmographics.js";
+import {
   listRevenueDocumentCandidates,
   reviewRevenueDocumentCandidate,
   scanMailForRevenueDocuments,
@@ -390,6 +398,7 @@ import {
   previewLinkedRevenueImport,
   previewRevenueImport,
   rollbackRevenueImport,
+  type ImportRow,
   type LinkedImportMapping,
 } from "../services/revenue/imports.js";
 import {
@@ -410,6 +419,7 @@ import {
   type RevenueDocumentKind,
 } from "../db/entities/RevenueDocument.js";
 import { RevenueDocumentCandidate } from "../db/entities/RevenueDocumentCandidate.js";
+import { RevenueFieldEvidence } from "../db/entities/RevenueFieldEvidence.js";
 import {
   EmployeeFinanceGrant,
   FINANCE_ACCESS_RANK,
@@ -616,25 +626,66 @@ async function requireFinance(
   res: Response,
   required: FinanceAccessLevel,
 ): Promise<boolean> {
-  const self = req.mcpEmployee!;
-  const grant = await AppDataSource.getRepository(EmployeeFinanceGrant).findOneBy({
-    employeeId: self.id,
-  });
+  const accessLevel = await employeeFinanceAccessLevel(req);
   // Fail CLOSED on an unrecognized level. FINANCE_ACCESS_RANK[x] is
   // `undefined` for any string that isn't a known level, and
   // `undefined < N` is `false` — so a bare `<` comparison would SKIP the
   // 403 and grant access. That could happen during a mixed-version
   // deploy or after a rollback that left a newer level string in the DB.
-  const have = grant ? FINANCE_ACCESS_RANK[grant.accessLevel] : undefined;
-  if (!grant || typeof have !== "number" || have < FINANCE_ACCESS_RANK[required]) {
+  const have = accessLevel ? FINANCE_ACCESS_RANK[accessLevel] : undefined;
+  if (!accessLevel || typeof have !== "number" || have < FINANCE_ACCESS_RANK[required]) {
     res.status(403).json({
-      error: grant
-        ? `No grant: this needs the "${required}" finance access level; yours is "${grant.accessLevel}". Ask an owner or admin to raise it under Finance → AI access.`
+      error: accessLevel
+        ? `No grant: this needs the "${required}" finance access level; yours is "${accessLevel}". Ask an owner or admin to raise it under Finance → AI access.`
         : "No grant: you do not have access to the finance system. Ask an owner or admin to grant it under Finance → AI access.",
     });
     return false;
   }
   return true;
+}
+
+async function employeeFinanceAccessLevel(req: McpRequest): Promise<FinanceAccessLevel | null> {
+  const grant = await AppDataSource.getRepository(EmployeeFinanceGrant).findOneBy({
+    employeeId: req.mcpEmployee!.id,
+    companyId: req.mcpCompany!.id,
+  });
+  return grant && typeof FINANCE_ACCESS_RANK[grant.accessLevel] === "number"
+    ? grant.accessLevel
+    : null;
+}
+
+async function revenueEvidenceGrantScope(
+  req: McpRequest,
+): Promise<{ mailAccountIds: string[]; connectionIds: string[] }> {
+  const [mailGrants, connections] = await Promise.all([
+    AppDataSource.getRepository(EmployeeMailAccountGrant).findBy({
+      employeeId: req.mcpEmployee!.id,
+    }),
+    loadEmployeeConnections(req.mcpEmployee!),
+  ]);
+  const readableMailIds = mailGrants
+    .filter((grant) => {
+      const rank = MAIL_ACCESS_RANK[grant.accessLevel];
+      return typeof rank === "number" && rank >= MAIL_ACCESS_RANK.read;
+    })
+    .map((grant) => grant.accountId);
+  const companyMailAccounts =
+    readableMailIds.length === 0
+      ? []
+      : await AppDataSource.getRepository(MailAccount).find({
+          select: { id: true },
+          where: {
+            companyId: req.mcpCompany!.id,
+            id: In(readableMailIds),
+          },
+        });
+  return {
+    mailAccountIds: companyMailAccounts.map((account) => account.id),
+    connectionIds: connections
+      .map(({ connection }) => connection)
+      .filter((connection) => connection.companyId === req.mcpCompany!.id)
+      .map((connection) => connection.id),
+  };
 }
 
 /**
@@ -4209,7 +4260,7 @@ mcpInternalRouter.post(
   validateBody(
     z
       .object({
-        sourceKind: z.enum(["base", "csv"]).optional(),
+        sourceKind: z.enum(["base", "csv", "json", "connection"]).optional(),
         status: z.enum(["completed", "rolled_back", "failed"]).optional(),
         resourceType: z
           .enum(["account", "contact", "deal", "partnership", "account_contact_deal"])
@@ -4224,7 +4275,7 @@ mcpInternalRouter.post(
   async (req: McpRequest, res) => {
     if (!(await requireRevenue(req, res, "read"))) return;
     const body = req.body as {
-      sourceKind?: "base" | "csv";
+      sourceKind?: "base" | "csv" | "json" | "connection";
       status?: "completed" | "rolled_back" | "failed";
       resourceType?: "account" | "contact" | "deal" | "partnership" | "account_contact_deal";
       from?: string;
@@ -4447,6 +4498,199 @@ mcpInternalRouter.post(
   },
 );
 
+const revenueRowsSourceShape = {
+  sourceKind: z.enum(["csv", "json", "connection"]),
+  sourceLabel: z.string().min(1).max(500),
+  sourceConnectionId: z.string().uuid().optional(),
+  rows: z
+    .array(
+      z
+        .object({
+          sourceId: z.string().min(1).max(500),
+          values: z.record(z.unknown()),
+        })
+        .strict(),
+    )
+    .min(1)
+    .max(1_000),
+};
+
+const revenueRowsImportSchema = z
+  .object({
+    ...revenueRowsSourceShape,
+    resourceType: revenueResourceTypeEnum,
+    mapping: z.record(z.string().min(1).max(500)),
+  })
+  .strict();
+
+const linkedRevenueRowsImportSchema = z
+  .object({
+    ...revenueRowsSourceShape,
+    mapping: z
+      .object({
+        account: z.record(z.string().min(1).max(500)),
+        contact: z.record(z.string().min(1).max(500)),
+        deal: z.record(z.string().min(1).max(500)),
+      })
+      .strict(),
+  })
+  .strict();
+
+async function requireRevenueImportSourceGrant(
+  req: McpRequest,
+  res: Response,
+  body: { sourceKind: "csv" | "json" | "connection"; sourceConnectionId?: string },
+): Promise<boolean> {
+  if (body.sourceKind !== "connection") {
+    if (body.sourceConnectionId) {
+      res.status(400).json({
+        error: "sourceConnectionId is only valid when sourceKind is connection",
+      });
+      return false;
+    }
+    return true;
+  }
+  if (!body.sourceConnectionId) {
+    res.status(400).json({ error: "Connection-backed imports require sourceConnectionId" });
+    return false;
+  }
+  const pair = await getGrantWithConnection(req.mcpEmployee!.id, body.sourceConnectionId);
+  if (!pair || pair.connection.companyId !== req.mcpCompany!.id) {
+    res.status(403).json({
+      error: "This AI Employee needs a Grant to the source Connection",
+    });
+    return false;
+  }
+  if (pair.connection.status !== "connected") {
+    res.status(409).json({ error: "The source Connection is not connected" });
+    return false;
+  }
+  return true;
+}
+
+mcpInternalRouter.post(
+  "/tools/preview_revenue_rows_import",
+  validateBody(revenueRowsImportSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const body = req.body as z.infer<typeof revenueRowsImportSchema>;
+    if (!(await requireRevenueImportSourceGrant(req, res, body))) return;
+    try {
+      res.json(
+        await previewRevenueImport(
+          req.mcpCompany!.id,
+          body.resourceType,
+          body.mapping,
+          body.rows as ImportRow[],
+        ),
+      );
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/run_revenue_rows_import",
+  validateBody(revenueRowsImportSchema.extend({ confirm: z.literal("IMPORT") })),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const body = req.body as z.infer<typeof revenueRowsImportSchema> & {
+      confirm: "IMPORT";
+    };
+    if (!(await requireRevenueImportSourceGrant(req, res, body))) return;
+    try {
+      const batch = await commitRevenueImport(
+        req.mcpCompany!.id,
+        {
+          resourceType: body.resourceType,
+          sourceKind: body.sourceKind,
+          sourceLabel: body.sourceLabel,
+          sourceConnectionId: body.sourceConnectionId ?? null,
+          mapping: body.mapping,
+          rows: body.rows as ImportRow[],
+        },
+        revenueActor(req),
+      );
+      await aiWriteTrail(req, {
+        action: "revenue.import.rows.commit",
+        targetType: "revenue_import",
+        targetId: batch.id,
+        targetLabel: batch.sourceLabel,
+        journalTitle: `${req.mcpEmployee!.name} imported ${batch.sourceLabel} into Revenue`,
+        metadata: {
+          resourceType: batch.resourceType,
+          sourceKind: batch.sourceKind,
+          sourceConnectionId: batch.sourceConnectionId,
+        },
+      });
+      res.json(await getRevenueImportSummary(req.mcpCompany!.id, batch.id));
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/preview_linked_revenue_rows_import",
+  validateBody(linkedRevenueRowsImportSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const body = req.body as z.infer<typeof linkedRevenueRowsImportSchema>;
+    if (!(await requireRevenueImportSourceGrant(req, res, body))) return;
+    try {
+      res.json(
+        await previewLinkedRevenueImport(
+          req.mcpCompany!.id,
+          body.mapping as LinkedImportMapping,
+          body.rows as ImportRow[],
+        ),
+      );
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/run_linked_revenue_rows_import",
+  validateBody(linkedRevenueRowsImportSchema.extend({ confirm: z.literal("IMPORT") })),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const body = req.body as z.infer<typeof linkedRevenueRowsImportSchema> & {
+      confirm: "IMPORT";
+    };
+    if (!(await requireRevenueImportSourceGrant(req, res, body))) return;
+    try {
+      const batch = await commitLinkedRevenueImport(
+        req.mcpCompany!.id,
+        {
+          sourceKind: body.sourceKind,
+          sourceLabel: body.sourceLabel,
+          sourceConnectionId: body.sourceConnectionId ?? null,
+          mapping: body.mapping as LinkedImportMapping,
+          rows: body.rows as ImportRow[],
+        },
+        revenueActor(req),
+      );
+      await aiWriteTrail(req, {
+        action: "revenue.import.rows.linked.commit",
+        targetType: "revenue_import",
+        targetId: batch.id,
+        targetLabel: batch.sourceLabel,
+        journalTitle: `${req.mcpEmployee!.name} imported linked Accounts, Contacts, and Deals from ${batch.sourceLabel}`,
+        metadata: {
+          sourceKind: batch.sourceKind,
+          sourceConnectionId: batch.sourceConnectionId,
+        },
+      });
+      res.json(await getRevenueImportSummary(req.mcpCompany!.id, batch.id));
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  },
+);
+
 mcpInternalRouter.post(
   "/tools/migrate_base_revenue_attachments",
   validateBody(
@@ -4496,7 +4740,14 @@ mcpInternalRouter.post(
 
 mcpInternalRouter.post(
   "/tools/rollback_revenue_import",
-  validateBody(z.object({ importId: z.string().uuid() }).strict()),
+  validateBody(
+    z
+      .object({
+        importId: z.string().uuid(),
+        confirm: z.literal("ROLLBACK"),
+      })
+      .strict(),
+  ),
   async (req: McpRequest, res) => {
     if (!(await requireRevenue(req, res, "write"))) return;
     const { importId } = req.body as { importId: string };
@@ -4751,6 +5002,45 @@ const revenueBulkTargetToolSchema = z
     "Choose selected IDs or a filter",
   );
 
+const revenueStandardFieldValuesToolSchema = z
+  .object({
+    name: z.string().min(1).max(200).optional(),
+    title: z.string().min(1).max(300).optional(),
+    description: z.string().max(20_000).optional(),
+    email: z.union([z.literal(""), z.string().email().max(320)]).optional(),
+    phone: z.string().max(100).optional(),
+    domain: z.string().max(253).optional(),
+    websiteUrl: z.union([z.literal(""), z.string().url().max(2_000)]).optional(),
+    linkedinUrl: z.union([z.literal(""), z.string().url().max(2_000)]).optional(),
+    industry: z.string().max(200).optional(),
+    employeeCount: z.number().int().min(0).max(2_000_000_000).optional(),
+    billingAddress: z.string().max(10_000).optional(),
+    shippingAddress: z.string().max(10_000).optional(),
+    taxNumber: z.string().max(200).optional(),
+    currency: z.string().length(3).optional(),
+    annualContractValueCents: z.number().int().min(0).max(2_000_000_000).optional(),
+    notes: z.string().max(20_000).optional(),
+    customerId: z.string().uuid().nullable().optional(),
+    companyName: z.string().max(200).optional(),
+    source: z.string().max(120).optional(),
+    sourceDetail: z.string().max(500).optional(),
+    score: z.number().int().min(0).max(100).optional(),
+    doNotContact: z.boolean().optional(),
+    primaryContactId: z.string().uuid().nullable().optional(),
+    amountCents: z.number().int().min(0).max(2_000_000_000).optional(),
+    probabilityOverride: z.number().int().min(0).max(100).nullable().optional(),
+    expectedCloseDate: z.string().datetime().nullable().optional(),
+    nextStep: z.string().max(2_000).optional(),
+    nextFollowUpAt: z.string().datetime().nullable().optional(),
+    followUpReminderAt: z.string().datetime().nullable().optional(),
+    type: z.string().min(1).max(80).optional(),
+    status: z.string().min(1).max(80).optional(),
+    integrationContext: z.string().max(20_000).optional(),
+    channelContext: z.string().max(20_000).optional(),
+    reminderAt: z.string().datetime().nullable().optional(),
+  })
+  .strict();
+
 const revenueBulkActionToolSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("assign_owner"),
@@ -4770,6 +5060,24 @@ const revenueBulkActionToolSchema = z.discriminatedUnion("type", [
     lostReason: z.string().min(1).max(2_000).optional(),
   }),
   z.object({
+    type: z.literal("update_standard_fields"),
+    confirm: z.literal("UPDATE_STANDARD_FIELDS"),
+    values: revenueStandardFieldValuesToolSchema.optional(),
+    rows: z
+      .array(
+        z
+          .object({
+            id: z.string().uuid(),
+            values: revenueStandardFieldValuesToolSchema,
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(5_000)
+      .optional(),
+    notesMode: z.enum(["replace", "append", "clear"]).optional(),
+  }),
+  z.object({
     type: z.literal("update_follow_up"),
     taskStatus: z.enum(["open", "completed", "cancelled"]).optional(),
     priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
@@ -4780,7 +5088,7 @@ const revenueBulkActionToolSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-const revenueBulkToolSchema = z
+const revenueBulkToolBaseSchema = z
   .object({
     resourceType: z.enum(["account", "contact", "deal", "partnership", "follow_up"]),
     target: revenueBulkTargetToolSchema,
@@ -4790,10 +5098,119 @@ const revenueBulkToolSchema = z
   })
   .strict();
 
+function validateRevenueStandardFieldAction(
+  body: z.infer<typeof revenueBulkToolBaseSchema>,
+  context: z.RefinementCtx,
+): void {
+  if (body.action.type !== "update_standard_fields") return;
+  if (Boolean(body.action.values) === Boolean(body.action.rows?.length)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["action"],
+      message: "Supply either shared values or per-record values",
+    });
+  }
+  if (
+    body.action.notesMode !== "clear" &&
+    !Object.keys(body.action.values ?? {}).length &&
+    !body.action.rows?.some((row) => Object.keys(row.values).length > 0)
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["action"],
+      message: "Choose at least one standard field",
+    });
+  }
+}
+
+const revenueBulkToolSchema = revenueBulkToolBaseSchema.superRefine(
+  validateRevenueStandardFieldAction,
+);
+const revenueBulkCommitToolSchema = revenueBulkToolBaseSchema
+  .extend({
+    idempotencyKey: z.string().min(8).max(200),
+  })
+  .superRefine(validateRevenueStandardFieldAction);
+
 function normalizeRevenueBulkToolInput(
   body: z.infer<typeof revenueBulkToolSchema>,
 ): Parameters<typeof runRevenueBulkOperation>[1] {
   const filter = body.target.filter;
+  const normalizeStandardValues = (
+    values: z.infer<typeof revenueStandardFieldValuesToolSchema>,
+  ): Record<string, unknown> => ({
+    ...values,
+    ...("expectedCloseDate" in values
+      ? {
+          expectedCloseDate:
+            values.expectedCloseDate === null
+              ? null
+              : values.expectedCloseDate
+                ? new Date(values.expectedCloseDate)
+                : undefined,
+        }
+      : {}),
+    ...("nextFollowUpAt" in values
+      ? {
+          nextFollowUpAt:
+            values.nextFollowUpAt === null
+              ? null
+              : values.nextFollowUpAt
+                ? new Date(values.nextFollowUpAt)
+                : undefined,
+        }
+      : {}),
+    ...("followUpReminderAt" in values
+      ? {
+          followUpReminderAt:
+            values.followUpReminderAt === null
+              ? null
+              : values.followUpReminderAt
+                ? new Date(values.followUpReminderAt)
+                : undefined,
+        }
+      : {}),
+    ...("reminderAt" in values
+      ? {
+          reminderAt:
+            values.reminderAt === null
+              ? null
+              : values.reminderAt
+                ? new Date(values.reminderAt)
+                : undefined,
+        }
+      : {}),
+  });
+  const action = (() => {
+    if (body.action.type === "update_follow_up") {
+      return {
+        ...body.action,
+        dueAt:
+          body.action.dueAt === null
+            ? null
+            : body.action.dueAt
+              ? new Date(body.action.dueAt)
+              : undefined,
+        reminderAt:
+          body.action.reminderAt === null
+            ? null
+            : body.action.reminderAt
+              ? new Date(body.action.reminderAt)
+              : undefined,
+      };
+    }
+    if (body.action.type === "update_standard_fields") {
+      return {
+        ...body.action,
+        values: body.action.values ? normalizeStandardValues(body.action.values) : undefined,
+        rows: body.action.rows?.map((row) => ({
+          id: row.id,
+          values: normalizeStandardValues(row.values),
+        })),
+      };
+    }
+    return body.action;
+  })();
   return {
     ...body,
     dryRun: false,
@@ -4811,24 +5228,7 @@ function normalizeRevenueBulkToolInput(
           }
         : undefined,
     },
-    action:
-      body.action.type === "update_follow_up"
-        ? {
-            ...body.action,
-            dueAt:
-              body.action.dueAt === null
-                ? null
-                : body.action.dueAt
-                  ? new Date(body.action.dueAt)
-                  : undefined,
-            reminderAt:
-              body.action.reminderAt === null
-                ? null
-                : body.action.reminderAt
-                  ? new Date(body.action.reminderAt)
-                  : undefined,
-          }
-        : body.action,
+    action,
   };
 }
 
@@ -4854,11 +5254,7 @@ mcpInternalRouter.post(
 
 mcpInternalRouter.post(
   "/tools/start_revenue_bulk_job",
-  validateBody(
-    revenueBulkToolSchema.extend({
-      idempotencyKey: z.string().min(8).max(200),
-    }),
-  ),
+  validateBody(revenueBulkCommitToolSchema),
   async (req: McpRequest, res) => {
     if (!(await requireRevenue(req, res, "write"))) return;
     const input = normalizeRevenueBulkToolInput(req.body as z.infer<typeof revenueBulkToolSchema>);
@@ -5143,23 +5539,86 @@ mcpInternalRouter.post(
   },
 );
 
+const dealHistoryCoverageToolSchema = z
+  .object({
+    dealIds: z.array(z.string().uuid()).max(5_000).optional(),
+    includeArchived: z.boolean().optional(),
+    limit: z.number().int().min(1).max(500).optional(),
+    offset: z.number().int().min(0).optional(),
+  })
+  .strict();
+
 mcpInternalRouter.post(
-  "/tools/backfill_deal_history",
-  validateBody(z.object({ confirm: z.literal("BACKFILL") }).strict()),
+  "/tools/list_deal_history_coverage",
+  validateBody(dealHistoryCoverageToolSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    res.json(await listDealHistoryCoverage(req.mcpCompany!.id, req.body));
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/preview_deal_history_backfill",
+  validateBody(
+    z
+      .object({
+        dealIds: z.array(z.string().uuid()).max(5_000).optional(),
+      })
+      .strict(),
+  ),
   async (req: McpRequest, res) => {
     if (!(await requireRevenue(req, res, "write"))) return;
-    const result = await backfillDealHistoryFromActivities(req.mcpCompany!.id, revenueActor(req));
-    if (result.imported > 0) {
-      await aiWriteTrail(req, {
-        action: "revenue.deal_history.backfill",
-        targetType: "deal_history_event",
-        targetId: req.mcpCompany!.id,
-        targetLabel: "Activity backfill",
-        journalTitle: `${req.mcpEmployee!.name} backfilled Deal history from Activities`,
-        metadata: result,
-      });
+    res.json(
+      await backfillDealHistoryFromActivities(req.mcpCompany!.id, revenueActor(req), {
+        dealIds: (req.body as { dealIds?: string[] }).dealIds,
+        dryRun: true,
+      }),
+    );
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/backfill_deal_history",
+  validateBody(
+    z
+      .object({
+        dealIds: z.array(z.string().uuid()).min(1).max(5_000),
+        idempotencyKey: z.string().min(8).max(200),
+        confirm: z.literal("BACKFILL"),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const body = req.body as {
+      dealIds: string[];
+      idempotencyKey: string;
+      confirm: "BACKFILL";
+    };
+    try {
+      const result = await backfillDealHistoryFromActivities(
+        req.mcpCompany!.id,
+        revenueActor(req),
+        {
+          dealIds: body.dealIds,
+          dryRun: false,
+          idempotencyKey: body.idempotencyKey,
+        },
+      );
+      if (result.imported > 0) {
+        await aiWriteTrail(req, {
+          action: "revenue.deal_history.backfill",
+          targetType: "deal_history_event",
+          targetId: req.mcpCompany!.id,
+          targetLabel: "Activity backfill",
+          journalTitle: `${req.mcpEmployee!.name} backfilled Deal history from Activities`,
+          metadata: result,
+        });
+      }
+      res.json(result);
+    } catch (error) {
+      res.status(409).json({ error: (error as Error).message });
     }
-    res.json(result);
   },
 );
 
@@ -5177,8 +5636,175 @@ mcpInternalRouter.post(
         format: z.enum(["json", "csv"]).default("json"),
         limit: z.number().int().min(1).max(500).optional(),
         offset: z.number().int().min(0).optional(),
+        cursor: z.string().max(4_000).optional(),
+        asOf: z.string().datetime().optional(),
+        dealId: z.string().uuid().optional(),
+        sourceKind: z.enum(["live", "import", "activity_backfill"]).optional(),
+        kind: z
+          .enum([
+            "created",
+            "snapshot",
+            "stage_changed",
+            "amount_changed",
+            "owner_changed",
+            "expected_close_changed",
+            "won",
+            "lost",
+            "merge",
+            "bulk",
+            "history_import",
+          ])
+          .optional(),
+        from: z.string().datetime().optional(),
+        to: z.string().datetime().optional(),
+        resourceType: z.enum(["account", "contact", "deal", "partnership", "follow_up"]).optional(),
+        resourceId: z.string().uuid().optional(),
+        fieldKey: z.string().max(120).optional(),
+        sourceType: z
+          .enum(["email", "document", "integration", "finance", "website", "import", "manual"])
+          .optional(),
+        status: z
+          .enum([
+            "proposed",
+            "accepted",
+            "rejected",
+            "superseded",
+            "open",
+            "dismissed",
+            "merged",
+            "queued",
+            "running",
+            "completed",
+            "partial",
+            "failed",
+            "rolled_back",
+            "pending",
+            "processing",
+            "duplicate",
+          ])
+          .optional(),
+        minScore: z.number().int().min(0).max(100).optional(),
+        accountId: z.string().uuid().optional(),
       })
-      .strict(),
+      .strict()
+      .superRefine((body, context) => {
+        const presentFilters = [
+          "dealId",
+          "sourceKind",
+          "kind",
+          "from",
+          "to",
+          "resourceType",
+          "resourceId",
+          "fieldKey",
+          "sourceType",
+          "status",
+          "minScore",
+          "accountId",
+        ].filter((key) => body[key as keyof typeof body] !== undefined);
+        const allowedByResource: Partial<Record<(typeof body)["resource"], string[]>> = {
+          deal_history: ["dealId", "sourceKind", "kind", "from", "to"],
+          field_evidence: ["resourceType", "resourceId", "fieldKey", "sourceType", "status"],
+          duplicate_candidates: ["resourceType", "status", "minScore"],
+          operation_audit: ["kind", "resourceType", "status"],
+          document_candidates: ["status", "accountId"],
+        };
+        const allowed = allowedByResource[body.resource] ?? [];
+        for (const key of presentFilters) {
+          if (!allowed.includes(key)) {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [key],
+              message: `${key} does not apply to ${body.resource}`,
+            });
+          }
+        }
+        if (
+          body.resource === "deal_history" &&
+          body.kind &&
+          ["merge", "bulk", "history_import"].includes(body.kind)
+        ) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["kind"],
+            message: "Invalid Deal-history kind",
+          });
+        }
+        if (
+          body.resource === "operation_audit" &&
+          body.kind &&
+          !["merge", "bulk", "history_import"].includes(body.kind)
+        ) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["kind"],
+            message: "Invalid operation-audit kind",
+          });
+        }
+        if (
+          body.resource === "field_evidence" &&
+          body.status &&
+          !["proposed", "accepted", "rejected", "superseded"].includes(body.status)
+        ) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["status"],
+            message: "Invalid field-evidence status",
+          });
+        }
+        if (
+          body.resource === "duplicate_candidates" &&
+          body.status &&
+          !["open", "dismissed", "merged"].includes(body.status)
+        ) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["status"],
+            message: "Invalid duplicate-candidate status",
+          });
+        }
+        if (
+          body.resource === "operation_audit" &&
+          body.status &&
+          !["queued", "running", "completed", "partial", "failed", "rolled_back"].includes(
+            body.status,
+          )
+        ) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["status"],
+            message: "Invalid operation-audit status",
+          });
+        }
+        if (
+          (body.resource === "field_evidence" || body.resource === "duplicate_candidates") &&
+          body.resourceType === "follow_up"
+        ) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["resourceType"],
+            message: `${body.resource} does not support Follow-ups`,
+          });
+        }
+        if (body.resource === "document_candidates" && !body.accountId) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["accountId"],
+            message: "Gmail document-candidate exports require a source Mail Account ID",
+          });
+        }
+        if (
+          body.resource === "document_candidates" &&
+          body.status &&
+          !["pending", "processing", "accepted", "rejected", "duplicate"].includes(body.status)
+        ) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["status"],
+            message: "Invalid document-candidate status",
+          });
+        }
+      }),
   ),
   async (req: McpRequest, res) => {
     if (!(await requireRevenue(req, res, "read"))) return;
@@ -5187,14 +5813,104 @@ mcpInternalRouter.post(
       format: "json" | "csv";
       limit?: number;
       offset?: number;
+      cursor?: string;
+      asOf?: string;
+      dealId?: string;
+      sourceKind?: "live" | "import" | "activity_backfill";
+      kind?:
+        | "created"
+        | "snapshot"
+        | "stage_changed"
+        | "amount_changed"
+        | "owner_changed"
+        | "expected_close_changed"
+        | "won"
+        | "lost"
+        | "merge"
+        | "bulk"
+        | "history_import";
+      from?: string;
+      to?: string;
+      resourceType?: "account" | "contact" | "deal" | "partnership" | "follow_up";
+      resourceId?: string;
+      fieldKey?: string;
+      sourceType?:
+        | "email"
+        | "document"
+        | "integration"
+        | "finance"
+        | "website"
+        | "import"
+        | "manual";
+      status?:
+        | "proposed"
+        | "accepted"
+        | "rejected"
+        | "superseded"
+        | "open"
+        | "dismissed"
+        | "merged"
+        | "queued"
+        | "running"
+        | "completed"
+        | "partial"
+        | "failed"
+        | "rolled_back"
+        | "pending"
+        | "processing"
+        | "duplicate";
+      minScore?: number;
+      accountId?: string;
     };
-    const page = await exportRevenueSnapshotPage(req.mcpCompany!.id, body.resource, body);
+    if (
+      body.resource === "document_candidates" &&
+      !(await loadGrantedMailAccount(req, res, body.accountId!, "read"))
+    ) {
+      return;
+    }
+    const financeAccess =
+      body.resource === "field_evidence" ? await employeeFinanceAccessLevel(req) : null;
+    const evidenceScope =
+      body.resource === "field_evidence" ? await revenueEvidenceGrantScope(req) : null;
+    if (
+      body.resource === "field_evidence" &&
+      body.sourceType === "finance" &&
+      financeAccess === null
+    ) {
+      await requireFinance(req, res, "read");
+      return;
+    }
+    if (
+      body.resource === "field_evidence" &&
+      body.sourceType === "integration" &&
+      evidenceScope?.connectionIds.length === 0
+    ) {
+      return res.status(403).json({
+        error: "Integration evidence needs a Grant to its source Connection.",
+      });
+    }
+    const page = await exportRevenueSnapshotPage(req.mcpCompany!.id, body.resource, {
+      ...body,
+      asOf: body.asOf ? new Date(body.asOf) : undefined,
+      from: body.from ? new Date(body.from) : undefined,
+      to: body.to ? new Date(body.to) : undefined,
+      excludeSourceTypes:
+        body.resource === "field_evidence" && financeAccess === null
+          ? (["finance"] as const)
+          : undefined,
+      allowedEmailAccountIds:
+        body.resource === "field_evidence" ? evidenceScope?.mailAccountIds : undefined,
+      allowedIntegrationConnectionIds:
+        body.resource === "field_evidence" ? evidenceScope?.connectionIds : undefined,
+    });
     if (body.format === "csv") {
       return res.json({
         filename: `revenue-${body.resource}-${page.offset}.csv`,
         mimeType: "text/csv; charset=utf-8",
         contentText: revenueExportCsv(page),
         nextOffset: page.nextOffset,
+        nextCursor: page.nextCursor,
+        asOf: page.asOf,
         total: page.total,
       });
     }
@@ -5228,13 +5944,181 @@ mcpInternalRouter.post(
   },
 );
 
+const revenueFirmographicSelectionToolSchema = z
+  .object({
+    connectionId: z.string().uuid(),
+    accountIds: z.array(z.string().uuid()).max(MAX_FIRMOGRAPHIC_ACCOUNTS).optional(),
+    missingOnly: z.boolean().optional(),
+    refreshOlderThanDays: z.number().int().min(1).max(3_650).optional(),
+    limit: z.number().int().min(1).max(MAX_FIRMOGRAPHIC_ACCOUNTS).optional(),
+    force: z.boolean().optional(),
+  })
+  .strict();
+
+async function requireFirmographicConnectionGrant(
+  req: McpRequest,
+  res: Response,
+  connectionId: string,
+): Promise<boolean> {
+  const pair = await getGrantWithConnection(req.mcpEmployee!.id, connectionId);
+  if (!pair || pair.connection.companyId !== req.mcpCompany!.id) {
+    res.status(403).json({
+      error: "This AI Employee needs a Grant to the selected firmographics Connection",
+    });
+    return false;
+  }
+  const provider = getProvider(pair.connection.provider);
+  if (!provider?.lookupCompanyFirmographics) {
+    res.status(400).json({ error: "The selected Connection does not support firmographics" });
+    return false;
+  }
+  return true;
+}
+
 mcpInternalRouter.post(
-  "/tools/propose_finance_commercial_values",
-  validateBody(z.object({ confirm: z.literal("PROPOSE") }).strict()),
+  "/tools/preview_revenue_firmographics",
+  validateBody(revenueFirmographicSelectionToolSchema),
   async (req: McpRequest, res) => {
     if (!(await requireRevenue(req, res, "write"))) return;
+    const body = req.body as z.infer<typeof revenueFirmographicSelectionToolSchema>;
+    if (!(await requireFirmographicConnectionGrant(req, res, body.connectionId))) return;
+    try {
+      res.json(await previewRevenueFirmographics(req.mcpCompany!.id, body));
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/propose_revenue_firmographics",
+  validateBody(
+    revenueFirmographicSelectionToolSchema.extend({
+      confirm: z.literal("PROPOSE"),
+    }),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    const body = req.body as z.infer<typeof revenueFirmographicSelectionToolSchema> & {
+      confirm: "PROPOSE";
+    };
+    if (!(await requireFirmographicConnectionGrant(req, res, body.connectionId))) return;
+    try {
+      const result = await proposeRevenueFirmographics(req.mcpCompany!.id, body);
+      await aiWriteTrail(req, {
+        action: "revenue.enrichment.firmographics.propose",
+        targetType: "revenue_field_evidence",
+        targetId: req.mcpCompany!.id,
+        targetLabel: "Firmographic evidence",
+        journalTitle: `${req.mcpEmployee!.name} proposed Account firmographics`,
+        metadata: result,
+      });
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/list_revenue_firmographic_lookups",
+  validateBody(
+    z
+      .object({
+        connectionId: z.string().uuid(),
+        accountId: z.string().uuid().optional(),
+        status: z.enum(["matched", "not_found", "failed"]).optional(),
+        limit: z.number().int().min(1).max(500).optional(),
+        offset: z.number().int().min(0).optional(),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
+    const body = req.body as {
+      connectionId: string;
+      accountId?: string;
+      status?: "matched" | "not_found" | "failed";
+      limit?: number;
+      offset?: number;
+    };
+    if (!(await requireFirmographicConnectionGrant(req, res, body.connectionId))) return;
+    res.json(
+      await listRevenueFirmographicLookups(req.mcpCompany!.id, {
+        connectionId: body.connectionId,
+        customerId: body.accountId,
+        status: body.status,
+        limit: body.limit,
+        offset: body.offset,
+      }),
+    );
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/list_commercial_value_backlog",
+  validateBody(
+    z
+      .object({
+        dealIds: z.array(z.string().uuid()).max(5_000).optional(),
+        stageIds: z.array(z.string().uuid()).max(500).optional(),
+        limit: z.number().int().min(1).max(500).optional(),
+        offset: z.number().int().min(0).optional(),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "read"))) return;
     if (!(await requireFinance(req, res, "read"))) return;
-    const result = await proposeCommercialValuesFromFinance(req.mcpCompany!.id);
+    const backlog = await listCommercialValueBacklog(req.mcpCompany!.id, req.body);
+    res.json({
+      ...backlog,
+      rows: backlog.rows.map((row) => {
+        const proposals = row.proposals.filter((proposal) => proposal.sourceType !== "integration");
+        const proposalCounts = {
+          proposed: proposals.filter((proposal) => proposal.status === "proposed").length,
+          accepted: proposals.filter((proposal) => proposal.status === "accepted").length,
+          rejected: proposals.filter((proposal) => proposal.status === "rejected").length,
+          superseded: proposals.filter((proposal) => proposal.status === "superseded").length,
+        };
+        const disposition =
+          proposalCounts.proposed > 0
+            ? "pending_review"
+            : proposalCounts.accepted > 0
+              ? "accepted_zero"
+              : row.disposition === "unlinked_account" || row.disposition === "ambiguous_account"
+                ? row.disposition
+                : row.financeCandidate
+                  ? "finance_candidate"
+                  : "no_evidence";
+        return {
+          ...row,
+          disposition,
+          stripeCandidate: null,
+          proposalCounts,
+          proposals,
+        };
+      }),
+    });
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/propose_finance_commercial_values",
+  validateBody(
+    z
+      .object({
+        dealIds: z.array(z.string().uuid()).min(1).max(5_000),
+        confirm: z.literal("PROPOSE"),
+      })
+      .strict(),
+  ),
+  async (req: McpRequest, res) => {
+    if (!(await requireRevenue(req, res, "write"))) return;
+    if (!(await requireFinance(req, res, "full"))) return;
+    const result = await proposeCommercialValuesFromFinance(req.mcpCompany!.id, {
+      dealIds: (req.body as { dealIds: string[] }).dealIds,
+    });
     await aiWriteTrail(req, {
       action: "revenue.enrichment.commercial_values.propose",
       targetType: "revenue_field_evidence",
@@ -5250,6 +6134,7 @@ mcpInternalRouter.post(
 export const proposeStripeCommercialValuesToolSchema = z
   .object({
     connectionId: z.string().uuid(),
+    dealIds: z.array(z.string().uuid()).min(1).max(5_000),
     confirm: z.literal("PROPOSE"),
   })
   .strict();
@@ -5259,7 +6144,10 @@ mcpInternalRouter.post(
   validateBody(proposeStripeCommercialValuesToolSchema),
   async (req: McpRequest, res) => {
     if (!(await requireRevenue(req, res, "write"))) return;
-    const { connectionId } = req.body as { connectionId: string };
+    const { connectionId, dealIds } = req.body as {
+      connectionId: string;
+      dealIds: string[];
+    };
     const pair = await getGrantWithConnection(req.mcpEmployee!.id, connectionId);
     if (!pair || pair.connection.companyId !== req.mcpCompany!.id) {
       return res.status(403).json({
@@ -5274,6 +6162,7 @@ mcpInternalRouter.post(
     }
     const result = await proposeCommercialValuesFromStripe(req.mcpCompany!.id, {
       connectionId,
+      dealIds,
     });
     await aiWriteTrail(req, {
       action: "revenue.enrichment.commercial_values.propose",
@@ -5319,7 +6208,7 @@ mcpInternalRouter.post(
   async (req: McpRequest, res) => {
     if (!(await requireRevenue(req, res, "write"))) return;
     const body = req.body as z.infer<typeof commercialValueProposalToolSchema>;
-    if (body.sourceType === "finance" && !(await requireFinance(req, res, "read"))) return;
+    if (body.sourceType === "finance" && !(await requireFinance(req, res, "full"))) return;
     if (body.sourceType === "email") {
       const message = await AppDataSource.getRepository(MailMessage).findOneBy({
         companyId: req.mcpCompany!.id,
@@ -5385,7 +6274,41 @@ mcpInternalRouter.post(
   ),
   async (req: McpRequest, res) => {
     if (!(await requireRevenue(req, res, "read"))) return;
-    res.json(await listRevenueEvidence(req.mcpCompany!.id, req.body));
+    const body = req.body as {
+      resourceType?: "account" | "contact" | "deal" | "partnership";
+      resourceId?: string;
+      fieldKey?: string;
+      sourceType?:
+        | "email"
+        | "document"
+        | "integration"
+        | "finance"
+        | "website"
+        | "import"
+        | "manual";
+      status?: "proposed" | "accepted" | "rejected" | "superseded";
+      limit?: number;
+      offset?: number;
+    };
+    const financeAccess = await employeeFinanceAccessLevel(req);
+    const evidenceScope = await revenueEvidenceGrantScope(req);
+    if (body.sourceType === "finance" && financeAccess === null) {
+      await requireFinance(req, res, "read");
+      return;
+    }
+    if (body.sourceType === "integration" && evidenceScope.connectionIds.length === 0) {
+      return res.status(403).json({
+        error: "Integration evidence needs a Grant to its source Connection.",
+      });
+    }
+    res.json(
+      await listRevenueEvidence(req.mcpCompany!.id, {
+        ...body,
+        excludeSourceTypes: financeAccess === null ? ["finance"] : undefined,
+        allowedEmailAccountIds: evidenceScope.mailAccountIds,
+        allowedIntegrationConnectionIds: evidenceScope.connectionIds,
+      }),
+    );
   },
 );
 
@@ -5407,6 +6330,52 @@ mcpInternalRouter.post(
       decision: "accept" | "reject";
       supersedeExisting?: boolean;
     };
+    const existing = await AppDataSource.getRepository(RevenueFieldEvidence).findOneBy({
+      companyId: req.mcpCompany!.id,
+      id: body.evidenceId,
+    });
+    if (!existing) return res.status(404).json({ error: "Evidence not found" });
+    if (existing.sourceType === "finance" && !(await requireFinance(req, res, "full"))) return;
+    if (existing.sourceType === "email") {
+      const message = await AppDataSource.getRepository(MailMessage).findOneBy({
+        companyId: req.mcpCompany!.id,
+        id: existing.sourceId,
+      });
+      if (message) {
+        if (!(await loadGrantedMailAccount(req, res, message.accountId, "read"))) return;
+      } else {
+        const contact = await AppDataSource.getRepository(Contact).findOneBy({
+          companyId: req.mcpCompany!.id,
+          id: existing.sourceId,
+        });
+        if (!contact) {
+          return res.status(400).json({ error: "Source email evidence record not found" });
+        }
+      }
+    }
+    if (existing.sourceType === "integration") {
+      let connectionId: unknown;
+      try {
+        const metadata = JSON.parse(existing.metadataJson || "{}") as unknown;
+        connectionId =
+          metadata && typeof metadata === "object" && !Array.isArray(metadata)
+            ? (metadata as Record<string, unknown>).connectionId
+            : undefined;
+      } catch {
+        connectionId = undefined;
+      }
+      if (typeof connectionId !== "string" || !connectionId) {
+        return res.status(400).json({
+          error: "Integration evidence has no source Connection",
+        });
+      }
+      const pair = await getGrantWithConnection(req.mcpEmployee!.id, connectionId);
+      if (!pair || pair.connection.companyId !== req.mcpCompany!.id) {
+        return res.status(403).json({
+          error: "This AI Employee needs a Grant to the source Connection",
+        });
+      }
+    }
     try {
       const evidence = await reviewRevenueEvidence(
         req.mcpCompany!.id,

@@ -1,5 +1,6 @@
 import { In, IsNull, type EntityManager } from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
+import { normalizeEmail } from "../../lib/emailAddress.js";
 import {
   Activity,
   type ActivityPriority,
@@ -22,6 +23,8 @@ import {
 } from "./operations.js";
 import { normalizedCustomFieldSearchValue, validateCustomFieldValue } from "./customFields.js";
 import { assertRevenueOwner } from "./integrity.js";
+import { normalizeAccountDomain } from "./accounts.js";
+import { assertClassification, classificationValue } from "./classifications.js";
 
 export type BulkResourceType = "account" | "contact" | "deal" | "partnership" | "follow_up";
 export type FollowUpSource = "task" | "deal" | "partnership";
@@ -74,6 +77,13 @@ export type BulkAction =
   | { type: "set_custom_fields"; values: Record<string, unknown> }
   | { type: "archive"; archived: boolean }
   | { type: "move_deal_stage"; stageId: string; lostReason?: string }
+  | {
+      type: "update_standard_fields";
+      confirm: "UPDATE_STANDARD_FIELDS";
+      values?: Record<string, unknown>;
+      rows?: Array<{ id: string; values: Record<string, unknown> }>;
+      notesMode?: "replace" | "append" | "clear";
+    }
   | {
       type: "update_follow_up";
       taskStatus?: ActivityTaskStatus;
@@ -618,6 +628,9 @@ function standardPatch(
       entityType: "deal",
     };
   }
+  if (action.type === "update_standard_fields") {
+    throw new Error("Standard-field changes require validated field preparation");
+  }
   if (action.type !== "update_follow_up" || resourceType !== "follow_up" || !isFollowUpRow(row)) {
     throw new Error("That action does not apply to this resource");
   }
@@ -686,6 +699,341 @@ function standardPatch(
   return { before, after, entityType: row.source };
 }
 
+const STANDARD_FIELDS: Record<Exclude<BulkResourceType, "follow_up">, ReadonlySet<string>> = {
+  account: new Set([
+    "name",
+    "email",
+    "phone",
+    "domain",
+    "websiteUrl",
+    "industry",
+    "employeeCount",
+    "billingAddress",
+    "shippingAddress",
+    "taxNumber",
+    "currency",
+    "annualContractValueCents",
+    "notes",
+  ]),
+  contact: new Set([
+    "name",
+    "email",
+    "phone",
+    "title",
+    "linkedinUrl",
+    "websiteUrl",
+    "customerId",
+    "companyName",
+    "source",
+    "sourceDetail",
+    "score",
+    "notes",
+    "doNotContact",
+  ]),
+  deal: new Set([
+    "title",
+    "description",
+    "customerId",
+    "primaryContactId",
+    "amountCents",
+    "currency",
+    "probabilityOverride",
+    "expectedCloseDate",
+    "source",
+    "nextStep",
+    "nextFollowUpAt",
+    "followUpReminderAt",
+  ]),
+  partnership: new Set([
+    "name",
+    "type",
+    "status",
+    "customerId",
+    "websiteUrl",
+    "integrationContext",
+    "channelContext",
+    "notes",
+    "nextFollowUpAt",
+    "reminderAt",
+  ]),
+};
+
+const STANDARD_STRING_LIMITS: Readonly<Record<string, number>> = {
+  name: 200,
+  title: 300,
+  description: 20_000,
+  email: 320,
+  phone: 100,
+  domain: 253,
+  websiteUrl: 2_000,
+  linkedinUrl: 2_000,
+  industry: 200,
+  billingAddress: 10_000,
+  shippingAddress: 10_000,
+  taxNumber: 200,
+  currency: 3,
+  notes: 20_000,
+  companyName: 200,
+  source: 120,
+  sourceDetail: 500,
+  nextStep: 2_000,
+  type: 80,
+  status: 80,
+  integrationContext: 20_000,
+  channelContext: 20_000,
+};
+const STANDARD_INTEGER_LIMITS: Readonly<Record<string, { min: number; max: number }>> = {
+  employeeCount: { min: 0, max: 2_000_000_000 },
+  annualContractValueCents: { min: 0, max: 2_000_000_000 },
+  score: { min: 0, max: 100 },
+  amountCents: { min: 0, max: 2_000_000_000 },
+};
+const STANDARD_DATE_FIELDS = new Set([
+  "expectedCloseDate",
+  "nextFollowUpAt",
+  "followUpReminderAt",
+  "reminderAt",
+]);
+const STANDARD_LINK_FIELDS = new Set(["customerId", "primaryContactId"]);
+const STANDARD_URL_FIELDS = new Set(["websiteUrl", "linkedinUrl"]);
+
+function validatedStandardValue(key: string, value: unknown): unknown {
+  const stringLimit = STANDARD_STRING_LIMITS[key];
+  if (stringLimit !== undefined) {
+    if (typeof value !== "string") throw new Error(`${key} must be text`);
+    if (value.length > stringLimit) {
+      throw new Error(`${key} must be ${stringLimit.toLocaleString()} characters or fewer`);
+    }
+    if (STANDARD_URL_FIELDS.has(key) && value.trim()) {
+      try {
+        new URL(value);
+      } catch {
+        throw new Error(`${key} must be a valid URL`);
+      }
+    }
+    return value;
+  }
+
+  const integerLimit = STANDARD_INTEGER_LIMITS[key];
+  if (integerLimit) {
+    if (
+      typeof value !== "number" ||
+      !Number.isInteger(value) ||
+      value < integerLimit.min ||
+      value > integerLimit.max
+    ) {
+      throw new Error(`${key} must be an integer from ${integerLimit.min} to ${integerLimit.max}`);
+    }
+    return value;
+  }
+
+  if (key === "probabilityOverride") {
+    if (
+      value !== null &&
+      (typeof value !== "number" ||
+        !Number.isInteger(value) ||
+        value < 0 ||
+        value > 100)
+    ) {
+      throw new Error("probabilityOverride must be null or an integer from 0 to 100");
+    }
+    return value;
+  }
+
+  if (key === "doNotContact") {
+    if (typeof value !== "boolean") throw new Error("doNotContact must be true or false");
+    return value;
+  }
+
+  if (STANDARD_DATE_FIELDS.has(key)) {
+    if (
+      value !== null &&
+      (!(value instanceof Date) || Number.isNaN(value.getTime()))
+    ) {
+      throw new Error(`${key} must be a valid date or null`);
+    }
+    return value;
+  }
+
+  if (STANDARD_LINK_FIELDS.has(key)) {
+    if (value !== null && typeof value !== "string") {
+      throw new Error(`${key} must be a record id or null`);
+    }
+    return value;
+  }
+
+  throw new Error(`${key} is not a supported standard field`);
+}
+
+function standardValuesForRow(
+  action: Extract<BulkAction, { type: "update_standard_fields" }>,
+  resourceId: string,
+): Record<string, unknown> {
+  if (action.values) return action.values;
+  const match = action.rows?.find((row) => row.id === resourceId);
+  if (!match) throw new Error("No standard-field patch was supplied for this selected record");
+  return match.values;
+}
+
+function notesValue(
+  current: string,
+  incoming: unknown,
+  mode: "replace" | "append" | "clear",
+): string {
+  if (mode === "clear") return "";
+  if (typeof incoming !== "string") throw new Error("notes must be text");
+  if (mode === "append") {
+    const addition = incoming.trim();
+    if (!addition) return current;
+    return current.trimEnd() ? `${current.trimEnd()}\n${addition}` : addition;
+  }
+  return incoming;
+}
+
+async function assertManagerLink(
+  manager: EntityManager,
+  companyId: string,
+  entity: typeof Customer | typeof Contact,
+  id: unknown,
+  label: string,
+): Promise<void> {
+  if (id === null || id === undefined) return;
+  if (typeof id !== "string") throw new Error(`${label} must be a record id or null`);
+  const exists = await manager.getRepository(entity).findOneBy({ companyId, id });
+  if (!exists) throw new Error(`Unknown ${label}`);
+}
+
+async function standardFieldsPatch(
+  manager: EntityManager,
+  companyId: string,
+  resourceType: Exclude<BulkResourceType, "follow_up">,
+  row: CoreRow,
+  action: Extract<BulkAction, { type: "update_standard_fields" }>,
+): Promise<{
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+  entityType: string;
+}> {
+  const values = standardValuesForRow(action, row.id);
+  const entries = Object.entries(values);
+  if (entries.length === 0 && action.notesMode !== "clear") {
+    throw new Error("Choose at least one standard field");
+  }
+  const allowed = STANDARD_FIELDS[resourceType];
+  const unsupported = entries.find(([key]) => !allowed.has(key));
+  if (unsupported) {
+    throw new Error(`${unsupported[0]} is not an editable ${resourceType} standard field`);
+  }
+
+  const before: Record<string, unknown> = {};
+  const after: Record<string, unknown> = {};
+  for (const [key, value] of entries) {
+    before[key] = (row as unknown as Record<string, unknown>)[key];
+    after[key] = validatedStandardValue(key, value);
+  }
+  if (action.notesMode === "clear" && allowed.has("notes") && !("notes" in after)) {
+    before.notes = (row as Customer | Contact | Partnership).notes;
+    after.notes = "";
+  } else if ("notes" in after) {
+    after.notes = notesValue(
+      (row as Customer | Contact | Partnership).notes,
+      after.notes,
+      action.notesMode ?? "replace",
+    );
+  }
+
+  if ("name" in after) {
+    const value = String(after.name).trim();
+    if (!value) throw new Error("name is required");
+    after.name = value;
+  }
+  if ("title" in after && resourceType === "deal") {
+    const value = String(after.title).trim();
+    if (!value) throw new Error("title is required");
+    after.title = value;
+  }
+  for (const key of [
+    "phone",
+    "title",
+    "websiteUrl",
+    "linkedinUrl",
+    "industry",
+    "taxNumber",
+    "companyName",
+    "sourceDetail",
+  ]) {
+    if (key in after && typeof after[key] === "string") after[key] = after[key].trim();
+  }
+  if ("currency" in after) {
+    const currency = String(after.currency).trim().toUpperCase();
+    if (!/^[A-Z]{3}$/.test(currency)) throw new Error("currency must be a three-letter code");
+    after.currency = currency;
+  }
+
+  if (resourceType === "account") {
+    if ("email" in after) {
+      const raw = String(after.email);
+      const email = normalizeEmail(raw) ?? "";
+      if (raw.trim() && !email) throw new Error("email is invalid");
+      after.email = email;
+    }
+    if ("domain" in after) {
+      after.domain = normalizeAccountDomain(String(after.domain));
+      if (after.domain) {
+        const clash = await manager.getRepository(Customer).findOneBy({
+          companyId,
+          domain: String(after.domain),
+          archivedAt: IsNull(),
+        });
+        if (clash && clash.id !== row.id) {
+          throw new Error(`An Account already uses the domain ${String(after.domain)}`);
+        }
+      }
+    }
+  }
+
+  if (resourceType === "contact") {
+    if ("email" in after) {
+      const raw = String(after.email);
+      const email = normalizeEmail(raw) ?? "";
+      if (raw.trim() && !email) throw new Error("email is invalid");
+      if (email) {
+        const clash = await manager.getRepository(Contact).findOneBy({ companyId, email });
+        if (clash && clash.id !== row.id) {
+          throw new Error(`A Contact already uses ${email}`);
+        }
+      }
+      after.email = email;
+    }
+    await assertManagerLink(manager, companyId, Customer, after.customerId, "Account");
+  }
+
+  if (resourceType === "deal") {
+    await Promise.all([
+      assertManagerLink(manager, companyId, Customer, after.customerId, "Account"),
+      assertManagerLink(manager, companyId, Contact, after.primaryContactId, "Contact"),
+    ]);
+    if ("source" in after) {
+      after.source = classificationValue(String(after.source));
+      await assertClassification(companyId, "deal_source", String(after.source));
+    }
+  }
+
+  if (resourceType === "partnership") {
+    await assertManagerLink(manager, companyId, Customer, after.customerId, "Account");
+    for (const [key, kind] of [
+      ["type", "partnership_type"],
+      ["status", "partnership_status"],
+    ] as const) {
+      if (!(key in after)) continue;
+      after[key] = classificationValue(String(after[key]));
+      await assertClassification(companyId, kind, String(after[key]));
+    }
+  }
+
+  return { before, after, entityType: resourceType };
+}
+
 function samePatch(before: Record<string, unknown>, after: Record<string, unknown>): boolean {
   const normalize = (value: unknown) => (value instanceof Date ? value.toISOString() : value);
   return Object.keys(after).every(
@@ -700,6 +1048,92 @@ function operationSnapshot(entity: object): Record<string, unknown> {
       value instanceof Date ? value.toISOString() : value,
     ]),
   );
+}
+
+async function recordBulkDealFieldHistory(
+  manager: EntityManager,
+  companyId: string,
+  deal: Deal,
+  patch: { before: Record<string, unknown>; after: Record<string, unknown> },
+  idempotencyKey: string,
+  actor: RevenueOperationActor,
+): Promise<OperationRowWrite[]> {
+  const now = new Date();
+  const events: DealHistoryEvent[] = [];
+  const base = {
+    companyId,
+    dealId: deal.id,
+    occurredAt: now,
+    fromStageId: null,
+    toStageId: null,
+    fromAmountCents: null,
+    toAmountCents: null,
+    currency: String(patch.after.currency ?? deal.currency),
+    fromOwnerId: null,
+    fromOwnerEmployeeId: null,
+    toOwnerId: null,
+    toOwnerEmployeeId: null,
+    lostReason: "",
+    sourceKind: "live" as const,
+    sourceActivityId: null,
+    createdByUserId: actor.userId ?? null,
+    createdByEmployeeId: actor.employeeId ?? null,
+  };
+  if ("amountCents" in patch.after || "currency" in patch.after) {
+    events.push(
+      manager.create(DealHistoryEvent, {
+        ...base,
+        kind: "amount_changed",
+        fromAmountCents: deal.amountCents,
+        toAmountCents: Number(patch.after.amountCents ?? deal.amountCents),
+        sourceKey: `bulk:${idempotencyKey}:deal:${deal.id}:amount`,
+        metadataJson: "{}",
+      }),
+    );
+  }
+  if ("ownerId" in patch.after || "ownerEmployeeId" in patch.after) {
+    events.push(
+      manager.create(DealHistoryEvent, {
+        ...base,
+        kind: "owner_changed",
+        fromOwnerId: deal.ownerId,
+        fromOwnerEmployeeId: deal.ownerEmployeeId,
+        toOwnerId: (patch.after.ownerId as string | null | undefined) ?? null,
+        toOwnerEmployeeId: (patch.after.ownerEmployeeId as string | null | undefined) ?? null,
+        sourceKey: `bulk:${idempotencyKey}:deal:${deal.id}:owner`,
+        metadataJson: "{}",
+      }),
+    );
+  }
+  if ("expectedCloseDate" in patch.after) {
+    const serializeDate = (value: unknown): string | null =>
+      value instanceof Date
+        ? value.toISOString()
+        : value
+          ? new Date(String(value)).toISOString()
+          : null;
+    events.push(
+      manager.create(DealHistoryEvent, {
+        ...base,
+        kind: "expected_close_changed",
+        sourceKey: `bulk:${idempotencyKey}:deal:${deal.id}:expected-close`,
+        metadataJson: JSON.stringify({
+          fromExpectedCloseDate: serializeDate(deal.expectedCloseDate),
+          toExpectedCloseDate: serializeDate(patch.after.expectedCloseDate),
+        }),
+      }),
+    );
+  }
+  if (events.length === 0) return [];
+  const saved = await manager.save(DealHistoryEvent, events);
+  return saved.map((event) => ({
+    resourceType: "deal",
+    resourceId: event.id,
+    entityType: "deal_history_event",
+    action: event.kind,
+    before: null,
+    after: operationSnapshot(event),
+  }));
 }
 
 async function recordBulkCustomFieldEvidence(
@@ -899,6 +1333,27 @@ export async function runRevenueBulkOperation(
   if (!request.dryRun && !request.idempotencyKey) {
     throw new Error("An idempotency key is required");
   }
+  if (request.action.type === "update_standard_fields") {
+    if (request.resourceType === "follow_up") {
+      throw new Error("Standard fields are available only on Revenue records");
+    }
+    if (Boolean(request.action.values) === Boolean(request.action.rows?.length)) {
+      throw new Error("Supply either one shared field patch or per-record field patches");
+    }
+    const ids = request.action.rows?.map((row) => row.id) ?? [];
+    if (new Set(ids).size !== ids.length) {
+      throw new Error("Each per-record field patch must use a unique record id");
+    }
+    if (request.action.rows?.length) {
+      const targetIds = new Set(request.target.ids ?? []);
+      if (
+        targetIds.size !== request.action.rows.length ||
+        request.action.rows.some((row) => !targetIds.has(row.id))
+      ) {
+        throw new Error("Per-record field patches must exactly match the selected IDs");
+      }
+    }
+  }
   if (request.action.type === "assign_owner") {
     await assertRevenueOwner(companyId, request.action);
   }
@@ -943,6 +1398,17 @@ export async function runRevenueBulkOperation(
       throw new Error("Destination Deal Stage not found");
     }
     const rows = selected.rows as SelectedRow[];
+    if (
+      request.action.type === "update_standard_fields" &&
+      request.action.values &&
+      rows.length > 1 &&
+      ((request.resourceType === "account" && "domain" in request.action.values) ||
+        (request.resourceType === "contact" && "email" in request.action.values))
+    ) {
+      throw new Error(
+        "Unique identity fields require a per-record patch when more than one record is selected",
+      );
+    }
     const results: BulkRowResult[] = [];
     const operationRows: OperationRowWrite[] = [];
     const total = rows.length + selected.missing.length;
@@ -1047,13 +1513,34 @@ export async function runRevenueBulkOperation(
               `Restore blocked: this record was merged into ${merge.targetId}; undo the merge instead`,
             );
           }
+          if (request.resourceType === "account" && (row as Customer).domain) {
+            const clash = await manager.getRepository(Customer).findOneBy({
+              companyId,
+              domain: (row as Customer).domain,
+              archivedAt: IsNull(),
+            });
+            if (clash && clash.id !== row.id) {
+              throw new Error(
+                `Restore blocked: ${clash.name} already uses the domain ${(row as Customer).domain}`,
+              );
+            }
+          }
         }
-        const patch = standardPatch(
-          request.resourceType,
-          selectedRow,
-          request.action,
-          destinationStage?.kind,
-        );
+        const patch =
+          request.action.type === "update_standard_fields"
+            ? await standardFieldsPatch(
+                manager,
+                companyId,
+                request.resourceType as Exclude<BulkResourceType, "follow_up">,
+                row as CoreRow,
+                request.action,
+              )
+            : standardPatch(
+                request.resourceType,
+                selectedRow,
+                request.action,
+                destinationStage?.kind,
+              );
         if (Object.keys(patch.after).length === 0 || samePatch(patch.before, patch.after)) {
           results.push({
             resourceType: request.resourceType,
@@ -1067,6 +1554,22 @@ export async function runRevenueBulkOperation(
           continue;
         }
         if (!request.dryRun) {
+          if (
+            request.resourceType === "deal" &&
+            request.action.type !== "move_deal_stage" &&
+            request.idempotencyKey
+          ) {
+            operationRows.push(
+              ...(await recordBulkDealFieldHistory(
+                manager,
+                companyId,
+                row as Deal,
+                patch,
+                request.idempotencyKey,
+                actor,
+              )),
+            );
+          }
           await manager
             .getRepository(
               patch.entityType === "account"

@@ -1,4 +1,5 @@
 import { Request, Response, Router, type RequestHandler } from "express";
+import multer from "multer";
 import { z } from "zod";
 
 import { AppDataSource } from "../db/datasource.js";
@@ -10,6 +11,7 @@ import {
 } from "../db/entities/Activity.js";
 import { CONTACT_LIFECYCLE_STAGES, type ContactLifecycleStage } from "../db/entities/Contact.js";
 import { Company } from "../db/entities/Company.js";
+import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import {
   REVENUE_CLASSIFICATION_KINDS,
   type RevenueClassificationKind,
@@ -24,8 +26,13 @@ import {
   REVENUE_DOCUMENT_KINDS,
   type RevenueDocumentKind,
 } from "../db/entities/RevenueDocument.js";
+import { RevenueFieldEvidence } from "../db/entities/RevenueFieldEvidence.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
-import { effectiveFinanceAccess, requireFinanceRead } from "../middleware/financeAccess.js";
+import {
+  effectiveFinanceAccess,
+  requireFinanceRead,
+  requireFinanceWrite,
+} from "../middleware/financeAccess.js";
 import { validateBody } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
 import {
@@ -84,10 +91,12 @@ import {
   backfillDealHistoryFromActivities,
   importHistoricalDealEvents,
   listDealHistory,
+  listDealHistoryCoverage,
 } from "../services/revenue/dealHistory.js";
 import {
   assertRevenueEvidenceSource,
   createCommercialValueProposal,
+  listCommercialValueBacklog,
   listRevenueEvidence,
   proposeCanonicalDomains,
   proposeCommercialValuesFromFinance,
@@ -103,6 +112,7 @@ import {
   REVENUE_EXPORT_RESOURCES,
   exportRevenueSnapshotPage,
   revenueExportCsv,
+  type RevenueExportOptionsByResource,
   type RevenueExportResource,
 } from "../services/revenue/exports.js";
 import {
@@ -116,6 +126,12 @@ import {
   listRevenueOperations,
   rollbackRevenueOperation,
 } from "../services/revenue/operations.js";
+import {
+  listRevenueFirmographicLookups,
+  MAX_FIRMOGRAPHIC_ACCOUNTS,
+  previewRevenueFirmographics,
+  proposeRevenueFirmographics,
+} from "../services/revenue/firmographics.js";
 import {
   commitLinkedRevenueImport,
   commitRevenueImport,
@@ -131,11 +147,17 @@ import {
   type LinkedImportMapping,
 } from "../services/revenue/imports.js";
 import {
+  parseRevenueImportSource,
+  REVENUE_IMPORT_SOURCE_MAX_BYTES,
+  type RevenueImportFileFormat,
+} from "../services/revenue/importSources.js";
+import {
   addPartnershipContact,
   createPartnership,
   getPartnership,
   listPartnerships,
   removePartnershipContact,
+  setPartnershipArchived,
   updatePartnership,
 } from "../services/revenue/partnerships.js";
 import { listActivities } from "../services/revenue/activities.js";
@@ -569,6 +591,45 @@ const bulkTargetSchema = z
     "Choose selected IDs or a filter",
   );
 
+const standardFieldValuesSchema = z
+  .object({
+    name: z.string().min(1).max(200).optional(),
+    title: z.string().min(1).max(300).optional(),
+    description: z.string().max(20_000).optional(),
+    email: z.union([z.literal(""), z.string().email().max(320)]).optional(),
+    phone: z.string().max(100).optional(),
+    domain: z.string().max(253).optional(),
+    websiteUrl: z.union([z.literal(""), z.string().url().max(2_000)]).optional(),
+    linkedinUrl: z.union([z.literal(""), z.string().url().max(2_000)]).optional(),
+    industry: z.string().max(200).optional(),
+    employeeCount: z.number().int().min(0).max(2_000_000_000).optional(),
+    billingAddress: z.string().max(10_000).optional(),
+    shippingAddress: z.string().max(10_000).optional(),
+    taxNumber: z.string().max(200).optional(),
+    currency: z.string().length(3).optional(),
+    annualContractValueCents: z.number().int().min(0).max(2_000_000_000).optional(),
+    notes: z.string().max(20_000).optional(),
+    customerId: z.string().uuid().nullable().optional(),
+    companyName: z.string().max(200).optional(),
+    source: z.string().max(120).optional(),
+    sourceDetail: z.string().max(500).optional(),
+    score: z.number().int().min(0).max(100).optional(),
+    doNotContact: z.boolean().optional(),
+    primaryContactId: z.string().uuid().nullable().optional(),
+    amountCents: z.number().int().min(0).max(2_000_000_000).optional(),
+    probabilityOverride: z.number().int().min(0).max(100).nullable().optional(),
+    expectedCloseDate: z.string().datetime().nullable().optional(),
+    nextStep: z.string().max(2_000).optional(),
+    nextFollowUpAt: z.string().datetime().nullable().optional(),
+    followUpReminderAt: z.string().datetime().nullable().optional(),
+    type: z.string().min(1).max(80).optional(),
+    status: z.string().min(1).max(80).optional(),
+    integrationContext: z.string().max(20_000).optional(),
+    channelContext: z.string().max(20_000).optional(),
+    reminderAt: z.string().datetime().nullable().optional(),
+  })
+  .strict();
+
 const bulkActionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("assign_owner"),
@@ -599,6 +660,22 @@ const bulkActionSchema = z.discriminatedUnion("type", [
     lostReason: z.string().min(1).max(2_000).optional(),
   }),
   z.object({
+    type: z.literal("update_standard_fields"),
+    confirm: z.literal("UPDATE_STANDARD_FIELDS"),
+    values: standardFieldValuesSchema.optional(),
+    rows: z
+      .array(
+        z.object({
+          id: z.string().uuid(),
+          values: standardFieldValuesSchema,
+        }),
+      )
+      .min(1)
+      .max(5_000)
+      .optional(),
+    notesMode: z.enum(["replace", "append", "clear"]).optional(),
+  }),
+  z.object({
     type: z.literal("update_follow_up"),
     taskStatus: taskStatusEnum.optional(),
     priority: priorityEnum.optional(),
@@ -609,27 +686,74 @@ const bulkActionSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-const bulkSchema = z.object({
-  resourceType: z.enum(["account", "contact", "deal", "partnership", "follow_up"]),
-  target: bulkTargetSchema,
-  action: bulkActionSchema,
-  dryRun: z.boolean().default(false),
-  idempotencyKey: z.string().min(8).max(200).optional(),
-  mode: z.enum(["atomic", "partial"]).default("partial"),
-});
+const bulkSchema = z
+  .object({
+    resourceType: z.enum(["account", "contact", "deal", "partnership", "follow_up"]),
+    target: bulkTargetSchema,
+    action: bulkActionSchema,
+    dryRun: z.boolean().default(false),
+    idempotencyKey: z.string().min(8).max(200).optional(),
+    mode: z.enum(["atomic", "partial"]).default("partial"),
+  })
+  .superRefine((body, context) => {
+    if (body.action.type !== "update_standard_fields") return;
+    if (Boolean(body.action.values) === Boolean(body.action.rows?.length)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["action"],
+        message: "Supply either shared values or per-record values",
+      });
+    }
+    if (
+      body.action.notesMode !== "clear" &&
+      !Object.keys(body.action.values ?? {}).length &&
+      !body.action.rows?.some((row) => Object.keys(row.values).length > 0)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["action"],
+        message: "Choose at least one standard field",
+      });
+    }
+  });
 
 function normalizedBulkBody(
   body: z.infer<typeof bulkSchema>,
 ): Parameters<typeof runRevenueBulkOperation>[1] {
   const filter = body.target.filter;
-  const action =
-    body.action.type === "update_follow_up"
-      ? {
-          ...body.action,
-          dueAt: optionalDate(body.action.dueAt),
-          reminderAt: optionalDate(body.action.reminderAt),
-        }
-      : body.action;
+  const normalizeStandardValues = (
+    values: z.infer<typeof standardFieldValuesSchema>,
+  ): Record<string, unknown> => ({
+    ...values,
+    ...("expectedCloseDate" in values
+      ? { expectedCloseDate: optionalDate(values.expectedCloseDate) }
+      : {}),
+    ...("nextFollowUpAt" in values ? { nextFollowUpAt: optionalDate(values.nextFollowUpAt) } : {}),
+    ...("followUpReminderAt" in values
+      ? { followUpReminderAt: optionalDate(values.followUpReminderAt) }
+      : {}),
+    ...("reminderAt" in values ? { reminderAt: optionalDate(values.reminderAt) } : {}),
+  });
+  const action = (() => {
+    if (body.action.type === "update_follow_up") {
+      return {
+        ...body.action,
+        dueAt: optionalDate(body.action.dueAt),
+        reminderAt: optionalDate(body.action.reminderAt),
+      };
+    }
+    if (body.action.type === "update_standard_fields") {
+      return {
+        ...body.action,
+        values: body.action.values ? normalizeStandardValues(body.action.values) : undefined,
+        rows: body.action.rows?.map((row) => ({
+          id: row.id,
+          values: normalizeStandardValues(row.values),
+        })),
+      };
+    }
+    return body.action;
+  })();
   return {
     ...body,
     target: {
@@ -935,10 +1059,38 @@ revenueOperationsRouter.post(
 );
 
 revenueOperationsRouter.post(
-  "/revenue/deal-history/backfill-activities",
-  validateBody(z.object({ confirm: z.literal("BACKFILL") })),
+  "/revenue/deal-history/activity-backfill/preview",
+  validateBody(
+    z
+      .object({
+        dealIds: z.array(z.string().uuid()).max(5_000).optional(),
+      })
+      .strict(),
+  ),
   h(async (req, res) => {
-    const result = await backfillDealHistoryFromActivities(cidOf(req), actorOf(req));
+    const result = await backfillDealHistoryFromActivities(cidOf(req), actorOf(req), {
+      dealIds: req.body.dealIds,
+      dryRun: true,
+    });
+    return res.json(result);
+  }),
+);
+
+const dealHistoryBackfillSchema = z
+  .object({
+    dealIds: z.array(z.string().uuid()).min(1).max(5_000),
+    idempotencyKey: z.string().min(8).max(200),
+    confirm: z.literal("BACKFILL"),
+  })
+  .strict();
+
+async function commitDealHistoryActivityBackfill(req: Request, res: Response): Promise<Response> {
+  try {
+    const result = await backfillDealHistoryFromActivities(cidOf(req), actorOf(req), {
+      dealIds: req.body.dealIds,
+      dryRun: false,
+      idempotencyKey: req.body.idempotencyKey,
+    });
     await audit(
       req,
       "revenue.deal_history.backfill",
@@ -948,6 +1100,42 @@ revenueOperationsRouter.post(
       result,
     );
     return res.json(result);
+  } catch (error) {
+    return res.status(409).json({ error: (error as Error).message });
+  }
+}
+
+revenueOperationsRouter.post(
+  "/revenue/deal-history/activity-backfill",
+  validateBody(dealHistoryBackfillSchema),
+  h(commitDealHistoryActivityBackfill),
+);
+
+// Backwards-compatible path, now subject to the same explicit Deal selection.
+revenueOperationsRouter.post(
+  "/revenue/deal-history/backfill-activities",
+  validateBody(dealHistoryBackfillSchema),
+  h(commitDealHistoryActivityBackfill),
+);
+
+revenueOperationsRouter.get(
+  "/revenue/deal-history/coverage",
+  h(async (req, res) => {
+    const parsed = z
+      .object({
+        dealIds: z
+          .string()
+          .max(200_000)
+          .transform((value) => value.split(",").filter(Boolean))
+          .pipe(z.array(z.string().uuid()).max(5_000))
+          .optional(),
+        includeArchived: boolQuery,
+        limit: z.coerce.number().int().min(1).max(500).optional(),
+        offset: z.coerce.number().int().min(0).optional(),
+      })
+      .safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid query parameters" });
+    return res.json(await listDealHistoryCoverage(cidOf(req), parsed.data));
   }),
 );
 
@@ -1022,10 +1210,19 @@ revenueOperationsRouter.post(
 
 revenueOperationsRouter.post(
   "/revenue/enrichment/commercial-values/propose-from-finance",
-  validateBody(z.object({ confirm: z.literal("PROPOSE") })),
-  requireFinanceRead,
+  validateBody(
+    z
+      .object({
+        dealIds: z.array(z.string().uuid()).min(1).max(5_000),
+        confirm: z.literal("PROPOSE"),
+      })
+      .strict(),
+  ),
+  requireFinanceWrite,
   h(async (req, res) => {
-    const result = await proposeCommercialValuesFromFinance(cidOf(req));
+    const result = await proposeCommercialValuesFromFinance(cidOf(req), {
+      dealIds: req.body.dealIds,
+    });
     await audit(
       req,
       "revenue.enrichment.commercial_values.propose",
@@ -1040,9 +1237,20 @@ revenueOperationsRouter.post(
 
 revenueOperationsRouter.post(
   "/revenue/enrichment/commercial-values/propose-from-stripe",
-  validateBody(z.object({ confirm: z.literal("PROPOSE") })),
+  validateBody(
+    z
+      .object({
+        connectionId: z.string().uuid(),
+        dealIds: z.array(z.string().uuid()).min(1).max(5_000),
+        confirm: z.literal("PROPOSE"),
+      })
+      .strict(),
+  ),
   h(async (req, res) => {
-    const result = await proposeCommercialValuesFromStripe(cidOf(req));
+    const result = await proposeCommercialValuesFromStripe(cidOf(req), {
+      connectionId: req.body.connectionId,
+      dealIds: req.body.dealIds,
+    });
     await audit(
       req,
       "revenue.enrichment.commercial_values.propose",
@@ -1052,6 +1260,33 @@ revenueOperationsRouter.post(
       result,
     );
     return res.json(result);
+  }),
+);
+
+revenueOperationsRouter.get(
+  "/revenue/enrichment/commercial-values/backlog",
+  requireFinanceRead,
+  h(async (req, res) => {
+    const parsed = z
+      .object({
+        dealIds: z
+          .string()
+          .max(200_000)
+          .transform((value) => value.split(",").filter(Boolean))
+          .pipe(z.array(z.string().uuid()).max(5_000))
+          .optional(),
+        stageIds: z
+          .string()
+          .max(20_000)
+          .transform((value) => value.split(",").filter(Boolean))
+          .pipe(z.array(z.string().uuid()).max(500))
+          .optional(),
+        limit: z.coerce.number().int().min(1).max(500).optional(),
+        offset: z.coerce.number().int().min(0).optional(),
+      })
+      .safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid query parameters" });
+    return res.json(await listCommercialValueBacklog(cidOf(req), parsed.data));
   }),
 );
 
@@ -1083,9 +1318,9 @@ revenueOperationsRouter.post(
     }),
   ),
   h(async (req, res) => {
-    if (req.body.sourceType === "finance" && effectiveFinanceAccess(req) === "none") {
+    if (req.body.sourceType === "finance" && effectiveFinanceAccess(req) !== "full") {
       return res.status(403).json({
-        error: "You don't have access to this company's finances.",
+        error: "You need full finance access to propose Finance-backed Deal values.",
       });
     }
     try {
@@ -1123,7 +1358,18 @@ revenueOperationsRouter.get(
       })
       .safeParse(req.query);
     if (!parsed.success) return res.status(400).json({ error: "Invalid query parameters" });
-    return res.json(await listRevenueEvidence(cidOf(req), parsed.data));
+    const financeAccess = effectiveFinanceAccess(req);
+    if (parsed.data.sourceType === "finance" && financeAccess === "none") {
+      return res.status(403).json({
+        error: "You don't have access to this company's finances.",
+      });
+    }
+    return res.json(
+      await listRevenueEvidence(cidOf(req), {
+        ...parsed.data,
+        excludeSourceTypes: financeAccess === "none" ? ["finance"] : undefined,
+      }),
+    );
   }),
 );
 
@@ -1138,6 +1384,16 @@ revenueOperationsRouter.post(
   h(async (req, res) => {
     const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
     if (!params.success) return res.status(400).json({ error: "Invalid evidence" });
+    const existing = await AppDataSource.getRepository(RevenueFieldEvidence).findOneBy({
+      companyId: cidOf(req),
+      id: params.data.id,
+    });
+    if (!existing) return res.status(404).json({ error: "Evidence not found" });
+    if (existing.sourceType === "finance" && effectiveFinanceAccess(req) !== "full") {
+      return res.status(403).json({
+        error: "You need full finance access to review Finance-backed evidence.",
+      });
+    }
     try {
       const evidence = await reviewRevenueEvidence(
         cidOf(req),
@@ -1158,6 +1414,67 @@ revenueOperationsRouter.post(
     } catch (error) {
       return res.status(409).json({ error: (error as Error).message });
     }
+  }),
+);
+
+const firmographicSelectionSchema = z
+  .object({
+    connectionId: z.string().uuid(),
+    accountIds: z.array(z.string().uuid()).max(MAX_FIRMOGRAPHIC_ACCOUNTS).optional(),
+    missingOnly: z.boolean().optional(),
+    refreshOlderThanDays: z.number().int().min(1).max(3_650).optional(),
+    limit: z.number().int().min(1).max(MAX_FIRMOGRAPHIC_ACCOUNTS).optional(),
+    force: z.boolean().optional(),
+  })
+  .strict();
+
+revenueOperationsRouter.post(
+  "/revenue/enrichment/firmographics/preview",
+  validateBody(firmographicSelectionSchema),
+  h(async (req, res) => {
+    try {
+      return res.json(await previewRevenueFirmographics(cidOf(req), req.body));
+    } catch (error) {
+      return res.status(400).json({ error: (error as Error).message });
+    }
+  }),
+);
+
+revenueOperationsRouter.post(
+  "/revenue/enrichment/firmographics/propose",
+  validateBody(firmographicSelectionSchema.extend({ confirm: z.literal("PROPOSE") })),
+  h(async (req, res) => {
+    try {
+      const result = await proposeRevenueFirmographics(cidOf(req), req.body);
+      await audit(
+        req,
+        "revenue.enrichment.firmographics.propose",
+        "revenue_firmographic_lookup",
+        null,
+        "Firmographic evidence",
+        result,
+      );
+      return res.json(result);
+    } catch (error) {
+      return res.status(400).json({ error: (error as Error).message });
+    }
+  }),
+);
+
+revenueOperationsRouter.get(
+  "/revenue/enrichment/firmographics/lookups",
+  h(async (req, res) => {
+    const parsed = z
+      .object({
+        connectionId: z.string().uuid().optional(),
+        customerId: z.string().uuid().optional(),
+        status: z.enum(["matched", "not_found", "failed"]).optional(),
+        limit: z.coerce.number().int().min(1).max(500).optional(),
+        offset: z.coerce.number().int().min(0).optional(),
+      })
+      .safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid query parameters" });
+    return res.json(await listRevenueFirmographicLookups(cidOf(req), parsed.data));
   }),
 );
 
@@ -1883,6 +2200,25 @@ revenueOperationsRouter.patch(
   }),
 );
 
+for (const [action, archived] of [
+  ["archive", true],
+  ["restore", false],
+] as const) {
+  revenueOperationsRouter.post(
+    `/revenue/partnerships/:id/${action}`,
+    h(async (req, res) => {
+      try {
+        const row = await setPartnershipArchived(cidOf(req), req.params.id, archived);
+        if (!row) return res.status(404).json({ error: "Partnership not found" });
+        await audit(req, `revenue.partnership.${action}`, "partnership", row.id, row.name);
+        return res.json(row);
+      } catch (error) {
+        return res.status(409).json({ error: (error as Error).message });
+      }
+    }),
+  );
+}
+
 revenueOperationsRouter.post(
   "/revenue/partnerships/:id/contacts",
   validateBody(
@@ -2063,7 +2399,158 @@ revenueOperationsRouter.delete(
   }),
 );
 
-// ── Reversible Base / CSV migration ───────────────────────────────────────
+// ── Reversible Base / file migration ──────────────────────────────────────
+
+const revenueImportFileUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: REVENUE_IMPORT_SOURCE_MAX_BYTES, files: 1, fields: 10 },
+});
+const receiveRevenueImportFile: RequestHandler = (req, res, next) => {
+  revenueImportFileUpload.single("file")(req, res, (error) => {
+    if (!error) return next();
+    return res.status(400).json({ error: (error as Error).message });
+  });
+};
+const revenueImportFileResourceSchema = z.enum([
+  "account",
+  "contact",
+  "deal",
+  "partnership",
+  "account_contact_deal",
+]);
+const revenueImportFileFieldsSchema = z.object({
+  format: z.enum(["csv", "json", "ndjson"]),
+  resourceType: revenueImportFileResourceSchema.optional(),
+  sourceLabel: z.string().min(1).max(500).optional(),
+  sourceIdField: z.string().min(1).max(500).optional(),
+  mapping: z.string().max(200_000).optional(),
+});
+
+function parseImportMapping(value: string | undefined): Record<string, unknown> {
+  if (!value) throw new Error("Field mapping is required");
+  const parsed = JSON.parse(value) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Field mapping must be a JSON object");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function parseUploadedRevenueSource(req: Request): {
+  format: RevenueImportFileFormat;
+  sourceLabel: string;
+  resourceType?: z.infer<typeof revenueImportFileResourceSchema>;
+  mapping?: Record<string, unknown>;
+  fields: string[];
+  rows: ImportRow[];
+} {
+  const parsed = revenueImportFileFieldsSchema.safeParse(req.body);
+  if (!parsed.success) throw new Error("Invalid import file options");
+  if (!req.file) throw new Error("Choose a CSV, JSON, or NDJSON file");
+  const source = parseRevenueImportSource(parsed.data.format, req.file.buffer.toString("utf8"), {
+    sourceIdField: parsed.data.sourceIdField,
+  });
+  return {
+    format: source.format,
+    sourceLabel: parsed.data.sourceLabel || req.file.originalname,
+    resourceType: parsed.data.resourceType,
+    mapping: parsed.data.mapping ? parseImportMapping(parsed.data.mapping) : undefined,
+    fields: source.fields,
+    rows: source.rows,
+  };
+}
+
+revenueOperationsRouter.post(
+  "/revenue/imports/file/inspect",
+  receiveRevenueImportFile,
+  h(async (req, res) => {
+    try {
+      const source = parseUploadedRevenueSource(req);
+      return res.json({
+        format: source.format,
+        sourceLabel: source.sourceLabel,
+        fields: source.fields,
+        rowCount: source.rows.length,
+      });
+    } catch (error) {
+      return res.status(400).json({ error: (error as Error).message });
+    }
+  }),
+);
+
+for (const mode of ["preview", "commit"] as const) {
+  revenueOperationsRouter.post(
+    `/revenue/imports/file/${mode}`,
+    receiveRevenueImportFile,
+    h(async (req, res) => {
+      try {
+        const source = parseUploadedRevenueSource(req);
+        if (!source.resourceType || !source.mapping) {
+          return res.status(400).json({ error: "Import target and field mapping are required" });
+        }
+        const sourceKind = source.format === "csv" ? "csv" : "json";
+        if (source.resourceType === "account_contact_deal") {
+          const mapping = source.mapping as LinkedImportMapping;
+          if (mode === "preview") {
+            return res.json(await previewLinkedRevenueImport(cidOf(req), mapping, source.rows));
+          }
+          const batch = await commitLinkedRevenueImport(
+            cidOf(req),
+            {
+              sourceKind,
+              sourceLabel: source.sourceLabel,
+              sourceBaseId: null,
+              sourceTableId: null,
+              sourceConnectionId: null,
+              mapping,
+              rows: source.rows,
+            },
+            actorOf(req),
+          );
+          await audit(
+            req,
+            "revenue.import.file.commit",
+            "revenue_import",
+            batch.id,
+            batch.sourceLabel,
+            { resourceType: batch.resourceType, format: source.format },
+          );
+          return res.status(201).json(await getRevenueImportSummary(cidOf(req), batch.id));
+        }
+        const mapping = source.mapping as Record<string, string>;
+        if (mode === "preview") {
+          return res.json(
+            await previewRevenueImport(cidOf(req), source.resourceType, mapping, source.rows),
+          );
+        }
+        const batch = await commitRevenueImport(
+          cidOf(req),
+          {
+            resourceType: source.resourceType,
+            sourceKind,
+            sourceLabel: source.sourceLabel,
+            sourceBaseId: null,
+            sourceTableId: null,
+            sourceConnectionId: null,
+            mapping,
+            rows: source.rows,
+          },
+          actorOf(req),
+        );
+        await audit(
+          req,
+          "revenue.import.file.commit",
+          "revenue_import",
+          batch.id,
+          batch.sourceLabel,
+          { resourceType: batch.resourceType, format: source.format },
+        );
+        return res.status(201).json(await getRevenueImportSummary(cidOf(req), batch.id));
+      } catch (error) {
+        return res.status(400).json({ error: (error as Error).message });
+      }
+    }),
+  );
+}
 
 const importRowSchema = z.object({
   sourceId: z.string().min(1).max(500),
@@ -2071,10 +2558,11 @@ const importRowSchema = z.object({
 });
 const importInputSchema = z.object({
   resourceType: resourceTypeEnum,
-  sourceKind: z.enum(["base", "csv"]),
+  sourceKind: z.enum(["base", "csv", "json", "connection"]),
   sourceLabel: z.string().min(1).max(500),
   sourceBaseId: z.string().uuid().nullable().optional(),
   sourceTableId: z.string().uuid().nullable().optional(),
+  sourceConnectionId: z.string().uuid().nullable().optional(),
   mapping: z.record(z.string().min(1).max(500)),
   rows: z.array(importRowSchema).max(10_000).optional(),
 });
@@ -2093,11 +2581,33 @@ async function resolvedImportRows(
   body: z.infer<typeof importInputSchema>,
 ): Promise<{ rows: ImportRow[]; sourceLabel: string }> {
   if (body.sourceKind === "base") {
+    if (body.sourceConnectionId) {
+      throw new Error("Base imports cannot carry Connection provenance");
+    }
     if (!body.sourceBaseId || !body.sourceTableId) {
       throw new Error("Base and table are required");
     }
     const source = await loadBaseImportRows(companyId, body.sourceBaseId, body.sourceTableId);
     return { rows: source.rows, sourceLabel: source.sourceLabel };
+  }
+  if (body.sourceBaseId || body.sourceTableId) {
+    throw new Error("Only Base imports can carry Base provenance");
+  }
+  if (!body.rows || body.rows.length === 0) {
+    throw new Error("Direct imports require at least one source row");
+  }
+  if (body.sourceKind === "connection") {
+    if (!body.sourceConnectionId) {
+      throw new Error("Connection-backed imports require a source Connection");
+    }
+    const connection = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
+      companyId,
+      id: body.sourceConnectionId,
+    });
+    if (!connection) throw new Error("Source Connection not found in this company");
+    if (connection.status !== "connected") throw new Error("Source Connection is not connected");
+  } else if (body.sourceConnectionId) {
+    throw new Error("Only Connection-backed imports can carry Connection provenance");
   }
   return { rows: body.rows ?? [], sourceLabel: body.sourceLabel };
 }
@@ -2106,14 +2616,11 @@ async function resolvedLinkedImportRows(
   companyId: string,
   body: z.infer<typeof linkedImportInputSchema>,
 ): Promise<{ rows: ImportRow[]; sourceLabel: string }> {
-  if (body.sourceKind === "base") {
-    if (!body.sourceBaseId || !body.sourceTableId) {
-      throw new Error("Base and table are required");
-    }
-    const source = await loadBaseImportRows(companyId, body.sourceBaseId, body.sourceTableId);
-    return { rows: source.rows, sourceLabel: source.sourceLabel };
-  }
-  return { rows: body.rows ?? [], sourceLabel: body.sourceLabel };
+  return resolvedImportRows(companyId, {
+    ...body,
+    resourceType: "account",
+    mapping: {},
+  });
 }
 
 revenueOperationsRouter.get(
@@ -2232,7 +2739,7 @@ revenueOperationsRouter.get(
   h(async (req, res) => {
     const parsed = z
       .object({
-        sourceKind: z.enum(["base", "csv"]).optional(),
+        sourceKind: z.enum(["base", "csv", "json", "connection"]).optional(),
         status: z.enum(["completed", "rolled_back", "failed"]).optional(),
         resourceType: z
           .enum(["account", "contact", "deal", "partnership", "account_contact_deal"])
@@ -2367,19 +2874,139 @@ revenueOperationsRouter.get(
         format: z.enum(["json", "csv"]).default("json"),
         limit: z.coerce.number().int().min(1).max(500).optional(),
         offset: z.coerce.number().int().min(0).optional(),
+        cursor: z.string().max(4_000).optional(),
+        asOf: z.string().datetime().optional(),
+        dealId: z.string().uuid().optional(),
+        sourceKind: z.enum(["live", "import", "activity_backfill"]).optional(),
+        kind: z
+          .enum([
+            "created",
+            "snapshot",
+            "stage_changed",
+            "amount_changed",
+            "owner_changed",
+            "expected_close_changed",
+            "won",
+            "lost",
+            "merge",
+            "bulk",
+            "history_import",
+          ])
+          .optional(),
+        from: z.string().datetime().optional(),
+        to: z.string().datetime().optional(),
+        resourceType: z.enum(["account", "contact", "deal", "partnership", "follow_up"]).optional(),
+        resourceId: z.string().uuid().optional(),
+        fieldKey: z.string().max(200).optional(),
+        sourceType: evidenceSourceTypeEnum.optional(),
+        status: z
+          .enum([
+            "proposed",
+            "accepted",
+            "rejected",
+            "superseded",
+            "open",
+            "dismissed",
+            "merged",
+            "queued",
+            "running",
+            "completed",
+            "partial",
+            "failed",
+            "rolled_back",
+            "pending",
+            "processing",
+            "duplicate",
+          ])
+          .optional(),
+        minScore: z.coerce.number().int().min(0).max(100).optional(),
+        accountId: z.string().uuid().optional(),
       })
       .safeParse(req.query);
     if (!params.success || !query.success) {
       return res.status(400).json({ error: "Invalid Revenue export query" });
     }
-    const page = await exportRevenueSnapshotPage(cidOf(req), params.data.resource, query.data);
+    const resource = params.data.resource;
+    const specialFilters = Object.entries(query.data)
+      .filter(
+        ([key, value]) =>
+          value !== undefined && !["format", "limit", "offset", "cursor", "asOf"].includes(key),
+      )
+      .map(([key]) => key);
+    const allowedFilters: Partial<Record<RevenueExportResource, readonly string[]>> = {
+      deal_history: ["dealId", "sourceKind", "kind", "from", "to"],
+      field_evidence: ["resourceType", "resourceId", "fieldKey", "sourceType", "status"],
+      duplicate_candidates: ["resourceType", "status", "minScore"],
+      operation_audit: ["kind", "resourceType", "status"],
+      document_candidates: ["status", "accountId"],
+    };
+    if (specialFilters.some((key) => !(allowedFilters[resource] ?? []).includes(key))) {
+      return res.status(400).json({ error: `Invalid filters for ${resource}` });
+    }
+    const status = query.data.status;
+    const validStatus =
+      !status ||
+      (resource === "field_evidence" &&
+        ["proposed", "accepted", "rejected", "superseded"].includes(status)) ||
+      (resource === "duplicate_candidates" && ["open", "dismissed", "merged"].includes(status)) ||
+      (resource === "operation_audit" &&
+        ["queued", "running", "completed", "partial", "failed", "rolled_back"].includes(status)) ||
+      (resource === "document_candidates" &&
+        ["pending", "processing", "accepted", "rejected", "duplicate"].includes(status));
+    const kind = query.data.kind;
+    const validKind =
+      !kind ||
+      (resource === "deal_history" &&
+        [
+          "created",
+          "snapshot",
+          "stage_changed",
+          "amount_changed",
+          "owner_changed",
+          "expected_close_changed",
+          "won",
+          "lost",
+        ].includes(kind)) ||
+      (resource === "operation_audit" && ["merge", "bulk", "history_import"].includes(kind));
+    if (!validStatus || !validKind) {
+      return res.status(400).json({ error: `Invalid filters for ${resource}` });
+    }
+    const { format: _format, ...rawOptions } = query.data;
+    const financeAccess = effectiveFinanceAccess(req);
+    if (
+      resource === "field_evidence" &&
+      rawOptions.sourceType === "finance" &&
+      financeAccess === "none"
+    ) {
+      return res.status(403).json({
+        error: "You don't have access to this company's finances.",
+      });
+    }
+    const options = {
+      ...rawOptions,
+      asOf: rawOptions.asOf ? new Date(rawOptions.asOf) : undefined,
+      from: rawOptions.from ? new Date(rawOptions.from) : undefined,
+      to: rawOptions.to ? new Date(rawOptions.to) : undefined,
+      excludeSourceTypes:
+        resource === "field_evidence" && financeAccess === "none"
+          ? ["finance" as const]
+          : undefined,
+    } as RevenueExportOptionsByResource[RevenueExportResource];
+    let page;
+    try {
+      page = await exportRevenueSnapshotPage(cidOf(req), resource, options);
+    } catch (error) {
+      return res.status(400).json({ error: (error as Error).message });
+    }
     if (query.data.format === "csv") {
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("X-Revenue-Export-Next-Offset", page.nextOffset?.toString() ?? "");
+      res.setHeader("X-Revenue-Export-Next-Cursor", page.nextCursor ?? "");
+      res.setHeader("X-Revenue-Export-As-Of", page.asOf?.toISOString() ?? "");
       res.setHeader("X-Revenue-Export-Total", page.total?.toString() ?? "");
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="revenue-${params.data.resource}-${page.offset}.csv"`,
+        `attachment; filename="revenue-${resource}-${page.offset}.csv"`,
       );
       return res.send(revenueExportCsv(page));
     }
@@ -2425,6 +3052,7 @@ revenueOperationsRouter.post(
 
 revenueOperationsRouter.post(
   "/revenue/imports/:id/rollback",
+  validateBody(z.object({ confirm: z.literal("ROLLBACK") }).strict()),
   h(async (req, res) => {
     const result = await rollbackRevenueImport(cidOf(req), req.params.id);
     if (!result) return res.status(404).json({ error: "Import not found" });

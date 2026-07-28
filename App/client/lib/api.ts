@@ -2038,6 +2038,9 @@ export type Customer = {
   websiteUrl: string;
   industry: string;
   employeeCount: number;
+  headquartersAddress: string;
+  parentCompanyName: string;
+  parentCompanyDomain: string;
   ownerId: string | null;
   ownerEmployeeId: string | null;
   email: string;

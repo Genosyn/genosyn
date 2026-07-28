@@ -172,6 +172,47 @@ export type IntegrationTool = {
 export type IntegrationConfig = Record<string, unknown>;
 
 /**
+ * Provider-neutral input for a billable company-firmographics lookup.
+ *
+ * Providers should use the strongest identifier they support. A persisted
+ * provider record id is preferred for refreshes; domain/website are stronger
+ * than a name-only match.
+ */
+export type CompanyFirmographicLookupInput = {
+  providerRecordId?: string;
+  name?: string;
+  domain?: string;
+  website?: string;
+  location?: string;
+};
+
+/** A parent-company reference returned by a firmographics provider. */
+export type CompanyFirmographicParent = {
+  providerRecordId: string | null;
+  name: string | null;
+  domain: string | null;
+};
+
+/**
+ * Small, allowlisted company profile shared by Revenue and Integration
+ * providers. It intentionally excludes a provider's full raw response.
+ */
+export type CompanyFirmographicProfile = {
+  providerRecordId: string;
+  name: string | null;
+  domain: string | null;
+  websiteUrl: string | null;
+  industry: string | null;
+  employeeCount: number | null;
+  headquartersAddress: string | null;
+  parentCompany: CompanyFirmographicParent | null;
+  /** Provider confidence normalized to an integer from 0 through 100. */
+  confidence: number;
+  /** ISO timestamp describing when the provider result was observed. */
+  observedAt: string;
+};
+
+/**
  * A file a tool is about to send somewhere — an email attachment today.
  * Providers receive these already resolved; they never learn where the
  * bytes came from or who was allowed to read them.
@@ -330,6 +371,16 @@ export type OauthTokenSet = {
 export type IntegrationProvider = {
   catalog: IntegrationCatalogEntry;
   tools: IntegrationTool[];
+
+  /**
+   * Optional normalized company-enrichment capability. Revenue uses this
+   * seam instead of parsing a provider-specific tool response, so another
+   * BYOK provider can be added without changing the Revenue service.
+   */
+  lookupCompanyFirmographics?(
+    input: CompanyFirmographicLookupInput,
+    ctx: IntegrationRuntimeContext,
+  ): Promise<CompanyFirmographicProfile | null>;
 
   /**
    * API-key providers implement this. Return the JSON config to persist and

@@ -9,6 +9,7 @@ import { Deal } from "../../db/entities/Deal.js";
 import { DealHistoryEvent } from "../../db/entities/DealHistoryEvent.js";
 import { DealStage } from "../../db/entities/DealStage.js";
 import { Estimate } from "../../db/entities/Estimate.js";
+import { IntegrationConnection } from "../../db/entities/IntegrationConnection.js";
 import { Invoice } from "../../db/entities/Invoice.js";
 import { InvoicePayment } from "../../db/entities/InvoicePayment.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
@@ -16,10 +17,13 @@ import { RevenueCustomField } from "../../db/entities/RevenueCustomField.js";
 import { RevenueCustomValue } from "../../db/entities/RevenueCustomValue.js";
 import { RevenueFieldEvidence } from "../../db/entities/RevenueFieldEvidence.js";
 import { RevenueImportRow } from "../../db/entities/RevenueImportRow.js";
+import { RevenueOperation } from "../../db/entities/RevenueOperation.js";
+import { RevenueOperationRow } from "../../db/entities/RevenueOperationRow.js";
 import { RevenueRecordAlias } from "../../db/entities/RevenueRecordAlias.js";
 import { RevenueDocument } from "../../db/entities/RevenueDocument.js";
 import { RevenueDocumentCandidate } from "../../db/entities/RevenueDocumentCandidate.js";
 import { AppDataSource } from "../../db/datasource.js";
+import { stripeProvider } from "../../integrations/providers/stripe.js";
 import {
   closeTestDb,
   initTestDb,
@@ -31,9 +35,11 @@ import { runRevenueBulkOperation } from "./bulk.js";
 import { historicalFunnelMetrics, importHistoricalDealEvents } from "./dealHistory.js";
 import {
   createCommercialValueProposal,
+  listCommercialValueBacklog,
   listRevenueEvidence,
   proposeCanonicalDomains,
   proposeCommercialValuesFromFinance,
+  proposeCommercialValuesFromStripe,
   reviewRevenueEvidence,
 } from "./enrichment.js";
 import { exportRevenueSnapshotPage, revenueExportCsv } from "./exports.js";
@@ -41,6 +47,7 @@ import { mergeRevenueRecords, previewRevenueMerge } from "./merge.js";
 import { findMergedRecordRedirect, rollbackRevenueOperation } from "./operations.js";
 import { listRevenueDuplicateCandidates, scanRevenueDuplicates } from "./duplicates.js";
 import { createRevenueDocumentCandidatesForMessage } from "./documentCapture.js";
+import { encryptConnectionConfig } from "../integrations.js";
 
 before(initTestDb);
 beforeEach(resetTestDb);
@@ -526,6 +533,91 @@ describe("controlled enrichment", () => {
     }
   });
 
+  test("applies reviewed Account firmographic evidence to every supported field", async () => {
+    const companyId = testCompanyId();
+    const acme = await account(companyId, "Firmographic Acme");
+    const proposals = [
+      {
+        fieldKey: "domain",
+        value: "https://www.acme.example/about",
+        normalizedValue: "acme.example",
+      },
+      {
+        fieldKey: "website_url",
+        value: " https://acme.example/about ",
+        normalizedValue: "https://acme.example/about",
+      },
+      {
+        fieldKey: "industry",
+        value: " Software Development ",
+        normalizedValue: "software development",
+      },
+      {
+        fieldKey: "employee_count",
+        value: 137,
+        normalizedValue: "137",
+      },
+      {
+        fieldKey: "headquarters_address",
+        value: " 1 High Street\nLondon ",
+        normalizedValue: "1 high street london",
+      },
+      {
+        fieldKey: "parent_company_name",
+        value: " Acme Holdings ",
+        normalizedValue: "acme holdings",
+      },
+      {
+        fieldKey: "parent_company_domain",
+        value: "https://www.holdings.example/group",
+        normalizedValue: "holdings.example",
+      },
+    ] as const;
+    const evidenceRows: RevenueFieldEvidence[] = [];
+    for (const proposal of proposals) {
+      evidenceRows.push(
+        await insert(RevenueFieldEvidence, {
+          companyId,
+          resourceType: "account",
+          resourceId: acme.id,
+          fieldKey: proposal.fieldKey,
+          sourceType: "integration",
+          sourceId: "firmographic-profile-1",
+          sourceLabel: "Company profile",
+          extractedValueJson: JSON.stringify(proposal.value),
+          normalizedValue: proposal.normalizedValue,
+          confidence: 95,
+          status: "proposed",
+          verificationState: "unverified",
+          extractionMethod: "company_firmographic_profile",
+          observedAt: new Date("2026-07-01T00:00:00.000Z"),
+          extractedAt: new Date("2026-07-01T00:00:00.000Z"),
+          metadataJson: "{}",
+        }),
+      );
+    }
+
+    for (const evidence of evidenceRows) {
+      const accepted = await reviewRevenueEvidence(companyId, evidence.id, "accept", {
+        employeeId: "firmographic-reviewer",
+      });
+      assert.equal(accepted.status, "accepted");
+      assert.equal(accepted.verifyingActorType, "ai_employee");
+    }
+
+    const updated = await AppDataSource.getRepository(Customer).findOneByOrFail({
+      companyId,
+      id: acme.id,
+    });
+    assert.equal(updated.domain, "acme.example");
+    assert.equal(updated.websiteUrl, "https://acme.example/about");
+    assert.equal(updated.industry, "Software Development");
+    assert.equal(updated.employeeCount, 137);
+    assert.equal(updated.headquartersAddress, "1 High Street\nLondon");
+    assert.equal(updated.parentCompanyName, "Acme Holdings");
+    assert.equal(updated.parentCompanyDomain, "holdings.example");
+  });
+
   test("proposes a verified business domain and applies reviewed value evidence", async () => {
     const companyId = testCompanyId();
     const acme = await account(companyId, "Acme");
@@ -735,6 +827,82 @@ describe("controlled enrichment", () => {
     );
   });
 
+  test("serializes concurrent commercial-value reviews for one Deal", async () => {
+    const companyId = testCompanyId();
+    const stage = await insert(DealStage, {
+      companyId,
+      name: "Proposal",
+      slug: "proposal",
+      sortOrder: 0,
+      probability: 60,
+      kind: "open",
+    });
+    const deal = await insert(Deal, {
+      companyId,
+      title: "Concurrent review",
+      stageId: stage.id,
+      amountCents: 0,
+      currency: "USD",
+      status: "open",
+      archivedAt: null,
+    });
+    const first = await createCommercialValueProposal(companyId, {
+      dealId: deal.id,
+      sourceType: "manual",
+      sourceId: "concurrent-terms-a",
+      sourceVerified: true,
+      confidence: 100,
+      value: {
+        amountCents: 100_000,
+        currency: "USD",
+        revenueType: "one_time",
+      },
+    });
+    const second = await createCommercialValueProposal(companyId, {
+      dealId: deal.id,
+      sourceType: "manual",
+      sourceId: "concurrent-terms-b",
+      sourceVerified: true,
+      confidence: 100,
+      value: {
+        amountCents: 200_000,
+        currency: "USD",
+        revenueType: "one_time",
+      },
+    });
+
+    const reviews = await Promise.allSettled(
+      [first, second].map((evidence) =>
+        reviewRevenueEvidence(companyId, evidence.id, "accept", {
+          userId: "member-reviewer",
+        }),
+      ),
+    );
+    assert.equal(reviews.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(reviews.filter((result) => result.status === "rejected").length, 1);
+
+    const evidence = await AppDataSource.getRepository(RevenueFieldEvidence).findBy({
+      id: In([first.id, second.id]),
+    });
+    assert.equal(evidence.filter((row) => row.status === "accepted").length, 1);
+    assert.equal(evidence.filter((row) => row.status === "proposed").length, 1);
+    const accepted = evidence.find((row) => row.status === "accepted")!;
+    const acceptedValue = JSON.parse(accepted.extractedValueJson) as { amountCents: number };
+    const updatedDeal = await AppDataSource.getRepository(Deal).findOneByOrFail({
+      companyId,
+      id: deal.id,
+    });
+    assert.equal(updatedDeal.amountCents, acceptedValue.amountCents);
+
+    const history = await AppDataSource.getRepository(DealHistoryEvent).find({
+      where: { companyId, dealId: deal.id, kind: "amount_changed" },
+    });
+    assert.equal(history.length, 1);
+    assert.equal(history[0].fromAmountCents, 0);
+    assert.equal(history[0].toAmountCents, acceptedValue.amountCents);
+    assert.equal(JSON.parse(history[0].metadataJson).revenueFieldEvidenceId, accepted.id);
+  });
+
   test("derives linked Contact domains without trusting caller verification claims", async () => {
     const companyId = testCompanyId();
     const unverifiedAccount = await account(companyId, "Northwind");
@@ -916,6 +1084,348 @@ describe("controlled enrichment", () => {
       paidInvoice.totalCents,
     );
   });
+
+  test("pages backlog dispositions, keeps scoped ambiguity, and requires fresh Member review", async () => {
+    const companyId = testCompanyId();
+    const stage = await insert(DealStage, {
+      companyId,
+      name: "Qualified",
+      slug: "qualified",
+      sortOrder: 0,
+      probability: 40,
+      kind: "open",
+    });
+    const ambiguousAccount = await account(companyId, "Ambiguous Co");
+    const acvAccount = await account(companyId, "ACV Co");
+    acvAccount.annualContractValueCents = 120_000;
+    acvAccount.currency = "USD";
+    await AppDataSource.getRepository(Customer).save(acvAccount);
+    const noSourceAccount = await account(companyId, "No Source Co");
+    const ambiguousA = await insert(Deal, {
+      companyId,
+      title: "Ambiguous expansion",
+      customerId: ambiguousAccount.id,
+      stageId: stage.id,
+      amountCents: 0,
+      currency: "USD",
+      status: "open",
+      archivedAt: null,
+    });
+    await insert(Deal, {
+      companyId,
+      title: "Ambiguous renewal",
+      customerId: ambiguousAccount.id,
+      stageId: stage.id,
+      amountCents: 0,
+      currency: "USD",
+      status: "open",
+      archivedAt: null,
+    });
+    const acvDeal = await insert(Deal, {
+      companyId,
+      title: "ACV expansion",
+      customerId: acvAccount.id,
+      stageId: stage.id,
+      amountCents: 0,
+      currency: "USD",
+      status: "open",
+      archivedAt: null,
+    });
+    await insert(Deal, {
+      companyId,
+      title: "Old closed Deal",
+      customerId: acvAccount.id,
+      stageId: stage.id,
+      amountCents: 0,
+      currency: "USD",
+      status: "won",
+      archivedAt: null,
+    });
+    const noSourceDeal = await insert(Deal, {
+      companyId,
+      title: "Needs confirmed terms",
+      customerId: noSourceAccount.id,
+      stageId: stage.id,
+      amountCents: 0,
+      currency: "USD",
+      status: "open",
+      archivedAt: null,
+    });
+    const unlinkedDeal = await insert(Deal, {
+      companyId,
+      title: "Needs an Account",
+      customerId: null,
+      stageId: stage.id,
+      amountCents: 0,
+      currency: "USD",
+      status: "open",
+      archivedAt: null,
+    });
+
+    assert.deepEqual(
+      await proposeCommercialValuesFromFinance(companyId, {
+        dealIds: [ambiguousA.id, acvDeal.id],
+      }),
+      { proposed: 1, ambiguousAccounts: 1 },
+    );
+    const firstPage = await listCommercialValueBacklog(companyId, {
+      stageIds: [stage.id],
+      limit: 2,
+    });
+    assert.equal(firstPage.total, 5);
+    assert.equal(firstPage.rows.length, 2);
+    const backlog = await listCommercialValueBacklog(companyId, {
+      dealIds: [ambiguousA.id, acvDeal.id, noSourceDeal.id, unlinkedDeal.id],
+    });
+    const byDeal = new Map(backlog.rows.map((row) => [row.dealId, row]));
+    assert.equal(byDeal.get(ambiguousA.id)?.disposition, "ambiguous_account");
+    assert.equal(byDeal.get(ambiguousA.id)?.zeroValueDealsOnAccount, 2);
+    assert.equal(byDeal.get(acvDeal.id)?.disposition, "pending_review");
+    assert.equal(byDeal.get(acvDeal.id)?.financeCandidate?.sourceKind, "account_acv");
+    assert.equal(byDeal.get(acvDeal.id)?.proposalCounts.proposed, 1);
+    assert.equal(byDeal.get(acvDeal.id)?.proposals[0].stale, false);
+    assert.equal(byDeal.get(noSourceDeal.id)?.disposition, "no_evidence");
+    assert.equal(byDeal.get(unlinkedDeal.id)?.disposition, "unlinked_account");
+
+    const stale = await createCommercialValueProposal(companyId, {
+      dealId: noSourceDeal.id,
+      sourceType: "manual",
+      sourceId: "confirmed-terms-v1",
+      sourceVerified: true,
+      confidence: 90,
+      value: {
+        amountCents: 250_000,
+        currency: "USD",
+        revenueType: "one_time",
+      },
+    });
+    await assert.rejects(
+      () =>
+        reviewRevenueEvidence(companyId, stale.id, "accept", {
+          employeeId: "revenue-ai",
+        }),
+      /human Member/,
+    );
+    await assert.rejects(
+      () =>
+        reviewRevenueEvidence(companyId, stale.id, "reject", {
+          employeeId: "revenue-ai",
+        }),
+      /human Member/,
+    );
+    await AppDataSource.getRepository(Deal).update(
+      { companyId, id: noSourceDeal.id },
+      { amountCents: 1 },
+    );
+    await assert.rejects(
+      () =>
+        reviewRevenueEvidence(companyId, stale.id, "accept", {
+          userId: "member-reviewer",
+        }),
+      /proposal is stale/,
+    );
+    const fresh = await createCommercialValueProposal(companyId, {
+      dealId: noSourceDeal.id,
+      sourceType: "manual",
+      sourceId: "confirmed-terms-v2",
+      sourceVerified: true,
+      confidence: 95,
+      value: {
+        amountCents: 250_000,
+        currency: "USD",
+        revenueType: "one_time",
+      },
+    });
+    await reviewRevenueEvidence(companyId, fresh.id, "accept", {
+      userId: "member-reviewer",
+    });
+    assert.equal(
+      (await AppDataSource.getRepository(Deal).findOneByOrFail({ id: noSourceDeal.id }))
+        .amountCents,
+      250_000,
+    );
+    assert.equal(
+      await AppDataSource.getRepository(DealHistoryEvent).countBy({
+        companyId,
+        dealId: noSourceDeal.id,
+        kind: "amount_changed",
+      }),
+      1,
+    );
+  });
+
+  test("Stripe scopes to open Deals and emits one deterministic proposal per Connection", async () => {
+    const companyId = testCompanyId();
+    const stage = await insert(DealStage, {
+      companyId,
+      name: "Demo",
+      slug: "demo",
+      sortOrder: 0,
+      probability: 70,
+      kind: "open",
+    });
+    const stripeAccount = await account(companyId, "Stripe Co");
+    const openDeal = await insert(Deal, {
+      companyId,
+      title: "Stripe expansion",
+      customerId: stripeAccount.id,
+      stageId: stage.id,
+      amountCents: 0,
+      currency: "USD",
+      status: "open",
+      archivedAt: null,
+    });
+    const closedDeal = await insert(Deal, {
+      companyId,
+      title: "Prior Stripe Deal",
+      customerId: stripeAccount.id,
+      stageId: stage.id,
+      amountCents: 0,
+      currency: "USD",
+      status: "won",
+      archivedAt: null,
+    });
+    const stripeField = await insert(RevenueCustomField, {
+      companyId,
+      resourceType: "account",
+      key: "stripe_customer_id",
+      name: "Stripe customer ID",
+      fieldType: "text",
+    });
+    await insert(RevenueCustomValue, {
+      companyId,
+      fieldId: stripeField.id,
+      resourceType: "account",
+      resourceId: stripeAccount.id,
+      valueJson: JSON.stringify("cus_safe"),
+      searchValue: "cus_safe",
+    });
+    const connection = await insert(IntegrationConnection, {
+      companyId,
+      provider: "stripe",
+      label: "Stripe primary",
+      authMode: "apikey",
+      encryptedConfig: encryptConnectionConfig({ apiKey: "rk_test_safe" }, companyId),
+      status: "connected",
+    });
+    const originalInvoke = stripeProvider.invokeTool;
+    stripeProvider.invokeTool = async (toolName) => {
+      if (toolName === "list_subscriptions") {
+        return {
+          data: [
+            {
+              id: "sub_past_due_newer",
+              status: "past_due",
+              created: 300,
+              currency: "usd",
+              items: {
+                data: [
+                  {
+                    quantity: 1,
+                    price: {
+                      unit_amount: 3_000,
+                      currency: "usd",
+                      recurring: { interval: "month", interval_count: 1 },
+                    },
+                  },
+                ],
+              },
+            },
+            {
+              id: "sub_active_new",
+              status: "active",
+              created: 200,
+              currency: "usd",
+              items: {
+                data: [
+                  {
+                    quantity: 2,
+                    price: {
+                      unit_amount: 5_000,
+                      currency: "usd",
+                      recurring: { interval: "month", interval_count: 1 },
+                    },
+                  },
+                ],
+              },
+            },
+            {
+              id: "sub_active_old",
+              status: "active",
+              created: 100,
+              currency: "usd",
+              items: {
+                data: [
+                  {
+                    quantity: 1,
+                    price: {
+                      unit_amount: 4_000,
+                      currency: "usd",
+                      recurring: { interval: "month", interval_count: 1 },
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      }
+      return {
+        data: [
+          {
+            id: "in_paid_latest",
+            status: "paid",
+            amount_paid: 80_000,
+            currency: "usd",
+            created: 400,
+          },
+        ],
+      };
+    };
+    try {
+      const first = await proposeCommercialValuesFromStripe(companyId, {
+        connectionId: connection.id,
+        dealIds: [openDeal.id],
+      });
+      assert.equal(first.proposed, 1);
+      assert.equal(first.ambiguousAccounts, 0);
+      assert.equal(first.reviewedCustomers, 1);
+      const rows = (
+        await listRevenueEvidence(companyId, {
+          resourceType: "deal",
+          resourceId: openDeal.id,
+          fieldKey: "commercial_value",
+        })
+      ).rows;
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].sourceId, "sub_active_new");
+      const metadata = JSON.parse(rows[0].metadataJson) as Record<string, unknown>;
+      assert.equal(metadata.alternativeSubscriptions, 2);
+      assert.equal(metadata.availablePaidInvoices, 1);
+
+      const replay = await proposeCommercialValuesFromStripe(companyId, {
+        connectionId: connection.id,
+        dealIds: [openDeal.id],
+      });
+      assert.equal(replay.proposed, 0);
+      assert.equal(
+        (
+          await listRevenueEvidence(companyId, {
+            resourceType: "deal",
+            fieldKey: "commercial_value",
+          })
+        ).total,
+        1,
+      );
+      const closedOnly = await proposeCommercialValuesFromStripe(companyId, {
+        connectionId: connection.id,
+        dealIds: [closedDeal.id],
+      });
+      assert.equal(closedOnly.proposed, 0);
+    } finally {
+      stripeProvider.invokeTool = originalInvoke;
+    }
+  });
 });
 
 describe("ongoing duplicate candidates and document capture", () => {
@@ -1024,6 +1534,123 @@ describe("ongoing duplicate candidates and document capture", () => {
 });
 
 describe("paginated native exports", () => {
+  test("rejects future snapshots and excludes audit rows created after the boundary", async () => {
+    const companyId = testCompanyId();
+    await assert.rejects(
+      exportRevenueSnapshotPage(companyId, "accounts", {
+        asOf: new Date(Date.now() + 60_000),
+      }),
+      /cannot be in the future/,
+    );
+
+    const operation = await insert(RevenueOperation, {
+      companyId,
+      kind: "bulk",
+      resourceType: "account",
+      status: "completed",
+      idempotencyKey: "frozen-audit",
+      sourceId: null,
+      targetId: null,
+      requestJson: "{}",
+      summaryJson: "{}",
+      completedAt: new Date("2025-01-01T00:00:00.000Z"),
+      rolledBackAt: null,
+      createdByUserId: null,
+      createdByEmployeeId: null,
+      createdAt: new Date("2025-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2025-01-01T00:00:00.000Z"),
+    });
+    await insert(RevenueOperationRow, {
+      companyId,
+      operationId: operation.id,
+      resourceType: "account",
+      resourceId: "before-boundary",
+      entityType: "customer",
+      action: "archive",
+      status: "applied",
+      beforeJson: "{}",
+      afterJson: "{}",
+      detail: "",
+      sortOrder: 0,
+      createdAt: new Date("2025-06-01T00:00:00.000Z"),
+      updatedAt: new Date("2025-06-01T00:00:00.000Z"),
+    });
+    await insert(RevenueOperationRow, {
+      companyId,
+      operationId: operation.id,
+      resourceType: "account",
+      resourceId: "after-boundary",
+      entityType: "customer",
+      action: "archive",
+      status: "applied",
+      beforeJson: "{}",
+      afterJson: "{}",
+      detail: "",
+      sortOrder: 1,
+      createdAt: new Date("2026-06-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-06-01T00:00:00.000Z"),
+    });
+
+    const page = await exportRevenueSnapshotPage(companyId, "operation_audit", {
+      asOf: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    assert.deepEqual(
+      page.rows.map((row) => row.rowResourceId),
+      ["before-boundary"],
+    );
+  });
+
+  test("continues Deal-history cursors when effective time exceeds the creation snapshot", async () => {
+    const companyId = testCompanyId();
+    const stage = await insert(DealStage, {
+      companyId,
+      name: "Qualified",
+      slug: "qualified",
+      sortOrder: 0,
+      probability: 40,
+      kind: "open",
+    });
+    const deal = await insert(Deal, {
+      companyId,
+      title: "Legacy future history",
+      stageId: stage.id,
+      amountCents: 0,
+      currency: "USD",
+      status: "open",
+      archivedAt: null,
+    });
+    for (const [index, amountCents] of [10_000, 20_000].entries()) {
+      await insert(DealHistoryEvent, {
+        companyId,
+        dealId: deal.id,
+        kind: "amount_changed",
+        occurredAt: new Date(Date.now() + (index + 1) * 86_400_000),
+        fromAmountCents: index === 0 ? 0 : 10_000,
+        toAmountCents: amountCents,
+        currency: "USD",
+        sourceKind: "import",
+        sourceKey: `legacy-future:${index}`,
+      });
+    }
+    const asOf = new Date();
+    const firstPage = await exportRevenueSnapshotPage(companyId, "deal_history", {
+      dealId: deal.id,
+      asOf,
+      limit: 1,
+    });
+    assert.equal(firstPage.rows.length, 1);
+    assert.ok(firstPage.nextCursor);
+
+    const secondPage = await exportRevenueSnapshotPage(companyId, "deal_history", {
+      dealId: deal.id,
+      cursor: firstPage.nextCursor!,
+      limit: 1,
+    });
+    assert.equal(secondPage.rows.length, 1);
+    assert.equal(secondPage.nextCursor, null);
+    assert.notEqual(firstPage.rows[0].id, secondPage.rows[0].id);
+  });
+
   test("returns a stable next offset and includes archived records", async () => {
     const companyId = testCompanyId();
     await account(companyId, "First");

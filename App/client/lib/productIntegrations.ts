@@ -127,6 +127,7 @@ export const PRODUCT_INTEGRATION_SCOPES: Record<ProductIntegrationKey, ProductIn
       "mysql",
       "clickhouse",
       "stripe",
+      "people-data-labs",
       "google-analytics",
       "google-search-console",
       "google-ads",

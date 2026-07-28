@@ -21,6 +21,7 @@ import { RevenueDocument } from "../../db/entities/RevenueDocument.js";
 import { RevenueDocumentCandidate } from "../../db/entities/RevenueDocumentCandidate.js";
 import { RevenueDuplicateCandidate } from "../../db/entities/RevenueDuplicateCandidate.js";
 import { RevenueFieldEvidence } from "../../db/entities/RevenueFieldEvidence.js";
+import { RevenueFirmographicLookup } from "../../db/entities/RevenueFirmographicLookup.js";
 import { RevenueOperation } from "../../db/entities/RevenueOperation.js";
 import { RevenueRecordAlias, type RevenueAliasType } from "../../db/entities/RevenueRecordAlias.js";
 import { SequenceEnrollment } from "../../db/entities/SequenceEnrollment.js";
@@ -83,6 +84,9 @@ const DESCRIPTORS: Record<MergeResourceType, MergeDescriptor> = {
       { key: "websiteUrl", label: "Website" },
       { key: "industry", label: "Industry" },
       { key: "employeeCount", label: "Employee count" },
+      { key: "headquartersAddress", label: "Headquarters address" },
+      { key: "parentCompanyName", label: "Parent company name" },
+      { key: "parentCompanyDomain", label: "Parent company domain" },
       { key: "ownerId", label: "Member owner" },
       { key: "ownerEmployeeId", label: "AI Employee owner" },
       { key: "billingAddress", label: "Billing address" },
@@ -377,6 +381,8 @@ async function relationshipCounts(
       estimates,
       recurringInvoices,
       credits,
+      firmographicLookups,
+      firmographicLookupConflicts,
     ] = await Promise.all([
       countWhere(manager, Contact, { companyId, customerId: sourceId }),
       countWhere(manager, Deal, { companyId, customerId: sourceId }),
@@ -390,6 +396,19 @@ async function relationshipCounts(
       countWhere(manager, Estimate, { companyId, customerId: sourceId }),
       countWhere(manager, RecurringInvoice, { companyId, customerId: sourceId }),
       countWhere(manager, CustomerCredit, { companyId, customerId: sourceId }),
+      countWhere(manager, RevenueFirmographicLookup, { companyId, customerId: sourceId }),
+      manager
+        .getRepository(RevenueFirmographicLookup)
+        .createQueryBuilder("source")
+        .innerJoin(
+          RevenueFirmographicLookup,
+          "target",
+          "target.companyId = source.companyId AND target.customerId = :targetId AND target.connectionId = source.connectionId",
+          { targetId },
+        )
+        .where("source.companyId = :companyId", { companyId })
+        .andWhere("source.customerId = :sourceId", { sourceId })
+        .getCount(),
     ]);
     return {
       ...sharedCounts,
@@ -405,6 +424,8 @@ async function relationshipCounts(
       estimates,
       recurringInvoices,
       credits,
+      firmographicLookups,
+      firmographicLookupConflicts,
     };
   }
   if (type === "contact") {
@@ -1386,6 +1407,86 @@ async function applyFieldResolutions(
   }
 }
 
+const FIRMOGRAPHIC_STATE_FIELDS = [
+  "provider",
+  "providerRecordId",
+  "status",
+  "normalizedSnapshotJson",
+  "confidence",
+  "lastAttemptedAt",
+  "lastMatchedAt",
+  "observedAt",
+  "lastError",
+] as const;
+
+function firmographicState(row: RevenueFirmographicLookup): Record<string, unknown> {
+  return Object.fromEntries(FIRMOGRAPHIC_STATE_FIELDS.map((field) => [field, row[field]]));
+}
+
+async function mergeFirmographicLookups(
+  manager: EntityManager,
+  rows: OperationRowWrite[],
+  companyId: string,
+  sourceId: string,
+  targetId: string,
+): Promise<void> {
+  const [sourceLookups, targetLookups] = await Promise.all([
+    manager.find(RevenueFirmographicLookup, {
+      where: { companyId, customerId: sourceId },
+    }),
+    manager.find(RevenueFirmographicLookup, {
+      where: { companyId, customerId: targetId },
+    }),
+  ]);
+  const targetByConnection = new Map(
+    targetLookups.map((lookup) => [lookup.connectionId, lookup]),
+  );
+  for (const sourceLookup of sourceLookups) {
+    const targetLookup = targetByConnection.get(sourceLookup.connectionId);
+    if (!targetLookup) {
+      rows.push({
+        resourceType: "account",
+        resourceId: sourceLookup.id,
+        entityType: "revenue_firmographic_lookup",
+        action: "reparent",
+        before: { customerId: sourceId },
+        after: { customerId: targetId },
+      });
+      sourceLookup.customerId = targetId;
+      await manager.save(RevenueFirmographicLookup, sourceLookup);
+      continue;
+    }
+
+    if (sourceLookup.lastAttemptedAt.getTime() > targetLookup.lastAttemptedAt.getTime()) {
+      const before = firmographicState(targetLookup);
+      const after = firmographicState(sourceLookup);
+      Object.assign(targetLookup, after);
+      await manager.save(RevenueFirmographicLookup, targetLookup);
+      rows.push({
+        resourceType: "account",
+        resourceId: targetLookup.id,
+        entityType: "revenue_firmographic_lookup",
+        action: "retain_newest_firmographic_lookup",
+        before,
+        after,
+      });
+    }
+
+    rows.push({
+      resourceType: "account",
+      resourceId: sourceLookup.id,
+      entityType: "revenue_firmographic_lookup",
+      action: "deduplicate_firmographic_lookup",
+      before: serializeEntity(sourceLookup),
+      after: null,
+    });
+    await manager.delete(RevenueFirmographicLookup, {
+      companyId,
+      id: sourceLookup.id,
+    });
+  }
+}
+
 async function applyRelationships(
   manager: EntityManager,
   rows: OperationRowWrite[],
@@ -1435,6 +1536,7 @@ async function applyRelationships(
     await move(Estimate, "estimate", "customerId");
     await move(RecurringInvoice, "recurring_invoice", "customerId");
     await move(CustomerCredit, "customer_credit", "customerId");
+    await mergeFirmographicLookups(manager, rows, companyId, sourceId, targetId);
   } else if (type === "contact") {
     await move(Activity, "activity", "contactId");
     await move(Deal, "deal", "primaryContactId");

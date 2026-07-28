@@ -2,13 +2,7 @@ import type { Customer } from "./api";
 
 export type RevenueResourceType = "contact" | "account" | "deal" | "partnership";
 export type RevenueCustomFieldType =
-  | "text"
-  | "number"
-  | "date"
-  | "boolean"
-  | "select"
-  | "multi_select"
-  | "url";
+  "text" | "number" | "date" | "boolean" | "select" | "multi_select" | "url";
 
 export type RevenueClassification = {
   id: string;
@@ -152,12 +146,7 @@ export type PartnershipContact = {
 };
 
 export type RevenueDocumentKind =
-  | "proposal"
-  | "rfp"
-  | "security_questionnaire"
-  | "contract"
-  | "email_attachment"
-  | "other";
+  "proposal" | "rfp" | "security_questionnaire" | "contract" | "email_attachment" | "other";
 
 export type RevenueDocument = {
   id: string;
@@ -182,7 +171,7 @@ export type RevenueDocument = {
 export type RevenueImportBatch = {
   id: string;
   resourceType: RevenueResourceType | "account_contact_deal";
-  sourceKind: "base" | "csv";
+  sourceKind: "base" | "csv" | "json" | "connection";
   sourceLabel: string;
   status: "completed" | "rolled_back" | "failed";
   mappingJson: string;
@@ -194,4 +183,98 @@ export type RevenueImportBatch = {
   rolledBackAt: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type RevenueDealHistoryCompleteness = "complete" | "partial" | "snapshot_only" | "missing";
+
+export type RevenueDealHistoryCoverageRow = {
+  dealId: string;
+  title: string;
+  stageId: string;
+  stageName: string | null;
+  status: "open" | "won" | "lost";
+  createdAt: string;
+  archivedAt: string | null;
+  completeness: RevenueDealHistoryCompleteness;
+  historyEventCount: number;
+  liveEventCount: number;
+  importedEventCount: number;
+  activityBackfillEventCount: number;
+  firstNativeEventAt: string | null;
+  lastHistoryEventAt: string | null;
+  eligibleActivityCount: number;
+  pendingActivityCount: number;
+  migrationImport: boolean;
+  recommendation: "none" | "historical_import" | "historical_import_first" | "activity_backfill";
+};
+
+export type RevenueDealHistoryCoveragePage = {
+  rows: RevenueDealHistoryCoverageRow[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type RevenueDealHistoryActivityBackfillSummary = {
+  dryRun: boolean;
+  operationId?: string;
+  replayed?: boolean;
+  selectedDeals: number;
+  reviewedActivities: number;
+  imported: number;
+  skipped: number;
+  failed: number;
+  migrationSnapshots: number;
+  rows: Array<{
+    activityId: string;
+    dealId: string;
+    activityKind: string;
+    eventKind: string;
+    occurredAt: string;
+    migrationSnapshot: boolean;
+    status: "ready" | "imported" | "skipped" | "failed";
+    reason: string;
+  }>;
+};
+
+export type RevenueCommercialValueBacklogDisposition =
+  | "pending_review"
+  | "accepted_zero"
+  | "ambiguous_account"
+  | "unlinked_account"
+  | "finance_candidate"
+  | "stripe_candidate"
+  | "no_evidence";
+
+export type RevenueCommercialValueBacklogRow = {
+  dealId: string;
+  title: string;
+  accountId: string | null;
+  accountName: string | null;
+  stageId: string;
+  stageName: string | null;
+  amountCents: number;
+  currency: string;
+  updatedAt: string;
+  zeroValueDealsOnAccount: number;
+  disposition: RevenueCommercialValueBacklogDisposition;
+  financeCandidate: {
+    sourceKind: "accepted_estimate" | "invoice_payment" | "invoice" | "account_acv";
+    sourceId: string;
+    sourceLabel: string;
+    amountCents: number;
+    currency: string;
+  } | null;
+  stripeCandidate: {
+    customerId: string;
+    connectedConnections: number;
+  } | null;
+  proposalCounts: Record<"proposed" | "accepted" | "rejected" | "superseded", number>;
+};
+
+export type RevenueCommercialValueBacklogPage = {
+  rows: RevenueCommercialValueBacklogRow[];
+  total: number;
+  limit: number;
+  offset: number;
 };

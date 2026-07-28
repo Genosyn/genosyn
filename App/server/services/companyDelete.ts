@@ -61,6 +61,7 @@ import { RevenueDocumentCandidate } from "../db/entities/RevenueDocumentCandidat
 import { RevenueDuplicateCandidate } from "../db/entities/RevenueDuplicateCandidate.js";
 import { RevenueFieldEvidence } from "../db/entities/RevenueFieldEvidence.js";
 import { RevenueFollowUpView } from "../db/entities/RevenueFollowUpView.js";
+import { RevenueFirmographicLookup } from "../db/entities/RevenueFirmographicLookup.js";
 import { RevenueImportBatch } from "../db/entities/RevenueImportBatch.js";
 import { RevenueImportRow } from "../db/entities/RevenueImportRow.js";
 import { RevenueOperation } from "../db/entities/RevenueOperation.js";
@@ -375,6 +376,7 @@ export async function deleteCompanyCascade(args: {
     await m.delete(RevenueDuplicateCandidate, { companyId });
     await m.delete(RevenueFieldEvidence, { companyId });
     await m.delete(RevenueFollowUpView, { companyId });
+    await m.delete(RevenueFirmographicLookup, { companyId });
     await m.delete(RevenueDocument, { companyId });
     await m.delete(PartnershipContact, { companyId });
     await m.delete(Partnership, { companyId });

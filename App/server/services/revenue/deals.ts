@@ -16,10 +16,7 @@ import {
   listRevenueClassifications,
 } from "./classifications.js";
 import { matchingResourceIds } from "./customFields.js";
-import {
-  liveDealHistoryKey,
-  recordDealHistoryEvent,
-} from "./dealHistory.js";
+import { liveDealHistoryKey, recordDealHistoryEvent } from "./dealHistory.js";
 import { assertRevenueLinks, assertRevenueOwner } from "./integrity.js";
 import { findMergedRecordRedirect } from "./operations.js";
 
@@ -91,10 +88,9 @@ function applySearch(qb: SelectQueryBuilder<Deal>, q: string): void {
   const term = `%${q.trim().toLowerCase()}%`;
   qb.andWhere(
     new Brackets((w) => {
-      w.where("LOWER(d.title) LIKE :term", { term }).orWhere(
-        "LOWER(d.description) LIKE :term",
-        { term },
-      );
+      w.where("LOWER(d.title) LIKE :term", { term }).orWhere("LOWER(d.description) LIKE :term", {
+        term,
+      });
     }),
   );
 }
@@ -132,11 +128,7 @@ export async function listDeals(
   }
 
   const total = await qb.clone().getCount();
-  const rows = await qb
-    .orderBy("d.updatedAt", "DESC")
-    .skip(offset)
-    .take(limit)
-    .getMany();
+  const rows = await qb.orderBy("d.updatedAt", "DESC").skip(offset).take(limit).getMany();
 
   return { rows: await hydrateDeals(companyId, rows), total };
 }
@@ -146,10 +138,7 @@ export async function listDeals(
  * queries regardless of page size — a board with 200 cards must not issue 600
  * lookups.
  */
-export async function hydrateDeals(
-  companyId: string,
-  deals: Deal[],
-): Promise<HydratedDeal[]> {
+export async function hydrateDeals(companyId: string, deals: Deal[]): Promise<HydratedDeal[]> {
   if (deals.length === 0) return [];
 
   const stageIds = [...new Set(deals.map((d) => d.stageId).filter(Boolean))];
@@ -187,8 +176,8 @@ export async function hydrateDeals(
     return Object.assign(d, {
       stageName: stage?.name ?? null,
       stageKind: stage?.kind ?? null,
-      customerName: d.customerId ? customerById.get(d.customerId) ?? null : null,
-      contactName: d.primaryContactId ? contactById.get(d.primaryContactId) ?? null : null,
+      customerName: d.customerId ? (customerById.get(d.customerId) ?? null) : null,
+      contactName: d.primaryContactId ? (contactById.get(d.primaryContactId) ?? null) : null,
       weightedValueCents: stage ? weightedValueCents(d, stage) : 0,
     });
   });
@@ -198,10 +187,7 @@ export async function getDeal(companyId: string, id: string): Promise<Deal | nul
   return AppDataSource.getRepository(Deal).findOneBy({ id, companyId });
 }
 
-export async function getHydratedDeal(
-  companyId: string,
-  id: string,
-): Promise<HydratedDeal | null> {
+export async function getHydratedDeal(companyId: string, id: string): Promise<HydratedDeal | null> {
   const deal = await getDeal(companyId, id);
   if (!deal) return null;
   return (await hydrateDeals(companyId, [deal]))[0] ?? null;
@@ -260,11 +246,7 @@ export async function createDeal(
   });
 
   // A deal created straight into a won/lost stage must still close correctly.
-  const change = applyStageChange(
-    { ...draft, status: "open", closedAt: null },
-    stage,
-    now,
-  );
+  const change = applyStageChange({ ...draft, status: "open", closedAt: null }, stage, now);
   draft.status = change.status;
   draft.closedAt = change.closedAt;
 
@@ -327,6 +309,7 @@ export async function updateDeal(
   const beforeCurrency = deal.currency;
   const beforeOwnerId = deal.ownerId;
   const beforeOwnerEmployeeId = deal.ownerEmployeeId;
+  const beforeExpectedCloseDate = deal.expectedCloseDate;
   await assertRevenueOwner(companyId, patch);
   await assertRevenueLinks(companyId, {
     customerId: patch.customerId,
@@ -382,10 +365,7 @@ export async function updateDeal(
       actor,
     });
   }
-  if (
-    saved.ownerId !== beforeOwnerId ||
-    saved.ownerEmployeeId !== beforeOwnerEmployeeId
-  ) {
+  if (saved.ownerId !== beforeOwnerId || saved.ownerEmployeeId !== beforeOwnerEmployeeId) {
     await recordDealHistoryEvent(companyId, {
       dealId: saved.id,
       kind: "owner_changed",
@@ -396,6 +376,20 @@ export async function updateDeal(
       toOwnerEmployeeId: saved.ownerEmployeeId,
       sourceKind: "live",
       sourceKey: liveDealHistoryKey(saved.id, "owner_changed"),
+      actor,
+    });
+  }
+  if (saved.expectedCloseDate?.getTime() !== beforeExpectedCloseDate?.getTime()) {
+    await recordDealHistoryEvent(companyId, {
+      dealId: saved.id,
+      kind: "expected_close_changed",
+      occurredAt: changedAt,
+      sourceKind: "live",
+      sourceKey: liveDealHistoryKey(saved.id, "expected_close_changed"),
+      metadata: {
+        fromExpectedCloseDate: beforeExpectedCloseDate?.toISOString() ?? null,
+        toExpectedCloseDate: saved.expectedCloseDate?.toISOString() ?? null,
+      },
       actor,
     });
   }
@@ -450,9 +444,7 @@ export async function moveDealToStage(
     {
       kind,
       subject:
-        fromStage && fromStage.id !== stage.id
-          ? `${fromStage.name} → ${stage.name}`
-          : stage.name,
+        fromStage && fromStage.id !== stage.id ? `${fromStage.name} → ${stage.name}` : stage.name,
       dealId: saved.id,
       contactId: saved.primaryContactId,
       customerId: saved.customerId,
@@ -471,8 +463,7 @@ export async function moveDealToStage(
   );
   await recordDealHistoryEvent(companyId, {
     dealId: saved.id,
-    kind:
-      stage.kind === "won" ? "won" : stage.kind === "lost" ? "lost" : "stage_changed",
+    kind: stage.kind === "won" ? "won" : stage.kind === "lost" ? "lost" : "stage_changed",
     occurredAt: now,
     fromStageId: fromStage?.id ?? null,
     toStageId: stage.id,
@@ -558,10 +549,7 @@ export async function dealBoard(
     .andWhere("d.archivedAt IS NULL")
     .andWhere(
       new Brackets((w) => {
-        w.where("d.status = :open", { open: "open" }).orWhere(
-          "d.closedAt >= :cutoff",
-          { cutoff },
-        );
+        w.where("d.status = :open", { open: "open" }).orWhere("d.closedAt >= :cutoff", { cutoff });
       }),
     )
     .orderBy("d.updatedAt", "DESC")

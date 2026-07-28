@@ -140,7 +140,10 @@ export async function createPartnership(
 export async function getPartnership(
   companyId: string,
   id: string,
-): Promise<{ partnership: Partnership; contacts: Array<PartnershipContact & { contact: Contact }> } | null> {
+): Promise<{
+  partnership: Partnership;
+  contacts: Array<PartnershipContact & { contact: Contact }>;
+} | null> {
   const partnership = await AppDataSource.getRepository(Partnership).findOneBy({ companyId, id });
   if (!partnership) return null;
   const links = await AppDataSource.getRepository(PartnershipContact).find({
@@ -186,6 +189,26 @@ export async function updatePartnership(
     }
     row.archivedAt = patch.archived ? new Date() : null;
   }
+  return repo.save(row);
+}
+
+export async function setPartnershipArchived(
+  companyId: string,
+  id: string,
+  archived: boolean,
+): Promise<Partnership | null> {
+  const repo = AppDataSource.getRepository(Partnership);
+  const row = await repo.findOneBy({ companyId, id });
+  if (!row) return null;
+  if (!archived) {
+    const redirect = await findMergedRecordRedirect(companyId, "partnership", id);
+    if (redirect) {
+      throw new Error(
+        `Restore blocked: this Partnership was merged into ${redirect.targetId}; undo the merge instead`,
+      );
+    }
+  }
+  row.archivedAt = archived ? new Date() : null;
   return repo.save(row);
 }
 

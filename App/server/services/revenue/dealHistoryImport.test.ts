@@ -3,9 +3,11 @@ import { randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, test } from "node:test";
 
 import { AppDataSource } from "../../db/datasource.js";
+import { Activity } from "../../db/entities/Activity.js";
 import { Deal } from "../../db/entities/Deal.js";
 import { DealHistoryEvent } from "../../db/entities/DealHistoryEvent.js";
 import { DealStage } from "../../db/entities/DealStage.js";
+import { RevenueImportBatch } from "../../db/entities/RevenueImportBatch.js";
 import { RevenueOperation } from "../../db/entities/RevenueOperation.js";
 import { RevenueOperationRow } from "../../db/entities/RevenueOperationRow.js";
 import {
@@ -16,8 +18,10 @@ import {
   testCompanyId,
 } from "../../test/dbHarness.js";
 import {
+  backfillDealHistoryFromActivities,
   historicalFunnelMetrics,
   importHistoricalDealEvents,
+  listDealHistoryCoverage,
   type DealHistoryImportDecision,
   type HistoricalDealImport,
   type HistoricalDealImportSummary,
@@ -300,6 +304,47 @@ describe("historical Deal import preview validation", () => {
     );
     assert.equal(futureCreation.failed, 1);
     assert.match(futureCreation.rows[0].errors.join(" "), /cannot be later/);
+  });
+
+  test("rejects future effective events before they enter the immutable ledger", async () => {
+    const companyId = testCompanyId();
+    const fixture = await stages(companyId);
+    const target = await deal(companyId, fixture.qualified);
+    const result = await importHistoricalDealEvents(
+      companyId,
+      "future-effective-event",
+      [
+        {
+          sourceId: "legacy-future-effective",
+          dealId: target.id,
+          historyCompleteness: "partial",
+          events: [
+            {
+              sourceId: "future-amount",
+              kind: "amount_changed",
+              occurredAt: new Date(Date.now() + 60_000),
+              fromAmountCents: 10_000,
+              toAmountCents: 20_000,
+              currency: "USD",
+            },
+          ],
+        },
+      ],
+      {},
+      { sourceSystem: "legacy-crm" },
+    );
+
+    assert.equal(result.imported, 0);
+    assert.equal(result.failed, 1);
+    assert.equal(result.rows[0].decisions[0].status, "rejected");
+    assert.match(result.rows[0].decisions[0].reason ?? "", /cannot be in the future/);
+    assert.equal(
+      await AppDataSource.getRepository(DealHistoryEvent).countBy({
+        companyId,
+        dealId: target.id,
+      }),
+      0,
+    );
   });
 
   test("enforces snapshot-only semantics while accepting a real snapshot marker", async () => {
@@ -1469,5 +1514,151 @@ describe("historical Deal reporting semantics", () => {
     assert.equal(metrics.historyCoverage.importedDeals, 0);
     assert.equal(metrics.conversion[0].cohortEntered, 1);
     assert.equal(metrics.conversion[0].cohortProgressed, 1);
+  });
+});
+
+describe("selected Activity backfill and coverage reconciliation", () => {
+  test("preserves migration creation as a snapshot, reports pages, replays, and rolls back", async () => {
+    const companyId = testCompanyId();
+    const fixture = await stages(companyId);
+    const migrated = await deal(companyId, fixture.demo, {
+      title: "Migrated Deal",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    await deal(companyId, fixture.fresh, {
+      title: "Still missing",
+      createdAt: new Date("2026-02-01T00:00:00.000Z"),
+    });
+    const batch = await insert(RevenueImportBatch, {
+      companyId,
+      resourceType: "deal",
+      sourceKind: "csv",
+      sourceLabel: "Legacy CRM export",
+      status: "completed",
+      mappingJson: "{}",
+      rowMapJson: JSON.stringify([
+        {
+          sourceId: "legacy-deal-42",
+          nativeId: migrated.id,
+          action: "create",
+        },
+      ]),
+      createdIdsJson: JSON.stringify([migrated.id]),
+      reportJson: "{}",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    const creation = await insert(Activity, {
+      companyId,
+      kind: "deal_created",
+      subject: migrated.title,
+      occurredAt: batch.createdAt,
+      dealId: migrated.id,
+      metaJson: JSON.stringify({
+        stage: fixture.qualified.name,
+        amountCents: 100_000,
+        currency: "USD",
+      }),
+    });
+    const progression = await insert(Activity, {
+      companyId,
+      kind: "stage_change",
+      subject: "Qualified → Demo",
+      occurredAt: new Date("2026-01-10T00:00:00.000Z"),
+      dealId: migrated.id,
+      metaJson: JSON.stringify({
+        fromStageId: fixture.qualified.id,
+        toStageId: fixture.demo.id,
+      }),
+    });
+
+    const firstPage = await listDealHistoryCoverage(companyId, { limit: 1 });
+    assert.equal(firstPage.total, 2);
+    assert.equal(firstPage.rows.length, 1);
+    const before = await listDealHistoryCoverage(companyId, { dealIds: [migrated.id] });
+    assert.equal(before.rows[0].completeness, "missing");
+    assert.equal(before.rows[0].migrationImport, true);
+    assert.equal(before.rows[0].pendingActivityCount, 2);
+    assert.equal(before.rows[0].recommendation, "historical_import_first");
+
+    await assert.rejects(
+      () => backfillDealHistoryFromActivities(companyId, { userId: randomUUID() }),
+      /explicit non-empty Deal selection/,
+    );
+    const preview = await backfillDealHistoryFromActivities(
+      companyId,
+      { userId: randomUUID() },
+      { dealIds: [migrated.id], dryRun: true },
+    );
+    assert.equal(preview.imported, 0);
+    assert.equal(preview.migrationSnapshots, 1);
+    assert.equal(preview.rows[0].activityId, creation.id);
+    assert.equal(preview.rows[0].eventKind, "snapshot");
+    assert.equal(preview.rows[0].status, "ready");
+    assert.equal(await AppDataSource.getRepository(DealHistoryEvent).count(), 0);
+
+    const committed = await backfillDealHistoryFromActivities(
+      companyId,
+      { userId: randomUUID() },
+      {
+        dealIds: [migrated.id],
+        idempotencyKey: "legacy-activity-cutover-1",
+      },
+    );
+    assert.equal(committed.imported, 2);
+    assert.ok(committed.operationId);
+    const history = await AppDataSource.getRepository(DealHistoryEvent).find({
+      where: { companyId, dealId: migrated.id },
+      order: { occurredAt: "ASC" },
+    });
+    assert.deepEqual(
+      history.map((event) => event.kind),
+      ["snapshot", "stage_changed"],
+    );
+    assert.deepEqual(
+      history.map((event) => event.sourceActivityId),
+      [creation.id, progression.id],
+    );
+    const after = await listDealHistoryCoverage(companyId, { dealIds: [migrated.id] });
+    assert.equal(after.rows[0].completeness, "partial");
+    assert.equal(after.rows[0].pendingActivityCount, 0);
+
+    const replay = await backfillDealHistoryFromActivities(
+      companyId,
+      { userId: randomUUID() },
+      {
+        dealIds: [migrated.id],
+        idempotencyKey: "legacy-activity-cutover-1",
+      },
+    );
+    assert.equal(replay.replayed, true);
+    assert.equal(replay.imported, 0);
+    assert.equal(await AppDataSource.getRepository(DealHistoryEvent).count(), 2);
+
+    await rollbackRevenueOperation(companyId, committed.operationId!);
+    assert.equal(await AppDataSource.getRepository(DealHistoryEvent).count(), 0);
+  });
+
+  test("does not allow a selected Deal from another company to cross the tenant boundary", async () => {
+    const companyId = testCompanyId();
+    const otherCompanyId = randomUUID();
+    const foreignStage = await insert(DealStage, {
+      companyId: otherCompanyId,
+      name: "Qualified",
+      slug: "qualified",
+      sortOrder: 0,
+      probability: 40,
+      kind: "open",
+    });
+    const foreignDeal = await deal(otherCompanyId, foreignStage);
+
+    await assert.rejects(
+      () =>
+        backfillDealHistoryFromActivities(
+          companyId,
+          { userId: randomUUID() },
+          { dealIds: [foreignDeal.id], dryRun: true },
+        ),
+      /not found in this company/,
+    );
   });
 });

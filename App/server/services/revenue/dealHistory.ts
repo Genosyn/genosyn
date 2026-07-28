@@ -9,12 +9,15 @@ import {
   type DealHistorySourceKind,
 } from "../../db/entities/DealHistoryEvent.js";
 import { DealStage } from "../../db/entities/DealStage.js";
+import { RevenueImportBatch } from "../../db/entities/RevenueImportBatch.js";
+import { RevenueImportRow } from "../../db/entities/RevenueImportRow.js";
 import { RevenueOperation } from "../../db/entities/RevenueOperation.js";
 import {
   createRevenueOperation,
   type OperationRowWrite,
   type RevenueOperationActor,
 } from "./operations.js";
+import { ensureRevenueImportRowsForCompany } from "./imports.js";
 
 const DAY_MS = 86_400_000;
 
@@ -381,6 +384,7 @@ export async function importHistoricalDealEvents(
 ): Promise<HistoricalDealImportSummary> {
   const sourceSystem = options.sourceSystem?.trim() || `batch:${batchKey}`;
   const dryRun = options.dryRun ?? false;
+  const effectiveUpperBound = new Date();
   const operationRequest = { batchKey, sourceSystem, rows };
   const idempotencyKey = `deal-history:${batchKey}`;
 
@@ -588,6 +592,10 @@ export async function importHistoricalDealEvents(
       }
       if (!Number.isFinite(candidate.occurredAt.getTime())) {
         setDecision(candidate, "rejected", "Invalid effective timestamp");
+        continue;
+      }
+      if (candidate.occurredAt > effectiveUpperBound) {
+        setDecision(candidate, "rejected", "Effective timestamp cannot be in the future");
         continue;
       }
       if (
@@ -937,66 +945,535 @@ export async function importHistoricalDealEvents(
   });
 }
 
+type DealImportReference = {
+  batchId: string;
+  sourceId: string;
+  sourceKind: RevenueImportBatch["sourceKind"];
+  sourceLabel: string;
+  importedAt: Date;
+  createdByImport: boolean;
+};
+
+async function dealImportReferences(
+  companyId: string,
+  dealIds: string[],
+): Promise<Map<string, DealImportReference[]>> {
+  const result = new Map<string, DealImportReference[]>();
+  if (dealIds.length === 0) return result;
+  await ensureRevenueImportRowsForCompany(companyId, ["deal", "account_contact_deal"]);
+  const rows = await AppDataSource.getRepository(RevenueImportRow).find({
+    where: {
+      companyId,
+      resourceType: "deal",
+      nativeId: In(dealIds),
+    },
+  });
+  const batchIds = [...new Set(rows.map((row) => row.batchId))];
+  const batches = batchIds.length
+    ? await AppDataSource.getRepository(RevenueImportBatch).find({
+        where: { companyId, id: In(batchIds) },
+      })
+    : [];
+  const batchById = new Map(batches.map((batch) => [batch.id, batch]));
+  for (const row of rows) {
+    if (!row.nativeId) continue;
+    const batch = batchById.get(row.batchId);
+    if (!batch || batch.status !== "completed") continue;
+    const references = result.get(row.nativeId) ?? [];
+    references.push({
+      batchId: batch.id,
+      sourceId: row.sourceId,
+      sourceKind: batch.sourceKind,
+      sourceLabel: batch.sourceLabel,
+      importedAt: batch.createdAt,
+      createdByImport: row.status === "created" || row.action === "create",
+    });
+    result.set(row.nativeId, references);
+  }
+  for (const references of result.values()) {
+    references.sort(
+      (left, right) =>
+        left.importedAt.getTime() - right.importedAt.getTime() ||
+        left.batchId.localeCompare(right.batchId),
+    );
+  }
+  return result;
+}
+
+export type DealHistoryCoverageRow = {
+  dealId: string;
+  title: string;
+  stageId: string;
+  stageName: string | null;
+  status: Deal["status"];
+  createdAt: Date;
+  archivedAt: Date | null;
+  completeness: DealHistoryCompleteness | "missing";
+  historyEventCount: number;
+  liveEventCount: number;
+  importedEventCount: number;
+  activityBackfillEventCount: number;
+  firstNativeEventAt: Date | null;
+  lastHistoryEventAt: Date | null;
+  eligibleActivityCount: number;
+  pendingActivityCount: number;
+  migrationImport: boolean;
+  importReferences: DealImportReference[];
+  recommendation: "none" | "historical_import" | "historical_import_first" | "activity_backfill";
+};
+
+/**
+ * Page Deal-level history coverage without loading the full reporting ledger.
+ *
+ * Import references are reconciliation context only. They deliberately do not
+ * promote migration-time Activities into original lifecycle boundaries.
+ */
+export async function listDealHistoryCoverage(
+  companyId: string,
+  opts: {
+    dealIds?: string[];
+    includeArchived?: boolean;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<{ rows: DealHistoryCoverageRow[]; total: number; limit: number; offset: number }> {
+  const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500);
+  const offset = Math.max(opts.offset ?? 0, 0);
+  const selectedIds = [...new Set(opts.dealIds ?? [])];
+  if (selectedIds.length > 5_000) throw new Error("Deal history coverage is limited to 5,000 IDs");
+
+  const qb = AppDataSource.getRepository(Deal)
+    .createQueryBuilder("deal")
+    .where("deal.companyId = :companyId", { companyId });
+  if (!opts.includeArchived) qb.andWhere("deal.archivedAt IS NULL");
+  if (opts.dealIds) {
+    if (selectedIds.length === 0) {
+      qb.andWhere("1 = 0");
+    } else {
+      qb.andWhere("deal.id IN (:...dealIds)", { dealIds: selectedIds });
+    }
+  }
+  const total = await qb.clone().getCount();
+  const deals = await qb
+    .orderBy("deal.createdAt", "ASC")
+    .addOrderBy("deal.id", "ASC")
+    .skip(offset)
+    .take(limit)
+    .getMany();
+  if (deals.length === 0) return { rows: [], total, limit, offset };
+
+  const dealIds = deals.map((deal) => deal.id);
+  const [events, activities, stages, imports] = await Promise.all([
+    AppDataSource.getRepository(DealHistoryEvent).find({
+      where: { companyId, dealId: In(dealIds) },
+      order: { occurredAt: "ASC", createdAt: "ASC" },
+    }),
+    AppDataSource.getRepository(Activity)
+      .createQueryBuilder("activity")
+      .where("activity.companyId = :companyId", { companyId })
+      .andWhere("activity.dealId IN (:...dealIds)", { dealIds })
+      .andWhere("activity.kind IN ('deal_created', 'stage_change', 'deal_won', 'deal_lost')")
+      .orderBy("activity.occurredAt", "ASC")
+      .getMany(),
+    AppDataSource.getRepository(DealStage).find({ where: { companyId } }),
+    dealImportReferences(companyId, dealIds),
+  ]);
+  const historyByDeal = new Map<string, DealHistoryEvent[]>();
+  for (const event of events) {
+    const history = historyByDeal.get(event.dealId) ?? [];
+    history.push(event);
+    historyByDeal.set(event.dealId, history);
+  }
+  const activitiesByDeal = new Map<string, Activity[]>();
+  for (const activity of activities) {
+    if (!activity.dealId) continue;
+    const rows = activitiesByDeal.get(activity.dealId) ?? [];
+    rows.push(activity);
+    activitiesByDeal.set(activity.dealId, rows);
+  }
+  const coveredActivities = new Set(
+    events
+      .map((event) => event.sourceActivityId)
+      .filter((activityId): activityId is string => Boolean(activityId)),
+  );
+  const stageById = new Map(stages.map((stage) => [stage.id, stage]));
+
+  return {
+    total,
+    limit,
+    offset,
+    rows: deals.map((deal) => {
+      const history = historyByDeal.get(deal.id) ?? [];
+      const eligibleActivities = activitiesByDeal.get(deal.id) ?? [];
+      const pendingActivities = eligibleActivities.filter(
+        (activity) => !coveredActivities.has(activity.id),
+      );
+      const importReferences = imports.get(deal.id) ?? [];
+      const migrationImport = importReferences.some((reference) => reference.createdByImport);
+      const completeness = importedHistoryCompleteness(history);
+      const firstNativeEvent =
+        history.find((event) => event.sourceKind !== "import")?.occurredAt ?? null;
+      const lastHistoryEventAt = history.length ? history[history.length - 1].occurredAt : null;
+      const recommendation =
+        pendingActivities.length > 0
+          ? migrationImport && completeness === "missing"
+            ? ("historical_import_first" as const)
+            : ("activity_backfill" as const)
+          : completeness === "missing"
+            ? ("historical_import" as const)
+            : ("none" as const);
+      return {
+        dealId: deal.id,
+        title: deal.title,
+        stageId: deal.stageId,
+        stageName: stageById.get(deal.stageId)?.name ?? null,
+        status: deal.status,
+        createdAt: deal.createdAt,
+        archivedAt: deal.archivedAt,
+        completeness,
+        historyEventCount: history.length,
+        liveEventCount: history.filter((event) => event.sourceKind === "live").length,
+        importedEventCount: history.filter((event) => event.sourceKind === "import").length,
+        activityBackfillEventCount: history.filter(
+          (event) => event.sourceKind === "activity_backfill",
+        ).length,
+        firstNativeEventAt: firstNativeEvent,
+        lastHistoryEventAt,
+        eligibleActivityCount: eligibleActivities.length,
+        pendingActivityCount: pendingActivities.length,
+        migrationImport,
+        importReferences,
+        recommendation,
+      };
+    }),
+  };
+}
+
+export type DealHistoryActivityBackfillRow = {
+  activityId: string;
+  dealId: string;
+  activityKind: Activity["kind"];
+  eventKind: DealHistoryEventKind;
+  occurredAt: Date;
+  migrationSnapshot: boolean;
+  status: "ready" | "imported" | "skipped" | "failed";
+  reason: string;
+};
+
+export type DealHistoryActivityBackfillSummary = {
+  dryRun: boolean;
+  operationId?: string;
+  replayed?: boolean;
+  selectedDeals: number;
+  reviewedActivities: number;
+  imported: number;
+  skipped: number;
+  failed: number;
+  migrationSnapshots: number;
+  rows: DealHistoryActivityBackfillRow[];
+};
+
+type PreparedActivityBackfill = {
+  row: DealHistoryActivityBackfillRow;
+  event: Omit<DealHistoryEventWrite, "actor">;
+};
+
+function activityMetadata(activity: Activity): Record<string, unknown> {
+  try {
+    const parsed = activity.metaJson ? (JSON.parse(activity.metaJson) as unknown) : {};
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function stageIdFromActivity(
+  metadata: Record<string, unknown>,
+  stages: DealStage[],
+): string | null {
+  const explicit =
+    typeof metadata.toStageId === "string"
+      ? metadata.toStageId
+      : typeof metadata.stageId === "string"
+        ? metadata.stageId
+        : null;
+  if (explicit) return explicit;
+  const stageName =
+    typeof metadata.toStage === "string"
+      ? metadata.toStage
+      : typeof metadata.stage === "string"
+        ? metadata.stage
+        : "";
+  const normalized = stageName.trim().toLowerCase();
+  if (!normalized) return null;
+  return (
+    stages.find(
+      (stage) =>
+        stage.name.trim().toLowerCase() === normalized ||
+        stage.slug.trim().toLowerCase() === normalized,
+    )?.id ?? null
+  );
+}
+
+/**
+ * Preview or commit selected lifecycle Activities into the immutable ledger.
+ *
+ * An unscoped preview is safe, but an unscoped commit is rejected. Deals
+ * created by a Revenue import receive a snapshot at the migration Activity's
+ * timestamp instead of a fabricated original creation boundary.
+ */
 export async function backfillDealHistoryFromActivities(
   companyId: string,
   actor: RevenueOperationActor = {},
-): Promise<{ imported: number; skipped: number }> {
-  const activities = await AppDataSource.getRepository(Activity)
-    .createQueryBuilder("activity")
-    .where("activity.companyId = :companyId", { companyId })
-    .andWhere("activity.dealId IS NOT NULL")
-    .andWhere("activity.kind IN ('deal_created', 'stage_change', 'deal_won', 'deal_lost')")
-    .orderBy("activity.occurredAt", "ASC")
-    .getMany();
-  let imported = 0;
-  let skipped = 0;
-  for (const raw of activities) {
-    const id = String(raw.id);
-    const existing = await AppDataSource.getRepository(DealHistoryEvent).findOneBy({
-      sourceActivityId: id,
+  opts: {
+    dealIds?: string[];
+    dryRun?: boolean;
+    idempotencyKey?: string;
+  } = {},
+): Promise<DealHistoryActivityBackfillSummary> {
+  const dryRun = opts.dryRun ?? false;
+  const selectedIds = [...new Set(opts.dealIds ?? [])].sort();
+  if (selectedIds.length > 5_000) throw new Error("Activity backfill is limited to 5,000 Deals");
+  if (!dryRun && selectedIds.length === 0) {
+    throw new Error("Committed Activity backfill requires an explicit non-empty Deal selection");
+  }
+  const operationRequest = { dealIds: selectedIds };
+  const operationIdempotencyKey = opts.idempotencyKey
+    ? `deal-history-backfill:${opts.idempotencyKey}`
+    : null;
+  if (!dryRun && operationIdempotencyKey) {
+    const existingOperation = await AppDataSource.getRepository(RevenueOperation).findOneBy({
+      companyId,
+      idempotencyKey: operationIdempotencyKey,
     });
-    if (existing) {
-      skipped += 1;
-      continue;
+    if (existingOperation) {
+      if (existingOperation.requestJson !== JSON.stringify(operationRequest)) {
+        throw new Error("That Activity-backfill idempotency key was already used for other Deals");
+      }
+      const prior = JSON.parse(existingOperation.summaryJson) as DealHistoryActivityBackfillSummary;
+      return {
+        ...prior,
+        replayed: true,
+        imported: 0,
+        skipped: prior.rows.length,
+        rows: prior.rows.map((row) => ({
+          ...row,
+          status: "skipped",
+          reason: "Activity was already backfilled by this operation",
+        })),
+      };
     }
-    let metadata: Record<string, unknown> = {};
-    try {
-      metadata = raw.metaJson ? (JSON.parse(String(raw.metaJson)) as Record<string, unknown>) : {};
-    } catch {
-      metadata = {};
-    }
-    const activityKind = String(raw.kind);
-    const kind: DealHistoryEventKind =
-      activityKind === "deal_created"
+  }
+
+  const dealQb = AppDataSource.getRepository(Deal)
+    .createQueryBuilder("deal")
+    .where("deal.companyId = :companyId", { companyId });
+  if (selectedIds.length > 0) {
+    dealQb.andWhere("deal.id IN (:...dealIds)", { dealIds: selectedIds });
+  }
+  const deals = await dealQb.getMany();
+  if (selectedIds.length > 0 && deals.length !== selectedIds.length) {
+    throw new Error("One or more selected Deals were not found in this company");
+  }
+  const dealIds = deals.map((deal) => deal.id);
+  if (dealIds.length === 0) {
+    return {
+      dryRun,
+      selectedDeals: 0,
+      reviewedActivities: 0,
+      imported: 0,
+      skipped: 0,
+      failed: 0,
+      migrationSnapshots: 0,
+      rows: [],
+    };
+  }
+
+  const [activities, existingHistory, stages, imports] = await Promise.all([
+    AppDataSource.getRepository(Activity)
+      .createQueryBuilder("activity")
+      .where("activity.companyId = :companyId", { companyId })
+      .andWhere("activity.dealId IN (:...dealIds)", { dealIds })
+      .andWhere("activity.kind IN ('deal_created', 'stage_change', 'deal_won', 'deal_lost')")
+      .orderBy("activity.occurredAt", "ASC")
+      .addOrderBy("activity.id", "ASC")
+      .getMany(),
+    AppDataSource.getRepository(DealHistoryEvent).find({
+      where: { companyId, dealId: In(dealIds) },
+    }),
+    AppDataSource.getRepository(DealStage).find({ where: { companyId } }),
+    dealImportReferences(companyId, dealIds),
+  ]);
+  const dealById = new Map(deals.map((deal) => [deal.id, deal]));
+  const stageIds = new Set(stages.map((stage) => stage.id));
+  const existingActivityIds = new Set(
+    existingHistory
+      .map((event) => event.sourceActivityId)
+      .filter((activityId): activityId is string => Boolean(activityId)),
+  );
+  const prepared: PreparedActivityBackfill[] = [];
+
+  for (const activity of activities) {
+    const dealId = activity.dealId!;
+    const deal = dealById.get(dealId)!;
+    const metadata = activityMetadata(activity);
+    const migrationSnapshot =
+      activity.kind === "deal_created" &&
+      (imports.get(dealId) ?? []).some((reference) => reference.createdByImport);
+    const eventKind: DealHistoryEventKind = migrationSnapshot
+      ? "snapshot"
+      : activity.kind === "deal_created"
         ? "created"
-        : activityKind === "deal_won"
+        : activity.kind === "deal_won"
           ? "won"
-          : activityKind === "deal_lost"
+          : activity.kind === "deal_lost"
             ? "lost"
             : "stage_changed";
-    await recordDealHistoryEvent(companyId, {
-      dealId: String(raw.dealId),
-      kind,
-      occurredAt: raw.occurredAt as Date,
-      fromStageId: typeof metadata.fromStageId === "string" ? metadata.fromStageId : null,
-      toStageId:
-        typeof metadata.toStageId === "string"
-          ? metadata.toStageId
-          : typeof metadata.stageId === "string"
-            ? metadata.stageId
-            : null,
-      toAmountCents: typeof metadata.amountCents === "number" ? metadata.amountCents : null,
-      currency: typeof metadata.currency === "string" ? metadata.currency : "",
-      lostReason: typeof metadata.lostReason === "string" ? metadata.lostReason : "",
-      sourceKind: "activity_backfill",
-      sourceKey: `activity:${id}`,
-      sourceActivityId: id,
-      metadata,
-      actor,
+    const row: DealHistoryActivityBackfillRow = {
+      activityId: activity.id,
+      dealId,
+      activityKind: activity.kind,
+      eventKind,
+      occurredAt: activity.occurredAt,
+      migrationSnapshot,
+      status: "ready",
+      reason: migrationSnapshot
+        ? "Migration-time creation is preserved as a snapshot, not an original creation boundary"
+        : "",
+    };
+    if (existingActivityIds.has(activity.id)) {
+      row.status = "skipped";
+      row.reason = "Activity already has a Deal-history event";
+    }
+
+    const toStageId = migrationSnapshot ? null : stageIdFromActivity(metadata, stages);
+    const fromStageId = typeof metadata.fromStageId === "string" ? metadata.fromStageId : null;
+    if (row.status === "ready" && fromStageId && !stageIds.has(fromStageId)) {
+      row.status = "failed";
+      row.reason = "Activity names an unknown source Deal Stage";
+    }
+    if (row.status === "ready" && toStageId && !stageIds.has(toStageId)) {
+      row.status = "failed";
+      row.reason = "Activity names an unknown destination Deal Stage";
+    }
+    if (
+      row.status === "ready" &&
+      ["stage_changed", "won", "lost"].includes(eventKind) &&
+      !toStageId
+    ) {
+      row.status = "failed";
+      row.reason = "Lifecycle Activity has no valid destination Deal Stage";
+    }
+
+    const amount =
+      typeof metadata.amountCents === "number" &&
+      Number.isInteger(metadata.amountCents) &&
+      metadata.amountCents >= 0
+        ? metadata.amountCents
+        : null;
+    prepared.push({
+      row,
+      event: {
+        dealId,
+        kind: eventKind,
+        occurredAt: activity.occurredAt,
+        fromStageId,
+        toStageId,
+        toAmountCents: amount,
+        currency: typeof metadata.currency === "string" ? metadata.currency : deal.currency,
+        lostReason: typeof metadata.lostReason === "string" ? metadata.lostReason : "",
+        sourceKind: "activity_backfill",
+        sourceKey: `activity:${activity.id}`,
+        sourceActivityId: activity.id,
+        metadata: {
+          ...metadata,
+          activityBackfill: {
+            activityId: activity.id,
+            migrationSnapshot,
+            importedAt: new Date().toISOString(),
+            currentStageIdAtBackfill: deal.stageId,
+          },
+        },
+      },
     });
-    imported += 1;
   }
-  return { imported, skipped };
+
+  const summarize = (operationId?: string): DealHistoryActivityBackfillSummary => ({
+    dryRun,
+    operationId,
+    selectedDeals: deals.length,
+    reviewedActivities: prepared.length,
+    imported: prepared.filter((item) => item.row.status === "imported").length,
+    skipped: prepared.filter((item) => item.row.status === "skipped").length,
+    failed: prepared.filter((item) => item.row.status === "failed").length,
+    migrationSnapshots: prepared.filter(
+      (item) => item.row.migrationSnapshot && ["ready", "imported"].includes(item.row.status),
+    ).length,
+    rows: prepared.map((item) => item.row),
+  });
+  if (dryRun) return summarize();
+  if (!prepared.some((item) => item.row.status === "ready")) return summarize();
+
+  return AppDataSource.transaction("SERIALIZABLE", async (manager) => {
+    const readyActivityIds = prepared
+      .filter((item) => item.row.status === "ready")
+      .map((item) => item.row.activityId);
+    const raced = readyActivityIds.length
+      ? await manager.find(DealHistoryEvent, {
+          where: { companyId, sourceActivityId: In(readyActivityIds) },
+        })
+      : [];
+    const racedIds = new Set(raced.map((event) => event.sourceActivityId));
+    const operationRows: OperationRowWrite[] = [];
+    for (const item of prepared) {
+      if (item.row.status !== "ready") continue;
+      if (racedIds.has(item.row.activityId)) {
+        item.row.status = "skipped";
+        item.row.reason = "Activity was backfilled by another operation";
+        continue;
+      }
+      const { metadata, ...event } = item.event;
+      const saved = await manager.save(
+        DealHistoryEvent,
+        manager.create(DealHistoryEvent, {
+          companyId,
+          ...event,
+          metadataJson: JSON.stringify(metadata ?? {}),
+          createdByUserId: actor.userId ?? null,
+          createdByEmployeeId: actor.employeeId ?? null,
+        }),
+      );
+      item.row.status = "imported";
+      operationRows.push({
+        resourceType: "deal",
+        resourceId: saved.id,
+        entityType: "deal_history_event",
+        action: "backfill_activity_history",
+        before: null,
+        after: recordSnapshot(saved),
+        detail: item.row.activityId,
+      });
+    }
+    let result = summarize();
+    if (operationRows.length === 0) return result;
+    const operation = await createRevenueOperation(manager, {
+      companyId,
+      kind: "history_import",
+      resourceType: "deal",
+      status: result.failed > 0 ? "partial" : "completed",
+      idempotencyKey: operationIdempotencyKey,
+      request: operationRequest,
+      summary: result,
+      actor,
+      rows: operationRows,
+    });
+    result = summarize(operation.id);
+    operation.summaryJson = JSON.stringify(result);
+    await manager.save(RevenueOperation, operation);
+    return result;
+  });
 }
 
 type HistoricalStage = Pick<DealStage, "id" | "name" | "kind" | "sortOrder" | "probability">;
@@ -1041,15 +1518,21 @@ function importedHistoryCompleteness(
       return [];
     }
   });
-  if (declared.includes("complete")) return "complete";
   if (declared.includes("partial")) return "partial";
+  const created = history.find((event) => event.kind === "created");
+  if (declared.includes("complete")) {
+    return created?.toStageId ? "complete" : "partial";
+  }
+  // Native histories and imports written before completeness was explicit are
+  // complete only when their real creation and initial-stage boundaries exist.
+  if (created) return created.toStageId ? "complete" : "partial";
+  // A cutover snapshot followed by genuine lifecycle changes has partial
+  // history: the state before cutover is unknown, but later boundaries are real.
+  if (history.some((event) => event.kind !== "snapshot")) return "partial";
   if (declared.includes("snapshot_only") || history.some((event) => event.kind === "snapshot")) {
     return "snapshot_only";
   }
-  // Native histories and imports written before completeness was explicit are
-  // complete only when their real creation boundary exists.
-  if (history.some((event) => event.kind === "created")) return "complete";
-  return history.length > 0 ? "partial" : "missing";
+  return "missing";
 }
 
 export async function historicalFunnelMetrics(

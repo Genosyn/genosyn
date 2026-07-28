@@ -391,14 +391,18 @@ revenueRouter.post(
 revenueRouter.post(
   "/revenue/contacts/:id/restore",
   h(async (req, res) => {
-    const contact = await restoreContact(cidOf(req), req.params.id);
-    if (!contact) return res.status(404).json({ error: "Contact not found" });
-    await audit(req, "revenue.contact.restore", {
-      type: "contact",
-      id: contact.id,
-      label: contact.name,
-    });
-    return res.json(contact);
+    try {
+      const contact = await restoreContact(cidOf(req), req.params.id);
+      if (!contact) return res.status(404).json({ error: "Contact not found" });
+      await audit(req, "revenue.contact.restore", {
+        type: "contact",
+        id: contact.id,
+        label: contact.name,
+      });
+      return res.json(contact);
+    } catch (error) {
+      return res.status(409).json({ error: (error as Error).message });
+    }
   }),
 );
 
@@ -688,14 +692,18 @@ revenueRouter.post(
 revenueRouter.post(
   "/revenue/deals/:id/restore",
   h(async (req, res) => {
-    const deal = await restoreDeal(cidOf(req), req.params.id);
-    if (!deal) return res.status(404).json({ error: "Deal not found" });
-    await audit(req, "revenue.deal.restore", {
-      type: "deal",
-      id: deal.id,
-      label: deal.title,
-    });
-    return res.json(deal);
+    try {
+      const deal = await restoreDeal(cidOf(req), req.params.id);
+      if (!deal) return res.status(404).json({ error: "Deal not found" });
+      await audit(req, "revenue.deal.restore", {
+        type: "deal",
+        id: deal.id,
+        label: deal.title,
+      });
+      return res.json(deal);
+    } catch (error) {
+      return res.status(409).json({ error: (error as Error).message });
+    }
   }),
 );
 

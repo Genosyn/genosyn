@@ -327,6 +327,32 @@ export default function RevenueAccountDetail() {
               ))}
             </Select>
           </div>
+          <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm dark:border-slate-700 dark:bg-slate-800/50 sm:grid-cols-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Headquarters
+              </p>
+              <p className="mt-1 whitespace-pre-line text-slate-700 dark:text-slate-200">
+                {account.headquartersAddress || "Not verified"}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Parent company
+              </p>
+              <p className="mt-1 text-slate-700 dark:text-slate-200">
+                {account.parentCompanyName || "Not verified"}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Parent domain
+              </p>
+              <p className="mt-1 break-all text-slate-700 dark:text-slate-200">
+                {account.parentCompanyDomain || "Not verified"}
+              </p>
+            </div>
+          </div>
           <Textarea
             label="Account notes"
             rows={5}

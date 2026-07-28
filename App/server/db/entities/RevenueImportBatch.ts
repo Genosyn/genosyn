@@ -11,6 +11,7 @@ import type { RevenueResourceType } from "./RevenueCustomField.js";
 
 export type RevenueImportStatus = "completed" | "rolled_back" | "failed";
 export type RevenueImportResourceType = RevenueResourceType | "account_contact_deal";
+export type RevenueImportSourceKind = "base" | "csv" | "json" | "connection";
 
 /**
  * Durable reconciliation ledger for a committed import. Dry runs do not write
@@ -31,7 +32,7 @@ export class RevenueImportBatch {
   resourceType!: RevenueImportResourceType;
 
   @Column({ type: "varchar" })
-  sourceKind!: "base" | "csv";
+  sourceKind!: RevenueImportSourceKind;
 
   @Column({ type: "varchar", default: "" })
   sourceLabel!: string;
@@ -41,6 +42,10 @@ export class RevenueImportBatch {
 
   @Column({ type: "varchar", nullable: true })
   sourceTableId!: string | null;
+
+  /** Granted Integration Connection used by a connector-backed import. */
+  @Column({ type: "varchar", nullable: true })
+  sourceConnectionId!: string | null;
 
   @Column({ type: "varchar" })
   status!: RevenueImportStatus;

@@ -11,36 +11,47 @@ import { BaseTable } from "../../db/entities/BaseTable.js";
 import { Contact } from "../../db/entities/Contact.js";
 import { Company } from "../../db/entities/Company.js";
 import { Customer } from "../../db/entities/Customer.js";
+import { CustomerContact } from "../../db/entities/CustomerContact.js";
+import { CustomerContract } from "../../db/entities/CustomerContract.js";
+import { CustomerCredit } from "../../db/entities/CustomerCredit.js";
 import { Deal } from "../../db/entities/Deal.js";
 import { DealContact } from "../../db/entities/DealContact.js";
+import { DealHistoryEvent } from "../../db/entities/DealHistoryEvent.js";
 import { DealStage } from "../../db/entities/DealStage.js";
+import { Estimate } from "../../db/entities/Estimate.js";
 import { Invoice } from "../../db/entities/Invoice.js";
 import { Partnership } from "../../db/entities/Partnership.js";
 import { PartnershipContact } from "../../db/entities/PartnershipContact.js";
+import { RecurringInvoice } from "../../db/entities/RecurringInvoice.js";
 import { RevenueCustomValue } from "../../db/entities/RevenueCustomValue.js";
 import {
-  type RevenueCustomField,
+  RevenueCustomField,
   type RevenueResourceType,
 } from "../../db/entities/RevenueCustomField.js";
 import { RevenueDocument, type RevenueDocumentKind } from "../../db/entities/RevenueDocument.js";
+import { RevenueDocumentCandidate } from "../../db/entities/RevenueDocumentCandidate.js";
+import { RevenueDuplicateCandidate } from "../../db/entities/RevenueDuplicateCandidate.js";
 import { RevenueFieldEvidence } from "../../db/entities/RevenueFieldEvidence.js";
-import { RevenueImportBatch } from "../../db/entities/RevenueImportBatch.js";
+import { RevenueFirmographicLookup } from "../../db/entities/RevenueFirmographicLookup.js";
+import {
+  RevenueImportBatch,
+  type RevenueImportSourceKind,
+} from "../../db/entities/RevenueImportBatch.js";
 import { RevenueImportRow } from "../../db/entities/RevenueImportRow.js";
+import { SequenceEnrollment } from "../../db/entities/SequenceEnrollment.js";
+import { SignalEvent } from "../../db/entities/SignalEvent.js";
 import { normalizeEmail } from "../../lib/emailAddress.js";
 import { toSlug } from "../../lib/slug.js";
 import { resolveBaseAttachmentFile } from "../baseRecordUploads.js";
 import { recordAttachmentBytes } from "../uploads.js";
-import { createRevenueAccount, normalizeAccountDomain } from "./accounts.js";
+import { normalizeAccountDomain } from "./accounts.js";
 import {
   assertClassification,
   classificationValue,
   listRevenueClassifications,
 } from "./classifications.js";
-import { createContact } from "./contacts.js";
-import { listCustomFields, setCustomValues, type CustomFieldValue } from "./customFields.js";
-import { createDeal } from "./deals.js";
+import { listCustomFields, type CustomFieldValue } from "./customFields.js";
 import { createRevenueDocument, listRevenueDocuments } from "./documents.js";
-import { createPartnership } from "./partnerships.js";
 import { listDealStages } from "./stages.js";
 
 export type ImportRow = {
@@ -87,12 +98,46 @@ export type LinkedImportReport = {
 
 type ImportActor = { userId?: string | null; employeeId?: string | null };
 
+function hasControlCharacters(value: string): boolean {
+  return Array.from(value).some((character) => {
+    const code = character.charCodeAt(0);
+    return code <= 31 || code === 127;
+  });
+}
+
+function assertImportRowIdentity(rows: ImportRow[]): void {
+  if (rows.length > 10_000) throw new Error("Revenue imports are limited to 10,000 rows");
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const sourceId = row.sourceId.trim();
+    if (!sourceId) throw new Error("Every Revenue import row needs a source ID");
+    if (sourceId !== row.sourceId) {
+      throw new Error(`Revenue import source ID "${row.sourceId}" has surrounding whitespace`);
+    }
+    if (sourceId.length > 500 || hasControlCharacters(sourceId)) {
+      throw new Error("Revenue import source IDs must be at most 500 safe text characters");
+    }
+    if (seen.has(sourceId)) {
+      throw new Error(`Revenue import source ID "${sourceId}" appears more than once`);
+    }
+    seen.add(sourceId);
+  }
+}
+
 type ImportProvenanceContext = {
-  sourceKind: "base" | "csv";
+  sourceKind: RevenueImportSourceKind;
   sourceLabel: string;
   sourceBaseId?: string | null;
   sourceTableId?: string | null;
+  sourceConnectionId?: string | null;
 };
+
+function importExtractionMethod(sourceKind: RevenueImportSourceKind): string {
+  if (sourceKind === "base") return "base_field_mapping";
+  if (sourceKind === "csv") return "csv_column_mapping";
+  if (sourceKind === "json") return "json_field_mapping";
+  return "connection_field_mapping";
+}
 
 function importEvidenceSourceId(
   batchId: string,
@@ -115,6 +160,7 @@ function importEvidenceMetadata(
     sourceKind: input.sourceKind,
     sourceBaseId: input.sourceBaseId ?? null,
     sourceTableId: input.sourceTableId ?? null,
+    sourceConnectionId: input.sourceConnectionId ?? null,
   };
 }
 
@@ -360,6 +406,7 @@ export async function previewRevenueImport(
   mapping: ImportMapping,
   rows: ImportRow[],
 ): Promise<ImportReport> {
+  assertImportRowIdentity(rows);
   const decisions: ImportDecision[] = [];
   const customFields = await listCustomFields(companyId, resourceType);
   const dealStages = resourceType === "deal" ? await listDealStages(companyId) : [];
@@ -698,78 +745,119 @@ export async function loadBaseImportRows(
 }
 
 async function createImportedResource(
+  manager: EntityManager,
   companyId: string,
   resourceType: RevenueResourceType,
   preview: Record<string, unknown>,
   actor: ImportActor,
+  provenance: { batchId: string; sourceRowId: string },
 ): Promise<string> {
   if (resourceType === "contact") {
+    const email = normalizeEmail(asText(preview.email)) ?? "";
+    if (email && (await manager.findOneBy(Contact, { companyId, email }))) {
+      throw new Error(`A contact with the address ${email} already exists`);
+    }
     return (
-      await createContact(
-        companyId,
-        {
+      await manager.save(
+        manager.create(Contact, {
+          companyId,
           name: asText(preview.name),
-          email: asText(preview.email),
+          email,
           phone: asText(preview.phone),
           title: asText(preview.title),
+          linkedinUrl: "",
+          websiteUrl: "",
+          customerId: null,
           companyName: asText(preview.companyName),
+          lifecycleStage: "lead",
+          ownerId: null,
+          ownerEmployeeId: null,
           source: asText(preview.source),
+          sourceDetail: "",
+          score: 0,
+          enrichedJson: null,
           notes: asText(preview.notes),
-        },
-        actor,
+          doNotContact: false,
+          unsubscribedAt: null,
+          bouncedAt: null,
+          lastActivityAt: null,
+          archivedAt: null,
+          createdById: actor.userId ?? null,
+          createdByEmployeeId: actor.employeeId ?? null,
+        }),
       )
     ).id;
   }
   if (resourceType === "account") {
-    return (
-      await createRevenueAccount(
+    const domain = normalizeAccountDomain(asText(preview.domain));
+    if (
+      domain &&
+      (await manager.findOneBy(Customer, {
         companyId,
-        {
+        domain,
+        archivedAt: IsNull(),
+      }))
+    ) {
+      throw new Error("An account with that domain already exists");
+    }
+    return (
+      await manager.save(
+        manager.create(Customer, {
+          companyId,
           name: asText(preview.name),
-          domain: asText(preview.domain),
+          slug: await uniqueImportedAccountSlug(manager, companyId, asText(preview.name)),
+          email: "",
+          phone: "",
+          accountStatus: "prospect",
+          domain,
           websiteUrl: asText(preview.websiteUrl),
           industry: asText(preview.industry),
-          employeeCount: asNumber(preview.employeeCount),
+          employeeCount: Math.max(0, Math.round(asNumber(preview.employeeCount))),
+          ownerId: null,
+          ownerEmployeeId: null,
+          billingAddress: "",
+          shippingAddress: "",
+          taxNumber: "",
+          currency: "USD",
+          annualContractValueCents: 0,
           notes: asText(preview.notes),
-        },
-        actor,
+          archivedAt: null,
+          createdById: actor.userId ?? null,
+        }),
       )
     ).id;
   }
   if (resourceType === "deal") {
+    const stage = await manager.findOneBy(DealStage, {
+      companyId,
+      id: asText(preview.stageId),
+    });
+    if (!stage) throw new Error("Resolved Deal Stage is no longer available");
     return (
-      await createDeal(
-        companyId,
-        {
-          title: asText(preview.title),
-          description: asText(preview.description),
-          amountCents: asNumber(preview.amountCents),
-          currency: asText(preview.currency),
-          stageId: asText(preview.stageId) || null,
-          source: asText(preview.source),
-          nextStep: asText(preview.nextStep),
-          nextFollowUpAt: preview.nextFollowUpAt instanceof Date ? preview.nextFollowUpAt : null,
-          expectedCloseDate:
-            preview.expectedCloseDate instanceof Date ? preview.expectedCloseDate : null,
-        },
-        actor,
-      )
+      await createImportedDeal(manager, companyId, null, null, stage, preview, actor, provenance)
     ).id;
   }
   return (
-    await createPartnership(
-      companyId,
-      {
+    await manager.save(
+      manager.create(Partnership, {
+        companyId,
         name: asText(preview.name),
-        type: asText(preview.type),
-        status: asText(preview.status),
+        type: classificationValue(asText(preview.type)) || "other",
+        status: classificationValue(asText(preview.status)) || "prospecting",
+        customerId: null,
         websiteUrl: asText(preview.websiteUrl),
         integrationContext: asText(preview.integrationContext),
         channelContext: asText(preview.channelContext),
         notes: asText(preview.notes),
+        ownerId: null,
+        ownerEmployeeId: null,
         nextFollowUpAt: preview.nextFollowUpAt instanceof Date ? preview.nextFollowUpAt : null,
-      },
-      actor,
+        reminderAt: null,
+        lastActivityAt: null,
+        archivedAt: null,
+        createdById: actor.userId ?? null,
+        createdByEmployeeId: actor.employeeId ?? null,
+      }),
     )
   ).id;
 }
@@ -778,10 +866,11 @@ export async function commitRevenueImport(
   companyId: string,
   input: {
     resourceType: RevenueResourceType;
-    sourceKind: "base" | "csv";
+    sourceKind: RevenueImportSourceKind;
     sourceLabel: string;
     sourceBaseId?: string | null;
     sourceTableId?: string | null;
+    sourceConnectionId?: string | null;
     mapping: ImportMapping;
     rows: ImportRow[];
   },
@@ -793,102 +882,76 @@ export async function commitRevenueImport(
     input.mapping,
     input.rows,
   );
+  const customFields = await listCustomFields(companyId, input.resourceType);
   const batchId = randomUUID();
   const createdIds: string[] = [];
-  for (const decision of report.decisions) {
-    if (decision.action !== "create") continue;
-    try {
-      const id = await createImportedResource(
-        companyId,
-        input.resourceType,
-        decision.preview,
-        actor,
-      );
-      const customValues =
-        decision.preview.customValues &&
-        typeof decision.preview.customValues === "object" &&
-        !Array.isArray(decision.preview.customValues)
-          ? (decision.preview.customValues as Record<string, unknown>)
-          : {};
-      if (Object.keys(customValues).length > 0) {
-        try {
-          const observedAt = new Date();
-          await setCustomValues(companyId, input.resourceType, id, customValues, {
-            actor,
-            provenance: {
-              sourceType: "import",
-              sourceId: importEvidenceSourceId(batchId, decision.sourceId, input.resourceType),
-              sourceLabel: `${input.sourceLabel} / ${decision.sourceId}`,
-              extractionMethod:
-                input.sourceKind === "base" ? "base_field_mapping" : "csv_column_mapping",
-              confidence: 100,
-              observedAt,
-              verificationState: "verified",
-              lastVerifiedAt: observedAt,
-              metadata: importEvidenceMetadata(
-                batchId,
-                decision.sourceId,
-                input.resourceType,
-                input,
-              ),
-            },
-          });
-        } catch (error) {
-          await AppDataSource.getRepository(RevenueCustomValue).delete({
+  return AppDataSource.transaction(async (manager) => {
+    for (const decision of report.decisions) {
+      if (decision.action !== "create") continue;
+      try {
+        const id = await manager.transaction(async (rowManager) => {
+          const resourceId = await createImportedResource(
+            rowManager,
             companyId,
-            resourceId: id,
-          });
-          if (input.resourceType === "contact") {
-            await AppDataSource.getRepository(Contact).delete({ companyId, id });
-          } else if (input.resourceType === "account") {
-            await AppDataSource.getRepository(Customer).delete({ companyId, id });
-          } else if (input.resourceType === "deal") {
-            await AppDataSource.getRepository(Activity).delete({ companyId, dealId: id });
-            await AppDataSource.getRepository(Deal).delete({ companyId, id });
-          } else {
-            await AppDataSource.getRepository(Partnership).delete({ companyId, id });
-          }
-          throw error;
-        }
+            input.resourceType,
+            decision.preview,
+            actor,
+            { batchId, sourceRowId: decision.sourceId },
+          );
+          await saveImportedCustomValues(
+            rowManager,
+            companyId,
+            input.resourceType,
+            resourceId,
+            decision.preview,
+            customFields,
+            {
+              batchId,
+              sourceRowId: decision.sourceId,
+              input,
+              actor,
+            },
+          );
+          return resourceId;
+        });
+        decision.nativeId = id;
+        createdIds.push(id);
+      } catch (error) {
+        decision.action = "skip";
+        decision.reason = error instanceof Error ? error.message : "Import failed";
       }
-      decision.nativeId = id;
-      createdIds.push(id);
-    } catch (error) {
-      decision.action = "skip";
-      decision.reason = error instanceof Error ? error.message : "Import failed";
     }
-  }
-  report.createCount = createdIds.length;
-  report.skippedCount = report.decisions.filter((row) => row.action === "skip").length;
-  const rowMap = report.decisions.map(({ sourceId, nativeId, action, reason }) => ({
-    sourceId,
-    nativeId,
-    action,
-    reason,
-  }));
-  const repo = AppDataSource.getRepository(RevenueImportBatch);
-  const batch = await repo.save(
-    repo.create({
-      id: batchId,
-      companyId,
-      resourceType: input.resourceType,
-      sourceKind: input.sourceKind,
-      sourceLabel: input.sourceLabel,
-      sourceBaseId: input.sourceBaseId ?? null,
-      sourceTableId: input.sourceTableId ?? null,
-      status: "completed",
-      mappingJson: JSON.stringify(input.mapping),
-      rowMapJson: JSON.stringify(rowMap),
-      createdIdsJson: JSON.stringify(createdIds),
-      reportJson: JSON.stringify(report),
-      rolledBackAt: null,
-      createdByUserId: actor.userId ?? null,
-      createdByEmployeeId: actor.employeeId ?? null,
-    }),
-  );
-  await AppDataSource.getRepository(RevenueImportRow).save(
-    report.decisions.map((decision, sortOrder) =>
-      AppDataSource.getRepository(RevenueImportRow).create({
+    report.createCount = createdIds.length;
+    report.skippedCount = report.decisions.filter((row) => row.action === "skip").length;
+    const rowMap = report.decisions.map(({ sourceId, nativeId, action, reason }) => ({
+      sourceId,
+      nativeId,
+      action,
+      reason,
+    }));
+    const repo = manager.getRepository(RevenueImportBatch);
+    const batch = await repo.save(
+      repo.create({
+        id: batchId,
+        companyId,
+        resourceType: input.resourceType,
+        sourceKind: input.sourceKind,
+        sourceLabel: input.sourceLabel,
+        sourceBaseId: input.sourceBaseId ?? null,
+        sourceTableId: input.sourceTableId ?? null,
+        sourceConnectionId: input.sourceConnectionId ?? null,
+        status: "completed",
+        mappingJson: JSON.stringify(input.mapping),
+        rowMapJson: JSON.stringify(rowMap),
+        createdIdsJson: JSON.stringify(createdIds),
+        reportJson: JSON.stringify(report),
+        rolledBackAt: null,
+        createdByUserId: actor.userId ?? null,
+        createdByEmployeeId: actor.employeeId ?? null,
+      }),
+    );
+    const importRows = report.decisions.map((decision, sortOrder) =>
+      manager.create(RevenueImportRow, {
         companyId,
         batchId: batch.id,
         resourceType: input.resourceType,
@@ -905,10 +968,12 @@ export async function commitRevenueImport(
         decisionJson: JSON.stringify(decision),
         sortOrder,
       }),
-    ),
-    { chunk: 500 },
-  );
-  return batch;
+    );
+    if (importRows.length > 0) {
+      await manager.save(RevenueImportRow, importRows, { chunk: 500 });
+    }
+    return batch;
+  });
 }
 
 type LinkedCreatedIds = Record<LinkedImportResource, string[]>;
@@ -927,7 +992,7 @@ function customSearchValue(value: CustomFieldValue): string {
 async function saveImportedCustomValues(
   manager: EntityManager,
   companyId: string,
-  resourceType: LinkedImportResource,
+  resourceType: RevenueResourceType,
   resourceId: string,
   preview: Record<string, unknown>,
   fields: RevenueCustomField[],
@@ -979,8 +1044,7 @@ async function saveImportedCustomValues(
         confidence: 100,
         status: "accepted",
         verificationState: "verified",
-        extractionMethod:
-          provenance.input.sourceKind === "base" ? "base_field_mapping" : "csv_column_mapping",
+        extractionMethod: importExtractionMethod(provenance.input.sourceKind),
         observedAt,
         extractedAt: observedAt,
         lastVerifiedAt: observedAt,
@@ -989,8 +1053,7 @@ async function saveImportedCustomValues(
         verifyingActorType: verifyingActor.kind,
         verifyingActorId: verifyingActor.id,
         metadataJson: JSON.stringify({
-          extractionMethod:
-            provenance.input.sourceKind === "base" ? "base_field_mapping" : "csv_column_mapping",
+          extractionMethod: importExtractionMethod(provenance.input.sourceKind),
           verificationState: "verified",
           verifyingActor,
           ...importEvidenceMetadata(
@@ -1131,14 +1194,15 @@ async function createLinkedContact(
   );
 }
 
-async function createLinkedDeal(
+async function createImportedDeal(
   manager: EntityManager,
   companyId: string,
-  account: Customer,
-  contact: Contact,
+  account: Customer | null,
+  contact: Contact | null,
   stage: DealStage,
   preview: Record<string, unknown>,
   actor: ImportActor,
+  provenance: { batchId: string; sourceRowId: string },
 ): Promise<Deal> {
   const now = new Date();
   const status = stage.kind;
@@ -1147,8 +1211,8 @@ async function createLinkedDeal(
       companyId,
       title: asText(preview.title),
       description: asText(preview.description),
-      customerId: account.id,
-      primaryContactId: contact.id,
+      customerId: account?.id ?? null,
+      primaryContactId: contact?.id ?? null,
       stageId: stage.id,
       amountCents: Math.min(2_000_000_000, Math.max(0, Math.round(asNumber(preview.amountCents)))),
       currency: asText(preview.currency).toUpperCase() || "USD",
@@ -1170,16 +1234,16 @@ async function createLinkedDeal(
       createdByEmployeeId: actor.employeeId ?? null,
     }),
   );
-  await manager.save(
+  const activity = await manager.save(
     manager.create(Activity, {
       companyId,
       kind: "deal_created",
       subject: deal.title,
       bodyText: "",
       occurredAt: now,
-      contactId: contact.id,
+      contactId: contact?.id ?? null,
       dealId: deal.id,
-      customerId: account.id,
+      customerId: account?.id ?? null,
       partnershipId: null,
       mailThreadId: null,
       mailMessageId: null,
@@ -1189,6 +1253,7 @@ async function createLinkedDeal(
         stage: stage.name,
         amountCents: deal.amountCents,
         currency: deal.currency,
+        revenueImport: provenance,
       }),
       taskStatus: null,
       dueAt: null,
@@ -1200,18 +1265,72 @@ async function createLinkedDeal(
       recurrenceRule: null,
     }),
   );
-  contact.lastActivityAt = now;
-  await manager.save(contact);
+  const historyMetadata = { revenueImport: provenance };
+  await manager.save(
+    manager.create(DealHistoryEvent, {
+      companyId,
+      dealId: deal.id,
+      kind: "created",
+      occurredAt: now,
+      fromStageId: null,
+      toStageId: stage.id,
+      fromAmountCents: null,
+      toAmountCents: deal.amountCents,
+      currency: deal.currency,
+      fromOwnerId: null,
+      fromOwnerEmployeeId: null,
+      toOwnerId: null,
+      toOwnerEmployeeId: null,
+      lostReason: "",
+      sourceKind: "live",
+      sourceKey: `activity:${activity.id}`,
+      sourceActivityId: activity.id,
+      metadataJson: JSON.stringify(historyMetadata),
+      createdByUserId: actor.userId ?? null,
+      createdByEmployeeId: actor.employeeId ?? null,
+    }),
+  );
+  if (status === "won" || status === "lost") {
+    await manager.save(
+      manager.create(DealHistoryEvent, {
+        companyId,
+        dealId: deal.id,
+        kind: status,
+        occurredAt: now,
+        fromStageId: null,
+        toStageId: stage.id,
+        fromAmountCents: null,
+        toAmountCents: null,
+        currency: "",
+        fromOwnerId: null,
+        fromOwnerEmployeeId: null,
+        toOwnerId: null,
+        toOwnerEmployeeId: null,
+        lostReason: deal.lostReason,
+        sourceKind: "live",
+        sourceKey: `live:${deal.id}:${status}:${randomUUID()}`,
+        sourceActivityId: null,
+        metadataJson: JSON.stringify(historyMetadata),
+        createdByUserId: actor.userId ?? null,
+        createdByEmployeeId: actor.employeeId ?? null,
+      }),
+    );
+  }
+  if (contact) {
+    contact.lastActivityAt = now;
+    await manager.save(contact);
+  }
   return deal;
 }
 
 export async function commitLinkedRevenueImport(
   companyId: string,
   input: {
-    sourceKind: "base" | "csv";
+    sourceKind: RevenueImportSourceKind;
     sourceLabel: string;
     sourceBaseId?: string | null;
     sourceTableId?: string | null;
+    sourceConnectionId?: string | null;
     mapping: LinkedImportMapping;
     rows: ImportRow[];
   },
@@ -1326,7 +1445,7 @@ export async function commitLinkedRevenueImport(
           ? dealDecision.nativeId
           : await existingImportedResource(manager, companyId, "deal", dealDecision.preview);
       if (!dealId) {
-        const deal = await createLinkedDeal(
+        const deal = await createImportedDeal(
           manager,
           companyId,
           account,
@@ -1334,6 +1453,7 @@ export async function commitLinkedRevenueImport(
           stage,
           dealDecision.preview,
           actor,
+          { batchId, sourceRowId: decision.sourceId },
         );
         dealId = deal.id;
         createdIds.deal.push(deal.id);
@@ -1417,6 +1537,7 @@ export async function commitLinkedRevenueImport(
         sourceLabel: input.sourceLabel,
         sourceBaseId: input.sourceBaseId ?? null,
         sourceTableId: input.sourceTableId ?? null,
+        sourceConnectionId: input.sourceConnectionId ?? null,
         status: "completed",
         mappingJson: JSON.stringify(input.mapping),
         rowMapJson: JSON.stringify(rowMap),
@@ -1485,6 +1606,7 @@ type CompactRevenueImportBatch = Pick<
   | "sourceLabel"
   | "sourceBaseId"
   | "sourceTableId"
+  | "sourceConnectionId"
   | "status"
   | "rolledBackAt"
   | "createdByUserId"
@@ -1512,6 +1634,7 @@ async function getCompactRevenueImport(
       "batch.sourceLabel",
       "batch.sourceBaseId",
       "batch.sourceTableId",
+      "batch.sourceConnectionId",
       "batch.status",
       "batch.rolledBackAt",
       "batch.createdByUserId",
@@ -1547,6 +1670,7 @@ export async function getRevenueImportSummary(
       sourceLabel: batch.sourceLabel,
       sourceBaseId: batch.sourceBaseId,
       sourceTableId: batch.sourceTableId,
+      sourceConnectionId: batch.sourceConnectionId,
       status: batch.status,
       rolledBackAt: batch.rolledBackAt,
       createdByUserId: batch.createdByUserId,
@@ -1561,7 +1685,7 @@ export async function getRevenueImportSummary(
 export async function queryRevenueImports(
   companyId: string,
   opts: {
-    sourceKind?: "base" | "csv";
+    sourceKind?: RevenueImportSourceKind;
     status?: "completed" | "rolled_back" | "failed";
     resourceType?: RevenueImportBatch["resourceType"];
     from?: Date;
@@ -1591,6 +1715,7 @@ export async function queryRevenueImports(
       "batch.sourceLabel",
       "batch.sourceBaseId",
       "batch.sourceTableId",
+      "batch.sourceConnectionId",
       "batch.status",
       "batch.rolledBackAt",
       "batch.createdByUserId",
@@ -1724,6 +1849,31 @@ async function ensureRevenueImportRows(batch: CompactRevenueImportBatch): Promis
   }
 }
 
+export async function ensureRevenueImportRowsForCompany(
+  companyId: string,
+  resourceTypes?: RevenueImportBatch["resourceType"][],
+): Promise<void> {
+  const batchQuery = AppDataSource.getRepository(RevenueImportBatch)
+    .createQueryBuilder("batch")
+    .where("batch.companyId = :companyId", { companyId });
+  if (resourceTypes?.length) {
+    batchQuery.andWhere("batch.resourceType IN (:...resourceTypes)", { resourceTypes });
+  }
+  const batches = await batchQuery.orderBy("batch.createdAt", "ASC").getMany();
+  if (batches.length === 0) return;
+  const existing = await AppDataSource.getRepository(RevenueImportRow)
+    .createQueryBuilder("row")
+    .select("row.batchId", "batchId")
+    .where("row.companyId = :companyId", { companyId })
+    .andWhere("row.batchId IN (:...batchIds)", { batchIds: batches.map((batch) => batch.id) })
+    .groupBy("row.batchId")
+    .getRawMany<{ batchId: string }>();
+  const materialized = new Set(existing.map((row) => row.batchId));
+  for (const batch of batches) {
+    if (!materialized.has(batch.id)) await ensureRevenueImportRows(batch);
+  }
+}
+
 export async function getRevenueImportRows(
   companyId: string,
   batchId: string,
@@ -1797,21 +1947,215 @@ export async function getRevenueImportRows(
   };
 }
 
+type ImportOwnedFieldData = {
+  customValueIds: string[];
+  evidenceIds: string[];
+};
+
+async function importOwnedFieldData(
+  manager: EntityManager,
+  batch: RevenueImportBatch,
+  resourceType: RevenueResourceType,
+  resourceId: string,
+): Promise<ImportOwnedFieldData | null> {
+  const [customValues, evidence] = await Promise.all([
+    manager.find(RevenueCustomValue, {
+      where: { companyId: batch.companyId, resourceType, resourceId },
+    }),
+    manager.find(RevenueFieldEvidence, {
+      where: { companyId: batch.companyId, resourceType, resourceId },
+    }),
+  ]);
+  const importedBeforeBatch = (date: Date | null | undefined) =>
+    !date || date.getTime() <= batch.createdAt.getTime();
+  const sourcePrefix = `import:${batch.id}:`;
+  if (
+    customValues.some(
+      (value) =>
+        !importedBeforeBatch(value.createdAt) || !importedBeforeBatch(value.updatedAt),
+    ) ||
+    evidence.some(
+      (item) =>
+        item.sourceType !== "import" ||
+        !item.sourceId.startsWith(sourcePrefix) ||
+        !importedBeforeBatch(item.createdAt),
+    )
+  ) {
+    return null;
+  }
+
+  const fieldIds = [...new Set(customValues.map((value) => value.fieldId))];
+  const fields =
+    fieldIds.length > 0
+      ? await manager.findBy(RevenueCustomField, {
+          companyId: batch.companyId,
+          id: In(fieldIds),
+        })
+      : [];
+  const fieldKeys = new Map(fields.map((field) => [field.id, field.key]));
+  const evidenceByKey = new Map(evidence.map((item) => [item.fieldKey, item]));
+  if (
+    customValues.some((value) => {
+      const key = fieldKeys.get(value.fieldId);
+      const importedEvidence = key ? evidenceByKey.get(`custom:${key}`) : null;
+      return !importedEvidence || importedEvidence.extractedValueJson !== value.valueJson;
+    })
+  ) {
+    return null;
+  }
+  return {
+    customValueIds: customValues.map((value) => value.id),
+    evidenceIds: evidence.map((item) => item.id),
+  };
+}
+
 async function deleteImportedFieldData(
+  manager: EntityManager,
+  fieldData: ImportOwnedFieldData,
+): Promise<void> {
+  if (fieldData.customValueIds.length > 0) {
+    await manager.delete(RevenueCustomValue, { id: In(fieldData.customValueIds) });
+  }
+  if (fieldData.evidenceIds.length > 0) {
+    await manager.delete(RevenueFieldEvidence, { id: In(fieldData.evidenceIds) });
+  }
+}
+
+async function clearDerivedResourcePointers(
   manager: EntityManager,
   companyId: string,
   resourceType: RevenueResourceType,
   resourceId: string,
 ): Promise<void> {
-  await manager.delete(RevenueCustomValue, {
-    companyId,
-    resourceType,
-    resourceId,
-  });
-  await manager.delete(RevenueFieldEvidence, {
-    companyId,
-    resourceType,
-    resourceId,
+  await Promise.all([
+    manager.delete(RevenueDuplicateCandidate, {
+      companyId,
+      resourceType,
+      leftId: resourceId,
+    }),
+    manager.delete(RevenueDuplicateCandidate, {
+      companyId,
+      resourceType,
+      rightId: resourceId,
+    }),
+    manager.update(
+      RevenueDocumentCandidate,
+      { companyId, proposedResourceType: resourceType, proposedResourceId: resourceId },
+      { proposedResourceType: null, proposedResourceId: null },
+    ),
+  ]);
+}
+
+async function accountDependencyCount(
+  manager: EntityManager,
+  companyId: string,
+  resourceId: string,
+): Promise<number> {
+  const counts = await Promise.all([
+    manager.count(Invoice, { where: { companyId, customerId: resourceId } }),
+    manager.count(RecurringInvoice, { where: { companyId, customerId: resourceId } }),
+    manager.count(Estimate, { where: { companyId, customerId: resourceId } }),
+    manager.count(CustomerContract, { where: { companyId, customerId: resourceId } }),
+    manager.count(CustomerCredit, { where: { companyId, customerId: resourceId } }),
+    manager.count(CustomerContact, { where: { companyId, customerId: resourceId } }),
+    manager.count(Contact, { where: { companyId, customerId: resourceId } }),
+    manager.count(Deal, { where: { companyId, customerId: resourceId } }),
+    manager.count(Partnership, { where: { companyId, customerId: resourceId } }),
+    manager.count(Activity, { where: { companyId, customerId: resourceId } }),
+    manager.count(RevenueDocument, { where: { companyId, customerId: resourceId } }),
+    manager.count(RevenueFirmographicLookup, {
+      where: { companyId, customerId: resourceId },
+    }),
+    manager.count(SignalEvent, { where: { companyId, customerId: resourceId } }),
+  ]);
+  return counts.reduce((total, count) => total + count, 0);
+}
+
+async function contactDependencyCount(
+  manager: EntityManager,
+  companyId: string,
+  resourceId: string,
+): Promise<number> {
+  const counts = await Promise.all([
+    manager.count(DealContact, { where: { companyId, contactId: resourceId } }),
+    manager.count(PartnershipContact, { where: { companyId, contactId: resourceId } }),
+    manager.count(Activity, { where: { companyId, contactId: resourceId } }),
+    manager.count(RevenueDocument, { where: { companyId, contactId: resourceId } }),
+    manager.count(Deal, { where: { companyId, primaryContactId: resourceId } }),
+    manager.count(SequenceEnrollment, { where: { companyId, contactId: resourceId } }),
+    manager.count(SignalEvent, { where: { companyId, contactId: resourceId } }),
+  ]);
+  return counts.reduce((total, count) => total + count, 0);
+}
+
+async function dealDependencyCount(
+  manager: EntityManager,
+  companyId: string,
+  resourceId: string,
+): Promise<number> {
+  const counts = await Promise.all([
+    manager
+      .createQueryBuilder(Activity, "activity")
+      .where("activity.companyId = :companyId", { companyId })
+      .andWhere("activity.dealId = :resourceId", { resourceId })
+      .andWhere("activity.kind != 'deal_created'")
+      .getCount(),
+    manager.count(DealContact, { where: { companyId, dealId: resourceId } }),
+    manager.count(RevenueDocument, { where: { companyId, dealId: resourceId } }),
+    manager.count(SequenceEnrollment, { where: { companyId, dealId: resourceId } }),
+    manager.count(SignalEvent, { where: { companyId, dealId: resourceId } }),
+  ]);
+  return counts.reduce((total, count) => total + count, 0);
+}
+
+function dealHistoryImportBatchId(event: DealHistoryEvent): string | null {
+  try {
+    const metadata = JSON.parse(event.metadataJson) as {
+      revenueImport?: { batchId?: unknown };
+    };
+    return typeof metadata.revenueImport?.batchId === "string"
+      ? metadata.revenueImport.batchId
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function canDeleteImportedDealHistory(
+  manager: EntityManager,
+  batch: RevenueImportBatch,
+  dealId: string,
+): Promise<boolean> {
+  const [creationActivities, history] = await Promise.all([
+    manager.find(Activity, {
+      where: { companyId: batch.companyId, dealId, kind: "deal_created" },
+    }),
+    manager.find(DealHistoryEvent, {
+      where: { companyId: batch.companyId, dealId },
+    }),
+  ]);
+  if (creationActivities.length !== 1) return false;
+  const [creationActivity] = creationActivities;
+  if (creationActivity.createdAt.getTime() > batch.createdAt.getTime()) return false;
+
+  return history.every((event) => {
+    if (event.createdAt.getTime() > batch.createdAt.getTime()) return false;
+    if (dealHistoryImportBatchId(event) === batch.id) return true;
+    if (
+      event.kind === "created" &&
+      event.sourceKind === "live" &&
+      event.sourceActivityId === creationActivity.id &&
+      event.sourceKey === `activity:${creationActivity.id}`
+    ) {
+      return true;
+    }
+    return (
+      (event.kind === "won" || event.kind === "lost") &&
+      event.sourceKind === "live" &&
+      event.sourceActivityId === null &&
+      event.occurredAt.getTime() === creationActivity.occurredAt.getTime() &&
+      event.sourceKey.startsWith(`live:${dealId}:${event.kind}:`)
+    );
   });
 }
 
@@ -1827,30 +2171,34 @@ async function rollbackLinkedRevenueImport(
       companyId: batch.companyId,
       id: resourceId,
     });
-    const nonCreationActivities = await manager
-      .createQueryBuilder(Activity, "activity")
-      .where("activity.companyId = :companyId", { companyId: batch.companyId })
-      .andWhere("activity.dealId = :resourceId", { resourceId })
-      .andWhere("activity.kind != 'deal_created'")
-      .getCount();
-    const [contacts, documents] = await Promise.all([
-      manager.count(DealContact, {
-        where: { companyId: batch.companyId, dealId: resourceId },
-      }),
-      manager.count(RevenueDocument, {
-        where: { companyId: batch.companyId, dealId: resourceId },
-      }),
-    ]);
+    const dependencies = await dealDependencyCount(
+      manager,
+      batch.companyId,
+      resourceId,
+    );
+    const historyIsImportOwned = resource
+      ? await canDeleteImportedDealHistory(manager, batch, resourceId)
+      : false;
+    const fieldData = resource
+      ? await importOwnedFieldData(manager, batch, "deal", resourceId)
+      : null;
     if (
       !resource ||
       resource.updatedAt.getTime() > batch.createdAt.getTime() ||
-      nonCreationActivities + contacts + documents > 0
+      dependencies > 0 ||
+      !historyIsImportOwned ||
+      !fieldData
     ) {
       blocked.push(`deal:${resourceId}`);
       continue;
     }
+    await manager.delete(DealHistoryEvent, {
+      companyId: batch.companyId,
+      dealId: resourceId,
+    });
     await manager.delete(Activity, { companyId: batch.companyId, dealId: resourceId });
-    await deleteImportedFieldData(manager, batch.companyId, "deal", resourceId);
+    await deleteImportedFieldData(manager, fieldData);
+    await clearDerivedResourcePointers(manager, batch.companyId, "deal", resourceId);
     deleted +=
       (await manager.delete(Deal, { companyId: batch.companyId, id: resourceId })).affected ?? 0;
   }
@@ -1859,32 +2207,25 @@ async function rollbackLinkedRevenueImport(
       companyId: batch.companyId,
       id: resourceId,
     });
-    const [dealLinks, partnerLinks, activities, documents, primaryDeals] = await Promise.all([
-      manager.count(DealContact, {
-        where: { companyId: batch.companyId, contactId: resourceId },
-      }),
-      manager.count(PartnershipContact, {
-        where: { companyId: batch.companyId, contactId: resourceId },
-      }),
-      manager.count(Activity, {
-        where: { companyId: batch.companyId, contactId: resourceId },
-      }),
-      manager.count(RevenueDocument, {
-        where: { companyId: batch.companyId, contactId: resourceId },
-      }),
-      manager.count(Deal, {
-        where: { companyId: batch.companyId, primaryContactId: resourceId },
-      }),
-    ]);
+    const dependencies = await contactDependencyCount(
+      manager,
+      batch.companyId,
+      resourceId,
+    );
+    const fieldData = resource
+      ? await importOwnedFieldData(manager, batch, "contact", resourceId)
+      : null;
     if (
       !resource ||
       resource.updatedAt.getTime() > batch.createdAt.getTime() ||
-      dealLinks + partnerLinks + activities + documents + primaryDeals > 0
+      dependencies > 0 ||
+      !fieldData
     ) {
       blocked.push(`contact:${resourceId}`);
       continue;
     }
-    await deleteImportedFieldData(manager, batch.companyId, "contact", resourceId);
+    await deleteImportedFieldData(manager, fieldData);
+    await clearDerivedResourcePointers(manager, batch.companyId, "contact", resourceId);
     deleted +=
       (await manager.delete(Contact, { companyId: batch.companyId, id: resourceId })).affected ?? 0;
   }
@@ -1893,35 +2234,25 @@ async function rollbackLinkedRevenueImport(
       companyId: batch.companyId,
       id: resourceId,
     });
-    const [invoices, contacts, deals, partnerships, activities, documents] = await Promise.all([
-      manager.count(Invoice, {
-        where: { companyId: batch.companyId, customerId: resourceId },
-      }),
-      manager.count(Contact, {
-        where: { companyId: batch.companyId, customerId: resourceId },
-      }),
-      manager.count(Deal, {
-        where: { companyId: batch.companyId, customerId: resourceId },
-      }),
-      manager.count(Partnership, {
-        where: { companyId: batch.companyId, customerId: resourceId },
-      }),
-      manager.count(Activity, {
-        where: { companyId: batch.companyId, customerId: resourceId },
-      }),
-      manager.count(RevenueDocument, {
-        where: { companyId: batch.companyId, customerId: resourceId },
-      }),
-    ]);
+    const dependencies = await accountDependencyCount(
+      manager,
+      batch.companyId,
+      resourceId,
+    );
+    const fieldData = resource
+      ? await importOwnedFieldData(manager, batch, "account", resourceId)
+      : null;
     if (
       !resource ||
       resource.updatedAt.getTime() > batch.createdAt.getTime() ||
-      invoices + contacts + deals + partnerships + activities + documents > 0
+      dependencies > 0 ||
+      !fieldData
     ) {
       blocked.push(`account:${resourceId}`);
       continue;
     }
-    await deleteImportedFieldData(manager, batch.companyId, "account", resourceId);
+    await deleteImportedFieldData(manager, fieldData);
+    await clearDerivedResourcePointers(manager, batch.companyId, "account", resourceId);
     deleted +=
       (await manager.delete(Customer, { companyId: batch.companyId, id: resourceId })).affected ??
       0;
@@ -1990,77 +2321,63 @@ export async function rollbackRevenueImport(
     for (const resourceId of ids) {
       if (batch.resourceType === "contact") {
         const resource = await manager.findOneBy(Contact, { companyId, id: resourceId });
-        const linked = await manager.count(DealContact, {
-          where: { companyId, contactId: resourceId },
-        });
-        const partnerLinked = await manager.count(PartnershipContact, {
-          where: { companyId, contactId: resourceId },
-        });
-        const activityCount = await manager.count(Activity, {
-          where: { companyId, contactId: resourceId },
-        });
-        const documentCount = await manager.count(RevenueDocument, {
-          where: { companyId, contactId: resourceId },
-        });
+        const dependencies = await contactDependencyCount(manager, companyId, resourceId);
+        const fieldData = resource
+          ? await importOwnedFieldData(manager, batch, "contact", resourceId)
+          : null;
         if (
           !resource ||
           resource.updatedAt.getTime() > batch.createdAt.getTime() ||
-          linked + partnerLinked + activityCount + documentCount > 0
+          dependencies > 0 ||
+          !fieldData
         ) {
           blocked.push(resourceId);
           continue;
         }
+        await deleteImportedFieldData(manager, fieldData);
+        await clearDerivedResourcePointers(manager, companyId, "contact", resourceId);
         deleted += (await manager.delete(Contact, { companyId, id: resourceId })).affected ?? 0;
       } else if (batch.resourceType === "account") {
         const resource = await manager.findOneBy(Customer, { companyId, id: resourceId });
-        const invoices = await manager.count(Invoice, {
-          where: { companyId, customerId: resourceId },
-        });
-        const contacts = await manager.count(Contact, {
-          where: { companyId, customerId: resourceId },
-        });
-        const deals = await manager.count(Deal, { where: { companyId, customerId: resourceId } });
-        const partnerships = await manager.count(Partnership, {
-          where: { companyId, customerId: resourceId },
-        });
-        const activities = await manager.count(Activity, {
-          where: { companyId, customerId: resourceId },
-        });
-        const documents = await manager.count(RevenueDocument, {
-          where: { companyId, customerId: resourceId },
-        });
+        const dependencies = await accountDependencyCount(manager, companyId, resourceId);
+        const fieldData = resource
+          ? await importOwnedFieldData(manager, batch, "account", resourceId)
+          : null;
         if (
           !resource ||
           resource.updatedAt.getTime() > batch.createdAt.getTime() ||
-          invoices + contacts + deals + partnerships + activities + documents > 0
+          dependencies > 0 ||
+          !fieldData
         ) {
           blocked.push(resourceId);
           continue;
         }
+        await deleteImportedFieldData(manager, fieldData);
+        await clearDerivedResourcePointers(manager, companyId, "account", resourceId);
         deleted += (await manager.delete(Customer, { companyId, id: resourceId })).affected ?? 0;
       } else if (batch.resourceType === "deal") {
         const resource = await manager.findOneBy(Deal, { companyId, id: resourceId });
-        const nonCreationActivities = await manager
-          .createQueryBuilder(Activity, "activity")
-          .where("activity.companyId = :companyId", { companyId })
-          .andWhere("activity.dealId = :resourceId", { resourceId })
-          .andWhere("activity.kind != 'deal_created'")
-          .getCount();
-        const contacts = await manager.count(DealContact, {
-          where: { companyId, dealId: resourceId },
-        });
-        const documents = await manager.count(RevenueDocument, {
-          where: { companyId, dealId: resourceId },
-        });
+        const dependencies = await dealDependencyCount(manager, companyId, resourceId);
+        const historyIsImportOwned = resource
+          ? await canDeleteImportedDealHistory(manager, batch, resourceId)
+          : false;
+        const fieldData = resource
+          ? await importOwnedFieldData(manager, batch, "deal", resourceId)
+          : null;
         if (
           !resource ||
           resource.updatedAt.getTime() > batch.createdAt.getTime() ||
-          nonCreationActivities + contacts + documents > 0
+          dependencies > 0 ||
+          !historyIsImportOwned ||
+          !fieldData
         ) {
           blocked.push(resourceId);
           continue;
         }
+        await manager.delete(DealHistoryEvent, { companyId, dealId: resourceId });
         await manager.delete(Activity, { companyId, dealId: resourceId });
+        await deleteImportedFieldData(manager, fieldData);
+        await clearDerivedResourcePointers(manager, companyId, "deal", resourceId);
         deleted += (await manager.delete(Deal, { companyId, id: resourceId })).affected ?? 0;
       } else {
         const resource = await manager.findOneBy(Partnership, { companyId, id: resourceId });
@@ -2073,23 +2390,21 @@ export async function rollbackRevenueImport(
         const documents = await manager.count(RevenueDocument, {
           where: { companyId, partnershipId: resourceId },
         });
+        const fieldData = resource
+          ? await importOwnedFieldData(manager, batch, "partnership", resourceId)
+          : null;
         if (
           !resource ||
           resource.updatedAt.getTime() > batch.createdAt.getTime() ||
-          activities + contacts + documents > 0
+          activities + contacts + documents > 0 ||
+          !fieldData
         ) {
           blocked.push(resourceId);
           continue;
         }
+        await deleteImportedFieldData(manager, fieldData);
+        await clearDerivedResourcePointers(manager, companyId, "partnership", resourceId);
         deleted += (await manager.delete(Partnership, { companyId, id: resourceId })).affected ?? 0;
-      }
-      if (!blocked.includes(resourceId)) {
-        await deleteImportedFieldData(
-          manager,
-          companyId,
-          batch.resourceType as RevenueResourceType,
-          resourceId,
-        );
       }
     }
     batch.status = "rolled_back";

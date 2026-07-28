@@ -15,6 +15,7 @@ import { api, type Base, type BaseDetail, type BaseField } from "../lib/api";
 import type { RevenueCustomField, RevenueImportBatch, RevenueResourceType } from "../lib/revenue";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
+import { useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
@@ -124,47 +125,16 @@ const TARGET_FIELDS: Record<
   ],
 };
 
-function parseCsv(text: string): { headers: string[]; rows: ImportRow[] } {
-  const matrix: string[][] = [];
-  let row: string[] = [];
-  let value = "";
-  let quoted = false;
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (char === '"') {
-      if (quoted && text[index + 1] === '"') {
-        value += '"';
-        index += 1;
-      } else {
-        quoted = !quoted;
-      }
-    } else if (char === "," && !quoted) {
-      row.push(value);
-      value = "";
-    } else if ((char === "\n" || char === "\r") && !quoted) {
-      if (char === "\r" && text[index + 1] === "\n") index += 1;
-      row.push(value);
-      if (row.some((cell) => cell.trim())) matrix.push(row);
-      row = [];
-      value = "";
-    } else {
-      value += char;
-    }
-  }
-  row.push(value);
-  if (row.some((cell) => cell.trim())) matrix.push(row);
-  const headers = matrix[0]?.map((cell) => cell.trim()) ?? [];
-  return {
-    headers,
-    rows: matrix.slice(1).map((cells, index) => ({
-      sourceId: `csv-${index + 2}`,
-      values: Object.fromEntries(headers.map((header, column) => [header, cells[column] ?? ""])),
-    })),
-  };
+function importFileFormat(file: File): "csv" | "json" | "ndjson" {
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".ndjson") || name.endsWith(".jsonl")) return "ndjson";
+  if (name.endsWith(".json")) return "json";
+  return "csv";
 }
 
 export default function RevenueImports() {
   const { company } = useOutletContext<RevenueOutletCtx>();
+  const dialog = useDialog();
   const baseUrl = `/api/companies/${company.id}/revenue`;
   const sectionUrl = `/c/${company.slug}/revenue`;
   const [bases, setBases] = React.useState<Base[]>([]);
@@ -177,22 +147,41 @@ export default function RevenueImports() {
   const [historyResource, setHistoryResource] = React.useState("");
   const [customFields, setCustomFields] = React.useState<RevenueCustomField[]>([]);
   const [resourceType, setResourceType] = React.useState<ImportMode>("account_contact_deal");
-  const [sourceKind, setSourceKind] = React.useState<"base" | "csv">("base");
+  const [sourceKind, setSourceKind] = React.useState<"base" | "file">("base");
   const [baseId, setBaseId] = React.useState("");
   const [tableId, setTableId] = React.useState("");
   const [sourceLabel, setSourceLabel] = React.useState("");
   const [sourceFields, setSourceFields] = React.useState<Array<{ id: string; name: string }>>([]);
-  const [sourceRows, setSourceRows] = React.useState<ImportRow[]>([]);
+  const [sourceRowCount, setSourceRowCount] = React.useState(0);
+  const [sourceFile, setSourceFile] = React.useState<File | null>(null);
   const [mapping, setMapping] = React.useState<Record<string, string>>({});
   const [linkedMapping, setLinkedMapping] = React.useState<
     Record<LinkedResourceType, Record<string, string>>
   >({ account: {}, contact: {}, deal: {} });
   const [preview, setPreview] = React.useState<AnyImportReport | null>(null);
-  const [selectedDecisionPage, setSelectedDecisionPage] =
-    React.useState<ImportDecisionPage | null>(null);
+  const [previewConfigurationKey, setPreviewConfigurationKey] = React.useState<string | null>(null);
+  const [selectedDecisionPage, setSelectedDecisionPage] = React.useState<ImportDecisionPage | null>(
+    null,
+  );
   const [notice, setNotice] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const importConfigurationKey = JSON.stringify({
+    resourceType,
+    sourceKind,
+    baseId,
+    tableId,
+    sourceLabel,
+    sourceFile: sourceFile
+      ? {
+          name: sourceFile.name,
+          size: sourceFile.size,
+          lastModified: sourceFile.lastModified,
+        }
+      : null,
+    mapping,
+    linkedMapping,
+  });
 
   const reloadHistory = React.useCallback(async () => {
     const params = new URLSearchParams({
@@ -257,10 +246,12 @@ export default function RevenueImports() {
       }>(`${baseUrl}/imports/base-source?baseId=${baseId}&tableId=${tableId}`);
       setSourceLabel(source.sourceLabel);
       setSourceFields(source.fields.map((field) => ({ id: field.id, name: field.name })));
-      setSourceRows(source.rows);
+      setSourceRowCount(source.rows.length);
+      setSourceFile(null);
       setMapping({});
       setLinkedMapping({ account: {}, contact: {}, deal: {} });
       setPreview(null);
+      setPreviewConfigurationKey(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -268,18 +259,27 @@ export default function RevenueImports() {
     }
   }
 
-  async function loadCsv(file: File) {
+  async function loadFile(file: File) {
     setBusy(true);
     setError(null);
     try {
-      const parsed = parseCsv(await file.text());
-      if (parsed.headers.length === 0) throw new Error("The CSV has no header row");
-      setSourceLabel(file.name);
-      setSourceFields(parsed.headers.map((name) => ({ id: name, name })));
-      setSourceRows(parsed.rows);
+      const inspected = await api.uploadFile<{
+        format: "csv" | "json" | "ndjson";
+        sourceLabel: string;
+        fields: string[];
+        rowCount: number;
+      }>(`${baseUrl}/imports/file/inspect`, file, {
+        format: importFileFormat(file),
+        sourceLabel: file.name,
+      });
+      setSourceLabel(inspected.sourceLabel);
+      setSourceFields(inspected.fields.map((name) => ({ id: name, name })));
+      setSourceRowCount(inspected.rowCount);
+      setSourceFile(file);
       setMapping({});
       setLinkedMapping({ account: {}, contact: {}, deal: {} });
       setPreview(null);
+      setPreviewConfigurationKey(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -289,11 +289,10 @@ export default function RevenueImports() {
 
   function payload() {
     const source = {
-      sourceKind,
+      sourceKind: "base" as const,
       sourceLabel: sourceLabel || "Revenue import",
-      sourceBaseId: sourceKind === "base" ? baseId : null,
-      sourceTableId: sourceKind === "base" ? tableId : null,
-      rows: sourceKind === "csv" ? sourceRows : undefined,
+      sourceBaseId: baseId,
+      sourceTableId: tableId,
     };
     return resourceType === "account_contact_deal"
       ? { ...source, mapping: linkedMapping }
@@ -301,15 +300,28 @@ export default function RevenueImports() {
   }
 
   async function dryRun() {
+    const configurationKey = importConfigurationKey;
     setBusy(true);
     setError(null);
     try {
-      const endpoint =
-        resourceType === "account_contact_deal"
-          ? `${baseUrl}/imports/linked/preview`
-          : `${baseUrl}/imports/preview`;
-      const report = await api.post<AnyImportReport>(endpoint, payload());
+      const report =
+        sourceKind === "file"
+          ? await api.uploadFile<AnyImportReport>(`${baseUrl}/imports/file/preview`, sourceFile!, {
+              format: importFileFormat(sourceFile!),
+              sourceLabel: sourceLabel || sourceFile!.name,
+              resourceType,
+              mapping: JSON.stringify(
+                resourceType === "account_contact_deal" ? linkedMapping : mapping,
+              ),
+            })
+          : await api.post<AnyImportReport>(
+              resourceType === "account_contact_deal"
+                ? `${baseUrl}/imports/linked/preview`
+                : `${baseUrl}/imports/preview`,
+              payload(),
+            );
       setPreview(report);
+      setPreviewConfigurationKey(configurationKey);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -318,16 +330,34 @@ export default function RevenueImports() {
   }
 
   async function commit() {
+    if (!preview || previewConfigurationKey !== importConfigurationKey) {
+      setError("The import settings changed after the preview. Preview the import again.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const endpoint =
-        resourceType === "account_contact_deal"
-          ? `${baseUrl}/imports/linked`
-          : `${baseUrl}/imports`;
-      await api.post(endpoint, payload());
+      if (sourceKind === "file") {
+        await api.uploadFile(`${baseUrl}/imports/file/commit`, sourceFile!, {
+          format: importFileFormat(sourceFile!),
+          sourceLabel: sourceLabel || sourceFile!.name,
+          resourceType,
+          mapping: JSON.stringify(
+            resourceType === "account_contact_deal" ? linkedMapping : mapping,
+          ),
+        });
+      } else {
+        await api.post(
+          resourceType === "account_contact_deal"
+            ? `${baseUrl}/imports/linked`
+            : `${baseUrl}/imports`,
+          payload(),
+        );
+      }
       setPreview(null);
-      setSourceRows([]);
+      setPreviewConfigurationKey(null);
+      setSourceRowCount(0);
+      setSourceFile(null);
       setSourceFields([]);
       setMapping({});
       setLinkedMapping({ account: {}, contact: {}, deal: {} });
@@ -341,11 +371,20 @@ export default function RevenueImports() {
   }
 
   async function rollback(id: string) {
+    const confirmed = await dialog.confirm({
+      title: "Roll back this import?",
+      message:
+        "Created records are removed only when they have not gained newer links or activity. This action is recorded in the reconciliation report.",
+      confirmLabel: "Roll back import",
+      variant: "danger",
+    });
+    if (!confirmed) return;
     setBusy(true);
     setError(null);
     try {
       const result = await api.post<{ deleted: number; blocked: string[] }>(
         `${baseUrl}/imports/${id}/rollback`,
+        { confirm: "ROLLBACK" },
       );
       if (result.blocked.length) {
         setError(
@@ -453,8 +492,8 @@ export default function RevenueImports() {
           Revenue imports
         </h1>
         <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">
-          Split one Base or CSV row into a linked Account, Contact, and Deal, or import one resource
-          at a time. Every commit keeps a durable reconciliation report.
+          Split one Base, CSV, JSON, or NDJSON row into a linked Account, Contact, and Deal, or
+          import one resource at a time. Every commit keeps a durable reconciliation report.
         </p>
       </div>
       {error && (
@@ -480,6 +519,7 @@ export default function RevenueImports() {
               onChange={(e) => {
                 setResourceType(e.target.value as ImportMode);
                 setPreview(null);
+                setPreviewConfigurationKey(null);
               }}
             >
               <option value="account_contact_deal">Linked Account + Contact + Deal</option>
@@ -492,14 +532,16 @@ export default function RevenueImports() {
               label="Source"
               value={sourceKind}
               onChange={(e) => {
-                setSourceKind(e.target.value as "base" | "csv");
-                setSourceRows([]);
+                setSourceKind(e.target.value as "base" | "file");
+                setSourceRowCount(0);
+                setSourceFile(null);
                 setSourceFields([]);
                 setPreview(null);
+                setPreviewConfigurationKey(null);
               }}
             >
               <option value="base">Genosyn Base</option>
-              <option value="csv">CSV file</option>
+              <option value="file">CSV, JSON, or NDJSON file</option>
             </Select>
           </div>
           <Button variant="secondary" onClick={() => void installMigrationFields()} disabled={busy}>
@@ -509,7 +551,20 @@ export default function RevenueImports() {
 
         {sourceKind === "base" ? (
           <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-            <Select label="Base" value={baseId} onChange={(e) => setBaseId(e.target.value)}>
+            <Select
+              label="Base"
+              value={baseId}
+              onChange={(e) => {
+                setBaseId(e.target.value);
+                setSourceLabel("");
+                setSourceFields([]);
+                setSourceRowCount(0);
+                setMapping({});
+                setLinkedMapping({ account: {}, contact: {}, deal: {} });
+                setPreview(null);
+                setPreviewConfigurationKey(null);
+              }}
+            >
               <option value="">Choose a Base</option>
               {bases.map((row) => (
                 <option key={row.id} value={row.id}>
@@ -520,7 +575,16 @@ export default function RevenueImports() {
             <Select
               label="Table"
               value={tableId}
-              onChange={(e) => setTableId(e.target.value)}
+              onChange={(e) => {
+                setTableId(e.target.value);
+                setSourceLabel("");
+                setSourceFields([]);
+                setSourceRowCount(0);
+                setMapping({});
+                setLinkedMapping({ account: {}, contact: {}, deal: {} });
+                setPreview(null);
+                setPreviewConfigurationKey(null);
+              }}
               disabled={!baseDetail}
             >
               <option value="">Choose a table</option>
@@ -541,12 +605,12 @@ export default function RevenueImports() {
         ) : (
           <div className="mt-4 max-w-md">
             <Input
-              label="CSV file"
+              label="Import file"
               type="file"
-              accept=".csv,text/csv"
+              accept=".csv,.json,.jsonl,.ndjson,text/csv,application/json,application/x-ndjson"
               onChange={(event) => {
                 const file = event.target.files?.[0];
-                if (file) void loadCsv(file);
+                if (file) void loadFile(file);
               }}
             />
           </div>
@@ -558,7 +622,7 @@ export default function RevenueImports() {
               <div>
                 <h2 className="font-semibold text-slate-900 dark:text-slate-100">Field mapping</h2>
                 <p className="text-xs text-slate-500">
-                  {sourceRows.length.toLocaleString()} source rows · {sourceLabel}
+                  {sourceRowCount.toLocaleString()} source rows · {sourceLabel}
                 </p>
               </div>
               <Button onClick={() => void dryRun()} disabled={busy || !mappingComplete}>
@@ -581,15 +645,17 @@ export default function RevenueImports() {
                           key={field.key}
                           label={`${field.label}${field.required ? " *" : ""}`}
                           value={linkedMapping[target][field.key] ?? ""}
-                          onChange={(event) =>
+                          onChange={(event) => {
                             setLinkedMapping((current) => ({
                               ...current,
                               [target]: {
                                 ...current[target],
                                 [field.key]: event.target.value,
                               },
-                            }))
-                          }
+                            }));
+                            setPreview(null);
+                            setPreviewConfigurationKey(null);
+                          }}
                         >
                           <option value="">Do not import</option>
                           {sourceFields.map((sourceField) => (
@@ -610,12 +676,14 @@ export default function RevenueImports() {
                     key={target.key}
                     label={`${target.label}${target.required ? " *" : ""}`}
                     value={mapping[target.key] ?? ""}
-                    onChange={(event) =>
+                    onChange={(event) => {
                       setMapping((current) => ({
                         ...current,
                         [target.key]: event.target.value,
-                      }))
-                    }
+                      }));
+                      setPreview(null);
+                      setPreviewConfigurationKey(null);
+                    }}
                   >
                     <option value="">Do not import</option>
                     {sourceFields.map((field) => (
@@ -631,7 +699,7 @@ export default function RevenueImports() {
         )}
       </section>
 
-      {preview && (
+      {preview && previewConfigurationKey === importConfigurationKey && (
         <section className="mt-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -689,9 +757,7 @@ export default function RevenueImports() {
                     {dealPreview && (
                       <p className="mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400">
                         Deal Stage: {String(dealPreview.stage || "Not imported")} · Source:{" "}
-                        {String(
-                          dealPreview.sourceLabel || dealPreview.source || "Not imported",
-                        )}
+                        {String(dealPreview.sourceLabel || dealPreview.source || "Not imported")}
                       </p>
                     )}
                   </div>
@@ -721,6 +787,8 @@ export default function RevenueImports() {
             <option value="">Any source</option>
             <option value="base">Base</option>
             <option value="csv">CSV</option>
+            <option value="json">JSON / NDJSON</option>
+            <option value="connection">Connection</option>
           </Select>
           <Select
             value={historyStatus}
@@ -816,8 +884,8 @@ export default function RevenueImports() {
         {historyTotal > 25 && (
           <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
             <span>
-              {historyOffset + 1}–{Math.min(historyOffset + (batches?.length ?? 0), historyTotal)} of{" "}
-              {historyTotal}
+              {historyOffset + 1}–{Math.min(historyOffset + (batches?.length ?? 0), historyTotal)}{" "}
+              of {historyTotal}
             </span>
             <div className="flex gap-2">
               <Button

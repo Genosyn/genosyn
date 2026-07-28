@@ -22,9 +22,9 @@ export function RevenueOperations() {
         lead={
           <>
             Run the daily follow-up queue, keep prospect accounts structured, manage partnerships
-            and formal documents, and migrate Base or CSV records safely. These workflows live under{" "}
-            <Code>Revenue</Code> and use the same services whether a Member or an AI Employee does
-            the work.
+            and formal documents, and migrate Base, CSV, JSON, or NDJSON records safely. These
+            workflows live under <Code>Revenue</Code> and use the same services whether a Member or
+            an AI Employee does the work.
           </>
         }
       />
@@ -65,7 +65,7 @@ export function RevenueOperations() {
         rows={[
           {
             term: "Firmographics",
-            def: "Domain, website, industry, employee count, and account status.",
+            def: "Domain, website, industry, employee count, headquarters, parent company, and account status.",
           },
           {
             term: "Relationship",
@@ -181,13 +181,19 @@ export function RevenueOperations() {
         dropping the technical, channel, or commercial stakeholder.
       </P>
 
-      <H2 id="imports">Base and CSV migration</H2>
+      <H2 id="imports">Base and file migration</H2>
       <P>
-        Open <Code>Revenue → Imports</Code> to move data from a Genosyn Base or CSV. Use{" "}
-        <Strong>Linked Account + Contact + Deal</Strong> when each legacy row contains all three:
+        Open <Code>Revenue → Imports</Code> to move data from a Genosyn Base or upload a{" "}
+        <Code>.csv</Code>, <Code>.json</Code>, <Code>.jsonl</Code>, or <Code>.ndjson</Code> file
+        directly. Genosyn inspects the source first and shows its fields and row count before any
+        mapping or write. Use <Strong>Linked Account + Contact + Deal</Strong> when each legacy row
+        contains all three:
       </P>
       <OL>
-        <LI>Install the Base migration fields, then choose the source Base table or CSV.</LI>
+        <LI>
+          Install the recommended migration fields, then choose the source Base table or upload a
+          CSV, JSON, or NDJSON file.
+        </LI>
         <LI>
           Map the Account, Contact, and Deal fields from the same source row, including Deal Stage
           and Source when they exist.
@@ -195,7 +201,8 @@ export function RevenueOperations() {
         <LI>
           Run a <Strong>dry run</Strong> to see creates, duplicate matches, skipped rows, and the
           result for each of the three resources. Every Deal decision shows the resolved target Deal
-          Stage and Source.
+          Stage and Source. Changing the source, resource type, table, file, or field mapping clears
+          that preview, so the committed rows always match what was reviewed.
         </LI>
         <LI>
           Commit only after reviewing the preview. All three resources and their links are written
@@ -219,12 +226,15 @@ export function RevenueOperations() {
       </P>
       <P>
         Every committed batch stores the field mapping, duplicate decisions, and source-row to
-        native-ID map for reconciliation. Open <Strong>Report</Strong> to page through decisions
-        without loading the whole batch. For a Base import, <Strong>Migrate attachments</Strong>{" "}
-        copies the source row attachments into Revenue Documents after the structured records exist;
-        the pass is idempotent and reports failures separately. Rollback deletes the linked Deals,
-        Contacts, then Accounts only when they are still safe to remove; anything that gained
-        activities, documents, or finance history is kept and reported as blocked.
+        native-ID map for reconciliation. Source IDs remain stable across retry and replay, whether
+        they came from a source field, JSON object, NDJSON line, or CSV row. Open{" "}
+        <Strong>Report</Strong> to page through decisions without loading the whole batch. For a
+        Base import, <Strong>Migrate attachments</Strong> copies the source row attachments into
+        Revenue Documents after the structured records exist; the pass is idempotent and reports
+        failures separately. Rollback deletes the linked Deals, Contacts, then Accounts only when
+        they are still safe to remove; anything that gained activities, documents, or finance
+        history is kept and reported as blocked. The <Strong>Roll back</Strong> action always asks
+        for destructive confirmation and records the outcome in the reconciliation report.
       </P>
       <P>
         The history list loads summaries rather than every source decision. Open one Import ID for
@@ -247,9 +257,10 @@ export function RevenueOperations() {
         Accounts, Contacts, Deals, and Partnerships; preview and merge every core record type with
         explicit conflict choices; resolve tombstone redirects; archive, restore, bulk triage,
         audit, reconcile, and undo; search and correct manual activity; manage Sequences and Signal
-        definitions; review duplicate, domain, commercial-value, and Gmail document evidence; export
-        native Revenue datasets; and preview, run, reconcile, attach, or roll back Base, CSV,
-        linked, and historical Deal migrations.
+        definitions; inspect Deal-history coverage and the commercial-value backlog; review
+        duplicate, domain, firmographic, commercial-value, and Gmail document evidence; export
+        native and immutable Revenue datasets; and preview, run, reconcile, attach, or roll back
+        Base, CSV, JSON, NDJSON, linked, and historical Deal migrations.
       </P>
       <UL>
         <LI>
@@ -266,8 +277,10 @@ export function RevenueOperations() {
         </LI>
         <LI>
           Finance-derived proposals additionally require a Finance Grant; Stripe evidence requires a
-          Grant to the chosen Stripe Connection; Gmail capture requires the relevant Mail Grant.
-          Revenue access never bypasses those boundaries.
+          Grant to the chosen Stripe Connection; firmographic lookup requires a Grant to the chosen
+          People Data Labs Connection; Gmail capture requires the relevant Mail Grant. Exporting
+          Gmail document candidates also requires the source Mail Account ID and a read Grant to
+          that exact mailbox. Revenue access never bypasses those boundaries.
         </LI>
       </UL>
       <H3 id="suggested-routine">A useful sales Routine</H3>

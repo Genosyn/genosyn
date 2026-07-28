@@ -25,6 +25,7 @@ import { googleAdsProvider } from "./providers/google-ads.js";
 import { metaAdsProvider } from "./providers/meta-ads.js";
 import { microsoftAdsProvider } from "./providers/microsoft-ads.js";
 import { redditAdsProvider } from "./providers/reddit-ads.js";
+import { peopleDataLabsProvider } from "./providers/people-data-labs.js";
 import { config } from "../../config.js";
 
 /**
@@ -60,6 +61,7 @@ const PROVIDERS: Record<string, IntegrationProvider> = {
   [metaAdsProvider.catalog.provider]: metaAdsProvider,
   [microsoftAdsProvider.catalog.provider]: microsoftAdsProvider,
   [redditAdsProvider.catalog.provider]: redditAdsProvider,
+  [peopleDataLabsProvider.catalog.provider]: peopleDataLabsProvider,
 };
 
 const SHARED_SAAS_BLOCKED_PROVIDERS = new Set(["postgres", "mysql", "redis"]);

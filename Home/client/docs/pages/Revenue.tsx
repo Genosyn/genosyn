@@ -36,7 +36,7 @@ export function Revenue() {
         <LI>
           <DocLink to="/docs/revenue-operations">Revenue operations</DocLink> — one follow-up queue,
           prospect-through-customer accounts, typed custom fields, partnerships, formal documents,
-          and reversible Base/CSV migrations.
+          and reversible Base or CSV/JSON/NDJSON migrations.
         </LI>
         <LI>
           <DocLink to="/docs/revenue-data-quality">Revenue data quality</DocLink> — audited merges,
@@ -132,11 +132,13 @@ export function Revenue() {
         and restore or guarded undo can bring it back.
       </P>
       <P>
-        Choose the surviving record and review field conflicts and relationship counts, then type
-        the duplicate label. Genosyn moves every applicable Revenue and Finance reference in one
-        transaction, preserves aliases and source IDs, and archives the duplicate as a redirecting
-        tombstone. Destination fields win; missing custom values are copied, while conflicts stay
-        visible rather than silently overwriting the survivor.
+        Choose the surviving record, then resolve every conflicting field explicitly: keep the
+        survivor&apos;s value or take the source duplicate&apos;s value. Review the relationship
+        counts and coupled ownership or Deal-status choices before typing the duplicate label.
+        Genosyn then moves every applicable Revenue and Finance reference in one transaction,
+        preserves aliases and source IDs, and archives the duplicate as a redirecting tombstone.
+        Missing custom values are copied; conflicting custom values stay visible until you choose
+        their source or survivor value.
       </P>
       <Callout kind="info" title="A merge is atomic, audited, and reversible.">
         Either every linked record moves or none do. Undo verifies that no affected row has changed

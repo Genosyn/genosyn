@@ -45,7 +45,10 @@ describe("Integration catalogue invariants", () => {
     let toolCount = 0;
     for (const id of listProviderIds()) {
       const provider = getProvider(id)!;
-      assert.ok(provider.tools.length > 0, `${id} exposes no tools`);
+      assert.ok(
+        provider.tools.length > 0 || provider.lookupCompanyFirmographics,
+        `${id} exposes neither tools nor a host-owned capability`,
+      );
       const local = new Set<string>();
       for (const tool of provider.tools) {
         toolCount += 1;
@@ -134,5 +137,16 @@ describe("Integration catalogue invariants", () => {
         );
       }
     }
+  });
+
+  test("People Data Labs exposes normalized firmographics without a configurable endpoint", () => {
+    const provider = getProvider("people-data-labs");
+    assert.ok(provider);
+    assert.equal(typeof provider.lookupCompanyFirmographics, "function");
+    assert.deepEqual(
+      provider.catalog.fields?.map((field) => field.key),
+      ["apiKey"],
+    );
+    assert.deepEqual(provider.tools, []);
   });
 });

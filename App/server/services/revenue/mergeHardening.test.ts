@@ -10,6 +10,7 @@ import { RevenueCustomField } from "../../db/entities/RevenueCustomField.js";
 import { RevenueCustomValue } from "../../db/entities/RevenueCustomValue.js";
 import { RevenueDuplicateCandidate } from "../../db/entities/RevenueDuplicateCandidate.js";
 import { RevenueFieldEvidence } from "../../db/entities/RevenueFieldEvidence.js";
+import { RevenueFirmographicLookup } from "../../db/entities/RevenueFirmographicLookup.js";
 import { RevenueOperation } from "../../db/entities/RevenueOperation.js";
 import { RevenueOperationRow } from "../../db/entities/RevenueOperationRow.js";
 import {
@@ -118,6 +119,29 @@ async function fieldEvidence(
     lastVerifiedAt: status === "accepted" ? observedAt : null,
     metadataJson: "{}",
     createdAt: observedAt,
+  });
+}
+
+async function firmographicLookup(
+  companyId: string,
+  customerId: string,
+  connectionId: string,
+  providerRecordId: string,
+  lastAttemptedAt: Date,
+): Promise<RevenueFirmographicLookup> {
+  return insert(RevenueFirmographicLookup, {
+    companyId,
+    customerId,
+    connectionId,
+    provider: "people-data-labs",
+    providerRecordId,
+    status: "matched",
+    normalizedSnapshotJson: JSON.stringify({ providerRecordId }),
+    confidence: 90,
+    lastAttemptedAt,
+    lastMatchedAt: lastAttemptedAt,
+    observedAt: lastAttemptedAt,
+    lastError: "",
   });
 }
 
@@ -608,6 +632,118 @@ describe("Revenue merge evidence reconciliation", () => {
     );
     assert.equal(segment?.value, "Target before merge");
     assert.equal(segment?.provenance?.id, targetEvidence.id);
+  });
+
+  test("merges Account firmographics, keeps the newest paid cache, and restores it on undo", async () => {
+    const companyId = testCompanyId();
+    const source = await account(companyId, "Firmographic Source");
+    source.headquartersAddress = "London, United Kingdom";
+    source.parentCompanyName = "Source Holdings";
+    source.parentCompanyDomain = "source-holdings.example";
+    await AppDataSource.getRepository(Customer).save(source);
+    const target = await account(companyId, "Firmographic Target");
+    target.headquartersAddress = "New York, United States";
+    target.parentCompanyName = "Target Holdings";
+    target.parentCompanyDomain = "target-holdings.example";
+    await AppDataSource.getRepository(Customer).save(target);
+
+    const targetOlder = await firmographicLookup(
+      companyId,
+      target.id,
+      "connection-shared",
+      "target-older",
+      new Date("2026-06-01T00:00:00.000Z"),
+    );
+    const sourceNewer = await firmographicLookup(
+      companyId,
+      source.id,
+      "connection-shared",
+      "source-newer",
+      new Date("2026-07-01T00:00:00.000Z"),
+    );
+    const sourceOnly = await firmographicLookup(
+      companyId,
+      source.id,
+      "connection-source-only",
+      "source-only",
+      new Date("2026-07-02T00:00:00.000Z"),
+    );
+
+    const merged = await mergeRevenueRecords(
+      companyId,
+      "account",
+      source.id,
+      target.id,
+      source.name,
+      {},
+      {
+        headquartersAddress: "source",
+        parentCompanyName: "source",
+        parentCompanyDomain: "source",
+      },
+    );
+    assert.equal(merged.relationshipCounts.firmographicLookups, 2);
+    assert.equal(merged.relationshipCounts.firmographicLookupConflicts, 1);
+    const survivor = await AppDataSource.getRepository(Customer).findOneByOrFail({
+      id: target.id,
+    });
+    assert.equal(survivor.headquartersAddress, source.headquartersAddress);
+    assert.equal(survivor.parentCompanyName, source.parentCompanyName);
+    assert.equal(survivor.parentCompanyDomain, source.parentCompanyDomain);
+    assert.equal(
+      (
+        await AppDataSource.getRepository(RevenueFirmographicLookup).findOneByOrFail({
+          id: targetOlder.id,
+        })
+      ).providerRecordId,
+      "source-newer",
+    );
+    assert.equal(
+      (
+        await AppDataSource.getRepository(RevenueFirmographicLookup).findOneByOrFail({
+          id: sourceOnly.id,
+        })
+      ).customerId,
+      target.id,
+    );
+    assert.equal(
+      await AppDataSource.getRepository(RevenueFirmographicLookup).findOneBy({
+        id: sourceNewer.id,
+      }),
+      null,
+    );
+
+    await rollbackRevenueOperation(companyId, merged.operationId!);
+    const restoredTarget = await AppDataSource.getRepository(Customer).findOneByOrFail({
+      id: target.id,
+    });
+    assert.equal(restoredTarget.headquartersAddress, "New York, United States");
+    assert.equal(restoredTarget.parentCompanyName, "Target Holdings");
+    assert.equal(restoredTarget.parentCompanyDomain, "target-holdings.example");
+    assert.equal(
+      (
+        await AppDataSource.getRepository(RevenueFirmographicLookup).findOneByOrFail({
+          id: targetOlder.id,
+        })
+      ).providerRecordId,
+      "target-older",
+    );
+    assert.equal(
+      (
+        await AppDataSource.getRepository(RevenueFirmographicLookup).findOneByOrFail({
+          id: sourceNewer.id,
+        })
+      ).customerId,
+      source.id,
+    );
+    assert.equal(
+      (
+        await AppDataSource.getRepository(RevenueFirmographicLookup).findOneByOrFail({
+          id: sourceOnly.id,
+        })
+      ).customerId,
+      source.id,
+    );
   });
 });
 

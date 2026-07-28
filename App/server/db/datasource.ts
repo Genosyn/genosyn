@@ -153,6 +153,7 @@ import { RevenueFieldEvidence } from "./entities/RevenueFieldEvidence.js";
 import { RevenueDocumentCandidate } from "./entities/RevenueDocumentCandidate.js";
 import { RevenueDuplicateCandidate } from "./entities/RevenueDuplicateCandidate.js";
 import { RevenueFollowUpView } from "./entities/RevenueFollowUpView.js";
+import { RevenueFirmographicLookup } from "./entities/RevenueFirmographicLookup.js";
 import { MarketingCampaign } from "./entities/MarketingCampaign.js";
 import { MarketingCreative } from "./entities/MarketingCreative.js";
 import { MarketingExperiment } from "./entities/MarketingExperiment.js";
@@ -309,6 +310,7 @@ const entities = [
   RevenueDocumentCandidate,
   RevenueDuplicateCandidate,
   RevenueFollowUpView,
+  RevenueFirmographicLookup,
   // Marketing agency (M35) — strategy, Creative, Experiments and measurements.
   MarketingCampaign,
   MarketingCreative,

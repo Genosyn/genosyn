@@ -69,6 +69,19 @@ export class Customer {
   @Column({ type: "int", default: 0 })
   employeeCount!: number;
 
+  /** Provider-sourced or manually entered headquarters; separate from the
+   * billing and shipping addresses used on Finance documents. */
+  @Column({ type: "text", default: "" })
+  headquartersAddress!: string;
+
+  /** Display-only parent-company facts. Enrichment never creates or links a
+   * parent Account automatically. */
+  @Column({ type: "varchar", default: "" })
+  parentCompanyName!: string;
+
+  @Column({ type: "varchar", default: "" })
+  parentCompanyDomain!: string;
+
   @Column({ type: "varchar", nullable: true })
   ownerId!: string | null;
 

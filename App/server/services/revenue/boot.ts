@@ -47,6 +47,7 @@ let signalTimer: NodeJS.Timeout | null = null;
 let duplicateTimer: NodeJS.Timeout | null = null;
 let sequenceTicking = false;
 let signalTicking = false;
+let duplicateScanning = false;
 
 /** How much of the contact's recent history to put in front of the employee. */
 const TIMELINE_CONTEXT_ROWS = 12;
@@ -269,18 +270,31 @@ export function bootRevenue(): void {
     console.warn("[revenue] failed to backfill field provenance", error);
   });
 
-  const scanDuplicates = () =>
-    withSchedulerLease("revenue-duplicate-scan", DUPLICATE_SCAN_INTERVAL_MS, async () => {
-      const companies = await AppDataSource.getRepository(Company).find({
-        select: { id: true },
+  const scanDuplicates = async () => {
+    if (duplicateScanning) return;
+    duplicateScanning = true;
+    try {
+      await withSchedulerLease("revenue-duplicate-scan", DUPLICATE_SCAN_INTERVAL_MS, async () => {
+        const companies = await AppDataSource.getRepository(Company).find({
+          select: { id: true },
+        });
+        for (const company of companies) {
+          try {
+            await scanRevenueDuplicates(company.id);
+          } catch (error) {
+            // One malformed tenant must not prevent the remaining companies from reconciling.
+            // eslint-disable-next-line no-console
+            console.warn(`[revenue] duplicate scan failed for company ${company.id}`, error);
+          }
+        }
       });
-      for (const company of companies) {
-        await scanRevenueDuplicates(company.id);
-      }
-    }).catch((error) => {
+    } catch (error) {
       // eslint-disable-next-line no-console
       console.warn("[revenue] duplicate scan failed", error);
-    });
+    } finally {
+      duplicateScanning = false;
+    }
+  };
   void scanDuplicates();
   if (duplicateTimer) clearInterval(duplicateTimer);
   duplicateTimer = setInterval(() => {
@@ -321,10 +335,12 @@ export function bootRevenue(): void {
   }, HEARTBEAT_INTERVAL_MS);
 }
 
-/** Stop both heartbeats. The backup restore path destroys the DataSource. */
+/** Stop every Revenue heartbeat. The backup restore path destroys the DataSource. */
 export function stopRevenue(): void {
   if (sequenceTimer) clearInterval(sequenceTimer);
   if (signalTimer) clearInterval(signalTimer);
+  if (duplicateTimer) clearInterval(duplicateTimer);
   sequenceTimer = null;
   signalTimer = null;
+  duplicateTimer = null;
 }

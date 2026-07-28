@@ -1333,8 +1333,9 @@ pipeline, and the PQL tools have neither.
       ownership; typed custom fields with exact filtering; controlled deal
       sources and committee/partnership classifications; formal document
       relationships; native `Partnership` records with primary and Reply-All
-      contacts; and Base/CSV imports with dry run, duplicate preview, durable
-      source-row mapping, guarded rollback and reconciliation reports. Every
+      contacts; and Base plus direct CSV/JSON/NDJSON imports with dry run,
+      duplicate preview, durable source-row mapping, guarded rollback and
+      reconciliation reports. Every
       service is exposed through granular deferred AI tools behind
       `EmployeeRevenueGrant`; Base imports additionally require a grant to the
       source Base.
@@ -1389,9 +1390,9 @@ pipeline, and the PQL tools have neither.
       controlled classifications, typed custom-field definitions, Sequences,
       Signal definitions and event history, formal-document lifecycle, Contact
       ownership, and manual Activity correction. Add company-wide Activity
-      search/export, durable import-report lookup, a transactional Base/CSV
-      importer that splits each source row into a linked Account, Contact and
-      Deal, and a reconciled pass for Base record attachments.
+      search/export, durable import-report lookup, a transactional Base or
+      CSV/JSON/NDJSON importer that splits each source row into a linked Account,
+      Contact and Deal, and a reconciled pass for Base record attachments.
 
 #### M32.1 — Revenue data quality and historical truth
 
@@ -1403,11 +1404,14 @@ or enrichment trusts the resulting records:
       field and relationship conflicts, reassign timelines, follow-ups,
       documents, committees and custom values, preserve aliases and imported
       source IDs, and leave a redirecting tombstone instead of deleting the
-      duplicate.
+      duplicate. Archive and restore are symmetrical for all four resources;
+      merge tombstones can only be restored through guarded undo.
 - [x] **Bulk Revenue operations.** Selected-ID or filter targeting for owner,
-      lifecycle/status, custom-field, follow-up and archive changes, with a dry
-      run, per-row validation, idempotent commits, partial-failure reporting,
-      durable audit history and guarded rollback. The follow-up queue adds
+      lifecycle/status, allowed standard fields, custom fields, follow-up and
+      archive changes, with a dry run, per-row validation, idempotent commits,
+      partial-failure reporting, durable audit history and guarded rollback.
+      Deal amount, owner and expected-close bulk changes append immutable
+      history. The follow-up queue adds
       assignee/unassigned, priority, resource, status, due/staleness and Deal
       state filters plus complete/cancel/reassign/reprioritize/reschedule bulk
       triage.
@@ -1416,28 +1420,41 @@ or enrichment trusts the resulting records:
       Funnel reporting becomes transition/cohort based: entered/progressed,
       period wins/losses, original-cohort conversion, median time in stage and
       median sales cycle, with explicit complete/partial/missing history
-      coverage for pre-history imports.
+      coverage for pre-history imports. A Deal-level coverage inventory links
+      migration batches to each ledger, and Activity repair requires an explicit
+      selected-Deal preview so a migration-time Activity cannot be mistaken for
+      an original lifecycle boundary.
 - [x] **Controlled enrichment.** Provenance-backed, reviewable proposals for
       canonical Account domains and Deal commercial value. Domain evidence
       rejects public mailboxes, resolves aliases/subdomains and safely follows
       redirects without overwriting verified values. Value evidence normalizes
       currency, recurring cadence, seats, ARR/MRR/ACV, source and confidence
       from Stripe, Finance, Account ACV, proposals/quotes and confirmed terms.
+      An actionable zero-value Deal backlog scopes proposal work; commercial
+      values require human review and stale proposals are refused.
 - [x] **Revenue document capture.** Scan current and historical Gmail
       attachments, classify commercial documents, propose Account/Contact/Deal/
       Partnership links, deduplicate by source message and file hash, preserve
-      provenance, and require review when a link is ambiguous.
+      provenance, and require review when a link is ambiguous. New Gmail
+      messages generate candidates automatically during sync; the manual scan
+      remains for historical mail.
 - [x] **Exports, scalable reconciliation and duplicate candidates.** Complete
       paginated snapshots for every core Revenue resource; summary/filter/
       lookup/download and separately paginated row decisions for import
-      history; and an ongoing exact/aliased-domain, normalized-name, email,
-      Stripe-ID, redirect and same-Account Deal-title duplicate report that
-      feeds the merge workflow but never merges automatically.
+      history; immutable Deal history, field evidence, duplicate candidates,
+      operation audit and document-candidate exports; and an ongoing
+      exact/aliased-domain, normalized-name, email, Stripe-ID, redirect and
+      same-Account Deal-title duplicate report. Duplicate scans run at boot and
+      every six hours, feed the merge workflow, and never merge automatically.
 - [ ] Real ad-platform spend for CAC (replacing the `AdSpendEvent` proxy)
 - [ ] Meeting booking and calendar-based activities — deferred; Google Calendar
       is already connected and a native scheduler earns its complexity later
-- [ ] Enrichment — deliberately bring-your-own-key through the Integration
-      framework rather than a bundled provider
+- [x] **Bring-your-own-key firmographics.** People Data Labs connects through
+      the Integration framework and proposes reviewable Account domain, website,
+      industry, employee-count, headquarters and parent-company evidence.
+      Preview estimates external requests without calling the provider; matched
+      and no-match lookups are cached, credit-consuming work is explicit, and AI
+      Employees need both Revenue access and a Grant to the Connection.
 - [ ] A second sales process per company (one nullable `processId` when asked)
 
 ### M35 — Autonomous Marketing agency ✅

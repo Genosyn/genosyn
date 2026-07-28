@@ -18,6 +18,7 @@ import { DealHistoryEvent } from "../db/entities/DealHistoryEvent.js";
 import { DealStage } from "../db/entities/DealStage.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
 import { RevenueDocument } from "../db/entities/RevenueDocument.js";
+import { RevenueFieldEvidence } from "../db/entities/RevenueFieldEvidence.js";
 import { RevenueOperation } from "../db/entities/RevenueOperation.js";
 import { Suppression } from "../db/entities/Suppression.js";
 import { User } from "../db/entities/User.js";
@@ -999,17 +1000,167 @@ describe("revenue routes — operating system", () => {
     assert.equal(batch.status, 201);
     assert.equal(batch.body.batch.status, "completed");
     assert.equal(batch.body.counts.created, 1);
+    const unconfirmedRollback = await call(
+      "POST",
+      `/revenue/imports/${batch.body.batch.id}/rollback`,
+      {},
+    );
+    assert.equal(unconfirmedRollback.status, 400);
     const rollback = await call<{
       batch: { id: string; status: string };
       counts: Record<string, number>;
       deleted: number;
       blocked: unknown[];
-    }>("POST", `/revenue/imports/${batch.body.batch.id}/rollback`);
+    }>("POST", `/revenue/imports/${batch.body.batch.id}/rollback`, {
+      confirm: "ROLLBACK",
+    });
     assert.equal(rollback.status, 200);
     assert.equal(rollback.body.batch.status, "rolled_back");
     assert.equal(rollback.body.counts.rolled_back, 1);
     assert.equal(rollback.body.deleted, 1);
     assert.deepEqual(rollback.body.blocked, []);
+  });
+
+  test("gates the commercial-value backlog and Finance proposals independently", async () => {
+    actingUserId = memberId;
+    const dealId = randomUUID();
+    await AppDataSource.getRepository(Membership).update(
+      { companyId, userId: memberId },
+      { financeAccess: "none" },
+    );
+    const withoutFinance = await call<{ error: string }>(
+      "GET",
+      `/revenue/enrichment/commercial-values/backlog?dealIds=${dealId}`,
+    );
+    assert.equal(withoutFinance.status, 403);
+    assert.match(withoutFinance.body.error, /finances/i);
+
+    await AppDataSource.getRepository(Membership).update(
+      { companyId, userId: memberId },
+      { financeAccess: "read" },
+    );
+    const backlog = await call(
+      "GET",
+      `/revenue/enrichment/commercial-values/backlog?dealIds=${dealId}`,
+    );
+    assert.equal(backlog.status, 200);
+    const proposalWithRead = await call<{ error: string }>(
+      "POST",
+      "/revenue/enrichment/commercial-values/propose-from-finance",
+      { dealIds: [dealId], confirm: "PROPOSE" },
+    );
+    assert.equal(proposalWithRead.status, 403);
+    assert.match(proposalWithRead.body.error, /read-only/i);
+
+    await AppDataSource.getRepository(Membership).update(
+      { companyId, userId: memberId },
+      { financeAccess: "full" },
+    );
+    const proposalWithFull = await call(
+      "POST",
+      "/revenue/enrichment/commercial-values/propose-from-finance",
+      { dealIds: [dealId], confirm: "PROPOSE" },
+    );
+    assert.equal(proposalWithFull.status, 200);
+  });
+
+  test("filters Finance evidence and requires full Finance access to review it", async () => {
+    const account = await call<{ id: string }>("POST", "/revenue/accounts", {
+      name: "Evidence Account",
+    });
+    assert.equal(account.status, 201);
+    const evidenceBase = {
+      companyId,
+      resourceType: "account" as const,
+      resourceId: account.body.id,
+      fieldKey: "industry",
+      extractedValueJson: JSON.stringify("Software"),
+      normalizedValue: "software",
+      confidence: 80,
+      status: "proposed" as const,
+      verificationState: "verified" as const,
+      extractionMethod: "test",
+      extractedAt: new Date(),
+    };
+    const financeEvidence = await insert(RevenueFieldEvidence, {
+      ...evidenceBase,
+      sourceType: "finance",
+      sourceId: "invoice-secret",
+      sourceLabel: "Finance invoice",
+    });
+    const manualEvidence = await insert(RevenueFieldEvidence, {
+      ...evidenceBase,
+      sourceType: "manual",
+      sourceId: "manual-safe",
+      sourceLabel: "Member note",
+    });
+    await AppDataSource.getRepository(Membership).update(
+      { companyId, userId: memberId },
+      { financeAccess: "none" },
+    );
+    actingUserId = memberId;
+
+    const unfiltered = await call<{
+      rows: Array<{ id: string }>;
+      total: number;
+    }>("GET", "/revenue/enrichment/evidence");
+    assert.equal(unfiltered.status, 200);
+    assert.equal(unfiltered.body.total, 1);
+    assert.deepEqual(
+      unfiltered.body.rows.map((row) => row.id),
+      [manualEvidence.id],
+    );
+    assert.equal(
+      (await call("GET", "/revenue/enrichment/evidence?sourceType=finance")).status,
+      403,
+    );
+    const exported = await call<{
+      rows: Array<{ id: string }>;
+      total: number;
+    }>("GET", "/revenue/exports/field_evidence?format=json");
+    assert.equal(exported.status, 200);
+    assert.equal(exported.body.total, 1);
+    assert.deepEqual(
+      exported.body.rows.map((row) => row.id),
+      [manualEvidence.id],
+    );
+    assert.equal(
+      (await call("GET", "/revenue/exports/field_evidence?format=json&sourceType=finance")).status,
+      403,
+    );
+    const manualReview = await call(
+      "POST",
+      `/revenue/enrichment/evidence/${manualEvidence.id}/review`,
+      { decision: "reject" },
+    );
+    assert.equal(manualReview.status, 200);
+    const financeWithoutAccess = await call(
+      "POST",
+      `/revenue/enrichment/evidence/${financeEvidence.id}/review`,
+      { decision: "reject" },
+    );
+    assert.equal(financeWithoutAccess.status, 403);
+
+    await AppDataSource.getRepository(Membership).update(
+      { companyId, userId: memberId },
+      { financeAccess: "read" },
+    );
+    const financeWithRead = await call(
+      "POST",
+      `/revenue/enrichment/evidence/${financeEvidence.id}/review`,
+      { decision: "reject" },
+    );
+    assert.equal(financeWithRead.status, 403);
+    await AppDataSource.getRepository(Membership).update(
+      { companyId, userId: memberId },
+      { financeAccess: "full" },
+    );
+    const financeWithFull = await call(
+      "POST",
+      `/revenue/enrichment/evidence/${financeEvidence.id}/review`,
+      { decision: "reject" },
+    );
+    assert.equal(financeWithFull.status, 200);
   });
 
   test("installs migration fields and commits a linked Account, Contact, and Deal row", async () => {

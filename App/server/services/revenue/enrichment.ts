@@ -1,9 +1,10 @@
-import { In, IsNull } from "typeorm";
+import { In, IsNull, type EntityManager, type EntityTarget, type ObjectLiteral } from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
 import { Contact } from "../../db/entities/Contact.js";
 import { Customer } from "../../db/entities/Customer.js";
 import { Deal } from "../../db/entities/Deal.js";
 import { DealHistoryEvent } from "../../db/entities/DealHistoryEvent.js";
+import { DealStage } from "../../db/entities/DealStage.js";
 import { Estimate } from "../../db/entities/Estimate.js";
 import { IntegrationConnection } from "../../db/entities/IntegrationConnection.js";
 import { Invoice } from "../../db/entities/Invoice.js";
@@ -433,6 +434,67 @@ function recordMetadata(value: unknown): Record<string, unknown> {
     : {};
 }
 
+type CommercialProposalBaseline = {
+  amountCents: number;
+  currency: string;
+  updatedAt: string;
+};
+
+function commercialProposalBaseline(
+  evidence: Pick<RevenueFieldEvidence, "metadataJson">,
+): CommercialProposalBaseline | null {
+  try {
+    const metadata = recordMetadata(JSON.parse(evidence.metadataJson || "{}"));
+    const baseline = recordMetadata(metadata.proposalBaseline);
+    return Number.isInteger(baseline.amountCents) &&
+      typeof baseline.currency === "string" &&
+      typeof baseline.updatedAt === "string" &&
+      Number.isFinite(new Date(baseline.updatedAt).getTime())
+      ? {
+          amountCents: Number(baseline.amountCents),
+          currency: baseline.currency,
+          updatedAt: baseline.updatedAt,
+        }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function commercialProposalIsStale(
+  evidence: Pick<RevenueFieldEvidence, "metadataJson">,
+  deal: Pick<Deal, "amountCents" | "currency" | "updatedAt">,
+): boolean | null {
+  const baseline = commercialProposalBaseline(evidence);
+  if (!baseline) return null;
+  return (
+    baseline.amountCents !== deal.amountCents ||
+    baseline.currency !== deal.currency ||
+    new Date(baseline.updatedAt).getTime() !== deal.updatedAt.getTime()
+  );
+}
+
+function reviewedEvidenceText(value: unknown, label: string, maximum: number): string {
+  if (typeof value !== "string") throw new Error(`${label} evidence is malformed`);
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > maximum) {
+    throw new Error(`${label} evidence is malformed`);
+  }
+  return trimmed;
+}
+
+function reviewedEmployeeCount(value: unknown): number {
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    value <= 0 ||
+    value > 2_000_000_000
+  ) {
+    throw new Error("Employee count evidence is malformed");
+  }
+  return value;
+}
+
 export async function assertRevenueEvidenceSource(
   companyId: string,
   input: {
@@ -563,7 +625,15 @@ async function createCommercialValueProposalResult(
     ].join(":"),
     confidence: input.confidence,
     extractedAt: input.extractedAt,
-    metadata: { ...((input.metadata as Record<string, unknown>) ?? {}), sourceVerified: true },
+    metadata: {
+      ...recordMetadata(input.metadata),
+      sourceVerified: true,
+      proposalBaseline: {
+        amountCents: deal.amountCents,
+        currency: deal.currency,
+        updatedAt: deal.updatedAt.toISOString(),
+      },
+    },
   });
 }
 
@@ -576,9 +646,20 @@ export async function createCommercialValueProposal(
 
 export async function proposeCommercialValuesFromFinance(
   companyId: string,
+  opts: { dealIds?: string[] } = {},
 ): Promise<{ proposed: number; ambiguousAccounts: number }> {
+  const selectedDealIds = [...new Set(opts.dealIds ?? [])];
+  if (selectedDealIds.length > 5_000) {
+    throw new Error("Commercial-value reconciliation is limited to 5,000 Deals");
+  }
   const deals = await AppDataSource.getRepository(Deal).find({
-    where: { companyId, amountCents: 0, status: "open", archivedAt: IsNull() },
+    where: {
+      companyId,
+      amountCents: 0,
+      status: "open",
+      archivedAt: IsNull(),
+      ...(opts.dealIds ? { id: In(selectedDealIds) } : {}),
+    },
   });
   const accountIds = [
     ...new Set(deals.map((deal) => deal.customerId).filter((id): id is string => Boolean(id))),
@@ -610,21 +691,33 @@ export async function proposeCommercialValuesFromFinance(
       })
     : [];
   const accountById = new Map(accounts.map((account) => [account.id, account]));
-  const dealsByAccount = new Map<string, Deal[]>();
-  for (const deal of deals) {
+  const allEligibleDeals = accountIds.length
+    ? await AppDataSource.getRepository(Deal).find({
+        where: {
+          companyId,
+          customerId: In(accountIds),
+          amountCents: 0,
+          status: "open",
+          archivedAt: IsNull(),
+        },
+      })
+    : [];
+  const eligibleDealsByAccount = new Map<string, Deal[]>();
+  for (const deal of allEligibleDeals) {
     if (!deal.customerId) continue;
-    const list = dealsByAccount.get(deal.customerId) ?? [];
+    const list = eligibleDealsByAccount.get(deal.customerId) ?? [];
     list.push(deal);
-    dealsByAccount.set(deal.customerId, list);
+    eligibleDealsByAccount.set(deal.customerId, list);
   }
   let proposed = 0;
-  let ambiguousAccounts = 0;
-  for (const [accountId, accountDeals] of dealsByAccount) {
-    if (accountDeals.length !== 1) {
-      ambiguousAccounts += 1;
+  const ambiguousAccountIds = new Set<string>();
+  for (const deal of deals) {
+    if (!deal.customerId) continue;
+    const accountId = deal.customerId;
+    if ((eligibleDealsByAccount.get(accountId) ?? []).length !== 1) {
+      ambiguousAccountIds.add(accountId);
       continue;
     }
-    const deal = accountDeals[0];
     const account = accountById.get(accountId);
     const acceptedEstimate = acceptedEstimates.find(
       (row) => row.customerId === accountId && row.totalCents > 0,
@@ -715,7 +808,7 @@ export async function proposeCommercialValuesFromFinance(
       if (result.created) proposed += 1;
     }
   }
-  return { proposed, ambiguousAccounts };
+  return { proposed, ambiguousAccounts: ambiguousAccountIds.size };
 }
 
 type StripeSubscription = {
@@ -800,13 +893,17 @@ function stripeRecurringValue(subscription: StripeSubscription): CommercialValue
 
 export async function proposeCommercialValuesFromStripe(
   companyId: string,
-  opts: { connectionId?: string } = {},
+  opts: { connectionId?: string; dealIds?: string[] } = {},
 ): Promise<{
   proposed: number;
   reviewedCustomers: number;
   ambiguousAccounts: number;
   errors: Array<{ connectionId: string; customerId?: string; error: string }>;
 }> {
+  const selectedDealIds = [...new Set(opts.dealIds ?? [])];
+  if (selectedDealIds.length > 5_000) {
+    throw new Error("Commercial-value reconciliation is limited to 5,000 Deals");
+  }
   const [field, zeroDeals] = await Promise.all([
     AppDataSource.getRepository(RevenueCustomField).findOneBy({
       companyId,
@@ -814,7 +911,13 @@ export async function proposeCommercialValuesFromStripe(
       key: "stripe_customer_id",
     }),
     AppDataSource.getRepository(Deal).find({
-      where: { companyId, amountCents: 0, archivedAt: IsNull() },
+      where: {
+        companyId,
+        amountCents: 0,
+        status: "open",
+        archivedAt: IsNull(),
+        ...(opts.dealIds ? { id: In(selectedDealIds) } : {}),
+      },
     }),
   ]);
   const connections = opts.connectionId
@@ -835,21 +938,46 @@ export async function proposeCommercialValuesFromStripe(
   if (!field || connections.length === 0) {
     return { proposed: 0, reviewedCustomers: 0, ambiguousAccounts: 0, errors: [] };
   }
-  const values = await AppDataSource.getRepository(RevenueCustomValue).find({
-    where: { companyId, fieldId: field.id, resourceType: "account" },
-  });
-  const dealsByAccount = new Map<string, Deal[]>();
-  for (const deal of zeroDeals) {
-    if (!deal.customerId) continue;
-    const list = dealsByAccount.get(deal.customerId) ?? [];
-    list.push(deal);
-    dealsByAccount.set(deal.customerId, list);
+  const accountIds = [
+    ...new Set(zeroDeals.map((deal) => deal.customerId).filter((id): id is string => Boolean(id))),
+  ];
+  if (accountIds.length === 0) {
+    return { proposed: 0, reviewedCustomers: 0, ambiguousAccounts: 0, errors: [] };
   }
+  const values = await AppDataSource.getRepository(RevenueCustomValue).find({
+    where: {
+      companyId,
+      fieldId: field.id,
+      resourceType: "account",
+      resourceId: In(accountIds),
+    },
+  });
+  const allEligibleDeals = await AppDataSource.getRepository(Deal).find({
+    where: {
+      companyId,
+      customerId: In(accountIds),
+      amountCents: 0,
+      status: "open",
+      archivedAt: IsNull(),
+    },
+  });
+  const eligibleDealsByAccount = new Map<string, Deal[]>();
+  for (const deal of allEligibleDeals) {
+    if (!deal.customerId) continue;
+    const list = eligibleDealsByAccount.get(deal.customerId) ?? [];
+    list.push(deal);
+    eligibleDealsByAccount.set(deal.customerId, list);
+  }
+  const selectedDealByAccount = new Map(
+    zeroDeals
+      .filter((deal): deal is Deal & { customerId: string } => Boolean(deal.customerId))
+      .map((deal) => [deal.customerId, deal]),
+  );
   const provider = getProvider("stripe");
   if (!provider) throw new Error("Stripe Integration is unavailable");
   let proposed = 0;
   let reviewedCustomers = 0;
-  let ambiguousAccounts = 0;
+  const ambiguousAccountIds = new Set<string>();
   const errors: Array<{ connectionId: string; customerId?: string; error: string }> = [];
   for (const value of values) {
     let customerId = value.searchValue.trim();
@@ -862,9 +990,10 @@ export async function proposeCommercialValuesFromStripe(
       }
     }
     if (!customerId.startsWith("cus_")) continue;
-    const deals = dealsByAccount.get(value.resourceId) ?? [];
-    if (deals.length !== 1) {
-      if (deals.length > 1) ambiguousAccounts += 1;
+    const eligibleDeals = eligibleDealsByAccount.get(value.resourceId) ?? [];
+    const selectedDeal = selectedDealByAccount.get(value.resourceId);
+    if (!selectedDeal || eligibleDeals.length !== 1) {
+      if (selectedDeal && eligibleDeals.length > 1) ambiguousAccountIds.add(value.resourceId);
       continue;
     }
     reviewedCustomers += 1;
@@ -884,50 +1013,85 @@ export async function proposeCommercialValuesFromStripe(
           ),
           provider.invokeTool("list_invoices", { customerId, status: "paid", limit: 100 }, runtime),
         ])) as [{ data?: StripeSubscription[] }, { data?: StripeInvoice[] }];
-        for (const subscription of subscriptionResult.data ?? []) {
-          const commercial = stripeRecurringValue(subscription);
-          if (!commercial || typeof subscription.id !== "string") continue;
+        const subscriptions = (subscriptionResult.data ?? [])
+          .flatMap((subscription) => {
+            const commercial = stripeRecurringValue(subscription);
+            return commercial && typeof subscription.id === "string"
+              ? [{ subscription, commercial, id: subscription.id }]
+              : [];
+          })
+          .sort((left, right) => {
+            const statusRank = (status: unknown) =>
+              status === "active" ? 3 : status === "trialing" ? 2 : status === "past_due" ? 1 : 0;
+            return (
+              statusRank(right.subscription.status) - statusRank(left.subscription.status) ||
+              Number(right.subscription.created ?? 0) - Number(left.subscription.created ?? 0) ||
+              left.id.localeCompare(right.id)
+            );
+          });
+        const invoices = (invoiceResult.data ?? [])
+          .flatMap((invoice) => {
+            const amountCents = Number(invoice.amount_paid ?? invoice.total);
+            return invoice.status === "paid" &&
+              typeof invoice.id === "string" &&
+              typeof invoice.currency === "string" &&
+              Number.isInteger(amountCents) &&
+              amountCents > 0
+              ? [{ invoice, amountCents, id: invoice.id }]
+              : [];
+          })
+          .sort(
+            (left, right) =>
+              Number(right.invoice.created ?? 0) - Number(left.invoice.created ?? 0) ||
+              left.id.localeCompare(right.id),
+          );
+        const recurring = subscriptions[0];
+        if (recurring) {
           const result = await createCommercialValueProposalResult(companyId, {
-            dealId: deals[0].id,
+            dealId: selectedDeal.id,
             sourceType: "integration",
-            sourceId: subscription.id,
-            sourceLabel: `${connection.label} · ${subscription.id}`,
+            sourceId: recurring.id,
+            sourceLabel: `${connection.label} · ${recurring.id}`,
             sourceVerified: true,
             confidence: 98,
-            value: commercial,
+            value: recurring.commercial,
             extractedAt:
-              typeof subscription.created === "number"
-                ? new Date(subscription.created * 1_000)
+              typeof recurring.subscription.created === "number"
+                ? new Date(recurring.subscription.created * 1_000)
                 : new Date(),
-            metadata: { connectionId: connection.id, stripeCustomerId: customerId },
+            metadata: {
+              connectionId: connection.id,
+              stripeCustomerId: customerId,
+              financeSource: "stripe_subscription",
+              alternativeSubscriptions: Math.max(subscriptions.length - 1, 0),
+              availablePaidInvoices: invoices.length,
+            },
           });
           if (result.created) proposed += 1;
-        }
-        for (const invoice of invoiceResult.data ?? []) {
-          if (
-            invoice.status !== "paid" ||
-            typeof invoice.id !== "string" ||
-            typeof invoice.currency !== "string"
-          ) {
-            continue;
-          }
-          const amountCents = Number(invoice.amount_paid ?? invoice.total);
-          if (!Number.isInteger(amountCents) || amountCents <= 0) continue;
+        } else if (invoices[0]) {
+          const latestInvoice = invoices[0];
           const result = await createCommercialValueProposalResult(companyId, {
-            dealId: deals[0].id,
+            dealId: selectedDeal.id,
             sourceType: "integration",
-            sourceId: invoice.id,
-            sourceLabel: `${connection.label} · ${invoice.id}`,
+            sourceId: latestInvoice.id,
+            sourceLabel: `${connection.label} · ${latestInvoice.id}`,
             sourceVerified: true,
             confidence: 98,
             value: {
-              amountCents,
-              currency: invoice.currency.toUpperCase(),
+              amountCents: latestInvoice.amountCents,
+              currency: String(latestInvoice.invoice.currency).toUpperCase(),
               revenueType: "one_time",
             },
             extractedAt:
-              typeof invoice.created === "number" ? new Date(invoice.created * 1_000) : new Date(),
-            metadata: { connectionId: connection.id, stripeCustomerId: customerId },
+              typeof latestInvoice.invoice.created === "number"
+                ? new Date(latestInvoice.invoice.created * 1_000)
+                : new Date(),
+            metadata: {
+              connectionId: connection.id,
+              stripeCustomerId: customerId,
+              financeSource: "stripe_paid_invoice",
+              alternativePaidInvoices: Math.max(invoices.length - 1, 0),
+            },
           });
           if (result.created) proposed += 1;
         }
@@ -940,7 +1104,339 @@ export async function proposeCommercialValuesFromStripe(
       }
     }
   }
-  return { proposed, reviewedCustomers, ambiguousAccounts, errors };
+  return {
+    proposed,
+    reviewedCustomers,
+    ambiguousAccounts: ambiguousAccountIds.size,
+    errors,
+  };
+}
+
+export type CommercialValueBacklogDisposition =
+  | "pending_review"
+  | "accepted_zero"
+  | "ambiguous_account"
+  | "unlinked_account"
+  | "finance_candidate"
+  | "stripe_candidate"
+  | "no_evidence";
+
+export type CommercialValueBacklogProposal = {
+  id: string;
+  status: RevenueEvidenceStatus;
+  sourceType: RevenueEvidenceSourceType;
+  sourceId: string;
+  sourceLabel: string;
+  confidence: number;
+  extractedAt: Date;
+  value: CommercialValue | null;
+  stale: boolean | null;
+};
+
+export type CommercialValueBacklogRow = {
+  dealId: string;
+  title: string;
+  accountId: string | null;
+  accountName: string | null;
+  stageId: string;
+  stageName: string | null;
+  amountCents: number;
+  currency: string;
+  updatedAt: Date;
+  zeroValueDealsOnAccount: number;
+  disposition: CommercialValueBacklogDisposition;
+  financeCandidate: {
+    sourceKind: "accepted_estimate" | "invoice_payment" | "invoice" | "account_acv";
+    sourceId: string;
+    sourceLabel: string;
+    amountCents: number;
+    currency: string;
+  } | null;
+  stripeCandidate: {
+    customerId: string;
+    connectedConnections: number;
+  } | null;
+  proposalCounts: Record<RevenueEvidenceStatus, number>;
+  proposals: CommercialValueBacklogProposal[];
+};
+
+function parsedCommercialValue(evidence: RevenueFieldEvidence): CommercialValue | null {
+  try {
+    return validateCommercialValue(JSON.parse(evidence.extractedValueJson) as CommercialValue);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Page the actionable zero-value Deal backlog with enough context to explain
+ * why each row can or cannot be proposed automatically.
+ */
+export async function listCommercialValueBacklog(
+  companyId: string,
+  opts: {
+    dealIds?: string[];
+    stageIds?: string[];
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<{ rows: CommercialValueBacklogRow[]; total: number; limit: number; offset: number }> {
+  const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500);
+  const offset = Math.max(opts.offset ?? 0, 0);
+  const selectedDealIds = [...new Set(opts.dealIds ?? [])];
+  const selectedStageIds = [...new Set(opts.stageIds ?? [])];
+  if (selectedDealIds.length > 5_000) {
+    throw new Error("Commercial-value backlog is limited to 5,000 Deal IDs");
+  }
+  if (selectedStageIds.length > 500) {
+    throw new Error("Commercial-value backlog is limited to 500 Deal Stages");
+  }
+
+  const qb = AppDataSource.getRepository(Deal)
+    .createQueryBuilder("deal")
+    .where("deal.companyId = :companyId", { companyId })
+    .andWhere("deal.amountCents = 0")
+    .andWhere("deal.status = 'open'")
+    .andWhere("deal.archivedAt IS NULL");
+  if (opts.dealIds) {
+    if (selectedDealIds.length === 0) qb.andWhere("1 = 0");
+    else qb.andWhere("deal.id IN (:...dealIds)", { dealIds: selectedDealIds });
+  }
+  if (opts.stageIds) {
+    if (selectedStageIds.length === 0) qb.andWhere("1 = 0");
+    else qb.andWhere("deal.stageId IN (:...stageIds)", { stageIds: selectedStageIds });
+  }
+  const total = await qb.clone().getCount();
+  const deals = await qb
+    .orderBy("deal.createdAt", "ASC")
+    .addOrderBy("deal.id", "ASC")
+    .skip(offset)
+    .take(limit)
+    .getMany();
+  if (deals.length === 0) return { rows: [], total, limit, offset };
+
+  const dealIds = deals.map((deal) => deal.id);
+  const accountIds = [
+    ...new Set(deals.map((deal) => deal.customerId).filter((id): id is string => Boolean(id))),
+  ];
+  const [accounts, stages, evidence, eligibleAccountDeals, estimates, invoices, stripeField] =
+    await Promise.all([
+      accountIds.length
+        ? AppDataSource.getRepository(Customer).find({
+            where: { companyId, id: In(accountIds) },
+          })
+        : [],
+      AppDataSource.getRepository(DealStage).find({ where: { companyId } }),
+      AppDataSource.getRepository(RevenueFieldEvidence).find({
+        where: {
+          companyId,
+          resourceType: "deal",
+          resourceId: In(dealIds),
+          fieldKey: "commercial_value",
+        },
+        order: { createdAt: "DESC" },
+      }),
+      accountIds.length
+        ? AppDataSource.getRepository(Deal).find({
+            where: {
+              companyId,
+              customerId: In(accountIds),
+              amountCents: 0,
+              status: "open",
+              archivedAt: IsNull(),
+            },
+          })
+        : [],
+      accountIds.length
+        ? AppDataSource.getRepository(Estimate).find({
+            where: {
+              companyId,
+              customerId: In(accountIds),
+              status: "accepted",
+            },
+            order: { acceptedAt: "DESC", issueDate: "DESC" },
+          })
+        : [],
+      accountIds.length
+        ? AppDataSource.getRepository(Invoice).find({
+            where: {
+              companyId,
+              customerId: In(accountIds),
+              status: In(["sent", "paid"]),
+            },
+            order: { issueDate: "DESC" },
+          })
+        : [],
+      AppDataSource.getRepository(RevenueCustomField).findOneBy({
+        companyId,
+        resourceType: "account",
+        key: "stripe_customer_id",
+      }),
+    ]);
+  const [payments, stripeValues, connectedStripeConnections] = await Promise.all([
+    invoices.length
+      ? AppDataSource.getRepository(InvoicePayment).find({
+          where: { invoiceId: In(invoices.map((invoice) => invoice.id)) },
+          order: { paidAt: "DESC" },
+        })
+      : [],
+    stripeField && accountIds.length
+      ? AppDataSource.getRepository(RevenueCustomValue).find({
+          where: {
+            companyId,
+            fieldId: stripeField.id,
+            resourceType: "account",
+            resourceId: In(accountIds),
+          },
+        })
+      : [],
+    AppDataSource.getRepository(IntegrationConnection).countBy({
+      companyId,
+      provider: "stripe",
+      status: "connected",
+    }),
+  ]);
+
+  const accountById = new Map(accounts.map((account) => [account.id, account]));
+  const stageById = new Map(stages.map((stage) => [stage.id, stage]));
+  const evidenceByDeal = new Map<string, RevenueFieldEvidence[]>();
+  for (const row of evidence) {
+    const rows = evidenceByDeal.get(row.resourceId) ?? [];
+    rows.push(row);
+    evidenceByDeal.set(row.resourceId, rows);
+  }
+  const eligibleCountByAccount = new Map<string, number>();
+  for (const deal of eligibleAccountDeals) {
+    if (!deal.customerId) continue;
+    eligibleCountByAccount.set(
+      deal.customerId,
+      (eligibleCountByAccount.get(deal.customerId) ?? 0) + 1,
+    );
+  }
+  const invoiceById = new Map(invoices.map((invoice) => [invoice.id, invoice]));
+  const stripeCustomerByAccount = new Map<string, string>();
+  for (const value of stripeValues) {
+    let customerId = value.searchValue.trim();
+    if (!customerId) {
+      try {
+        const parsed = JSON.parse(value.valueJson) as unknown;
+        if (typeof parsed === "string") customerId = parsed.trim();
+      } catch {
+        customerId = "";
+      }
+    }
+    if (customerId.startsWith("cus_")) stripeCustomerByAccount.set(value.resourceId, customerId);
+  }
+
+  const rows = deals.map((deal): CommercialValueBacklogRow => {
+    const account = deal.customerId ? accountById.get(deal.customerId) : null;
+    const accountDealCount = deal.customerId
+      ? (eligibleCountByAccount.get(deal.customerId) ?? 0)
+      : 0;
+    const acceptedEstimate = estimates.find(
+      (estimate) => estimate.customerId === deal.customerId && estimate.totalCents > 0,
+    );
+    const payment = payments.find(
+      (candidate) =>
+        invoiceById.get(candidate.invoiceId)?.customerId === deal.customerId &&
+        candidate.amountCents > 0,
+    );
+    const paymentInvoice = payment ? invoiceById.get(payment.invoiceId) : null;
+    const invoice = invoices.find(
+      (candidate) => candidate.customerId === deal.customerId && candidate.totalCents > 0,
+    );
+    const financeCandidate = acceptedEstimate
+      ? {
+          sourceKind: "accepted_estimate" as const,
+          sourceId: acceptedEstimate.id,
+          sourceLabel: acceptedEstimate.number || acceptedEstimate.slug,
+          amountCents: acceptedEstimate.totalCents,
+          currency: acceptedEstimate.currency,
+        }
+      : payment && paymentInvoice && paymentInvoice.totalCents > 0
+        ? {
+            sourceKind: "invoice_payment" as const,
+            sourceId: payment.id,
+            sourceLabel: `${paymentInvoice.number || paymentInvoice.slug} payment`,
+            amountCents: paymentInvoice.totalCents,
+            currency: paymentInvoice.currency,
+          }
+        : invoice
+          ? {
+              sourceKind: "invoice" as const,
+              sourceId: invoice.id,
+              sourceLabel: invoice.number || invoice.slug,
+              amountCents: invoice.totalCents,
+              currency: invoice.currency,
+            }
+          : account && account.annualContractValueCents > 0
+            ? {
+                sourceKind: "account_acv" as const,
+                sourceId: account.id,
+                sourceLabel: `${account.name} Annual Contract Value`,
+                amountCents: account.annualContractValueCents,
+                currency: account.currency,
+              }
+            : null;
+    const stripeCustomerId = deal.customerId ? stripeCustomerByAccount.get(deal.customerId) : null;
+    const stripeCandidate =
+      stripeCustomerId && connectedStripeConnections > 0
+        ? {
+            customerId: stripeCustomerId,
+            connectedConnections: connectedStripeConnections,
+          }
+        : null;
+    const dealEvidence = evidenceByDeal.get(deal.id) ?? [];
+    const proposalCounts: Record<RevenueEvidenceStatus, number> = {
+      proposed: 0,
+      accepted: 0,
+      rejected: 0,
+      superseded: 0,
+    };
+    for (const proposal of dealEvidence) proposalCounts[proposal.status] += 1;
+    const disposition: CommercialValueBacklogDisposition =
+      proposalCounts.proposed > 0
+        ? "pending_review"
+        : proposalCounts.accepted > 0
+          ? "accepted_zero"
+          : !deal.customerId
+            ? "unlinked_account"
+            : accountDealCount > 1
+              ? "ambiguous_account"
+              : financeCandidate
+                ? "finance_candidate"
+                : stripeCandidate
+                  ? "stripe_candidate"
+                  : "no_evidence";
+    return {
+      dealId: deal.id,
+      title: deal.title,
+      accountId: deal.customerId,
+      accountName: account?.name ?? null,
+      stageId: deal.stageId,
+      stageName: stageById.get(deal.stageId)?.name ?? null,
+      amountCents: deal.amountCents,
+      currency: deal.currency,
+      updatedAt: deal.updatedAt,
+      zeroValueDealsOnAccount: accountDealCount,
+      disposition,
+      financeCandidate,
+      stripeCandidate,
+      proposalCounts,
+      proposals: dealEvidence.map((proposal) => ({
+        id: proposal.id,
+        status: proposal.status,
+        sourceType: proposal.sourceType,
+        sourceId: proposal.sourceId,
+        sourceLabel: proposal.sourceLabel,
+        confidence: proposal.confidence,
+        extractedAt: proposal.extractedAt,
+        value: parsedCommercialValue(proposal),
+        stale: commercialProposalIsStale(proposal, deal),
+      })),
+    };
+  });
+  return { rows, total, limit, offset };
 }
 
 export async function listRevenueEvidence(
@@ -950,6 +1446,12 @@ export async function listRevenueEvidence(
     resourceId?: string;
     fieldKey?: string;
     sourceType?: RevenueEvidenceSourceType;
+    /** Internal authorization filter; never accepted directly from an API caller. */
+    excludeSourceTypes?: RevenueEvidenceSourceType[];
+    /** Internal AI authorization scope; never accepted directly from an API caller. */
+    allowedEmailAccountIds?: string[];
+    /** Internal AI authorization scope; never accepted directly from an API caller. */
+    allowedIntegrationConnectionIds?: string[];
     status?: RevenueEvidenceStatus;
     limit?: number;
     offset?: number;
@@ -968,6 +1470,89 @@ export async function listRevenueEvidence(
   if (opts.fieldKey) qb.andWhere("evidence.fieldKey = :fieldKey", { fieldKey: opts.fieldKey });
   if (opts.sourceType)
     qb.andWhere("evidence.sourceType = :sourceType", { sourceType: opts.sourceType });
+  if (opts.excludeSourceTypes?.length) {
+    qb.andWhere("evidence.sourceType NOT IN (:...excludeSourceTypes)", {
+      excludeSourceTypes: [...new Set(opts.excludeSourceTypes)],
+    });
+  }
+  if (opts.allowedEmailAccountIds !== undefined) {
+    const allowedAccountIds = [...new Set(opts.allowedEmailAccountIds)];
+    const sourceContact = AppDataSource.getRepository(Contact)
+      .createQueryBuilder("sourceContact")
+      .select("1")
+      .where("sourceContact.companyId = :evidenceContactCompanyId", {
+        evidenceContactCompanyId: companyId,
+      })
+      .andWhere("sourceContact.id = evidence.sourceId");
+    const anySourceMessage = AppDataSource.getRepository(MailMessage)
+      .createQueryBuilder("anySourceMessage")
+      .select("1")
+      .where("anySourceMessage.companyId = :anyEvidenceMailCompanyId", {
+        anyEvidenceMailCompanyId: companyId,
+      })
+      .andWhere("anySourceMessage.id = evidence.sourceId");
+    const allowedSourceMessage =
+      allowedAccountIds.length > 0
+        ? AppDataSource.getRepository(MailMessage)
+            .createQueryBuilder("allowedSourceMessage")
+            .select("1")
+            .where("allowedSourceMessage.companyId = :evidenceMailCompanyId", {
+              evidenceMailCompanyId: companyId,
+            })
+            .andWhere("allowedSourceMessage.id = evidence.sourceId")
+            .andWhere("allowedSourceMessage.accountId IN (:...allowedEvidenceMailAccountIds)", {
+              allowedEvidenceMailAccountIds: allowedAccountIds,
+            })
+        : null;
+    qb.andWhere(
+      `(evidence.sourceType <> :emailSourceType OR ` +
+        `(EXISTS (${sourceContact.getQuery()}) AND NOT EXISTS (${anySourceMessage.getQuery()}))${
+          allowedSourceMessage ? ` OR EXISTS (${allowedSourceMessage.getQuery()})` : ""
+        })`,
+      {
+        emailSourceType: "email",
+        ...sourceContact.getParameters(),
+        ...anySourceMessage.getParameters(),
+        ...(allowedSourceMessage?.getParameters() ?? {}),
+      },
+    );
+  }
+  if (opts.allowedIntegrationConnectionIds !== undefined) {
+    const allowedConnectionIds = new Set(opts.allowedIntegrationConnectionIds);
+    const candidates = await AppDataSource.getRepository(RevenueFieldEvidence).find({
+      select: { id: true, metadataJson: true },
+      where: { companyId, sourceType: "integration" },
+    });
+    const allowedEvidenceIds = candidates
+      .filter((candidate) => {
+        try {
+          const metadata = JSON.parse(candidate.metadataJson || "{}") as unknown;
+          return (
+            metadata !== null &&
+            typeof metadata === "object" &&
+            !Array.isArray(metadata) &&
+            typeof (metadata as Record<string, unknown>).connectionId === "string" &&
+            allowedConnectionIds.has((metadata as Record<string, unknown>).connectionId as string)
+          );
+        } catch {
+          return false;
+        }
+      })
+      .map((candidate) => candidate.id);
+    if (allowedEvidenceIds.length === 0) {
+      qb.andWhere("evidence.sourceType <> :integrationSourceType", {
+        integrationSourceType: "integration",
+      });
+    } else {
+      qb.andWhere(
+        "(evidence.sourceType <> :integrationSourceType OR evidence.id IN (:...allowedIntegrationEvidenceIds))",
+        {
+          integrationSourceType: "integration",
+          allowedIntegrationEvidenceIds: allowedEvidenceIds,
+        },
+      );
+    }
+  }
   if (opts.status) qb.andWhere("evidence.status = :status", { status: opts.status });
   const total = await qb.clone().getCount();
   const rows = await qb
@@ -978,6 +1563,47 @@ export async function listRevenueEvidence(
   return { rows, total };
 }
 
+const evidenceReviewQueues = new Map<string, Promise<unknown>>();
+
+function withEvidenceReviewQueue<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prior = evidenceReviewQueues.get(key);
+  const next = (prior ? prior.catch(() => undefined) : Promise.resolve()).then(fn);
+  const cleanup = () => {
+    if (evidenceReviewQueues.get(key) === tail) evidenceReviewQueues.delete(key);
+  };
+  const tail = next.then(cleanup, cleanup);
+  evidenceReviewQueues.set(key, tail);
+  return next;
+}
+
+function evidenceReviewQueueKey(evidence: RevenueFieldEvidence): string {
+  // better-sqlite3 exposes one synchronous connection. Serializing reviews
+  // prevents overlapping TypeORM transactions while the database-level
+  // transaction remains the durable boundary.
+  if (AppDataSource.options.type !== "postgres") return "sqlite";
+  return JSON.stringify([
+    evidence.companyId,
+    evidence.resourceType,
+    evidence.resourceId,
+    evidence.fieldKey,
+  ]);
+}
+
+async function lockEvidenceResource<T extends ObjectLiteral>(
+  manager: EntityManager,
+  entity: EntityTarget<T>,
+  companyId: string,
+  resourceId: string,
+): Promise<T | null> {
+  const query = manager
+    .getRepository(entity)
+    .createQueryBuilder("resource")
+    .where("resource.companyId = :companyId", { companyId })
+    .andWhere("resource.id = :resourceId", { resourceId });
+  if (AppDataSource.options.type === "postgres") query.setLock("pessimistic_write");
+  return query.getOne();
+}
+
 export async function reviewRevenueEvidence(
   companyId: string,
   evidenceId: string,
@@ -985,131 +1611,194 @@ export async function reviewRevenueEvidence(
   actor: RevenueOperationActor,
   options: { supersedeExisting?: boolean } = {},
 ): Promise<RevenueFieldEvidence> {
-  return AppDataSource.transaction(async (manager) => {
-    const repo = manager.getRepository(RevenueFieldEvidence);
-    const evidence = await repo.findOneBy({ companyId, id: evidenceId });
-    if (!evidence) throw new Error("Evidence not found");
-    if (evidence.status !== "proposed") throw new Error("Evidence has already been reviewed");
-
-    const reviewedAt = new Date();
-    const verifyingActorType = actor.userId
-      ? "member"
-      : actor.employeeId
-        ? "ai_employee"
-        : "system";
-    const verifyingActorId = actor.userId ?? actor.employeeId ?? null;
-    if (decision === "reject") {
-      evidence.status = "rejected";
-      evidence.verificationState = "rejected";
-      evidence.humanConfirmedAt = actor.userId ? reviewedAt : null;
-      evidence.humanConfirmedById = actor.userId ?? null;
-      evidence.verifyingActorType = verifyingActorType;
-      evidence.verifyingActorId = verifyingActorId;
-      return repo.save(evidence);
-    }
-
-    const existingAccepted = (
-      await repo.find({
-        where: {
-          companyId,
-          resourceType: evidence.resourceType,
-          resourceId: evidence.resourceId,
-          fieldKey: evidence.fieldKey,
-          status: "accepted",
-        },
-      })
-    ).filter((row) => row.id !== evidence.id);
-    const supersededEvidence = existingAccepted.filter(
-      (row) => row.normalizedValue !== evidence.normalizedValue,
-    );
-    if (supersededEvidence.length > 0 && !options.supersedeExisting) {
-      throw new Error("A verified value already exists; set supersedeExisting to replace it");
-    }
-
-    const value = JSON.parse(evidence.extractedValueJson) as unknown;
-    if (evidence.resourceType === "account" && evidence.fieldKey === "domain") {
-      if (typeof value !== "string") throw new Error("Domain evidence is malformed");
-      const domain = normalizeAccountDomain(value);
-      const collision = await manager.getRepository(Customer).findOneBy({
-        companyId,
-        domain,
-        archivedAt: IsNull(),
-      });
-      if (collision && collision.id !== evidence.resourceId) {
-        throw new Error(
-          `Domain is already verified on ${collision.name}; review the merge candidate`,
-        );
-      }
-      await manager
-        .getRepository(Customer)
-        .update({ companyId, id: evidence.resourceId }, { domain });
-    } else if (evidence.resourceType === "deal" && evidence.fieldKey === "commercial_value") {
-      const commercial = validateCommercialValue(value as CommercialValue);
-      const dealRepo = manager.getRepository(Deal);
-      const deal = await dealRepo.findOneBy({
-        companyId,
-        id: evidence.resourceId,
-      });
-      if (!deal) throw new Error("Deal not found");
-      const changed =
-        deal.amountCents !== commercial.amountCents || deal.currency !== commercial.currency;
-      if (changed) {
-        await dealRepo.update(
-          { companyId, id: evidence.resourceId },
-          { amountCents: commercial.amountCents, currency: commercial.currency },
-        );
-        const historyRepo = manager.getRepository(DealHistoryEvent);
-        await historyRepo.save(
-          historyRepo.create({
-            companyId,
-            dealId: deal.id,
-            kind: "amount_changed",
-            occurredAt: reviewedAt,
-            fromStageId: null,
-            toStageId: null,
-            fromAmountCents: deal.amountCents,
-            toAmountCents: commercial.amountCents,
-            currency: commercial.currency,
-            fromOwnerId: null,
-            fromOwnerEmployeeId: null,
-            toOwnerId: null,
-            toOwnerEmployeeId: null,
-            lostReason: "",
-            sourceKind: "live",
-            sourceKey: liveDealHistoryKey(deal.id, "amount_changed"),
-            sourceActivityId: null,
-            metadataJson: JSON.stringify({ revenueFieldEvidenceId: evidence.id }),
-            createdByUserId: actor.userId ?? null,
-            createdByEmployeeId: actor.employeeId ?? null,
-          }),
-        );
-      }
-    } else if (evidence.resourceType === "contact" && evidence.fieldKey === "email") {
-      const contact = await manager.getRepository(Contact).findOneBy({
-        companyId,
-        id: evidence.resourceId,
-      });
-      if (!contact || typeof value !== "string" || contact.email !== value.toLowerCase()) {
-        throw new Error("Contact email evidence no longer matches the Contact");
-      }
-    } else {
-      throw new Error("This evidence field cannot be applied automatically");
-    }
-
-    if (supersededEvidence.length > 0) {
-      for (const previous of supersededEvidence) {
-        previous.status = "superseded";
-        previous.verificationState = "superseded";
-      }
-      await repo.save(supersededEvidence);
-    }
-    evidence.status = "accepted";
-    evidence.verificationState = "verified";
-    evidence.lastVerifiedAt = reviewedAt;
-    evidence.humanConfirmedAt = actor.userId ? reviewedAt : null;
-    evidence.humanConfirmedById = actor.userId ?? null;
-    evidence.verifyingActorType = verifyingActorType;
-    evidence.verifyingActorId = verifyingActorId;
-    return repo.save(evidence);
+  const candidate = await AppDataSource.getRepository(RevenueFieldEvidence).findOneBy({
+    companyId,
+    id: evidenceId,
   });
+  if (!candidate) throw new Error("Evidence not found");
+
+  return withEvidenceReviewQueue(evidenceReviewQueueKey(candidate), () =>
+    AppDataSource.transaction("SERIALIZABLE", async (manager) => {
+      const repo = manager.getRepository(RevenueFieldEvidence);
+      const proposed = await repo.findOneBy({ companyId, id: evidenceId });
+      if (!proposed) throw new Error("Evidence not found");
+      if (proposed.status !== "proposed") throw new Error("Evidence has already been reviewed");
+      if (
+        proposed.resourceType === "deal" &&
+        proposed.fieldKey === "commercial_value" &&
+        !actor.userId
+      ) {
+        throw new Error("Commercial-value evidence requires review by a human Member");
+      }
+
+      const reviewedAt = new Date();
+      const verifyingActorType = actor.userId
+        ? "member"
+        : actor.employeeId
+          ? "ai_employee"
+          : "system";
+      const verifyingActorId = actor.userId ?? actor.employeeId ?? null;
+      const claimed = await repo.update(
+        { companyId, id: evidenceId, status: "proposed" },
+        {
+          status: decision === "accept" ? "accepted" : "rejected",
+          verificationState: decision === "accept" ? "verified" : "rejected",
+          lastVerifiedAt: decision === "accept" ? reviewedAt : proposed.lastVerifiedAt,
+          humanConfirmedAt: actor.userId ? reviewedAt : null,
+          humanConfirmedById: actor.userId ?? null,
+          verifyingActorType,
+          verifyingActorId,
+        },
+      );
+      if (claimed.affected !== 1) {
+        throw new Error("Evidence has already been reviewed");
+      }
+      const evidence = await repo.findOneByOrFail({ companyId, id: evidenceId });
+      if (decision === "reject") return evidence;
+
+      let account: Customer | null = null;
+      let deal: Deal | null = null;
+      let contact: Contact | null = null;
+      if (evidence.resourceType === "account") {
+        account = await lockEvidenceResource(manager, Customer, companyId, evidence.resourceId);
+      } else if (evidence.resourceType === "deal" && evidence.fieldKey === "commercial_value") {
+        deal = await lockEvidenceResource(manager, Deal, companyId, evidence.resourceId);
+      } else if (evidence.resourceType === "contact" && evidence.fieldKey === "email") {
+        contact = await lockEvidenceResource(manager, Contact, companyId, evidence.resourceId);
+      }
+
+      const existingAccepted = (
+        await repo.find({
+          where: {
+            companyId,
+            resourceType: evidence.resourceType,
+            resourceId: evidence.resourceId,
+            fieldKey: evidence.fieldKey,
+            status: "accepted",
+          },
+        })
+      ).filter((row) => row.id !== evidence.id);
+      const supersededEvidence = existingAccepted.filter(
+        (row) => row.normalizedValue !== evidence.normalizedValue,
+      );
+      if (supersededEvidence.length > 0 && !options.supersedeExisting) {
+        throw new Error("A verified value already exists; set supersedeExisting to replace it");
+      }
+
+      const value = JSON.parse(evidence.extractedValueJson) as unknown;
+      if (evidence.resourceType === "account") {
+        const accountRepo = manager.getRepository(Customer);
+        if (!account) throw new Error("Account not found");
+        if (evidence.fieldKey === "domain") {
+          if (typeof value !== "string") throw new Error("Domain evidence is malformed");
+          const domain = normalizeAccountDomain(value);
+          const collision = await accountRepo.findOneBy({
+            companyId,
+            domain,
+            archivedAt: IsNull(),
+          });
+          if (collision && collision.id !== evidence.resourceId) {
+            throw new Error(
+              `Domain is already verified on ${collision.name}; review the merge candidate`,
+            );
+          }
+          await accountRepo.update({ companyId, id: evidence.resourceId }, { domain });
+        } else if (evidence.fieldKey === "website_url") {
+          await accountRepo.update(
+            { companyId, id: evidence.resourceId },
+            { websiteUrl: reviewedEvidenceText(value, "Website URL", 1_000) },
+          );
+        } else if (evidence.fieldKey === "industry") {
+          await accountRepo.update(
+            { companyId, id: evidence.resourceId },
+            { industry: reviewedEvidenceText(value, "Industry", 200) },
+          );
+        } else if (evidence.fieldKey === "employee_count") {
+          await accountRepo.update(
+            { companyId, id: evidence.resourceId },
+            { employeeCount: reviewedEmployeeCount(value) },
+          );
+        } else if (evidence.fieldKey === "headquarters_address") {
+          await accountRepo.update(
+            { companyId, id: evidence.resourceId },
+            {
+              headquartersAddress: reviewedEvidenceText(value, "Headquarters address", 5_000),
+            },
+          );
+        } else if (evidence.fieldKey === "parent_company_name") {
+          await accountRepo.update(
+            { companyId, id: evidence.resourceId },
+            { parentCompanyName: reviewedEvidenceText(value, "Parent company name", 255) },
+          );
+        } else if (evidence.fieldKey === "parent_company_domain") {
+          const parentCompanyDomain = normalizeAccountDomain(
+            reviewedEvidenceText(value, "Parent company domain", 255),
+          );
+          if (!parentCompanyDomain || parentCompanyDomain.length > 255) {
+            throw new Error("Parent company domain evidence is malformed");
+          }
+          await accountRepo.update({ companyId, id: evidence.resourceId }, { parentCompanyDomain });
+        } else {
+          throw new Error("This evidence field cannot be applied automatically");
+        }
+      } else if (evidence.resourceType === "deal" && evidence.fieldKey === "commercial_value") {
+        const commercial = validateCommercialValue(value as CommercialValue);
+        const dealRepo = manager.getRepository(Deal);
+        if (!deal) throw new Error("Deal not found");
+        if (commercialProposalIsStale(evidence, deal)) {
+          throw new Error(
+            "Commercial-value proposal is stale because the Deal changed after it was generated",
+          );
+        }
+        const changed =
+          deal.amountCents !== commercial.amountCents || deal.currency !== commercial.currency;
+        if (changed) {
+          await dealRepo.update(
+            { companyId, id: evidence.resourceId },
+            { amountCents: commercial.amountCents, currency: commercial.currency },
+          );
+          const historyRepo = manager.getRepository(DealHistoryEvent);
+          await historyRepo.save(
+            historyRepo.create({
+              companyId,
+              dealId: deal.id,
+              kind: "amount_changed",
+              occurredAt: reviewedAt,
+              fromStageId: null,
+              toStageId: null,
+              fromAmountCents: deal.amountCents,
+              toAmountCents: commercial.amountCents,
+              currency: commercial.currency,
+              fromOwnerId: null,
+              fromOwnerEmployeeId: null,
+              toOwnerId: null,
+              toOwnerEmployeeId: null,
+              lostReason: "",
+              sourceKind: "live",
+              sourceKey: liveDealHistoryKey(deal.id, "amount_changed"),
+              sourceActivityId: null,
+              metadataJson: JSON.stringify({ revenueFieldEvidenceId: evidence.id }),
+              createdByUserId: actor.userId ?? null,
+              createdByEmployeeId: actor.employeeId ?? null,
+            }),
+          );
+        }
+      } else if (evidence.resourceType === "contact" && evidence.fieldKey === "email") {
+        if (!contact || typeof value !== "string" || contact.email !== value.toLowerCase()) {
+          throw new Error("Contact email evidence no longer matches the Contact");
+        }
+      } else {
+        throw new Error("This evidence field cannot be applied automatically");
+      }
+
+      if (supersededEvidence.length > 0) {
+        for (const previous of supersededEvidence) {
+          previous.status = "superseded";
+          previous.verificationState = "superseded";
+        }
+        await repo.save(supersededEvidence);
+      }
+      return evidence;
+    }),
+  );
 }

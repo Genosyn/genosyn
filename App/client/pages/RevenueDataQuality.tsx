@@ -2,6 +2,7 @@ import React from "react";
 import { useOutletContext } from "react-router-dom";
 import {
   Archive,
+  Building2,
   Check,
   DatabaseZap,
   Download,
@@ -14,9 +15,15 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react";
-import { api } from "../lib/api";
+import { api, type IntegrationConnection } from "../lib/api";
+import type {
+  RevenueCommercialValueBacklogPage,
+  RevenueDealHistoryActivityBackfillSummary,
+  RevenueDealHistoryCoveragePage,
+} from "../lib/revenue";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
+import { useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
@@ -147,6 +154,22 @@ type HistoryImportSummary = {
     }>;
   }>;
 };
+type FirmographicPreview = {
+  connection: { id: string; label: string; provider: string };
+  selectedAccounts: number;
+  unavailableAccounts: number;
+  eligibleAccounts: number;
+  cachedAccounts: number;
+  completeAccounts: number;
+  estimatedExternalRequests: number;
+  rows: Array<{
+    accountId: string;
+    accountName: string;
+    missingFields: string[];
+    state: "eligible" | "cached_match" | "cached_not_found" | "complete";
+    lastAttemptedAt: string | null;
+  }>;
+};
 
 const EXPORTS = [
   "accounts",
@@ -161,7 +184,79 @@ const EXPORTS = [
   "custom_fields",
   "custom_values",
   "import_reconciliation",
+  "deal_history",
+  "field_evidence",
+  "duplicate_candidates",
+  "operation_audit",
+  "document_candidates",
 ] as const;
+
+const INVENTORY_PAGE_SIZE = 500;
+const INVENTORY_MAX_ROWS = 5_000;
+const INVENTORY_MAX_PAGES = INVENTORY_MAX_ROWS / INVENTORY_PAGE_SIZE;
+
+type OffsetInventoryPage<Row> = {
+  rows: Row[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+/**
+ * Load one stable, bounded inventory into the operator UI. The services use a
+ * deterministic createdAt/id order; refusing a changing total or duplicate ID
+ * keeps a multi-page selection from silently mixing two populations.
+ */
+async function loadFrozenInventory<Row>(
+  url: string,
+  rowId: (row: Row) => string,
+): Promise<OffsetInventoryPage<Row>> {
+  const rows: Row[] = [];
+  const seenIds = new Set<string>();
+  let frozenTotal: number | null = null;
+
+  for (let pageNumber = 0; pageNumber < INVENTORY_MAX_PAGES; pageNumber += 1) {
+    const offset = rows.length;
+    const separator = url.includes("?") ? "&" : "?";
+    const page = await api.get<OffsetInventoryPage<Row>>(
+      `${url}${separator}limit=${INVENTORY_PAGE_SIZE}&offset=${offset}`,
+    );
+    if (frozenTotal === null) {
+      frozenTotal = page.total;
+      if (frozenTotal > INVENTORY_MAX_ROWS) {
+        throw new Error(
+          `This inventory has more than ${INVENTORY_MAX_ROWS.toLocaleString()} rows. Narrow it through the API before selecting records.`,
+        );
+      }
+    } else if (page.total !== frozenTotal) {
+      throw new Error("This inventory changed while it was loading. Refresh and try again.");
+    }
+    if (page.offset !== offset) {
+      throw new Error("The inventory returned an unexpected page boundary. Refresh and try again.");
+    }
+    for (const row of page.rows) {
+      const id = rowId(row);
+      if (seenIds.has(id)) {
+        throw new Error("This inventory changed while it was loading. Refresh and try again.");
+      }
+      seenIds.add(id);
+      rows.push(row);
+    }
+    if (rows.length >= frozenTotal) {
+      if (rows.length !== frozenTotal) {
+        throw new Error("This inventory changed while it was loading. Refresh and try again.");
+      }
+      return { rows, total: frozenTotal, limit: INVENTORY_PAGE_SIZE, offset: 0 };
+    }
+    if (page.rows.length === 0) {
+      throw new Error("The inventory ended before every row was loaded. Refresh and try again.");
+    }
+  }
+
+  throw new Error(
+    `This inventory exceeds the ${INVENTORY_MAX_ROWS.toLocaleString()}-row operator limit.`,
+  );
+}
 
 function parsedJson(value: string): unknown {
   try {
@@ -177,13 +272,31 @@ function displayValue(value: unknown): string {
   return String(value);
 }
 
+function formatMoney(amountCents: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: currency || "USD",
+    }).format(amountCents / 100);
+  } catch {
+    return `${currency || "USD"} ${(amountCents / 100).toLocaleString()}`;
+  }
+}
+
 function csvCell(value: unknown): string {
-  const text =
+  let text =
     value === null || value === undefined
       ? ""
       : typeof value === "object"
         ? JSON.stringify(value)
         : String(value);
+  if (typeof value === "string") {
+    let firstVisible = 0;
+    while (firstVisible < text.length && text.charCodeAt(firstVisible) <= 0x20) {
+      firstVisible += 1;
+    }
+    if (["=", "+", "-", "@"].includes(text[firstVisible] ?? "")) text = `'${text}`;
+  }
   return `"${text.replaceAll('"', '""')}"`;
 }
 
@@ -203,6 +316,24 @@ function actionBody(
     return { type: "update_follow_up", dueAt: new Date(value).toISOString() };
   }
   if (action === "custom_fields") return { type: "set_custom_fields", values: parsedJson(value) };
+  if (action === "standard_fields") {
+    const parsed = parsedJson(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Standard fields must be a JSON object");
+    }
+    const input = parsed as Record<string, unknown>;
+    return {
+      type: "update_standard_fields",
+      confirm: "UPDATE_STANDARD_FIELDS",
+      ...(input.values || input.rows
+        ? {
+            values: input.values,
+            rows: input.rows,
+            notesMode: input.notesMode,
+          }
+        : { values: input }),
+    };
+  }
   if (resourceType === "follow_up") {
     return {
       type: "update_follow_up",
@@ -216,6 +347,7 @@ function actionBody(
 export default function RevenueDataQuality() {
   const { company } = useOutletContext<RevenueOutletCtx>();
   const { toast, background } = useToast();
+  const dialog = useDialog();
   const base = `/api/companies/${company.id}/revenue`;
   const sectionUrl = `/c/${company.slug}/revenue`;
   const [duplicates, setDuplicates] = React.useState<DuplicateCandidate[] | null>(null);
@@ -238,6 +370,10 @@ export default function RevenueDataQuality() {
   const [bulkMode, setBulkMode] = React.useState<"atomic" | "partial">("partial");
   const [bulkResult, setBulkResult] = React.useState<BulkResult | null>(null);
   const [bulkJob, setBulkJob] = React.useState<BulkJobDetail | null>(null);
+  const [bulkPreviewConfigurationKey, setBulkPreviewConfigurationKey] = React.useState<
+    string | null
+  >(null);
+  const [bulkSubmitting, setBulkSubmitting] = React.useState(false);
   const [historyJson, setHistoryJson] = React.useState("");
   const [historyPreview, setHistoryPreview] = React.useState<HistoryImportSummary | null>(null);
   const [historyPreviewPayload, setHistoryPreviewPayload] = React.useState("");
@@ -245,19 +381,115 @@ export default function RevenueDataQuality() {
     Record<string, { resourceType: ResourceType; resourceId: string }>
   >({});
   const [exporting, setExporting] = React.useState<(typeof EXPORTS)[number] | null>(null);
+  const [firmographicConnections, setFirmographicConnections] = React.useState<
+    IntegrationConnection[]
+  >([]);
+  const [firmographicConnectionId, setFirmographicConnectionId] = React.useState("");
+  const [firmographicAccountIds, setFirmographicAccountIds] = React.useState("");
+  const [firmographicPreview, setFirmographicPreview] = React.useState<FirmographicPreview | null>(
+    null,
+  );
+  const [historyCoverage, setHistoryCoverage] =
+    React.useState<RevenueDealHistoryCoveragePage | null>(null);
+  const [selectedHistoryDealIds, setSelectedHistoryDealIds] = React.useState<string[]>([]);
+  const [activityBackfillPreview, setActivityBackfillPreview] =
+    React.useState<RevenueDealHistoryActivityBackfillSummary | null>(null);
+  const [activityBackfillPreviewSelection, setActivityBackfillPreviewSelection] =
+    React.useState("");
+  const [commercialBacklog, setCommercialBacklog] =
+    React.useState<RevenueCommercialValueBacklogPage | null>(null);
+  const [commercialBacklogUnavailable, setCommercialBacklogUnavailable] = React.useState(false);
+  const [selectedCommercialDealIds, setSelectedCommercialDealIds] = React.useState<string[]>([]);
+  const [stripeConnections, setStripeConnections] = React.useState<IntegrationConnection[]>([]);
+  const [stripeConnectionId, setStripeConnectionId] = React.useState("");
+  const [commercialSubmitting, setCommercialSubmitting] = React.useState(false);
 
   const reload = React.useCallback(async () => {
-    const [duplicatePage, evidencePage, documentPage, operationPage] = await Promise.all([
+    const [
+      duplicatePage,
+      evidencePage,
+      documentPage,
+      operationPage,
+      connections,
+      historyCoveragePage,
+      commercialBacklogPage,
+    ] = await Promise.all([
       api.get<{ rows: DuplicateCandidate[] }>(`${base}/duplicates?status=open`),
       api.get<{ rows: Evidence[] }>(`${base}/enrichment/evidence?status=proposed`),
       api.get<{ rows: DocumentCandidate[] }>(`${base}/document-capture/candidates?status=pending`),
       api.get<{ rows: Operation[] }>(`${base}/operations?limit=25`),
+      api
+        .get<IntegrationConnection[]>(`/api/companies/${company.id}/integrations/connections`)
+        .catch(() => []),
+      loadFrozenInventory<RevenueDealHistoryCoveragePage["rows"][number]>(
+        `${base}/deal-history/coverage?includeArchived=false`,
+        (row) => row.dealId,
+      ).catch((cause) => {
+        setError(cause instanceof Error ? cause.message : String(cause));
+        return { rows: [], total: 0, limit: INVENTORY_PAGE_SIZE, offset: 0 };
+      }),
+      loadFrozenInventory<RevenueCommercialValueBacklogPage["rows"][number]>(
+        `${base}/enrichment/commercial-values/backlog`,
+        (row) => row.dealId,
+      )
+        .then((page) => {
+          setCommercialBacklogUnavailable(false);
+          return page;
+        })
+        .catch((cause) => {
+          const message = cause instanceof Error ? cause.message : String(cause);
+          const financeDenied = message.includes(
+            "You don't have access to this company's finances.",
+          );
+          setCommercialBacklogUnavailable(financeDenied);
+          if (!financeDenied) setError(message);
+          return { rows: [], total: 0, limit: INVENTORY_PAGE_SIZE, offset: 0 };
+        }),
     ]);
     setDuplicates(duplicatePage.rows);
     setEvidence(evidencePage.rows);
     setDocuments(documentPage.rows);
     setOperations(operationPage.rows);
-  }, [base]);
+    setHistoryCoverage(historyCoveragePage);
+    setCommercialBacklog(commercialBacklogPage);
+    setActivityBackfillPreview(null);
+    setActivityBackfillPreviewSelection("");
+    setSelectedHistoryDealIds((current) =>
+      current.filter((dealId) =>
+        historyCoveragePage.rows.some(
+          (row) => row.dealId === dealId && row.recommendation === "activity_backfill",
+        ),
+      ),
+    );
+    setSelectedCommercialDealIds((current) =>
+      current.filter((dealId) =>
+        commercialBacklogPage.rows.some(
+          (row) =>
+            row.dealId === dealId &&
+            ["finance_candidate", "stripe_candidate"].includes(row.disposition),
+        ),
+      ),
+    );
+    const supported = connections.filter(
+      (connection) =>
+        connection.provider === "people-data-labs" && connection.status === "connected",
+    );
+    setFirmographicConnections(supported);
+    setFirmographicConnectionId((current) =>
+      supported.some((connection) => connection.id === current)
+        ? current
+        : (supported[0]?.id ?? ""),
+    );
+    const connectedStripe = connections.filter(
+      (connection) => connection.provider === "stripe" && connection.status === "connected",
+    );
+    setStripeConnections(connectedStripe);
+    setStripeConnectionId((current) =>
+      connectedStripe.some((connection) => connection.id === current)
+        ? current
+        : (connectedStripe[0]?.id ?? ""),
+    );
+  }, [base, company.id]);
 
   React.useEffect(() => {
     void reload().catch((cause) =>
@@ -302,16 +534,18 @@ export default function RevenueDataQuality() {
     setExporting(resource);
     setError(null);
     try {
-      let offset: number | null = 0;
+      let cursor: string | null = null;
       const rows: Array<Record<string, unknown>> = [];
-      while (offset !== null) {
+      do {
+        const query = new URLSearchParams({ format: "json", limit: "500" });
+        if (cursor) query.set("cursor", cursor);
         const snapshotPage: {
           rows: Array<Record<string, unknown>>;
-          nextOffset: number | null;
-        } = await api.get(`${base}/exports/${resource}?format=json&limit=500&offset=${offset}`);
+          nextCursor: string | null;
+        } = await api.get(`${base}/exports/${resource}?${query.toString()}`);
         rows.push(...snapshotPage.rows);
-        offset = snapshotPage.nextOffset;
-      }
+        cursor = snapshotPage.nextCursor;
+      } while (cursor !== null);
       const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))];
       const csv =
         columns.length === 0
@@ -359,13 +593,15 @@ export default function RevenueDataQuality() {
       return await api.post(`${base}/enrichment/evidence/${id}/review`, { decision });
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
-      if (
-        decision === "accept" &&
-        message.includes("verified value already exists") &&
-        window.confirm(
-          "A different verified value already exists. Replace it and retain the old value in provenance history?",
-        )
-      ) {
+      if (decision === "accept" && message.includes("verified value already exists")) {
+        const confirmed = await dialog.confirm({
+          title: "Replace the verified value?",
+          message:
+            "A different verified value already exists. The current value will remain in provenance history.",
+          confirmLabel: "Replace value",
+          variant: "danger",
+        });
+        if (!confirmed) throw cause;
         return api.post(`${base}/enrichment/evidence/${id}/review`, {
           decision,
           supersedeExisting: true,
@@ -412,9 +648,27 @@ export default function RevenueDataQuality() {
     return { ids: lines };
   }
 
+  function bulkConfigurationKey(): string {
+    return JSON.stringify({
+      resourceType: bulkResource,
+      action: bulkAction,
+      value: bulkValue,
+      ids: bulkIds,
+      filter: bulkFilter,
+      mode: bulkMode,
+    });
+  }
+
   async function runBulk(dryRun: boolean) {
+    const configurationKey = bulkConfigurationKey();
+    if (!dryRun && (!bulkResult?.dryRun || bulkPreviewConfigurationKey !== configurationKey)) {
+      setError("Preview the current bulk settings before applying them.");
+      return;
+    }
+    setBulkSubmitting(true);
     setError(null);
     setBulkJob(null);
+    if (dryRun) setBulkPreviewConfigurationKey(null);
     try {
       const body = {
         resourceType: bulkResource,
@@ -426,8 +680,10 @@ export default function RevenueDataQuality() {
       };
       if (dryRun) {
         setBulkResult(await api.post<BulkResult>(`${base}/bulk`, body));
+        setBulkPreviewConfigurationKey(configurationKey);
         return;
       }
+      setBulkPreviewConfigurationKey(null);
       const queued = await api.post<{
         job: Operation;
         preview: BulkResult;
@@ -453,7 +709,28 @@ export default function RevenueDataQuality() {
       throw new Error("The bulk job is still running; its status remains in Audit and undo.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBulkSubmitting(false);
     }
+  }
+
+  async function undoOperation(operation: Operation) {
+    const confirmed = await dialog.confirm({
+      title: "Undo this Revenue operation?",
+      message:
+        "This can restore or remove many records. Genosyn will stop safely if any affected record has changed since the operation.",
+      confirmLabel: "Undo operation",
+      variant: "danger",
+    });
+    if (!confirmed) return;
+    runMaintenance(
+      "Checking and undoing operation…",
+      () =>
+        api.post(`${base}/operations/${operation.id}/undo`, {
+          confirm: "UNDO",
+        }),
+      "Revenue operation undone.",
+    );
   }
 
   async function importHistory(dryRun: boolean) {
@@ -480,7 +757,210 @@ export default function RevenueDataQuality() {
     }
   }
 
-  if (!duplicates || !evidence || !documents || !operations) {
+  function historySelectionKey(dealIds: string[]): string {
+    return [...dealIds].sort().join(",");
+  }
+
+  function toggleHistoryDeal(dealId: string, checked: boolean) {
+    setSelectedHistoryDealIds((current) =>
+      checked
+        ? [...new Set([...current, dealId])]
+        : current.filter((selectedId) => selectedId !== dealId),
+    );
+    setActivityBackfillPreview(null);
+    setActivityBackfillPreviewSelection("");
+  }
+
+  async function previewActivityBackfill() {
+    setError(null);
+    setActivityBackfillPreview(null);
+    setActivityBackfillPreviewSelection("");
+    try {
+      const dealIds = [...selectedHistoryDealIds].sort();
+      const result = await api.post<RevenueDealHistoryActivityBackfillSummary>(
+        `${base}/deal-history/activity-backfill/preview`,
+        { dealIds },
+      );
+      setActivityBackfillPreview(result);
+      setActivityBackfillPreviewSelection(historySelectionKey(dealIds));
+      toast(
+        `Previewed ${result.reviewedActivities} Activities across ${result.selectedDeals} Deals.`,
+        "success",
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  async function commitActivityBackfill() {
+    if (
+      !activityBackfillPreview ||
+      activityBackfillPreviewSelection !== historySelectionKey(selectedHistoryDealIds)
+    ) {
+      return;
+    }
+    setError(null);
+    try {
+      const result = await api.post<RevenueDealHistoryActivityBackfillSummary>(
+        `${base}/deal-history/activity-backfill`,
+        {
+          dealIds: [...selectedHistoryDealIds].sort(),
+          idempotencyKey: crypto.randomUUID(),
+          confirm: "BACKFILL",
+        },
+      );
+      toast(
+        `Backfilled ${result.imported} historical events; ${result.failed} failed validation.`,
+        result.failed > 0 ? "info" : "success",
+      );
+      setSelectedHistoryDealIds([]);
+      setActivityBackfillPreview(null);
+      setActivityBackfillPreviewSelection("");
+      await reload();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  function toggleCommercialDeal(dealId: string, checked: boolean) {
+    setSelectedCommercialDealIds((current) =>
+      checked
+        ? [...new Set([...current, dealId])]
+        : current.filter((selectedId) => selectedId !== dealId),
+    );
+  }
+
+  function selectedCommercialDeals(source: "finance" | "stripe"): string[] {
+    if (!commercialBacklog) return [];
+    const selected = new Set(selectedCommercialDealIds);
+    return commercialBacklog.rows
+      .filter(
+        (row) =>
+          selected.has(row.dealId) &&
+          ["finance_candidate", "stripe_candidate"].includes(row.disposition) &&
+          (source === "finance" ? Boolean(row.financeCandidate) : Boolean(row.stripeCandidate)),
+      )
+      .map((row) => row.dealId)
+      .sort();
+  }
+
+  async function proposeSelectedFinanceValues() {
+    const dealIds = selectedCommercialDeals("finance");
+    if (dealIds.length === 0 || commercialSubmitting) return;
+    setCommercialSubmitting(true);
+    setError(null);
+    try {
+      const result = await api.post<{ proposed: number; ambiguousAccounts: number }>(
+        `${base}/enrichment/commercial-values/propose-from-finance`,
+        {
+          dealIds,
+          confirm: "PROPOSE",
+        },
+      );
+      toast(
+        `Created ${result.proposed} reviewable commercial-value proposals.`,
+        result.ambiguousAccounts > 0 ? "info" : "success",
+      );
+      setSelectedCommercialDealIds([]);
+      await reload();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setCommercialSubmitting(false);
+    }
+  }
+
+  async function proposeSelectedStripeValues() {
+    const dealIds = selectedCommercialDeals("stripe");
+    if (!stripeConnectionId || dealIds.length === 0 || commercialSubmitting) return;
+    setCommercialSubmitting(true);
+    setError(null);
+    try {
+      const result = await api.post<{
+        proposed: number;
+        reviewedCustomers: number;
+        ambiguousAccounts: number;
+        errors: Array<{ connectionId: string; customerId?: string; error: string }>;
+      }>(`${base}/enrichment/commercial-values/propose-from-stripe`, {
+        connectionId: stripeConnectionId,
+        dealIds,
+        confirm: "PROPOSE",
+      });
+      toast(
+        `Created ${result.proposed} reviewable Stripe proposal${result.proposed === 1 ? "" : "s"} from ${result.reviewedCustomers} customer${result.reviewedCustomers === 1 ? "" : "s"}.`,
+        result.errors.length > 0 || result.ambiguousAccounts > 0 ? "info" : "success",
+      );
+      if (result.errors.length > 0) {
+        setError(
+          `${result.errors.length} Stripe lookup${result.errors.length === 1 ? "" : "s"} failed. Successful proposals remain available for review.`,
+        );
+      }
+      setSelectedCommercialDealIds([]);
+      await reload();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setCommercialSubmitting(false);
+    }
+  }
+
+  function firmographicSelection() {
+    const accountIds = firmographicAccountIds
+      .split(/[\s,]+/)
+      .map((value) => value.trim())
+      .filter(Boolean);
+    return {
+      connectionId: firmographicConnectionId,
+      accountIds: accountIds.length ? accountIds : undefined,
+      missingOnly: true,
+      limit: 100,
+    };
+  }
+
+  async function previewFirmographics() {
+    setError(null);
+    try {
+      setFirmographicPreview(
+        await api.post<FirmographicPreview>(
+          `${base}/enrichment/firmographics/preview`,
+          firmographicSelection(),
+        ),
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  function proposeFirmographics() {
+    runMaintenance(
+      "Looking up Account firmographics…",
+      async () => {
+        const result = await api.post<{
+          externalRequests: number;
+          matched: number;
+          notFound: number;
+          cached: number;
+          failed: number;
+          proposedEvidence: number;
+        }>(`${base}/enrichment/firmographics/propose`, {
+          ...firmographicSelection(),
+          confirm: "PROPOSE",
+        });
+        setFirmographicPreview(null);
+        return result;
+      },
+      "Firmographic evidence proposals refreshed.",
+    );
+  }
+
+  if (
+    !duplicates ||
+    !evidence ||
+    !documents ||
+    !operations ||
+    !historyCoverage ||
+    !commercialBacklog
+  ) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
         <Spinner />
@@ -529,34 +1009,6 @@ export default function RevenueDataQuality() {
           }
         />
         <MaintenanceButton
-          icon={<DatabaseZap size={16} />}
-          label="Propose Deal values"
-          onClick={() =>
-            runMaintenance(
-              "Checking verified Finance evidence…",
-              () =>
-                api.post(`${base}/enrichment/commercial-values/propose-from-finance`, {
-                  confirm: "PROPOSE",
-                }),
-              "Commercial-value proposals refreshed.",
-            )
-          }
-        />
-        <MaintenanceButton
-          icon={<DatabaseZap size={16} />}
-          label="Propose Stripe values"
-          onClick={() =>
-            runMaintenance(
-              "Checking verified Stripe subscriptions…",
-              () =>
-                api.post(`${base}/enrichment/commercial-values/propose-from-stripe`, {
-                  confirm: "PROPOSE",
-                }),
-              "Stripe commercial-value proposals refreshed.",
-            )
-          }
-        />
-        <MaintenanceButton
           icon={<FileSearch size={16} />}
           label="Scan mail attachments"
           onClick={() =>
@@ -567,20 +1019,367 @@ export default function RevenueDataQuality() {
             )
           }
         />
-        <MaintenanceButton
-          icon={<History size={16} />}
-          label="Backfill Deal activities"
-          onClick={() =>
-            runMaintenance(
-              "Backfilling historical events…",
-              () =>
-                api.post(`${base}/deal-history/backfill-activities`, {
-                  confirm: "BACKFILL",
-                }),
-              "Historical Deal events backfilled.",
-            )
-          }
-        />
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Section
+          title="Deal history coverage"
+          description="Select only the Deals whose native Activities should become historical events. Preview is required before backfill."
+          icon={<History size={18} />}
+        >
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <span>{historyCoverage.total} Deals checked</span>
+            <span>·</span>
+            <span>
+              {historyCoverage.rows.filter((row) => row.completeness === "missing").length} missing
+              history
+            </span>
+            <span>·</span>
+            <span>
+              {
+                historyCoverage.rows.filter((row) => row.recommendation === "activity_backfill")
+                  .length
+              }{" "}
+              ready for Activity backfill
+            </span>
+            <span>·</span>
+            <span>
+              {
+                historyCoverage.rows.filter(
+                  (row) => row.recommendation === "historical_import_first",
+                ).length
+              }{" "}
+              need historical import first
+            </span>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                setSelectedHistoryDealIds(
+                  historyCoverage.rows
+                    .filter(
+                      (row) =>
+                        row.recommendation === "activity_backfill" && row.pendingActivityCount > 0,
+                    )
+                    .map((row) => row.dealId),
+                );
+                setActivityBackfillPreview(null);
+                setActivityBackfillPreviewSelection("");
+              }}
+            >
+              Select recommended
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={selectedHistoryDealIds.length === 0}
+              onClick={() => {
+                setSelectedHistoryDealIds([]);
+                setActivityBackfillPreview(null);
+                setActivityBackfillPreviewSelection("");
+              }}
+            >
+              Clear
+            </Button>
+            <span className="self-center text-xs text-slate-500">
+              {selectedHistoryDealIds.length} selected
+            </span>
+          </div>
+          {historyCoverage.rows.length === 0 ? (
+            <Empty text="No Deals need history reconciliation." />
+          ) : (
+            <div className="mt-3 max-h-72 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200 px-3 dark:divide-slate-800 dark:border-slate-700">
+              {historyCoverage.rows.map((row) => {
+                const selectable =
+                  row.recommendation === "activity_backfill" && row.pendingActivityCount > 0;
+                const recommendation =
+                  row.recommendation === "activity_backfill"
+                    ? `Backfill ${row.pendingActivityCount} Activities`
+                    : row.recommendation === "historical_import_first"
+                      ? "Historical import first"
+                      : row.recommendation === "historical_import"
+                        ? "Historical import recommended"
+                        : "No repair recommended";
+                return (
+                  <label
+                    key={row.dealId}
+                    className={`flex gap-3 py-3 ${selectable ? "cursor-pointer" : ""}`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      checked={selectedHistoryDealIds.includes(row.dealId)}
+                      disabled={!selectable}
+                      onChange={(event) => toggleHistoryDeal(row.dealId, event.target.checked)}
+                    />
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                        {row.title}
+                      </span>
+                      <span className="block text-xs text-slate-500">
+                        {row.stageName ?? "Unknown stage"} · {row.completeness.replaceAll("_", " ")}
+                        {" · "}
+                        {row.historyEventCount} events · {recommendation}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              disabled={selectedHistoryDealIds.length === 0}
+              onClick={() => void previewActivityBackfill()}
+            >
+              Preview backfill
+            </Button>
+            <Button
+              disabled={
+                !activityBackfillPreview ||
+                activityBackfillPreviewSelection !== historySelectionKey(selectedHistoryDealIds) ||
+                !activityBackfillPreview.rows.some((row) => row.status === "ready")
+              }
+              onClick={() => void commitActivityBackfill()}
+            >
+              Backfill previewed Activities
+            </Button>
+          </div>
+          {activityBackfillPreview && (
+            <div className="mt-3 rounded-lg bg-slate-50 p-3 text-xs dark:bg-slate-950">
+              <p className="font-medium text-slate-700 dark:text-slate-200">
+                Preview: {activityBackfillPreview.selectedDeals} Deals ·{" "}
+                {activityBackfillPreview.reviewedActivities} Activities ·{" "}
+                {activityBackfillPreview.rows.filter((row) => row.status === "ready").length} ready
+                · {activityBackfillPreview.skipped} already covered ·{" "}
+                {activityBackfillPreview.failed} failed validation
+              </p>
+              {activityBackfillPreview.migrationSnapshots > 0 && (
+                <p className="mt-1 text-slate-500">
+                  {activityBackfillPreview.migrationSnapshots} migration-time creation Activities
+                  will be preserved as snapshots, not original creation dates.
+                </p>
+              )}
+              {activityBackfillPreview.rows.some(
+                (row) => row.status === "failed" && row.reason,
+              ) && (
+                <div className="mt-2 max-h-24 space-y-1 overflow-y-auto text-red-600 dark:text-red-400">
+                  {activityBackfillPreview.rows
+                    .filter((row) => row.status === "failed" && row.reason)
+                    .map((row) => (
+                      <p key={row.activityId}>
+                        {row.dealId} · {row.reason}
+                      </p>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
+        </Section>
+
+        <Section
+          title="Commercial-value backlog"
+          description="Members with Finance access can select unambiguous zero-value Deals and propose values from verified Finance or Stripe evidence. Proposals still require review and never change Deal values directly."
+          icon={<DatabaseZap size={18} />}
+        >
+          {commercialBacklogUnavailable ? (
+            <Empty text="Finance access is required to inspect commercial-value evidence." />
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                <span>{commercialBacklog.total} open zero-value Deals</span>
+                <span>·</span>
+                <span>
+                  {
+                    commercialBacklog.rows.filter((row) => row.disposition === "finance_candidate")
+                      .length
+                  }{" "}
+                  Finance candidates
+                </span>
+                <span>·</span>
+                <span>
+                  {
+                    commercialBacklog.rows.filter(
+                      (row) =>
+                        Boolean(row.stripeCandidate) &&
+                        ["finance_candidate", "stripe_candidate"].includes(row.disposition),
+                    ).length
+                  }{" "}
+                  Stripe candidates
+                </span>
+                <span>·</span>
+                <span>
+                  {
+                    commercialBacklog.rows.filter((row) => row.disposition === "ambiguous_account")
+                      .length
+                  }{" "}
+                  ambiguous
+                </span>
+                <span>·</span>
+                <span>
+                  {
+                    commercialBacklog.rows.filter((row) => row.disposition === "pending_review")
+                      .length
+                  }{" "}
+                  awaiting review
+                </span>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={commercialSubmitting}
+                  onClick={() =>
+                    setSelectedCommercialDealIds(
+                      commercialBacklog.rows
+                        .filter((row) => row.disposition === "finance_candidate")
+                        .map((row) => row.dealId),
+                    )
+                  }
+                >
+                  Select Finance candidates
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={
+                    commercialSubmitting ||
+                    !commercialBacklog.rows.some(
+                      (row) =>
+                        Boolean(row.stripeCandidate) &&
+                        ["finance_candidate", "stripe_candidate"].includes(row.disposition),
+                    )
+                  }
+                  onClick={() =>
+                    setSelectedCommercialDealIds(
+                      commercialBacklog.rows
+                        .filter(
+                          (row) =>
+                            Boolean(row.stripeCandidate) &&
+                            ["finance_candidate", "stripe_candidate"].includes(row.disposition),
+                        )
+                        .map((row) => row.dealId),
+                    )
+                  }
+                >
+                  Select Stripe candidates
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={commercialSubmitting || selectedCommercialDealIds.length === 0}
+                  onClick={() => setSelectedCommercialDealIds([])}
+                >
+                  Clear
+                </Button>
+                <span className="self-center text-xs text-slate-500">
+                  {selectedCommercialDealIds.length} selected
+                </span>
+              </div>
+              {commercialBacklog.rows.length === 0 ? (
+                <Empty text="No open zero-value Deals need reconciliation." />
+              ) : (
+                <div className="mt-3 max-h-72 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200 px-3 dark:divide-slate-800 dark:border-slate-700">
+                  {commercialBacklog.rows.map((row) => {
+                    const selectable = ["finance_candidate", "stripe_candidate"].includes(
+                      row.disposition,
+                    );
+                    const sources: string[] = [];
+                    if (row.financeCandidate) {
+                      sources.push(
+                        `${formatMoney(
+                          row.financeCandidate.amountCents,
+                          row.financeCandidate.currency,
+                        )} from ${row.financeCandidate.sourceLabel}`,
+                      );
+                    }
+                    if (row.stripeCandidate) {
+                      sources.push(
+                        `Stripe customer ${row.stripeCandidate.customerId} through ${row.stripeCandidate.connectedConnections} Connection${row.stripeCandidate.connectedConnections === 1 ? "" : "s"}`,
+                      );
+                    }
+                    const detail =
+                      row.disposition === "ambiguous_account"
+                        ? `${row.zeroValueDealsOnAccount} zero-value Deals share this Account`
+                        : row.disposition === "pending_review"
+                          ? `${row.proposalCounts.proposed} proposal(s) awaiting review`
+                          : selectable && sources.length > 0
+                            ? sources.join(" · ")
+                            : row.disposition.replaceAll("_", " ");
+                    return (
+                      <label
+                        key={row.dealId}
+                        className={`flex gap-3 py-3 ${selectable ? "cursor-pointer" : ""}`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                          checked={selectedCommercialDealIds.includes(row.dealId)}
+                          disabled={!selectable || commercialSubmitting}
+                          onChange={(event) =>
+                            toggleCommercialDeal(row.dealId, event.target.checked)
+                          }
+                        />
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                            {row.title}
+                          </span>
+                          <span className="block text-xs text-slate-500">
+                            {row.accountName ?? "No Account"} · {row.stageName ?? "Unknown stage"} ·{" "}
+                            {detail}
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="mt-3 flex flex-wrap items-end gap-3">
+                <Button
+                  disabled={commercialSubmitting || selectedCommercialDeals("finance").length === 0}
+                  onClick={() => void proposeSelectedFinanceValues()}
+                >
+                  {commercialSubmitting ? <Spinner size={14} /> : null}
+                  Propose Finance values ({selectedCommercialDeals("finance").length})
+                </Button>
+                {stripeConnections.length > 0 ? (
+                  <>
+                    <Select
+                      label="Stripe Connection"
+                      value={stripeConnectionId}
+                      onChange={(event) => setStripeConnectionId(event.target.value)}
+                      disabled={commercialSubmitting}
+                    >
+                      {stripeConnections.map((connection) => (
+                        <option key={connection.id} value={connection.id}>
+                          {connection.label}
+                        </option>
+                      ))}
+                    </Select>
+                    <Button
+                      disabled={
+                        commercialSubmitting ||
+                        !stripeConnectionId ||
+                        selectedCommercialDeals("stripe").length === 0
+                      }
+                      onClick={() => void proposeSelectedStripeValues()}
+                    >
+                      {commercialSubmitting ? <Spinner size={14} /> : null}
+                      Propose Stripe values ({selectedCommercialDeals("stripe").length})
+                    </Button>
+                  </>
+                ) : (
+                  <p className="self-center text-xs text-slate-500">
+                    Connect Stripe to propose subscription or paid-invoice values.
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+        </Section>
       </div>
 
       <Section
@@ -722,6 +1521,85 @@ export default function RevenueDataQuality() {
                 Cancel
               </Button>
             </div>
+          </div>
+        )}
+      </Section>
+
+      <Section
+        title="Firmographic lookup"
+        description="Preview billable company lookups, then create reviewable Account evidence. No returned value is applied automatically."
+        icon={<Building2 size={18} />}
+      >
+        {firmographicConnections.length === 0 ? (
+          <Empty text="Connect People Data Labs from Revenue → Integrations to enrich Accounts." />
+        ) : (
+          <div className="space-y-3">
+            <div className="grid gap-3 lg:grid-cols-[18rem_1fr_auto_auto] lg:items-end">
+              <Select
+                value={firmographicConnectionId}
+                onChange={(event) => {
+                  setFirmographicConnectionId(event.target.value);
+                  setFirmographicPreview(null);
+                }}
+              >
+                {firmographicConnections.map((connection) => (
+                  <option key={connection.id} value={connection.id}>
+                    {connection.label}
+                  </option>
+                ))}
+              </Select>
+              <Input
+                value={firmographicAccountIds}
+                onChange={(event) => {
+                  setFirmographicAccountIds(event.target.value);
+                  setFirmographicPreview(null);
+                }}
+                placeholder="Optional Account UUIDs, separated by commas"
+              />
+              <Button variant="secondary" onClick={() => void previewFirmographics()}>
+                Preview
+              </Button>
+              <Button
+                disabled={
+                  !firmographicPreview ||
+                  firmographicPreview.connection.id !== firmographicConnectionId ||
+                  firmographicPreview.eligibleAccounts + firmographicPreview.cachedAccounts === 0
+                }
+                onClick={proposeFirmographics}
+              >
+                Propose evidence
+              </Button>
+            </div>
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              Successful external matches may consume provider credits. Fresh matches and no-matches
+              are cached for 30 days; preview never calls the provider.
+            </p>
+            {firmographicPreview && (
+              <div className="rounded-lg bg-slate-50 p-3 text-xs dark:bg-slate-950">
+                <p className="font-medium text-slate-700 dark:text-slate-200">
+                  {firmographicPreview.selectedAccounts} selected ·{" "}
+                  {firmographicPreview.eligibleAccounts} eligible ·{" "}
+                  {firmographicPreview.cachedAccounts} cached ·{" "}
+                  {firmographicPreview.completeAccounts} already complete · up to{" "}
+                  {firmographicPreview.estimatedExternalRequests} external requests
+                </p>
+                {firmographicPreview.unavailableAccounts > 0 && (
+                  <p className="mt-1 text-amber-700 dark:text-amber-300">
+                    {firmographicPreview.unavailableAccounts} selected Account IDs were unavailable.
+                  </p>
+                )}
+                <div className="mt-2 max-h-40 space-y-1 overflow-y-auto text-slate-500">
+                  {firmographicPreview.rows.map((row) => (
+                    <p key={row.accountId}>
+                      {row.accountName} · {row.state.replaceAll("_", " ")} ·{" "}
+                      {row.missingFields.length
+                        ? `missing ${row.missingFields.join(", ")}`
+                        : "complete"}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </Section>
@@ -901,6 +1779,7 @@ export default function RevenueDataQuality() {
                 {bulkResource === "account" && (
                   <option value="account_status">Set Account status</option>
                 )}
+                <option value="standard_fields">Set standard fields (JSON)</option>
                 <option value="custom_fields">Set custom fields (JSON)</option>
               </>
             )}
@@ -918,12 +1797,30 @@ export default function RevenueDataQuality() {
             <option value="atomic">Atomic — all or nothing</option>
           </Select>
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => void runBulk(true)}>
-              Preview
+            <Button
+              variant="secondary"
+              disabled={bulkSubmitting}
+              onClick={() => void runBulk(true)}
+            >
+              {bulkSubmitting && !bulkJob ? <Spinner size={14} /> : null} Preview
             </Button>
-            <Button onClick={() => void runBulk(false)}>Apply</Button>
+            <Button
+              disabled={
+                bulkSubmitting ||
+                !bulkResult?.dryRun ||
+                bulkPreviewConfigurationKey !== bulkConfigurationKey()
+              }
+              onClick={() => void runBulk(false)}
+            >
+              Apply preview
+            </Button>
           </div>
         </div>
+        {bulkResult?.dryRun && bulkPreviewConfigurationKey !== bulkConfigurationKey() && (
+          <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
+            These settings changed after the preview. Preview again before applying.
+          </p>
+        )}
         {bulkJob?.summary.progress && (
           <p className="mt-3 flex items-center gap-2 text-xs text-slate-500">
             {["queued", "running"].includes(bulkJob.operation.status) && <Spinner size={13} />}
@@ -1030,7 +1927,7 @@ export default function RevenueDataQuality() {
 
         <Section
           title="Snapshot exports"
-          description="Every endpoint is paginated; use nextOffset to continue a complete JSON or CSV snapshot."
+          description="Every export is frozen at its first page and follows nextCursor to download one consistent CSV snapshot."
           icon={<Download size={18} />}
         >
           <div className="grid gap-2 sm:grid-cols-2">
@@ -1073,16 +1970,7 @@ export default function RevenueDataQuality() {
                   <Button
                     size="sm"
                     variant="secondary"
-                    onClick={() =>
-                      runMaintenance(
-                        "Checking and undoing operation…",
-                        () =>
-                          api.post(`${base}/operations/${operation.id}/undo`, {
-                            confirm: "UNDO",
-                          }),
-                        "Revenue operation undone.",
-                      )
-                    }
+                    onClick={() => void undoOperation(operation)}
                   >
                     <RotateCcw size={14} /> Undo
                   </Button>

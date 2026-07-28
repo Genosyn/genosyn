@@ -30,11 +30,12 @@ export function RevenueDataQuality() {
 
       <H2 id="merge">Merge and archive core records</H2>
       <P>
-        Genosyn refreshes duplicate candidates on a leased background schedule; run{" "}
-        <Strong>Scan duplicates</Strong> when you want an immediate pass across Accounts, Contacts,
-        Deals, and Partnerships. Detection uses exact or aliased domains, normalized company names,
-        Contact email aliases, website redirects, shared Stripe customer IDs, and similar Deal
-        titles within one Account. It only proposes candidates; it never merges automatically.
+        Genosyn scans every company at startup and then every six hours on a leased background
+        schedule. Run <Strong>Scan duplicates</Strong> when you want an immediate pass across
+        Accounts, Contacts, Deals, and Partnerships. Detection uses exact or aliased domains,
+        normalized company names, Contact email aliases, website redirects, shared Stripe customer
+        IDs, and similar Deal titles within one Account. It only proposes candidates; it never
+        merges automatically.
       </P>
       <OL>
         <LI>Choose which candidate is the surviving record.</LI>
@@ -52,6 +53,12 @@ export function RevenueDataQuality() {
         aliases. The duplicate becomes an archived tombstone that redirects callers to the survivor
         instead of disappearing.
       </P>
+      <P>
+        Archive and restore are symmetrical across Accounts, Contacts, Deals, and Partnerships.
+        Archived records stay out of default lists while their timelines and links remain
+        resolvable. A tombstone created by a merge cannot be restored directly; use the guarded
+        merge undo so references cannot split between the old and surviving records.
+      </P>
       <Callout kind="info" title="Every merge has guarded undo.">
         The audit history stores exact before-and-after rows. Undo first verifies that none of those
         rows changed after the merge; if newer work exists, it stops instead of overwriting it.
@@ -67,7 +74,7 @@ export function RevenueDataQuality() {
         rows={[
           {
             term: "Core records",
-            def: "Assign a Member or AI Employee owner, change Contact lifecycle or Account status, update typed custom fields, and archive or restore selected records.",
+            def: "Assign a Member or AI Employee owner, change Contact lifecycle or Account status, update allowed standard or typed custom fields, and archive or restore selected records.",
           },
           {
             term: "Follow-ups",
@@ -91,8 +98,23 @@ export function RevenueDataQuality() {
         restart. Choose <Code>atomic</Code> when every row must validate or <Code>partial</Code>{" "}
         when valid rows may proceed and failures should be exported for repair.
       </P>
+      <P>
+        <Strong>Set standard fields</Strong> accepts one JSON patch for every selected record.
+        Identity collisions, Account and Contact links, controlled Deal sources, Partnership
+        classifications, currencies, and dates are validated before writing. Notes can be replaced,
+        appended, or cleared. Deal amount, owner, and expected-close changes also append immutable
+        history events, so bulk cleanup cannot silently rewrite reporting truth.
+      </P>
 
       <H2 id="deal-history">Historical Deal truth and funnel reporting</H2>
+      <P>
+        Start with <Strong>Deal history coverage</Strong>. It shows each Deal&apos;s completeness,
+        native, imported, and Activity-backfill event counts, source-import references, and a
+        recommendation. This separates a genuinely missing pre-migration ledger from a Deal whose
+        lifecycle Activities can be converted safely. The page loads the complete bounded inventory
+        before enabling selection and refuses a population that changes between pages, so{" "}
+        <Strong>Select recommended</Strong> cannot silently omit later Deals.
+      </P>
       <P>
         Use <Strong>Historical Deal import</Strong> for original creation timestamps, Deal Stage
         transitions, won or lost timestamps, amount and currency changes, expected-close changes,
@@ -100,9 +122,14 @@ export function RevenueDataQuality() {
         a stable ID, set its effective timestamp, and label each Deal&apos;s history as{" "}
         <Code>complete</Code>, <Code>partial</Code>, or <Code>snapshot_only</Code>. Source identity
         stays stable across batches, so replaying an event is idempotent. Events retain their
-        original timestamps rather than pretending the migration happened today.{" "}
-        <Strong>Backfill Deal activities</Strong> can materialize history from existing immutable
-        Deal Activities.
+        original timestamps rather than pretending the migration happened today.
+      </P>
+      <P>
+        To reuse existing immutable Deal Activities, select explicit Deal IDs and preview{" "}
+        <Strong>Backfill Deal activities</Strong> first. An unscoped commit is refused. A
+        migration-time <Code>deal_created</Code> Activity becomes a snapshot, not a fabricated
+        original creation boundary; import the real source history first when coverage recommends
+        it. Replaying the same scoped backfill is idempotent.
       </P>
       <P>
         Change events must carry a real boundary: amount events need a before or after amount or
@@ -149,12 +176,54 @@ export function RevenueDataQuality() {
         domain automatically.
       </P>
       <P>
-        Commercial-value proposals can use paid or sent Finance invoices, Account ACV, verified
-        Stripe subscriptions, reviewed proposals or quotes, and confirmed email terms. Values carry
-        currency, one-time or recurring shape, billing interval, quantity or seats, MRR, ARR, ACV,
-        source, and confidence. Unverified prose is rejected. Accepting a value updates the Deal and
-        writes a real amount-history event.
+        Members with Finance access can open <Strong>Commercial-value backlog</Strong> to load the
+        complete bounded set of open zero-value Deals before proposing anything. Each row explains
+        whether it has a Finance candidate, a linked Stripe customer, an ambiguous Account with
+        several zero-value Deals, an existing proposal awaiting review, or no usable evidence.
+        Choose <Strong>Select Finance candidates</Strong> or{" "}
+        <Strong>Select Stripe candidates</Strong>, review the selected Deals, then choose a
+        connected Stripe Connection when Stripe is the evidence source. Both actions create
+        proposals only.
       </P>
+      <P>
+        Commercial-value proposals can use paid or sent Finance invoices, accepted estimates,
+        Account ACV, verified Stripe subscriptions, reviewed proposals or quotes, and confirmed
+        email terms. Values carry currency, one-time or recurring shape, billing interval, quantity
+        or seats, MRR, ARR, ACV, source, and confidence. Unverified prose is rejected. Only a human
+        Member can accept or reject a commercial-value proposal, and acceptance is refused if the
+        Deal changed after the proposal was generated. Accepting a current value updates the Deal
+        and writes a real amount-history event.
+      </P>
+      <H3 id="firmographics">Bring-your-own-key firmographics</H3>
+      <OL>
+        <LI>
+          Open <Strong>Settings → Integrations</Strong>, choose <Strong>People Data Labs</Strong>,
+          and create a Connection with your own API key.
+        </LI>
+        <LI>
+          Return to <Strong>Revenue → Data quality → Firmographic lookup</Strong>, choose that
+          Connection and optionally paste up to 100 Account IDs.
+        </LI>
+        <LI>
+          Choose <Strong>Preview</Strong>. Preview does not call the provider: it shows complete,
+          cached, and eligible Accounts plus the maximum number of external requests.
+        </LI>
+        <LI>
+          Choose <Strong>Propose evidence</Strong>, then accept or reject each returned field in the
+          normal evidence queue.
+        </LI>
+      </OL>
+      <P>
+        Matches can propose Account domain, website, industry, employee count, headquarters, and
+        parent-company name and domain. Nothing is applied automatically. Matches and no-matches are
+        cached for 30 days by default, and repeated evidence is deduplicated. A domain collision is
+        sent to the merge workflow instead of overwriting another Account.
+      </P>
+      <Callout kind="warn" title="Preview the credit boundary first.">
+        Successful external matches may consume provider credits. Preview uses the local cache and
+        Account state only; the proposal action is the point that may contact People Data Labs. AI
+        Employees need both Revenue access and a Grant to the selected Connection.
+      </Callout>
       <P>
         Every derived field keeps its source email, document, Integration, import, or manual
         evidence; extracted value and date; confidence; last-verified date; and human-confirmed
@@ -166,10 +235,11 @@ export function RevenueDataQuality() {
 
       <H2 id="document-capture">Revenue document capture</H2>
       <P>
-        Mail sync detects relevant attachments and proposes proposal, RFP, contract, security
-        questionnaire, and pricing-file links. It suggests the Account, Contact, Deal, or
-        Partnership from message participants and Deal context. Source message plus attachment
-        position prevents repeat candidates; content hashes prevent duplicate files.
+        Gmail sync automatically detects relevant attachments and proposes proposal, RFP, contract,
+        security questionnaire, and pricing-file links as each message is stored. It suggests the
+        Account, Contact, Deal, or Partnership from message participants and Deal context. Source
+        Gmail message and attachment IDs prevent repeat candidates; content hashes prevent duplicate
+        files.
       </P>
       <P>
         High-confidence links still wait for review. For an ambiguous file, choose the resource type
@@ -182,9 +252,12 @@ export function RevenueDataQuality() {
       <P>
         Snapshot exports cover Accounts, Contacts, Deals, Partnerships, Partnership contacts, buying
         committees, follow-ups, Documents, Deal Stage definitions, custom-field definitions and
-        values, and import reconciliation. CSV and JSON endpoints are paginated and return the next
-        offset, so operators can continue until the snapshot is complete instead of receiving a
-        truncated first page.
+        values, import reconciliation, immutable Deal history, field evidence, duplicate candidates,
+        operation audit rows, and Gmail document candidates. CSV and JSON endpoints use a frozen
+        snapshot boundary and paginated cursors or offsets, so operators can continue until the
+        export is complete without later writes moving records between pages. AI Employees need the
+        source Mail Account ID and a read Grant to that exact mailbox to export Gmail document
+        candidates; Revenue access alone does not reveal mailbox-derived metadata.
       </P>
       <P>
         Import history now has a lightweight summary listing, lookup by Import ID, filters for

@@ -21,6 +21,7 @@ const CATALOG: Array<{ name: string; kind: string }> = [
   { name: "Gmail / Google", kind: "comms + drive" },
   { name: "Google Analytics", kind: "analytics" },
   { name: "Google Search Console", kind: "SEO / search" },
+  { name: "People Data Labs", kind: "firmographics" },
   { name: "Notion", kind: "knowledge" },
   { name: "Airtable", kind: "data" },
   { name: "Linear", kind: "tickets" },
@@ -118,6 +119,10 @@ export function Integrations() {
         <LI>
           <Strong>Code → Integrations</Strong> shows GitHub; <Strong>Finance → Integrations</Strong>{" "}
           shows payment and banking Connections.
+        </LI>
+        <LI>
+          <Strong>Revenue → Integrations</Strong> includes Stripe, Gmail, data Connections, and
+          People Data Labs for company firmographics.
         </LI>
         <LI>
           AI Employees, Skills, Routines, and Pipelines show the full catalog because they can use
@@ -284,6 +289,25 @@ export function Integrations() {
         and map the Brex Connection to a card liability, default expense category, and payment
         account. Brex exposes only settled transactions: pending card activity appears after it
         settles.
+      </P>
+
+      <H3 id="people-data-labs">People Data Labs firmographics</H3>
+      <P>
+        Open <Code>Settings → Integrations</Code>, choose <Strong>People Data Labs</Strong>, and
+        paste your own API key into a new Connection. Genosyn stores the key encrypted and keeps the
+        provider request fixed to the company-enrichment endpoint. Give an AI Employee a Grant to
+        this Connection only when it should be allowed to request firmographic evidence.
+      </P>
+      <P>
+        Use the Connection from{" "}
+        <DocLink to="/docs/revenue-data-quality#firmographics">
+          Revenue → Data quality → Firmographic lookup
+        </DocLink>
+        . Preview shows eligible Accounts, cache hits, and the maximum number of external requests
+        without calling the provider. The proposal step can return domain, website, industry,
+        employee count, headquarters, and parent-company evidence, but every value waits in the
+        Revenue evidence queue for review. Successful matches may consume your provider credits;
+        fresh matches and no-matches are cached for 30 days by default.
       </P>
 
       <H3 id="github-engineering">GitHub & engineering grants</H3>

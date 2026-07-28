@@ -24,6 +24,7 @@ import { RevenueDocument } from "../../db/entities/RevenueDocument.js";
 import { RevenueDocumentCandidate } from "../../db/entities/RevenueDocumentCandidate.js";
 import { RevenueDuplicateCandidate } from "../../db/entities/RevenueDuplicateCandidate.js";
 import { RevenueFieldEvidence } from "../../db/entities/RevenueFieldEvidence.js";
+import { RevenueFirmographicLookup } from "../../db/entities/RevenueFirmographicLookup.js";
 import {
   RevenueOperation,
   type RevenueOperationKind,
@@ -81,6 +82,7 @@ const OPERATION_ENTITIES: Record<string, EntityTarget<ObjectLiteral>> = {
   revenue_document_candidate: RevenueDocumentCandidate,
   revenue_duplicate_candidate: RevenueDuplicateCandidate,
   revenue_field_evidence: RevenueFieldEvidence,
+  revenue_firmographic_lookup: RevenueFirmographicLookup,
   revenue_record_alias: RevenueRecordAlias,
   sequence_enrollment: SequenceEnrollment,
   signal_event: SignalEvent,

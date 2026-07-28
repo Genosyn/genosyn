@@ -189,6 +189,9 @@ const RevenueAccount = z
     websiteUrl: z.string(),
     industry: z.string(),
     employeeCount: z.number().int(),
+    headquartersAddress: z.string(),
+    parentCompanyName: z.string(),
+    parentCompanyDomain: z.string(),
     email: z.string(),
     phone: z.string(),
     currency: z.string(),
@@ -850,28 +853,196 @@ registry.registerPath({
   },
 });
 
-const BulkTarget = z.object({
-  ids: z.array(z.string().uuid()).max(5_000).optional(),
-  followUpIds: z
-    .array(
-      z.object({
-        source: z.enum(["task", "deal", "partnership"]),
-        id: z.string().uuid(),
-      }),
-    )
-    .max(5_000)
-    .optional(),
-  filter: z.record(z.unknown()).optional(),
-});
+const BulkFilter = z
+  .object({
+    state: z.enum(["all", "overdue", "today", "upcoming"]).optional(),
+    q: z.string().max(200).optional(),
+    includeArchived: z.boolean().optional(),
+    ownerId: z.string().uuid().optional(),
+    ownerEmployeeId: z.string().uuid().optional(),
+    assignedUserId: z.string().uuid().optional(),
+    assignedEmployeeId: z.string().uuid().optional(),
+    unassigned: z.boolean().optional(),
+    accountStatus: z.enum(["prospect", "customer", "former"]).optional(),
+    lifecycleStage: z
+      .enum([
+        "subscriber",
+        "lead",
+        "qualified",
+        "opportunity",
+        "customer",
+        "churned",
+        "unqualified",
+      ])
+      .optional(),
+    dealStatus: z.enum(["open", "won", "lost"]).optional(),
+    dealStageId: z.string().uuid().optional(),
+    partnershipStatus: z.string().max(80).optional(),
+    source: z.enum(["task", "deal", "partnership"]).optional(),
+    followUpSource: z.enum(["task", "deal", "partnership"]).optional(),
+    status: z.enum(["open", "completed", "cancelled"]).optional(),
+    taskStatus: z.enum(["open", "completed", "cancelled"]).optional(),
+    priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
+    linkedResourceType: z.enum(["account", "contact", "deal", "partnership"]).optional(),
+    linkedResourceId: z.string().uuid().optional(),
+    dueFrom: z.string().datetime().optional(),
+    dueTo: z.string().datetime().optional(),
+    reminderFrom: z.string().datetime().optional(),
+    reminderTo: z.string().datetime().optional(),
+    overdueMinDays: z.number().int().min(0).max(36_500).optional(),
+    overdueMaxDays: z.number().int().min(0).max(36_500).optional(),
+    staleBefore: z.string().datetime().optional(),
+    createdBefore: z.string().datetime().optional(),
+    closedDeals: z.enum(["include", "only", "exclude"]).optional(),
+    archivedResources: z.enum(["include", "only", "exclude"]).optional(),
+  })
+  .strict();
+
+const BulkTarget = z
+  .object({
+    ids: z.array(z.string().uuid()).max(5_000).optional(),
+    followUpIds: z
+      .array(
+        z
+          .object({
+            source: z.enum(["task", "deal", "partnership"]),
+            id: z.string().uuid(),
+          })
+          .strict(),
+      )
+      .max(5_000)
+      .optional(),
+    filter: BulkFilter.optional(),
+  })
+  .strict()
+  .describe("Choose selected IDs, selected Follow-ups, or one typed filter.");
+
+const BulkStandardFieldValues = z
+  .object({
+    name: z.string().min(1).max(200).optional(),
+    title: z.string().min(1).max(300).optional(),
+    description: z.string().max(20_000).optional(),
+    email: z.union([z.literal(""), z.string().email().max(320)]).optional(),
+    phone: z.string().max(100).optional(),
+    domain: z.string().max(253).optional(),
+    websiteUrl: z.union([z.literal(""), z.string().url().max(2_000)]).optional(),
+    linkedinUrl: z.union([z.literal(""), z.string().url().max(2_000)]).optional(),
+    industry: z.string().max(200).optional(),
+    employeeCount: z.number().int().min(0).max(2_000_000_000).optional(),
+    billingAddress: z.string().max(10_000).optional(),
+    shippingAddress: z.string().max(10_000).optional(),
+    taxNumber: z.string().max(200).optional(),
+    currency: z.string().length(3).optional(),
+    annualContractValueCents: z.number().int().min(0).max(2_000_000_000).optional(),
+    notes: z.string().max(20_000).optional(),
+    customerId: z.string().uuid().nullable().optional(),
+    companyName: z.string().max(200).optional(),
+    source: z.string().max(120).optional(),
+    sourceDetail: z.string().max(500).optional(),
+    score: z.number().int().min(0).max(100).optional(),
+    doNotContact: z.boolean().optional(),
+    primaryContactId: z.string().uuid().nullable().optional(),
+    amountCents: z.number().int().min(0).max(2_000_000_000).optional(),
+    probabilityOverride: z.number().int().min(0).max(100).nullable().optional(),
+    expectedCloseDate: z.string().datetime().nullable().optional(),
+    nextStep: z.string().max(2_000).optional(),
+    nextFollowUpAt: z.string().datetime().nullable().optional(),
+    followUpReminderAt: z.string().datetime().nullable().optional(),
+    type: z.string().min(1).max(80).optional(),
+    status: z.string().min(1).max(80).optional(),
+    integrationContext: z.string().max(20_000).optional(),
+    channelContext: z.string().max(20_000).optional(),
+    reminderAt: z.string().datetime().nullable().optional(),
+  })
+  .strict();
+
+const BulkAction = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("assign_owner"),
+      ownerId: z.string().uuid().nullable(),
+      ownerEmployeeId: z.string().uuid().nullable(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("set_contact_lifecycle"),
+      lifecycleStage: z.enum([
+        "subscriber",
+        "lead",
+        "qualified",
+        "opportunity",
+        "customer",
+        "churned",
+        "unqualified",
+      ]),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("set_account_status"),
+      accountStatus: z.enum(["prospect", "customer", "former"]),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("set_custom_fields"),
+      values: z.record(z.unknown()),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("archive"),
+      archived: z.boolean(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("move_deal_stage"),
+      stageId: z.string().uuid(),
+      lostReason: z.string().min(1).max(2_000).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("update_standard_fields"),
+      confirm: z.literal("UPDATE_STANDARD_FIELDS"),
+      values: BulkStandardFieldValues.optional().describe(
+        "A shared patch. Supply this or rows, not both.",
+      ),
+      rows: z
+        .array(
+          z
+            .object({
+              id: z.string().uuid(),
+              values: BulkStandardFieldValues,
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(5_000)
+        .optional()
+        .describe("Per-record patches. Supply this or values, not both."),
+      notesMode: z.enum(["replace", "append", "clear"]).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("update_follow_up"),
+      taskStatus: z.enum(["open", "completed", "cancelled"]).optional(),
+      priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
+      assignedUserId: z.string().uuid().nullable().optional(),
+      assignedEmployeeId: z.string().uuid().nullable().optional(),
+      dueAt: z.string().datetime().nullable().optional(),
+      reminderAt: z.string().datetime().nullable().optional(),
+    })
+    .strict(),
+]);
+
 const BulkRequest = z.object({
   resourceType: z.enum(["account", "contact", "deal", "partnership", "follow_up"]),
   target: BulkTarget,
-  action: z
-    .record(z.unknown())
-    .describe(
-      "A typed action: assign_owner, set_contact_lifecycle, set_account_status, " +
-        "set_custom_fields, archive, move_deal_stage, or update_follow_up.",
-    ),
+  action: BulkAction,
   dryRun: z.boolean().optional(),
   idempotencyKey: z.string().min(8).max(200).optional(),
   mode: z.enum(["atomic", "partial"]).optional(),
@@ -1321,6 +1492,38 @@ registry.registerPath({
   },
 });
 
+for (const resource of [
+  { path: "contacts", label: "Contact", schema: Contact },
+  { path: "deals", label: "Deal", schema: Deal },
+  { path: "partnerships", label: "Partnership", schema: Partnership },
+] as Array<{ path: string; label: string; schema: z.ZodTypeAny }>) {
+  for (const action of ["archive", "restore"] as const) {
+    registry.registerPath({
+      method: "post",
+      path: `/api/companies/{cid}/revenue/${resource.path}/{id}/${action}`,
+      summary: `${action === "archive" ? "Archive" : "Restore"} a Revenue ${resource.label}`,
+      description:
+        action === "archive"
+          ? `Hides the ${resource.label} from default lists without deleting its history.`
+          : `Restores an archived ${resource.label}. A merged tombstone must be restored by undoing the merge instead.`,
+      tags: ["Revenue"],
+      security: defaultSecurity,
+      request: { params: CompanyParam.extend({ id: z.string().uuid() }) },
+      responses: {
+        200: {
+          description: action === "archive" ? "Archived" : "Restored",
+          content: { "application/json": { schema: resource.schema } },
+        },
+        409: {
+          description: `The ${resource.label} cannot be restored safely`,
+          content: { "application/json": { schema: ErrorResponse } },
+        },
+        ...commonErrors,
+      },
+    });
+  }
+}
+
 registry.registerPath({
   method: "get",
   path: "/api/companies/{cid}/revenue/classifications",
@@ -1436,7 +1639,7 @@ registry.registerPath({
   request: {
     params: CompanyParam,
     query: z.object({
-      sourceKind: z.enum(["base", "csv"]).optional(),
+      sourceKind: z.enum(["base", "csv", "json", "connection"]).optional(),
       status: z.enum(["completed", "rolled_back", "failed"]).optional(),
       resourceType: z
         .enum(["account", "contact", "deal", "partnership", "account_contact_deal"])
@@ -1464,8 +1667,9 @@ registry.registerPath({
                   "partnership",
                   "account_contact_deal",
                 ]),
-                sourceKind: z.enum(["base", "csv"]),
+                sourceKind: z.enum(["base", "csv", "json", "connection"]),
                 sourceLabel: z.string(),
+                sourceConnectionId: z.string().uuid().nullable(),
                 status: z.enum(["completed", "rolled_back", "failed"]),
                 rolledBackAt: z.string().datetime().nullable(),
                 createdAt: z.string().datetime(),
@@ -1473,6 +1677,247 @@ registry.registerPath({
               }),
             ),
             total: z.number().int(),
+          }),
+        },
+      },
+    },
+    ...commonErrors,
+  },
+});
+
+const RevenueImportFileCommonForm = z.object({
+  file: z.string().openapi({ format: "binary" }),
+  format: z.enum(["csv", "json", "ndjson"]),
+  sourceLabel: z.string().min(1).max(500).optional(),
+  sourceIdField: z.string().min(1).max(500).optional(),
+});
+const RevenueImportFileResourceType = z.enum([
+  "account",
+  "contact",
+  "deal",
+  "partnership",
+  "account_contact_deal",
+]);
+const RevenueImportFileMapping = z
+  .string()
+  .max(200_000)
+  .describe(
+    "JSON object whose keys are native/custom destination fields and values are source columns or properties.",
+  );
+const RevenueImportFileInspectForm = RevenueImportFileCommonForm.extend({
+  resourceType: RevenueImportFileResourceType.optional(),
+  mapping: RevenueImportFileMapping.optional(),
+});
+const RevenueImportFileMutationForm = RevenueImportFileCommonForm.extend({
+  resourceType: RevenueImportFileResourceType,
+  mapping: RevenueImportFileMapping,
+});
+
+for (const action of ["inspect", "preview", "commit"] as const) {
+  registry.registerPath({
+    method: "post",
+    path: `/api/companies/{cid}/revenue/imports/file/${action}`,
+    summary:
+      action === "inspect"
+        ? "Inspect a Revenue CSV, JSON, or NDJSON file"
+        : action === "preview"
+          ? "Preview a direct Revenue file import"
+          : "Commit a direct Revenue file import",
+    description:
+      "Accepts one UTF-8 file up to 25 MiB and 10,000 rows. Preview performs the same " +
+      "validation and duplicate decisions as commit without writing. Commit retains durable " +
+      "row reconciliation, field provenance, and guarded rollback; it never overwrites duplicates.",
+    tags: ["Revenue"],
+    security: defaultSecurity,
+    request: {
+      params: CompanyParam,
+      body: {
+        content: {
+          "multipart/form-data": {
+            schema:
+              action === "inspect" ? RevenueImportFileInspectForm : RevenueImportFileMutationForm,
+          },
+        },
+      },
+    },
+    responses: {
+      200: {
+        description: action === "inspect" ? "Detected fields and row count" : "Import preview",
+        content: { "application/json": { schema: z.record(z.unknown()) } },
+      },
+      ...(action === "commit"
+        ? {
+            201: {
+              description: "Committed import summary",
+              content: { "application/json": { schema: z.record(z.unknown()) } },
+            },
+          }
+        : {}),
+      ...commonErrors,
+    },
+  });
+}
+
+registry.registerPath({
+  method: "get",
+  path: "/api/companies/{cid}/revenue/imports/base-source",
+  summary: "Inspect a granted Base as a Revenue import source",
+  tags: ["Revenue"],
+  security: defaultSecurity,
+  request: {
+    params: CompanyParam,
+    query: z.object({
+      baseId: z.string().uuid(),
+      tableId: z.string().uuid(),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Source fields and rows",
+      content: { "application/json": { schema: z.record(z.unknown()) } },
+    },
+    ...commonErrors,
+  },
+});
+
+const RevenueDirectImportRow = z.object({
+  sourceId: z.string().min(1).max(500),
+  values: z.record(z.unknown()),
+});
+const RevenueImportSource = z.object({
+  sourceKind: z.enum(["base", "csv", "json", "connection"]),
+  sourceLabel: z.string().min(1).max(500),
+  sourceBaseId: z.string().uuid().nullable().optional(),
+  sourceTableId: z.string().uuid().nullable().optional(),
+  sourceConnectionId: z.string().uuid().nullable().optional(),
+  rows: z.array(RevenueDirectImportRow).max(10_000).optional(),
+});
+const RevenueSimpleImportBody = RevenueImportSource.extend({
+  resourceType: z.enum(["account", "contact", "deal", "partnership"]),
+  mapping: z.record(z.string().min(1).max(500)),
+});
+const RevenueLinkedImportBody = RevenueImportSource.extend({
+  mapping: z.object({
+    account: z.record(z.string().min(1).max(500)),
+    contact: z.record(z.string().min(1).max(500)),
+    deal: z.record(z.string().min(1).max(500)),
+  }),
+});
+
+for (const definition of [
+  {
+    path: "/api/companies/{cid}/revenue/imports/preview",
+    summary: "Preview a raw-row or Connection-backed Revenue import",
+    schema: RevenueSimpleImportBody,
+    committed: false,
+  },
+  {
+    path: "/api/companies/{cid}/revenue/imports",
+    summary: "Commit a raw-row or Connection-backed Revenue import",
+    schema: RevenueSimpleImportBody,
+    committed: true,
+  },
+  {
+    path: "/api/companies/{cid}/revenue/imports/linked/preview",
+    summary: "Preview linked Account, Contact, and Deal rows",
+    schema: RevenueLinkedImportBody,
+    committed: false,
+  },
+  {
+    path: "/api/companies/{cid}/revenue/imports/linked",
+    summary: "Commit linked Account, Contact, and Deal rows",
+    schema: RevenueLinkedImportBody,
+    committed: true,
+  },
+] as const) {
+  registry.registerPath({
+    method: "post",
+    path: definition.path,
+    summary: definition.summary,
+    description:
+      "Base sources resolve from sourceBaseId/sourceTableId. CSV and JSON sources carry bounded " +
+      "rows directly. Connection sources additionally retain sourceConnectionId provenance. " +
+      "Preview is non-mutating; commit writes durable row decisions and never overwrites duplicates.",
+    tags: ["Revenue"],
+    security: defaultSecurity,
+    request: {
+      params: CompanyParam,
+      body: { content: { "application/json": { schema: definition.schema } } },
+    },
+    responses: {
+      [definition.committed ? 201 : 200]: {
+        description: definition.committed ? "Committed import summary" : "Import preview",
+        content: { "application/json": { schema: z.record(z.unknown()) } },
+      },
+      ...commonErrors,
+    },
+  });
+}
+
+registry.registerPath({
+  method: "post",
+  path: "/api/companies/{cid}/revenue/imports/{id}/attachments",
+  summary: "Migrate Base attachments from a committed Revenue import",
+  tags: ["Revenue"],
+  security: defaultSecurity,
+  request: {
+    params: CompanyParam.extend({ id: z.string().uuid() }),
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            targetResourceType: z.enum(["account", "contact", "deal", "partnership"]).optional(),
+            kind: z
+              .enum([
+                "proposal",
+                "rfp",
+                "security_questionnaire",
+                "contract",
+                "email_attachment",
+                "other",
+              ])
+              .optional(),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Attachment migration result",
+      content: { "application/json": { schema: z.record(z.unknown()) } },
+    },
+    ...commonErrors,
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/companies/{cid}/revenue/imports/{id}/rollback",
+  summary: "Guardedly roll back a committed Revenue import",
+  description:
+    "Requires an explicit ROLLBACK confirmation. Records with newer linked work are preserved and " +
+    "reported instead of being deleted.",
+  tags: ["Revenue"],
+  security: defaultSecurity,
+  request: {
+    params: CompanyParam.extend({ id: z.string().uuid() }),
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({ confirm: z.literal("ROLLBACK") }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Rollback result",
+      content: {
+        "application/json": {
+          schema: z.object({
+            deleted: z.number().int(),
+            blocked: z.array(z.string()),
           }),
         },
       },
@@ -1526,8 +1971,9 @@ for (const suffix of ["", "/summary"] as const) {
               batch: z.object({
                 id: z.string().uuid(),
                 resourceType: z.string(),
-                sourceKind: z.enum(["base", "csv"]),
+                sourceKind: z.enum(["base", "csv", "json", "connection"]),
                 sourceLabel: z.string(),
+                sourceConnectionId: z.string().uuid().nullable(),
                 status: z.enum(["completed", "rolled_back", "failed"]),
                 rolledBackAt: z.string().datetime().nullable(),
                 createdAt: z.string().datetime(),
@@ -1805,6 +2251,11 @@ const RevenueExportResource = z.enum([
   "custom_fields",
   "custom_values",
   "import_reconciliation",
+  "deal_history",
+  "field_evidence",
+  "duplicate_candidates",
+  "operation_audit",
+  "document_candidates",
 ]);
 
 registry.registerPath({
@@ -1812,8 +2263,9 @@ registry.registerPath({
   path: "/api/companies/{cid}/revenue/exports/{resource}",
   summary: "Export a native Revenue dataset page",
   description:
-    "Returns stable field names in JSON or CSV. Follow `nextOffset` until null to retrieve " +
-    "the complete dataset without a hidden first-page cap.",
+    "Returns stable field names in JSON or CSV. Follow `nextCursor` until null to retrieve " +
+    "a creation-time-frozen snapshot without a hidden first-page cap. Offset remains available " +
+    "for compatibility but should not be combined with cursor pagination.",
   tags: ["Revenue"],
   security: defaultSecurity,
   request: {
@@ -1822,6 +2274,64 @@ registry.registerPath({
       format: z.enum(["json", "csv"]).optional(),
       limit: z.coerce.number().int().min(1).max(500).optional(),
       offset: z.coerce.number().int().min(0).optional(),
+      cursor: z.string().max(4_000).optional(),
+      asOf: z.string().datetime().optional(),
+      dealId: z.string().uuid().optional().describe("deal_history only"),
+      sourceKind: z
+        .enum(["live", "import", "activity_backfill"])
+        .optional()
+        .describe("deal_history only"),
+      kind: z
+        .enum([
+          "created",
+          "snapshot",
+          "stage_changed",
+          "amount_changed",
+          "owner_changed",
+          "expected_close_changed",
+          "won",
+          "lost",
+          "merge",
+          "bulk",
+          "history_import",
+        ])
+        .optional()
+        .describe("deal_history or operation_audit"),
+      from: z.string().datetime().optional().describe("deal_history only"),
+      to: z.string().datetime().optional().describe("deal_history only"),
+      resourceType: z
+        .enum(["account", "contact", "deal", "partnership", "follow_up"])
+        .optional()
+        .describe("field_evidence, duplicate_candidates, or operation_audit"),
+      resourceId: z.string().uuid().optional().describe("field_evidence only"),
+      fieldKey: z.string().max(200).optional().describe("field_evidence only"),
+      sourceType: z
+        .enum(["email", "document", "integration", "finance", "website", "import", "manual"])
+        .optional()
+        .describe("field_evidence only"),
+      status: z
+        .enum([
+          "proposed",
+          "accepted",
+          "rejected",
+          "superseded",
+          "open",
+          "dismissed",
+          "merged",
+          "queued",
+          "running",
+          "completed",
+          "partial",
+          "failed",
+          "rolled_back",
+          "pending",
+          "processing",
+          "duplicate",
+        ])
+        .optional()
+        .describe("field_evidence, duplicate_candidates, operation_audit, or document_candidates"),
+      minScore: z.coerce.number().int().min(0).max(100).optional(),
+      accountId: z.string().uuid().optional().describe("document_candidates only"),
     }),
   },
   responses: {
@@ -1832,10 +2342,12 @@ registry.registerPath({
           schema: z.object({
             resource: RevenueExportResource,
             generatedAt: z.string().datetime(),
+            asOf: z.string().datetime(),
             offset: z.number().int(),
             limit: z.number().int(),
             total: z.number().int().nullable(),
             nextOffset: z.number().int().nullable(),
+            nextCursor: z.string().nullable(),
             rows: z.array(z.record(z.unknown())),
           }),
         },
@@ -1889,6 +2401,134 @@ registry.registerPath({
   },
 });
 
+const FirmographicSelection = z.object({
+  connectionId: z.string().uuid(),
+  accountIds: z.array(z.string().uuid()).max(100).optional(),
+  missingOnly: z.boolean().optional(),
+  refreshOlderThanDays: z.number().int().min(1).max(3_650).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  force: z.boolean().optional(),
+});
+const FirmographicLookup = z.object({
+  id: z.string().uuid(),
+  companyId: z.string().uuid(),
+  customerId: z.string().uuid(),
+  connectionId: z.string().uuid(),
+  provider: z.string(),
+  providerRecordId: z.string(),
+  status: z.enum(["matched", "not_found", "failed"]),
+  normalizedSnapshotJson: z.string(),
+  confidence: z.number().int().min(0).max(100),
+  lastAttemptedAt: z.string().datetime(),
+  lastMatchedAt: z.string().datetime().nullable(),
+  observedAt: z.string().datetime().nullable(),
+  lastError: z.string(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+for (const action of ["preview", "propose"] as const) {
+  registry.registerPath({
+    method: "post",
+    path: `/api/companies/{cid}/revenue/enrichment/firmographics/${action}`,
+    summary:
+      action === "preview"
+        ? "Preview Account firmographic lookups"
+        : "Propose reviewable Account firmographic evidence",
+    description:
+      action === "preview"
+        ? "Reports cache state, missing fields, and the maximum number of external requests without calling the provider."
+        : "Uses the selected BYOK Connection, caches normalized matches and no-matches, and creates field evidence without changing Accounts.",
+    tags: ["Revenue"],
+    security: defaultSecurity,
+    request: {
+      params: CompanyParam,
+      body: {
+        content: {
+          "application/json": {
+            schema:
+              action === "propose"
+                ? FirmographicSelection.extend({ confirm: z.literal("PROPOSE") })
+                : FirmographicSelection,
+          },
+        },
+      },
+    },
+    responses: {
+      200: {
+        description: action === "preview" ? "Lookup preview" : "Proposal summary",
+        content: { "application/json": { schema: z.record(z.unknown()) } },
+      },
+      ...commonErrors,
+    },
+  });
+}
+
+registry.registerPath({
+  method: "get",
+  path: "/api/companies/{cid}/revenue/enrichment/firmographics/lookups",
+  summary: "List cached firmographic reconciliation rows",
+  tags: ["Revenue"],
+  security: defaultSecurity,
+  request: {
+    params: CompanyParam,
+    query: z.object({
+      connectionId: z.string().uuid().optional(),
+      customerId: z.string().uuid().optional(),
+      status: z.enum(["matched", "not_found", "failed"]).optional(),
+      limit: z.coerce.number().int().min(1).max(500).optional(),
+      offset: z.coerce.number().int().min(0).optional(),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Lookup page",
+      content: {
+        "application/json": {
+          schema: z.object({ rows: z.array(FirmographicLookup), total: z.number().int() }),
+        },
+      },
+    },
+    ...commonErrors,
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/companies/{cid}/revenue/enrichment/commercial-values/backlog",
+  summary: "List the actionable zero-value Deal backlog",
+  description:
+    "Returns open zero-value Deals with Account ambiguity, Finance and Stripe candidates, " +
+    "proposal state, and stale-evidence checks so an operator can choose an explicit safe scope.",
+  tags: ["Revenue"],
+  security: defaultSecurity,
+  request: {
+    params: CompanyParam,
+    query: z.object({
+      dealIds: z.string().optional().describe("Comma-separated Deal IDs."),
+      stageIds: z.string().optional().describe("Comma-separated Deal Stage IDs."),
+      limit: z.coerce.number().int().min(1).max(500).optional(),
+      offset: z.coerce.number().int().min(0).optional(),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Commercial-value backlog page",
+      content: {
+        "application/json": {
+          schema: z.object({
+            rows: z.array(z.record(z.unknown())),
+            total: z.number().int(),
+            limit: z.number().int(),
+            offset: z.number().int(),
+          }),
+        },
+      },
+    },
+    ...commonErrors,
+  },
+});
+
 for (const source of ["finance", "stripe"] as const) {
   registry.registerPath({
     method: "post",
@@ -1896,7 +2536,7 @@ for (const source of ["finance", "stripe"] as const) {
     summary: `Propose Deal values from ${source === "finance" ? "Finance" : "Stripe"}`,
     description:
       source === "finance"
-        ? "Requires Revenue access and at least read access to Finance."
+        ? "Creates reviewable evidence and therefore requires Revenue access plus full (write) Finance access."
         : "Normalizes subscriptions and paid invoices into reviewable recurring or one-time values.",
     tags: ["Revenue"],
     security: defaultSecurity,
@@ -1904,7 +2544,13 @@ for (const source of ["finance", "stripe"] as const) {
       params: CompanyParam,
       body: {
         content: {
-          "application/json": { schema: z.object({ confirm: z.literal("PROPOSE") }) },
+          "application/json": {
+            schema: z.object({
+              ...(source === "stripe" ? { connectionId: z.string().uuid() } : {}),
+              dealIds: z.array(z.string().uuid()).min(1).max(5_000),
+              confirm: z.literal("PROPOSE"),
+            }),
+          },
         },
       },
     },
@@ -2454,30 +3100,61 @@ registry.registerPath({
   },
 });
 
+const DealHistoryCoverageRow = z.object({
+  dealId: z.string().uuid(),
+  title: z.string(),
+  stageId: z.string().uuid(),
+  stageName: z.string().nullable(),
+  status: z.enum(["open", "won", "lost"]),
+  createdAt: z.string().datetime(),
+  archivedAt: z.string().datetime().nullable(),
+  completeness: z.enum(["complete", "partial", "snapshot_only", "missing"]),
+  historyEventCount: z.number().int(),
+  liveEventCount: z.number().int(),
+  importedEventCount: z.number().int(),
+  activityBackfillEventCount: z.number().int(),
+  firstNativeEventAt: z.string().datetime().nullable(),
+  lastHistoryEventAt: z.string().datetime().nullable(),
+  eligibleActivityCount: z.number().int(),
+  pendingActivityCount: z.number().int(),
+  migrationImport: z.boolean(),
+  importReferences: z.array(z.record(z.unknown())),
+  recommendation: z.enum([
+    "none",
+    "historical_import",
+    "historical_import_first",
+    "activity_backfill",
+  ]),
+});
+
 registry.registerPath({
-  method: "post",
-  path: "/api/companies/{cid}/revenue/deal-history/backfill-activities",
-  summary: "Backfill Deal history from existing Activities",
+  method: "get",
+  path: "/api/companies/{cid}/revenue/deal-history/coverage",
+  summary: "Inventory Deal history coverage and repair recommendations",
+  description:
+    "Shows native/import/backfill event counts, migration provenance, pending lifecycle " +
+    "Activities, completeness, and the safest next action without fabricating historical dates.",
   tags: ["Revenue"],
   security: defaultSecurity,
   request: {
     params: CompanyParam,
-    body: {
-      content: {
-        "application/json": {
-          schema: z.object({ confirm: z.literal("BACKFILL") }),
-        },
-      },
-    },
+    query: z.object({
+      dealIds: z.string().optional().describe("Comma-separated Deal IDs."),
+      includeArchived: z.coerce.boolean().optional(),
+      limit: z.coerce.number().int().min(1).max(500).optional(),
+      offset: z.coerce.number().int().min(0).optional(),
+    }),
   },
   responses: {
     200: {
-      description: "Backfill result",
+      description: "Coverage page",
       content: {
         "application/json": {
           schema: z.object({
-            imported: z.number().int(),
-            skipped: z.number().int(),
+            rows: z.array(DealHistoryCoverageRow),
+            total: z.number().int(),
+            limit: z.number().int(),
+            offset: z.number().int(),
           }),
         },
       },
@@ -2485,6 +3162,91 @@ registry.registerPath({
     ...commonErrors,
   },
 });
+
+const DealHistoryBackfillSummary = z.object({
+  dryRun: z.boolean(),
+  operationId: z.string().uuid().optional(),
+  replayed: z.boolean().optional(),
+  selectedDeals: z.number().int(),
+  reviewedActivities: z.number().int(),
+  imported: z.number().int(),
+  skipped: z.number().int(),
+  failed: z.number().int(),
+  migrationSnapshots: z.number().int(),
+  rows: z.array(z.record(z.unknown())),
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/companies/{cid}/revenue/deal-history/activity-backfill/preview",
+  summary: "Preview a scoped Activity-to-Deal-history backfill",
+  description:
+    "Classifies each eligible lifecycle Activity without writing. An empty Deal selection is " +
+    "allowed only for this preview; commits always require explicit Deal IDs.",
+  tags: ["Revenue"],
+  security: defaultSecurity,
+  request: {
+    params: CompanyParam,
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            dealIds: z.array(z.string().uuid()).max(5_000).optional(),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Backfill preview",
+      content: { "application/json": { schema: DealHistoryBackfillSummary } },
+    },
+    ...commonErrors,
+  },
+});
+
+for (const path of [
+  "/api/companies/{cid}/revenue/deal-history/activity-backfill",
+  "/api/companies/{cid}/revenue/deal-history/backfill-activities",
+] as const) {
+  registry.registerPath({
+    method: "post",
+    path,
+    summary: "Backfill selected Deal history from existing Activities",
+    description:
+      "Requires an explicit non-empty Deal selection, a stable idempotency key, and " +
+      "`confirm: BACKFILL`. Migration-time Deal creation Activities become snapshots instead " +
+      "of fabricated original creation events. The operation supports guarded undo.",
+    tags: ["Revenue"],
+    security: defaultSecurity,
+    request: {
+      params: CompanyParam,
+      body: {
+        content: {
+          "application/json": {
+            schema: z.object({
+              dealIds: z.array(z.string().uuid()).min(1).max(5_000),
+              idempotencyKey: z.string().min(8).max(200),
+              confirm: z.literal("BACKFILL"),
+            }),
+          },
+        },
+      },
+    },
+    responses: {
+      200: {
+        description: "Backfill result",
+        content: { "application/json": { schema: DealHistoryBackfillSummary } },
+      },
+      409: {
+        description: "Unsafe selection or idempotency conflict",
+        content: { "application/json": { schema: ErrorResponse } },
+      },
+      ...commonErrors,
+    },
+  });
+}
 
 registry.registerPath({
   method: "post",
