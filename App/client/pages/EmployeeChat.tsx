@@ -884,11 +884,16 @@ function ProgressIndicator({
           </div>
           <div
             className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"
-            aria-hidden="true"
+            role="progressbar"
+            aria-label={label}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={percent}
           >
             <div
-              className="h-full rounded-full bg-indigo-600 transition-[width] duration-500 ease-out dark:bg-indigo-500"
+              className="chat-progress-fill h-full rounded-full transition-[width] duration-500 ease-out"
               style={{ width: `${percent}%` }}
+              aria-hidden="true"
             />
           </div>
           <div className="mt-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px]">
@@ -908,8 +913,8 @@ function ProgressIndicator({
               {reconnecting
                 ? "Reconnecting to updates…"
                 : connectionState === "polling"
-                  ? "Following persisted updates"
-                  : "Live"}
+                  ? "Working · following saved updates"
+                  : "Working · live updates"}
             </span>
             <span className="text-slate-500 dark:text-slate-400">
               Add a follow-up below — it will be queued

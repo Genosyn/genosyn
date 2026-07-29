@@ -57,6 +57,38 @@ html.dark
   }
 }
 
+@keyframes chatProgressFlow {
+  from {
+    background-position-x: 0;
+  }
+  to {
+    background-position-x: 1.75rem;
+  }
+}
+
+.chat-progress-fill {
+  background-color: #4f46e5; /* indigo-600 */
+  background-image: repeating-linear-gradient(
+    115deg,
+    transparent 0,
+    transparent 0.55rem,
+    rgb(255 255 255 / 24%) 0.55rem,
+    rgb(255 255 255 / 24%) 1rem
+  );
+  background-size: 1.75rem 100%;
+  animation: chatProgressFlow 850ms linear infinite;
+}
+
+html.dark .chat-progress-fill {
+  background-color: #6366f1; /* indigo-500 */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-progress-fill {
+    animation: none;
+  }
+}
+
 /* Minimal markdown styling for chat bubbles — compact, bubble-aware spacing.
    Keep tight: no page-level <h1> margins, tiny paragraph gaps, and inline
    code that reads inside a sentence rather than sticking out. */
