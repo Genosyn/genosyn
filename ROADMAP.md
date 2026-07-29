@@ -724,6 +724,11 @@ self-hosted) over HTTPS or SSH, with access handed out per-employee.
       existing checkouts. HTTPS token rides a per-repo env var +
       credential-helper (never on disk); SSH key written 0600 + pinned via
       `core.sshCommand`. Read-only grants get the push URL disabled.
+      HTTPS GitHub repos without a separately stored token reuse the same
+      employee's granted GitHub Connection: exact owner/repo allowlist match
+      first, or the employee's sole GitHub Connection when unambiguous. The
+      turn-scoped PAT is available to both materializer fetches and the
+      employee's ordinary git push commands.
       `testCodeRepoConnection` probes creds via `git ls-remote --symref`.
 - [x] HTTP routes under `/api/companies/:cid/code-repositories`: CRUD,
       `/test`, grant CRUD + candidates. zod-validated.

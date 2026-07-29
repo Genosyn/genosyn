@@ -11,8 +11,9 @@ import {
 /**
  * How Genosyn authenticates to a Code Repository when it clones / fetches /
  * pushes on an AI employee's behalf:
- *   - `none`  → public repo, no credentials (read-only in practice; an
- *               unauthenticated push will be rejected by the remote).
+ *   - `none`  → no credential stored on this row. Public repos clone
+ *               anonymously; an HTTPS GitHub repo may reuse a matching
+ *               GitHub Connection granted to the same employee at run time.
  *   - `https` → HTTPS clone URL with a username + token/password. Works for
  *               GitHub PATs, GitLab / Gitea tokens, Bitbucket app passwords,
  *               and any self-hosted git over HTTPS. The token is provided to

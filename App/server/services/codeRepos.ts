@@ -16,7 +16,8 @@ import {
 import type { CodeRepoAccessLevel } from "../db/entities/EmployeeCodeRepositoryGrant.js";
 import { encryptSecret, decryptSecret } from "../lib/secret.js";
 import { toSlug } from "../lib/slug.js";
-import { configureEnvCredentialHelper } from "./gitCredentialHelper.js";
+import { clearEnvCredentialHelper, configureEnvCredentialHelper } from "./gitCredentialHelper.js";
+import type { GithubRepoCredential } from "./repoSync.js";
 
 /**
  * Code Repository seam — the provider-agnostic cousin of `repoSync.ts`.
@@ -258,6 +259,9 @@ export type CodeRepoSyncResult = {
 export async function materializeCodeReposForEmployee(args: {
   employeeId: string;
   cwd: string;
+  /** Credentials resolved from this employee's granted GitHub Connections
+   * earlier in the same turn. */
+  githubRepoCredentials?: GithubRepoCredential[];
 }): Promise<CodeRepoSyncResult> {
   const result: CodeRepoSyncResult = { extraEnv: {}, repos: [], errors: [] };
   if (config.security.multiTenant) return result;
@@ -282,7 +286,14 @@ export async function materializeCodeReposForEmployee(args: {
     const lockKey = `${args.employeeId}:${repoRow.id}`;
     await withMutex(lockKey, async () => {
       try {
-        await syncOneRepo(repoRow, grant.accessLevel, employee, args.cwd, result);
+        await syncOneRepo(
+          repoRow,
+          grant.accessLevel,
+          employee,
+          args.cwd,
+          result,
+          args.githubRepoCredentials ?? [],
+        );
         repoRow.lastSyncedAt = new Date();
         repoRow.lastSyncStatus = "ok";
         repoRow.lastSyncError = "";
@@ -306,13 +317,19 @@ async function syncOneRepo(
   employee: AIEmployee,
   cwd: string,
   result: CodeRepoSyncResult,
+  githubRepoCredentials: GithubRepoCredential[],
 ): Promise<void> {
   const repoPath = path.join(cwd, "code-repos", repo.slug);
   const isCheckout = fs.existsSync(path.join(repoPath, ".git"));
 
   // Resolve auth material up front so we can build the right clone command
   // and credential wiring.
-  const token = repo.authMode === "https" ? tryDecrypt(repo.encryptedToken) : null;
+  const linkedGithubCredential =
+    repo.authMode === "none" ? findGithubRepoCredential(repo.gitUrl, githubRepoCredentials) : null;
+  const token =
+    repo.authMode === "https"
+      ? tryDecrypt(repo.encryptedToken)
+      : (linkedGithubCredential?.token ?? null);
   const sshKey = repo.authMode === "ssh" ? tryDecrypt(repo.encryptedSshKey) : null;
   if (repo.authMode === "https" && !token) {
     throw new Error(
@@ -325,7 +342,8 @@ async function syncOneRepo(
     );
   }
 
-  const envKey = envKeyFor(repo.id);
+  const envKey = linkedGithubCredential?.envKey ?? envKeyFor(repo.id);
+  const httpsUsername = linkedGithubCredential ? "x-access-token" : httpsUsernameOf(repo);
   let sshCommand: string | undefined;
   let cloneEnv: Record<string, string> = {};
 
@@ -343,16 +361,20 @@ async function syncOneRepo(
   if (repo.authMode === "https" && token) {
     result.extraEnv[envKey] = token;
   }
+  if (linkedGithubCredential) {
+    result.extraEnv[envKey] = linkedGithubCredential.token;
+  }
+  const credentialEnv = token ? { [envKey]: token } : {};
 
   if (!isCheckout) {
     fs.mkdirSync(path.dirname(repoPath), { recursive: true });
-    if (repo.authMode === "https" && token) {
+    if (token) {
       // Initial clone: temporarily inline the token in the URL, then strip it
       // immediately so it never persists in `.git/config`. From then on git
       // pulls the token from the credential helper / env var.
-      const tokenUrl = injectHttpsCreds(repo.gitUrl, httpsUsernameOf(repo), token);
+      const tokenUrl = injectHttpsCreds(repo.gitUrl, httpsUsername, token);
       if (!tokenUrl) {
-        throw new Error("Auth mode is HTTPS but the clone URL isn't an https:// URL.");
+        throw new Error("HTTPS credentials require an https:// clone URL.");
       }
       await runGit(path.dirname(repoPath), ["clone", "--quiet", tokenUrl, repo.slug]);
       await runGit(repoPath, ["remote", "set-url", "origin", repo.gitUrl]);
@@ -361,8 +383,18 @@ async function syncOneRepo(
       await runGit(path.dirname(repoPath), ["clone", "--quiet", repo.gitUrl, repo.slug], cloneEnv);
     }
   } else {
+    // Install/refresh the helper before fetch so a pre-existing private
+    // checkout can authenticate even if it predates Genosyn's helper wiring.
+    if (token) {
+      await configureCredentialHelper(repoPath, httpsUsername, envKey);
+    } else {
+      await clearCredentialHelper(repoPath);
+    }
     // Existing checkout: refresh refs but never touch the working tree.
-    await runGit(repoPath, ["fetch", "--all", "--prune", "--quiet"], cloneEnv);
+    await runGit(repoPath, ["fetch", "--all", "--prune", "--quiet"], {
+      ...cloneEnv,
+      ...credentialEnv,
+    });
     await runGit(repoPath, ["remote", "set-url", "origin", repo.gitUrl]);
   }
 
@@ -374,8 +406,10 @@ async function syncOneRepo(
     // Drop any stale sshCommand if the repo flipped away from SSH.
     await runGit(repoPath, ["config", "--local", "--unset", "core.sshCommand"]).catch(() => {});
   }
-  if (repo.authMode === "https" && token) {
-    await configureCredentialHelper(repoPath, httpsUsernameOf(repo), envKey);
+  if (token) {
+    await configureCredentialHelper(repoPath, httpsUsername, envKey);
+  } else {
+    await clearCredentialHelper(repoPath);
   }
 
   // Read-only grants get their push URL disabled so an accidental `git push`
@@ -401,6 +435,48 @@ async function syncOneRepo(
     accessLevel,
     path: repoPath,
   });
+}
+
+/**
+ * Match an HTTPS GitHub remote to the credential for the same allowlisted
+ * owner/repository. When the employee has exactly one granted GitHub
+ * Connection, the Code Repository grant itself is the repo boundary and that
+ * sole Connection is the safe fallback even when it has no M12 allowlist.
+ * GitHub paths are case-insensitive; non-GitHub and SSH remotes deliberately
+ * do not match because PATs authenticate HTTPS only.
+ */
+export function findGithubRepoCredential(
+  gitUrl: string,
+  credentials: readonly GithubRepoCredential[],
+): GithubRepoCredential | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(gitUrl);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:" || parsed.hostname.toLowerCase() !== "github.com") {
+    return null;
+  }
+  const parts = parsed.pathname.split("/").filter(Boolean);
+  if (parts.length !== 2) return null;
+  const owner = parts[0].toLowerCase();
+  const name = parts[1].replace(/\.git$/i, "").toLowerCase();
+  const exact = credentials.find(
+    (credential) =>
+      credential.owner !== null &&
+      credential.name !== null &&
+      credential.owner.toLowerCase() === owner &&
+      credential.name.toLowerCase() === name,
+  );
+  if (exact) return exact;
+
+  const connectionIds = new Set(credentials.map((credential) => credential.connectionId));
+  return connectionIds.size === 1 ? (credentials[0] ?? null) : null;
+}
+
+async function clearCredentialHelper(repoPath: string): Promise<void> {
+  await clearEnvCredentialHelper((args) => runGit(repoPath, args));
 }
 
 // ──────────────────────── test connection ───────────────────────────────

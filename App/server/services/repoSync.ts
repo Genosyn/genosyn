@@ -57,6 +57,17 @@ export type SyncedRepo = {
   path: string;
 };
 
+export type GithubRepoCredential = {
+  connectionId: string;
+  /** Exact allowlist coordinates, or null when the Connection has no selected
+   * repos and can only be used as an unambiguous sole-Connection fallback. */
+  owner: string | null;
+  name: string | null;
+  envKey: string;
+  /** Turn-scoped only. Never persist or log this value. */
+  token: string;
+};
+
 export type RepoSyncError = {
   /** "<connId>" or "<owner>/<name>". */
   scope: string;
@@ -69,6 +80,9 @@ export type RepoSyncResult = {
   extraEnv: Record<string, string>;
   /** Repos successfully cloned or fetched this round. */
   repos: SyncedRepo[];
+  /** Granted GitHub credentials another materializer may reuse this turn,
+   * with allowlist coordinates when present for safe disambiguation. */
+  githubRepoCredentials: GithubRepoCredential[];
   /** Non-fatal failures the runner should log but not abort on. */
   errors: RepoSyncError[];
 };
@@ -98,7 +112,12 @@ export async function materializeReposForEmployee(args: {
   employeeId: string;
   cwd: string;
 }): Promise<RepoSyncResult> {
-  const result: RepoSyncResult = { extraEnv: {}, repos: [], errors: [] };
+  const result: RepoSyncResult = {
+    extraEnv: {},
+    repos: [],
+    githubRepoCredentials: [],
+    errors: [],
+  };
 
   const empRepo = AppDataSource.getRepository(AIEmployee);
   const employee = await empRepo.findOneBy({ id: args.employeeId });
@@ -154,15 +173,32 @@ async function syncConnection(
   }
 
   const repos = readGithubRepos(cfg, connection.authMode);
+  const envKey = envKeyFor(connection.id);
   if (repos.length === 0) {
-    // Connection is authenticated but no repos picked yet — nothing to do.
+    // A first-class Code Repository grant is already a repository boundary.
+    // Preserve this credential as a fallback when it is the employee's only
+    // GitHub Connection, without exporting it into the bash env unless a
+    // matching Code Repository actually needs it.
+    result.githubRepoCredentials.push({
+      connectionId: connection.id,
+      owner: null,
+      name: null,
+      envKey,
+      token: creds.accessToken,
+    });
     return;
   }
 
-  const envKey = envKeyFor(connection.id);
   result.extraEnv[envKey] = creds.accessToken;
 
   for (const repo of repos) {
+    result.githubRepoCredentials.push({
+      connectionId: connection.id,
+      owner: repo.owner,
+      name: repo.name,
+      envKey,
+      token: creds.accessToken,
+    });
     try {
       const repoPath = path.join(cwd, "repos", repo.owner, repo.name);
       await syncOneRepo({
@@ -199,6 +235,7 @@ async function syncOneRepo(args: {
 }): Promise<void> {
   const cleanRemote = `https://github.com/${args.owner}/${args.name}.git`;
   const isCheckout = fs.existsSync(path.join(args.repoPath, ".git"));
+  const credentialEnv = { [args.envKey]: args.token };
 
   if (!isCheckout) {
     fs.mkdirSync(path.dirname(args.repoPath), { recursive: true });
@@ -208,25 +245,30 @@ async function syncOneRepo(args: {
     const tokenUrl = `https://x-access-token:${args.token}@github.com/${args.owner}/${args.name}.git`;
     await runGit(path.dirname(args.repoPath), ["clone", "--quiet", tokenUrl, args.name]);
     await runGit(args.repoPath, ["remote", "set-url", "origin", cleanRemote]);
+    await configureCredentialHelper(args.repoPath, args.envKey);
   } else {
+    // Older/manual checkouts may not have a helper yet. Install it before the
+    // first authenticated fetch, and make its turn token available to this
+    // server-side git process as well as the later employee bash process.
+    await configureCredentialHelper(args.repoPath, args.envKey);
     // Existing checkout: fetch fresh refs but never touch the agent's
     // working tree or current branch. The agent decides when to merge.
-    await runGit(args.repoPath, ["fetch", "--all", "--prune", "--quiet"]);
+    await runGit(args.repoPath, ["fetch", "--all", "--prune", "--quiet"], credentialEnv);
     // Make sure the remote URL doesn't carry a stale token from a previous
     // version of this code or a manual `git remote add`.
     await runGit(args.repoPath, ["remote", "set-url", "origin", cleanRemote]);
   }
-
-  // Idempotent: refresh the inline credential helper. Token never lands on
-  // disk — local git config stores only the name of the per-turn env var.
-  await configureCredentialHelper(args.repoPath, args.envKey);
 }
 
 async function configureCredentialHelper(repoPath: string, envKey: string): Promise<void> {
   await configureEnvCredentialHelper((args) => runGit(repoPath, args), "x-access-token", envKey);
 }
 
-async function runGit(cwd: string, args: string[]): Promise<void> {
+async function runGit(
+  cwd: string,
+  args: string[],
+  extraEnv: Record<string, string> = {},
+): Promise<void> {
   try {
     await exec("git", args, {
       cwd,
@@ -236,6 +278,7 @@ async function runGit(cwd: string, args: string[]): Promise<void> {
         ...process.env,
         GIT_TERMINAL_PROMPT: "0",
         GIT_ASKPASS: "/bin/echo",
+        ...extraEnv,
       },
       maxBuffer: 16 * 1024 * 1024,
     });

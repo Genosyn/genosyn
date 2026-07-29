@@ -266,7 +266,11 @@ export async function startRoutineRun(
       }
       for (const e of repoSync.errors) log.line(`[repos] ${e.scope}: ${e.message}`);
 
-      const codeRepoSync = await materializeCodeReposForEmployee({ employeeId: emp.id, cwd });
+      const codeRepoSync = await materializeCodeReposForEmployee({
+        employeeId: emp.id,
+        cwd,
+        githubRepoCredentials: repoSync.githubRepoCredentials,
+      });
       Object.assign(toolEnv, codeRepoSync.extraEnv);
       for (const r of codeRepoSync.repos) {
         log.line(`[code-repos] synced ${r.slug}@${r.defaultBranch} (${r.accessLevel})`);

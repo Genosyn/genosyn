@@ -272,7 +272,11 @@ export async function streamChatWithEmployee(
     // a working tree. Non-fatal — chat still proceeds if a repo fails to sync.
     const repoSync = await materializeReposForEmployee({ employeeId: emp.id, cwd });
     Object.assign(toolEnv, repoSync.extraEnv);
-    const codeRepoSync = await materializeCodeReposForEmployee({ employeeId: emp.id, cwd });
+    const codeRepoSync = await materializeCodeReposForEmployee({
+      employeeId: emp.id,
+      cwd,
+      githubRepoCredentials: repoSync.githubRepoCredentials,
+    });
     Object.assign(toolEnv, codeRepoSync.extraEnv);
 
     mcpToken = issueMcpToken(emp.id, co.id);

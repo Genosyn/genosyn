@@ -36,7 +36,11 @@ export async function configureEnvCredentialHelper(
 
   // An empty helper resets inherited system/global helpers. Add our inline
   // helper second so it is the only credential source Git consults.
+  await clearEnvCredentialHelper(runGit);
+  await runGit(["config", "--local", "--add", "credential.helper", helper]);
+}
+
+export async function clearEnvCredentialHelper(runGit: GitConfigRunner): Promise<void> {
   await runGit(["config", "--local", "--unset-all", "credential.helper"]).catch(() => {});
   await runGit(["config", "--local", "--add", "credential.helper", ""]);
-  await runGit(["config", "--local", "--add", "credential.helper", helper]);
 }

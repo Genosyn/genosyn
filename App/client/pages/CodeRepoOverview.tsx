@@ -157,7 +157,7 @@ export default function CodeRepoOverview() {
             number="2"
             icon={<GitBranch size={17} />}
             title="Branch, commit, and push"
-            detail="A Read & push grant checks out this repository with its credentials and committer identity."
+            detail="A Read & push grant checks out this repository with stored credentials or its matching GitHub Connection."
             status={
               grants === null
                 ? "Checking…"

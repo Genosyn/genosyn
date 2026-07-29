@@ -129,11 +129,19 @@ export function RepoFormFields({
             patch({ authMode: e.target.value as CodeRepoAuthMode })
           }
         >
-          <option value="none">None (public repo)</option>
+          <option value="none">None / GitHub Connection</option>
           <option value="https">HTTPS token / password</option>
           <option value="ssh">SSH private key</option>
         </Select>
       </div>
+
+      {form.authMode === "none" && (
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Public repositories clone anonymously. For an HTTPS GitHub URL,
+          Genosyn automatically reuses a matching GitHub Connection granted to
+          the same AI employee, including for git push.
+        </p>
+      )}
 
       {form.authMode === "https" && (
         <div className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-700 dark:bg-slate-800/30">

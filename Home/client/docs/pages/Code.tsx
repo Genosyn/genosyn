@@ -89,7 +89,12 @@ export function CodeRepositories() {
       </P>
       <UL>
         <LI>
-          <Strong>None.</Strong> Public repository. Clones work; pushing is rejected by the remote.
+          <Strong>None / GitHub Connection.</Strong> Public repositories clone anonymously. For an
+          HTTPS GitHub URL, Genosyn automatically reuses a GitHub Connection granted to the same
+          employee. An exact owner/repository allowlist match wins; when the employee has only one
+          GitHub Connection, the Code Repository grant itself is the repository boundary. The token
+          powers both fetch and push without being copied onto the Code Repository row. Without a
+          matching Connection, pushing is rejected by the remote.
         </LI>
         <LI>
           <Strong>HTTPS token / password.</Strong> A username plus a personal access token (with
@@ -166,6 +171,12 @@ git push -u origin fix/typo`}</Pre>
           <Strong>PR ready</Strong>.
         </LI>
       </OL>
+      <P>
+        When the Code Repository uses <Strong>None / GitHub Connection</Strong>, those same grants
+        also wire the Connection&apos;s token into ordinary <Code>git fetch</Code> and{" "}
+        <Code>git push</Code> commands. You do not need to paste the PAT into the repository a
+        second time.
+      </P>
       <P>
         You can then ask: “Create a branch, implement this change, run the tests, and send me a
         draft PR.” Genosyn tells the employee to carry the request through editing, tests, commit,

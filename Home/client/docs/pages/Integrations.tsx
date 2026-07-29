@@ -318,7 +318,10 @@ export function Integrations() {
         git token never lands on disk — it&apos;s read from the env var the runner injects, via a
         repository-local inline credential helper. Because the helper does not contain an absolute
         workspace path, it works the same way in the self-hosted runtime and the isolated SaaS
-        sandbox.
+        sandbox. A matching HTTPS Code Repository can reuse the same turn-scoped credential when the
+        Connection is granted to that employee. Genosyn prefers an exact owner/repository allowlist
+        match and can use the employee&apos;s sole GitHub Connection when no disambiguation is
+        needed, so ordinary git pushes do not need a second copy of the PAT.
       </P>
 
       <H3 id="lightning-payments">Lightning payments</H3>
