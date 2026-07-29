@@ -49,10 +49,7 @@ export type BridgedServer = {
  */
 export type McpToolGuard = {
   patterns: string[];
-  onGuarded: (
-    toolName: string,
-    input: Record<string, unknown>,
-  ) => Promise<ToolResult>;
+  onGuarded: (toolName: string, input: Record<string, unknown>) => Promise<ToolResult>;
 };
 
 /** Does a native tool name match any of the guard's glob patterns? */
@@ -60,9 +57,7 @@ export function matchesGuardPattern(name: string, patterns: string[]): boolean {
   for (const pattern of patterns) {
     const p = pattern.trim();
     if (!p) continue;
-    const re = new RegExp(
-      "^" + p.split("*").map(escapeRegex).join(".*") + "$",
-    );
+    const re = new RegExp("^" + p.split("*").map(escapeRegex).join(".*") + "$");
     if (re.test(name)) return true;
   }
   return false;
@@ -105,7 +100,7 @@ export async function connectMcpServer(
         args: spec.args,
         // MCP's stdio transport uses a restricted default env; merge the parent
         // env so the child (e.g. the browser server) sees GENOSYN_* + PATH.
-        env: mergeEnv(spec.env),
+        env: mcpChildEnvironment(spec.env),
         ...(spec.cwd ? { cwd: spec.cwd } : {}),
       });
       await client.connect(transport);
@@ -144,7 +139,7 @@ export async function connectMcpServer(
       name: exposedToolName(namePrefix, t.name),
       description: guarded
         ? `${t.description ?? `${label} tool`} (Guarded: this call queues a human Approval and runs after approve.)`
-        : t.description ?? `${label} tool`,
+        : (t.description ?? `${label} tool`),
       inputSchema: (t.inputSchema as Record<string, unknown>) ?? {
         type: "object",
         properties: {},
@@ -238,10 +233,30 @@ function sanitizeChars(name: string): string {
   return name.replace(/[^a-zA-Z0-9_-]/g, "_");
 }
 
-function mergeEnv(extra: Record<string, string>): Record<string, string> {
+export function mcpChildEnvironment(extra: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) {
-    if (typeof v === "string") out[k] = v;
+  const inherited = [
+    "PATH",
+    "HOME",
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+    "LANG",
+    "LC_ALL",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "NODE_EXTRA_CA_CERTS",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+    "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH",
+  ];
+  for (const key of inherited) {
+    const value = process.env[key];
+    if (typeof value === "string") out[key] = value;
   }
   Object.assign(out, extra);
   return out;

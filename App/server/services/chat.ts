@@ -28,6 +28,9 @@ import {
   releaseWorkloadLease,
 } from "./workloadLeases.js";
 import { createGenosynHelpSource } from "./agent/tools/genosynHelp.js";
+import { supportsParallelDelegation } from "./agent/tools/parallelDelegation.js";
+import { shouldMaterializeRepositoriesForTurn } from "./codexSubscription.js";
+import { CODING_TOOL_NAMES } from "./agent/tools/coding.js";
 
 /**
  * Chat seam.
@@ -219,8 +222,24 @@ export async function streamChatWithEmployee(
 
   let mcpToken: string | null = null;
   try {
+    const parallelDelegationAvailable = supportsParallelDelegation(model.authMode);
+    const unavailableCodingTools =
+      !config.agent.codingTools.enabled || config.agent.codingTools.executionMode === "disabled"
+        ? [...CODING_TOOL_NAMES]
+        : config.agent.codingTools.executionMode === "bubblewrap"
+          ? CODING_TOOL_NAMES.filter((name) => name !== "bash")
+          : model.authMode === "subscription"
+            ? [...CODING_TOOL_NAMES]
+            : [];
+    const unavailableSkillTools = [
+      ...(parallelDelegationAvailable ? [] : ["delegate_parallel_work"]),
+      ...unavailableCodingTools,
+    ];
+    const repositoryMaterializationAllowed = shouldMaterializeRepositoriesForTurn(model.authMode);
     const memoryContext = await composeMemoryContext(emp.id);
-    const codeReposContext = await composeCodeReposContext(emp.id);
+    const codeReposContext = repositoryMaterializationAllowed
+      ? await composeCodeReposContext(emp.id)
+      : "";
     const financeContext = await composeFinanceContext(emp.id);
     const [revenueContext, marketingContext] = await Promise.all([
       composeRevenueContext(emp.id),
@@ -237,13 +256,16 @@ export async function streamChatWithEmployee(
       revenueContext,
       marketingContext,
       surface: "chat",
+      parallelDelegationAvailable,
+      codingToolsAvailable: unavailableCodingTools.length < CODING_TOOL_NAMES.length,
+      isolatedCodingTools: config.agent.codingTools.executionMode === "bubblewrap",
       opening:
         options.surface === "help"
           ? `You are ${emp.name}, ${emp.role} at ${co.name}. A teammate selected you in Genosyn Help to answer a question about Genosyn. Reply in your own voice, guided by your Soul and Skills, while treating the Help briefing and shipped source as authoritative.`
           : `You are ${emp.name}, ${emp.role} at ${co.name}. A teammate is chatting with you ` +
             `directly. Reply in your own voice, guided by your Soul, Memory, and Skills below. ` +
             `Keep replies focused and grounded — ask clarifying questions when needed.`,
-      skillToolsets: skillToolsetMap(skills),
+      skillToolsets: skillToolsetMap(skills, unavailableSkillTools),
     });
     if (helpSource) system += `\n${helpSource.prompt}`;
     if (options.extraSystem) system += `\n${options.extraSystem}`;
@@ -268,16 +290,18 @@ export async function streamChatWithEmployee(
       }
     }
 
-    // Materialize granted repos into the employee's cwd so the coding tools find
-    // a working tree. Non-fatal — chat still proceeds if a repo fails to sync.
-    const repoSync = await materializeReposForEmployee({ employeeId: emp.id, cwd });
-    Object.assign(toolEnv, repoSync.extraEnv);
-    const codeRepoSync = await materializeCodeReposForEmployee({
-      employeeId: emp.id,
-      cwd,
-      githubRepoCredentials: repoSync.githubRepoCredentials,
-    });
-    Object.assign(toolEnv, codeRepoSync.extraEnv);
+    if (repositoryMaterializationAllowed) {
+      // Materialize granted repos into the employee's cwd so the coding tools
+      // find a working tree. Non-fatal — chat still proceeds if a repo fails.
+      const repoSync = await materializeReposForEmployee({ employeeId: emp.id, cwd });
+      Object.assign(toolEnv, repoSync.extraEnv);
+      const codeRepoSync = await materializeCodeReposForEmployee({
+        employeeId: emp.id,
+        cwd,
+        githubRepoCredentials: repoSync.githubRepoCredentials,
+      });
+      Object.assign(toolEnv, codeRepoSync.extraEnv);
+    }
 
     mcpToken = issueMcpToken(emp.id, co.id);
     const controller = new AbortController();
@@ -300,7 +324,10 @@ export async function streamChatWithEmployee(
         genosynToken: mcpToken,
         bashTimeoutMs: 5 * 60 * 1000,
         maxSteps: CHAT_MAX_STEPS,
-        skillToolset: [...residentNamesForSkills(skills), ...(options.extraToolset ?? [])],
+        skillToolset: [
+          ...residentNamesForSkills(skills, unavailableSkillTools),
+          ...(options.extraToolset ?? []),
+        ].filter((name) => !unavailableSkillTools.includes(name)),
         extraTools: helpSource?.tools,
         conversationId: options.conversationId,
         signal: controller.signal,

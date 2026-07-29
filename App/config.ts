@@ -49,11 +49,14 @@ export const config = {
     bootstrapMasterAdminEmail: "",
   },
 
-  // AI Employee execution controls. `bubblewrap` runs every shell invocation
-  // in a Linux user/mount/PID namespace with only the employee workspace
-  // writable. The runtime image includes bwrap. Shared SaaS mode requires it
-  // and disables network access inside the coding sandbox; networked work goes
-  // through governed Integration, browser, and HTTP surfaces instead.
+  // AI Employee execution controls. `host` preserves the existing local and
+  // Docker deployment behavior. ChatGPT subscription auth is available only
+  // when an operator deliberately selects `bubblewrap` on a Linux deployment
+  // whose user-namespace policy passes Genosyn's startup probe. Bubblewrap runs
+  // every shell invocation and repository Git child in user/mount/PID
+  // namespaces with only the employee workspace writable. Shared SaaS requires
+  // bubblewrap and disables network access inside the coding sandbox; networked
+  // work goes through governed Integration, browser, and HTTP surfaces instead.
   agent: {
     codingTools: {
       enabled: true,

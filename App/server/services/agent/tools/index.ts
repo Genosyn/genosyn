@@ -83,6 +83,12 @@ export async function gatherEmployeeTools(params: {
   conversationId?: string;
   runId?: string;
   signal?: AbortSignal;
+  /**
+   * Defense in depth for a subscription turn: omit bash unless bubblewrap
+   * gives it private /tmp and PID namespaces. The install-level subscription
+   * gate separately rejects enabled host-mode coding tools.
+   */
+  requireIsolatedBash?: boolean;
   /** Called when a Soul, Skill or brief reached for a retired family name. */
   onDeprecatedFamily?: (family: string, target: string) => void;
 }): Promise<{ registry: ToolRegistry; browser: BrowserConfig; close: () => Promise<void> }> {
@@ -106,7 +112,12 @@ export async function gatherEmployeeTools(params: {
 
   const codingEnabled =
     config.agent.codingTools.enabled && config.agent.codingTools.executionMode !== "disabled";
-  const coding = codingEnabled ? codingTools(codingCtx) : [];
+  const coding = codingEnabled
+    ? filterCodingToolsForCredentialIsolation(
+        codingTools(codingCtx),
+        Boolean(params.requireIsolatedBash),
+      )
+    : [];
 
   const tools: AgentTool[] = [...(params.localTools ?? []), ...coding, ...genosyn.tools];
   const bridged: BridgedServer[] = [];
@@ -230,6 +241,26 @@ export async function gatherEmployeeTools(params: {
     browser,
     close,
   };
+}
+
+export function filterCodingToolsForCredentialIsolation(
+  tools: AgentTool[],
+  required: boolean,
+  executionMode = config.agent.codingTools.executionMode,
+): AgentTool[] {
+  // The path-based file tools run in the App process. Their validate-then-open
+  // sequence cannot provide an atomic symlink boundary, so a concurrent
+  // sandboxed shell could race another turn's file tool into Codex's host-side
+  // credential temp directory. Bubblewrap mode therefore keeps *every* turn's
+  // coding operations inside the namespace, not only the subscription turn.
+  if (executionMode === "bubblewrap") {
+    return tools.filter((tool) => tool.name === "bash");
+  }
+  // A subscription row cannot run outside bubblewrap. Keep this secondary
+  // fail-closed branch even though the install-level availability gate rejects
+  // the turn before the Codex credential is materialized.
+  if (required) return [];
+  return tools;
 }
 
 /**

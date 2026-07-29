@@ -1,13 +1,12 @@
 /**
  * Provider-agnostic types for the in-process agent runtime.
  *
- * This is the seam that replaced the CLI harnesses. Instead of spawning
- * `claude` / `codex` / `opencode` / `goose` / `openclaw` and letting them drive
- * the tool-use loop, we talk to the model API directly (Anthropic Messages,
- * OpenAI Chat Completions, or an OpenAI-compatible custom endpoint) and run the
- * loop ourselves — handing the model the same tools a harness would: the
- * built-in coding toolset (bash + file editing) plus every MCP tool the
- * employee has (genosyn, browser, company-configured servers).
+ * This is the seam that replaced generic CLI harnesses. API-key and custom
+ * models use the direct provider loop; the narrow OpenAI subscription adapter
+ * renders the same messages, callbacks, and ToolRegistry through the official
+ * Codex app-server dynamic-tool protocol. Either way the employee receives
+ * Genosyn's built-in coding toolset plus its granted genosyn, browser, and
+ * company-configured MCP tools.
  *
  * The message + tool shapes here are a small common denominator; each model
  * client converts to/from its own wire format.

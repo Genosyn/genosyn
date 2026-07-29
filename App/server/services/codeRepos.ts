@@ -1,5 +1,3 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
@@ -16,8 +14,13 @@ import {
 import type { CodeRepoAccessLevel } from "../db/entities/EmployeeCodeRepositoryGrant.js";
 import { encryptSecret, decryptSecret } from "../lib/secret.js";
 import { toSlug } from "../lib/slug.js";
-import { clearEnvCredentialHelper, configureEnvCredentialHelper } from "./gitCredentialHelper.js";
+import {
+  clearEnvCredentialHelper,
+  configureEnvCredentialHelper,
+  inlineEnvCredentialHelper,
+} from "./gitCredentialHelper.js";
 import type { GithubRepoCredential } from "./repoSync.js";
+import { runWorkspaceGit } from "./workspaceGit.js";
 
 /**
  * Code Repository seam — the provider-agnostic cousin of `repoSync.ts`.
@@ -43,8 +46,6 @@ import type { GithubRepoCredential } from "./repoSync.js";
  * — git needs a private-key *file*, so the key is written under the employee's
  * data dir (gitignored) with mode 0600 and pinned via `core.sshCommand`.
  */
-
-const exec = promisify(execFile);
 
 // ───────────────────────────── slugs ────────────────────────────────────
 
@@ -144,41 +145,19 @@ function envKeyFor(repoId: string): string {
 }
 
 async function runGit(
+  workspaceRoot: string,
   cwd: string,
   args: string[],
   extraEnv: Record<string, string> = {},
+  credentialHelper?: string,
 ): Promise<{ stdout: string }> {
-  try {
-    const { stdout } = await exec("git", args, {
-      cwd,
-      env: {
-        ...process.env,
-        // No TTY → fail fast on missing creds instead of hanging the runner.
-        GIT_TERMINAL_PROMPT: "0",
-        GIT_ASKPASS: "/bin/echo",
-        ...extraEnv,
-      },
-      maxBuffer: 16 * 1024 * 1024,
-    });
-    return { stdout };
-  } catch (err) {
-    if ((err as { code?: string }).code === "ENOENT") {
-      throw new Error(
-        `git is not installed on the Genosyn server, so "git ${args[0]}" could not run. Install git (the official Genosyn Docker image bundles it) and try again.`,
-      );
-    }
-    const e = err as { stderr?: string; stdout?: string; message?: string };
-    const tail = (e.stderr || e.stdout || e.message || "").toString().trim();
-    throw new Error(`git ${args[0]} failed: ${tail.split("\n").slice(-3).join(" | ")}`);
-  }
-}
-
-/** Insert `user:token@` into an `https://…` URL. Returns null for non-HTTPS. */
-function injectHttpsCreds(gitUrl: string, username: string, token: string): string | null {
-  const m = gitUrl.match(/^https:\/\/(.*)$/i);
-  if (!m) return null;
-  const enc = encodeURIComponent;
-  return `https://${enc(username)}:${enc(token)}@${m[1]}`;
+  return runWorkspaceGit({
+    workspaceRoot,
+    cwd,
+    args,
+    extraEnv,
+    credentialHelper,
+  });
 }
 
 function httpsUsernameOf(repo: CodeRepository): string {
@@ -194,6 +173,15 @@ function sshKeyDir(cwd: string): string {
   return path.join(cwd, "code-repos", ".ssh");
 }
 
+function workspaceVisiblePath(workspaceRoot: string, hostPath: string): string {
+  if (config.agent.codingTools.executionMode !== "bubblewrap") return hostPath;
+  const relative = path.relative(path.resolve(workspaceRoot), path.resolve(hostPath));
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error("SSH key path escapes the employee workspace.");
+  }
+  return relative ? `/workspace/${relative.split(path.sep).join("/")}` : "/workspace";
+}
+
 /**
  * Build the `ssh` command git should use for a given key file: identities
  * pinned to our key only, host keys auto-accepted on first contact (no
@@ -207,11 +195,16 @@ function sshCommandFor(keyPath: string): string {
 }
 
 async function configureCredentialHelper(
+  workspaceRoot: string,
   repoPath: string,
   username: string,
   envKey: string,
 ): Promise<void> {
-  await configureEnvCredentialHelper((args) => runGit(repoPath, args), username, envKey);
+  await configureEnvCredentialHelper(
+    (args) => runGit(workspaceRoot, repoPath, args),
+    username,
+    envKey,
+  );
 }
 
 // In-process mutex per (employeeId × repoId) so two concurrent spawns can't
@@ -355,7 +348,7 @@ async function syncOneRepo(
     fs.writeFileSync(keyPath, sshKey.endsWith("\n") ? sshKey : sshKey + "\n", {
       mode: 0o600,
     });
-    sshCommand = sshCommandFor(keyPath);
+    sshCommand = sshCommandFor(workspaceVisiblePath(cwd, keyPath));
     cloneEnv = { GIT_SSH_COMMAND: sshCommand };
   }
   if (repo.authMode === "https" && token) {
@@ -365,67 +358,91 @@ async function syncOneRepo(
     result.extraEnv[envKey] = linkedGithubCredential.token;
   }
   const credentialEnv = token ? { [envKey]: token } : {};
+  const credentialHelper = token ? inlineEnvCredentialHelper(httpsUsername, envKey) : undefined;
 
   if (!isCheckout) {
     fs.mkdirSync(path.dirname(repoPath), { recursive: true });
     if (token) {
-      // Initial clone: temporarily inline the token in the URL, then strip it
-      // immediately so it never persists in `.git/config`. From then on git
-      // pulls the token from the credential helper / env var.
-      const tokenUrl = injectHttpsCreds(repo.gitUrl, httpsUsername, token);
-      if (!tokenUrl) {
+      if (!/^https:\/\//i.test(repo.gitUrl)) {
         throw new Error("HTTPS credentials require an https:// clone URL.");
       }
-      await runGit(path.dirname(repoPath), ["clone", "--quiet", tokenUrl, repo.slug]);
-      await runGit(repoPath, ["remote", "set-url", "origin", repo.gitUrl]);
+      await runGit(
+        cwd,
+        path.dirname(repoPath),
+        ["clone", "--quiet", repo.gitUrl, repo.slug],
+        credentialEnv,
+        credentialHelper,
+      );
+      await runGit(cwd, repoPath, ["remote", "set-url", "origin", repo.gitUrl]);
     } else {
       // SSH or public: clone the URL as-is (SSH key supplied via env).
-      await runGit(path.dirname(repoPath), ["clone", "--quiet", repo.gitUrl, repo.slug], cloneEnv);
+      await runGit(
+        cwd,
+        path.dirname(repoPath),
+        ["clone", "--quiet", repo.gitUrl, repo.slug],
+        cloneEnv,
+      );
     }
   } else {
     // Install/refresh the helper before fetch so a pre-existing private
     // checkout can authenticate even if it predates Genosyn's helper wiring.
     if (token) {
-      await configureCredentialHelper(repoPath, httpsUsername, envKey);
+      await configureCredentialHelper(cwd, repoPath, httpsUsername, envKey);
     } else {
-      await clearCredentialHelper(repoPath);
+      await clearCredentialHelper(cwd, repoPath);
     }
-    // Existing checkout: refresh refs but never touch the working tree.
-    await runGit(repoPath, ["fetch", "--all", "--prune", "--quiet"], {
-      ...cloneEnv,
-      ...credentialEnv,
-    });
-    await runGit(repoPath, ["remote", "set-url", "origin", repo.gitUrl]);
+    await runGit(cwd, repoPath, ["remote", "set-url", "origin", repo.gitUrl]);
+    // Existing checkout: refresh refs from only the trusted configured URL.
+    // Never visit remotes an AI Employee added to the writable local config.
+    await runGit(
+      cwd,
+      repoPath,
+      [
+        "fetch",
+        "--no-recurse-submodules",
+        "--prune",
+        "--quiet",
+        repo.gitUrl,
+        "+refs/heads/*:refs/remotes/origin/*",
+      ],
+      {
+        ...cloneEnv,
+        ...credentialEnv,
+      },
+      credentialHelper,
+    );
   }
 
   // Pin per-repo wiring every spawn (idempotent — settings may have changed
   // between spawns, e.g. a grant downgraded from write to read).
   if (sshCommand) {
-    await runGit(repoPath, ["config", "--local", "core.sshCommand", sshCommand]);
+    await runGit(cwd, repoPath, ["config", "--local", "core.sshCommand", sshCommand]);
   } else {
     // Drop any stale sshCommand if the repo flipped away from SSH.
-    await runGit(repoPath, ["config", "--local", "--unset", "core.sshCommand"]).catch(() => {});
+    await runGit(cwd, repoPath, ["config", "--local", "--unset", "core.sshCommand"]).catch(
+      () => {},
+    );
   }
   if (token) {
-    await configureCredentialHelper(repoPath, httpsUsername, envKey);
+    await configureCredentialHelper(cwd, repoPath, httpsUsername, envKey);
   } else {
-    await clearCredentialHelper(repoPath);
+    await clearCredentialHelper(cwd, repoPath);
   }
 
   // Read-only grants get their push URL disabled so an accidental `git push`
   // fails fast with a message naming the missing grant, rather than silently
   // succeeding on a token that happens to carry write scope.
   if (accessLevel === "write") {
-    await runGit(repoPath, ["remote", "set-url", "--push", "origin", repo.gitUrl]);
+    await runGit(cwd, repoPath, ["remote", "set-url", "--push", "origin", repo.gitUrl]);
   } else {
-    await runGit(repoPath, ["remote", "set-url", "--push", "origin", NO_PUSH_URL]);
+    await runGit(cwd, repoPath, ["remote", "set-url", "--push", "origin", NO_PUSH_URL]);
   }
 
   // Git identity for commits the agent makes.
   const committerName = (repo.committerName ?? "").trim() || employee.name;
   const committerEmail = (repo.committerEmail ?? "").trim() || `${employee.slug}@genosyn.local`;
-  await runGit(repoPath, ["config", "--local", "user.name", committerName]);
-  await runGit(repoPath, ["config", "--local", "user.email", committerEmail]);
+  await runGit(cwd, repoPath, ["config", "--local", "user.name", committerName]);
+  await runGit(cwd, repoPath, ["config", "--local", "user.email", committerEmail]);
 
   result.repos.push({
     codeRepositoryId: repo.id,
@@ -475,8 +492,8 @@ export function findGithubRepoCredential(
   return connectionIds.size === 1 ? (credentials[0] ?? null) : null;
 }
 
-async function clearCredentialHelper(repoPath: string): Promise<void> {
-  await clearEnvCredentialHelper((args) => runGit(repoPath, args));
+async function clearCredentialHelper(workspaceRoot: string, repoPath: string): Promise<void> {
+  await clearEnvCredentialHelper((args) => runGit(workspaceRoot, repoPath, args));
 }
 
 // ──────────────────────── test connection ───────────────────────────────
@@ -497,8 +514,8 @@ export type TestConnectionResult = {
 export async function testCodeRepoConnection(repo: CodeRepository): Promise<TestConnectionResult> {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-repo-"));
   try {
-    let url = repo.gitUrl;
     const env: Record<string, string> = {};
+    let credentialHelper: string | undefined;
 
     if (repo.authMode === "https") {
       const token = tryDecrypt(repo.encryptedToken);
@@ -508,14 +525,15 @@ export async function testCodeRepoConnection(repo: CodeRepository): Promise<Test
           message: "No HTTPS token is set. Add one and try again.",
         };
       }
-      const tokenUrl = injectHttpsCreds(url, httpsUsernameOf(repo), token);
-      if (!tokenUrl) {
+      if (!/^https:\/\//i.test(repo.gitUrl)) {
         return {
           ok: false,
           message: "Auth mode is HTTPS but the clone URL isn't an https:// URL.",
         };
       }
-      url = tokenUrl;
+      const envKey = "GENOSYN_REPO_TOKEN_CONNECTION_TEST";
+      env[envKey] = token;
+      credentialHelper = inlineEnvCredentialHelper(httpsUsernameOf(repo), envKey);
     } else if (repo.authMode === "ssh") {
       const key = tryDecrypt(repo.encryptedSshKey);
       if (!key) {
@@ -525,10 +543,16 @@ export async function testCodeRepoConnection(repo: CodeRepository): Promise<Test
       fs.writeFileSync(keyPath, key.endsWith("\n") ? key : key + "\n", {
         mode: 0o600,
       });
-      env.GIT_SSH_COMMAND = sshCommandFor(keyPath);
+      env.GIT_SSH_COMMAND = sshCommandFor(workspaceVisiblePath(tmp, keyPath));
     }
 
-    const { stdout } = await runGit(tmp, ["ls-remote", "--symref", url, "HEAD"], env);
+    const { stdout } = await runGit(
+      tmp,
+      tmp,
+      ["ls-remote", "--symref", repo.gitUrl, "HEAD"],
+      env,
+      credentialHelper,
+    );
     const m = stdout.match(/ref:\s+refs\/heads\/(\S+)\s+HEAD/);
     return {
       ok: true,

@@ -4,10 +4,11 @@ import { AppDataSource } from "../db/datasource.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateParams } from "../middleware/validate.js";
 import {
   requireAuth,
   requireCompanyMember,
+  requireCompanyRole,
   requireCompanyRoleForMutations,
 } from "../middleware/auth.js";
 import { PROVIDERS, isModelConnected } from "../services/providers.js";
@@ -17,6 +18,17 @@ import { previewBaseURL, readCustomEndpoint } from "../services/customEndpoint.j
 import { canProbeContextWindow, probeContextWindow } from "../services/agent/contextWindow.js";
 import { recordAudit } from "../services/audit.js";
 import { assertSafeOutboundUrl } from "../lib/outboundUrl.js";
+import { config } from "../../config.js";
+import {
+  cancelSubscriptionDeviceLogin,
+  cancelSubscriptionDeviceLoginsForModel,
+  getSubscriptionDeviceLogin,
+  saveSubscriptionAccessToken,
+  startSubscriptionDeviceLogin,
+  SubscriptionCredentialConflictError,
+  subscriptionCredentialKind,
+  subscriptionUnavailableReason,
+} from "../services/codexSubscription.js";
 
 /**
  * Per-employee Model routes, mounted at
@@ -24,10 +36,10 @@ import { assertSafeOutboundUrl } from "../lib/outboundUrl.js";
  *
  * An employee can register several models and keep exactly one active. A model
  * is a direct connection to a model API — Anthropic (Claude), OpenAI (GPT), or a
- * custom OpenAI-compatible endpoint. Credentials are entered here and stored
- * encrypted in `configJson`; there is no CLI to install and no subscription
- * sign-in — those disappeared with the harnesses. `POST /:id/activate` flips
- * which model the runner + chat seams use.
+ * custom OpenAI-compatible endpoint. OpenAI models can also use a ChatGPT
+ * subscription through the pinned official Codex app-server on trusted
+ * self-hosted installs. Every credential remains encrypted in `configJson`.
+ * `POST /:id/activate` flips which model the runner + chat seams use.
  */
 export const modelsRouter = Router({ mergeParams: true });
 modelsRouter.use(requireAuth);
@@ -35,14 +47,22 @@ modelsRouter.use(requireCompanyMember);
 modelsRouter.use(requireCompanyRoleForMutations("admin"));
 
 const providerSchema = z.enum(["anthropic", "openai", "custom"]);
-const authModeSchema = z.enum(["apikey", "customEndpoint"]);
+const authModeSchema = z.enum(["apikey", "subscription", "customEndpoint"]);
+const modelItemParamsSchema = z.object({
+  cid: z.string().uuid(),
+  eid: z.string().uuid(),
+  id: z.string().uuid(),
+});
+const deviceSessionParamsSchema = modelItemParamsSchema.extend({
+  sessionId: z.string().uuid(),
+});
 
 type PublicModel = {
   id: string;
   employeeId: string;
   provider: "anthropic" | "openai" | "custom";
   model: string;
-  authMode: "apikey" | "customEndpoint";
+  authMode: "apikey" | "subscription" | "customEndpoint";
   /** True if this is the brain the runner + chat seams use for the employee. */
   isActive: boolean;
   connectedAt: string | null;
@@ -52,6 +72,15 @@ type PublicModel = {
   apiKeyEnv: string | null;
   /** Does this provider connect with a plain API key? */
   supportsApiKey: boolean;
+  /** Does this provider support the official consumer-subscription runtime? */
+  supportsSubscription: boolean;
+  /** Is subscription auth allowed by this install's security mode? */
+  subscriptionAvailable: boolean;
+  subscriptionUnavailableReason: string | null;
+  /** Which encrypted subscription credential is present, without its value. */
+  subscriptionCredentialKind: "chatgptSession" | "accessToken" | null;
+  /** Whether subscription turns may safely receive the bash coding tool. */
+  subscriptionShellAvailable: boolean;
   /** Does this provider connect via a custom OpenAI-compatible endpoint? */
   supportsCustomEndpoint: boolean;
   /** Host-only preview of the configured base URL — `null` when unset. */
@@ -121,6 +150,14 @@ function toPublic(m: AIModel, isActive: boolean): PublicModel {
     apiKeyMasked: apiKeyEncrypted ? "sk-…••••" : null,
     apiKeyEnv: spec.apiKeyEnv,
     supportsApiKey: spec.supportsApiKey,
+    supportsSubscription: spec.supportsSubscription,
+    subscriptionAvailable: spec.supportsSubscription && subscriptionUnavailableReason() === null,
+    subscriptionUnavailableReason: spec.supportsSubscription
+      ? subscriptionUnavailableReason()
+      : null,
+    subscriptionCredentialKind: subscriptionCredentialKind(m),
+    subscriptionShellAvailable:
+      config.agent.codingTools.enabled && config.agent.codingTools.executionMode === "bubblewrap",
     supportsCustomEndpoint: spec.supportsCustomEndpoint,
     customEndpointHost,
     customEndpointModelId,
@@ -153,7 +190,13 @@ async function refreshContextWindow(m: AIModel): Promise<void> {
   if (found === null || found === m.contextWindow) return;
   m.contextWindow = found;
   m.contextWindowSource = "probed";
-  await AppDataSource.getRepository(AIModel).save(m);
+  await AppDataSource.getRepository(AIModel).update(
+    { id: m.id },
+    {
+      contextWindow: found,
+      contextWindowSource: "probed",
+    },
+  );
 }
 
 /** Shape a single model for the wire, computing its `isActive` live. */
@@ -182,6 +225,15 @@ function unsupportedAuthError(
   const spec = PROVIDERS[provider];
   if (authMode === "apikey" && !spec.supportsApiKey) {
     return `${provider} connects via a custom endpoint, not an API key.`;
+  }
+  if (authMode === "subscription" && !spec.supportsSubscription) {
+    return provider === "anthropic"
+      ? "Anthropic does not allow third-party products to use Claude consumer subscriptions. Use an Anthropic Console API key."
+      : `${provider} does not support subscription authentication.`;
+  }
+  if (authMode === "subscription") {
+    const unavailable = subscriptionUnavailableReason();
+    if (unavailable) return unavailable;
   }
   if (authMode === "customEndpoint" && !spec.supportsCustomEndpoint) {
     return `${provider} connects with an API key, not a custom endpoint.`;
@@ -259,17 +311,41 @@ modelsRouter.put("/:id", validateBody(updateSchema), async (req, res) => {
   if (unsupported) return res.status(400).json({ error: unsupported });
 
   const repo = AppDataSource.getRepository(AIModel);
-  const m = ctx.m;
+  await cancelSubscriptionDeviceLoginsForModel(ctx.m.id);
+  const m = await repo.findOneBy({ id: ctx.m.id, employeeId: ctx.emp.id });
+  if (!m) return res.status(404).json({ error: "Model not found" });
   const changedAuth = m.authMode !== body.authMode || m.provider !== body.provider;
-  m.provider = body.provider;
-  m.model = body.model;
-  m.authMode = body.authMode;
+  const changedModel = m.model !== body.model;
   // If provider or auth mode switched, any prior credentials are invalid.
   if (changedAuth) {
-    m.configJson = "{}";
-    m.connectedAt = null;
+    await repo.update(
+      { id: m.id, employeeId: ctx.emp.id },
+      {
+        provider: body.provider,
+        model: body.model,
+        authMode: body.authMode,
+        configJson: "{}",
+        connectedAt: null,
+        contextWindow: null,
+        contextWindowSource: null,
+      },
+    );
+  } else {
+    // Partial update is load-bearing for managed ChatGPT auth: a concurrent
+    // refresh may rotate its token, and saving this stale entity would restore
+    // the invalid pre-refresh configJson.
+    await repo.update(
+      { id: m.id, employeeId: ctx.emp.id },
+      {
+        provider: body.provider,
+        model: body.model,
+        authMode: body.authMode,
+        ...(changedModel ? { contextWindow: null, contextWindowSource: null } : {}),
+      },
+    );
   }
-  await repo.save(m);
+  const saved = await repo.findOneBy({ id: m.id, employeeId: ctx.emp.id });
+  if (!saved) return res.status(404).json({ error: "Model not found" });
   await recordAudit({
     companyId: ctx.co.id,
     actorUserId: req.userId ?? null,
@@ -277,9 +353,13 @@ modelsRouter.put("/:id", validateBody(updateSchema), async (req, res) => {
     targetType: "employee",
     targetId: ctx.emp.id,
     targetLabel: ctx.emp.name,
-    metadata: { provider: m.provider, model: m.model, authMode: m.authMode },
+    metadata: {
+      provider: saved.provider,
+      model: saved.model,
+      authMode: saved.authMode,
+    },
   });
-  res.json(await publicModel(m, ctx.emp));
+  res.json(await publicModel(saved, ctx.emp));
 });
 
 // POST /api/companies/:cid/employees/:eid/models/:id/activate — switch brain.
@@ -335,6 +415,132 @@ modelsRouter.post("/:id/apikey", validateBody(apiKeySchema), async (req, res) =>
   });
   res.json(await publicModel(m, ctx.emp));
 });
+
+// POST /api/companies/:cid/employees/:eid/models/:id/subscription/device
+//
+// Start OpenAI's managed device-code flow inside an isolated temporary
+// CODEX_HOME. Poll the returned session id below; the service encrypts the
+// completed managed session into this model row and deletes the temporary dir.
+modelsRouter.post(
+  "/:id/subscription/device",
+  validateParams(modelItemParamsSchema),
+  async (req, res) => {
+    const p = req.params as Record<string, string>;
+    const ctx = await loadModelContext(p.cid, p.eid, p.id);
+    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+    if (ctx.m.provider !== "openai" || ctx.m.authMode !== "subscription") {
+      return res.status(400).json({
+        error: "Only OpenAI AI Models in subscription mode can sign in with ChatGPT.",
+      });
+    }
+    const unavailable = subscriptionUnavailableReason();
+    if (unavailable) return res.status(400).json({ error: unavailable });
+    try {
+      const session = await startSubscriptionDeviceLogin(ctx.m.id, {
+        companyId: ctx.co.id,
+        actorUserId: req.userId!,
+      });
+      await recordAudit({
+        companyId: ctx.co.id,
+        actorUserId: req.userId ?? null,
+        action: "model.subscription.login.start",
+        targetType: "employee",
+        targetId: ctx.emp.id,
+        targetLabel: ctx.emp.name,
+        metadata: { provider: "openai", model: ctx.m.model },
+      });
+      res.json(session);
+    } catch (error) {
+      res.status(502).json({
+        error:
+          error instanceof Error ? error.message : "Could not start ChatGPT subscription sign-in.",
+      });
+    }
+  },
+);
+
+// GET /:id/subscription/device/:sessionId — poll the short-lived login state.
+modelsRouter.get(
+  "/:id/subscription/device/:sessionId",
+  validateParams(deviceSessionParamsSchema),
+  requireCompanyRole("admin"),
+  async (req, res) => {
+    const p = req.params as Record<string, string>;
+    const ctx = await loadModelContext(p.cid, p.eid, p.id);
+    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+    const session = getSubscriptionDeviceLogin(ctx.m.id, p.sessionId);
+    if (!session) {
+      return res.status(404).json({ error: "Subscription sign-in session not found" });
+    }
+    res.json(session);
+  },
+);
+
+// DELETE /:id/subscription/device/:sessionId — cancel a pending login.
+modelsRouter.delete(
+  "/:id/subscription/device/:sessionId",
+  validateParams(deviceSessionParamsSchema),
+  async (req, res) => {
+    const p = req.params as Record<string, string>;
+    const ctx = await loadModelContext(p.cid, p.eid, p.id);
+    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+    const session = await cancelSubscriptionDeviceLogin(ctx.m.id, p.sessionId);
+    if (!session) {
+      return res.status(404).json({ error: "Subscription sign-in session not found" });
+    }
+    res.json(session);
+  },
+);
+
+// POST /:id/subscription/access-token
+//
+// Trusted Business/Enterprise automation may receive a supported Codex access
+// token. It is injected as CODEX_ACCESS_TOKEN only into the one short-lived
+// app-server process; unlike the internal chatgptAuthTokens RPC, no external
+// token fields are handed to an unstable protocol method.
+const subscriptionAccessTokenSchema = z.object({
+  accessToken: z.string().trim().min(20).max(16_384),
+});
+
+modelsRouter.post(
+  "/:id/subscription/access-token",
+  validateParams(modelItemParamsSchema),
+  validateBody(subscriptionAccessTokenSchema),
+  async (req, res) => {
+    const p = req.params as Record<string, string>;
+    const ctx = await loadModelContext(p.cid, p.eid, p.id);
+    if ("error" in ctx) return res.status(404).json({ error: ctx.error });
+    const m = ctx.m;
+    if (m.provider !== "openai" || m.authMode !== "subscription") {
+      return res.status(400).json({
+        error: "Only OpenAI AI Models in subscription mode accept a Codex access token.",
+      });
+    }
+    const unavailable = subscriptionUnavailableReason();
+    if (unavailable) return res.status(400).json({ error: unavailable });
+
+    const { accessToken } = req.body as z.infer<typeof subscriptionAccessTokenSchema>;
+    let saved: AIModel;
+    try {
+      saved = await saveSubscriptionAccessToken(m.id, accessToken);
+    } catch (error) {
+      if (!(error instanceof SubscriptionCredentialConflictError)) throw error;
+      return res.status(409).json({
+        error: error.message,
+      });
+    }
+    await recordAudit({
+      companyId: ctx.co.id,
+      actorUserId: req.userId ?? null,
+      action: "model.subscription.accessToken.set",
+      targetType: "employee",
+      targetId: ctx.emp.id,
+      targetLabel: ctx.emp.name,
+      metadata: { provider: "openai", model: m.model },
+    });
+    res.json(await publicModel(saved, ctx.emp));
+  },
+);
 
 // POST /api/companies/:cid/employees/:eid/models/:id/custom-endpoint
 //
@@ -440,11 +646,11 @@ modelsRouter.post("/:id/refresh", async (req, res) => {
   const nowConnected = isModelConnected(m);
   if (nowConnected && !m.connectedAt) {
     m.connectedAt = new Date();
-    await AppDataSource.getRepository(AIModel).save(m);
+    await AppDataSource.getRepository(AIModel).update({ id: m.id }, { connectedAt: m.connectedAt });
   }
   if (!nowConnected && m.connectedAt) {
     m.connectedAt = null;
-    await AppDataSource.getRepository(AIModel).save(m);
+    await AppDataSource.getRepository(AIModel).update({ id: m.id }, { connectedAt: null });
   }
   // Also the operator's retry path when the probe missed at save time (endpoint
   // still booting, GPU host asleep) — cheap enough to just re-ask.
@@ -471,6 +677,11 @@ modelsRouter.put("/:id/context-window", validateBody(contextWindowSchema), async
   const ctx = await loadModelContext(p.cid, p.eid, p.id);
   if ("error" in ctx) return res.status(404).json({ error: ctx.error });
   const m = ctx.m;
+  if (m.authMode === "subscription") {
+    return res.status(400).json({
+      error: "OpenAI Codex manages context for subscription models.",
+    });
+  }
   const { contextWindow } = req.body as z.infer<typeof contextWindowSchema>;
 
   if (contextWindow === null) {
@@ -510,6 +721,7 @@ modelsRouter.delete("/:id", async (req, res) => {
   if ("error" in ctx) return res.status(404).json({ error: ctx.error });
   const repo = AppDataSource.getRepository(AIModel);
   const m = ctx.m;
+  await cancelSubscriptionDeviceLoginsForModel(m.id);
   const remaining = (await repo.find({ where: { employeeId: ctx.emp.id } })).filter(
     (r) => r.id !== m.id,
   );

@@ -39,6 +39,12 @@ export function composeEmployeeSystemPrompt(args: {
   /** The one line the two seams genuinely disagree on. */
   opening: string;
   surface: PromptSurface;
+  /** Subscription turns serialize on a model lock and cannot delegate. */
+  parallelDelegationAvailable: boolean;
+  /** Whether this turn receives any built-in coding tool. */
+  codingToolsAvailable: boolean;
+  /** Bubblewrap mode keeps every coding operation inside its namespace. */
+  isolatedCodingTools: boolean;
   /** Per-skill declared toolsets, keyed by skill id, for the Skill headings. */
   skillToolsets?: Map<string, string[]>;
 }): string {
@@ -56,7 +62,14 @@ export function composeEmployeeSystemPrompt(args: {
   const parts: string[] = [];
 
   parts.push(args.opening);
-  parts.push(toolsBriefing(args.surface));
+  parts.push(
+    toolsBriefing(
+      args.surface,
+      args.parallelDelegationAvailable,
+      args.codingToolsAvailable,
+      args.isolatedCodingTools,
+    ),
+  );
   parts.push("\n## Soul\n");
   parts.push(emp.soulBody);
   if (memoryContext) parts.push(memoryContext);
@@ -87,7 +100,13 @@ export function composeEmployeeSystemPrompt(args: {
  * for a teammate's ambiguous request. A routine's brief is written in advance
  * and there is nobody to ask.
  */
-export function toolsBriefing(surface: PromptSurface): string {
+export function toolsBriefing(
+  surface: PromptSurface,
+  parallelDelegationAvailable: boolean,
+  codingToolsAvailable = config.agent.codingTools.enabled &&
+    config.agent.codingTools.executionMode !== "disabled",
+  isolatedCodingTools = config.agent.codingTools.executionMode === "bubblewrap",
+): string {
   const isChat = surface === "chat";
   // When discovery is off (the revert flag), every tool is loaded and there is
   // no find_tools/call_tool to reach for — so promising them would send the
@@ -117,11 +136,23 @@ export function toolsBriefing(surface: PromptSurface): string {
     );
   }
 
+  lines.push(discovery ? "### Always loaded" : "### Your tools");
+
+  if (codingToolsAvailable && isolatedCodingTools) {
+    lines.push(
+      "- Coding: isolated `bash`, rooted at your working directory. Use shell commands for file " +
+        "reading and editing too; host-process file tools are intentionally unavailable across " +
+        "this bubblewrap deployment.",
+    );
+  } else if (codingToolsAvailable) {
+    lines.push(
+      "- Coding: `bash`, `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep`, " +
+        "rooted at your working directory (which holds any granted git repos under `repos/` and " +
+        "`code-repos/`).",
+    );
+  }
+
   lines.push(
-    discovery ? "### Always loaded" : "### Your tools",
-    "- Coding: `bash`, `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep`, " +
-      "rooted at your working directory (which holds any granted git repos under `repos/` and " +
-      "`code-repos/`).",
     '- Routines — scheduled recurring AI work. Genosyn calls these **Routines**, never "tasks". ' +
       "`create_routine` to schedule one; `update_routine` to rename, re-schedule, rewrite, or " +
       "pause/resume one in place — **never create a duplicate to change one** — and " +
@@ -131,20 +162,25 @@ export function toolsBriefing(surface: PromptSurface): string {
       "auto-injected into every prompt), and `memory` to curate durable facts that are also " +
       "auto-injected.",
     "- `send_chat_attachment` to send a generated file back as a download chip.",
-    "- Parallel delegation: `delegate_parallel_work` runs independent briefs concurrently as " +
-      "temporary copies of you, then returns their results for you to verify and synthesize. " +
-      "Prefer independent research, analysis, and API calls. Workers share your working " +
-      "directory, so partition file-writing briefs explicitly and never overlap git operations.",
-    "- Browser tools (when enabled) and any company-configured MCP server tools.",
-    "",
   );
+
+  if (parallelDelegationAvailable) {
+    lines.push(
+      "- Parallel delegation: `delegate_parallel_work` runs independent briefs concurrently as " +
+        "temporary copies of you, then returns their results for you to verify and synthesize. " +
+        "Prefer independent research, analysis, and API calls. Workers share your working " +
+        "directory, so partition file-writing briefs explicitly and never overlap git operations.",
+    );
+  }
+
+  lines.push("- Browser tools (when enabled) and any company-configured MCP server tools.", "");
 
   if (discovery) {
     lines.push(
       "### Reaching the rest",
       "- Email, finance, Bases, notes, resources, charts, dashboards, workspace channels, " +
         "handoffs and your company's integrations all live in the catalogue. Call `find_tools` " +
-        "with what you are trying to do — \"record a payment\", \"reply to that email\", \"read a " +
+        'with what you are trying to do — "record a payment", "reply to that email", "read a ' +
         'spreadsheet" — and it returns the exact tools and their arguments.',
       "- Grants still apply. If `find_tools` says you hold no grant for something, say so plainly " +
         "rather than working around it.",
@@ -159,7 +195,9 @@ export function toolsBriefing(surface: PromptSurface): string {
 
   lines.push(
     "- Mail: prefer creating a draft over sending" +
-      (isChat ? " unless explicitly told to send." : " unless the brief explicitly allows sending."),
+      (isChat
+        ? " unless explicitly told to send."
+        : " unless the brief explicitly allows sending."),
   );
 
   if (isChat) {
@@ -170,7 +208,7 @@ export function toolsBriefing(surface: PromptSurface): string {
         "load it, and work on that exact row. A tag does not bypass Grants or project membership; " +
         "if your tools deny access, say so instead of guessing.",
       "",
-      'When the teammate uploads a file, you\'ll see a header like `[Attachment id=<uuid> ' +
+      "When the teammate uploads a file, you'll see a header like `[Attachment id=<uuid> " +
         'filename="foo.pdf" size=… mime="…"]` at the top of their message. That `id=` is the ' +
         "`attachmentId` you pass to `read_pdf_fields` / `fill_pdf_form` / any tool that takes an " +
         "`attachmentId` — copy it verbatim.",

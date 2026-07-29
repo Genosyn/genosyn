@@ -4,10 +4,7 @@ import { describe, test } from "node:test";
 import type { AIModel, Provider } from "../../db/entities/AIModel.js";
 import { formatModelError } from "./modelError.js";
 
-function model(
-  provider: Provider,
-  overrides: Partial<AIModel> = {},
-): AIModel {
+function model(provider: Provider, overrides: Partial<AIModel> = {}): AIModel {
   return {
     provider,
     model: provider === "custom" ? "qwen/local" : "model-id",
@@ -44,6 +41,17 @@ describe("formatModelError classification", () => {
     );
   });
 
+  test("gives subscription-specific authentication recovery without API-key advice", () => {
+    const out = formatModelError(model("openai", { authMode: "subscription" }), {
+      status: 401,
+      message: "token expired",
+    });
+    assert.match(out, /Endpoint: OpenAI Codex subscription/);
+    assert.match(out, /Reconnect the ChatGPT subscription/);
+    assert.match(out, /Codex access/);
+    assert.doesNotMatch(out, /Replace the saved API key/);
+  });
+
   test("recognizes timeouts by status, name, and message", () => {
     assert.match(
       formatModelError(model("openai"), { statusCode: 504, message: "gateway" }),
@@ -62,6 +70,23 @@ describe("formatModelError classification", () => {
     });
     assert.match(out, /rejected an over-long prompt/);
     assert.match(out, /Set the model’s context window accurately/);
+  });
+
+  test("does not offer unavailable context controls or Genosyn retries for subscriptions", () => {
+    const subscription = model("openai", { authMode: "subscription" });
+    const context = formatModelError(subscription, {
+      status: 400,
+      message: "Maximum context length exceeded",
+    });
+    assert.match(context, /Codex manages the subscription model’s context budget/);
+    assert.doesNotMatch(context, /Set the model’s context window/);
+
+    const provider = formatModelError(subscription, {
+      status: 503,
+      message: "service unavailable",
+    });
+    assert.match(provider, /Codex app-server manages retries/);
+    assert.doesNotMatch(provider, /Genosyn retries transient failures/);
   });
 
   test("finds a network code through a bounded cause chain", () => {
@@ -117,10 +142,9 @@ describe("formatModelError output safety", () => {
   });
 
   test("collapses line breaks and truncates hostile model metadata", () => {
-    const out = formatModelError(
-      model("openai", { model: `gpt\n${"x".repeat(300)}` }),
-      { message: `first\nsecond ${"y".repeat(1_500)}` },
-    );
+    const out = formatModelError(model("openai", { model: `gpt\n${"x".repeat(300)}` }), {
+      message: `first\nsecond ${"y".repeat(1_500)}`,
+    });
     assert.doesNotMatch(out, /gpt\n/);
     assert.ok(out.includes("…"));
     assert.ok(out.split("\n").find((line) => line.startsWith("Details: "))!.length <= 1_010);

@@ -453,7 +453,16 @@ export type RunLog = {
   attempt?: number;
 };
 export type Provider = "anthropic" | "openai" | "custom";
-export type AuthMode = "apikey" | "customEndpoint";
+export type AuthMode = "apikey" | "subscription" | "customEndpoint";
+export type SubscriptionCredentialKind = "chatgptSession" | "accessToken";
+export type SubscriptionDeviceSession = {
+  id: string;
+  status: "running" | "succeeded" | "failed" | "cancelled";
+  output: string | null;
+  loginUrl: string | null;
+  userCode: string | null;
+  error: string | null;
+};
 export type AIModel = {
   id: string;
   employeeId: string;
@@ -468,6 +477,16 @@ export type AIModel = {
   /** Env var the provider conventionally reads (informational), or null. */
   apiKeyEnv: string | null;
   supportsApiKey: boolean;
+  /** Whether this provider can authenticate with a consumer subscription. */
+  supportsSubscription: boolean;
+  /** Whether subscription sign-in is available on this Genosyn install. */
+  subscriptionAvailable: boolean;
+  /** Human-readable reason device sign-in is unavailable, when applicable. */
+  subscriptionUnavailableReason: string | null;
+  /** The stored subscription credential shape, without exposing the secret. */
+  subscriptionCredentialKind: SubscriptionCredentialKind | null;
+  /** Whether subscription turns can use bash inside an isolated sandbox. */
+  subscriptionShellAvailable: boolean;
   supportsCustomEndpoint: boolean;
   customEndpointHost: string | null;
   customEndpointModelId: string | null;
@@ -512,12 +531,7 @@ export type ConversationSummary = {
   lastMessageAt: string | null;
 };
 export type ConversationMessageRole = "user" | "assistant";
-export type ConversationMessageStatus =
-  | "working"
-  | "ok"
-  | "skipped"
-  | "error"
-  | "busy";
+export type ConversationMessageStatus = "working" | "ok" | "skipped" | "error" | "busy";
 /** Tool-driven write the AI employee performed during this chat turn. */
 export type MessageAction = {
   action: string;

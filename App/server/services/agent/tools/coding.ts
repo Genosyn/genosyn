@@ -4,6 +4,7 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import type { AgentTool, ToolResult } from "../types.js";
 import { config } from "../../../../config.js";
+import { buildBubblewrapCommandArgs } from "../bubblewrap.js";
 
 /**
  * The built-in coding toolset — bash + file read/write/edit + glob/grep — that
@@ -146,7 +147,17 @@ function runBash(command: string, ctx: CodingToolContext, timeoutMs: number): Pr
     };
     const sandbox = config.agent.codingTools.executionMode;
     const executable = sandbox === "bubblewrap" ? config.agent.codingTools.bubblewrapPath : "bash";
-    const args = sandbox === "bubblewrap" ? bubblewrapArgs(command, ctx, env) : ["-lc", command];
+    const args =
+      sandbox === "bubblewrap"
+        ? buildBubblewrapCommandArgs({
+            workspaceRoot: ctx.cwd,
+            cwd: ctx.cwd,
+            executable: "bash",
+            args: ["-lc", command],
+            env,
+            unshareNetwork: !config.agent.codingTools.allowNetwork,
+          })
+        : ["-lc", command];
     const child = spawn(executable, args, {
       cwd: ctx.cwd,
       env,
@@ -207,58 +218,6 @@ function runBash(command: string, ctx: CodingToolContext, timeoutMs: number): Pr
       }
     });
   });
-}
-
-function bubblewrapArgs(
-  command: string,
-  ctx: CodingToolContext,
-  env: Record<string, string>,
-): string[] {
-  const args = [
-    "--die-with-parent",
-    "--new-session",
-    "--unshare-user",
-    "--unshare-pid",
-    "--unshare-ipc",
-    "--unshare-uts",
-    "--unshare-cgroup",
-    "--proc",
-    "/proc",
-    "--dev",
-    "/dev",
-    "--tmpfs",
-    "/tmp",
-    "--ro-bind",
-    "/bin",
-    "/bin",
-    "--ro-bind",
-    "/usr",
-    "/usr",
-    "--ro-bind-try",
-    "/lib",
-    "/lib",
-    "--ro-bind-try",
-    "/lib64",
-    "/lib64",
-    "--ro-bind-try",
-    "/etc/ssl",
-    "/etc/ssl",
-    "--ro-bind-try",
-    "/etc/ca-certificates",
-    "/etc/ca-certificates",
-    "--bind",
-    path.resolve(ctx.cwd),
-    "/workspace",
-    "--chdir",
-    "/workspace",
-    "--clearenv",
-  ];
-  if (!config.agent.codingTools.allowNetwork) args.push("--unshare-net");
-  for (const [name, value] of Object.entries(env)) {
-    args.push("--setenv", name, value);
-  }
-  args.push("--", "bash", "-lc", command);
-  return args;
 }
 
 // ---------- read ----------

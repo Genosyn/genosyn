@@ -24,3 +24,15 @@ export function validateBody<T>(schema: ZodSchema<T>) {
     next();
   };
 }
+
+/** Validate and replace route params using the same boundary semantics as bodies. */
+export function validateParams<T>(schema: ZodSchema<T>) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const parsed = schema.safeParse(req.params);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "ValidationError", issues: parsed.error.issues });
+    }
+    req.params = parsed.data as Request["params"];
+    next();
+  };
+}

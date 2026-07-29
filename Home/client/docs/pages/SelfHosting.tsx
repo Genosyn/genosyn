@@ -71,7 +71,10 @@ export function SelfHosting() {
 
   agent: {
     codingTools: {
-      enabled: true, executionMode: "host",
+      enabled: true,
+      // Set bubblewrap deliberately on a Linux deployment after validating
+      // that its user-namespace policy permits the complete isolation probe.
+      executionMode: "host",
       bubblewrapPath: "/usr/bin/bwrap", allowNetwork: true,
     },
     browserEnabledInMultiTenant: false,
@@ -98,6 +101,15 @@ export function SelfHosting() {
         other independent Routines for the same employee. Increase it only when your AI Model quotas
         and host capacity can support the extra parallel requests.
       </P>
+      <Callout kind="info" title="Subscription auth needs an isolated Linux deployment.">
+        Existing installs keep <Code>executionMode: &quot;host&quot;</Code>. To use ChatGPT
+        subscription auth, run Genosyn from source on Linux, set the mode to{" "}
+        <Code>bubblewrap</Code>, and confirm the model card reports that the isolation check passed.
+        The standard Docker installer does not currently relax Docker&apos;s namespace policy, so
+        subscription auth remains unavailable in that container; API-key and custom-endpoint models
+        continue to work normally. Do not make the App container privileged or disable its security
+        profile just to bypass the check.
+      </Callout>
 
       <H2 id="public-url">Public URL</H2>
       <P>

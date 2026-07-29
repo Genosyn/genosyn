@@ -192,12 +192,17 @@ Post it to the #morning channel.`}</Pre>
 
       <H2 id="parallel-delegation">Parallel delegation</H2>
       <P>
-        Chat turns and Routine runs include <Code>delegate_parallel_work</Code>. An AI employee can
-        split an objective into independent briefs, run up to four temporary copies of itself at
-        once, and receive their ordered results before it writes the final answer or takes follow-up
-        action. Each worker uses the same Soul, Skills, AI Model, Grants, secrets, and timeout as
-        its parent.
+        API-key and custom-endpoint Chat turns and Routine runs include{" "}
+        <Code>delegate_parallel_work</Code>. An AI employee can split an objective into independent
+        briefs, run up to four temporary copies of itself at once, and receive their ordered results
+        before it writes the final answer or takes follow-up action. Each worker uses the same Soul,
+        Skills, AI Model, Grants, secrets, and timeout as its parent.
       </P>
+      <Callout kind="info" title="Subscription turns run one at a time per AI Model">
+        OpenAI subscription turns do not include parallel delegation. Managed ChatGPT credentials
+        may rotate during a Run, so Genosyn serializes subscription work on that AI Model to keep
+        refreshes consistent.
+      </Callout>
       <Pre lang="markdown">{`Research our weekly launch brief in parallel:
 
 1. Summarize customer feedback from the support mailbox.

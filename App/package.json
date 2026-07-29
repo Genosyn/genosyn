@@ -27,6 +27,7 @@
     "@clickhouse/client": "^1.18.3",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@noble/hashes": "^1.4.0",
+    "@openai/codex": "0.146.0",
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.2",
     "@types/archiver": "^7.0.0",
