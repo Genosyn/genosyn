@@ -158,7 +158,7 @@ export default function Approvals({ company }: { company: Company }) {
   const history = rows?.filter((r) => r.status !== "pending") ?? [];
 
   return (
-    <div className="mx-auto max-w-5xl p-8">
+    <div className="page-shell p-8">
       <TopBar title="Approvals" />
       {rows === null ? (
         <Spinner />

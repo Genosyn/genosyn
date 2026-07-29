@@ -969,7 +969,7 @@ export default function RevenueDataQuality() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
+    <div className="page-shell space-y-6 p-4 sm:p-6 lg:p-8">
       <Breadcrumbs items={[{ label: "Revenue", to: sectionUrl }, { label: "Data quality" }]} />
       <div>
         <h1 className="flex items-center gap-2 text-2xl font-semibold text-slate-950 dark:text-white">

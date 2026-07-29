@@ -158,7 +158,7 @@ export default function RoutineDetail({ company }: { company: Company }) {
   const brokenSchedule = routine.enabled && routine.nextRunAt === null;
 
   return (
-    <div className="mx-auto max-w-5xl p-6">
+    <div className="page-shell p-6">
       <Breadcrumbs
         items={[
           { label: "Routines", to: `/c/${company.slug}/routines` },

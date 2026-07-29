@@ -172,7 +172,7 @@ export default function ResourcesIndex({ company }: { company: Company }) {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-5xl px-6 pt-10 pb-16 md:px-10">
+        <div className="page-shell px-6 pt-10 pb-16 md:px-10">
           <div className="mb-7 flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
               <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">

@@ -31,7 +31,7 @@ export default function PipelinesIndex({ company }: { company: Company }) {
   const scheduledCount = pipelines.filter((pipeline) => pipeline.cronExpr).length;
 
   return (
-    <div className="mx-auto w-full max-w-6xl p-4 sm:p-6 lg:p-8">
+    <div className="page-shell p-4 sm:p-6 lg:p-8">
       <Breadcrumbs
         items={[{ label: company.name, to: `/c/${company.slug}` }, { label: "Pipelines" }]}
       />

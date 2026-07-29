@@ -133,7 +133,7 @@ export default function FinanceCreditNoteDetail() {
   const canApply = credit.status === "issued" && credit.openCents > 0;
 
   return (
-    <div className="mx-auto max-w-4xl p-8">
+    <div className="page-shell p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[

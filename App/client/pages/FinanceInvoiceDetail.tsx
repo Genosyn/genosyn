@@ -333,7 +333,7 @@ export default function FinanceInvoiceDetail() {
   const number = invoice.number || "DRAFT";
 
   return (
-    <div className="mx-auto max-w-5xl p-8">
+    <div className="page-shell p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[

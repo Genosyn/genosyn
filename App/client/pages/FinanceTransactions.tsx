@@ -284,7 +284,7 @@ export default function FinanceTransactions() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl p-4 sm:p-8">
+    <div className="page-shell p-4 sm:p-8">
       <Breadcrumbs
         items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Transactions" }]}
       />

@@ -186,7 +186,7 @@ export default function FinanceJournal() {
   const accountById = React.useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
 
   return (
-    <div className="mx-auto max-w-6xl p-8">
+    <div className="page-shell p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Journal" }]}

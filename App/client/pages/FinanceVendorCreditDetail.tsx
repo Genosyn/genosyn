@@ -86,7 +86,7 @@ export default function FinanceVendorCreditDetail() {
   const canVoid = credit.status === "issued" && credit.openCents === credit.totalCents;
 
   return (
-    <div className="mx-auto max-w-4xl p-8">
+    <div className="page-shell p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[

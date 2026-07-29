@@ -184,7 +184,7 @@ export function MarketingOverviewPage() {
   ];
 
   return (
-    <div className="mx-auto w-full max-w-7xl p-4 sm:p-6">
+    <div className="page-shell p-4 sm:p-6">
       <PageHeader
         eyebrow="Autonomous ad agency"
         title="Marketing command center"
@@ -412,7 +412,7 @@ export function MarketingCampaignsPage() {
   if (!rows) return <LoadingPage />;
 
   return (
-    <div className="mx-auto w-full max-w-7xl p-4 sm:p-6">
+    <div className="page-shell p-4 sm:p-6">
       <PageHeader
         eyebrow="Strategy and delivery"
         title="Campaigns"
@@ -770,7 +770,7 @@ export function MarketingCreativePage() {
   const campaignById = new Map(campaigns.map((row) => [row.id, row]));
 
   return (
-    <div className="mx-auto w-full max-w-7xl p-4 sm:p-6">
+    <div className="page-shell p-4 sm:p-6">
       <PageHeader
         eyebrow="Concept to platform"
         title="Creative"
@@ -1049,7 +1049,7 @@ export function MarketingExperimentsPage() {
   const campaignById = new Map(campaigns.map((row) => [row.id, row]));
 
   return (
-    <div className="mx-auto w-full max-w-7xl p-4 sm:p-6">
+    <div className="page-shell p-4 sm:p-6">
       <PageHeader
         eyebrow="Evidence over instinct"
         title="Experiments"
@@ -1333,7 +1333,7 @@ export function MarketingAiAccessPage() {
   if (!rows) return <LoadingPage />;
 
   return (
-    <div className="mx-auto w-full max-w-5xl p-4 sm:p-6">
+    <div className="page-shell p-4 sm:p-6">
       <PageHeader
         eyebrow="Delegation"
         title="AI access"

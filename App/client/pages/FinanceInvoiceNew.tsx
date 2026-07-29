@@ -311,7 +311,7 @@ export default function FinanceInvoiceNew() {
   }
 
   return (
-    <form onSubmit={save} className="mx-auto max-w-5xl p-8">
+    <form onSubmit={save} className="page-shell p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[

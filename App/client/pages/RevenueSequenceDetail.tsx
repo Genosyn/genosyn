@@ -374,7 +374,7 @@ export default function RevenueSequenceDetail() {
 
   if (loadError) {
     return (
-      <div className="mx-auto max-w-5xl p-8">
+      <div className="page-shell p-8">
         <div className="mb-6">
           <Breadcrumbs
             items={[
@@ -407,7 +407,7 @@ export default function RevenueSequenceDetail() {
 
   if (!sequence || !form || !drafts) {
     return (
-      <div className="mx-auto max-w-5xl p-8">
+      <div className="page-shell p-8">
         <div className="flex justify-center p-16">
           <Spinner size={20} />
         </div>
@@ -424,7 +424,7 @@ export default function RevenueSequenceDetail() {
   ].filter(Boolean);
 
   return (
-    <div className="mx-auto max-w-5xl p-8">
+    <div className="page-shell p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[

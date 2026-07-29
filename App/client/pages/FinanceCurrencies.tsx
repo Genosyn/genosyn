@@ -132,7 +132,7 @@ export default function FinanceCurrencies() {
   const loading = !settings || !currencies || !rates;
 
   return (
-    <div className="mx-auto max-w-5xl p-8">
+    <div className="page-shell p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Currencies" }]}

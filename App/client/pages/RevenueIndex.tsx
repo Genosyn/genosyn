@@ -281,7 +281,7 @@ export default function RevenueIndex() {
   useLiveRefetch(["deal", "dealstage", "contact", "activity"], reload);
 
   return (
-    <div className="mx-auto max-w-5xl p-8">
+    <div className="page-shell p-8">
       <div className="mb-6">
         <Breadcrumbs items={[{ label: "Revenue" }]} />
       </div>

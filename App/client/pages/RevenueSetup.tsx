@@ -149,7 +149,7 @@ export default function RevenueSetup() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl p-8">
+    <div className="page-shell p-8">
       <Breadcrumbs items={[{ label: "Revenue", to: sectionUrl }, { label: "Setup" }]} />
       <div className="mb-6 mt-5">
         <h1 className="flex items-center gap-2 text-2xl font-semibold text-slate-900 dark:text-slate-100">

@@ -66,7 +66,7 @@ export default function FinanceTaxRates() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
+    <div className="page-shell p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Tax rates" }]}

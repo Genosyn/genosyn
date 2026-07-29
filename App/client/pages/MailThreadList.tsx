@@ -439,12 +439,7 @@ export default function MailThreadList() {
   );
 
   return (
-    <div
-      className={clsx(
-        "mx-auto flex min-h-full flex-col px-4 py-4 sm:px-6",
-        draftsReview ? "max-w-[96rem]" : "max-w-5xl",
-      )}
-    >
+    <div className="page-shell flex min-h-full flex-col px-4 py-4 sm:px-6">
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
         <div className="min-w-0">
           <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{title}</h1>

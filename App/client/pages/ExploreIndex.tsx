@@ -53,7 +53,7 @@ export default function ExploreIndex({ company }: { company: Company }) {
   const hasConnections = (connections?.length ?? 0) > 0;
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-8 py-10">
+    <div className="page-shell px-8 py-10">
       <header className="mb-8 flex items-start justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-semibold text-slate-900 dark:text-slate-100">

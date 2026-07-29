@@ -77,7 +77,7 @@ export default function RevenuePartnershipDetail() {
 
   if (!detail || !draft) {
     return (
-      <div className="mx-auto max-w-5xl p-8">
+      <div className="page-shell p-8">
         <Breadcrumbs items={[{ label: "Revenue", to: sectionUrl }, { label: "Partnerships", to: listUrl }, { label: "Loading…" }]} />
         <div className="mt-16 flex justify-center">{error ? <FormError message={error} /> : <Spinner />}</div>
       </div>
@@ -170,7 +170,7 @@ export default function RevenuePartnershipDetail() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl p-8">
+    <div className="page-shell p-8">
       <Breadcrumbs items={[{ label: "Revenue", to: sectionUrl }, { label: "Partnerships", to: listUrl }, { label: detail.partnership.name }]} />
       <Link to={listUrl} className="mt-5 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">
         <ArrowLeft size={14} /> All partnerships

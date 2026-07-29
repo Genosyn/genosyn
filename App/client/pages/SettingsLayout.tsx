@@ -104,7 +104,7 @@ export default function SettingsLayout({
 
   return (
     <ContextualLayout sidebar={sidebar}>
-      <div className="mx-auto max-w-4xl p-8">
+      <div className="page-shell p-8">
         <div className="mb-4">
           <Breadcrumbs
             items={[

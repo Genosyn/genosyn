@@ -270,7 +270,7 @@ export default function RevenueContactDetail() {
 
   if (loadError) {
     return (
-      <div className="mx-auto max-w-5xl p-8">
+      <div className="page-shell p-8">
         <Breadcrumbs
           items={[
             { label: "Revenue", to: base },
@@ -308,7 +308,7 @@ export default function RevenueContactDetail() {
   const blocked = contact.doNotContact || !!contact.unsubscribedAt || !!contact.bouncedAt;
 
   return (
-    <div className="mx-auto max-w-5xl p-8">
+    <div className="page-shell p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[

@@ -193,7 +193,7 @@ export default function RevenueAccountDetail() {
   const openDeals = deals.filter((deal) => deal.status === "open");
 
   return (
-    <div className="mx-auto max-w-6xl p-8">
+    <div className="page-shell p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[

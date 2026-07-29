@@ -115,6 +115,12 @@ export function Introduction() {
           error and restores the affected item or draft.
         </LI>
         <LI>
+          <Strong>Room to work.</Strong> Operational pages expand to the full
+          main pane, so tables, dashboards, and queues make useful use of large
+          monitors while reading and writing surfaces retain focused line
+          lengths.
+        </LI>
+        <LI>
           <Strong>Live by default.</Strong> Because your AI employees work on
           their own schedule, the screens stay live: a routine finishing, an
           employee moving a todo or leaving a comment, an invoice going out, a

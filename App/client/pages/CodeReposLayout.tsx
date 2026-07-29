@@ -133,7 +133,7 @@ export default function CodeReposLayout({ company }: { company: Company }) {
   return (
     <ContextualLayout sidebar={sidebar}>
       {slug ? (
-        <div className="mx-auto w-full max-w-5xl px-6 py-8 sm:px-8">
+        <div className="page-shell px-6 py-8 sm:px-8">
           <div className="mb-5">
             <Breadcrumbs
               items={[

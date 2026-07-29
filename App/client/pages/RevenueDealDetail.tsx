@@ -344,7 +344,7 @@ export default function RevenueDealDetail() {
 
   if (loadError) {
     return (
-      <div className="mx-auto max-w-5xl p-8">
+      <div className="page-shell p-8">
         <Breadcrumbs
           items={[
             { label: "Revenue" },
@@ -380,7 +380,7 @@ export default function RevenueDealDetail() {
   const owner = principalName(deal.ownerId, deal.ownerEmployeeId);
 
   return (
-    <div className="mx-auto max-w-5xl p-8">
+    <div className="page-shell p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[

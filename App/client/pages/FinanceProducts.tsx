@@ -114,7 +114,7 @@ export default function FinanceProducts() {
   const taxById = React.useMemo(() => new Map(taxRates.map((t) => [t.id, t])), [taxRates]);
 
   return (
-    <div className="mx-auto max-w-5xl p-8">
+    <div className="page-shell p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[{ label: "Finance", to: `/c/${company.slug}/finance` }, { label: "Products" }]}

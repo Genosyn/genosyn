@@ -75,7 +75,7 @@ export default function BaseNew({ company }: { company: Company }) {
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="mx-auto w-full max-w-5xl">
+        <div className="page-shell">
           {templates === null ? (
             <div className="flex justify-center py-12">
               <Spinner />

@@ -45,7 +45,7 @@ export default function SkillsIndex({ company }: { company: Company }) {
     : tagged;
 
   return (
-    <div className="mx-auto max-w-6xl p-6">
+    <div className="page-shell p-6">
       <Breadcrumbs
         items={[
           { label: "Skills", to: `/c/${company.slug}/skills` },

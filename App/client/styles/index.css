@@ -25,6 +25,17 @@ html.dark ::selection {
   color: white;
 }
 
+@layer components {
+  /*
+   * Operational pages should use the whole main pane. Keep readable prose,
+   * focused forms, dialogs, and chat columns intentionally capped at their
+   * local max-width instead of using this shell.
+   */
+  .page-shell {
+    @apply mx-auto w-full min-w-0 max-w-none;
+  }
+}
+
 /* A visible, consistent keyboard cursor across raw controls and shared UI
    primitives. Mouse clicks do not receive the ring because `:focus-visible`
    follows the browser's input-modality heuristic. */

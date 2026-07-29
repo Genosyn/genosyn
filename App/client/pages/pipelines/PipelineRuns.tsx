@@ -220,7 +220,7 @@ export function PipelineRuns({
 function RunDetail({ detail }: { detail: PipelineRunDetail }) {
   const status = RUN_STATUS_META[detail.status];
   return (
-    <div className="mx-auto max-w-4xl space-y-5">
+    <div className="page-shell space-y-5">
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>

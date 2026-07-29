@@ -74,7 +74,7 @@ export default function CodeReposIndex({ company }: { company: Company }) {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-3xl px-10 pt-12 pb-16">
+        <div className="page-shell px-10 pt-12 pb-16">
           <div className="mb-8 flex items-start justify-between gap-4">
             <div>
               <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">

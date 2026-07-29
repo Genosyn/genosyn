@@ -100,7 +100,7 @@ export default function EmployeesLayout({ company }: { company: Company }) {
   return (
     <EmployeesContext.Provider value={ctx}>
       <ContextualLayout sidebar={sidebar}>
-        <div className="mx-auto max-w-5xl p-8">
+        <div className="page-shell p-8">
           <Outlet />
         </div>
       </ContextualLayout>

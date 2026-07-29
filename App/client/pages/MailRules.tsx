@@ -120,7 +120,7 @@ export default function MailRules() {
   };
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6">
+    <div className="page-shell px-4 py-6 sm:px-6">
       <div className="mb-1 flex items-center gap-2">
         <SlidersHorizontal size={18} className="text-slate-400" />
         <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Rules</h1>

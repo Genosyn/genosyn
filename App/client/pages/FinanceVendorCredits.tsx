@@ -31,7 +31,7 @@ export default function FinanceVendorCredits() {
   useLiveRefetch("bill", reload);
 
   return (
-    <div className="mx-auto max-w-6xl p-8">
+    <div className="page-shell p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[

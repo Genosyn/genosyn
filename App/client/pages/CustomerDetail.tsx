@@ -195,7 +195,7 @@ export default function CustomerDetail() {
 
   if (error || !customer) {
     return (
-      <div className="mx-auto max-w-5xl p-8">
+      <div className="page-shell p-8">
         <Breadcrumbs items={[{ label: "Customers", to: customersUrl }, { label: "Not found" }]} />
         <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
           {error ?? "Customer not found."}
@@ -210,7 +210,7 @@ export default function CustomerDetail() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl p-8">
+    <div className="page-shell p-8">
       <div className="mb-6">
         <Breadcrumbs
           items={[{ label: "Customers", to: customersUrl }, { label: customer.name }]}

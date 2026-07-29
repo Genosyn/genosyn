@@ -131,7 +131,7 @@ export default function RoutinesIndex({ company }: { company: Company }) {
   });
 
   return (
-    <div className="mx-auto max-w-6xl p-6">
+    <div className="page-shell p-6">
       <Breadcrumbs
         items={[
           { label: "Routines", to: `/c/${company.slug}/routines` },
