@@ -540,10 +540,15 @@ export function ChatSessionsProvider({
               });
             } else if (event === "chunk") {
               const text = (data as { text?: string } | null)?.text ?? "";
+              if (!text) return;
               accumulated += text;
               update(empId, (s) => {
                 if (s.activeConvId !== streamConvId) return s;
-                return { ...s, streamingReply: accumulated };
+                return {
+                  ...s,
+                  streamingReply: accumulated,
+                  progress: null,
+                };
               });
             } else if (event === "progress") {
               const candidate = data as Partial<ChatProgress> | null;
@@ -563,6 +568,7 @@ export function ChatSessionsProvider({
               };
               update(empId, (s) => {
                 if (s.activeConvId !== streamConvId) return s;
+                if (s.streamingReply && s.streamingReply.length > 0) return s;
                 return {
                   ...s,
                   progress,

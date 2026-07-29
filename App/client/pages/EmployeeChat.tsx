@@ -98,6 +98,8 @@ export default function EmployeeChat() {
     sending &&
     (sendingConvId === activeConvId ||
       (!sendingConvId && !activeConvId));
+  const hasStreamingReply =
+    streamingReply !== null && streamingReply.length > 0;
   const visibleMessages = messages.filter(
     (message) => message.status !== "working",
   );
@@ -355,15 +357,13 @@ export default function EmployeeChat() {
                   onInspectAction={setInspectAction}
                 />
               ))}
-              {isActiveResponse &&
-                streamingReply !== null &&
-                streamingReply.length > 0 && (
+              {isActiveResponse && hasStreamingReply && (
                 <StreamingBubble
                   authorName={emp.name}
                   content={streamingReply}
                 />
               )}
-              {isActiveResponse && progress && (
+              {isActiveResponse && progress && !hasStreamingReply && (
                 <ProgressIndicator
                   authorName={emp.name}
                   percent={progress.percent}
@@ -373,7 +373,7 @@ export default function EmployeeChat() {
               )}
               {isActiveResponse &&
                 !progress &&
-                (streamingReply === null || streamingReply.length === 0) && (
+                !hasStreamingReply && (
                   <TypingIndicator authorName={emp.name} />
                 )}
               {visibleQueuedMessages.length > 0 && (
