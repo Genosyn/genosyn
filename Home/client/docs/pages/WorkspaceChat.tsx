@@ -33,6 +33,10 @@ export function WorkspaceChat() {
           batches; a loading indicator appears while each older batch is fetched.
         </LI>
         <LI>
+          Open <Strong>Settings</Strong> in a public or private channel to change its name or topic,
+          see its current Members and AI employees, add people, and manage its incoming webhook.
+        </LI>
+        <LI>
           Archive a DM from its sidebar row or the conversation header. Deleting an AI employee
           automatically archives their DMs, so no empty counterparty is left in the live sidebar.
         </LI>

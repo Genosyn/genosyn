@@ -59,7 +59,7 @@ import { SidebarLink } from "../components/AppShell";
  * Slack-style workspace chat:
  *
  *   ┌────────────────────┬─────────────────────────────────────────┐
- *   │ Channels           │ #channel · topic          [members]      │
+ *   │ Channels           │ #channel · topic         [settings]      │
  *   │   # general        │ ─────────────────────────────────────── │
  *   │   # random         │  messages (virtual-ish scroll)          │
  *   │ Direct messages    │                                         │
@@ -963,13 +963,15 @@ function ChannelView({
               <SettingsIcon size={12} /> Settings
             </button>
           )}
-          <button
-            onClick={() => setShowMembers(true)}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
-          >
-            <AtSign size={12} /> {channel.members.length} member
-            {channel.members.length === 1 ? "" : "s"}
-          </button>
+          {channel.kind === "dm" && (
+            <button
+              onClick={() => setShowMembers(true)}
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+            >
+              <AtSign size={12} /> {channel.members.length} member
+              {channel.members.length === 1 ? "" : "s"}
+            </button>
+          )}
         </div>
       </header>
 
@@ -1047,19 +1049,22 @@ function ChannelView({
         onEditMessage={setEditingMessageId}
       />
 
-      <MembersModal
-        open={showMembers}
-        onClose={() => setShowMembers(false)}
-        channel={channel}
-        directory={directory}
-        company={company}
-        onChanged={onChannelUpdated}
-      />
+      {channel.kind === "dm" && (
+        <MembersModal
+          open={showMembers}
+          onClose={() => setShowMembers(false)}
+          channel={channel}
+          directory={directory}
+          company={company}
+          onChanged={onChannelUpdated}
+        />
+      )}
       {channel.kind !== "dm" && (
         <ChannelSettingsModal
           open={showSettings}
           onClose={() => setShowSettings(false)}
           channel={channel}
+          directory={directory}
           company={company}
           onChanged={onChannelUpdated}
           onArchive={onArchive}
@@ -2420,6 +2425,7 @@ function ChannelSettingsModal({
   open,
   onClose,
   channel,
+  directory,
   company,
   onChanged,
   onArchive,
@@ -2427,6 +2433,7 @@ function ChannelSettingsModal({
   open: boolean;
   onClose: () => void;
   channel: WorkspaceChannel;
+  directory: WorkspaceDirectory | null;
   company: Company;
   onChanged: (c: WorkspaceChannel) => void;
   onArchive: () => void;
@@ -2549,6 +2556,26 @@ function ChannelSettingsModal({
         </section>
 
         <section className="space-y-3 border-t border-slate-100 pt-5 dark:border-slate-800">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Members</h3>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                See who is in this channel and add Members or AI employees.
+              </p>
+            </div>
+            <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              {channel.members.length} member{channel.members.length === 1 ? "" : "s"}
+            </span>
+          </div>
+          <ChannelMembersSettings
+            channel={channel}
+            directory={directory}
+            company={company}
+            onChanged={onChanged}
+          />
+        </section>
+
+        <section className="space-y-3 border-t border-slate-100 pt-5 dark:border-slate-800">
           <div>
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
               Incoming webhook
@@ -2659,6 +2686,36 @@ function MembersModal({
   company: Company;
   onChanged: (c: WorkspaceChannel) => void;
 }) {
+  return (
+    <Modal open={open} onClose={onClose} title="Members">
+      <div className="space-y-4">
+        <ChannelMembersSettings
+          channel={channel}
+          directory={directory}
+          company={company}
+          onChanged={onChanged}
+        />
+        <div className="flex justify-end">
+          <Button variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function ChannelMembersSettings({
+  channel,
+  directory,
+  company,
+  onChanged,
+}: {
+  channel: WorkspaceChannel;
+  directory: WorkspaceDirectory | null;
+  company: Company;
+  onChanged: (c: WorkspaceChannel) => void;
+}) {
   const [adding, setAdding] = React.useState<
     null | { kind: "user"; id: string } | { kind: "ai"; id: string }
   >(null);
@@ -2672,8 +2729,9 @@ function MembersModal({
         employeeIds: target === "ai" ? [id] : [],
       });
       onChanged(updated);
-    } catch (e) {
-      toast((e as Error).message, "error");
+      toast(`${target === "user" ? "Member" : "AI employee"} added`, "success");
+    } catch (error) {
+      toast((error as Error).message, "error");
     } finally {
       setAdding(null);
     }
@@ -2681,91 +2739,89 @@ function MembersModal({
 
   const memberUserIds = new Set(
     channel.members
-      .filter((m) => m.kind === "user")
-      .map((m) => (m as WorkspaceAuthor & { id: string }).id),
+      .filter((member) => member.kind === "user")
+      .map((member) => (member as WorkspaceAuthor & { id: string }).id),
   );
-  const memberEmpIds = new Set(
+  const memberEmployeeIds = new Set(
     channel.members
-      .filter((m) => m.kind === "ai")
-      .map((m) => (m as WorkspaceAuthor & { id: string }).id),
+      .filter((member) => member.kind === "ai")
+      .map((member) => (member as WorkspaceAuthor & { id: string }).id),
   );
-  const addableUsers = (directory?.members ?? []).filter((u) => !memberUserIds.has(u.id));
-  const addableEmps = (directory?.employees ?? []).filter((e) => !memberEmpIds.has(e.id));
+  const addableUsers = (directory?.members ?? []).filter((user) => !memberUserIds.has(user.id));
+  const addableEmployees = (directory?.employees ?? []).filter(
+    (employee) => !memberEmployeeIds.has(employee.id),
+  );
 
   return (
-    <Modal open={open} onClose={onClose} title="Members">
-      <div className="space-y-4">
+    <div className="space-y-4">
+      <div>
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          In this channel
+        </div>
+        <div className="space-y-1">
+          {channel.members.map((member) => (
+            <div
+              key={`${member.kind}-${"id" in member ? member.id : "system"}`}
+              className="flex items-center gap-2 rounded-md px-2 py-1 text-sm"
+            >
+              {member.kind === "ai" ? (
+                <Bot size={14} className="text-indigo-500" />
+              ) : (
+                <UserIcon size={14} className="text-slate-400" />
+              )}
+              <span className="font-medium text-slate-900 dark:text-slate-100">{member.name}</span>
+              {member.kind === "ai" && (
+                <span className="rounded bg-indigo-50 px-1 text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
+                  AI
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+      {(addableUsers.length > 0 || addableEmployees.length > 0) && (
         <div>
           <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-            In this channel
+            Add people
           </div>
           <div className="space-y-1">
-            {channel.members.map((m) => (
+            {addableUsers.map((user) => (
+              <div key={user.id} className="flex items-center gap-2 rounded-md px-2 py-1 text-sm">
+                <UserIcon size={14} className="text-slate-400" />
+                <span className="font-medium">{user.name}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={adding?.kind === "user" && adding.id === user.id}
+                  className="ml-auto"
+                  onClick={() => add("user", user.id)}
+                >
+                  Add
+                </Button>
+              </div>
+            ))}
+            {addableEmployees.map((employee) => (
               <div
-                key={`${m.kind}-${"id" in m ? m.id : "system"}`}
+                key={employee.id}
                 className="flex items-center gap-2 rounded-md px-2 py-1 text-sm"
               >
-                {m.kind === "ai" ? (
-                  <Bot size={14} className="text-indigo-500" />
-                ) : (
-                  <UserIcon size={14} className="text-slate-400" />
-                )}
-                <span className="font-medium text-slate-900 dark:text-slate-100">{m.name}</span>
-                {m.kind === "ai" && (
-                  <span className="rounded bg-indigo-50 px-1 text-[10px] font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
-                    AI
-                  </span>
-                )}
+                <Bot size={14} className="text-indigo-500" />
+                <span className="font-medium">{employee.name}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={adding?.kind === "ai" && adding.id === employee.id}
+                  className="ml-auto"
+                  onClick={() => add("ai", employee.id)}
+                >
+                  Add
+                </Button>
               </div>
             ))}
           </div>
         </div>
-        {(addableUsers.length > 0 || addableEmps.length > 0) && (
-          <div>
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-              Add people
-            </div>
-            <div className="space-y-1">
-              {addableUsers.map((u) => (
-                <div key={u.id} className="flex items-center gap-2 rounded-md px-2 py-1 text-sm">
-                  <UserIcon size={14} className="text-slate-400" />
-                  <span className="font-medium">{u.name}</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={adding?.kind === "user" && adding.id === u.id}
-                    className="ml-auto"
-                    onClick={() => add("user", u.id)}
-                  >
-                    Add
-                  </Button>
-                </div>
-              ))}
-              {addableEmps.map((e) => (
-                <div key={e.id} className="flex items-center gap-2 rounded-md px-2 py-1 text-sm">
-                  <Bot size={14} className="text-indigo-500" />
-                  <span className="font-medium">{e.name}</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={adding?.kind === "ai" && adding.id === e.id}
-                    className="ml-auto"
-                    onClick={() => add("ai", e.id)}
-                  >
-                    Add
-                  </Button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        <div className="flex justify-end">
-          <Button variant="ghost" onClick={onClose}>
-            Close
-          </Button>
-        </div>
-      </div>
-    </Modal>
+      )}
+    </div>
   );
 }
 
