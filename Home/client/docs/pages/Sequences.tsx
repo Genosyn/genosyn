@@ -135,6 +135,8 @@ export function Sequences() {
         Because a send cannot be undone, a batch stops at a confirmation showing who is about to
         receive mail — real addresses, a breakdown per source, and the mailbox it goes out from.
         Past 25 drafts the confirm button stays disabled until you acknowledge the size explicitly.
+        Once confirmed, the drafts enter the paced send queue: one email at a time, with a fresh
+        random one-to-two minute pause between attempts and live progress on the Drafts page.
       </P>
 
       <H2 id="autosend">autoSend, and its two grants</H2>

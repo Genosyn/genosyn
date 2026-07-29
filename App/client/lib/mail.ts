@@ -283,6 +283,7 @@ export type MailDraft = {
   bodyPreview: string;
   hasAttachments: boolean;
   missingRecipient: boolean;
+  queuedForSend: boolean;
   createdAt: string | null;
   author: MailDraftAuthor;
 };
@@ -304,16 +305,14 @@ export type MailDraftFilter = {
  * the ones they un-ticked — which is how selecting all 320 drafts works without
  * the browser ever holding 320 rows.
  */
-export type MailDraftSelection =
-  | { ids: string[] }
-  | { filter: MailDraftFilter; exclude: string[] };
+export type MailDraftSelection = { ids: string[] } | { filter: MailDraftFilter; exclude: string[] };
 
 export type MailDraftList = {
   drafts: MailDraft[];
   /** Offset for the next page, or null when this was the last one. */
   nextOffset: number | null;
   facets: { employees: MailDraftFacet[]; routines: MailDraftFacet[] };
-  totals: { total: number; sendable: number; missingRecipient: number };
+  totals: { total: number; sendable: number; missingRecipient: number; queued: number };
 };
 
 export type MailDraftSendPreview = {
@@ -321,6 +320,7 @@ export type MailDraftSendPreview = {
   total: number;
   sendable: number;
   missingRecipient: number;
+  alreadyQueued: number;
   byEmployee: MailDraftFacet[];
   byRoutine: MailDraftFacet[];
   sampleRecipients: string[];
@@ -339,6 +339,20 @@ export type MailBulkResult = {
 
 export type MailBulkDraftResult = MailBulkResult;
 
+export type MailDraftSendBatch = {
+  id: string;
+  status: "queued" | "running" | "completed" | "completed_with_errors";
+  total: number;
+  sent: number;
+  failed: number;
+  remaining: number;
+  nextSendAt: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+  queuedDraftIds: string[];
+  failures: { id: string; reason: string }[];
+};
+
 /**
  * Threads per bulk request; must not exceed the server's
  * `MAX_BULK_THREAD_IDS`. Each thread costs a Gmail modify plus a refetch, so
@@ -347,11 +361,10 @@ export type MailBulkDraftResult = MailBulkResult;
 export const THREAD_BULK_CHUNK = 50;
 
 /**
- * How many drafts go out per request. Must not exceed the server's
- * `MAX_BULK_DRAFT_IDS`: Gmail takes ~1-2s per send, so the queue sends many
- * small batches and reports progress instead of one request that would time out.
+ * How many drafts are discarded per request. Sends use the durable paced queue;
+ * discards stay chunked so one request cannot hold a proxy open indefinitely.
  */
-export const DRAFT_BULK_CHUNK = 25;
+export const DRAFT_DISCARD_CHUNK = 25;
 
 const base = (companyId: string) => `/api/companies/${companyId}/mail`;
 
@@ -424,8 +437,7 @@ export const mailApi = {
       labelId?: string;
       labelName?: string;
     },
-  ) =>
-    api.post<MailBulkResult>(`${base(cid)}/accounts/${aid}/threads/bulk`, input),
+  ) => api.post<MailBulkResult>(`${base(cid)}/accounts/${aid}/threads/bulk`, input),
 
   replyRecipients: (cid: string, tid: string) =>
     api.get<{ to: string; cc: string }>(`${base(cid)}/threads/${tid}/reply-recipients`),
@@ -459,9 +471,15 @@ export const mailApi = {
   /** Resolve a selection and report what sending it would do — without sending. */
   draftsSendPreview: (cid: string, aid: string, selection: MailDraftSelection) =>
     api.post<MailDraftSendPreview>(`${base(cid)}/accounts/${aid}/drafts/send-preview`, selection),
-  /** One batch. Callers chunk by {@link DRAFT_BULK_CHUNK} and track progress. */
-  draftsBulk: (cid: string, aid: string, input: { action: "send" | "discard"; ids: string[] }) =>
+  /** One discard batch. Callers chunk by {@link DRAFT_DISCARD_CHUNK}. */
+  draftsBulk: (cid: string, aid: string, input: { action: "discard"; ids: string[] }) =>
     api.post<MailBulkDraftResult>(`${base(cid)}/accounts/${aid}/drafts/bulk`, input),
+  draftSendQueue: (cid: string, aid: string) =>
+    api.get<{ batch: MailDraftSendBatch | null }>(`${base(cid)}/accounts/${aid}/drafts/send-queue`),
+  queueDraftsForSend: (cid: string, aid: string, ids: string[]) =>
+    api.post<{ batch: MailDraftSendBatch }>(`${base(cid)}/accounts/${aid}/drafts/send-queue`, {
+      ids,
+    }),
 
   attachmentUrl: (cid: string, mid: string, index: number) =>
     `${base(cid)}/messages/${mid}/attachments/${index}`,
@@ -473,9 +491,7 @@ export const mailApi = {
       .then((r) => r.attachment),
 
   savedSearches: (cid: string, aid: string) =>
-    api.get<{ savedSearches: MailSavedSearch[] }>(
-      `${base(cid)}/accounts/${aid}/saved-searches`,
-    ),
+    api.get<{ savedSearches: MailSavedSearch[] }>(`${base(cid)}/accounts/${aid}/saved-searches`),
   createSavedSearch: (cid: string, aid: string, input: { name: string; query: string }) =>
     api.post<{ savedSearch: MailSavedSearch }>(
       `${base(cid)}/accounts/${aid}/saved-searches`,

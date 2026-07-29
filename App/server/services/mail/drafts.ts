@@ -6,7 +6,8 @@ import { MailMessage } from "../../db/entities/MailMessage.js";
 import { Routine } from "../../db/entities/Routine.js";
 import { User } from "../../db/entities/User.js";
 import { recordAudit } from "../audit.js";
-import { discardMailDraft, notifyMailChanged, sendMailDraft } from "./actions.js";
+import { discardMailDraft, notifyMailChanged } from "./actions.js";
+import { activeDraftQueueIds } from "./draftSendQueue.js";
 
 /**
  * The Drafts review queue.
@@ -21,14 +22,13 @@ import { discardMailDraft, notifyMailChanged, sendMailDraft } from "./actions.js
  *   1. {@link previewDraftSend} resolves a selection once and reports what
  *      would happen — counts, a per-Routine breakdown, and a sample of the
  *      actual recipients — so the confirmation dialog can show *who* gets mail.
- *   2. {@link runBulkDraftAction} sends one small batch, and the client calls
- *      it repeatedly with the ids from step 1.
- * A single request cannot loop hundreds of sends: Gmail takes ~1-2s per send,
- * so 500 of them is a multi-minute request that any proxy would cut. Chunking
- * also buys real progress ("sent 75 of 320") instead of one long spinner.
+ *   2. `draftSendQueue.ts` freezes the approved ids and sends exactly one at a
+ *      time, choosing a fresh random one-to-two minute delay after each attempt.
+ * Discards remain synchronous and chunked because they do not leave the
+ * mailbox; there is deliberately no immediate bulk-send path.
  */
 
-/** Per-request send/discard cap — see the chunking note above. */
+/** Per-request discard cap — see the chunking note above. */
 export const MAX_BULK_DRAFT_IDS = 25;
 
 /** Upper bound on ids handed back by the preview, so the payload stays sane. */
@@ -81,6 +81,7 @@ export type SerializedDraft = {
   bodyPreview: string;
   hasAttachments: boolean;
   missingRecipient: boolean;
+  queuedForSend: boolean;
   createdAt: string | null;
   author: DraftAuthor;
 };
@@ -199,7 +200,9 @@ async function resolveAuthors(rows: MailMessage[]): Promise<AuthorMaps> {
 }
 
 function buildAuthor(row: MailMessage, maps: AuthorMaps): DraftAuthor {
-  const routine = row.createdByRoutineId ? (maps.routines.get(row.createdByRoutineId) ?? null) : null;
+  const routine = row.createdByRoutineId
+    ? (maps.routines.get(row.createdByRoutineId) ?? null)
+    : null;
   const employeeId = row.createdByEmployeeId ?? routine?.employeeId ?? null;
   const employee = employeeId ? (maps.employees.get(employeeId) ?? null) : null;
 
@@ -237,7 +240,11 @@ function bodyPreview(row: MailMessage): string {
   return text.length > 400 ? `${text.slice(0, 400)}…` : text;
 }
 
-function serializeDraft(row: MailMessage, maps: AuthorMaps): SerializedDraft {
+function serializeDraft(
+  row: MailMessage,
+  maps: AuthorMaps,
+  queuedDraftIds: Set<string>,
+): SerializedDraft {
   return {
     id: row.id,
     threadId: row.threadId,
@@ -248,6 +255,7 @@ function serializeDraft(row: MailMessage, maps: AuthorMaps): SerializedDraft {
     bodyPreview: bodyPreview(row),
     hasAttachments: row.attachmentsJson !== "" && row.attachmentsJson !== "[]",
     missingRecipient: !hasRecipient(row),
+    queuedForSend: queuedDraftIds.has(row.id),
     createdAt: row.createdAt ? row.createdAt.toISOString() : null,
     author: buildAuthor(row, maps),
   };
@@ -262,7 +270,7 @@ export type ListDraftsResult = {
   /** Offset for the next page, or null when this was the last one. */
   nextOffset: number | null;
   facets: { employees: DraftFacet[]; routines: DraftFacet[] };
-  totals: { total: number; sendable: number; missingRecipient: number };
+  totals: { total: number; sendable: number; missingRecipient: number; queued: number };
 };
 
 /**
@@ -281,7 +289,9 @@ async function draftFacets(account: MailAccount): Promise<ListDraftsResult["face
 
   const routineIds = raw.map((r) => r.routineId).filter((v): v is string => Boolean(v));
   const routines = routineIds.length
-    ? await AppDataSource.getRepository(Routine).find({ where: { id: In([...new Set(routineIds)]) } })
+    ? await AppDataSource.getRepository(Routine).find({
+        where: { id: In([...new Set(routineIds)]) },
+      })
     : [];
   const routineById = new Map(routines.map((r) => [r.id, r]));
 
@@ -327,10 +337,18 @@ export async function listDrafts(
 ): Promise<ListDraftsResult> {
   const filtered = applyDraftFilter(baseDraftQuery(account), opts.filter);
 
-  const [total, missingRecipient] = await Promise.all([
+  const [total, missingRecipient, queuedDraftIds] = await Promise.all([
     filtered.clone().getCount(),
     filtered.clone().andWhere(HAS_NO_RECIPIENT).getCount(),
+    activeDraftQueueIds(account.id),
   ]);
+  const queued = queuedDraftIds.size
+    ? await filtered
+        .clone()
+        .andWhere("m.id IN (:...queuedDraftIds)", { queuedDraftIds: [...queuedDraftIds] })
+        .andWhere(`NOT ${HAS_NO_RECIPIENT}`)
+        .getCount()
+    : 0;
 
   // Newest first, ordered on (createdAt, id) and paged by offset.
   //
@@ -362,10 +380,10 @@ export async function listDrafts(
 
   const maps = await resolveAuthors(slice);
   return {
-    drafts: slice.map((row) => serializeDraft(row, maps)),
+    drafts: slice.map((row) => serializeDraft(row, maps, queuedDraftIds)),
     nextOffset,
     facets: await draftFacets(account),
-    totals: { total, sendable: total - missingRecipient, missingRecipient },
+    totals: { total, sendable: total - missingRecipient - queued, missingRecipient, queued },
   };
 }
 
@@ -403,6 +421,7 @@ export type DraftSendPreview = {
   total: number;
   sendable: number;
   missingRecipient: number;
+  alreadyQueued: number;
   byEmployee: DraftFacet[];
   byRoutine: DraftFacet[];
   sampleRecipients: string[];
@@ -431,7 +450,9 @@ export async function previewDraftSend(
   account: MailAccount,
   selection: DraftSelection,
 ): Promise<DraftSendPreview> {
-  const rows = await resolveSelection(account, selection);
+  const selectedRows = await resolveSelection(account, selection);
+  const queuedDraftIds = await activeDraftQueueIds(account.id);
+  const rows = selectedRows.filter((row) => !queuedDraftIds.has(row.id));
   const sendable = rows.filter(hasRecipient);
   const maps = await resolveAuthors(sendable);
 
@@ -483,12 +504,13 @@ export async function previewDraftSend(
     total: rows.length,
     sendable: sendable.length,
     missingRecipient: rows.length - sendable.length,
+    alreadyQueued: selectedRows.length - rows.length,
     byEmployee: toFacets(byEmployee),
     byRoutine: toFacets(byRoutine),
     sampleRecipients: recipients,
     ids: rows.map((row) => row.id),
     sendableIds: sendable.map((row) => row.id),
-    truncated: !("ids" in selection) && rows.length >= PREVIEW_ID_CAP,
+    truncated: !("ids" in selection) && selectedRows.length >= PREVIEW_ID_CAP,
   };
 }
 
@@ -500,16 +522,11 @@ export type BulkDraftResult = {
 };
 
 /**
- * Send or discard one batch. Every item is isolated: a draft Gmail rejects is
- * recorded and the rest of the batch still goes out, because the alternative —
- * aborting mid-run — leaves the human with no idea which half was sent.
- *
- * Drafts with no recipient are re-checked here rather than trusted from the
- * client, so the count someone confirmed is the count that actually sends.
+ * Discard one small batch. Sends never come through this function: they enter
+ * the durable paced queue in `draftSendQueue.ts`.
  */
-export async function runBulkDraftAction(
+export async function runBulkDraftDiscard(
   account: MailAccount,
-  action: "send" | "discard",
   ids: string[],
   actorUserId: string | null,
 ): Promise<BulkDraftResult> {
@@ -523,29 +540,9 @@ export async function runBulkDraftAction(
   }
 
   for (const row of rows) {
-    if (action === "send" && !hasRecipient(row)) {
-      skipped.push({ id: row.id, reason: "no-recipient" });
-      continue;
-    }
     try {
-      if (action === "send") {
-        const message = await sendMailDraft(account, row, { silent: true });
-        succeeded.push(row.id);
-        // One audit row per message, keyed to the message — same shape the
-        // single-draft route writes, so existing audit consumers still work.
-        await recordAudit({
-          companyId: account.companyId,
-          actorUserId,
-          action: "mail.send",
-          targetType: "mail_message",
-          targetId: message.id,
-          targetLabel: message.subject || "(no subject)",
-          metadata: { fromDraft: true, bulk: true },
-        });
-      } else {
-        await discardMailDraft(account, row, { silent: true });
-        succeeded.push(row.id);
-      }
+      await discardMailDraft(account, row, { silent: true });
+      succeeded.push(row.id);
     } catch (err) {
       skipped.push({
         id: row.id,
@@ -560,7 +557,7 @@ export async function runBulkDraftAction(
     await recordAudit({
       companyId: account.companyId,
       actorUserId,
-      action: action === "send" ? "mail.draft.bulk_send" : "mail.draft.bulk_discard",
+      action: "mail.draft.bulk_discard",
       targetType: "mail_account",
       targetId: account.id,
       targetLabel: account.address,

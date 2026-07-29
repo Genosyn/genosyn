@@ -43,9 +43,15 @@ import {
   MAX_BULK_DRAFT_IDS,
   listDrafts,
   previewDraftSend,
-  runBulkDraftAction,
+  runBulkDraftDiscard,
   type DraftSelection,
 } from "../services/mail/drafts.js";
+import {
+  DraftSendAlreadyRunningError,
+  MAX_QUEUED_DRAFT_IDS,
+  createDraftSendBatch,
+  getLatestDraftSendBatch,
+} from "../services/mail/draftSendQueue.js";
 import {
   decodeHtmlEntities,
   extractBodies,
@@ -741,10 +747,16 @@ const draftSelectionSchema = z.union([
 
 const draftBulkSchema = z
   .object({
-    action: z.enum(["send", "discard"]),
-    // Deliberately small: Gmail takes ~1-2s per send, so the client sends many
-    // small batches and shows progress rather than one request that times out.
+    // Sending is always durable and paced through `/send-queue`; this endpoint
+    // remains the small synchronous path for reversible draft disposal.
+    action: z.literal("discard"),
     ids: z.array(z.string().uuid()).min(1).max(MAX_BULK_DRAFT_IDS),
+  })
+  .strict();
+
+const draftSendQueueSchema = z
+  .object({
+    ids: z.array(z.string().uuid()).min(1).max(MAX_QUEUED_DRAFT_IDS),
   })
   .strict();
 
@@ -791,8 +803,37 @@ mailRouter.post(
     const account = await loadAccount(cid, req.params.aid as string);
     if (!account) return res.status(404).json({ error: "Mail account not found" });
     const body = req.body as z.infer<typeof draftBulkSchema>;
-    const result = await runBulkDraftAction(account, body.action, body.ids, req.userId ?? null);
+    const result = await runBulkDraftDiscard(account, body.ids, req.userId ?? null);
     res.json(result);
+  },
+);
+
+mailRouter.get("/mail/accounts/:aid/drafts/send-queue", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const account = await loadAccount(cid, req.params.aid as string);
+  if (!account) return res.status(404).json({ error: "Mail account not found" });
+  res.json({ batch: await getLatestDraftSendBatch(account) });
+});
+
+mailRouter.post(
+  "/mail/accounts/:aid/drafts/send-queue",
+  validateBody(draftSendQueueSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const account = await loadAccount(cid, req.params.aid as string);
+    if (!account) return res.status(404).json({ error: "Mail account not found" });
+    try {
+      const batch = await createDraftSendBatch(
+        account,
+        (req.body as z.infer<typeof draftSendQueueSchema>).ids,
+        req.userId ?? null,
+      );
+      res.status(202).json({ batch });
+    } catch (error) {
+      res.status(error instanceof DraftSendAlreadyRunningError ? 409 : 400).json({
+        error: error instanceof Error ? error.message : "Could not queue drafts",
+      });
+    }
   },
 );
 
@@ -1314,10 +1355,12 @@ mailRouter.post("/mail/handovers/:hid/retry", async (req, res) => {
 
 // ───────────────────────────── assistant ─────────────────────────────
 
-const assistantThreadQuerySchema = z.object({
-  threadId: z.string().uuid(),
-  limit: z.coerce.number().int().min(1).max(200).default(100),
-}).strict();
+const assistantThreadQuerySchema = z
+  .object({
+    threadId: z.string().uuid(),
+    limit: z.coerce.number().int().min(1).max(200).default(100),
+  })
+  .strict();
 
 /** Panel bootstrap: this email's conversation plus everyone tag-able on it. */
 mailRouter.get("/mail/accounts/:aid/assistant", async (req, res) => {

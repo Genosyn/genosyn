@@ -16,6 +16,7 @@ import { bootRevenue } from "./services/revenue/boot.js";
 import { bootTelegramListeners } from "./services/telegramListener.js";
 import { bootMailSync } from "./services/mail/sync.js";
 import { bootMailHandovers } from "./services/mail/handovers.js";
+import { bootMailDraftSendQueue } from "./services/mail/draftSendQueue.js";
 import { attachRealtime, bootRealtimeBridge } from "./services/realtime.js";
 import { errorHandler } from "./middleware/error.js";
 import { authRouter } from "./routes/auth.js";
@@ -127,6 +128,10 @@ async function main() {
   void bootMailHandovers().catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[mail] handover boot failed:", err);
+  });
+  void bootMailDraftSendQueue().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[mail] draft-send queue boot failed:", err);
   });
 
   const app = express();

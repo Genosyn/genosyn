@@ -443,6 +443,11 @@ sends system mail); this is the company's real inbox. Internal namespace is
       inbound attachment download, drafts (including drafts AI employees
       wrote — edit then send), per-thread actions, account settings. The
       goal: never open Gmail to work the inbox.
+- [x] **Paced bulk draft sending.** A confirmed Drafts selection enters a
+      durable queue that sends one email at a time with a fresh random
+      one-to-two minute pause between attempts. The Drafts page shows persistent
+      sent / failed / remaining progress and the next-send countdown; queued
+      drafts cannot be selected twice, and restart recovery preserves the pace.
 - [x] **Hand to AI.** "Hand to AI" on any thread picks a granted employee,
       an instruction, and a mode: `draft` (employee writes a Gmail draft
       into the thread for human review), `reply` (employee sends —

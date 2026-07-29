@@ -24,17 +24,19 @@ export function MailBulkSendDialog({
   action,
   preview,
   progress,
+  submitting = false,
   onCancel,
   onConfirm,
 }: {
   action: "send" | "discard";
   preview: MailDraftSendPreview;
   progress: BulkProgress | null;
+  submitting?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
   const [acknowledged, setAcknowledged] = React.useState(false);
-  const running = progress !== null;
+  const running = progress !== null || submitting;
 
   // A new batch is a new decision. The dialog stays mounted when the selection
   // is replaced (cancel one, open another), and carrying a tick across would
@@ -94,7 +96,7 @@ export function MailBulkSendDialog({
               className="text-base font-semibold text-slate-900 dark:text-slate-100"
             >
               {sending
-                ? `Send ${count} ${count === 1 ? "draft" : "drafts"}?`
+                ? `Queue ${count} ${count === 1 ? "draft" : "drafts"} to send?`
                 : `Discard ${count} ${count === 1 ? "draft" : "drafts"}?`}
             </h2>
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
@@ -104,13 +106,10 @@ export function MailBulkSendDialog({
                   <span className="font-medium text-slate-900 dark:text-slate-100">
                     {preview.accountAddress}
                   </span>
-                  . It cannot be undone.
+                  , one message at a time with a random one-to-two minute pause between attempts.
                 </>
               ) : (
-                <>
-                  The drafts are deleted from this mailbox and from Gmail. This cannot be
-                  undone.
-                </>
+                <>The drafts are deleted from this mailbox and from Gmail. This cannot be undone.</>
               )}
             </p>
           </div>
@@ -167,6 +166,13 @@ export function MailBulkSendDialog({
             </p>
           )}
 
+          {preview.alreadyQueued > 0 && (
+            <p className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+              {preview.alreadyQueued} {preview.alreadyQueued === 1 ? "draft is" : "drafts are"}{" "}
+              already queued and will not be added again.
+            </p>
+          )}
+
           {needsAck && (
             <label className="mt-4 flex cursor-pointer items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
               <input
@@ -177,13 +183,13 @@ export function MailBulkSendDialog({
                 className="mt-0.5 h-4 w-4 shrink-0 rounded border-amber-300 text-indigo-600 focus:ring-indigo-500 dark:border-amber-500/50"
               />
               <span>
-                I understand this sends {count} {count === 1 ? "email" : "emails"} via{" "}
-                {preview.accountAddress}.
+                I understand this queues {count} {count === 1 ? "email" : "emails"} to send via{" "}
+                {preview.accountAddress} over time.
               </span>
             </label>
           )}
 
-          {running && (
+          {progress && (
             <div className="mt-4">
               <div className="mb-1 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
                 <span>{sending ? "Sending…" : "Discarding…"}</span>
@@ -220,7 +226,7 @@ export function MailBulkSendDialog({
             ) : (
               <Trash2 size={14} />
             )}
-            {sending ? `Send ${count}` : `Discard ${count}`}
+            {sending ? `Queue ${count}` : `Discard ${count}`}
           </Button>
         </div>
       </div>
