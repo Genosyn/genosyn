@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  Open source &middot; self-hosted &middot; bring your own AI keys.
+  Open source &middot; self-hosted &middot; bring your own AI access.
 </p>
 
 <p align="center">
@@ -92,8 +92,10 @@ and AI alike:
 ## Why Genosyn
 
 - **Open source and self-hosted.** It's your data, on your machine.
-- **Bring your own AI.** Plug in Anthropic (Claude), OpenAI, or any OpenAI-compatible /
-  self-hosted endpoint. Your keys, your spend.
+- **Bring your own AI.** Plug in an Anthropic or OpenAI API key, any
+  OpenAI-compatible / self-hosted endpoint, or — on a source-managed Linux
+  deployment with bubblewrap isolation — an eligible ChatGPT plan with Codex
+  access for OpenAI. Your credentials, your limits, your spend.
 - **No black box.** Souls, Skills, and Routines are markdown. You can read every word an
   employee acts on, and every run leaves a paper trail.
 - **A real company OS.** Not a wrapper around a chat box — a workspace, a task board, a

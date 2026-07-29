@@ -91,9 +91,7 @@ function isNearStatic(name: string, known: Set<string>): boolean {
   return false;
 }
 
-export type ToolsetValidation =
-  | { ok: true; names: string[] }
-  | { ok: false; error: string };
+export type ToolsetValidation = { ok: true; names: string[] } | { ok: false; error: string };
 
 export function validateToolset(names: unknown): ToolsetValidation {
   if (!Array.isArray(names)) {
@@ -139,22 +137,30 @@ export function validateToolset(names: unknown): ToolsetValidation {
   return { ok: true, names: cleaned };
 }
 
-/** The union of every active Skill's declared tools, deduped. */
-export function residentNamesForSkills(skills: Skill[]): string[] {
+/** The union of every active Skill's runtime-available declared tools, deduped. */
+export function residentNamesForSkills(
+  skills: Skill[],
+  unavailableNames: Iterable<string> = [],
+): string[] {
+  const unavailable = new Set(unavailableNames);
   const out: string[] = [];
   for (const s of skills) {
     for (const n of parseToolset(s.toolsetJson)) {
-      if (!out.includes(n)) out.push(n);
+      if (!unavailable.has(n) && !out.includes(n)) out.push(n);
     }
   }
   return out;
 }
 
-/** Per-skill toolsets, for rendering under each `## Skill:` heading. */
-export function skillToolsetMap(skills: Skill[]): Map<string, string[]> {
+/** Runtime-available per-skill toolsets, rendered under each Skill heading. */
+export function skillToolsetMap(
+  skills: Skill[],
+  unavailableNames: Iterable<string> = [],
+): Map<string, string[]> {
+  const unavailable = new Set(unavailableNames);
   const map = new Map<string, string[]>();
   for (const s of skills) {
-    const names = parseToolset(s.toolsetJson);
+    const names = parseToolset(s.toolsetJson).filter((name) => !unavailable.has(name));
     if (names.length > 0) map.set(s.id, names);
   }
   return map;

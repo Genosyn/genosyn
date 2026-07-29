@@ -1487,7 +1487,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_code_repositories",
     description:
-      "List the Code Repositories you have been granted access to in this company. Each git repo is already checked out in your working directory at `code-repos/<slug>/`, with credentials and your committer identity configured for you — so you can `cd` into the path and use ordinary `git` to read, branch, commit, and (when your access level is `write`) push. Each row carries the repo name, slug, localPath, defaultBranch, your accessLevel (`read` / `write`), the clone URL, and the last sync status. There is no MCP tool for committing or pushing — do that with `git` inside the checkout.",
+      "List the Code Repositories you have been granted access to in this company. Each row carries the repo name, slug, localPath, defaultBranch, your accessLevel (`read` / `write`), the clone URL, and the last sync status. When coding tools are enabled, Genosyn prepares the checkout and credentials before work starts; bubblewrap deployments isolate that Git process too. There is no MCP tool for committing or pushing — do that with `git` inside the checkout.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {

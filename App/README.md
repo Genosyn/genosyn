@@ -53,18 +53,36 @@ User-generated content (Soul, Skills, Routines, Run logs) lives in the DB.
 With the default driver that's `./data/app.sqlite`; flip
 `config.db.driver` to `postgres` and everything (entities + migrations) moves
 with you. Model credentials are entered in the app and stored encrypted
-(AES-256-GCM) in the DB — never on disk — so the filesystem side of
-`config.dataDir` only holds any artifacts an employee writes into its working
-directory. Everything under `data/` is gitignored.
+(AES-256-GCM) in the DB — never in an employee working directory or a
+persistent provider directory. OpenAI subscription device login and Runs use a
+locked temporary `CODEX_HOME` required by the official Codex app-server. A
+managed ChatGPT session is materialized there; an access token is injected only
+into the child process environment. The directory is removed afterward. The
+filesystem side of `config.dataDir` only holds artifacts an employee writes
+into its working directory. Everything under `data/` is gitignored.
 
 ## Runner
 
-The cron-driven runner in `server/services/runner.ts` drives an in-process
-agent loop that talks directly to the employee's model API (Anthropic, OpenAI,
-or any OpenAI-compatible custom endpoint) with a prompt composed from the
-employee's Soul + Skills + Routine. The loop hands the model tools directly:
-built-in coding tools (bash, read_file, write_file, edit_file, glob, grep),
-the genosyn MCP tools (routines/todos/journal/memory/bases/attachments),
-browser tools when enabled, and any company-configured MCP servers. The agent
-transcript is written to `Run.logContent` (capped at 256KB). When no model or
-API key is configured, the run is marked `skipped` with an explanatory log.
+The cron-driven runner in `server/services/runner.ts` drives the employee's
+active model with a prompt composed from their Soul + Skills + Routine.
+Anthropic and OpenAI API keys, plus OpenAI-compatible custom endpoints, use
+the direct in-process agent loop. A source-managed Linux OpenAI subscription
+model uses the official pinned `@openai/codex` app-server with an isolated
+temporary `CODEX_HOME` and a separate empty scratch directory; generic provider
+CLI harnesses remain removed. Subscription auth requires coding tools to use
+working Linux `bubblewrap`; host and disabled execution modes are rejected.
+Every model turn in a bubblewrap deployment receives only sandboxed `bash` from
+the coding family. Host-process file tools are omitted install-wide so a
+concurrent API-key or custom-model turn cannot race a workspace symlink into
+the subscription credential. Server-managed repository clone/fetch and
+credential wiring use the same boundary, a cleared environment, and only the
+configured remote. The model receives the genosyn MCP tools
+(routines/todos/journal/memory/bases/attachments), browser tools when enabled,
+and company-configured HTTP MCP servers. User-configured stdio MCP servers are
+omitted install-wide in bubblewrap mode so an arbitrary same-UID child cannot
+inspect a subscription credential. The agent transcript is written to
+`Run.logContent` (capped at 256KB). When no model or usable credential is
+configured, the run is marked `skipped` with an explanatory log. Subscription
+auth currently supports a source-managed, single-App-process Linux deployment;
+use API-key models with the standard Docker installer or when horizontally
+scaling App replicas.

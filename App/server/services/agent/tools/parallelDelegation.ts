@@ -11,6 +11,17 @@ const MAX_RESULT_LENGTH = 12_000;
 
 export type DelegationBudget = { remaining: number };
 
+/**
+ * Managed ChatGPT credentials can rotate, so subscription turns serialize on
+ * one model lock. A parent cannot wait on a delegated copy that is waiting for
+ * that same lock.
+ */
+export function supportsParallelDelegation(
+  authMode: "apikey" | "subscription" | "customEndpoint",
+): boolean {
+  return authMode !== "subscription";
+}
+
 export type DelegatedBrief = {
   label: string;
   instruction: string;
@@ -59,8 +70,7 @@ export function createParallelDelegationTool(params: {
                 type: "string",
                 minLength: 1,
                 maxLength: MAX_INSTRUCTION_LENGTH,
-                description:
-                  "Complete brief with scope, inputs, constraints, and expected output.",
+                description: "Complete brief with scope, inputs, constraints, and expected output.",
               },
             },
             required: ["label", "instruction"],

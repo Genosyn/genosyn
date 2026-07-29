@@ -2,10 +2,11 @@
 # Multi-stage build for the Genosyn App (Express API + React client).
 # Client is built with Vite and served as static assets by the Express server.
 #
-# The App talks to model APIs (Anthropic / OpenAI / any OpenAI-compatible
-# endpoint) directly, in-process — there are no provider CLIs to bundle. The
-# runtime image only needs the toolset the built-in tools use: a shell + git
-# for the coding/repo tools and Chromium for the browser tool.
+# API-key and custom models talk to their APIs directly in-process. The pinned
+# `@openai/codex` dependency contributes one narrow official app-server binary
+# for self-hosted OpenAI subscription models; generic provider CLIs remain
+# removed. The rest of the runtime toolset is a shell + git for Genosyn's
+# coding/repo tools and Chromium for its browser tool.
 
 # ---------- deps ----------
 FROM node:22-alpine AS deps

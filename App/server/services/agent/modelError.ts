@@ -24,7 +24,7 @@ export function formatModelError(model: AIModel, error: unknown): string {
   }
   if (meta.requestId) lines.push(`Request ID: ${meta.requestId}`);
 
-  lines.push("", "What to check:", ...guidance(category, model.provider));
+  lines.push("", "What to check:", ...guidance(category, model));
   lines.push("", "Open Settings → Model for this employee, then retry.");
   return lines.join("\n");
 }
@@ -69,10 +69,7 @@ function errorMetadata(error: unknown): ErrorMetadata {
 }
 
 /** Node's fetch errors commonly nest the useful ECONNREFUSED/ENOTFOUND code. */
-function stringInCauseChain(
-  record: Record<string, unknown> | null,
-  key: string,
-): string | null {
+function stringInCauseChain(record: Record<string, unknown> | null, key: string): string | null {
   let current = asRecord(record?.cause);
   for (let depth = 0; current && depth < 4; depth += 1) {
     const found = stringField(current, key);
@@ -145,7 +142,8 @@ function heading(category: ErrorCategory): string {
   }
 }
 
-function guidance(category: ErrorCategory, provider: AIModel["provider"]): string[] {
+function guidance(category: ErrorCategory, model: AIModel): string[] {
+  const provider = model.provider;
   if (category === "network") {
     return provider === "custom"
       ? [
@@ -167,12 +165,24 @@ function guidance(category: ErrorCategory, provider: AIModel["provider"]): strin
     ];
   }
   if (category === "authentication") {
+    if (model.authMode === "subscription") {
+      return [
+        "• Reconnect the ChatGPT subscription from this employee’s Model settings.",
+        "• Confirm the ChatGPT account still has Codex access in its current plan or workspace.",
+      ];
+    }
     return [
       "• Replace the saved API key and confirm it is still active.",
       "• Confirm the key can access the configured model.",
     ];
   }
   if (category === "rate_limit") {
+    if (model.authMode === "subscription") {
+      return [
+        "• Check the ChatGPT plan’s current Codex usage and reset window.",
+        "• Wait for the limit to reset or switch the employee to another AI Model.",
+      ];
+    }
     return [
       "• Check the model account’s quota, billing status, and rate limits.",
       "• Wait for the limit to reset or switch the employee to another AI Model.",
@@ -185,17 +195,32 @@ function guidance(category: ErrorCategory, provider: AIModel["provider"]): strin
           "• Confirm the configured model id exactly matches one exposed by the server.",
         ]
       : [
-          "• Confirm the configured model id is valid and available to this API key.",
+          `• Confirm the configured model id is valid and available to this ${
+            model.authMode === "subscription" ? "ChatGPT account" : "API key"
+          }.`,
           "• Switch to a model the account can access if it was renamed or retired.",
         ];
   }
   if (category === "context") {
+    if (model.authMode === "subscription") {
+      return [
+        "• Codex manages the subscription model’s context budget; there is no manual window setting.",
+        "• Reduce unusually large Soul, Skill, attachment, or tool output content, or switch models.",
+      ];
+    }
     return [
       "• Set the model’s context window accurately so Genosyn can compact before the limit.",
       "• Reduce unusually large Soul, Skill, attachment, or tool output content.",
     ];
   }
   if (category === "provider") {
+    if (model.authMode === "subscription") {
+      return [
+        "• The Codex app-server manages retries for subscription-auth turns.",
+        "• Retry later after checking OpenAI’s service status or the Genosyn server logs.",
+        "• If the failure persists, switch the employee to another AI Model.",
+      ];
+    }
     return [
       "• Genosyn retries transient failures before any output; it never replays a partial response.",
       "• If no response had started, this failure outlasted the automatic retry window.",
@@ -212,7 +237,9 @@ function guidance(category: ErrorCategory, provider: AIModel["provider"]): strin
 /** Host-only endpoint preview. Never decrypt or render the stored full URL. */
 function endpointLabel(model: AIModel): string | null {
   if (model.provider === "anthropic") return "api.anthropic.com";
-  if (model.provider === "openai") return "api.openai.com";
+  if (model.provider === "openai") {
+    return model.authMode === "subscription" ? "OpenAI Codex subscription" : "api.openai.com";
+  }
   try {
     const cfg = JSON.parse(model.configJson || "{}") as Record<string, unknown>;
     const preview = typeof cfg.baseURLPreview === "string" ? cfg.baseURLPreview : "";

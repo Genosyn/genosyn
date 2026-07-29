@@ -1,5 +1,3 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import path from "node:path";
 import fs from "node:fs";
 import { AppDataSource } from "../db/datasource.js";
@@ -11,7 +9,8 @@ import {
   loadEmployeeConnections,
 } from "./integrations.js";
 import { readGithubRepos, resolveGithubCredentials } from "../integrations/providers/github.js";
-import { configureEnvCredentialHelper } from "./gitCredentialHelper.js";
+import { configureEnvCredentialHelper, inlineEnvCredentialHelper } from "./gitCredentialHelper.js";
+import { runWorkspaceGit } from "./workspaceGit.js";
 
 /**
  * Repo sync seam — materializes git checkouts of every allowlisted repo on
@@ -45,8 +44,6 @@ import { configureEnvCredentialHelper } from "./gitCredentialHelper.js";
  * the turn so `git push` Just Works, then the env var disappears with the
  * turn and does not leak to other employees.
  */
-
-const exec = promisify(execFile);
 
 export type SyncedRepo = {
   connectionId: string;
@@ -202,6 +199,7 @@ async function syncConnection(
     try {
       const repoPath = path.join(cwd, "repos", repo.owner, repo.name);
       await syncOneRepo({
+        workspaceRoot: cwd,
         repoPath,
         owner: repo.owner,
         name: repo.name,
@@ -226,6 +224,7 @@ async function syncConnection(
 }
 
 async function syncOneRepo(args: {
+  workspaceRoot: string;
   repoPath: string;
   owner: string;
   name: string;
@@ -236,60 +235,65 @@ async function syncOneRepo(args: {
   const cleanRemote = `https://github.com/${args.owner}/${args.name}.git`;
   const isCheckout = fs.existsSync(path.join(args.repoPath, ".git"));
   const credentialEnv = { [args.envKey]: args.token };
+  const credentialHelper = inlineEnvCredentialHelper("x-access-token", args.envKey);
 
   if (!isCheckout) {
     fs.mkdirSync(path.dirname(args.repoPath), { recursive: true });
-    // Initial clone: temporarily inline the token in the URL. We strip it
-    // immediately afterward via `remote set-url`, and from this point on
-    // git pulls the token from the credential helper instead.
-    const tokenUrl = `https://x-access-token:${args.token}@github.com/${args.owner}/${args.name}.git`;
-    await runGit(path.dirname(args.repoPath), ["clone", "--quiet", tokenUrl, args.name]);
-    await runGit(args.repoPath, ["remote", "set-url", "origin", cleanRemote]);
-    await configureCredentialHelper(args.repoPath, args.envKey);
+    await runWorkspaceGit({
+      workspaceRoot: args.workspaceRoot,
+      cwd: path.dirname(args.repoPath),
+      args: ["clone", "--quiet", cleanRemote, args.name],
+      extraEnv: credentialEnv,
+      credentialHelper,
+    });
+    await runWorkspaceGit({
+      workspaceRoot: args.workspaceRoot,
+      cwd: args.repoPath,
+      args: ["remote", "set-url", "origin", cleanRemote],
+    });
+    await configureCredentialHelper(args.workspaceRoot, args.repoPath, args.envKey);
   } else {
     // Older/manual checkouts may not have a helper yet. Install it before the
     // first authenticated fetch, and make its turn token available to this
     // server-side git process as well as the later employee bash process.
-    await configureCredentialHelper(args.repoPath, args.envKey);
-    // Existing checkout: fetch fresh refs but never touch the agent's
-    // working tree or current branch. The agent decides when to merge.
-    await runGit(args.repoPath, ["fetch", "--all", "--prune", "--quiet"], credentialEnv);
-    // Make sure the remote URL doesn't carry a stale token from a previous
-    // version of this code or a manual `git remote add`.
-    await runGit(args.repoPath, ["remote", "set-url", "origin", cleanRemote]);
-  }
-}
-
-async function configureCredentialHelper(repoPath: string, envKey: string): Promise<void> {
-  await configureEnvCredentialHelper((args) => runGit(repoPath, args), "x-access-token", envKey);
-}
-
-async function runGit(
-  cwd: string,
-  args: string[],
-  extraEnv: Record<string, string> = {},
-): Promise<void> {
-  try {
-    await exec("git", args, {
-      cwd,
-      // Disable interactive auth prompts. With no TTY git will fail fast on
-      // missing creds rather than hanging the runner.
-      env: {
-        ...process.env,
-        GIT_TERMINAL_PROMPT: "0",
-        GIT_ASKPASS: "/bin/echo",
-        ...extraEnv,
-      },
-      maxBuffer: 16 * 1024 * 1024,
+    await configureCredentialHelper(args.workspaceRoot, args.repoPath, args.envKey);
+    await runWorkspaceGit({
+      workspaceRoot: args.workspaceRoot,
+      cwd: args.repoPath,
+      args: ["remote", "set-url", "origin", cleanRemote],
     });
-  } catch (err) {
-    if ((err as { code?: string }).code === "ENOENT") {
-      throw new Error(
-        `git is not installed on the Genosyn server, so "git ${args[0]}" could not run. Install git (the official Genosyn Docker image bundles it) and try again.`,
-      );
-    }
-    const e = err as { stderr?: string; stdout?: string; message?: string };
-    const tail = (e.stderr || e.stdout || e.message || "").toString().trim();
-    throw new Error(`git ${args[0]} failed: ${tail.split("\n").slice(-3).join(" | ")}`);
+    // Fetch only the trusted configured URL. Attacker-added remotes in the
+    // writable local config are never visited.
+    await runWorkspaceGit({
+      workspaceRoot: args.workspaceRoot,
+      cwd: args.repoPath,
+      args: [
+        "fetch",
+        "--no-recurse-submodules",
+        "--prune",
+        "--quiet",
+        cleanRemote,
+        "+refs/heads/*:refs/remotes/origin/*",
+      ],
+      extraEnv: credentialEnv,
+      credentialHelper,
+    });
   }
+}
+
+async function configureCredentialHelper(
+  workspaceRoot: string,
+  repoPath: string,
+  envKey: string,
+): Promise<void> {
+  await configureEnvCredentialHelper(
+    (gitArgs) =>
+      runWorkspaceGit({
+        workspaceRoot,
+        cwd: repoPath,
+        args: gitArgs,
+      }),
+    "x-access-token",
+    envKey,
+  );
 }

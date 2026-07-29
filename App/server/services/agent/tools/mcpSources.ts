@@ -15,9 +15,11 @@ import type { McpServerSpec, McpToolGuard } from "./mcpBridge.js";
  * company-configured stdio/HTTP servers. The in-process `genosyn` tools live in
  * ./genosyn.ts; the built-in coding tools in ./coding.ts.
  *
- * This is the surviving remnant of the old `services/mcp.ts`: we no longer
- * materialize per-CLI config files (there is no CLI), but we still need to know
- * which servers to connect to and mint the browser live-view session.
+ * This is the surviving remnant of the old `services/mcp.ts`: we do not
+ * materialize provider-owned MCP config files. Even the narrow OpenAI
+ * subscription app-server path receives this same App-owned registry through
+ * dynamic tools. We still need to know which servers to connect to and mint
+ * the browser live-view session.
  */
 
 /** Absolute path to the built-in `browser` MCP stdio binary (dev + prod). */
@@ -153,6 +155,14 @@ export function specForMcpServerRow(s: McpServer): McpServerSpec | null {
     return { transport: "http", url: s.url };
   }
   if (s.transport === "stdio" && s.command) {
+    if (
+      !userStdioMcpAvailableFor({
+        multiTenant: config.security.multiTenant,
+        codingToolsExecutionMode: config.agent.codingTools.executionMode,
+      })
+    ) {
+      return null;
+    }
     return {
       transport: "stdio",
       command: s.command,
@@ -161,6 +171,17 @@ export function specForMcpServerRow(s: McpServer): McpServerSpec | null {
     };
   }
   return null;
+}
+
+export function userStdioMcpAvailableFor(options: {
+  multiTenant: boolean;
+  codingToolsExecutionMode: "host" | "bubblewrap" | "disabled";
+}): boolean {
+  // An arbitrary same-UID child can inspect sibling /proc entries and private
+  // temp directories. Bubblewrap is the install-wide signal that credentials
+  // require process isolation, so user stdio servers stay off for every turn
+  // in that mode—not only the subscription turn that holds the credential.
+  return !options.multiTenant && options.codingToolsExecutionMode !== "bubblewrap";
 }
 
 export async function loadUserServerSpecs(
@@ -178,7 +199,6 @@ export async function loadUserServerSpecs(
     if (RESERVED_SERVER_NAMES.has(s.name)) continue;
     const spec = specForMcpServerRow(s);
     if (!spec) continue;
-    if (config.security.multiTenant && spec.transport === "stdio") continue;
     if (spec.transport === "http") {
       try {
         await assertSafeOutboundUrl(spec.url);

@@ -2,20 +2,23 @@ import { dateTimeColumnType } from "./columnTypes.js";
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 export type Provider = "anthropic" | "openai" | "custom";
-export type AuthMode = "apikey" | "customEndpoint";
+export type AuthMode = "apikey" | "subscription" | "customEndpoint";
 /** Where `AIModel.contextWindow` came from. Null alongside a null window. */
 export type ContextWindowSource = "probed" | "manual";
 
 /**
  * An AIModel is one of the brains an AI Employee can run on. An employee can
  * register several (`employeeId` is indexed, not unique) and flip exactly one
- * to active at a time via `isActive` — the runner + chat seams talk to the
- * active one's API directly. Credentials are always encrypted in `configJson`:
- * there are no on-disk provider credentials any more.
+ * to active at a time via `isActive`. API-key and custom models run through the
+ * in-process provider loop. OpenAI subscription models run through the pinned
+ * official Codex app-server with the same Genosyn tool registry. Credentials
+ * are always encrypted in `configJson`; a managed ChatGPT session is
+ * materialized only into a private temporary `CODEX_HOME` for login/a turn.
  *
- * `provider` names the model API Genosyn calls in-process:
+ * `provider` names the model backend:
  *   - `anthropic` → the Anthropic Messages API (Claude), authMode `apikey`
- *   - `openai`    → the OpenAI Chat Completions API (GPT), authMode `apikey`
+ *   - `openai`    → the OpenAI API (`apikey`) or official Codex app-server
+ *                   (`subscription`, trusted self-hosted installs only)
  *   - `custom`    → any OpenAI-compatible endpoint (Ollama, vLLM, llama.cpp,
  *                   LM Studio, a gateway), authMode `customEndpoint`
  *
@@ -26,6 +29,9 @@ export type ContextWindowSource = "probed" | "manual";
  *
  * configJson shape:
  *   - apikey:         `{ apiKeyEncrypted, apiKeyPreview }`
+ *   - subscription:   `{ codexAuthEncrypted, subscriptionCredentialKind }`
+ *                     or `{ codexAccessTokenEncrypted,
+ *                           subscriptionCredentialKind }`
  *   - customEndpoint: `{ baseURLEncrypted, baseURLPreview, modelId,
  *                        apiKeyEncrypted?, apiKeyPreview? }`
  * All `*Encrypted` fields are AES-256-GCM via `lib/secret.ts`.

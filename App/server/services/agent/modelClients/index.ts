@@ -16,6 +16,10 @@ import { createOpenAIResponsesClient } from "./openaiResponses.js";
  *  - openai    + apikey       → OpenAI Responses API with the stored key
  *  - custom    + customEndpoint → OpenAI-compatible client at the stored baseURL
  *
+ * OpenAI `subscription` rows intentionally do not resolve here. They use the
+ * official Codex app-server adapter in `codexRuntime.ts`, which consumes the
+ * same ToolRegistry without pretending a ChatGPT plan is an API key.
+ *
  * The two OpenAI-shaped providers deliberately land on different clients. The
  * `openai` provider needs `/v1/responses`, because Chat Completions rejects
  * function tools for a reasoning model (see `openaiResponses.ts`) — and an
@@ -26,6 +30,14 @@ import { createOpenAIResponsesClient } from "./openaiResponses.js";
 export async function createModelClient(
   model: AIModel,
 ): Promise<{ client: ModelClient } | { error: string }> {
+  if (model.authMode === "subscription") {
+    return {
+      error:
+        model.provider === "openai"
+          ? "OpenAI subscription models must run through the Codex subscription runtime."
+          : `${model.provider} does not support subscription authentication.`,
+    };
+  }
   if (model.authMode === "customEndpoint") {
     if (model.provider !== "custom") {
       return { error: `${model.provider} does not use a custom endpoint — use an API key.` };

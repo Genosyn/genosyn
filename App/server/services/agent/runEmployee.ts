@@ -7,17 +7,20 @@ import { formatModelError } from "./modelError.js";
 import {
   createParallelDelegationTool,
   MAX_DELEGATIONS_PER_TURN,
+  supportsParallelDelegation,
   type DelegatedBrief,
   type DelegationBudget,
 } from "./tools/parallelDelegation.js";
 import { createChatProgressTool } from "./tools/chatProgress.js";
+import { runCodexSubscriptionTurn } from "./codexRuntime.js";
 
 /**
  * Run one employee agent turn end-to-end — the entry point both the chat seam
  * and the routine runner call.
  *
- * This is the whole job the harness CLI used to do, in-process:
- *   1. build the model client from the employee's AIModel credentials;
+ * This is the whole runtime job:
+ *   1. build the direct model client, or the pinned official OpenAI Codex
+ *      subscription runtime, from the employee's AIModel credentials;
  *   2. assemble the tool list (coding + genosyn + browser + user MCP servers);
  *   3. run the tool-use loop, streaming text and tool activity via `callbacks`;
  *   4. tear the bridged MCP connections down.
@@ -89,9 +92,6 @@ function trimToProviderCap(
 }
 
 export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<EmployeeAgentResult> {
-  const built = await createModelClient(params.model);
-  if ("error" in built) return { status: "error", error: built.error };
-
   const delegationDepth = params.delegationDepth ?? 0;
   const delegationBudget = params.delegationBudget ?? { remaining: MAX_DELEGATIONS_PER_TURN };
   const localTools: AgentTool[] = [...(params.extraTools ?? [])];
@@ -99,14 +99,23 @@ export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<Emp
     if (params.callbacks?.onProgress) {
       localTools.push(createChatProgressTool(params.callbacks.onProgress));
     }
-    localTools.push(
-      createParallelDelegationTool({
-        budget: delegationBudget,
-        signal: params.signal,
-        runBrief: (brief) => runDelegatedBrief(params, brief, delegationBudget),
-      }),
-    );
+    if (supportsParallelDelegation(params.model.authMode)) {
+      localTools.push(
+        createParallelDelegationTool({
+          budget: delegationBudget,
+          signal: params.signal,
+          runBrief: (brief) => runDelegatedBrief(params, brief, delegationBudget),
+        }),
+      );
+    }
   }
+
+  if (params.model.authMode === "subscription") {
+    return runSubscriptionEmployeeAgent(params, localTools);
+  }
+
+  const built = await createModelClient(params.model);
+  if ("error" in built) return { status: "error", error: built.error };
 
   const gathered = await gatherEmployeeTools({
     employeeId: params.employeeId,
@@ -164,6 +173,67 @@ export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<Emp
     };
   } finally {
     await gathered.close();
+  }
+}
+
+async function runSubscriptionEmployeeAgent(
+  params: EmployeeAgentParams,
+  localTools: AgentTool[],
+): Promise<EmployeeAgentResult> {
+  let gathered: Awaited<ReturnType<typeof gatherEmployeeTools>> | null = null;
+  try {
+    gathered = await gatherEmployeeTools({
+      employeeId: params.employeeId,
+      genosynToken: params.genosynToken,
+      cwd: params.cwd,
+      localTools,
+      toolEnv: params.toolEnv,
+      bashTimeoutMs: params.bashTimeoutMs,
+      skillToolset: params.skillToolset,
+      routineId: params.routineId,
+      conversationId: params.conversationId,
+      runId: params.runId,
+      signal: params.signal,
+      requireIsolatedBash: true,
+      onDeprecatedFamily: (family, target) => {
+        console.warn(
+          `[genosyn] employee=${params.employeeId} used the deprecated family tool "${family}" ` +
+            `(-> ${target}). Update the Skill or Soul that names it.`,
+        );
+      },
+    });
+
+    params.callbacks?.onToolsDeferred?.(gathered.registry.stats);
+    // Dynamic tools follow the Responses API naming/size contract. The normal
+    // working set is around twenty; retain the provider's published ceiling as
+    // a defensive backstop for unusually large Skill-requested resident sets.
+    gathered.registry.resident = trimToProviderCap(
+      gathered.registry.resident,
+      128,
+      params.callbacks,
+    );
+
+    const result = await runCodexSubscriptionTurn({
+      model: params.model,
+      system: params.system,
+      messages: params.messages,
+      registry: gathered.registry,
+      maxSteps: params.maxSteps,
+      signal: params.signal,
+      callbacks: params.callbacks,
+    });
+    return { status: "ok", finalText: result.finalText, steps: result.steps };
+  } catch (err) {
+    console.error(
+      `[agent:model] subscription request failed employee=${params.employeeId} model=${params.model.id}`,
+      err,
+    );
+    return {
+      status: "error",
+      error: formatModelError(params.model, err),
+    };
+  } finally {
+    await gathered?.close();
   }
 }
 

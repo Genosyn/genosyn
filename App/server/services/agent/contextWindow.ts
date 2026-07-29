@@ -55,7 +55,10 @@ export async function probeContextWindow(model: AIModel): Promise<number | null>
  * there's no sense showing a Refresh button that is guaranteed to find nothing.
  */
 export function canProbeContextWindow(model: AIModel): boolean {
-  return model.authMode === "customEndpoint" || model.provider === "anthropic";
+  return (
+    model.authMode === "customEndpoint" ||
+    (model.authMode === "apikey" && model.provider === "anthropic")
+  );
 }
 
 /**

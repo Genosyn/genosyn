@@ -1,12 +1,4 @@
-import {
-  Callout,
-  Code,
-  DocLink,
-  H2,
-  KeyList,
-  PageHeader,
-  Strong,
-} from "@/docs/Prose";
+import { Callout, Code, DocLink, H2, KeyList, PageHeader, Strong } from "@/docs/Prose";
 
 export function Vocabulary() {
   return (
@@ -16,17 +8,15 @@ export function Vocabulary() {
         title="Vocabulary"
         lead={
           <>
-            Genosyn uses a deliberate vocabulary. These words show up in the
-            UI, the API, and the database — using the right one keeps the
-            mental model crisp.
+            Genosyn uses a deliberate vocabulary. These words show up in the UI, the API, and the
+            database — using the right one keeps the mental model crisp.
           </>
         }
       />
 
-      <Callout kind="info" title="Don't say &quot;task.&quot;">
-        <Strong>Task</Strong> is reserved for the future human-style project
-        and todo manager. Scheduled AI work is a{" "}
-        <DocLink to="/docs/routines">Routine</DocLink>, never a task.
+      <Callout kind="info" title='Don&apos;t say "task."'>
+        <Strong>Task</Strong> is reserved for the future human-style project and todo manager.
+        Scheduled AI work is a <DocLink to="/docs/routines">Routine</DocLink>, never a task.
       </Callout>
 
       <H2 id="company-and-team">Company & team</H2>
@@ -64,8 +54,7 @@ export function Vocabulary() {
             def: (
               <>
                 The employee&apos;s written constitution. Markdown on{" "}
-                <Code>AIEmployee.soulBody</Code>. See{" "}
-                <DocLink to="/docs/soul">Soul</DocLink>.
+                <Code>AIEmployee.soulBody</Code>. See <DocLink to="/docs/soul">Soul</DocLink>.
               </>
             ),
           },
@@ -100,9 +89,10 @@ export function Vocabulary() {
             term: "AI Model",
             def: (
               <>
-                A brain an AI employee runs on — a direct connection to a model
-                API (Anthropic, OpenAI, or a custom OpenAI-compatible endpoint).
-                An employee can hold several and keep one active. See{" "}
+                A brain an AI employee runs on — an Anthropic or OpenAI API connection, a custom
+                OpenAI-compatible endpoint, or a source-managed Linux OpenAI subscription connection
+                through the official Codex app-server. An employee can hold several and keep one
+                active. See{" "}
                 <DocLink to="/docs/models">AI Models</DocLink>.
               </>
             ),

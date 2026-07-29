@@ -1,11 +1,11 @@
 import { config } from "../../config.js";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { getEffectiveGlobalSmtp } from "./globalEmailTransport.js";
-import {
-  getPublicUrl,
-  isPublicUrlConfigured,
-} from "./publicUrl.js";
+import { getPublicUrl, isPublicUrlConfigured } from "./publicUrl.js";
+import { buildBubblewrapCommandArgs } from "./agent/bubblewrap.js";
 
 const PLACEHOLDERS = new Set(["change-me-in-production", "change-me-in-production-too"]);
 
@@ -13,34 +13,43 @@ function strongSecret(value: string): boolean {
   return value.length >= 32 && !PLACEHOLDERS.has(value);
 }
 
-function bubblewrapProbeError(): string | null {
-  const result = spawnSync(
-    config.agent.codingTools.bubblewrapPath,
-    [
-      "--die-with-parent",
-      "--new-session",
-      "--unshare-user",
-      "--unshare-pid",
-      "--unshare-ipc",
-      "--unshare-uts",
-      "--unshare-cgroup",
-      "--proc",
-      "/proc",
-      "--dev",
-      "/dev",
-      "--ro-bind",
-      "/bin",
-      "/bin",
-      "--ro-bind",
-      "/usr",
-      "/usr",
-      "--",
-      "/bin/true",
-    ],
-    { encoding: "utf8", timeout: 5_000 },
-  );
-  if (!result.error && result.status === 0) return null;
-  return (result.stderr || result.error?.message || `exit status ${result.status}`).trim();
+let bubblewrapProbeCache: { path: string; error: string | null } | null = null;
+
+export function bubblewrapProbeError(): string | null {
+  if (bubblewrapProbeCache?.path === config.agent.codingTools.bubblewrapPath) {
+    return bubblewrapProbeCache.error;
+  }
+  const probeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-bwrap-probe-"));
+  try {
+    const result = spawnSync(
+      config.agent.codingTools.bubblewrapPath,
+      buildBubblewrapCommandArgs({
+        workspaceRoot: probeRoot,
+        cwd: probeRoot,
+        executable: "/bin/true",
+        args: [],
+        env: {
+          PATH: "/usr/local/bin:/usr/bin:/bin",
+          HOME: "/workspace",
+          LANG: "C.UTF-8",
+        },
+        unshareNetwork: true,
+      }),
+      {
+        encoding: "utf8",
+        timeout: 5_000,
+        env: { PATH: "/usr/local/bin:/usr/bin:/bin" },
+      },
+    );
+    const error =
+      !result.error && result.status === 0
+        ? null
+        : (result.stderr || result.error?.message || `exit status ${result.status}`).trim();
+    bubblewrapProbeCache = { path: config.agent.codingTools.bubblewrapPath, error };
+    return error;
+  } finally {
+    fs.rmSync(probeRoot, { recursive: true, force: true });
+  }
 }
 
 export function secureSessionCookies(): boolean {

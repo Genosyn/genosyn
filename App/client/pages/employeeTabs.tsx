@@ -31,6 +31,7 @@ import {
   MemoryItem,
   McpServer,
   McpTransport,
+  SubscriptionDeviceSession,
   Team,
 } from "../lib/api";
 import { copyToClipboard } from "../lib/clipboard";
@@ -112,8 +113,7 @@ function SoulCard({ company, emp }: { company: Company; emp: Employee }) {
               )}
             </div>
             <div className="text-xs text-slate-500 dark:text-slate-400">
-              {emp.name}&apos;s constitution — the markdown {emp.name} reads
-              before every task.
+              {emp.name}&apos;s constitution — the markdown {emp.name} reads before every task.
             </div>
           </div>
         </div>
@@ -137,14 +137,12 @@ function SoulCard({ company, emp }: { company: Company; emp: Employee }) {
 
 // ---------- Model (Settings) tab ----------
 
-const PROVIDER_DEFAULTS: Record<
-  Provider,
-  { label: string; model: string; authMode: AuthMode }
-> = {
+const PROVIDER_DEFAULTS: Record<Provider, { label: string; model: string; authMode: AuthMode }> = {
   anthropic: { label: "Anthropic (Claude)", model: "claude-opus-4-6", authMode: "apikey" },
   openai: { label: "OpenAI (GPT)", model: "gpt-4o", authMode: "apikey" },
   custom: { label: "Custom OpenAI-compatible endpoint", model: "", authMode: "customEndpoint" },
 };
+const OPENAI_SUBSCRIPTION_DEFAULT_MODEL = "gpt-5.6-terra";
 
 /**
  * Employee Settings. Soul + Model used to share one scroll-heavy page; now
@@ -233,19 +231,11 @@ export function BrowserSettingsPage() {
   return <EmployeeBrowserAccessCard company={company} emp={emp} />;
 }
 
-function EmployeeOrgCard({
-  company,
-  emp,
-}: {
-  company: Company;
-  emp: Employee;
-}) {
+function EmployeeOrgCard({ company, emp }: { company: Company; emp: Employee }) {
   const [teams, setTeams] = React.useState<Team[] | null>(null);
   const [peers, setPeers] = React.useState<Employee[] | null>(null);
   const [teamId, setTeamId] = React.useState<string>(emp.teamId ?? "");
-  const [reportsTo, setReportsTo] = React.useState<string>(
-    emp.reportsToEmployeeId ?? "",
-  );
+  const [reportsTo, setReportsTo] = React.useState<string>(emp.reportsToEmployeeId ?? "");
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const { toast } = useToast();
@@ -276,13 +266,10 @@ function EmployeeOrgCard({
     setError(null);
     setSaving(true);
     try {
-      await api.patch<Employee>(
-        `/api/companies/${company.id}/employees/${emp.id}`,
-        {
-          teamId: teamId || null,
-          reportsToEmployeeId: reportsTo || null,
-        },
-      );
+      await api.patch<Employee>(`/api/companies/${company.id}/employees/${emp.id}`, {
+        teamId: teamId || null,
+        reportsToEmployeeId: reportsTo || null,
+      });
       toast("Org chart updated", "success");
       window.dispatchEvent(new CustomEvent("genosyn:employee-updated"));
     } catch (err) {
@@ -296,21 +283,17 @@ function EmployeeOrgCard({
     <Card>
       <CardBody className="flex flex-col gap-3">
         <div>
-          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-            Org chart
-          </div>
+          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Org chart</div>
           <div className="text-xs text-slate-500 dark:text-slate-400">
-            The team this employee belongs to and who they report to. Manager
-            is used by the <code className="font-mono">create_handoff</code>{" "}
+            The team this employee belongs to and who they report to. Manager is used by the{" "}
+            <code className="font-mono">create_handoff</code>{" "}
             <code className="font-mono">toManager: true</code> shortcut.
           </div>
         </div>
         <form className="flex flex-col gap-3" onSubmit={submit}>
           <FormError message={error} />
           <label className="flex flex-col gap-1 text-xs">
-            <span className="font-medium text-slate-700 dark:text-slate-300">
-              Team
-            </span>
+            <span className="font-medium text-slate-700 dark:text-slate-300">Team</span>
             <select
               className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
               value={teamId}
@@ -326,9 +309,7 @@ function EmployeeOrgCard({
             </select>
           </label>
           <label className="flex flex-col gap-1 text-xs">
-            <span className="font-medium text-slate-700 dark:text-slate-300">
-              Reports to
-            </span>
+            <span className="font-medium text-slate-700 dark:text-slate-300">Reports to</span>
             <select
               className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
               value={reportsTo}
@@ -355,9 +336,7 @@ function EmployeeOrgCard({
 }
 
 function EmployeeAvatarCard({ company, emp }: { company: Company; emp: Employee }) {
-  const [avatarKey, setAvatarKey] = React.useState<string | null>(
-    emp.avatarKey ?? null,
-  );
+  const [avatarKey, setAvatarKey] = React.useState<string | null>(emp.avatarKey ?? null);
   const [uploading, setUploading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const fileRef = React.useRef<HTMLInputElement | null>(null);
@@ -372,10 +351,11 @@ function EmployeeAvatarCard({ company, emp }: { company: Company; emp: Employee 
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const res = await fetch(
-        `/api/companies/${company.id}/employees/${emp.id}/avatar`,
-        { method: "POST", credentials: "same-origin", body: fd },
-      );
+      const res = await fetch(`/api/companies/${company.id}/employees/${emp.id}/avatar`, {
+        method: "POST",
+        credentials: "same-origin",
+        body: fd,
+      });
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         let msg = res.statusText;
@@ -414,8 +394,8 @@ function EmployeeAvatarCard({ company, emp }: { company: Company; emp: Employee 
             Profile picture
           </div>
           <div className="text-xs text-slate-500 dark:text-slate-400">
-            Shown in the sidebar, employee list, and workspace chat. PNG, JPEG,
-            GIF, or WebP up to 5&nbsp;MB.
+            Shown in the sidebar, employee list, and workspace chat. PNG, JPEG, GIF, or WebP up to
+            5&nbsp;MB.
           </div>
         </div>
         <FormError message={error} />
@@ -514,12 +494,9 @@ function EmployeeBasicsCard({ company, emp }: { company: Company; emp: Employee 
     <Card>
       <CardBody className="flex flex-col gap-3">
         <div>
-          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-            Basics
-          </div>
+          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Basics</div>
           <div className="text-xs text-slate-500 dark:text-slate-400">
-            Renaming the slug updates the URL for this employee and renames its
-            directory under{" "}
+            Renaming the slug updates the URL for this employee and renames its directory under{" "}
             <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
               data/companies/{company.slug}/employees/
             </code>
@@ -572,13 +549,7 @@ function normalizeSlug(raw: string): string {
  * opts in per employee, then narrows further with the allow list /
  * approval mode.
  */
-function EmployeeBrowserAccessCard({
-  company,
-  emp,
-}: {
-  company: Company;
-  emp: Employee;
-}) {
+function EmployeeBrowserAccessCard({ company, emp }: { company: Company; emp: Employee }) {
   const [enabled, setEnabled] = React.useState<boolean>(!!emp.browserEnabled);
   const [allowedHosts, setAllowedHosts] = React.useState<string>(emp.browserAllowedHosts ?? "");
   const [approval, setApproval] = React.useState<boolean>(!!emp.browserApprovalRequired);
@@ -600,10 +571,9 @@ function EmployeeBrowserAccessCard({
     setEnabled(next);
     setSavingToggle(true);
     try {
-      await api.patch<Employee>(
-        `/api/companies/${company.id}/employees/${emp.id}`,
-        { browserEnabled: next },
-      );
+      await api.patch<Employee>(`/api/companies/${company.id}/employees/${emp.id}`, {
+        browserEnabled: next,
+      });
       toast(next ? "Browser access enabled" : "Browser access disabled", "success");
       window.dispatchEvent(new CustomEvent("genosyn:employee-updated"));
     } catch (err) {
@@ -619,14 +589,10 @@ function EmployeeBrowserAccessCard({
     setApproval(next);
     setSavingApproval(true);
     try {
-      await api.patch<Employee>(
-        `/api/companies/${company.id}/employees/${emp.id}`,
-        { browserApprovalRequired: next },
-      );
-      toast(
-        next ? "Browser submits will require approval" : "Approval gate disabled",
-        "success",
-      );
+      await api.patch<Employee>(`/api/companies/${company.id}/employees/${emp.id}`, {
+        browserApprovalRequired: next,
+      });
+      toast(next ? "Browser submits will require approval" : "Approval gate disabled", "success");
     } catch (err) {
       setApproval(!next);
       toast((err as Error).message || "Could not update approval mode", "error");
@@ -639,10 +605,9 @@ function EmployeeBrowserAccessCard({
     if (savingHosts) return;
     setSavingHosts(true);
     try {
-      await api.patch<Employee>(
-        `/api/companies/${company.id}/employees/${emp.id}`,
-        { browserAllowedHosts: allowedHosts },
-      );
+      await api.patch<Employee>(`/api/companies/${company.id}/employees/${emp.id}`, {
+        browserAllowedHosts: allowedHosts,
+      });
       toast("Allow list saved", "success");
     } catch (err) {
       toast((err as Error).message || "Could not save allow list", "error");
@@ -676,9 +641,8 @@ function EmployeeBrowserAccessCard({
                 <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
                   browser_fill
                 </code>
-                , and screenshot tools so the employee can read and interact
-                with web pages. Off by default — narrow further with the
-                allow list and approval mode below.
+                , and screenshot tools so the employee can read and interact with web pages. Off by
+                default — narrow further with the allow list and approval mode below.
               </p>
             </div>
           </div>
@@ -744,8 +708,7 @@ function EmployeeBrowserAccessCard({
                   <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
                     browser_submit
                   </code>{" "}
-                  queue an Approval row instead of firing immediately. The
-                  employee resumes via{" "}
+                  queue an Approval row instead of firing immediately. The employee resumes via{" "}
                   <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
                     browser_resume
                   </code>{" "}
@@ -917,6 +880,7 @@ function ModelForm({
 }) {
   const [provider, setProvider] = React.useState<Provider>(initial.provider);
   const [modelStr, setModelStr] = React.useState(initial.model);
+  const [authMode, setAuthMode] = React.useState<AuthMode>(initial.authMode);
   const [saving, setSaving] = React.useState(false);
   // Custom-endpoint inputs live on the same form so onboarding is one submit.
   const [baseURL, setBaseURL] = React.useState("");
@@ -925,11 +889,18 @@ function ModelForm({
   const { toast } = useToast();
 
   const isCustom = provider === "custom";
-  const authMode: AuthMode = isCustom ? "customEndpoint" : "apikey";
 
   const onProvider = (p: Provider) => {
     setProvider(p);
     setModelStr(PROVIDER_DEFAULTS[p].model);
+    setAuthMode(PROVIDER_DEFAULTS[p].authMode);
+  };
+
+  const onOpenAIAuthentication = (next: "apikey" | "subscription") => {
+    setAuthMode(next);
+    setModelStr(
+      next === "subscription" ? OPENAI_SUBSCRIPTION_DEFAULT_MODEL : PROVIDER_DEFAULTS.openai.model,
+    );
   };
 
   return (
@@ -982,7 +953,17 @@ function ModelForm({
           <option value="openai">OpenAI (GPT)</option>
           <option value="custom">Custom OpenAI-compatible endpoint</option>
         </Select>
-        {!isCustom && (
+        {provider === "openai" && (
+          <Select
+            label="Authentication"
+            value={authMode}
+            onChange={(e) => onOpenAIAuthentication(e.target.value as "apikey" | "subscription")}
+          >
+            <option value="apikey">OpenAI API key</option>
+            <option value="subscription">ChatGPT subscription</option>
+          </Select>
+        )}
+        {provider === "anthropic" && (
           <Input
             label="Model"
             value={modelStr}
@@ -991,6 +972,14 @@ function ModelForm({
           />
         )}
       </div>
+      {provider === "openai" && (
+        <Input
+          label="Model"
+          value={modelStr}
+          onChange={(e) => setModelStr(e.target.value)}
+          required
+        />
+      )}
       {isCustom && (
         <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900">
           <div className="grid gap-3 sm:grid-cols-2">
@@ -1017,25 +1006,25 @@ function ModelForm({
             placeholder="leave blank if not needed"
           />
           <div className="text-xs text-slate-500 dark:text-slate-400">
-            Point this employee at a self-hosted OpenAI-compatible server —
-            Ollama, vLLM, llama.cpp, LM Studio. Base URL + key are stored
-            encrypted at rest.
+            Point this employee at a self-hosted OpenAI-compatible server — Ollama, vLLM, llama.cpp,
+            LM Studio. Base URL + key are stored encrypted at rest.
           </div>
         </div>
       )}
       {!isCustom && (
         <div className="text-xs text-slate-500 dark:text-slate-400">
           {provider === "anthropic"
-            ? "Claude via the Anthropic API. Add the API key after saving."
-            : "GPT via the OpenAI API. Add the API key after saving."}
+            ? "Claude subscriptions cannot be connected. Create an API key in the Anthropic Console and use API billing."
+            : authMode === "subscription"
+              ? "Self-hosted Linux with bubblewrap is required. Sign in with ChatGPT after saving this model."
+              : "GPT via the OpenAI API. Add the API key after saving."}
         </div>
       )}
       <div>
         <Button
           type="submit"
           disabled={
-            saving ||
-            (isCustom && (baseURL.trim().length === 0 || modelId.trim().length === 0))
+            saving || (isCustom && (baseURL.trim().length === 0 || modelId.trim().length === 0))
           }
         >
           {saving ? "Saving…" : submitLabel}
@@ -1106,20 +1095,27 @@ function ModelCard({
           ? `Pointed at ${model.customEndpointHost}`
           : "Custom endpoint configured";
       }
+      if (model.authMode === "subscription") {
+        return model.subscriptionCredentialKind === "accessToken"
+          ? "Connected with a Business or Enterprise access token"
+          : "Connected to a ChatGPT subscription";
+      }
       return `Authenticated with ${model.apiKeyEnv ?? "API"} key`;
     }
     if (model.authMode === "customEndpoint") {
       return "Enter the server's base URL and model id below to connect.";
     }
+    if (model.authMode === "subscription") {
+      return model.subscriptionAvailable
+        ? "Sign in with ChatGPT below to connect."
+        : (model.subscriptionUnavailableReason ??
+            "ChatGPT subscription sign-in is unavailable on this install.");
+    }
     return `No ${model.apiKeyEnv ?? "API"} key on file yet — paste one below to connect.`;
   })();
 
   return (
-    <Card
-      className={
-        model.isActive ? "ring-1 ring-indigo-300 dark:ring-indigo-500/40" : undefined
-      }
-    >
+    <Card className={model.isActive ? "ring-1 ring-indigo-300 dark:ring-indigo-500/40" : undefined}>
       <CardBody className="flex flex-col gap-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -1140,11 +1136,7 @@ function ModelCard({
           <div className="flex shrink-0 items-center gap-1">
             {!model.isActive && (
               <Button size="sm" variant="ghost" onClick={activate} disabled={activating}>
-                {activating ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  <Check size={14} />
-                )}
+                {activating ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
                 Make active
               </Button>
             )}
@@ -1157,22 +1149,15 @@ function ModelCard({
         {!connected && model.authMode === "apikey" && (
           <ApiKeyPanel company={company} emp={emp} model={model} onSaved={onChanged} />
         )}
+        {model.authMode === "subscription" && (
+          <SubscriptionPanel company={company} emp={emp} model={model} onSaved={onChanged} />
+        )}
         {model.authMode === "customEndpoint" && (
-          <CustomEndpointPanel
-            company={company}
-            emp={emp}
-            model={model}
-            onSaved={onChanged}
-          />
+          <CustomEndpointPanel company={company} emp={emp} model={model} onSaved={onChanged} />
         )}
 
-        {connected && (
-          <ContextWindowPanel
-            company={company}
-            emp={emp}
-            model={model}
-            onChanged={onChanged}
-          />
+        {connected && model.authMode !== "subscription" && (
+          <ContextWindowPanel company={company} emp={emp} model={model} onChanged={onChanged} />
         )}
 
         <details className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700">
@@ -1281,8 +1266,8 @@ function ContextWindowPanel({
               </>
             ) : (
               <>
-                Unknown — runs on this model {"can't"} budget their context, and will
-                only notice an over-long prompt once the provider rejects it.
+                Unknown — runs on this model {"can't"} budget their context, and will only notice an
+                over-long prompt once the provider rejects it.
               </>
             )}
           </div>
@@ -1347,8 +1332,8 @@ function ContextWindowPanel({
           </Button>
           <p className="w-full text-xs text-slate-500 dark:text-slate-400">
             Whatever the server was launched with — vLLM{"'"}s <code>--max-model-len</code>,
-            llama.cpp{"'"}s <code>-c</code>, or the model{"'"}s documented limit. A number
-            set here wins over anything the provider reports.
+            llama.cpp{"'"}s <code>-c</code>, or the model{"'"}s documented limit. A number set here
+            wins over anything the provider reports.
           </p>
         </form>
       )}
@@ -1381,6 +1366,283 @@ function ActiveBadge() {
 
 function apiKeyPlaceholder(p: Provider): string {
   return p === "openai" ? "sk-…" : "sk-ant-…";
+}
+
+/**
+ * OpenAI subscription authentication. The normal path starts the server-side
+ * device flow and polls its short-lived session while the member signs in in a
+ * separate tab. Business and Enterprise installations can instead supply a
+ * directly issued access token through the advanced form.
+ */
+function SubscriptionPanel({
+  company,
+  emp,
+  model,
+  onSaved,
+}: {
+  company: Company;
+  emp: Employee;
+  model: AIModel;
+  onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const [deviceSession, setDeviceSession] = React.useState<SubscriptionDeviceSession | null>(null);
+  const [starting, setStarting] = React.useState(false);
+  const [cancelling, setCancelling] = React.useState(false);
+  const [pollError, setPollError] = React.useState<string | null>(null);
+  const [accessToken, setAccessToken] = React.useState("");
+  const [savingToken, setSavingToken] = React.useState(false);
+  const connected = model.status === "connected";
+  const deviceSignInAvailable = model.supportsSubscription && model.subscriptionAvailable;
+  const base = `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}/subscription`;
+
+  const receiveDeviceSession = React.useCallback(
+    (next: SubscriptionDeviceSession) => {
+      setDeviceSession(next);
+      setPollError(null);
+      if (next.status === "succeeded") {
+        toast("ChatGPT subscription connected", "success");
+        onSaved();
+      }
+    },
+    [onSaved, toast],
+  );
+
+  const deviceSessionId = deviceSession?.id;
+  const deviceSessionStatus = deviceSession?.status;
+
+  React.useEffect(() => {
+    if (!deviceSessionId || deviceSessionStatus !== "running") return;
+
+    let stopped = false;
+    let timer: number | undefined;
+    const poll = async () => {
+      try {
+        const next = await api.get<SubscriptionDeviceSession>(`${base}/device/${deviceSessionId}`);
+        if (stopped) return;
+        receiveDeviceSession(next);
+        if (next.status === "running") {
+          timer = window.setTimeout(poll, 1_500);
+        }
+      } catch (err) {
+        if (stopped) return;
+        setPollError((err as Error).message);
+        timer = window.setTimeout(poll, 2_500);
+      }
+    };
+
+    timer = window.setTimeout(poll, 1_000);
+    return () => {
+      stopped = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [base, deviceSessionId, deviceSessionStatus, receiveDeviceSession]);
+
+  async function startDeviceSignIn() {
+    setStarting(true);
+    setPollError(null);
+    try {
+      const session = await api.post<SubscriptionDeviceSession>(`${base}/device`);
+      receiveDeviceSession(session);
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  async function cancelDeviceSignIn() {
+    if (!deviceSession || deviceSession.status !== "running") return;
+    setCancelling(true);
+    try {
+      await api.del(`${base}/device/${deviceSession.id}`);
+      setDeviceSession((current) =>
+        current ? { ...current, status: "cancelled", error: null } : current,
+      );
+      setPollError(null);
+      toast("ChatGPT sign-in cancelled");
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setCancelling(false);
+    }
+  }
+
+  async function saveAccessToken(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingToken(true);
+    try {
+      await api.post(`${base}/access-token`, { accessToken });
+      setAccessToken("");
+      setDeviceSession(null);
+      toast("OpenAI subscription access token saved", "success");
+      onSaved();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setSavingToken(false);
+    }
+  }
+
+  const deviceRunning = deviceSession?.status === "running";
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+      <div>
+        <div className="text-xs font-medium text-slate-700 dark:text-slate-200">
+          ChatGPT subscription
+        </div>
+        <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+          {connected
+            ? "Connected. Sign in again below whenever you need to replace the stored subscription credentials."
+            : "Connect the ChatGPT account this AI Employee should use."}
+        </div>
+      </div>
+
+      {!deviceSignInAvailable && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+          Browser sign-in is unavailable:{" "}
+          {model.subscriptionUnavailableReason ??
+            "this Genosyn install does not support ChatGPT device sign-in."}
+        </div>
+      )}
+
+      {!model.subscriptionShellAvailable && (
+        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+          Subscription turns receive the shell tool only when coding tools are enabled in bubblewrap
+          mode. It is unavailable on this install; subscription turns do not expose the host-process
+          file tools.
+        </div>
+      )}
+
+      {deviceRunning && (
+        <div
+          className="flex flex-col gap-3 rounded-md bg-slate-50 p-3 dark:bg-slate-900"
+          aria-live="polite"
+        >
+          <div className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-200">
+            <Loader2 size={14} className="animate-spin" />
+            Waiting for you to finish signing in
+          </div>
+          {deviceSession.loginUrl && (
+            <a
+              className="inline-flex w-fit items-center gap-1 text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-300 dark:hover:text-indigo-200"
+              href={deviceSession.loginUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open ChatGPT sign-in <ExternalLink size={13} />
+            </a>
+          )}
+          {deviceSession.userCode && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-slate-500 dark:text-slate-400">One-time code</span>
+              <code className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm font-semibold tracking-wider text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">
+                {deviceSession.userCode}
+              </code>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={async () => {
+                  const copied = await copyToClipboard(deviceSession.userCode ?? "");
+                  toast(
+                    copied ? "Code copied" : "Could not copy the code",
+                    copied ? "success" : "error",
+                  );
+                }}
+              >
+                <Copy size={13} /> Copy
+              </Button>
+            </div>
+          )}
+          {pollError && (
+            <div className="text-xs text-amber-700 dark:text-amber-300">
+              Could not check sign-in status ({pollError}). Retrying…
+            </div>
+          )}
+        </div>
+      )}
+
+      {deviceSession?.status === "failed" && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+          {deviceSession.error ?? "ChatGPT sign-in failed. Start a new sign-in to try again."}
+        </div>
+      )}
+      {deviceSession?.status === "cancelled" && (
+        <div className="text-xs text-slate-500 dark:text-slate-400">Sign-in was cancelled.</div>
+      )}
+      {deviceSession?.status === "succeeded" && (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
+          ChatGPT subscription connected.
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        {deviceSignInAvailable && !deviceRunning && (
+          <Button type="button" size="sm" onClick={startDeviceSignIn} disabled={starting}>
+            {starting && <Loader2 size={14} className="animate-spin" />}
+            {starting
+              ? "Starting…"
+              : connected || deviceSession?.status === "succeeded"
+                ? "Reconnect with ChatGPT"
+                : "Sign in with ChatGPT"}
+          </Button>
+        )}
+        {deviceRunning && (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={cancelDeviceSignIn}
+            disabled={cancelling}
+          >
+            {cancelling ? "Cancelling…" : "Cancel sign-in"}
+          </Button>
+        )}
+      </div>
+
+      {model.subscriptionAvailable && (
+        <details className="border-t border-slate-200 pt-3 dark:border-slate-700">
+          <summary className="cursor-pointer text-xs text-slate-600 dark:text-slate-300">
+            Advanced: Business or Enterprise access token
+          </summary>
+          <form className="mt-3 flex flex-col gap-2" onSubmit={saveAccessToken}>
+            <Input
+              label="Access token"
+              type="password"
+              value={accessToken}
+              onChange={(e) => setAccessToken(e.target.value)}
+              placeholder={
+                model.subscriptionCredentialKind === "accessToken"
+                  ? "•••••••• (replace existing token)"
+                  : "Paste an access token"
+              }
+              autoComplete="off"
+              required
+            />
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              Use this only when your OpenAI Business or Enterprise setup issues a direct access
+              token. It is stored encrypted at rest.
+            </div>
+            <div>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={savingToken || accessToken.trim().length === 0}
+              >
+                {savingToken
+                  ? "Saving…"
+                  : model.subscriptionCredentialKind === "accessToken"
+                    ? "Replace access token"
+                    : "Save access token"}
+              </Button>
+            </div>
+          </form>
+        </details>
+      )}
+    </div>
+  );
 }
 
 function ApiKeyPanel({
@@ -1506,11 +1768,15 @@ function CustomEndpointPanel({
         type="password"
         value={apiKey}
         onChange={(e) => setApiKey(e.target.value)}
-        placeholder={model.customEndpointHasApiKey ? "•••••••• (replace to update)" : "leave blank if not needed"}
+        placeholder={
+          model.customEndpointHasApiKey
+            ? "•••••••• (replace to update)"
+            : "leave blank if not needed"
+        }
       />
       <div className="text-xs text-slate-500 dark:text-slate-400">
-        Point this employee at a self-hosted OpenAI-compatible server. Base URL +
-        key are stored encrypted at rest.
+        Point this employee at a self-hosted OpenAI-compatible server. Base URL + key are stored
+        encrypted at rest.
       </div>
       <div>
         <Button type="submit" disabled={saving || baseURL.length === 0 || modelId.length === 0}>
@@ -1609,9 +1875,7 @@ export function JournalPage() {
   ): Promise<boolean> {
     try {
       const updated = await api.patch<JournalEntryT>(`${base}/journal/${id}`, patch);
-      setEntries((prev) =>
-        prev ? prev.map((e) => (e.id === id ? updated : e)) : prev,
-      );
+      setEntries((prev) => (prev ? prev.map((e) => (e.id === id ? updated : e)) : prev));
       return true;
     } catch (err) {
       toast((err as Error).message, "error");
@@ -1627,9 +1891,10 @@ export function JournalPage() {
           <p className="text-xs text-slate-500 dark:text-slate-400">
             A daily diary of what this employee did. Routine runs land here automatically.
             <strong className="text-slate-700 dark:text-slate-200">
-              {" "}The last 7 days are auto-injected into every chat and routine run
-            </strong>
-            {" "}— they&apos;re how the employee remembers what happened yesterday.
+              {" "}
+              The last 7 days are auto-injected into every chat and routine run
+            </strong>{" "}
+            — they&apos;re how the employee remembers what happened yesterday.
           </p>
           <form onSubmit={addNote} className="mt-3 flex flex-col gap-2">
             <Input
@@ -1759,11 +2024,7 @@ function JournalEntryRow({
             </div>
             {editing && (
               <div className="mt-2 flex gap-1.5">
-                <Button
-                  size="sm"
-                  onClick={save}
-                  disabled={saving || !draftTitle.trim()}
-                >
+                <Button size="sm" onClick={save} disabled={saving || !draftTitle.trim()}>
                   {saving ? "Saving…" : "Save"}
                 </Button>
                 <Button
@@ -1779,20 +2040,10 @@ function JournalEntryRow({
           </div>
           {!editing && (
             <div className="flex shrink-0 gap-1">
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={start}
-                aria-label="Edit entry"
-              >
+              <Button size="sm" variant="ghost" onClick={start} aria-label="Edit entry">
                 <Edit3 size={12} />
               </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={onDelete}
-                aria-label="Delete entry"
-              >
+              <Button size="sm" variant="ghost" onClick={onDelete} aria-label="Delete entry">
                 <Trash2 size={12} />
               </Button>
             </div>
@@ -1856,10 +2107,7 @@ export function MemoryPage() {
     }
   }
 
-  async function update(
-    id: string,
-    patch: { title?: string; body?: string },
-  ): Promise<boolean> {
+  async function update(id: string, patch: { title?: string; body?: string }): Promise<boolean> {
     try {
       const updated = await api.patch<MemoryItem>(`${base}/memory/${id}`, patch);
       setItems((prev) => (prev ? prev.map((x) => (x.id === id ? updated : x)) : prev));
@@ -1893,8 +2141,13 @@ export function MemoryPage() {
         <CardBody>
           <p className="text-xs text-slate-500 dark:text-slate-400">
             Durable facts and preferences this employee should recall in
-            <strong className="text-slate-700 dark:text-slate-200"> every conversation and routine run</strong>
-            . Unlike the free-form Soul, each memory item is a single short fact you can add, edit, or delete without touching the others. {emp.name} can also curate these themselves via MCP tools.
+            <strong className="text-slate-700 dark:text-slate-200">
+              {" "}
+              every conversation and routine run
+            </strong>
+            . Unlike the free-form Soul, each memory item is a single short fact you can add, edit,
+            or delete without touching the others. {emp.name} can also curate these themselves via
+            MCP tools.
           </p>
           <form onSubmit={add} className="mt-3 flex flex-col gap-2">
             <Input
@@ -2020,11 +2273,7 @@ function MemoryRow({
             </div>
             {editing && (
               <div className="mt-2 flex gap-1.5">
-                <Button
-                  size="sm"
-                  onClick={save}
-                  disabled={saving || !draftTitle.trim()}
-                >
+                <Button size="sm" onClick={save} disabled={saving || !draftTitle.trim()}>
                   {saving ? "Saving…" : "Save"}
                 </Button>
                 <Button
@@ -2040,20 +2289,10 @@ function MemoryRow({
           </div>
           {!editing && (
             <div className="flex shrink-0 gap-1">
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={start}
-                aria-label="Edit memory"
-              >
+              <Button size="sm" variant="ghost" onClick={start} aria-label="Edit memory">
                 <Edit3 size={12} />
               </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={onDelete}
-                aria-label="Delete memory"
-              >
+              <Button size="sm" variant="ghost" onClick={onDelete} aria-label="Delete memory">
                 <Trash2 size={12} />
               </Button>
             </div>
@@ -2196,17 +2435,13 @@ function ExternalMcpPanel({ company, emp }: { company: Company; emp: Employee })
     <Card>
       <CardBody className="flex flex-col gap-3">
         <div className="flex items-start gap-2">
-          <ExternalLink
-            size={14}
-            className="mt-0.5 shrink-0 text-slate-500 dark:text-slate-400"
-          />
+          <ExternalLink size={14} className="mt-0.5 shrink-0 text-slate-500 dark:text-slate-400" />
           <div className="min-w-0">
             <div className="text-sm font-medium">Connect an external harness</div>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Point any MCP client — Claude Desktop, Cursor, or your own agent —
-              at the URL below to use {emp.name}
-              {"’"}s built-in Genosyn tools over Streamable HTTP.
-              Authenticate with an{" "}
+              Point any MCP client — Claude Desktop, Cursor, or your own agent — at the URL below to
+              use {emp.name}
+              {"’"}s built-in Genosyn tools over Streamable HTTP. Authenticate with an{" "}
               <NavLink
                 to={`/c/${company.slug}/settings/api-keys`}
                 className="underline hover:text-slate-700 dark:hover:text-slate-200"
@@ -2290,10 +2525,7 @@ function NewMcpModal({
         .map((p) => p.trim())
         .filter(Boolean);
       if (guardedTools.length) body.guardedTools = guardedTools;
-      await api.post(
-        `/api/companies/${company.id}/employees/${emp.id}/mcp`,
-        body,
-      );
+      await api.post(`/api/companies/${company.id}/employees/${emp.id}/mcp`, body);
       onCreated();
     } catch (err) {
       toast((err as Error).message, "error");
@@ -2313,15 +2545,13 @@ function NewMcpModal({
           required
         />
         <div className="flex flex-col gap-1">
-          <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Transport</label>
+          <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
+            Transport
+          </label>
           <div className="flex gap-2">
             {(["stdio", "http"] as const).map((t) => (
               <label key={t} className="flex items-center gap-1.5 text-sm">
-                <input
-                  type="radio"
-                  checked={transport === t}
-                  onChange={() => setTransport(t)}
-                />
+                <input type="radio" checked={transport === t} onChange={() => setTransport(t)} />
                 {t}
               </label>
             ))}
@@ -2374,9 +2604,8 @@ function NewMcpModal({
             placeholder="e.g. ads_create_*, ads_update_*"
           />
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Tool names matching these patterns (<code>*</code> wildcard) queue a
-            human Approval instead of running. Guard anything that mutates —
-            budget changes, sends, deletes.
+            Tool names matching these patterns (<code>*</code> wildcard) queue a human Approval
+            instead of running. Guard anything that mutates — budget changes, sends, deletes.
           </p>
         </div>
         <div className="flex gap-2">

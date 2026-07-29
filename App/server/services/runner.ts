@@ -25,6 +25,9 @@ import { composeEmployeeSystemPrompt } from "./agent/systemPrompt.js";
 import { residentNamesForSkills, skillToolsetMap } from "./skillToolset.js";
 import { acquireWorkloadLease, releaseWorkloadLease } from "./workloadLeases.js";
 import { DurableRunLog, RUN_LOG_MAX_BYTES } from "./runLog.js";
+import { supportsParallelDelegation } from "./agent/tools/parallelDelegation.js";
+import { shouldMaterializeRepositoriesForTurn } from "./codexSubscription.js";
+import { CODING_TOOL_NAMES } from "./agent/tools/coding.js";
 
 export { RUN_LOG_MAX_BYTES } from "./runLog.js";
 
@@ -156,10 +159,7 @@ export async function startRoutineRun(
     persist: async (content) => {
       // Never let a late checkpoint overwrite a terminal row recovered or
       // finalized elsewhere. Only the transcript column changes.
-      await runRepo.update(
-        { id: saved.id, status: "running" },
-        { logContent: content },
-      );
+      await runRepo.update({ id: saved.id, status: "running" }, { logContent: content });
     },
     onCheckpointError: (error) => {
       // A later checkpoint or the final Run save will try again. The Routine
@@ -218,8 +218,24 @@ export async function startRoutineRun(
         return saved;
       }
 
+      const parallelDelegationAvailable = supportsParallelDelegation(model.authMode);
+      const unavailableCodingTools =
+        !config.agent.codingTools.enabled || config.agent.codingTools.executionMode === "disabled"
+          ? [...CODING_TOOL_NAMES]
+          : config.agent.codingTools.executionMode === "bubblewrap"
+            ? CODING_TOOL_NAMES.filter((name) => name !== "bash")
+            : model.authMode === "subscription"
+              ? [...CODING_TOOL_NAMES]
+              : [];
+      const unavailableSkillTools = [
+        ...(parallelDelegationAvailable ? [] : ["delegate_parallel_work"]),
+        ...unavailableCodingTools,
+      ];
+      const repositoryMaterializationAllowed = shouldMaterializeRepositoriesForTurn(model.authMode);
       const memoryContext = await composeMemoryContext(emp.id);
-      const codeReposContext = await composeCodeReposContext(emp.id);
+      const codeReposContext = repositoryMaterializationAllowed
+        ? await composeCodeReposContext(emp.id)
+        : "";
       const financeContext = await composeFinanceContext(emp.id);
       const [revenueContext, marketingContext] = await Promise.all([
         composeRevenueContext(emp.id),
@@ -235,10 +251,13 @@ export async function startRoutineRun(
         revenueContext,
         marketingContext,
         surface: "routine",
+        parallelDelegationAvailable,
+        codingToolsAvailable: unavailableCodingTools.length < CODING_TOOL_NAMES.length,
+        isolatedCodingTools: config.agent.codingTools.executionMode === "bubblewrap",
         opening:
           `You are ${emp.name}, ${emp.role} at ${co.name}. The following documents are yours — ` +
           `your Soul, your Memory, and your Skills.`,
-        skillToolsets: skillToolsetMap(skills),
+        skillToolsets: skillToolsetMap(skills, unavailableSkillTools),
       });
       const userMessage = composeRoutineMessage(routine, missedSlots);
 
@@ -257,25 +276,29 @@ export async function startRoutineRun(
         }
       }
 
-      // Materialize granted GitHub Connection repos + provider-agnostic Code
-      // Repositories into the employee's cwd. Errors are non-fatal.
-      const repoSync = await materializeReposForEmployee({ employeeId: emp.id, cwd });
-      Object.assign(toolEnv, repoSync.extraEnv);
-      for (const r of repoSync.repos) {
-        log.line(`[repos] synced ${r.owner}/${r.name}@${r.defaultBranch}`);
-      }
-      for (const e of repoSync.errors) log.line(`[repos] ${e.scope}: ${e.message}`);
+      if (repositoryMaterializationAllowed) {
+        // Materialize granted GitHub Connection repos + provider-agnostic Code
+        // Repositories into the employee's cwd. Errors are non-fatal.
+        const repoSync = await materializeReposForEmployee({ employeeId: emp.id, cwd });
+        Object.assign(toolEnv, repoSync.extraEnv);
+        for (const r of repoSync.repos) {
+          log.line(`[repos] synced ${r.owner}/${r.name}@${r.defaultBranch}`);
+        }
+        for (const e of repoSync.errors) log.line(`[repos] ${e.scope}: ${e.message}`);
 
-      const codeRepoSync = await materializeCodeReposForEmployee({
-        employeeId: emp.id,
-        cwd,
-        githubRepoCredentials: repoSync.githubRepoCredentials,
-      });
-      Object.assign(toolEnv, codeRepoSync.extraEnv);
-      for (const r of codeRepoSync.repos) {
-        log.line(`[code-repos] synced ${r.slug}@${r.defaultBranch} (${r.accessLevel})`);
+        const codeRepoSync = await materializeCodeReposForEmployee({
+          employeeId: emp.id,
+          cwd,
+          githubRepoCredentials: repoSync.githubRepoCredentials,
+        });
+        Object.assign(toolEnv, codeRepoSync.extraEnv);
+        for (const r of codeRepoSync.repos) {
+          log.line(`[code-repos] synced ${r.slug}@${r.defaultBranch} (${r.accessLevel})`);
+        }
+        for (const e of codeRepoSync.errors) log.line(`[code-repos] ${e.scope}: ${e.message}`);
+      } else {
+        log.line("[repos] automatic repository sync is disabled for this Run");
       }
-      for (const e of codeRepoSync.errors) log.line(`[code-repos] ${e.scope}: ${e.message}`);
 
       log.line("");
 
@@ -304,7 +327,7 @@ export async function startRoutineRun(
           genosynToken: mcpToken,
           bashTimeoutMs: Math.min(timeoutMs, 5 * 60 * 1000),
           maxSteps: RUN_MAX_STEPS,
-          skillToolset: residentNamesForSkills(skills),
+          skillToolset: residentNamesForSkills(skills, unavailableSkillTools),
           routineId: routine.id,
           runId: saved.id,
           signal: controller.signal,
@@ -465,7 +488,9 @@ function toolDeferLine(d: ToolDeferralInfo): string {
     return `[tools] ${d.resident} tools, all loaded up-front (discovery off or catalogue small).`;
   }
   const skills =
-    d.fromSkills.length > 0 ? ` (${d.fromSkills.length} from Skills: ${d.fromSkills.join(", ")})` : "";
+    d.fromSkills.length > 0
+      ? ` (${d.fromSkills.length} from Skills: ${d.fromSkills.join(", ")})`
+      : "";
   return (
     `[tools] ${d.resident} loaded${skills}, ${d.deferred} in the catalogue behind find_tools ` +
     `— ${d.domains.join(", ")}.`

@@ -125,8 +125,9 @@ export function Employees() {
           constitution. Rewrite it to fit your team.
         </LI>
         <LI>
-          <Strong>Attach a model.</Strong> Pick a provider, add an API key or custom endpoint, and
-          the runner takes over from there.
+          <Strong>Attach a model.</Strong> Pick a provider and authentication method. Anthropic
+          takes an API key; OpenAI takes an API key or, on self-hosted Genosyn, eligible ChatGPT
+          subscription access; Custom takes an OpenAI-compatible endpoint.
         </LI>
         <LI>
           <Strong>Add skills + routines.</Strong> Skills describe what they know; Routines describe
@@ -145,14 +146,24 @@ export function Employees() {
 └── ...   # files the employee's coding tools read and write`}
       </pre>
       <P>
-        The runner starts an in-process agent loop with this directory as <Code>cwd</Code> for the
+        The runner starts the selected agent runtime with this directory as <Code>cwd</Code> for the
         built-in coding tools (<Code>bash</Code>, <Code>read_file</Code>, <Code>write_file</Code>,{" "}
         <Code>edit_file</Code>, <Code>glob</Code>, <Code>grep</Code>), and captures the agent
-        transcript into a Run log. A Routine does not make its AI employee unavailable: Members can
-        keep chatting with that employee and start independent Routines in parallel, up to the
-        company workload limit. Concurrent work shares this directory, so give overlapping Runs
-        distinct output files and avoid simultaneous edits to the same git working tree. Model
-        credentials stay encrypted in the database, never on disk.
+        transcript into a Run log. API-key and custom models use Genosyn&apos;s in-process loop;
+        OpenAI subscription models use the official Codex app-server. A Routine does not make its AI
+        employee unavailable: Members can keep chatting with that employee and start independent
+        Routines in parallel, up to the company workload limit. Concurrent work shares this
+        directory, so give overlapping Runs distinct output files and avoid simultaneous edits to
+        the same git working tree. Model credentials stay encrypted in the database. They never
+        enter the employee working directory. For an OpenAI subscription login or Run, Genosyn gives
+        the official app-server a locked temporary <Code>CODEX_HOME</Code>. Managed ChatGPT sessions
+        are materialized there; access tokens enter only the child process environment. Genosyn
+        removes the directory afterward. Subscription auth is unavailable while coding tools use
+        host mode, because a concurrent AI Employee&apos;s same-user shell could inspect that
+        sibling process. Use working Linux bubblewrap mode. In that mode every AI Model turn uses
+        sandboxed <Code>bash</Code> for file work, and repository synchronization stays inside the
+        same namespace; Genosyn omits its host-process file helpers install-wide so concurrent turns
+        cannot race them across the boundary.
       </P>
 
       <H3 id="org-chart">Org chart</H3>
@@ -174,14 +185,14 @@ export function Employees() {
           with a live, labelled progress bar and update it at meaningful milestones. The fill keeps
           moving between milestone updates so you can distinguish active work from a stalled
           connection without inflating the reported percentage. As soon as the reply begins, the
-          progress bar gives way to the response. Long turns can run for up to six hours. If the live
-          connection drops, you reload the page, or the Genosyn server restarts, Genosyn follows the
-          persisted turn automatically instead of marking it failed. After a server restart, a short
-          renewable database lease lets one replacement worker resume the request safely from its
-          saved context and latest milestone; it checks current state before continuing so completed
-          side effects are not repeated. The final reply reappears in the same thread. You can keep
-          writing while the employee works — follow-ups queue and send in order. Chat stays
-          available while that employee&apos;s Routines run.
+          progress bar gives way to the response. Long turns can run for up to six hours. If the
+          live connection drops, you reload the page, or the Genosyn server restarts, Genosyn
+          follows the persisted turn automatically instead of marking it failed. After a server
+          restart, a short renewable database lease lets one replacement worker resume the request
+          safely from its saved context and latest milestone; it checks current state before
+          continuing so completed side effects are not repeated. The final reply reappears in the
+          same thread. You can keep writing while the employee works — follow-ups queue and send in
+          order. Chat stays available while that employee&apos;s Routines run.
         </LI>
         <LI>
           <Strong>Workspace.</Strong> File editor scoped to the employee&apos;s directory — read
@@ -209,9 +220,10 @@ export function Employees() {
 
       <Callout kind="info" title="Models are employee-owned, on purpose.">
         Each employee owns their own provider credentials, stored encrypted (AES-256-GCM) in the
-        database — even when they register several models, every key belongs to that one employee.
-        There&apos;s no shared company-wide API key. Firing an employee deletes all of their
-        encrypted credential rows; you don&apos;t have to rotate anything for the rest of the team.
+        database — even when they register several models, every API key, endpoint credential, or
+        OpenAI subscription credential belongs to that one employee. There&apos;s no shared
+        company-wide model credential. Firing an employee deletes all of their encrypted credential
+        rows; you don&apos;t have to rotate anything for the rest of the team.
       </Callout>
     </>
   );

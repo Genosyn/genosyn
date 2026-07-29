@@ -16,6 +16,7 @@ test("provider catalogue exposes exactly the supported model APIs", () => {
   ][]) {
     assert.ok(spec.label.length > 0, `${provider} needs a label`);
     assert.equal(spec.supportsApiKey, provider !== "custom");
+    assert.equal(spec.supportsSubscription, provider === "openai");
     assert.equal(spec.supportsCustomEndpoint, provider === "custom");
     assert.equal(spec.apiKeyEnv === null, provider === "custom");
   }
@@ -36,15 +37,33 @@ test("custom models require a non-blank encrypted base URL but not an API key", 
   );
   assert.equal(
     isModelConnected(
-      model(
-        "customEndpoint",
-        '{"baseURLEncrypted":"v2:ciphertext","apiKeyEncrypted":""}',
-      ),
+      model("customEndpoint", '{"baseURLEncrypted":"v2:ciphertext","apiKeyEncrypted":""}'),
     ),
     true,
   );
   assert.equal(isModelConnected(model("customEndpoint", '{"baseURLEncrypted":"\\t"}')), false);
   assert.equal(isModelConnected(model("customEndpoint", '{"modelId":"local-model"}')), false);
+});
+
+test("subscription models accept either managed ChatGPT auth or a Codex access token", () => {
+  assert.equal(
+    isModelConnected(model("subscription", '{"codexAuthEncrypted":"v2:ciphertext"}')),
+    true,
+  );
+  assert.equal(
+    isModelConnected(model("subscription", '{"codexAccessTokenEncrypted":"v2:ciphertext"}')),
+    true,
+  );
+  assert.equal(
+    isModelConnected(
+      model("subscription", '{"codexAuthEncrypted":" ","codexAccessTokenEncrypted":""}'),
+    ),
+    false,
+  );
+  assert.equal(
+    isModelConnected(model("subscription", '{"subscriptionCredentialKind":"chatgptSession"}')),
+    false,
+  );
 });
 
 test("malformed or non-object model configuration is disconnected", () => {

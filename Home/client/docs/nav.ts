@@ -73,7 +73,7 @@ export const DOCS_NAV: DocsSection[] = [
       {
         path: "/docs/models",
         title: "AI Models",
-        blurb: "Connect Anthropic, OpenAI, or a custom OpenAI-compatible endpoint.",
+        blurb: "Connect API keys, a custom endpoint, or a self-hosted OpenAI subscription.",
       },
       {
         path: "/docs/tool-discovery",

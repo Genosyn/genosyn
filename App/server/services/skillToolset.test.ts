@@ -6,7 +6,10 @@ import {
   serializeToolset,
   validateToolset,
   MAX_TOOLSET_ENTRIES,
+  residentNamesForSkills,
+  skillToolsetMap,
 } from "./skillToolset.js";
+import type { Skill } from "../db/entities/Skill.js";
 
 describe("parseToolset", () => {
   test("reads a stored list", () => {
@@ -102,4 +105,15 @@ describe("validateToolset", () => {
     assert.equal(validateToolset("send_invoice" as unknown).ok, false);
     assert.equal(validateToolset([123] as unknown).ok, false);
   });
+});
+
+test("runtime toolsets omit a declared tool that is unavailable for the turn", () => {
+  const skill = {
+    id: "skill-1",
+    toolsetJson: JSON.stringify(["delegate_parallel_work", "read_file", "send_invoice"]),
+  } as Skill;
+  const unavailable = ["delegate_parallel_work", "read_file"];
+
+  assert.deepEqual(residentNamesForSkills([skill], unavailable), ["send_invoice"]);
+  assert.deepEqual(skillToolsetMap([skill], unavailable).get(skill.id), ["send_invoice"]);
 });

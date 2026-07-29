@@ -56,6 +56,21 @@ don't re-litigate them.
    invoice chain work for prospects for free. `Contact.customerId` and
    `Deal.customerId` are both nullable so the relationship can start with
    neither.
+10. **Subscription auth is an OpenAI-only, self-hosted exception.** Direct
+    API-key and custom-endpoint models still run through Genosyn's in-process
+    loop. An OpenAI model may use `authMode: "subscription"` through the
+    official pinned `@openai/codex` app-server, authenticated by ChatGPT device
+    sign-in or a Business / Enterprise Codex access token. The credential stays
+    encrypted on `AIModel.configJson`. Managed sessions are materialized only
+    in a locked temporary `CODEX_HOME`; access tokens enter only the child
+    process environment. `config.security.multiTenant` rejects
+    this mode. Subscription auth requires working Linux `bubblewrap` isolation
+    for coding tools and repository materialization. The standard Docker
+    installer retains host mode because Docker's default namespace policy
+    blocks that isolation; operators currently enable it in a source-managed
+    Linux deployment. This mode supports one App replica. Anthropic
+    subscription credentials remain unsupported because Anthropic prohibits
+    third-party products from routing traffic against subscription limits.
 
 ---
 
@@ -72,12 +87,14 @@ don't re-litigate them.
   `Skill.body`.
 - **Routine** — a scheduled recurring piece of work. Cron-triggered. Markdown
   brief on `Routine.body` alongside cron metadata.
-- **AI Model** — a brain an AI Employee can run on: a direct connection to a
-  model API. An employee can register several and keep exactly one active
-  (`AIModel.isActive`). Provider is `anthropic` (Claude), `openai` (GPT), or
-  `custom` (any OpenAI-compatible endpoint); the API key / base URL lives
-  encrypted on `AIModel.configJson`. Genosyn calls the API in-process and runs
-  the tool-use loop itself — no provider CLIs.
+- **AI Model** — a brain an AI Employee can run on: normally a direct
+  connection to a model API, with a source-managed Linux OpenAI subscription
+  path through the official Codex app-server. An employee can register several
+  and keep exactly one active (`AIModel.isActive`). Provider is `anthropic`
+  (Claude), `openai` (GPT), or `custom` (any OpenAI-compatible endpoint); the
+  API key, base URL, or OpenAI subscription credential lives encrypted on
+  `AIModel.configJson`. API-key and custom models run in-process; generic
+  provider CLI harnesses remain forbidden.
 - **Run** — a single execution of a routine. The agent's transcript (streamed
   text + tool activity) is stored on `Run.logContent` (256 KB cap).
 - **Integration** — a connector type (Stripe, Gmail, Metabase, …). Static
@@ -202,7 +219,10 @@ export const config = {
     bootstrapMasterAdminEmail: "",
   },
   agent: {
-    codingTools: { executionMode: "host", allowNetwork: true },
+    codingTools: {
+      executionMode: "host",
+      allowNetwork: true,
+    },
     browserEnabledInMultiTenant: false,
     maxConcurrentRunsPerCompany: 4,
   },
@@ -534,9 +554,12 @@ sends system mail); this is the company's real inbox. Internal namespace is
 
 ### M6 — AI Models (employee-owned) ✅
 
-> **Superseded by M22.** The provider-CLI harnesses, subscription sign-in, and
-> per-provider config materialization below were removed; Genosyn now calls the
-> model API directly in-process. The employee-owned / one-active model remains.
+> **Superseded by M22.** The generic provider-CLI harnesses, subscription
+> sign-in, and persistent per-provider config materialization below were
+> removed in M22. M22 later gained one deliberately narrow exception:
+> source-managed Linux OpenAI subscription access through the official Codex
+> app-server. That is not a revival of the provider-harness architecture. The
+> employee-owned / one-active model remains.
 
 - [x] `AIModel` employee-owned — many per employee, exactly one active
       (`AIModel.isActive`, newest-added active by default, switchable any time);
@@ -553,9 +576,10 @@ sends system mail); this is the company's real inbox. Internal namespace is
 
 ### M22 — Direct model APIs (harnesses removed) ✅
 
-- [x] Removed the five provider-CLI harnesses (`claude-code`, `codex`,
-      `opencode`, `goose`, `openclaw`) — providers are now `anthropic`,
-      `openai`, `custom` (OpenAI-compatible), authMode `apikey` | `customEndpoint`
+- [x] At initial M22 delivery, removed the five provider-CLI harnesses
+      (`claude-code`, `codex`, `opencode`, `goose`, `openclaw`) — providers
+      became `anthropic`, `openai`, `custom` (OpenAI-compatible), with
+      `authMode: "apikey" | "customEndpoint"`
 - [x] In-process agent runtime (`server/services/agent/`): a provider-agnostic
       tool-use loop over the Anthropic Messages API, OpenAI Chat Completions,
       and OpenAI-compatible custom endpoints, with native streaming
@@ -571,12 +595,49 @@ sends system mail); this is the company's real inbox. Internal namespace is
       copies of itself concurrently (eight briefs per call, twelve per turn),
       then verify and synthesize their ordered results. Workers inherit the
       same Soul, Skills, AI Model, Grants, secrets, working directory, and
-      timeout; recursion stops after one level.
-- [x] Dropped subscription/OAuth sign-in, the in-browser pty install/login
-      surface, node-pty, and the per-provider on-disk credential dirs; model
-      credentials live encrypted on `AIModel.configJson`
+      timeout; recursion stops after one level. Subscription turns omit this
+      tool because managed ChatGPT credential refresh serializes Runs on the
+      model lock.
+- [x] At initial M22 delivery, dropped subscription/OAuth sign-in, the
+      in-browser pty install/login surface, node-pty, and the persistent
+      per-provider credential dirs; model credentials live encrypted on
+      `AIModel.configJson`
 - [x] Data migration remapping existing rows onto the new provider/authMode
       vocabulary
+- [x] **OpenAI subscription access, without reviving provider harnesses.**
+      Source-managed Linux OpenAI models may use `authMode: "subscription"`
+      through the official pinned `@openai/codex` app-server; a Member
+      completes ChatGPT device sign-in or supplies a Business / Enterprise
+      Codex access token. Anthropic subscription credentials are explicitly
+      unsupported.
+- [x] **Ephemeral credential boundary.** Subscription credentials remain
+      encrypted on `AIModel.configJson`. Login and Run processes materialize
+      managed sessions only inside a locked temporary `CODEX_HOME` and inject
+      access tokens only into the child environment. They remove the directory
+      afterward and never place credentials in the employee working tree or a
+      persistent provider directory. Cleanup retries and startup removes stale
+      Genosyn Codex temp directories.
+- [x] **Subscription tool isolation.** Subscription auth is unavailable without
+      working Linux bubblewrap, because any concurrent AI Employee could use the
+      same-UID shell to inspect app-server auth or process environment.
+      Every model turn in a bubblewrap deployment retains only `bash` behind
+      private PID and `/tmp` namespaces; host-process file tools are omitted
+      install-wide so a concurrent API-key or custom-model turn cannot win a
+      symlink race into the subscription credential. Every server-managed Git
+      command that touches an AI-writable checkout runs through that namespace,
+      with a cleared environment, executable Git settings overridden, and only
+      the configured remote fetched. User-configured stdio MCP children are
+      omitted install-wide in bubblewrap mode; HTTP MCP and the audited built-in
+      browser remain available.
+- [x] **Single-tenant boundary.** Model create/update, sign-in, and execution
+      reject subscription auth when `config.security.multiTenant` is true.
+      Shared SaaS uses API keys; API-key and custom-endpoint models continue
+      through the direct in-process agent loop.
+- [x] **Subscription lifecycle hardening.** Per-model turns reload credentials
+      under a refresh lock; credential refresh and device completion use
+      compare-and-swap updates; login starts are reserved per model and capped
+      per process; process exit, abort, and a hard deadline all force cleanup.
+      Device completion also rechecks the initiating Member's admin role.
 
 ### M7 — Chat + Workspace ✅
 
@@ -1760,7 +1821,9 @@ of the original V1 backlog has shipped — what remains is mostly
 ### Runner
 
 - [x] **Real execution** via the in-process agent against the model API
-      (Anthropic / OpenAI / custom OpenAI-compatible); see M22
+      (Anthropic / OpenAI / custom OpenAI-compatible), plus the source-managed
+      Linux OpenAI subscription path through the official Codex app-server;
+      see M22
 - [x] **Streaming logs to UI** (SSE on `employeeSurface.ts`)
 - [x] **cwd-scoped tools** — the coding tools are rooted at the employee's
       working directory; bash inherits company secrets + repo env
