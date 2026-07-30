@@ -39,7 +39,7 @@ import {
  * custom OpenAI-compatible endpoint. OpenAI models can also use a ChatGPT
  * subscription through the pinned official Codex app-server on trusted
  * self-hosted installs. Every credential remains encrypted in `configJson`.
- * `POST /:id/activate` flips which model the runner + chat seams use.
+ * `POST /:id/activate` flips the default model used by the runner and chat.
  */
 export const modelsRouter = Router({ mergeParams: true });
 modelsRouter.use(requireAuth);
@@ -63,7 +63,7 @@ type PublicModel = {
   provider: "anthropic" | "openai" | "custom";
   model: string;
   authMode: "apikey" | "subscription" | "customEndpoint";
-  /** True if this is the brain the runner + chat seams use for the employee. */
+  /** True if this is the default brain for Routines and employee Chat. */
   isActive: boolean;
   connectedAt: string | null;
   status: "not_connected" | "connected";

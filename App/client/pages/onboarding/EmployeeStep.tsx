@@ -200,7 +200,8 @@ export function EmployeeStep({
             Connect {employee.name}&apos;s AI Model
           </h2>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            The active model powers chat and Routines. Credentials are encrypted at rest.
+            The active model is the default for chat and powers Routines. Credentials are encrypted
+            at rest.
           </p>
         </div>
         <EmployeeModelSection company={company} emp={employee} />

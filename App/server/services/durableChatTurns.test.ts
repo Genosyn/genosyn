@@ -62,9 +62,11 @@ describe("durable chat turns", () => {
       conversationId: conversation.id,
       message: "Complete the long-running migration",
       attachmentIds: [attachment.id],
+      modelId: "model-selected-for-turn",
     });
 
     assert.equal(queued.assistantMessage.status, "working");
+    assert.equal(queued.assistantMessage.modelId, "model-selected-for-turn");
     assert.equal(
       queued.assistantMessage.turnUserMessageId,
       queued.userMessage.id,

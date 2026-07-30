@@ -16,6 +16,7 @@ import {
   enqueueDurableChatTurn,
   executeDurableChatTurn,
 } from "../services/durableChatTurns.js";
+import { resolveChatModel } from "../services/models.js";
 import {
   attachmentsForMessages,
   recordAttachment,
@@ -300,6 +301,7 @@ employeeSurfaceRouter.get("/:eid/chat-attachments/:attachmentId", async (req, re
 const sendSchema = z.object({
   message: z.string().max(8000).default(""),
   attachmentIds: z.array(z.string().uuid()).max(20).optional().default([]),
+  modelId: z.string().uuid().nullable().optional().default(null),
 });
 
 /**
@@ -373,6 +375,18 @@ employeeSurfaceRouter.post(
         return res.end();
       }
 
+      // Resolve the default at acceptance time and persist the concrete choice
+      // with the durable turn. A later active-model switch must not change the
+      // brain used by an already-queued or recovering message.
+      const selectedModel = await resolveChatModel(eid, body.modelId);
+      if (body.modelId && !selectedModel) {
+        writeEvent("error", {
+          message: "The selected AI Model does not belong to this AI Employee.",
+        });
+        writeEvent("done", {});
+        return res.end();
+      }
+
       // User row, input attachments, durable assistant job and conversation
       // timestamp commit together. Once this returns, browser loss and process
       // loss are both recoverable.
@@ -382,6 +396,7 @@ employeeSurfaceRouter.post(
         conversationId: convId,
         message: body.message,
         attachmentIds: body.attachmentIds,
+        modelId: selectedModel?.id ?? null,
       });
       acceptedTurn = true;
       writeEvent(

@@ -780,7 +780,7 @@ export function EmployeeModelSection({ company, emp }: { company: Company; emp: 
           <div className="text-xs text-slate-500 dark:text-slate-400">
             {models.length === 1
               ? "One brain registered. Add another to switch between them any time."
-              : `${models.length} brains registered — the active one answers chats and runs routines.`}
+              : `${models.length} brains registered — the active one is the default for chats and runs routines.`}
           </div>
         </div>
         {!adding && (

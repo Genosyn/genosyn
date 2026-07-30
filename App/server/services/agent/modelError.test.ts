@@ -22,7 +22,7 @@ describe("formatModelError classification", () => {
       request_id: "req_123",
       message: "401 invalid_api_key",
     });
-    assert.match(out, /^The active AI Model rejected its credentials\./);
+    assert.match(out, /^The selected AI Model rejected its credentials\./);
     assert.match(out, /Endpoint: api\.openai\.com/);
     assert.doesNotMatch(out, /HTTP status:/);
     assert.doesNotMatch(out, /^Code:/m);
@@ -94,7 +94,7 @@ describe("formatModelError classification", () => {
       message: "fetch failed",
       cause: { cause: { code: "ECONNREFUSED" } },
     });
-    assert.match(out, /Couldn’t reach the active AI Model/);
+    assert.match(out, /Couldn’t reach the selected AI Model/);
     assert.match(out, /Code: ECONNREFUSED/);
     assert.match(out, /host\.docker\.internal/);
   });

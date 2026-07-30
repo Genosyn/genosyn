@@ -48,6 +48,15 @@ export class ConversationMessage {
   progressLabel!: string | null;
 
   /**
+   * AI Model selected for this durable assistant turn. NULL on user messages,
+   * legacy replies, and turns accepted while the employee had no model.
+   * Persisting the choice keeps recovery on the same brain even if the
+   * employee's active model changes before a replacement worker resumes.
+   */
+  @Column({ type: "varchar", nullable: true })
+  modelId!: string | null;
+
+  /**
    * User message that owns this durable assistant turn. NULL on ordinary
    * messages and legacy completed replies. Persisting the link makes recovery
    * unambiguous even when several messages share the same text.

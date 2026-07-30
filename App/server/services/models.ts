@@ -7,9 +7,10 @@ import { Routine } from "../db/entities/Routine.js";
  * relationship.
  *
  * An employee can register several models and keep exactly one active. The
- * runner + chat seams always spawn the active one. These helpers are the
- * single place that maintains the "at most one active per employee"
- * invariant, so routes never hand-roll the flag flip.
+ * active model is the default for Routines and chat; dedicated employee chat
+ * can select a different employee-owned model for an individual turn. These
+ * helpers are the single place that maintains the "at most one active per
+ * employee" invariant, so routes never hand-roll the flag flip.
  */
 
 type ActiveShape = { id: string; isActive: boolean; createdAt: Date };
@@ -39,6 +40,21 @@ export async function getActiveModel(employeeId: string): Promise<AIModel | null
   const models = await repo.find({ where: { employeeId } });
   const id = effectiveActiveId(models);
   return models.find((m) => m.id === id) ?? null;
+}
+
+/**
+ * Resolve the AI Model for a direct-chat turn. An explicit model id must name
+ * one of the employee's own rows; null/undefined inherits the active model.
+ */
+export async function resolveChatModel(
+  employeeId: string,
+  modelId?: string | null,
+): Promise<AIModel | null> {
+  if (!modelId) return getActiveModel(employeeId);
+  return AppDataSource.getRepository(AIModel).findOneBy({
+    id: modelId,
+    employeeId,
+  });
 }
 
 /**

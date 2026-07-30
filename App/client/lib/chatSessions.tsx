@@ -47,6 +47,8 @@ export type EmployeeSession = {
 export type QueuedChatMessage = {
   id: string;
   conversationId: string | null;
+  /** AI Model captured when this message entered the follow-up queue. */
+  modelId: string | null;
   content: string;
   attachments: ChatAttachment[];
   queuedAt: string;
@@ -109,7 +111,11 @@ type ChatActions = {
     companyId: string,
     empId: string,
     message: string,
-    opts?: { clearInput?: boolean; attachments?: ChatAttachment[] },
+    opts?: {
+      clearInput?: boolean;
+      attachments?: ChatAttachment[];
+      modelId?: string | null;
+    },
   ) => Promise<string | null>;
   removeQueuedMessage: (empId: string, queuedMessageId: string) => void;
 };
@@ -377,6 +383,7 @@ export function ChatSessionsProvider({
         clearInput?: boolean;
         attachments?: ChatAttachment[];
         conversationId?: string | null;
+        modelId?: string | null;
       },
     ): Promise<string | null> => {
       const msg = message.trim();
@@ -512,7 +519,11 @@ export function ChatSessionsProvider({
 
         await api.stream(
           `${base}/conversations/${streamConvId}/messages`,
-          { message: msg, attachmentIds: attachments.map((a) => a.id) },
+          {
+            message: msg,
+            attachmentIds: attachments.map((a) => a.id),
+            modelId: opts?.modelId ?? null,
+          },
           (event, data) => {
             if (event === "user") {
               const userMsg = data as ConversationMessage;
@@ -676,7 +687,11 @@ export function ChatSessionsProvider({
       companyId: string,
       empId: string,
       message: string,
-      opts?: { clearInput?: boolean; attachments?: ChatAttachment[] },
+      opts?: {
+        clearInput?: boolean;
+        attachments?: ChatAttachment[];
+        modelId?: string | null;
+      },
     ): Promise<string | null> => {
       const content = message.trim();
       const attachments = opts?.attachments ?? [];
@@ -690,6 +705,7 @@ export function ChatSessionsProvider({
           id: makeQueuedMessageId(),
           conversationId:
             sessionsRef.current[empId]?.activeConvId ?? null,
+          modelId: opts?.modelId ?? null,
           content,
           attachments,
           queuedAt: new Date().toISOString(),
@@ -708,6 +724,7 @@ export function ChatSessionsProvider({
                 clearInput: firstTurn ? opts?.clearInput : false,
                 attachments: current.attachments,
                 conversationId: current.conversationId,
+                modelId: current.modelId,
               },
             );
             current.resolve(error);

@@ -25,8 +25,10 @@ don't re-litigate them.
 4. **AI Models are employee-owned; an employee can hold several with one
    active.** Each `AIModel` keeps its credentials encrypted in `configJson`. An employee can
    register multiple models and flip exactly one to active (`AIModel.isActive`,
-   newest-added wins by default) — the runner + chat seams always spawn the
-   active one. No shared company pool. Firing an employee removes every model row.
+   newest-added wins by default). The runner and non-interactive chat seams use
+   the active one; dedicated employee Chat can select any connected
+   employee-owned model per message and defaults to the active one. No shared
+   company pool. Firing an employee removes every model row.
 5. **Database is the source of truth** for Soul, Skill, and Routine prose
    (`AIEmployee.soulBody`, `Skill.body`, `Routine.body`) and for captured Run
    logs (`Run.logContent`, 256 KB cap), model/Connection credentials, and MCP
@@ -351,7 +353,8 @@ export const config = {
 - [x] **Per-routine model.** `Routine.modelId` pins one of the employee's
       own `AIModel` rows; null (default) inherits the employee's active
       model. Runner resolves via `resolveRoutineModel()`; deleting a model
-      clears the pins naming it. Runs only — chat stays on the active model.
+      clears the pins naming it. Pins affect Runs only; dedicated employee
+      Chat has an independent per-message model picker.
 - [x] **MCP surface** — `list_routines`, `create_routine`, `update_routine`
       (rename, recron, rewrite brief, enable/disable in place), and
       `delete_routine`, so an AI employee can manage routines end-to-end
@@ -563,7 +566,8 @@ sends system mail); this is the company's real inbox. Internal namespace is
 
 - [x] `AIModel` employee-owned — many per employee, exactly one active
       (`AIModel.isActive`, newest-added active by default, switchable any time);
-      runner + chat run the active one
+      runner + non-interactive chat surfaces run the active one, while direct
+      employee Chat can choose another connected model per message
 - [x] Provider-specific setup for claude-code / codex / opencode / goose
 - [x] Subscription sign-in flow (UI polls for credentials file)
 - [x] API-key flow with AES-256-GCM encryption
@@ -649,6 +653,9 @@ sends system mail); this is the company's real inbox. Internal namespace is
 - [x] Direct-chat follow-up queue: the composer stays editable during a reply,
       shows queued messages inline, and releases them serially when the AI
       Employee finishes
+- [x] Per-message AI Model picker in direct employee Chat when multiple models
+      are connected; defaults to the active model and persists each queued
+      turn's choice through disconnect and server-restart recovery
 - [x] Employee-authored live progress in direct chat: substantial multi-step
       turns can publish labelled, monotonic percentage updates over the
       existing reply stream, while quick replies keep the typing indicator

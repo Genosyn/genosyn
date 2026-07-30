@@ -124,21 +124,21 @@ function classifyError(meta: ErrorMetadata): ErrorCategory {
 function heading(category: ErrorCategory): string {
   switch (category) {
     case "network":
-      return "Couldn’t reach the active AI Model.";
+      return "Couldn’t reach the selected AI Model.";
     case "timeout":
-      return "The active AI Model did not respond in time.";
+      return "The selected AI Model did not respond in time.";
     case "authentication":
-      return "The active AI Model rejected its credentials.";
+      return "The selected AI Model rejected its credentials.";
     case "rate_limit":
-      return "The active AI Model is rate-limited or out of quota.";
+      return "The selected AI Model is rate-limited or out of quota.";
     case "not_found":
       return "The configured AI Model or endpoint was not found.";
     case "context":
-      return "The active AI Model rejected an over-long prompt.";
+      return "The selected AI Model rejected an over-long prompt.";
     case "provider":
-      return "The active AI Model service failed this request.";
+      return "The selected AI Model service failed this request.";
     case "request":
-      return "The active AI Model rejected this request.";
+      return "The selected AI Model rejected this request.";
   }
 }
 

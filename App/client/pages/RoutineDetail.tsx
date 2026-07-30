@@ -967,7 +967,7 @@ function SettingsTab({
             <div className="text-xs text-slate-500 dark:text-slate-400">
               {pinnedModelMissing
                 ? "The model this routine was pinned to is gone. It now inherits the employee's active model."
-                : "Inherit follows whichever model is active for the employee. Pinning applies to this routine's runs only — chat always uses the active model."}
+                : "Inherit follows whichever model is active for the employee. Pinning applies to this routine's Runs only — employee Chat has its own per-message model picker."}
             </div>
           </div>
 

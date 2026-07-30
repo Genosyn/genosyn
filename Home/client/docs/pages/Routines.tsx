@@ -261,8 +261,8 @@ Verify the three results, resolve any disagreement, then post one concise brief 
       <P>
         Pick a specific model instead to <Strong>pin</Strong> it. The routine then always runs on
         that model regardless of which one is active. This is how you put a noisy hourly digest on a
-        cheap local endpoint while the employee&apos;s chat stays on a frontier model — or the
-        reverse, pinning the weekly board report to your strongest model.
+        cheap local endpoint while choosing a frontier model in employee Chat — or the reverse,
+        pinning the weekly board report to your strongest model.
       </P>
       <UL>
         <LI>
@@ -270,8 +270,9 @@ Verify the three results, resolve any disagreement, then post one concise brief 
           the employee&apos;s Models tab first.
         </LI>
         <LI>
-          A pin only affects this routine&apos;s <Strong>Runs</Strong>. Chat with the employee
-          always uses the active model.
+          A pin only affects this routine&apos;s <Strong>Runs</Strong>. Dedicated employee Chat has
+          its own per-message picker when multiple models are connected and defaults to the active
+          model.
         </LI>
         <LI>
           Remove a pinned model and its routines quietly revert to <Strong>Inherit</Strong> rather

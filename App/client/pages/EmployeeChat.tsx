@@ -4,6 +4,7 @@ import {
   AlertCircle,
   Archive,
   ArchiveRestore,
+  Brain,
   Check,
   ChevronDown,
   ChevronRight,
@@ -22,6 +23,7 @@ import {
 } from "lucide-react";
 import {
   api,
+  AIModel,
   ChatAttachment,
   ConversationMessage,
   ConversationSummary,
@@ -86,6 +88,10 @@ export default function EmployeeChat() {
   const [pendingAttachments, setPendingAttachments] = React.useState<
     ChatAttachment[]
   >([]);
+  const [chatModels, setChatModels] = React.useState<AIModel[]>([]);
+  const [selectedModelId, setSelectedModelId] = React.useState<string | null>(
+    null,
+  );
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
   const seededPrompt = React.useRef<string | null>(null);
@@ -143,6 +149,41 @@ export default function EmployeeChat() {
       .catch((err) => toast((err as Error).message, "error"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [emp.id]);
+
+  // The dedicated employee chat can override the active model per message.
+  // Keep only connected models in the picker and initialize it from the
+  // employee's effective active model (the models endpoint normalizes legacy
+  // rows that predate `isActive`).
+  React.useEffect(() => {
+    let cancelled = false;
+    api
+      .get<AIModel[]>(
+        `/api/companies/${company.id}/employees/${emp.id}/models`,
+      )
+      .then((models) => {
+        if (cancelled) return;
+        const connected = models.filter((model) => model.status === "connected");
+        setChatModels(connected);
+        setSelectedModelId((current) => {
+          if (current && connected.some((model) => model.id === current)) {
+            return current;
+          }
+          return (
+            connected.find((model) => model.isActive)?.id ??
+            connected[0]?.id ??
+            null
+          );
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setChatModels([]);
+        setSelectedModelId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [company.id, emp.id]);
 
   // Load the selected conversation's messages whenever the pointer drifts
   // from what's loaded. Skipped if we already hold the messages for it.
@@ -269,6 +310,7 @@ export default function EmployeeChat() {
     const err = await actions.send(company.id, emp.id, msg, {
       clearInput: !messageOverride,
       attachments: atts,
+      modelId: selectedModelId,
     });
     if (err) {
       toast(err, "error");
@@ -402,6 +444,9 @@ export default function EmployeeChat() {
           attachments={pendingAttachments}
           onUpload={uploadAttachment}
           onRemoveAttachment={removePendingAttachment}
+          models={chatModels}
+          selectedModelId={selectedModelId}
+          onModelChange={setSelectedModelId}
         />
       </section>
 
@@ -1095,6 +1140,9 @@ function Composer({
   attachments,
   onUpload,
   onRemoveAttachment,
+  models,
+  selectedModelId,
+  onModelChange,
 }: {
   inputRef: React.RefObject<HTMLTextAreaElement>;
   value: string;
@@ -1108,6 +1156,9 @@ function Composer({
   attachments: ChatAttachment[];
   onUpload: (file: File) => Promise<void>;
   onRemoveAttachment: (id: string) => void;
+  models: AIModel[];
+  selectedModelId: string | null;
+  onModelChange: (modelId: string) => void;
 }) {
   const canSend = value.trim().length > 0 || attachments.length > 0;
   const fileRef = React.useRef<HTMLInputElement>(null);
@@ -1325,22 +1376,53 @@ function Composer({
           <span className="font-mono">#</span> resources · <span className="font-mono">/new</span>{" "}
           new context
         </span>
-        {uploading ? (
-          <span className="italic">Uploading…</span>
-        ) : isResponding ? (
-          <span className="inline-flex items-center gap-1.5 font-medium text-indigo-600 dark:text-indigo-300">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-400 opacity-60" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-indigo-500" />
+        <span className="flex flex-wrap items-center justify-end gap-2">
+          {uploading ? (
+            <span className="italic">Uploading…</span>
+          ) : isResponding ? (
+            <span className="inline-flex items-center gap-1.5 font-medium text-indigo-600 dark:text-indigo-300">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-400 opacity-60" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-indigo-500" />
+              </span>
+              {queuedCount > 0
+                ? `${queuedCount} ${queuedCount === 1 ? "message" : "messages"} queued`
+                : "Enter queues your follow-up"}
             </span>
-            {queuedCount > 0
-              ? `${queuedCount} ${queuedCount === 1 ? "message" : "messages"} queued`
-              : "Enter queues your follow-up"}
-          </span>
-        ) : null}
+          ) : null}
+          {models.length > 1 && selectedModelId && (
+            <label className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+              <Brain size={12} aria-hidden="true" />
+              <span className="sr-only">AI Model for this message</span>
+              <select
+                aria-label="AI Model for this message"
+                value={selectedModelId}
+                onChange={(event) => onModelChange(event.target.value)}
+                className="max-w-52 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[11px] font-medium text-slate-600 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+              >
+                {models.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {chatModelLabel(model)}
+                    {model.isActive ? " (active)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </span>
       </div>
     </form>
   );
+}
+
+function chatModelLabel(model: AIModel): string {
+  const provider =
+    model.provider === "openai"
+      ? "OpenAI"
+      : model.provider === "anthropic"
+        ? "Anthropic"
+        : "Custom";
+  return `${provider} · ${model.customEndpointModelId ?? model.model}`;
 }
 
 function formatBytes(n: number): string {

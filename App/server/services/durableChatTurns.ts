@@ -76,6 +76,7 @@ export async function enqueueDurableChatTurn(args: {
   conversationId: string;
   message: string;
   attachmentIds: string[];
+  modelId?: string | null;
 }): Promise<{
   conversation: Conversation;
   userMessage: ConversationMessage;
@@ -121,6 +122,7 @@ export async function enqueueDurableChatTurn(args: {
         status: "working",
         progressPercent: 1,
         progressLabel: "Starting work",
+        modelId: args.modelId ?? null,
         turnUserMessageId: userMessage.id,
         turnWorkerId: null,
         turnLeaseExpiresAt: null,
@@ -303,6 +305,7 @@ export async function executeDurableChatTurn(
         },
         {
           conversationId: context.conversation.id,
+          modelId: claimedMessage.modelId,
           surface: context.conversation.source === "help" ? "help" : "chat",
           onProgress: progressRecorder.report,
           workloadKey: claimedMessage.id,

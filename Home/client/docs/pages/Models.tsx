@@ -301,15 +301,22 @@ export function Models() {
       <P>
         An employee can hold several models side by side — say an <Code>Anthropic</Code> key for
         everyday work and an <Code>OpenAI</Code> subscription model for a second opinion. Exactly
-        one is <Strong>active</Strong> at a time; the active model is the brain the runner uses for
-        Routines and the chat seam answers with. The most recently added model becomes active
-        automatically — hit <Strong>Make active</Strong> on any other to switch, instantly and as
-        often as you like.
+        one is <Strong>active</Strong> at a time; the active model is the default brain for
+        employee Chat and the model inherited by Routines and other AI surfaces. The most recently
+        added model becomes active automatically — hit <Strong>Make active</Strong> on any other
+        to switch, instantly and as often as you like.
       </P>
       <P>
         Open an employee, then <Strong>Settings → Model</Strong> to see the roster: each card shows
         the provider kind, model string, connection status, and an <Strong>Active</Strong> badge on
         the current brain. Use <Strong>Add model</Strong> to register another.
+      </P>
+      <P>
+        When at least two models are connected, the dedicated employee Chat composer shows an{" "}
+        <Strong>AI Model</Strong> picker. It starts on the active model, but you can choose a
+        different brain for the next message without changing the employee&apos;s active model or
+        any Routine. Follow-ups remember the model selected when each message entered the queue,
+        including while a durable turn recovers after a disconnect or server restart.
       </P>
 
       <H3 id="model-errors">When a chat or Run reports a model error</H3>
@@ -324,7 +331,7 @@ export function Models() {
         so those turns do not use Genosyn&apos;s five-attempt loop or its retry transcript lines.
       </P>
       <P>
-        The error names the active model, shows the safe host-only endpoint, preserves the
+        The error names the model used for that turn, shows the safe host-only endpoint, preserves the
         provider&apos;s detail and request ID when available, and lists checks for that failure
         type. In chat, use <Strong>Review AI Model settings</Strong> on the error to jump straight
         to the active employee&apos;s model roster. A separate{" "}

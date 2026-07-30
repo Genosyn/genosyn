@@ -3,7 +3,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Skill } from "../db/entities/Skill.js";
 import { employeeDir, ensureDir } from "./paths.js";
-import { getActiveModel } from "./models.js";
+import { resolveChatModel } from "./models.js";
 import {
   drainAttachmentsForToken,
   drainSidecarsForToken,
@@ -108,6 +108,12 @@ function formatBusyReply(emp: AIEmployee): string {
 export type ChatOptions = {
   conversationId?: string;
   /**
+   * Employee-owned AI Model selected for this turn. Omit/null to inherit the
+   * employee's active model, which remains the default for every other chat
+   * surface.
+   */
+  modelId?: string | null;
+  /**
    * Enables the turn-local `report_progress` control and receives each update.
    * Omit it on chat surfaces that cannot display ephemeral progress.
    */
@@ -176,13 +182,15 @@ export async function streamChatWithEmployee(
     return { status: "error", reply: "Employee not found.", attachmentIds: [], sidecars: {} };
   const co = await coRepo.findOneBy({ id: companyId });
   if (!co) return { status: "error", reply: "Company not found.", attachmentIds: [], sidecars: {} };
-  const model = await getActiveModel(emp.id);
+  const model = await resolveChatModel(emp.id, options.modelId);
   const skills = await skillRepo.find({ where: { employeeId: emp.id } });
 
   if (!model) {
     return {
       status: "skipped",
-      reply: `${emp.name} has no AI Model connected. Open Settings on this employee to connect one.`,
+      reply: options.modelId
+        ? `The selected AI Model is no longer available to ${emp.name}. Choose another model and send the message again.`
+        : `${emp.name} has no AI Model connected. Open Settings on this employee to connect one.`,
       attachmentIds: [],
       sidecars: {},
     };
