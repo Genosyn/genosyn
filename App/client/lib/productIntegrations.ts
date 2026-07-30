@@ -37,7 +37,7 @@ export const PRODUCT_INTEGRATION_SCOPES: Record<ProductIntegrationKey, ProductIn
     label: "Workspace",
     description:
       "Connect the communication and collaboration services your team uses alongside Workspace.",
-    providers: ["google", "telegram", "reddit", "linkedin", "x", "nostr"],
+    providers: ["google", "telegram", "reddit", "linkedin", "x", "nostr", "hacker-news"],
   },
   mail: {
     label: "Email",
@@ -115,6 +115,7 @@ export const PRODUCT_INTEGRATION_SCOPES: Record<ProductIntegrationKey, ProductIn
       "reddit",
       "linkedin",
       "x",
+      "hacker-news",
     ],
   },
   revenue: {

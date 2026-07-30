@@ -1738,6 +1738,11 @@ of the original V1 backlog has shipped — what remains is mostly
       Nostr, Lightning (NWC + LND), Google (Calendar + Drive + Gmail
       scopes), Google Analytics (GA4, read-only), Google Search
       Console (read-only), Reddit, LinkedIn**
+- [x] **Hacker News (official API, read-only)** — feed monitoring, item and
+      bounded thread review, public profiles/activity, update polling, and a
+      human submission handoff. Automated writes are deliberately absent:
+      Hacker News exposes no supported write API and its guidelines prohibit
+      generated or AI-edited comments.
 - [x] **Secrets vault** (`Secret` entity, env-merged into spawns)
 - [x] **Incoming webhooks** for both routines and pipelines
 - [x] **Email attachments from Resources** — `gmail_send_message` /

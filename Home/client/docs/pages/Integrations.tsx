@@ -32,6 +32,7 @@ const CATALOG: Array<{ name: string; kind: string }> = [
   { name: "Lightning (NWC + LND)", kind: "payments" },
   { name: "Nostr", kind: "social" },
   { name: "Reddit, X, LinkedIn", kind: "social" },
+  { name: "Hacker News", kind: "community monitoring" },
   { name: "Google Ads", kind: "paid marketing" },
   { name: "Meta Ads", kind: "paid marketing" },
   { name: "Microsoft Advertising", kind: "paid marketing" },
@@ -251,6 +252,23 @@ export function Integrations() {
         integration appears in the UI for <em>any</em> company on that instance — no per-tenant
         flag.
       </P>
+
+      <H3 id="hacker-news">Hacker News monitoring and review</H3>
+      <P>
+        Open <Strong>Settings → Integrations</Strong>, choose <Strong>Hacker News</Strong>, and
+        optionally enter a public HN username. Hacker News does not require an API key: the
+        username only becomes the default profile for activity tools. Grant the Connection to an
+        AI employee, then use a Skill or Routine to monitor the top, new, best, Ask HN, Show HN,
+        or jobs feeds; read individual items; review bounded comment trees; watch public profile
+        activity; or poll the official updates feed.
+      </P>
+      <Callout kind="warn" title="Publication stays human.">
+        Hacker News exposes a supported read-only API, not a write API, and its guidelines prohibit
+        generated or AI-edited comments. Genosyn therefore does not automate HN posts or comments.
+        An AI employee can package a link title, original-source URL, internal review notes, and
+        the submission checklist, but a human must review and publish it in Hacker News. Employees
+        must not draft or post HN comments.
+      </Callout>
 
       <H2 id="grants-and-revocation">Grants & revocation</H2>
       <UL>
