@@ -703,6 +703,7 @@ export type IntegrationScopeGroup = {
   label: string;
   description: string;
   scopes: string[];
+  defaultSelected?: boolean;
   required?: boolean;
   workspaceOnly?: boolean;
 };

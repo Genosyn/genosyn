@@ -2,6 +2,7 @@ import { Router } from "express";
 import { createOauthConnection, updateOauthConnectionConfig } from "../services/integrations.js";
 import { finishOauth, resolveOauthState, type OauthApp } from "../services/oauth.js";
 import { recordAudit } from "../services/audit.js";
+import { oauthAuthorizationFailure } from "../services/oauthErrors.js";
 
 const OAUTH_APPS: ReadonlySet<OauthApp> = new Set<OauthApp>([
   "google",
@@ -43,12 +44,17 @@ integrationsOauthRouter.get("/callback/:app", async (req, res) => {
   const rawState = String(req.query.state ?? "");
   const rawCode = String(req.query.code ?? "");
   const rawError = String(req.query.error ?? "");
+  const rawErrorDescription = String(req.query.error_description ?? "");
 
   if (rawError) {
+    const failure = oauthAuthorizationFailure({
+      app,
+      error: rawError,
+      description: rawErrorDescription,
+    });
     return renderClose(res, {
       ok: false,
-      title: "Authorisation cancelled",
-      detail: `${rawError}. Close this window and try again.`,
+      ...failure,
     });
   }
   if (!rawState || !rawCode) {

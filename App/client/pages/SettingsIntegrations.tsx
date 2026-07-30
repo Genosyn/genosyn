@@ -1169,18 +1169,28 @@ export function OauthOrServiceAccountModal({
       setSelectedInstallationId("");
       setBrowserFields({});
       setOauthExtraFields({});
-      // Default to all available scope groups unless a guided caller asks for
-      // a smaller starting set. Reconnect always preserves the stored set;
-      // legacy connections with no stored selection still fall back to all.
-      const allGroupKeys =
+      // Providers may declare a safer starting set when some permissions
+      // require a separate review (LinkedIn company-page posting, for
+      // example). Providers without explicit defaults preserve the
+      // historical all-selected behaviour.
+      const availableGroups =
         (initialMode === "oauth"
           ? entry.oauth?.scopeGroups
-          : entry.serviceAccount?.scopeGroups
-        )?.map((g) => g.key) ?? [];
+          : entry.serviceAccount?.scopeGroups) ?? [];
+      const allGroupKeys = availableGroups.map((g) => g.key);
+      const defaultGroupKeys = availableGroups
+        .filter((group) => group.defaultSelected)
+        .map((group) => group.key);
       const stored = reconnect?.scopeGroups ?? [];
       const preferred = (initialScopeGroups ?? []).filter((key) => allGroupKeys.includes(key));
       setSelectedScopeGroups(
-        stored.length > 0 ? stored : preferred.length > 0 ? preferred : allGroupKeys,
+        stored.length > 0
+          ? stored
+          : preferred.length > 0
+            ? preferred
+            : defaultGroupKeys.length > 0
+              ? defaultGroupKeys
+              : allGroupKeys,
       );
     }
   }, [
@@ -1407,13 +1417,21 @@ export function OauthOrServiceAccountModal({
               clientSecretPlaceholder: "Entra app client secret value",
               consentTitle: "Microsoft",
             }
-          : {
-              consoleStep:
-                "Google Cloud Console → APIs & Services → Credentials → Create OAuth Client ID (Web application).",
-              clientIdPlaceholder: "123456789-abcdef.apps.googleusercontent.com",
-              clientSecretPlaceholder: "GOCSPX-…",
-              consentTitle: "Google",
-            };
+          : oauthApp === "linkedin"
+            ? {
+                consoleStep:
+                  "LinkedIn Developer Portal → your app → Auth → add the redirect URL below, then Products → enable 'Sign In with LinkedIn using OpenID Connect' and 'Share on LinkedIn'.",
+                clientIdPlaceholder: "LinkedIn Client ID",
+                clientSecretPlaceholder: "LinkedIn Primary Client Secret",
+                consentTitle: "LinkedIn",
+              }
+            : {
+                consoleStep:
+                  "Google Cloud Console → APIs & Services → Credentials → Create OAuth Client ID (Web application).",
+                clientIdPlaceholder: "123456789-abcdef.apps.googleusercontent.com",
+                clientSecretPlaceholder: "GOCSPX-…",
+                consentTitle: "Google",
+              };
 
   return (
     <Modal

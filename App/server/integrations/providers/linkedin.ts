@@ -49,12 +49,13 @@ export const LINKEDIN_SCOPE_GROUPS: IntegrationScopeGroup[] = [
     description:
       "Create, retrieve, and delete posts and comments on the connected member's feed. Requires the 'Share on LinkedIn' product.",
     scopes: ["w_member_social"],
+    defaultSelected: true,
   },
   {
     key: "post_org",
     label: "Post as company pages",
     description:
-      "Manage and publish content on LinkedIn company pages the member administers. Requires the 'Marketing Developer Platform' product.",
+      "Manage and publish content on LinkedIn company pages the member administers. Requires LinkedIn approval for the Community Management API.",
     scopes: ["w_organization_social", "rw_organization_admin"],
   },
 ];

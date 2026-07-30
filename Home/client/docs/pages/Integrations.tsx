@@ -412,6 +412,23 @@ export function Integrations() {
         on traffic and search performance but never change settings.
       </P>
 
+      <H3 id="linkedin">LinkedIn</H3>
+      <P>
+        Create an app in the{" "}
+        <ExtLink href="https://www.linkedin.com/developers/apps">LinkedIn Developer Portal</ExtLink>
+        , add the callback URL shown by Genosyn under <Strong>Auth</Strong>, then enable{" "}
+        <Strong>Sign In with LinkedIn using OpenID Connect</Strong> and{" "}
+        <Strong>Share on LinkedIn</Strong> under <Strong>Products</Strong>. The default{" "}
+        <Strong>Post on member&apos;s behalf</Strong> choice requests only those self-service
+        permissions.
+      </P>
+      <Callout kind="warn" title="Company-page posting needs LinkedIn approval.">
+        Leave <Strong>Post as company pages</Strong> unchecked unless LinkedIn has approved the app
+        for the <Strong>Community Management API</Strong>. Selecting it requests reviewed
+        organization permissions; LinkedIn rejects the entire connection with{" "}
+        <Code>unauthorized_scope_error</Code> when the app does not have them.
+      </Callout>
+
       <H3 id="paid-marketing">Ad platforms (paid marketing)</H3>
       <P>
         Four ad-platform integrations —{" "}

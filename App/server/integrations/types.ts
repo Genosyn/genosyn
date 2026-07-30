@@ -70,6 +70,11 @@ export type IntegrationScopeGroup = {
   description: string;
   /** Underlying provider scope URLs this group includes. */
   scopes: string[];
+  /** When true, new Connections start with this group selected. When no
+   * group declares a default, the UI preserves the historical all-selected
+   * behaviour. Useful when a provider mixes self-service and reviewed
+   * permissions in one Integration. */
+  defaultSelected?: boolean;
   /** When true, the checkbox is locked on. */
   required?: boolean;
   /** When true, only Workspace accounts (not personal `@gmail.com`) can

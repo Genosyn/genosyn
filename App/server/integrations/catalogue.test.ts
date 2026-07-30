@@ -149,4 +149,15 @@ describe("Integration catalogue invariants", () => {
     );
     assert.deepEqual(provider.tools, []);
   });
+
+  test("LinkedIn defaults to permissions available without partner review", () => {
+    const linkedin = getProvider("linkedin");
+    assert.ok(linkedin?.catalog.oauth);
+    assert.deepEqual(
+      linkedin.catalog.oauth.scopeGroups
+        ?.filter((group) => group.defaultSelected)
+        .map((group) => group.key),
+      ["post_member"],
+    );
+  });
 });
