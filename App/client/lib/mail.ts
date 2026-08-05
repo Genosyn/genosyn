@@ -347,6 +347,7 @@ export type MailDraftSendBatch = {
   failed: number;
   remaining: number;
   nextSendAt: string | null;
+  estimatedCompletionAt: string | null;
   createdAt: string;
   finishedAt: string | null;
   queuedDraftIds: string[];
@@ -477,9 +478,10 @@ export const mailApi = {
   draftSendQueue: (cid: string, aid: string) =>
     api.get<{ batch: MailDraftSendBatch | null }>(`${base(cid)}/accounts/${aid}/drafts/send-queue`),
   queueDraftsForSend: (cid: string, aid: string, ids: string[]) =>
-    api.post<{ batch: MailDraftSendBatch }>(`${base(cid)}/accounts/${aid}/drafts/send-queue`, {
-      ids,
-    }),
+    api.post<{ batch: MailDraftSendBatch; added: number }>(
+      `${base(cid)}/accounts/${aid}/drafts/send-queue`,
+      { ids },
+    ),
 
   attachmentUrl: (cid: string, mid: string, index: number) =>
     `${base(cid)}/messages/${mid}/attachments/${index}`,

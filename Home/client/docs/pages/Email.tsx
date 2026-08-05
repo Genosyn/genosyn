@@ -136,17 +136,20 @@ export function Email() {
         Confirming adds the drafts to a durable send queue instead of releasing them together. The
         first email waits a random one to two minutes; after every attempt, Genosyn chooses a fresh
         one-to-two minute pause before the next. A progress bar stays at the top of{" "}
-        <Strong>Drafts</Strong> with sent, failed, and remaining counts plus the next-send
-        countdown. You can leave the page or restart the app without collapsing the remaining mail
-        into a burst.
+        <Strong>Drafts</Strong> with sent, failed, and remaining counts, the next-send countdown,
+        and an approximate finish time for the whole queue. You can leave the page or restart the
+        app without collapsing the remaining mail into a burst.
       </P>
       <P>
         A draft with no recipient can never be selected: its checkbox is disabled rather than being
         silently dropped at send time. Those drafts collect in a pinned{" "}
         <Strong>Needs attention</Strong> group along with anything Gmail refused, so nothing
-        vanishes without being accounted for. Drafts already in the send queue are marked and cannot
-        be queued twice; a failed attempt remains visible with Gmail&apos;s reason while the rest of
-        the queue continues.
+        vanishes without being accounted for. Drafts disappear from the review list as soon as they
+        enter the send queue, leaving the page ready for more review. You can add newly approved
+        drafts while sending is in progress; they join the same paced queue and its finish estimate
+        updates automatically. The progress bar disappears when the queue finishes. A failed attempt
+        returns to <Strong>Needs attention</Strong> with Gmail&apos;s reason while the rest of the queue
+        continues.
       </P>
 
       <H2 id="suppressed">Sending refuses suppressed recipients</H2>

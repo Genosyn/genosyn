@@ -96,6 +96,15 @@ function baseDraftQuery(account: MailAccount): SelectQueryBuilder<MailMessage> {
     .andWhere("m.gmailDraftId <> ''");
 }
 
+/** Keep active send-queue items out of the human review surface. */
+function excludeDraftIds(
+  query: SelectQueryBuilder<MailMessage>,
+  ids: Set<string>,
+): SelectQueryBuilder<MailMessage> {
+  if (ids.size === 0) return query;
+  return query.andWhere("m.id NOT IN (:...excludedDraftIds)", { excludedDraftIds: [...ids] });
+}
+
 /** LIKE metacharacters are escaped so a subject with `%` searches literally. */
 function escapeLike(s: string): string {
   return s.replace(/[\\%_]/g, (c) => `\\${c}`);
@@ -278,8 +287,11 @@ export type ListDraftsResult = {
  * so the employee/routine pickers keep offering the other options once a filter
  * is on. Totals below are the opposite — they describe what is on screen.
  */
-async function draftFacets(account: MailAccount): Promise<ListDraftsResult["facets"]> {
-  const raw = await baseDraftQuery(account)
+async function draftFacets(
+  account: MailAccount,
+  excludedDraftIds: Set<string>,
+): Promise<ListDraftsResult["facets"]> {
+  const raw = await excludeDraftIds(baseDraftQuery(account), excludedDraftIds)
     .select("m.createdByEmployeeId", "employeeId")
     .addSelect("m.createdByRoutineId", "routineId")
     .addSelect("COUNT(*)", "count")
@@ -336,19 +348,18 @@ export async function listDrafts(
   opts: { filter: DraftFilter; offset: number; limit: number },
 ): Promise<ListDraftsResult> {
   const filtered = applyDraftFilter(baseDraftQuery(account), opts.filter);
-
-  const [total, missingRecipient, queuedDraftIds] = await Promise.all([
-    filtered.clone().getCount(),
-    filtered.clone().andWhere(HAS_NO_RECIPIENT).getCount(),
-    activeDraftQueueIds(account.id),
-  ]);
+  const queuedDraftIds = await activeDraftQueueIds(account.id);
   const queued = queuedDraftIds.size
     ? await filtered
         .clone()
         .andWhere("m.id IN (:...queuedDraftIds)", { queuedDraftIds: [...queuedDraftIds] })
-        .andWhere(`NOT ${HAS_NO_RECIPIENT}`)
         .getCount()
     : 0;
+  const visible = excludeDraftIds(filtered.clone(), queuedDraftIds);
+  const [total, missingRecipient] = await Promise.all([
+    visible.clone().getCount(),
+    visible.clone().andWhere(HAS_NO_RECIPIENT).getCount(),
+  ]);
 
   // Newest first, ordered on (createdAt, id) and paged by offset.
   //
@@ -368,7 +379,7 @@ export async function listDrafts(
   // so the usual objection to OFFSET does not bite.
   //
   // Grouping stays client-side over everything loaded so far.
-  const rows = await filtered
+  const rows = await visible
     .clone()
     .orderBy("m.createdAt", "DESC")
     .addOrderBy("m.id", "DESC")
@@ -382,8 +393,8 @@ export async function listDrafts(
   return {
     drafts: slice.map((row) => serializeDraft(row, maps, queuedDraftIds)),
     nextOffset,
-    facets: await draftFacets(account),
-    totals: { total, sendable: total - missingRecipient - queued, missingRecipient, queued },
+    facets: await draftFacets(account, queuedDraftIds),
+    totals: { total, sendable: total - missingRecipient, missingRecipient, queued },
   };
 }
 

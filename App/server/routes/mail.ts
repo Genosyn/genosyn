@@ -47,7 +47,7 @@ import {
   type DraftSelection,
 } from "../services/mail/drafts.js";
 import {
-  DraftSendAlreadyRunningError,
+  DraftSendQueueBusyError,
   MAX_QUEUED_DRAFT_IDS,
   createDraftSendBatch,
   getLatestDraftSendBatch,
@@ -823,14 +823,14 @@ mailRouter.post(
     const account = await loadAccount(cid, req.params.aid as string);
     if (!account) return res.status(404).json({ error: "Mail account not found" });
     try {
-      const batch = await createDraftSendBatch(
+      const result = await createDraftSendBatch(
         account,
         (req.body as z.infer<typeof draftSendQueueSchema>).ids,
         req.userId ?? null,
       );
-      res.status(202).json({ batch });
+      res.status(202).json(result);
     } catch (error) {
-      res.status(error instanceof DraftSendAlreadyRunningError ? 409 : 400).json({
+      res.status(error instanceof DraftSendQueueBusyError ? 409 : 400).json({
         error: error instanceof Error ? error.message : "Could not queue drafts",
       });
     }

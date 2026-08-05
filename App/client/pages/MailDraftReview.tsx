@@ -27,6 +27,7 @@ import {
   shortMailDate,
 } from "../lib/mail";
 import { shouldIgnoreShortcut } from "../lib/keyboard";
+import { activeMailQueueBatch, mailQueueEtaLabel } from "../lib/mailQueueTiming";
 import { type Command, useRegisterCommands } from "../components/CommandRegistry";
 import { MailBulkSendDialog, type BulkProgress } from "./MailBulkSendDialog";
 import { MailDraftDrawer } from "./MailDraftDrawer";
@@ -121,6 +122,8 @@ export function MailDraftReview({
   const [sendBatch, setSendBatch] = React.useState<MailDraftSendBatch | null>(null);
   /** Drafts a send refused, kept visible instead of vanishing into a toast. */
   const [failed, setFailed] = React.useState<Map<string, string>>(() => new Map());
+  const failedRef = React.useRef(failed);
+  failedRef.current = failed;
 
   const filter = React.useMemo<MailDraftFilter>(
     () => ({ employeeId, routineId, q: query || undefined }),
@@ -167,7 +170,8 @@ export function MailDraftReview({
   const loadSendBatch = React.useCallback(async () => {
     try {
       const result = await mailApi.draftSendQueue(companyId, account.id);
-      setSendBatch(result.batch);
+      const nextFailures = result.batch?.failures ?? [];
+      const discoveredFailure = nextFailures.some((failure) => !failedRef.current.has(failure.id));
       if (result.batch?.failures.length) {
         setFailed((current) => {
           const next = new Map(current);
@@ -177,11 +181,14 @@ export function MailDraftReview({
           return next;
         });
       }
+      const activeBatch = activeMailQueueBatch(result.batch);
+      setSendBatch(activeBatch);
+      if (discoveredFailure || (result.batch && !activeBatch)) void load(false);
     } catch {
       // The draft list remains usable if a status poll fails. The next poll or
       // navigation retries it; mutation failures still surface as toasts.
     }
-  }, [companyId, account.id]);
+  }, [companyId, account.id, load]);
 
   React.useEffect(() => {
     void loadSendBatch();
@@ -345,10 +352,6 @@ export function MailDraftReview({
 
   /** Resolve what a batch would do, then hand it to the confirmation dialog. */
   const openBulk = async (action: "send" | "discard", sel: MailDraftSelection) => {
-    if (action === "send" && sendActive) {
-      toast("A bulk send is already in progress for this mailbox.", "info");
-      return;
-    }
     try {
       const preview = await mailApi.draftsSendPreview(companyId, account.id, sel);
       const count = action === "send" ? preview.sendable : preview.total;
@@ -373,11 +376,11 @@ export function MailDraftReview({
   openBulkRef.current = openBulk;
   const draftCommands = React.useMemo<Command[]>(
     () =>
-      totals.sendable > 0 && !sendActive
+      totals.sendable > 0
         ? [
             {
               id: "mail.drafts.sendAll",
-              label: `Send all ${totals.sendable} drafts`,
+              label: `${sendActive ? "Add" : "Send"} all ${totals.sendable} drafts`,
               icon: Send,
               group: "Drafts",
               keywords: ["bulk", "send", "all", "queue", "review"],
@@ -442,7 +445,7 @@ export function MailDraftReview({
       setPending(null);
       clearSelection();
       toast(
-        `${result.batch.total} ${result.batch.total === 1 ? "draft" : "drafts"} queued. Emails will send one at a time.`,
+        `${result.added} ${result.added === 1 ? "draft" : "drafts"} added to the send queue. ${result.batch.remaining} ${result.batch.remaining === 1 ? "email remains" : "emails remain"}.`,
         "success",
       );
       await load(false);
@@ -574,10 +577,11 @@ export function MailDraftReview({
           </div>
           <Button
             size="sm"
-            disabled={totals.sendable === 0 || sendActive}
+            disabled={totals.sendable === 0 || queueing}
             onClick={() => void openBulk("send", { filter, exclude: [] })}
           >
-            <Send size={14} /> Send all{totals.sendable > 0 ? ` (${totals.sendable})` : ""}
+            <Send size={14} /> {sendActive ? "Add all to queue" : "Send all"}
+            {totals.sendable > 0 ? ` (${totals.sendable})` : ""}
           </Button>
         </div>
 
@@ -687,7 +691,7 @@ export function MailDraftReview({
                       )
                     }
                     onSend={
-                      selectable.length > 0 && !sendActive
+                      selectable.length > 0
                         ? () => void openBulk("send", { ids: selectable.map((r) => r.id) })
                         : undefined
                     }
@@ -757,7 +761,8 @@ export function MailDraftReview({
           // describe drafts the person never touched.
           skipped={selection.mode === "all" ? totals.missingRecipient : 0}
           onSend={() => void openBulk("send", selectionPayload())}
-          sendDisabled={sendActive}
+          sendDisabled={queueing}
+          adding={sendActive}
           onDiscard={() => void openBulk("discard", selectionPayload())}
           onClear={clearSelection}
         />
@@ -871,6 +876,8 @@ function DraftSendProgress({ batch }: { batch: MailDraftSendBatch }) {
       ? "Bulk send finished with issues"
       : "Bulk send complete";
   const nextLabel = active && batch.nextSendAt ? nextSendLabel(batch.nextSendAt) : null;
+  const etaLabel =
+    active && batch.estimatedCompletionAt ? mailQueueEtaLabel(batch.estimatedCompletionAt) : null;
 
   return (
     <section className="rounded-xl border border-indigo-200 bg-indigo-50/70 px-4 py-3 shadow-sm dark:border-indigo-500/30 dark:bg-indigo-500/10">
@@ -892,6 +899,11 @@ function DraftSendProgress({ batch }: { batch: MailDraftSendBatch }) {
                 ? `${batch.sent} sent · ${batch.failed} need attention.`
                 : `All ${batch.sent} ${batch.sent === 1 ? "email has" : "emails have"} been sent.`}
           </p>
+          {etaLabel && (
+            <p className="mt-1 text-xs font-medium tabular-nums text-indigo-700 dark:text-indigo-300">
+              {etaLabel}
+            </p>
+          )}
           <div
             role="progressbar"
             aria-label="Bulk draft send progress"
@@ -1167,6 +1179,7 @@ function BulkBar({
   count,
   skipped,
   sendDisabled,
+  adding,
   onSend,
   onDiscard,
   onClear,
@@ -1174,6 +1187,7 @@ function BulkBar({
   count: number;
   skipped: number;
   sendDisabled: boolean;
+  adding: boolean;
   onSend: () => void;
   onDiscard: () => void;
   onClear: () => void;
@@ -1189,7 +1203,7 @@ function BulkBar({
         )}
         <span className="mx-1 h-4 w-px bg-slate-200 dark:bg-slate-700" />
         <Button size="sm" disabled={sendDisabled} onClick={onSend}>
-          <Send size={14} /> Send selected
+          <Send size={14} /> {adding ? "Add to queue" : "Send selected"}
         </Button>
         <Button size="sm" variant="ghost" onClick={onDiscard}>
           <Trash2 size={14} /> Discard
