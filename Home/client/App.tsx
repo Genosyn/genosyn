@@ -2,13 +2,10 @@ import { useEffect } from "react";
 import { ArrowRight } from "lucide-react";
 import { Nav } from "@/sections/Nav";
 import { Hero } from "@/sections/Hero";
-import { UseCases } from "@/sections/UseCases";
 import { Primitives } from "@/sections/Primitives";
-import { DayInTheLife } from "@/sections/DayInTheLife";
 import { Features } from "@/sections/Features";
 import { HowItWorks } from "@/sections/HowItWorks";
 import { CliShowcase } from "@/sections/CliShowcase";
-import { Principles } from "@/sections/Principles";
 import { Footer, InstallCta } from "@/sections/Footer";
 import { Enterprise } from "@/sections/Enterprise";
 import { DocsApp } from "@/docs/DocsApp";
@@ -29,7 +26,7 @@ export function App() {
     if (head) {
       applyHead(head);
     } else {
-      document.title = "Genosyn — Run your company with AI employees";
+      document.title = "Page not found · Genosyn";
     }
   }, [path]);
 
@@ -50,17 +47,14 @@ export function App() {
 
 function Landing() {
   return (
-    <div className="min-h-screen bg-white text-zinc-950">
+    <div className="min-h-screen bg-white text-slate-950">
       <Nav />
       <main>
         <Hero />
-        <UseCases />
-        <Primitives />
-        <DayInTheLife />
-        <Features />
         <HowItWorks />
+        <Primitives />
+        <Features />
         <CliShowcase />
-        <Principles />
         <InstallCta />
       </main>
       <Footer />
@@ -70,7 +64,7 @@ function Landing() {
 
 function EnterprisePage() {
   return (
-    <div className="min-h-screen bg-white text-zinc-950">
+    <div className="min-h-screen bg-white text-slate-950">
       <Nav />
       <main>
         <Enterprise />
@@ -100,20 +94,20 @@ function ProductsRoute({ path }: { path: string }) {
 
 function ProductNotFound() {
   return (
-    <div className="min-h-screen bg-white text-zinc-950">
+    <div className="min-h-screen bg-white text-slate-950">
       <Nav />
       <main className="mx-auto flex max-w-7xl flex-col items-center px-6 py-32 text-center">
-        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">404</div>
-        <h1 className="mt-4 text-3xl font-semibold tracking-[-0.02em] text-zinc-950">
+        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-600">404</div>
+        <h1 className="mt-4 text-3xl font-semibold tracking-[-0.02em] text-slate-950">
           No product lives here.
         </h1>
-        <p className="mt-3 max-w-md text-sm leading-relaxed text-zinc-600">
+        <p className="mt-3 max-w-md text-sm leading-relaxed text-slate-600">
           The page you were looking for does not exist — but every tool Genosyn ships is one click
           away.
         </p>
         <Link
           href="/products"
-          className="mt-8 inline-flex items-center gap-2 rounded-xl bg-zinc-950 px-6 py-3 text-sm font-semibold text-white shadow-lift transition hover:bg-zinc-800"
+          className="mt-8 inline-flex items-center gap-2 rounded-md bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500"
         >
           Browse all products
           <ArrowRight className="h-4 w-4" />

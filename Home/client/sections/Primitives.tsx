@@ -1,48 +1,111 @@
-import { type ReactNode } from "react";
-import { BookHeart, CalendarClock, FileText, Sparkles } from "lucide-react";
+import type { ReactNode } from "react";
+import {
+  BookHeart,
+  CalendarClock,
+  Check,
+  KeyRound,
+  Sparkles,
+  type LucideIcon,
+} from "lucide-react";
+
+type Primitive = {
+  icon: LucideIcon;
+  label: string;
+  title: string;
+  body: string;
+  lines: string[];
+};
+
+const PRIMITIVES: Primitive[] = [
+  {
+    icon: BookHeart,
+    label: "Soul",
+    title: "Who they are",
+    body: "A readable constitution for judgment, voice, priorities, and boundaries.",
+    lines: ["Be exact with financial data", "Surface uncertainty", "Never invent a number"],
+  },
+  {
+    icon: Sparkles,
+    label: "Skills",
+    title: "How they work",
+    body: "Reusable markdown playbooks for the jobs your company repeats.",
+    lines: ["reconcile-payments", "prepare-weekly-brief", "triage-inbox"],
+  },
+  {
+    icon: CalendarClock,
+    label: "Routines",
+    title: "When they work",
+    body: "Cron-scheduled work with a clear brief, chosen AI Model, and readable Run history.",
+    lines: ["Morning brief · 08:30", "Reconcile · 07:00", "Digest · Fri 17:00"],
+  },
+  {
+    icon: KeyRound,
+    label: "Grants",
+    title: "What they can reach",
+    body: "Explicit access to Connections, Notes, Bases, repositories, and other company resources.",
+    lines: ["Finance connection", "Operations notebook", "Checkout repository"],
+  },
+];
 
 export function Primitives() {
   return (
-    <section id="primitives" className="border-t border-zinc-100 bg-white">
-      <div className="mx-auto max-w-7xl px-6 py-24 sm:py-28">
-        <SectionEyebrow>The building blocks</SectionEyebrow>
-        <h2 className="mt-4 max-w-3xl text-balance text-4xl font-semibold tracking-[-0.02em] text-zinc-950 sm:text-5xl">
-          Three things every employee needs.{" "}
-          <span className="text-zinc-500">All of them, in markdown.</span>
-        </h2>
-        <p className="mt-5 max-w-2xl text-lg leading-relaxed text-zinc-600">
-          Soul says who they are. Skills describe what they know. Routines are
-          when they work. The whole employee fits in three editable text
-          fields you can read, diff, and own.
-        </p>
+    <section className="border-y border-slate-800 bg-slate-950 text-white">
+      <div className="mx-auto max-w-7xl px-5 py-20 sm:px-6 sm:py-24 lg:py-28">
+        <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
+          <div>
+            <span className="inline-flex items-center gap-2 rounded-full border border-indigo-400/25 bg-indigo-400/10 px-3 py-1 text-[11px] font-semibold text-indigo-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
+              The employee model
+            </span>
+            <h2 className="mt-5 max-w-xl text-balance text-4xl font-semibold tracking-[-0.04em] text-white sm:text-5xl">
+              More than a prompt. A complete operating role.
+            </h2>
+            <p className="mt-5 max-w-xl text-base leading-7 text-slate-400 sm:text-lg">
+              Every AI Employee is assembled from plain, editable building blocks stored with your
+              company data. Change the role without rebuilding the system around it.
+            </p>
+            <div className="mt-7 flex flex-wrap gap-2">
+              {["Readable", "Portable", "Database-backed", "Auditable"].map((item) => (
+                <span
+                  key={item}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-[11px] font-medium text-slate-300"
+                >
+                  <Check className="h-3 w-3 text-indigo-400" />
+                  {item}
+                </span>
+              ))}
+            </div>
+          </div>
 
-        <div className="mt-14 grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <Card
-            icon={<BookHeart className="h-5 w-5" />}
-            tag="Soul"
-            title="A constitution, not a prompt"
-            body="One markdown document that describes how the employee thinks, what they value, and what they refuse. Edit it like a job description."
-          >
-            <SoulPreview />
-          </Card>
-
-          <Card
-            icon={<Sparkles className="h-5 w-5" />}
-            tag="Skills"
-            title="Reusable playbooks"
-            body="Each skill is a named markdown file. Compose them across your team, version them in git, and share them between employees."
-          >
-            <SkillsPreview />
-          </Card>
-
-          <Card
-            icon={<CalendarClock className="h-5 w-5" />}
-            tag="Routines"
-            title="Work, on a schedule"
-            body="Pair a brief with a cron expression. Genosyn runs it on time, captures the output, and saves it as a Run you can read line by line."
-          >
-            <RoutinesPreview />
-          </Card>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {PRIMITIVES.map((primitive) => (
+              <article
+                key={primitive.label}
+                className="rounded-xl border border-white/10 bg-white/[0.045] p-5 shadow-sm"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/15 text-indigo-300 ring-1 ring-inset ring-indigo-400/20">
+                    <primitive.icon className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-indigo-300">
+                      {primitive.label}
+                    </div>
+                    <h3 className="mt-0.5 text-sm font-semibold text-white">{primitive.title}</h3>
+                  </div>
+                </div>
+                <p className="mt-4 text-sm leading-6 text-slate-400">{primitive.body}</p>
+                <ul className="mt-4 space-y-1.5 border-t border-white/10 pt-4">
+                  {primitive.lines.map((line) => (
+                    <li key={line} className="flex items-center gap-2 text-[11px] text-slate-300">
+                      <span className="h-1 w-1 rounded-full bg-indigo-400" />
+                      {line}
+                    </li>
+                  ))}
+                </ul>
+              </article>
+            ))}
+          </div>
         </div>
       </div>
     </section>
@@ -51,127 +114,9 @@ export function Primitives() {
 
 export function SectionEyebrow({ children }: { children: ReactNode }) {
   return (
-    <div className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-medium text-zinc-600 shadow-card">
-      <span className="h-1.5 w-1.5 rounded-full bg-zinc-900" />
+    <div className="inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-[11px] font-semibold text-indigo-700">
+      <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
       {children}
-    </div>
-  );
-}
-
-function Card({
-  icon,
-  tag,
-  title,
-  body,
-  children,
-}: {
-  icon: ReactNode;
-  tag: string;
-  title: string;
-  body: string;
-  children: ReactNode;
-}) {
-  return (
-    <article className="group flex flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-card transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lift">
-      <div className="flex items-center gap-3 px-6 pt-6">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-zinc-100 text-zinc-700 ring-1 ring-zinc-200">
-          {icon}
-        </div>
-        <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-          {tag}
-        </span>
-      </div>
-      <div className="px-6 pt-4">
-        <h3 className="text-xl font-semibold text-zinc-950">{title}</h3>
-        <p className="mt-2 text-sm leading-relaxed text-zinc-600">{body}</p>
-      </div>
-      <div className="mt-6 px-6 pb-6">{children}</div>
-    </article>
-  );
-}
-
-function SoulPreview() {
-  return (
-    <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 font-mono text-[12px] leading-6 text-zinc-700">
-      <div className="flex items-center gap-1.5 pb-2 text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
-        <FileText className="h-3 w-3" />
-        soul.md
-      </div>
-      <div className="text-zinc-950"># Alex Brand</div>
-      <div className="text-zinc-500">Senior brand writer.</div>
-      <div className="mt-2 font-semibold text-zinc-950">## Voice</div>
-      <div>- Concrete over clever.</div>
-      <div>- Shorter is braver.</div>
-      <div className="mt-2 font-semibold text-zinc-950">## Never</div>
-      <div>- Promise features that haven&apos;t shipped.</div>
-    </div>
-  );
-}
-
-function SkillsPreview() {
-  const skills = [
-    { name: "write-weekly-digest", tag: "writing", color: "bg-sky-50 text-sky-700 ring-sky-200" },
-    { name: "triage-inbox", tag: "ops", color: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
-    { name: "reconcile-stripe", tag: "finance", color: "bg-amber-50 text-amber-700 ring-amber-200" },
-    { name: "page-oncall", tag: "ops", color: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
-  ];
-  return (
-    <div className="space-y-2">
-      {skills.map((s) => (
-        <div
-          key={s.name}
-          className="flex items-center justify-between rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
-        >
-          <div className="flex min-w-0 items-center gap-2">
-            <Sparkles className="h-3.5 w-3.5 shrink-0 text-zinc-700" />
-            <span className="truncate font-mono text-[12px] text-zinc-700">
-              {s.name}
-            </span>
-          </div>
-          <span className={`ml-2 shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium ring-1 ${s.color}`}>
-            {s.tag}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function RoutinesPreview() {
-  const routines = [
-    { name: "Morning brief", cron: "30 8 * * 1-5", state: "running" as const },
-    { name: "Reconcile Stripe", cron: "0 7 * * *", state: "scheduled" as const },
-    { name: "Weekly digest", cron: "0 17 * * 5", state: "scheduled" as const },
-  ];
-  const styles: Record<string, string> = {
-    running: "bg-amber-50 text-amber-700 ring-amber-200",
-    scheduled: "bg-zinc-100 text-zinc-600 ring-zinc-200",
-  };
-  return (
-    <div className="space-y-2">
-      {routines.map((r) => (
-        <div
-          key={r.name}
-          className="rounded-lg border border-zinc-200 bg-white px-3 py-2.5"
-        >
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex min-w-0 items-center gap-2">
-              <CalendarClock className="h-3.5 w-3.5 shrink-0 text-zinc-700" />
-              <span className="truncate text-sm font-medium text-zinc-800">
-                {r.name}
-              </span>
-            </div>
-            <span
-              className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider ring-1 ${styles[r.state]}`}
-            >
-              {r.state}
-            </span>
-          </div>
-          <div className="mt-1 pl-5 font-mono text-[11px] text-zinc-500">
-            {r.cron}
-          </div>
-        </div>
-      ))}
     </div>
   );
 }

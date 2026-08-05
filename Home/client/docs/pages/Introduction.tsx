@@ -164,7 +164,7 @@ export function Introduction() {
       <div className="mt-12">
         <Link
           href="/docs/install"
-          className="inline-flex items-center gap-2 rounded-xl bg-zinc-950 px-5 py-2.5 text-sm font-semibold text-white shadow-card transition hover:bg-zinc-800"
+          className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white shadow-card transition hover:bg-slate-800"
         >
           Install Genosyn
           <ArrowRight className="h-4 w-4" />
@@ -176,16 +176,16 @@ export function Introduction() {
 
 function Primitive({ icon, tag, body }: { icon: React.ReactNode; tag: string; body: string }) {
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-card">
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-card">
       <div className="flex items-center gap-2">
-        <span className="flex h-7 w-7 items-center justify-center rounded-md bg-zinc-100 text-zinc-700 ring-1 ring-zinc-200">
+        <span className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-100 text-slate-700 ring-1 ring-slate-200">
           {icon}
         </span>
-        <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
           {tag}
         </span>
       </div>
-      <p className="mt-3 text-[13.5px] leading-[1.6] text-zinc-700">{body}</p>
+      <p className="mt-3 text-[13.5px] leading-[1.6] text-slate-700">{body}</p>
     </div>
   );
 }

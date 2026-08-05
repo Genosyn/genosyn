@@ -4,6 +4,7 @@
 
 :root {
   color-scheme: light;
+  font-feature-settings: "cv11", "ss01", "ss03";
 }
 
 html {
@@ -13,68 +14,37 @@ html {
 
 html,
 body {
-  @apply bg-white text-zinc-950 antialiased;
-  font-feature-settings: "cv11", "ss01", "ss03";
-}
-
-body {
-  @apply font-sans;
+  @apply bg-slate-50 font-sans text-slate-900 antialiased;
 }
 
 ::selection {
-  background-color: #18181b;
-  color: #fafafa;
+  background-color: #4f46e5;
+  color: #ffffff;
+}
+
+:where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
 }
 
 .tabular {
   font-variant-numeric: tabular-nums slashed-zero;
 }
 
-@keyframes blink {
-  0%,
-  49% {
-    opacity: 1;
-  }
-  50%,
-  100% {
-    opacity: 0;
-  }
-}
-
-.animate-blink {
-  animation: blink 1.05s steps(2) infinite;
-}
-
-@keyframes float-slow {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-6px);
-  }
-}
-
-.animate-float {
-  animation: float-slow 5s ease-in-out infinite;
-}
-
-.bg-grid-soft {
+.marketing-grid {
   background-image:
-    linear-gradient(to right, rgba(15, 23, 42, 0.05) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(15, 23, 42, 0.05) 1px, transparent 1px);
-  background-size: 36px 36px;
+    linear-gradient(to right, rgba(148, 163, 184, 0.14) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.14) 1px, transparent 1px);
+  background-size: 40px 40px;
+  mask-image: linear-gradient(to bottom, black 0%, transparent 86%);
 }
 
-.scrollbar-none {
-  scrollbar-width: none;
+.marketing-dots {
+  background-image: radial-gradient(circle, rgba(100, 116, 139, 0.28) 1px, transparent 1px);
+  background-size: 18px 18px;
 }
 
-.scrollbar-none::-webkit-scrollbar {
-  display: none;
-}
-
-@keyframes prototype-enter {
+@keyframes preview-enter {
   from {
     opacity: 0;
     transform: translateY(8px);
@@ -85,34 +55,22 @@ body {
   }
 }
 
-@keyframes prototype-activity-enter {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes prototype-progress {
-  from {
-    transform: scaleX(0);
-  }
-  to {
-    transform: scaleX(1);
-  }
-}
-
-@keyframes prototype-live {
+@keyframes preview-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.35);
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.24);
   }
   50% {
-    box-shadow: 0 0 0 5px rgba(52, 211, 153, 0);
+    box-shadow: 0 0 0 6px rgba(99, 102, 241, 0);
   }
+}
+
+.preview-enter {
+  animation: preview-enter 600ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.preview-live {
+  animation: preview-pulse 2.4s ease-out infinite;
 }
 
 .prototype-shell {
@@ -125,7 +83,7 @@ body {
 }
 
 .prototype-stage > :first-child {
-  animation: prototype-enter 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: preview-enter 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .prototype-stage-compact {
@@ -134,7 +92,16 @@ body {
 }
 
 .prototype-activity {
-  animation: prototype-activity-enter 460ms 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: preview-enter 460ms 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes prototype-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
 }
 
 .prototype-progress {
@@ -142,7 +109,15 @@ body {
 }
 
 .prototype-live-dot {
-  animation: prototype-live 2s ease-out infinite;
+  animation: preview-pulse 2s ease-out infinite;
+}
+
+.scrollbar-none {
+  scrollbar-width: none;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }
 
 @media (max-width: 639px) {
@@ -156,6 +131,12 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .preview-enter,
+  .preview-live,
   .prototype-stage > :first-child,
   .prototype-activity,
   .prototype-progress,

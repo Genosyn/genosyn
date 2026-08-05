@@ -24,8 +24,8 @@ export function DocsNav({
     <header
       className={`sticky top-0 z-50 transition-all ${
         scrolled
-          ? "border-b border-zinc-200/70 bg-white/85 backdrop-blur"
-          : "border-b border-zinc-100 bg-white"
+          ? "border-b border-slate-200/70 bg-white/85 backdrop-blur"
+          : "border-b border-slate-100 bg-white"
       }`}
     >
       <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-6 lg:px-8">
@@ -34,7 +34,7 @@ export function DocsNav({
           onClick={onToggleSidebar}
           aria-label="Toggle docs sidebar"
           aria-expanded={sidebarOpen}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-zinc-200 text-zinc-700 hover:bg-zinc-50 lg:hidden"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-700 hover:bg-slate-50 lg:hidden"
         >
           {sidebarOpen ? (
             <X className="h-4 w-4" />
@@ -43,16 +43,16 @@ export function DocsNav({
           )}
         </button>
 
-        <Link href="/" className="flex items-center text-zinc-950" aria-label="Genosyn home">
+        <Link href="/" className="flex items-center text-slate-950" aria-label="Genosyn home">
           <Logo className="h-7 w-auto" />
         </Link>
 
-        <span className="hidden text-zinc-300 sm:inline" aria-hidden>
+        <span className="hidden text-slate-300 sm:inline" aria-hidden>
           /
         </span>
         <Link
           href="/docs"
-          className="hidden text-sm font-medium text-zinc-700 hover:text-zinc-950 sm:inline"
+          className="hidden text-sm font-medium text-slate-700 hover:text-slate-950 sm:inline"
         >
           Docs
         </Link>
@@ -60,7 +60,7 @@ export function DocsNav({
         <div className="ml-auto flex items-center gap-2">
           <Link
             href="/docs/install"
-            className="hidden items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 hover:text-zinc-950 sm:inline-flex"
+            className="hidden items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 hover:text-slate-950 sm:inline-flex"
           >
             Install
           </Link>
@@ -68,7 +68,7 @@ export function DocsNav({
             href={GITHUB_URL}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 transition hover:bg-zinc-50 hover:text-zinc-950"
+            className="inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 hover:text-slate-950"
             aria-label="GitHub"
           >
             <Github className="h-4 w-4" />
@@ -76,7 +76,7 @@ export function DocsNav({
           </a>
           <Link
             href="/"
-            className="hidden items-center gap-1.5 rounded-md bg-zinc-950 px-3.5 py-1.5 text-sm font-semibold text-white shadow-card transition hover:bg-zinc-800 sm:inline-flex"
+            className="hidden items-center gap-1.5 rounded-md bg-indigo-600 px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500 sm:inline-flex"
           >
             Back to site
           </Link>

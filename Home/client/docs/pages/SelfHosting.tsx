@@ -147,7 +147,7 @@ export function SelfHosting() {
         uploaded attachments — live under <Code>dataDir</Code>. Souls, Skills, Routines, Run logs,
         model credentials, and Connection credentials live on encrypted/scoped database rows:
       </P>
-      <pre className="mt-4 overflow-x-auto rounded-xl border border-zinc-200 bg-zinc-50 px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-zinc-700">
+      <pre className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-slate-700">
         {`data/
 ├── app.sqlite
 └── companies/<co-slug>/employees/<emp-slug>/

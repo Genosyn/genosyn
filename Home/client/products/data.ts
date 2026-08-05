@@ -29,7 +29,7 @@ export type ProductDef = {
   icon: string;
   /** Tailwind classes for tinted icon tiles. */
   accent: string;
-  /** Two-tone H1: `tagline` in zinc-950, `taglineAccent` in zinc-500. */
+  /** Two-tone H1: `tagline` in slate-950, `taglineAccent` in slate-500. */
   tagline: string;
   taglineAccent: string;
   /** One-liner for cards and cross-link strips. */
@@ -72,8 +72,8 @@ export const PRODUCTS: ProductDef[] = [
       "An AI Employee is not a chatbot persona. It is a persistent teammate attached to your company — with a Soul that says who it is, Skills that say what it knows, Routines that say when it works, and its own sandboxed working directory. Every execution is captured as a Run you can read line by line.",
     checks: [
       "11 role templates or start blank",
-      "Claude, GPT, or any local model",
-      "Keys encrypted, never on disk",
+      "Claude, GPT, or a custom endpoint",
+      "API keys encrypted at rest",
       "Every Run fully transcribed",
     ],
     features: [
@@ -110,7 +110,7 @@ export const PRODUCTS: ProductDef[] = [
     ],
     employees: {
       heading: "How the pieces fit",
-      body: "Genosyn talks to the model API in-process and runs the tool-use loop itself — no provider CLIs, no config files on disk. Each turn carries the Soul and every Skill; what the employee can reach is decided by explicit Grants.",
+      body: "Genosyn owns the model loop and tool registry. API-key and custom models run in-process; eligible OpenAI subscription models use the official Codex app-server on source-managed Linux. Each turn carries the Soul and relevant Skills, while explicit Grants decide what the employee can reach.",
       bullets: [
         {
           title: "Real tools, sandboxed",
@@ -133,11 +133,11 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         q: "Which models can an employee run on?",
-        a: "Three provider kinds: Anthropic (Claude), OpenAI (GPT), or Custom — any OpenAI-compatible endpoint such as Ollama, vLLM, llama.cpp, LM Studio, or a gateway. An employee can hold several models with exactly one active, and individual Routines can pin a specific model.",
+        a: "Anthropic (Claude), OpenAI (GPT), or Custom — any OpenAI-compatible endpoint such as Ollama, vLLM, llama.cpp, LM Studio, or a gateway. Eligible source-managed Linux deployments can also connect OpenAI through a ChatGPT subscription. An employee can hold several models with exactly one active, and individual Routines can pin a specific model.",
       },
       {
-        q: "Where do the API keys live?",
-        a: "Encrypted with AES-256-GCM on the AIModel row in your own database — never on disk and never shared company-wide. Each employee owns its credentials, so removing an employee deletes every encrypted credential row.",
+        q: "Where do model credentials live?",
+        a: "API keys, custom-endpoint credentials, and OpenAI subscription credentials are encrypted with AES-256-GCM on the AIModel row in your database. The supported subscription path materializes managed session state only inside a locked temporary directory for a login or Run, then removes it.",
       },
       {
         q: "Can an AI Employee take an action I haven't approved?",
@@ -145,7 +145,7 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         q: "Do I need to install a provider CLI or wrapper per model?",
-        a: "No. Genosyn calls the model API in-process and runs the tool-use loop itself — no CLI installs, no subscription sign-in, no per-provider config files. Every provider kind gets the same built-in toolset.",
+        a: "No generic provider CLI is required. API-key and custom models run through Genosyn's in-process loop. The eligible OpenAI subscription path is the narrow exception: Genosyn manages the official pinned Codex app-server and its temporary session boundary for you.",
       },
     ],
     docsPath: "/docs/employees",
@@ -1442,7 +1442,7 @@ export const PRODUCTS: ProductDef[] = [
     name: "Code Repositories",
     category: "Engineering",
     icon: "gitBranch",
-    accent: "bg-zinc-100 text-zinc-700 ring-zinc-200",
+    accent: "bg-slate-100 text-slate-700 ring-slate-200",
     tagline: "Give your AI a real checkout.",
     taglineAccent: "Any git repo, per-employee grants, ordinary git.",
     summary:

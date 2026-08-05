@@ -6,240 +6,200 @@ import { Link } from "@/lib/router";
 import { PRODUCTS, type ProductDef } from "@/products/data";
 import { productIcon } from "@/products/productIcons";
 import { ProductPrototype } from "@/products/ProductPrototype";
-import { UseCases } from "@/sections/UseCases";
+import { getUseCasesForProduct } from "@/products/useCases";
 
 export function ProductPage({ product }: { product: ProductDef }) {
   const Icon = productIcon(product.icon);
+  const useCases = getUseCasesForProduct(product.slug).slice(0, 3);
 
   return (
-    <div className="min-h-screen bg-white text-zinc-950">
+    <div className="min-h-screen bg-white text-slate-950">
       <Nav />
       <main>
-        {/* ───────────────────────────── Hero ───────────────────────────── */}
-        <section className="relative overflow-hidden border-b border-zinc-200 bg-[#f4f4f1]">
+        <section className="relative overflow-hidden border-b border-slate-200 bg-slate-50">
+          <div aria-hidden className="marketing-grid pointer-events-none absolute inset-0 opacity-60" />
           <div
             aria-hidden
-            className="bg-grid-soft pointer-events-none absolute inset-0 opacity-30"
+            className="pointer-events-none absolute inset-x-0 top-0 h-[34rem] bg-[radial-gradient(circle_at_38%_0%,rgba(224,231,255,0.92),transparent_68%)]"
           />
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 h-[40rem] bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.95),transparent_68%)]"
-          />
-          <div className="relative mx-auto max-w-[92rem] px-5 pb-16 pt-12 sm:px-6 sm:pb-20 sm:pt-16 lg:pb-24 lg:pt-20">
-            <div className="grid gap-8 lg:grid-cols-[1.08fr_0.92fr] lg:items-end lg:gap-16">
-              <div className="max-w-3xl">
-                <nav
-                  aria-label="Breadcrumb"
-                  className="flex items-center gap-2 text-xs font-medium text-zinc-500"
-                >
-                  <Link href="/products" className="transition hover:text-zinc-900">
+          <div className="relative mx-auto max-w-7xl px-5 pb-16 pt-12 sm:px-6 sm:pb-20 sm:pt-16">
+            <div className="grid gap-10 lg:grid-cols-[0.92fr_1.08fr] lg:items-center lg:gap-16">
+              <div>
+                <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs font-medium text-slate-500">
+                  <Link href="/products" className="transition hover:text-indigo-600">
                     Products
                   </Link>
-                  <span className="text-zinc-300">/</span>
-                  <span className="text-zinc-700">{product.category}</span>
+                  <span className="text-slate-300">/</span>
+                  <span>{product.category}</span>
                 </nav>
-
-                <div
-                  className={`mt-7 flex h-12 w-12 items-center justify-center rounded-2xl ring-1 ${product.accent}`}
+                <span
+                  className={`mt-7 flex h-11 w-11 items-center justify-center rounded-xl ring-1 ${product.accent}`}
                 >
-                  <Icon className="h-6 w-6" />
-                </div>
-
-                <h1 className="mt-6 text-balance text-[3rem] font-semibold leading-[0.98] tracking-[-0.055em] text-zinc-950 sm:text-[4rem] lg:text-[4.8rem]">
-                  {product.tagline} <span className="text-zinc-500">{product.taglineAccent}</span>
+                  <Icon className="h-5 w-5" />
+                </span>
+                <h1 className="mt-6 text-balance text-[2.85rem] font-semibold leading-[1] tracking-[-0.05em] text-slate-950 sm:text-[4.2rem]">
+                  {product.tagline} <span className="text-indigo-600">{product.taglineAccent}</span>
                 </h1>
-              </div>
-
-              <div className="max-w-xl lg:justify-self-end">
-                <p className="text-pretty text-base leading-[1.75] text-zinc-600 sm:text-lg">
+                <p className="mt-6 max-w-2xl text-pretty text-base leading-7 text-slate-600 sm:text-lg">
                   {product.intro}
                 </p>
-
                 <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                   <a
                     href="/#quickstart"
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-950 px-6 py-3.5 text-sm font-semibold text-white shadow-lift transition hover:-translate-y-0.5 hover:bg-zinc-800 sm:w-auto"
+                    className="inline-flex items-center justify-center gap-2 rounded-md bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500"
                   >
-                    Get started for free
+                    Install Genosyn
                     <ArrowRight className="h-4 w-4" />
                   </a>
                   <Link
                     href={product.docsPath ?? "/docs"}
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-300 bg-white px-6 py-3.5 text-sm font-semibold text-zinc-800 shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-400 sm:w-auto"
+                    className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400"
                   >
                     <BookOpen className="h-4 w-4" />
                     Read the docs
                   </Link>
                 </div>
-
-                <ul className="mt-7 grid gap-x-4 gap-y-2 text-xs font-medium text-zinc-500 sm:grid-cols-2">
+                <ul className="mt-7 grid gap-x-4 gap-y-2 text-[11px] font-medium text-slate-500 sm:grid-cols-2">
                   {product.checks.map((check) => (
-                    <li key={check} className="inline-flex items-center gap-1.5">
-                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                    <li key={check} className="flex items-start gap-1.5">
+                      <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-indigo-600" />
                       {check}
                     </li>
                   ))}
                 </ul>
               </div>
-            </div>
 
-            <div className="mx-auto mt-12 max-w-[86rem] lg:mt-16">
-              <div className="mb-4 flex items-center justify-between px-1">
-                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">
-                  {product.name} · one complete run
-                </span>
-                <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-zinc-500">
-                  <span className="prototype-live-dot h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                  Runs automatically
-                </span>
-              </div>
               <ProductPrototype product={product} compact />
             </div>
           </div>
         </section>
 
-        <UseCases product={product} />
-
-        {/* ─────────────────────────── Features ─────────────────────────── */}
-        <section className="border-t border-zinc-100 bg-white">
-          <div className="mx-auto max-w-7xl px-6 py-20 sm:py-24">
-            <div className="mx-auto max-w-2xl text-center">
-              <SectionEyebrow>What ships in the box</SectionEyebrow>
-              <h2 className="mt-4 text-balance text-3xl font-semibold tracking-[-0.02em] text-zinc-950 sm:text-4xl">
-                {product.name}, in detail.
+        <section className="bg-white">
+          <div className="mx-auto max-w-7xl px-5 py-20 sm:px-6 sm:py-24">
+            <div className="mx-auto max-w-3xl text-center">
+              <SectionEyebrow>{product.name} in practice</SectionEyebrow>
+              <h2 className="mt-5 text-balance text-3xl font-semibold tracking-[-0.035em] text-slate-950 sm:text-4xl">
+                Built around outcomes, not demos.
               </h2>
+              <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
+                Start with a real role and a real handoff. Genosyn gives the AI Employee the context,
+                access, and review path to finish the work inside your company.
+              </p>
             </div>
-            <div className="mt-12 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              {product.features.map((f) => {
-                const FeatureIcon = productIcon(f.icon);
-                return (
-                  <article
-                    key={f.title}
-                    className="group flex flex-col rounded-2xl border border-zinc-200 bg-white p-6 shadow-card transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lift"
-                  >
-                    <div
-                      className={`flex h-10 w-10 items-center justify-center rounded-xl ring-1 transition group-hover:scale-105 ${product.accent}`}
+            <div className="mt-10 grid gap-4 lg:grid-cols-3">
+              {useCases.map((useCase) => (
+                <article key={useCase.role} className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`flex h-9 w-9 items-center justify-center rounded-lg text-[10px] font-bold ring-1 ${useCase.accent}`}
                     >
-                      <FeatureIcon className="h-5 w-5" />
+                      {useCase.initials}
+                    </span>
+                    <div>
+                      <div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        {useCase.team}
+                      </div>
+                      <h3 className="mt-0.5 text-sm font-semibold text-slate-900">{useCase.role}</h3>
                     </div>
-                    <h3 className="mt-5 text-base font-semibold text-zinc-950">{f.title}</h3>
-                    <p className="mt-2 text-sm leading-relaxed text-zinc-600">{f.body}</p>
-                  </article>
-                );
-              })}
+                  </div>
+                  <p className="mt-4 text-sm leading-6 text-slate-600">{useCase.objective}</p>
+                  <div className="mt-5 rounded-lg border border-indigo-100 bg-indigo-50/70 px-3 py-2.5 text-[11px] font-medium leading-5 text-indigo-800">
+                    {useCase.outcome}
+                  </div>
+                </article>
+              ))}
             </div>
           </div>
         </section>
 
-        {/* ──────────────────────── With AI employees ───────────────────── */}
-        <section className="bg-white">
-          <div className="mx-auto max-w-7xl px-6 pb-20 sm:pb-24">
-            <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 px-8 py-12 sm:px-12 sm:py-16">
-              <div
-                aria-hidden
-                className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.14),transparent_65%)]"
-              />
-              <div className="relative grid grid-cols-1 gap-10 lg:grid-cols-5">
-                <div className="lg:col-span-2">
-                  <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[11px] font-medium text-zinc-300">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                    With AI employees
-                  </span>
-                  <h2 className="mt-4 text-balance text-2xl font-semibold tracking-[-0.02em] text-white sm:text-3xl">
-                    {product.employees.heading}
-                  </h2>
-                  <p className="mt-4 text-sm leading-relaxed text-zinc-400">
-                    {product.employees.body}
-                  </p>
-                </div>
-                <div className="space-y-4 lg:col-span-3">
-                  {product.employees.bullets.map((b) => (
-                    <div
-                      key={b.title}
-                      className="rounded-2xl border border-white/10 bg-white/[0.04] p-5"
-                    >
-                      <h3 className="text-sm font-semibold text-white">{b.title}</h3>
-                      <p className="mt-1.5 text-sm leading-relaxed text-zinc-400">{b.body}</p>
-                    </div>
-                  ))}
-                </div>
+        <section className="border-y border-slate-200 bg-slate-50">
+          <div className="mx-auto max-w-7xl px-5 py-20 sm:px-6 sm:py-24">
+            <div className="grid gap-10 lg:grid-cols-[0.66fr_1.34fr] lg:gap-16">
+              <div>
+                <SectionEyebrow>What ships</SectionEyebrow>
+                <h2 className="mt-5 text-3xl font-semibold tracking-[-0.035em] text-slate-950 sm:text-4xl">
+                  {product.name}, end to end.
+                </h2>
+                <p className="mt-4 text-sm leading-6 text-slate-600">
+                  Every capability is built into the same operating model, with company identity,
+                  access, activity, and AI Employees already connected.
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {product.features.map((feature) => {
+                  const FeatureIcon = productIcon(feature.icon);
+                  return (
+                    <article key={feature.title} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                      <span
+                        className={`flex h-9 w-9 items-center justify-center rounded-lg ring-1 ${product.accent}`}
+                      >
+                        <FeatureIcon className="h-4 w-4" />
+                      </span>
+                      <h3 className="mt-4 text-sm font-semibold text-slate-900">{feature.title}</h3>
+                      <p className="mt-2 text-xs leading-5 text-slate-500">{feature.body}</p>
+                    </article>
+                  );
+                })}
               </div>
             </div>
           </div>
         </section>
 
-        {/* ─────────────────────────────── FAQ ──────────────────────────── */}
-        <section className="border-t border-zinc-100 bg-white">
-          <div className="mx-auto max-w-3xl px-6 py-20 sm:py-24">
+        <section className="bg-slate-950 text-white">
+          <div className="mx-auto max-w-7xl px-5 py-20 sm:px-6 sm:py-24">
+            <div className="grid gap-10 lg:grid-cols-[0.72fr_1.28fr] lg:items-start lg:gap-16">
+              <div>
+                <span className="inline-flex items-center gap-2 rounded-full border border-indigo-400/25 bg-indigo-400/10 px-3 py-1 text-[11px] font-semibold text-indigo-300">
+                  <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
+                  With AI Employees
+                </span>
+                <h2 className="mt-5 text-balance text-3xl font-semibold tracking-[-0.035em] text-white sm:text-4xl">
+                  {product.employees.heading}
+                </h2>
+                <p className="mt-4 text-sm leading-6 text-slate-400">{product.employees.body}</p>
+              </div>
+              <div className="space-y-3">
+                {product.employees.bullets.map((bullet, index) => (
+                  <article key={bullet.title} className="rounded-xl border border-white/10 bg-white/[0.045] p-5">
+                    <div className="flex items-start gap-4">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-indigo-500/15 font-mono text-[10px] font-semibold text-indigo-300">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                      <div>
+                        <h3 className="text-sm font-semibold text-white">{bullet.title}</h3>
+                        <p className="mt-1.5 text-sm leading-6 text-slate-400">{bullet.body}</p>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="bg-white">
+          <div className="mx-auto max-w-3xl px-5 py-20 sm:px-6 sm:py-24">
             <div className="text-center">
               <SectionEyebrow>Questions</SectionEyebrow>
-              <h2 className="mt-4 text-balance text-3xl font-semibold tracking-[-0.02em] text-zinc-950 sm:text-4xl">
+              <h2 className="mt-5 text-3xl font-semibold tracking-[-0.035em] text-slate-950 sm:text-4xl">
                 Frequently asked.
               </h2>
             </div>
-            <div className="mt-10 space-y-3">
-              {product.faqs.map((f) => (
-                <details
-                  key={f.q}
-                  className="group rounded-2xl border border-zinc-200 bg-white shadow-card open:shadow-lift"
-                >
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-6 py-4 text-[15px] font-semibold text-zinc-900 [&::-webkit-details-marker]:hidden">
-                    {f.q}
-                    <ChevronDown className="h-4 w-4 shrink-0 text-zinc-400 transition group-open:rotate-180" />
+            <div className="mt-9 space-y-2.5">
+              {product.faqs.map((faq) => (
+                <details key={faq.q} className="group rounded-xl border border-slate-200 bg-white open:bg-slate-50">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-sm font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">
+                    {faq.q}
+                    <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition group-open:rotate-180" />
                   </summary>
-                  <p className="px-6 pb-5 text-sm leading-relaxed text-zinc-600">{f.a}</p>
+                  <p className="px-5 pb-5 text-sm leading-6 text-slate-600">{faq.a}</p>
                 </details>
               ))}
             </div>
           </div>
         </section>
 
-        {/* ────────────────────────── More products ─────────────────────── */}
-        <section className="border-t border-zinc-100 bg-zinc-50/50">
-          <div className="mx-auto max-w-7xl px-6 py-16 sm:py-20">
-            <div className="flex items-baseline justify-between gap-4">
-              <h2 className="text-xl font-semibold tracking-[-0.01em] text-zinc-950">
-                More in the box
-              </h2>
-              <Link
-                href="/products"
-                className="inline-flex items-center gap-1.5 text-sm font-medium text-zinc-600 transition hover:text-zinc-950"
-              >
-                All products
-                <ArrowRight className="h-3.5 w-3.5" />
-              </Link>
-            </div>
-            <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {relatedProducts(product).map((p) => {
-                const RelIcon = productIcon(p.icon);
-                return (
-                  <Link
-                    key={p.slug}
-                    href={`/products/${p.slug}`}
-                    className="group flex flex-col rounded-2xl border border-zinc-200 bg-white p-5 shadow-card transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lift"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`flex h-8 w-8 items-center justify-center rounded-lg ring-1 ${p.accent}`}
-                      >
-                        <RelIcon className="h-4 w-4" />
-                      </span>
-                      <span className="text-sm font-semibold text-zinc-950">{p.name}</span>
-                    </div>
-                    <p className="mt-3 line-clamp-2 text-[12.5px] leading-relaxed text-zinc-600">
-                      {p.summary}
-                    </p>
-                    <span className="mt-3 inline-flex items-center gap-1 text-[11px] font-semibold text-zinc-500 transition group-hover:text-zinc-900">
-                      Learn more
-                      <ArrowRight className="h-3 w-3 transition group-hover:translate-x-0.5" />
-                    </span>
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-
+        <RelatedProducts current={product} />
         <InstallCta />
       </main>
       <Footer />
@@ -247,9 +207,44 @@ export function ProductPage({ product }: { product: ProductDef }) {
   );
 }
 
-function relatedProducts(current: ProductDef): ProductDef[] {
-  const others = PRODUCTS.filter((p) => p.slug !== current.slug);
-  const sameCategory = others.filter((p) => p.category === current.category);
-  const rest = others.filter((p) => p.category !== current.category);
-  return [...sameCategory, ...rest].slice(0, 4);
+function RelatedProducts({ current }: { current: ProductDef }) {
+  const related = [
+    ...PRODUCTS.filter((product) => product.slug !== current.slug && product.category === current.category),
+    ...PRODUCTS.filter((product) => product.slug !== current.slug && product.category !== current.category),
+  ].slice(0, 4);
+
+  return (
+    <section className="border-t border-slate-200 bg-slate-50">
+      <div className="mx-auto max-w-7xl px-5 py-16 sm:px-6">
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="text-lg font-semibold text-slate-900">Explore more products</h2>
+          <Link href="/products" className="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-600">
+            View all
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {related.map((product) => {
+            const Icon = productIcon(product.icon);
+            return (
+              <Link
+                key={product.slug}
+                href={`/products/${product.slug}`}
+                className="group rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-indigo-200"
+              >
+                <div className="flex items-center gap-3">
+                  <span className={`flex h-8 w-8 items-center justify-center rounded-lg ring-1 ${product.accent}`}>
+                    <Icon className="h-4 w-4" />
+                  </span>
+                  <span className="text-sm font-semibold text-slate-900">{product.name}</span>
+                  <ArrowRight className="ml-auto h-3.5 w-3.5 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-indigo-500" />
+                </div>
+                <p className="mt-3 line-clamp-2 text-xs leading-5 text-slate-500">{product.summary}</p>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
 }

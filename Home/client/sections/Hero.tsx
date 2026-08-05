@@ -1,102 +1,80 @@
-import { ArrowRight, Check, Github, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowRight, Check, Github } from "lucide-react";
 import { GITHUB_URL } from "@/lib/constants";
-import { ProductPrototype } from "@/products/ProductPrototype";
+import { Link } from "@/lib/router";
+import { CompanyPreview } from "@/sections/CompanyPreview";
 
-const CHECKS = ["MIT licensed", "Self-hosted", "Any AI model", "Human approvals"];
-const TEAMS = ["Sales Development", "Engineering", "Support", "Finance", "Operations"];
+const PROOF = ["MIT licensed", "Self-hosted", "Any AI model", "Human approvals"];
 
 export function Hero() {
   return (
-    <section className="relative overflow-hidden border-b border-zinc-200 bg-[#f4f4f1]">
-      <div aria-hidden className="bg-grid-soft pointer-events-none absolute inset-0 opacity-35" />
+    <section className="relative overflow-hidden border-b border-slate-200 bg-slate-50">
+      <div aria-hidden className="marketing-grid pointer-events-none absolute inset-0 opacity-75" />
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-[42rem] bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.95),transparent_68%)]"
+        className="pointer-events-none absolute inset-x-0 top-0 h-[38rem] bg-[radial-gradient(circle_at_50%_5%,rgba(224,231,255,0.95),rgba(248,250,252,0)_68%)]"
       />
 
-      <div className="relative mx-auto max-w-[92rem] px-5 pb-16 pt-10 sm:px-6 sm:pb-20 sm:pt-20 lg:pb-24 lg:pt-24">
-        <div className="mx-auto max-w-5xl text-center">
+      <div className="relative mx-auto max-w-[88rem] px-5 pb-16 pt-14 sm:px-6 sm:pb-20 sm:pt-20 lg:pb-24">
+        <div className="mx-auto max-w-4xl text-center">
           <a
             href={GITHUB_URL}
             target="_blank"
             rel="noreferrer"
-            className="group inline-flex items-center gap-2 rounded-full border border-zinc-300 bg-white/80 px-3.5 py-1.5 text-[11px] font-semibold text-zinc-700 shadow-sm transition hover:border-zinc-400 hover:bg-white"
+            className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-white/85 px-3.5 py-1.5 text-[11px] font-semibold text-indigo-700 shadow-sm backdrop-blur transition hover:border-indigo-300 hover:bg-white"
           >
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-950 text-white">
-              <Sparkles className="h-3 w-3" />
-            </span>
-            Open-source company operating system
-            <span className="text-zinc-300">·</span>v{__APP_VERSION__}
-            <ArrowRight className="h-3.5 w-3.5 text-zinc-400 transition group-hover:translate-x-0.5" />
+            <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
+            Open source and self-hosted
+            <span className="text-indigo-200">·</span>
+            v{__APP_VERSION__}
+            <ArrowRight className="h-3.5 w-3.5" />
           </a>
 
-          <h1 className="mt-7 text-balance text-[3.15rem] font-semibold leading-[0.92] tracking-[-0.065em] text-zinc-950 sm:mt-8 sm:text-[5rem] lg:text-[6.4rem]">
-            Run your company with <span className="text-zinc-500">AI employees.</span>
+          <h1 className="mt-7 text-balance text-[3.1rem] font-semibold leading-[0.98] tracking-[-0.055em] text-slate-950 sm:mt-8 sm:text-[4.8rem] lg:text-[5.8rem]">
+            The company operating system for <span className="text-indigo-600">people and AI.</span>
           </h1>
 
-          <p className="mx-auto mt-6 max-w-3xl text-pretty text-base leading-7 text-zinc-600 sm:mt-7 sm:text-xl sm:leading-8">
-            Sales, engineering, support, finance, and operations—all in one self-hosted workspace
-            where people and AI Employees share the same context, tools, and review queues.
+          <p className="mx-auto mt-6 max-w-3xl text-pretty text-base leading-7 text-slate-600 sm:text-xl sm:leading-8">
+            Give AI Employees clear roles, shared tools, scheduled work, and human guardrails.
+            Genosyn keeps the people, context, and work together in one workspace you control.
           </p>
 
-          <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:mt-9 sm:flex-row">
+          <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <a
               href="#quickstart"
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-950 px-6 py-3.5 text-sm font-semibold text-white shadow-[0_14px_30px_-14px_rgba(24,24,27,0.75)] transition hover:-translate-y-0.5 hover:bg-zinc-800 sm:w-auto"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500 sm:w-auto"
             >
-              Run it on your server
+              Install Genosyn
               <ArrowRight className="h-4 w-4" />
             </a>
+            <Link
+              href="/products"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 sm:w-auto"
+            >
+              Explore the product
+            </Link>
             <a
               href={GITHUB_URL}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-300 bg-white px-6 py-3.5 text-sm font-semibold text-zinc-800 shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-400 sm:w-auto"
+              className="inline-flex items-center gap-2 px-3 py-3 text-sm font-medium text-slate-500 transition hover:text-slate-900"
             >
               <Github className="h-4 w-4" />
-              View on GitHub
+              GitHub
             </a>
           </div>
 
-          <ul className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[11px] font-semibold text-zinc-500 sm:mt-8">
-            {CHECKS.map((check) => (
-              <li key={check} className="inline-flex items-center gap-1.5">
-                <Check className="h-3.5 w-3.5 text-emerald-600" />
-                {check}
+          <ul className="mt-7 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[11px] font-medium text-slate-500">
+            {PROOF.map((item) => (
+              <li key={item} className="inline-flex items-center gap-1.5">
+                <Check className="h-3.5 w-3.5 text-indigo-600" />
+                {item}
               </li>
             ))}
           </ul>
         </div>
 
-        <div className="mx-auto mt-10 max-w-[86rem] sm:mt-16">
-          <div className="mb-4 flex flex-col gap-3 px-1 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">
-                <span className="prototype-live-dot h-1.5 w-1.5 rounded-full bg-emerald-500" />A
-                company working in real time
-              </div>
-              <p className="mt-1.5 text-sm font-medium text-zinc-800">
-                Watch the work move. The showcase runs itself.
-              </p>
-            </div>
-            <div className="flex items-center gap-2 text-[10px] font-medium text-zinc-500">
-              <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-              Sensitive actions pause for approval
-            </div>
-          </div>
-
-          <ProductPrototype compact />
-
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-            {TEAMS.map((team) => (
-              <span
-                key={team}
-                className="rounded-full border border-zinc-300 bg-white/60 px-3 py-1.5 text-[10px] font-semibold text-zinc-500"
-              >
-                {team}
-              </span>
-            ))}
-          </div>
+        <div className="mt-12 sm:mt-16">
+          <CompanyPreview />
         </div>
       </div>
     </section>

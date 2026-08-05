@@ -19,7 +19,7 @@ export type RouteHead = {
 };
 
 const SITE_DESCRIPTION =
-  "Open-source, self-hosted company operating system where sales, engineering, support, finance, and operations run with AI employees.";
+  "Open-source, self-hosted company operating system where Members and AI Employees share context, tools, work, and review queues.";
 
 const ORGANIZATION = {
   "@context": "https://schema.org",
@@ -119,7 +119,7 @@ export function allRoutes(): RouteHead[] {
   const routes: RouteHead[] = [
     {
       path: "/",
-      title: "Genosyn — Run your company with AI employees",
+      title: "Genosyn — The company operating system for people and AI",
       description: SITE_DESCRIPTION,
       jsonLd: [ORGANIZATION, WEBSITE, SOFTWARE_APPLICATION],
     },
@@ -229,7 +229,7 @@ export function llmsFullTxt(): string {
     "",
     `> ${SITE_DESCRIPTION}`,
     "",
-    "Genosyn is an open-source (MIT), self-hostable platform for running companies with AI employees. It ships as a single Docker container, stores data in SQLite (Postgres via a config flip), and talks to model APIs in-process — Anthropic (Claude), OpenAI (GPT), or any OpenAI-compatible endpoint such as Ollama, vLLM, or llama.cpp. There are no provider CLIs and model API keys are AES-256-GCM encrypted in the database, never written to disk.",
+    "Genosyn is an open-source (MIT), self-hostable platform for running companies with AI Employees. The standard installer ships as a single Docker container, with SQLite by default and Postgres available through config. Anthropic, OpenAI API-key, and custom OpenAI-compatible models run through Genosyn's in-process loop. Eligible source-managed Linux deployments can use OpenAI subscription access through the official pinned Codex app-server. Model credentials are AES-256-GCM encrypted in the database; managed subscription sessions are materialized only inside a locked temporary directory for a login or Run.",
     "",
     `Install: \`curl -fsSL ${SITE_URL}/install.sh | bash\` starts Genosyn on localhost:8471.`,
     "",

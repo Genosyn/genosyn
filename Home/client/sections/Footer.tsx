@@ -1,58 +1,59 @@
-import { ArrowRight, Github, Terminal } from "lucide-react";
+import { ArrowRight, Github } from "lucide-react";
 import { GITHUB_URL, ROADMAP_URL } from "@/lib/constants";
 import { Logo } from "@/components/Logo";
 import { Link } from "@/lib/router";
 
-const ISSUES_URL = `${GITHUB_URL}/issues`;
+const PRODUCT_LINKS = [
+  ["AI Employees", "/products/ai-employees"],
+  ["Workspace", "/products/workspace"],
+  ["Tasks", "/products/tasks"],
+  ["Revenue", "/products/revenue"],
+  ["Finance", "/products/finance"],
+  ["Code Repositories", "/products/code"],
+] as const;
+
+const RESOURCE_LINKS = [
+  ["Documentation", "/docs"],
+  ["Install guide", "/docs/install"],
+  ["Self-hosting", "/docs/self-hosting"],
+  ["CLI reference", "/docs/cli"],
+  ["Enterprise", "/enterprise"],
+] as const;
 
 export function InstallCta() {
   return (
-    <section className="relative bg-white">
-      <div className="mx-auto max-w-7xl px-6 pt-16">
-        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 px-8 py-14 text-center sm:px-12 sm:py-20">
+    <section className="bg-white">
+      <div className="mx-auto max-w-7xl px-5 py-16 sm:px-6 sm:py-20">
+        <div className="relative overflow-hidden rounded-2xl border border-indigo-500 bg-indigo-600 px-6 py-12 text-center shadow-[0_24px_60px_-30px_rgba(79,70,229,0.75)] sm:px-12 sm:py-16">
+          <div aria-hidden className="marketing-dots pointer-events-none absolute inset-0 opacity-20" />
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.18),transparent_65%)]"
+            className="pointer-events-none absolute inset-x-0 top-0 h-64 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.22),transparent_68%)]"
           />
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:36px_36px] [mask-image:radial-gradient(ellipse_at_center,black,transparent_75%)]"
-          />
-
-          <div className="relative">
-            <h2 className="text-balance text-4xl font-semibold tracking-[-0.02em] text-white sm:text-5xl">
-              Meet your first AI employee.
+          <div className="relative mx-auto max-w-2xl">
+            <h2 className="text-balance text-3xl font-semibold tracking-[-0.035em] text-white sm:text-4xl">
+              Put your first AI Employee to work.
             </h2>
-            <p className="mx-auto mt-4 max-w-lg text-base leading-relaxed text-zinc-300">
-              One command pulls the image and starts Genosyn on{" "}
-              <code className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[12px] text-white">
-                localhost:8471
-              </code>
-              . Write their soul. Schedule their first routine.
+            <p className="mx-auto mt-4 max-w-xl text-sm leading-6 text-indigo-100 sm:text-base">
+              Install Genosyn, choose an AI Model, define the role, and schedule the first Routine.
+              The rest of the company can grow from there.
             </p>
-
-            <div className="mx-auto mt-8 flex max-w-xl items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-left font-mono text-[13px] text-zinc-200 shadow-card">
-              <Terminal className="h-4 w-4 text-zinc-300" />
-              <span className="text-zinc-500">$</span>
-              <span className="truncate">curl -fsSL genosyn.com/install.sh | bash</span>
-            </div>
-
-            <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
+              <a
+                href="/#quickstart"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-white px-5 py-3 text-sm font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-50 sm:w-auto"
+              >
+                Install Genosyn
+                <ArrowRight className="h-4 w-4" />
+              </a>
               <a
                 href={GITHUB_URL}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-6 py-3 text-sm font-semibold text-zinc-950 shadow-lift transition hover:bg-zinc-100 sm:w-auto"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-white/25 bg-white/5 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10 sm:w-auto"
               >
                 <Github className="h-4 w-4" />
                 Star on GitHub
-              </a>
-              <a
-                href="/#quickstart"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/5 sm:w-auto"
-              >
-                See quickstart
-                <ArrowRight className="h-4 w-4" />
               </a>
             </div>
           </div>
@@ -62,115 +63,87 @@ export function InstallCta() {
   );
 }
 
-type FooterLink = { href: string; label: string; external?: boolean };
-
-const PRODUCT_LINKS: FooterLink[] = [
-  { href: "/products/ai-employees", label: "AI Employees" },
-  { href: "/products/workspace", label: "Workspace" },
-  { href: "/products/tasks", label: "Tasks" },
-  { href: "/products/bases", label: "Bases" },
-  { href: "/products/notes", label: "Notes" },
-  { href: "/products/resources", label: "Resources" },
-  { href: "/products/pipelines", label: "Pipelines" },
-  { href: "/products/explore", label: "Explore" },
-  { href: "/products/revenue", label: "Revenue" },
-  { href: "/products/email", label: "Email" },
-  { href: "/products/customers", label: "Customers" },
-  { href: "/products/finance", label: "Finance" },
-  { href: "/products/code", label: "Code Repositories" },
-];
-
-const FOOTER_COLUMNS: Array<{ label: string; links: FooterLink[] }> = [
-  {
-    label: "Resources",
-    links: [
-      { href: "/docs", label: "Docs" },
-      { href: "/docs/install", label: "Install" },
-      { href: "/docs/cli", label: "CLI reference" },
-      { href: "/docs/self-hosting", label: "Self-hosting" },
-      { href: "/enterprise", label: "Enterprise" },
-    ],
-  },
-  {
-    label: "Project",
-    links: [
-      { href: GITHUB_URL, label: "GitHub", external: true },
-      { href: ROADMAP_URL, label: "Roadmap", external: true },
-      { href: ISSUES_URL, label: "Issues", external: true },
-      { href: "/install.sh", label: "install.sh" },
-      { href: "/llms.txt", label: "llms.txt" },
-    ],
-  },
-];
-
-function FooterLinkItem({ link }: { link: FooterLink }) {
-  if (link.external) {
-    return (
-      <li>
-        <a
-          href={link.href}
-          target="_blank"
-          rel="noreferrer"
-          className="text-zinc-600 transition hover:text-zinc-950"
-        >
-          {link.label}
-        </a>
-      </li>
-    );
-  }
+export function Footer() {
   return (
-    <li>
-      <Link href={link.href} className="text-zinc-600 transition hover:text-zinc-950">
-        {link.label}
-      </Link>
-    </li>
+    <footer className="border-t border-slate-200 bg-slate-50">
+      <div className="mx-auto max-w-7xl px-5 pb-10 pt-12 sm:px-6 sm:pt-14">
+        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1fr]">
+          <div>
+            <Logo className="h-7 w-auto text-slate-900" />
+            <p className="mt-4 max-w-sm text-sm leading-6 text-slate-500">
+              The open-source, self-hostable company operating system for people and AI Employees.
+            </p>
+            <div className="mt-5 inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-500">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              MIT licensed · v{__APP_VERSION__}
+            </div>
+          </div>
+
+          <FooterColumn title="Product" links={PRODUCT_LINKS} />
+          <FooterColumn title="Resources" links={RESOURCE_LINKS} />
+
+          <nav aria-label="Project">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+              Project
+            </div>
+            <ul className="mt-4 space-y-2.5 text-sm">
+              <li>
+                <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="text-slate-600 hover:text-slate-950">
+                  GitHub
+                </a>
+              </li>
+              <li>
+                <a href={ROADMAP_URL} target="_blank" rel="noreferrer" className="text-slate-600 hover:text-slate-950">
+                  Roadmap
+                </a>
+              </li>
+              <li>
+                <a href={`${GITHUB_URL}/issues`} target="_blank" rel="noreferrer" className="text-slate-600 hover:text-slate-950">
+                  Issues
+                </a>
+              </li>
+              <li>
+                <a href="/install.sh" className="text-slate-600 hover:text-slate-950">
+                  install.sh
+                </a>
+              </li>
+            </ul>
+          </nav>
+        </div>
+
+        <div className="mt-12 flex flex-col gap-4 border-t border-slate-200 pt-6 text-[11px] leading-5 text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+          <span>© {__BUILD_YEAR__} HackerBay, Inc. · Built in the open.</span>
+          <span className="max-w-2xl sm:text-right">
+            Some parts of this software are AI generated. Use at your own risk. Open source and
+            provided without warranty.
+          </span>
+        </div>
+      </div>
+    </footer>
   );
 }
 
-export function Footer() {
+function FooterColumn({
+  title,
+  links,
+}: {
+  title: string;
+  links: ReadonlyArray<readonly [string, string]>;
+}) {
   return (
-    <footer className="relative bg-white">
-      <div className="mx-auto max-w-7xl px-6 pt-14 pb-16">
-        <div className="grid grid-cols-2 gap-x-6 gap-y-10 border-t border-zinc-100 pt-10 sm:grid-cols-4 lg:grid-cols-6">
-          <div className="col-span-2 pr-8">
-            <Logo className="h-6 w-auto text-zinc-800" />
-            <p className="mt-4 max-w-xs text-xs leading-relaxed text-zinc-500">
-              The open-source, self-hostable platform for running companies
-              with AI employees. One container, your keys, your data.
-            </p>
-          </div>
-          <nav aria-label="Products" className="col-span-2">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-              Products
-            </div>
-            <ul className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-[13px]">
-              {PRODUCT_LINKS.map((link) => (
-                <FooterLinkItem key={link.label} link={link} />
-              ))}
-            </ul>
-          </nav>
-          {FOOTER_COLUMNS.map((col) => (
-            <nav key={col.label} aria-label={col.label}>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                {col.label}
-              </div>
-              <ul className="mt-3 space-y-2 text-[13px]">
-                {col.links.map((link) => (
-                  <FooterLinkItem key={link.label} link={link} />
-                ))}
-              </ul>
-            </nav>
-          ))}
-        </div>
-
-        <div className="mt-12 flex flex-col items-center justify-between gap-6 border-t border-zinc-100 pt-8 text-xs text-zinc-500 sm:flex-row">
-          <span>© {__BUILD_YEAR__} HackerBay, Inc. · Built in the open.</span>
-          <span className="font-mono text-zinc-400">v{__APP_VERSION__}</span>
-        </div>
-        <p className="mt-6 text-center text-[11px] leading-relaxed text-zinc-400 sm:text-left">
-          Disclaimer: some parts of this software are AI generated. Use at your own risk. Open source and provided without warranty of any kind.
-        </p>
+    <nav aria-label={title}>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+        {title}
       </div>
-    </footer>
+      <ul className="mt-4 space-y-2.5 text-sm">
+        {links.map(([label, href]) => (
+          <li key={href}>
+            <Link href={href} className="text-slate-600 transition hover:text-slate-950">
+              {label}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </nav>
   );
 }

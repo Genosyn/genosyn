@@ -50,14 +50,14 @@ export function DocsShell({ pathname, children }: { pathname: string; children: 
   const sourceFile = PATH_TO_SOURCE[pathname];
 
   return (
-    <div className="min-h-screen bg-white text-zinc-950">
+    <div className="min-h-screen bg-white text-slate-950">
       <DocsNav onToggleSidebar={() => setOpen((v) => !v)} sidebarOpen={open} />
 
       <div className="mx-auto max-w-7xl px-6 lg:px-8">
         <div className="flex flex-col gap-10 lg:flex-row lg:gap-12">
           <aside
             aria-label="Documentation sections"
-            className={`fixed inset-y-0 left-0 z-40 w-72 transform overflow-y-auto border-r border-zinc-200 bg-white px-6 pb-10 pt-20 transition-transform lg:sticky lg:top-16 lg:z-auto lg:h-[calc(100vh-4rem)] lg:w-60 lg:flex-shrink-0 lg:translate-x-0 lg:border-r-0 lg:px-0 lg:pb-12 lg:pt-10 ${
+            className={`fixed inset-y-0 left-0 z-40 w-72 transform overflow-y-auto border-r border-slate-200 bg-white px-6 pb-10 pt-20 transition-transform lg:sticky lg:top-16 lg:z-auto lg:h-[calc(100vh-4rem)] lg:w-60 lg:flex-shrink-0 lg:translate-x-0 lg:border-r-0 lg:px-0 lg:pb-12 lg:pt-10 ${
               open ? "translate-x-0 shadow-2xl" : "-translate-x-full lg:translate-x-0"
             }`}
           >
@@ -69,7 +69,7 @@ export function DocsShell({ pathname, children }: { pathname: string; children: 
               type="button"
               aria-label="Close sidebar"
               onClick={() => setOpen(false)}
-              className="fixed inset-0 z-30 bg-zinc-900/30 lg:hidden"
+              className="fixed inset-0 z-30 bg-slate-900/30 lg:hidden"
             />
           )}
 
@@ -94,7 +94,7 @@ function SidebarTree({ pathname }: { pathname: string }) {
     <nav className="space-y-7 text-sm">
       {DOCS_NAV.map((section) => (
         <div key={section.label}>
-          <div className="px-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+          <div className="px-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
             {section.label}
           </div>
           <ul className="mt-2 space-y-0.5">
@@ -107,8 +107,8 @@ function SidebarTree({ pathname }: { pathname: string }) {
                     aria-current={active ? "page" : undefined}
                     className={`block rounded-md px-2 py-1.5 text-[14px] leading-snug transition ${
                       active
-                        ? "bg-zinc-100 font-medium text-zinc-950"
-                        : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-950"
+                        ? "bg-indigo-50 font-medium text-indigo-700"
+                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
                     }`}
                   >
                     {page.title}
@@ -126,17 +126,17 @@ function SidebarTree({ pathname }: { pathname: string }) {
 function PrevNext({ prev, next }: { prev: DocsPageMeta | null; next: DocsPageMeta | null }) {
   if (!prev && !next) return null;
   return (
-    <div className="grid grid-cols-1 gap-3 border-t border-zinc-100 pt-8 sm:grid-cols-2">
+    <div className="grid grid-cols-1 gap-3 border-t border-slate-100 pt-8 sm:grid-cols-2">
       {prev ? (
         <Link
           href={prev.path}
-          className="group flex flex-col rounded-xl border border-zinc-200 bg-white px-5 py-4 text-left shadow-card transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lift"
+          className="group flex flex-col rounded-xl border border-slate-200 bg-white px-5 py-4 text-left shadow-sm transition hover:border-indigo-200"
         >
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
             <ArrowLeft className="h-3 w-3" />
             Previous
           </span>
-          <span className="mt-2 text-[15px] font-semibold text-zinc-950">{prev.title}</span>
+          <span className="mt-2 text-[15px] font-semibold text-slate-950">{prev.title}</span>
         </Link>
       ) : (
         <span />
@@ -144,13 +144,13 @@ function PrevNext({ prev, next }: { prev: DocsPageMeta | null; next: DocsPageMet
       {next ? (
         <Link
           href={next.path}
-          className="group flex flex-col items-end rounded-xl border border-zinc-200 bg-white px-5 py-4 text-right shadow-card transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lift"
+          className="group flex flex-col items-end rounded-xl border border-slate-200 bg-white px-5 py-4 text-right shadow-sm transition hover:border-indigo-200"
         >
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
             Next
             <ArrowRight className="h-3 w-3" />
           </span>
-          <span className="mt-2 text-[15px] font-semibold text-zinc-950">{next.title}</span>
+          <span className="mt-2 text-[15px] font-semibold text-slate-950">{next.title}</span>
         </Link>
       ) : (
         <span />
@@ -162,12 +162,12 @@ function PrevNext({ prev, next }: { prev: DocsPageMeta | null; next: DocsPageMet
 function SourceLink({ file }: { file?: string }) {
   if (!file) return null;
   return (
-    <div className="mt-8 text-xs text-zinc-500">
+    <div className="mt-8 text-xs text-slate-500">
       <a
         href={`${DOCS_SOURCE_BASE}/${file}`}
         target="_blank"
         rel="noreferrer"
-        className="inline-flex items-center gap-1.5 hover:text-zinc-700"
+        className="inline-flex items-center gap-1.5 hover:text-slate-700"
       >
         <Github className="h-3.5 w-3.5" />
         Edit this page on GitHub
@@ -178,23 +178,23 @@ function SourceLink({ file }: { file?: string }) {
 
 function DocsFooter() {
   return (
-    <footer className="border-t border-zinc-100 bg-white">
-      <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-6 py-8 text-xs text-zinc-500 sm:flex-row lg:px-8">
+    <footer className="border-t border-slate-100 bg-white">
+      <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-6 py-8 text-xs text-slate-500 sm:flex-row lg:px-8">
         <div>© {__BUILD_YEAR__} HackerBay, Inc. · Built in the open.</div>
         <nav className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
-          <Link href="/" className="hover:text-zinc-900">
+          <Link href="/" className="hover:text-slate-900">
             Home
           </Link>
-          <Link href="/docs" className="hover:text-zinc-900">
+          <Link href="/docs" className="hover:text-slate-900">
             Docs
           </Link>
-          <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="hover:text-zinc-900">
+          <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="hover:text-slate-900">
             GitHub
           </a>
-          <a href="/install.sh" className="hover:text-zinc-900">
+          <a href="/install.sh" className="hover:text-slate-900">
             install.sh
           </a>
-          <span className="font-mono text-zinc-400">v{__APP_VERSION__}</span>
+          <span className="font-mono text-slate-400">v{__APP_VERSION__}</span>
         </nav>
       </div>
     </footer>
