@@ -45,7 +45,7 @@ const ACTIVITY = [
   },
   {
     initials: "SS",
-    color: "bg-violet-100 text-violet-700",
+    color: "bg-zinc-200 text-zinc-800",
     name: "Sam",
     action: "opened a reliability fix",
     meta: "Code · 14m ago",
@@ -58,9 +58,9 @@ export function CompanyPreview() {
     <div className="preview-enter relative mx-auto max-w-[84rem] select-none">
       <div
         aria-hidden
-        className="absolute -inset-8 -z-10 rounded-[3rem] bg-indigo-200/35 blur-3xl"
+        className="absolute -inset-8 -z-10 rounded-[3rem] bg-slate-300/30 blur-3xl"
       />
-      <div className="overflow-hidden rounded-2xl border border-slate-300/80 bg-white shadow-[0_35px_80px_-35px_rgba(15,23,42,0.38)] ring-1 ring-white">
+      <div className="overflow-hidden rounded-2xl border border-slate-300/90 bg-white shadow-[0_38px_90px_-38px_rgba(15,23,42,0.42)] ring-1 ring-white">
         <PreviewHeader />
         <div className="grid min-h-[31rem] md:grid-cols-[12.5rem_minmax(0,1fr)]">
           <PreviewSidebar />
@@ -110,7 +110,7 @@ function PreviewSidebar() {
             key={item.label}
             className={`flex items-center gap-2 rounded-md px-2.5 py-2 text-[11px] font-medium ${
               item.active
-                ? "bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-100"
+                ? "bg-slate-100 text-slate-800 ring-1 ring-inset ring-slate-200"
                 : "text-slate-600"
             }`}
           >
@@ -134,7 +134,7 @@ function PreviewSidebar() {
             <span className="text-[10px] font-medium text-slate-600">{item.name}</span>
             <span
               className={`ml-auto h-1.5 w-1.5 rounded-full ${
-                index === 2 ? "preview-live bg-indigo-500" : "bg-emerald-500"
+                index === 2 ? "preview-live bg-slate-900" : "bg-emerald-500"
               }`}
             />
           </div>
@@ -163,9 +163,9 @@ function PreviewMain() {
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-2.5 xl:grid-cols-4">
-        <Stat icon={ShieldCheck} value="3" label="Pending approvals" accent="indigo" />
+        <Stat icon={ShieldCheck} value="3" label="Pending approvals" accent="graphite" />
         <Stat icon={Clock3} value="18" label="Routines today" accent="emerald" />
-        <Stat icon={ListChecks} value="5" label="Waiting for review" accent="violet" />
+        <Stat icon={ListChecks} value="5" label="Waiting for review" accent="zinc" />
         <Stat icon={Users} value="7" label="AI Employees" accent="sky" />
       </div>
 
@@ -173,7 +173,7 @@ function PreviewMain() {
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <div className="text-[11px] font-semibold text-slate-900">AI activity</div>
-            <span className="text-[9px] font-medium text-indigo-600">View all Runs</span>
+            <span className="text-[9px] font-medium text-slate-950">View all Runs</span>
           </div>
           <div className="divide-y divide-slate-100 px-4">
             {ACTIVITY.map((item) => (
@@ -198,7 +198,7 @@ function PreviewMain() {
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <div className="text-[11px] font-semibold text-slate-900">Needs your attention</div>
-            <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[9px] font-semibold text-indigo-600">
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-semibold text-slate-950">
               3 items
             </span>
           </div>
@@ -213,7 +213,7 @@ function PreviewMain() {
               icon={CheckCircle2}
               title="Review checkout patch"
               detail="Sam · Code Repositories"
-              tone="indigo"
+              tone="graphite"
             />
             <AttentionRow
               icon={Sparkles}
@@ -222,8 +222,8 @@ function PreviewMain() {
               tone="emerald"
             />
           </div>
-          <div className="mx-3 mb-3 rounded-lg border border-indigo-100 bg-indigo-50/70 px-3 py-2.5">
-            <div className="flex items-center gap-2 text-[10px] font-medium text-indigo-800">
+          <div className="mx-3 mb-3 rounded-lg border border-slate-200 bg-slate-100/70 px-3 py-2.5">
+            <div className="flex items-center gap-2 text-[10px] font-medium text-slate-800">
               <Activity className="h-3.5 w-3.5" />
               Work keeps moving. Sensitive changes wait for you.
             </div>
@@ -243,12 +243,12 @@ function Stat({
   icon: typeof ShieldCheck;
   value: string;
   label: string;
-  accent: "indigo" | "emerald" | "violet" | "sky";
+  accent: "graphite" | "emerald" | "zinc" | "sky";
 }) {
   const accents = {
-    indigo: "bg-indigo-50 text-indigo-600",
+    graphite: "bg-slate-100 text-slate-950",
     emerald: "bg-emerald-50 text-emerald-600",
-    violet: "bg-violet-50 text-violet-600",
+    zinc: "bg-zinc-100 text-zinc-800",
     sky: "bg-sky-50 text-sky-600",
   };
 
@@ -271,7 +271,7 @@ function StatusBadge({ status }: { status: string }) {
       ? "bg-emerald-50 text-emerald-700"
       : status === "Review"
         ? "bg-amber-50 text-amber-700"
-        : "bg-indigo-50 text-indigo-700";
+        : "bg-slate-100 text-slate-800";
   return <span className={`rounded-md px-2 py-1 text-[8px] font-semibold ${style}`}>{status}</span>;
 }
 
@@ -284,11 +284,11 @@ function AttentionRow({
   icon: typeof ShieldCheck;
   title: string;
   detail: string;
-  tone: "amber" | "indigo" | "emerald";
+  tone: "amber" | "graphite" | "emerald";
 }) {
   const styles = {
     amber: "bg-amber-50 text-amber-600",
-    indigo: "bg-indigo-50 text-indigo-600",
+    graphite: "bg-slate-100 text-slate-950",
     emerald: "bg-emerald-50 text-emerald-600",
   };
   return (

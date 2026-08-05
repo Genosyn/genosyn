@@ -14,17 +14,17 @@ html {
 
 html,
 body {
-  @apply bg-slate-50 font-sans text-slate-900 antialiased;
+  @apply bg-white font-sans text-slate-900 antialiased;
 }
 
 ::selection {
-  background-color: #4f46e5;
+  background-color: #0f172a;
   color: #ffffff;
 }
 
 :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
-  outline: 2px solid #4f46e5;
-  outline-offset: 2px;
+  outline: 2px solid #0f172a;
+  outline-offset: 3px;
 }
 
 .tabular {
@@ -33,8 +33,8 @@ body {
 
 .marketing-grid {
   background-image:
-    linear-gradient(to right, rgba(148, 163, 184, 0.14) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(148, 163, 184, 0.14) 1px, transparent 1px);
+    linear-gradient(to right, rgba(100, 116, 139, 0.1) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(100, 116, 139, 0.1) 1px, transparent 1px);
   background-size: 40px 40px;
   mask-image: linear-gradient(to bottom, black 0%, transparent 86%);
 }
@@ -58,10 +58,10 @@ body {
 @keyframes preview-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.24);
+    box-shadow: 0 0 0 0 rgba(15, 23, 42, 0.2);
   }
   50% {
-    box-shadow: 0 0 0 6px rgba(99, 102, 241, 0);
+    box-shadow: 0 0 0 6px rgba(15, 23, 42, 0);
   }
 }
 

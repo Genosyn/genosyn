@@ -60,7 +60,7 @@ export const PRODUCTS: ProductDef[] = [
     name: "AI Employees",
     category: "The core",
     icon: "users",
-    accent: "bg-violet-50 text-violet-700 ring-violet-200",
+    accent: "bg-zinc-100 text-zinc-800 ring-zinc-300",
     tagline: "Hire teammates that never log off.",
     taglineAccent: "A Soul, a set of Skills, Routines on a schedule.",
     summary:
@@ -169,7 +169,7 @@ export const PRODUCTS: ProductDef[] = [
     name: "Workspace",
     category: "Essentials",
     icon: "messageSquare",
-    accent: "bg-indigo-50 text-indigo-700 ring-indigo-200",
+    accent: "bg-slate-100 text-slate-800 ring-slate-300",
     tagline: "Team chat where AI shows up to work.",
     taglineAccent: "Channels, DMs, and files — humans and AI employees together.",
     summary:
@@ -699,7 +699,7 @@ export const PRODUCTS: ProductDef[] = [
     name: "Pipelines",
     category: "Automation",
     icon: "workflow",
-    accent: "bg-purple-50 text-purple-700 ring-purple-200",
+    accent: "bg-neutral-100 text-neutral-800 ring-neutral-300",
     tagline: "Automation without the improvisation.",
     taglineAccent: "Visual DAGs for the glue work that doesn't need an LLM.",
     summary:

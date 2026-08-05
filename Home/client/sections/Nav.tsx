@@ -36,7 +36,7 @@ export function Nav() {
     <header
       className={`sticky top-0 z-50 border-b transition ${
         scrolled
-          ? "border-slate-200 bg-white/90 shadow-sm backdrop-blur-xl"
+          ? "border-slate-200/90 bg-white/90 shadow-[0_1px_2px_rgba(15,23,42,0.04)] backdrop-blur-xl"
           : "border-slate-200/80 bg-white"
       }`}
     >
@@ -69,7 +69,7 @@ export function Nav() {
           </a>
           <a
             href="/#quickstart"
-            className="hidden items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500 sm:inline-flex"
+            className="hidden items-center rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-[0_1px_2px_rgba(15,23,42,0.18)] transition hover:-translate-y-px hover:bg-slate-800 sm:inline-flex"
           >
             Install
           </a>
@@ -110,7 +110,7 @@ export function Nav() {
             <a
               href="/#quickstart"
               onClick={() => setOpen(false)}
-              className="mt-1 inline-flex items-center justify-center rounded-md bg-indigo-600 px-3 py-2.5 text-sm font-semibold text-white"
+              className="mt-1 inline-flex items-center justify-center rounded-md bg-slate-950 px-3 py-2.5 text-sm font-semibold text-white"
             >
               Install Genosyn
             </a>

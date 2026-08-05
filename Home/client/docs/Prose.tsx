@@ -16,7 +16,7 @@ export function PageHeader({
   return (
     <header className="border-b border-slate-100 pb-8">
       {eyebrow && (
-        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-600">
+        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-950">
           {eyebrow}
         </div>
       )}
@@ -182,7 +182,7 @@ export function DocLink({
   return (
     <Link
       href={to}
-      className="font-medium text-indigo-700 underline decoration-indigo-200 decoration-1 underline-offset-2 hover:decoration-indigo-500"
+      className="font-medium text-slate-800 underline decoration-slate-300 decoration-1 underline-offset-2 hover:decoration-slate-700"
     >
       {label}
     </Link>
@@ -201,7 +201,7 @@ export function ExtLink({
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="font-medium text-indigo-700 underline decoration-indigo-200 decoration-1 underline-offset-2 hover:decoration-indigo-500"
+      className="font-medium text-slate-800 underline decoration-slate-300 decoration-1 underline-offset-2 hover:decoration-slate-700"
     >
       {children}
     </a>

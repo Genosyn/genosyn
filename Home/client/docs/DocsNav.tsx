@@ -76,7 +76,7 @@ export function DocsNav({
           </a>
           <Link
             href="/"
-            className="hidden items-center gap-1.5 rounded-md bg-indigo-600 px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500 sm:inline-flex"
+            className="hidden items-center gap-1.5 rounded-md bg-slate-950 px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 sm:inline-flex"
           >
             Back to site
           </Link>

@@ -93,17 +93,17 @@ export function Enterprise(): ReactNode {
 
 function EnterpriseHero() {
   return (
-    <section className="relative overflow-hidden border-b border-slate-200 bg-slate-50">
+    <section className="relative overflow-hidden border-b border-slate-200 bg-white">
       <div aria-hidden className="marketing-grid pointer-events-none absolute inset-0 opacity-60" />
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-[34rem] bg-[radial-gradient(circle_at_38%_0%,rgba(224,231,255,0.92),transparent_68%)]"
+        className="pointer-events-none absolute inset-x-0 top-0 h-[34rem] bg-[radial-gradient(circle_at_38%_0%,rgba(226,232,240,0.82),transparent_68%)]"
       />
       <div className="relative mx-auto grid max-w-7xl gap-12 px-5 pb-20 pt-14 sm:px-6 sm:pt-20 lg:grid-cols-[0.88fr_1.12fr] lg:items-center lg:gap-16">
         <div>
           <SectionEyebrow>Genosyn for Enterprise</SectionEyebrow>
           <h1 className="mt-6 text-balance text-[3rem] font-semibold leading-[1] tracking-[-0.05em] text-slate-950 sm:text-[4.6rem]">
-            Run Genosyn inside <span className="text-indigo-600">your environment.</span>
+            Run Genosyn inside <span className="text-slate-500">your environment.</span>
           </h1>
           <p className="mt-6 max-w-2xl text-pretty text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
             Bring the open-source company operating system into the network, identity, database, and
@@ -112,7 +112,7 @@ function EnterpriseHero() {
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <a
               href={CONTACT_HREF}
-              className="inline-flex items-center justify-center gap-2 rounded-md bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500"
+              className="inline-flex items-center justify-center gap-2 rounded-md bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-md"
             >
               <Mail className="h-4 w-4" />
               Talk to us
@@ -128,7 +128,7 @@ function EnterpriseHero() {
           <ul className="mt-7 flex flex-wrap gap-x-5 gap-y-2 text-[11px] font-medium text-slate-500">
             {["MIT licensed", "Your model keys", "SQLite or Postgres", "SSO-ready"].map((item) => (
               <li key={item} className="inline-flex items-center gap-1.5">
-                <CheckCircle2 className="h-3.5 w-3.5 text-indigo-600" />
+                <CheckCircle2 className="h-3.5 w-3.5 text-slate-950" />
                 {item}
               </li>
             ))}
@@ -157,14 +157,14 @@ function ArchitectureCard() {
           </span>
         </div>
 
-        <div className="mt-6 rounded-xl border border-indigo-200 bg-indigo-50 p-4">
+        <div className="mt-6 rounded-xl border border-slate-300 bg-slate-100 p-4">
           <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-white">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-950 text-white">
               <Boxes className="h-4 w-4" />
             </span>
             <div>
-              <div className="text-xs font-semibold text-indigo-950">Genosyn</div>
-              <div className="text-[10px] text-indigo-600">Members + AI Employees + company tools</div>
+              <div className="text-xs font-semibold text-slate-950">Genosyn</div>
+              <div className="text-[10px] text-slate-600">Members + AI Employees + company tools</div>
             </div>
           </div>
         </div>
@@ -208,8 +208,8 @@ function EnterpriseReasons() {
         </div>
         <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {REASONS.map((reason) => (
-            <article key={reason.title} className="rounded-xl border border-slate-200 bg-slate-50 p-5">
-              <reason.icon className="h-5 w-5 text-indigo-600" />
+            <article key={reason.title} className="rounded-xl border border-slate-200 bg-slate-50 p-5 transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:shadow-sm">
+              <reason.icon className="h-5 w-5 text-slate-950" />
               <h3 className="mt-4 text-sm font-semibold text-slate-900">{reason.title}</h3>
               <p className="mt-2 text-xs leading-5 text-slate-500">{reason.body}</p>
             </article>
@@ -274,13 +274,13 @@ function DeploymentRow({
   body: string;
 }) {
   return (
-    <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md">
       <div className="flex items-start gap-4">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-950">
           <Icon className="h-4 w-4" />
         </span>
         <div>
-          <div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-indigo-600">{label}</div>
+          <div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-950">{label}</div>
           <h3 className="mt-1 text-sm font-semibold text-slate-900">{title}</h3>
           <p className="mt-2 text-xs leading-5 text-slate-500">{body}</p>
         </div>
@@ -302,7 +302,7 @@ function EnterpriseServices() {
         <div className="mt-12 grid gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 sm:grid-cols-2">
           {SERVICES.map((service) => (
             <article key={service.title} className="bg-slate-50 p-6 sm:p-7">
-              <service.icon className="h-5 w-5 text-indigo-600" />
+              <service.icon className="h-5 w-5 text-slate-950" />
               <h3 className="mt-4 text-sm font-semibold text-slate-900">{service.title}</h3>
               <p className="mt-2 text-sm leading-6 text-slate-600">{service.body}</p>
             </article>
@@ -317,20 +317,20 @@ function EnterpriseContact() {
   return (
     <section className="bg-white">
       <div className="mx-auto max-w-7xl px-5 pb-20 sm:px-6 sm:pb-24">
-        <div className="relative overflow-hidden rounded-2xl border border-indigo-500 bg-indigo-600 px-6 py-12 text-center sm:px-12 sm:py-16">
+        <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 px-6 py-12 text-center sm:px-12 sm:py-16">
           <div aria-hidden className="marketing-dots pointer-events-none absolute inset-0 opacity-20" />
           <div className="relative mx-auto max-w-2xl">
             <h2 className="text-balance text-3xl font-semibold tracking-[-0.035em] text-white sm:text-4xl">
               Let&apos;s plan your Genosyn deployment.
             </h2>
-            <p className="mx-auto mt-4 max-w-xl text-sm leading-6 text-indigo-100 sm:text-base">
+            <p className="mx-auto mt-4 max-w-xl text-sm leading-6 text-slate-200 sm:text-base">
               Tell us about the environment, identity model, compliance needs, and the work you want
               AI Employees to take on.
             </p>
             <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <a
                 href={CONTACT_HREF}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-white px-5 py-3 text-sm font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-50 sm:w-auto"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-white px-5 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-100 sm:w-auto"
               >
                 <Mail className="h-4 w-4" />
                 Email {CONTACT_EMAIL}

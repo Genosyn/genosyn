@@ -20,11 +20,11 @@ export function ProductsIndex() {
     <div className="min-h-screen bg-white text-slate-950">
       <Nav />
       <main>
-        <section className="relative overflow-hidden border-b border-slate-200 bg-slate-50">
+        <section className="relative overflow-hidden border-b border-slate-200 bg-white">
           <div aria-hidden className="marketing-grid pointer-events-none absolute inset-0 opacity-60" />
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 h-[34rem] bg-[radial-gradient(circle_at_50%_0%,rgba(224,231,255,0.9),transparent_70%)]"
+            className="pointer-events-none absolute inset-x-0 top-0 h-[34rem] bg-[radial-gradient(circle_at_50%_0%,rgba(226,232,240,0.78),transparent_70%)]"
           />
           <div className="relative mx-auto max-w-7xl px-5 pb-20 pt-14 sm:px-6 sm:pt-20">
             <div className="mx-auto max-w-4xl text-center">
@@ -39,7 +39,7 @@ export function ProductsIndex() {
               <ul className="mt-7 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[11px] font-medium text-slate-500">
                 {CHECKS.map((item) => (
                   <li key={item} className="inline-flex items-center gap-1.5">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-indigo-600" />
+                    <CheckCircle2 className="h-3.5 w-3.5 text-slate-950" />
                     {item}
                   </li>
                 ))}
@@ -97,7 +97,7 @@ function Flagship({ product }: { product: ProductDef }) {
           <span className={`flex h-10 w-10 items-center justify-center rounded-lg ring-1 ${product.accent}`}>
             <Icon className="h-5 w-5" />
           </span>
-          <div className="mt-5 text-[10px] font-semibold uppercase tracking-[0.18em] text-indigo-300">
+          <div className="mt-5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-300">
             The core of Genosyn
           </div>
           <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-white">
@@ -106,7 +106,7 @@ function Flagship({ product }: { product: ProductDef }) {
           <p className="mt-3 text-sm leading-6 text-slate-400">{product.summary}</p>
           <Link
             href={`/products/${product.slug}`}
-            className="mt-6 inline-flex items-center gap-2 rounded-md bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500"
+            className="mt-6 inline-flex items-center gap-2 rounded-md bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 shadow-sm ring-1 ring-white/10 transition hover:-translate-y-px hover:bg-slate-100"
           >
             Explore AI Employees
             <ArrowRight className="h-4 w-4" />
@@ -123,17 +123,17 @@ function ProductCard({ product }: { product: ProductDef }) {
   return (
     <Link
       href={`/products/${product.slug}`}
-      className="group flex min-h-56 flex-col rounded-xl border border-slate-200 bg-slate-50 p-5 transition hover:border-indigo-200 hover:bg-white hover:shadow-sm"
+      className="group flex min-h-56 flex-col rounded-xl border border-slate-200 bg-slate-50 p-5 transition duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:shadow-md"
     >
       <div className="flex items-start justify-between">
         <span className={`flex h-9 w-9 items-center justify-center rounded-lg ring-1 ${product.accent}`}>
           <Icon className="h-4 w-4" />
         </span>
-        <ArrowRight className="h-4 w-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-indigo-500" />
+        <ArrowRight className="h-4 w-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-slate-950" />
       </div>
       <h3 className="mt-5 text-base font-semibold text-slate-900">{product.name}</h3>
       <p className="mt-2 flex-1 text-sm leading-6 text-slate-600">{product.summary}</p>
-      <span className="mt-5 text-[11px] font-semibold text-indigo-600">Explore product</span>
+      <span className="mt-5 text-[11px] font-semibold text-slate-950">Explore product</span>
     </Link>
   );
 }

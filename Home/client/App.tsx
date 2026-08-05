@@ -97,7 +97,7 @@ function ProductNotFound() {
     <div className="min-h-screen bg-white text-slate-950">
       <Nav />
       <main className="mx-auto flex max-w-7xl flex-col items-center px-6 py-32 text-center">
-        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-600">404</div>
+        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-950">404</div>
         <h1 className="mt-4 text-3xl font-semibold tracking-[-0.02em] text-slate-950">
           No product lives here.
         </h1>
@@ -107,7 +107,7 @@ function ProductNotFound() {
         </p>
         <Link
           href="/products"
-          className="mt-8 inline-flex items-center gap-2 rounded-md bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500"
+          className="mt-8 inline-flex items-center gap-2 rounded-md bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
         >
           Browse all products
           <ArrowRight className="h-4 w-4" />

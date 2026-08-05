@@ -16,17 +16,17 @@ export function ProductPage({ product }: { product: ProductDef }) {
     <div className="min-h-screen bg-white text-slate-950">
       <Nav />
       <main>
-        <section className="relative overflow-hidden border-b border-slate-200 bg-slate-50">
+        <section className="relative overflow-hidden border-b border-slate-200 bg-white">
           <div aria-hidden className="marketing-grid pointer-events-none absolute inset-0 opacity-60" />
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 h-[34rem] bg-[radial-gradient(circle_at_38%_0%,rgba(224,231,255,0.92),transparent_68%)]"
+            className="pointer-events-none absolute inset-x-0 top-0 h-[34rem] bg-[radial-gradient(circle_at_38%_0%,rgba(226,232,240,0.82),transparent_68%)]"
           />
           <div className="relative mx-auto max-w-7xl px-5 pb-16 pt-12 sm:px-6 sm:pb-20 sm:pt-16">
             <div className="grid gap-10 lg:grid-cols-[0.92fr_1.08fr] lg:items-center lg:gap-16">
               <div>
                 <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs font-medium text-slate-500">
-                  <Link href="/products" className="transition hover:text-indigo-600">
+                  <Link href="/products" className="transition hover:text-slate-950">
                     Products
                   </Link>
                   <span className="text-slate-300">/</span>
@@ -38,7 +38,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
                   <Icon className="h-5 w-5" />
                 </span>
                 <h1 className="mt-6 text-balance text-[2.85rem] font-semibold leading-[1] tracking-[-0.05em] text-slate-950 sm:text-[4.2rem]">
-                  {product.tagline} <span className="text-indigo-600">{product.taglineAccent}</span>
+                  {product.tagline} <span className="text-slate-500">{product.taglineAccent}</span>
                 </h1>
                 <p className="mt-6 max-w-2xl text-pretty text-base leading-7 text-slate-600 sm:text-lg">
                   {product.intro}
@@ -46,7 +46,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
                 <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                   <a
                     href="/#quickstart"
-                    className="inline-flex items-center justify-center gap-2 rounded-md bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500"
+                    className="inline-flex items-center justify-center gap-2 rounded-md bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-md"
                   >
                     Install Genosyn
                     <ArrowRight className="h-4 w-4" />
@@ -62,7 +62,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
                 <ul className="mt-7 grid gap-x-4 gap-y-2 text-[11px] font-medium text-slate-500 sm:grid-cols-2">
                   {product.checks.map((check) => (
                     <li key={check} className="flex items-start gap-1.5">
-                      <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-indigo-600" />
+                      <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-950" />
                       {check}
                     </li>
                   ))}
@@ -88,7 +88,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
             </div>
             <div className="mt-10 grid gap-4 lg:grid-cols-3">
               {useCases.map((useCase) => (
-                <article key={useCase.role} className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+                <article key={useCase.role} className="rounded-xl border border-slate-200 bg-slate-50 p-5 transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:shadow-sm">
                   <div className="flex items-center gap-3">
                     <span
                       className={`flex h-9 w-9 items-center justify-center rounded-lg text-[10px] font-bold ring-1 ${useCase.accent}`}
@@ -103,7 +103,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
                     </div>
                   </div>
                   <p className="mt-4 text-sm leading-6 text-slate-600">{useCase.objective}</p>
-                  <div className="mt-5 rounded-lg border border-indigo-100 bg-indigo-50/70 px-3 py-2.5 text-[11px] font-medium leading-5 text-indigo-800">
+                  <div className="mt-5 rounded-lg border border-slate-200 bg-slate-100/70 px-3 py-2.5 text-[11px] font-medium leading-5 text-slate-800">
                     {useCase.outcome}
                   </div>
                 </article>
@@ -129,7 +129,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
                 {product.features.map((feature) => {
                   const FeatureIcon = productIcon(feature.icon);
                   return (
-                    <article key={feature.title} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <article key={feature.title} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md">
                       <span
                         className={`flex h-9 w-9 items-center justify-center rounded-lg ring-1 ${product.accent}`}
                       >
@@ -149,8 +149,8 @@ export function ProductPage({ product }: { product: ProductDef }) {
           <div className="mx-auto max-w-7xl px-5 py-20 sm:px-6 sm:py-24">
             <div className="grid gap-10 lg:grid-cols-[0.72fr_1.28fr] lg:items-start lg:gap-16">
               <div>
-                <span className="inline-flex items-center gap-2 rounded-full border border-indigo-400/25 bg-indigo-400/10 px-3 py-1 text-[11px] font-semibold text-indigo-300">
-                  <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
+                <span className="inline-flex items-center gap-2 rounded-full border border-slate-400/25 bg-slate-400/10 px-3 py-1 text-[11px] font-semibold text-slate-300">
+                  <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
                   With AI Employees
                 </span>
                 <h2 className="mt-5 text-balance text-3xl font-semibold tracking-[-0.035em] text-white sm:text-4xl">
@@ -162,7 +162,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
                 {product.employees.bullets.map((bullet, index) => (
                   <article key={bullet.title} className="rounded-xl border border-white/10 bg-white/[0.045] p-5">
                     <div className="flex items-start gap-4">
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-indigo-500/15 font-mono text-[10px] font-semibold text-indigo-300">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/10 font-mono text-[10px] font-semibold text-slate-300">
                         {String(index + 1).padStart(2, "0")}
                       </span>
                       <div>
@@ -218,7 +218,7 @@ function RelatedProducts({ current }: { current: ProductDef }) {
       <div className="mx-auto max-w-7xl px-5 py-16 sm:px-6">
         <div className="flex items-center justify-between gap-4">
           <h2 className="text-lg font-semibold text-slate-900">Explore more products</h2>
-          <Link href="/products" className="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-600">
+          <Link href="/products" className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-950">
             View all
             <ArrowRight className="h-4 w-4" />
           </Link>
@@ -230,14 +230,14 @@ function RelatedProducts({ current }: { current: ProductDef }) {
               <Link
                 key={product.slug}
                 href={`/products/${product.slug}`}
-                className="group rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-indigo-200"
+                className="group rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
               >
                 <div className="flex items-center gap-3">
                   <span className={`flex h-8 w-8 items-center justify-center rounded-lg ring-1 ${product.accent}`}>
                     <Icon className="h-4 w-4" />
                   </span>
                   <span className="text-sm font-semibold text-slate-900">{product.name}</span>
-                  <ArrowRight className="ml-auto h-3.5 w-3.5 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-indigo-500" />
+                  <ArrowRight className="ml-auto h-3.5 w-3.5 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-slate-950" />
                 </div>
                 <p className="mt-3 line-clamp-2 text-xs leading-5 text-slate-500">{product.summary}</p>
               </Link>

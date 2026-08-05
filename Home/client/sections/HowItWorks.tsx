@@ -67,7 +67,7 @@ export function HowItWorks() {
             </p>
             <Link
               href="/products/ai-employees"
-              className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-600 transition hover:text-indigo-500"
+              className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-slate-950 transition hover:text-slate-700"
             >
               Meet AI Employees
               <ArrowRight className="h-4 w-4" />
@@ -79,10 +79,10 @@ export function HowItWorks() {
           {STEPS.map((step) => (
             <li
               key={step.number}
-              className="group relative overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-5 transition hover:border-indigo-200 hover:bg-white hover:shadow-sm"
+              className="group relative overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-5 transition duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:shadow-md"
             >
               <div className="flex items-center justify-between">
-                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-indigo-600 shadow-sm ring-1 ring-slate-200 transition group-hover:bg-indigo-50 group-hover:ring-indigo-100">
+                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-slate-950 shadow-sm ring-1 ring-slate-200 transition group-hover:bg-slate-100 group-hover:ring-slate-200">
                   <step.icon className="h-4 w-4" />
                 </span>
                 <span className="font-mono text-[10px] font-semibold text-slate-400">{step.number}</span>
@@ -90,7 +90,7 @@ export function HowItWorks() {
               <h3 className="mt-5 text-base font-semibold text-slate-900">{step.title}</h3>
               <p className="mt-2 text-sm leading-6 text-slate-600">{step.body}</p>
               <div className="mt-5 flex items-start gap-2 border-t border-slate-200 pt-4 text-[11px] leading-5 text-slate-500">
-                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-indigo-500" />
+                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-950" />
                 {step.detail}
               </div>
             </li>

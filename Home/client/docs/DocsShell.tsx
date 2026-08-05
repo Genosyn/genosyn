@@ -107,7 +107,7 @@ function SidebarTree({ pathname }: { pathname: string }) {
                     aria-current={active ? "page" : undefined}
                     className={`block rounded-md px-2 py-1.5 text-[14px] leading-snug transition ${
                       active
-                        ? "bg-indigo-50 font-medium text-indigo-700"
+                        ? "bg-slate-100 font-medium text-slate-800"
                         : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
                     }`}
                   >
@@ -130,7 +130,7 @@ function PrevNext({ prev, next }: { prev: DocsPageMeta | null; next: DocsPageMet
       {prev ? (
         <Link
           href={prev.path}
-          className="group flex flex-col rounded-xl border border-slate-200 bg-white px-5 py-4 text-left shadow-sm transition hover:border-indigo-200"
+          className="group flex flex-col rounded-xl border border-slate-200 bg-white px-5 py-4 text-left shadow-sm transition hover:border-slate-300"
         >
           <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
             <ArrowLeft className="h-3 w-3" />
@@ -144,7 +144,7 @@ function PrevNext({ prev, next }: { prev: DocsPageMeta | null; next: DocsPageMet
       {next ? (
         <Link
           href={next.path}
-          className="group flex flex-col items-end rounded-xl border border-slate-200 bg-white px-5 py-4 text-right shadow-sm transition hover:border-indigo-200"
+          className="group flex flex-col items-end rounded-xl border border-slate-200 bg-white px-5 py-4 text-right shadow-sm transition hover:border-slate-300"
         >
           <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
             Next

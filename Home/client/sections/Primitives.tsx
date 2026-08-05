@@ -53,8 +53,8 @@ export function Primitives() {
       <div className="mx-auto max-w-7xl px-5 py-20 sm:px-6 sm:py-24 lg:py-28">
         <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
           <div>
-            <span className="inline-flex items-center gap-2 rounded-full border border-indigo-400/25 bg-indigo-400/10 px-3 py-1 text-[11px] font-semibold text-indigo-300">
-              <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
+            <span className="inline-flex items-center gap-2 rounded-full border border-slate-400/25 bg-slate-400/10 px-3 py-1 text-[11px] font-semibold text-slate-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
               The employee model
             </span>
             <h2 className="mt-5 max-w-xl text-balance text-4xl font-semibold tracking-[-0.04em] text-white sm:text-5xl">
@@ -70,7 +70,7 @@ export function Primitives() {
                   key={item}
                   className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-[11px] font-medium text-slate-300"
                 >
-                  <Check className="h-3 w-3 text-indigo-400" />
+                  <Check className="h-3 w-3 text-slate-400" />
                   {item}
                 </span>
               ))}
@@ -84,11 +84,11 @@ export function Primitives() {
                 className="rounded-xl border border-white/10 bg-white/[0.045] p-5 shadow-sm"
               >
                 <div className="flex items-center gap-3">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/15 text-indigo-300 ring-1 ring-inset ring-indigo-400/20">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/10 text-slate-300 ring-1 ring-inset ring-slate-400/20">
                     <primitive.icon className="h-4 w-4" />
                   </span>
                   <div>
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-indigo-300">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">
                       {primitive.label}
                     </div>
                     <h3 className="mt-0.5 text-sm font-semibold text-white">{primitive.title}</h3>
@@ -98,7 +98,7 @@ export function Primitives() {
                 <ul className="mt-4 space-y-1.5 border-t border-white/10 pt-4">
                   {primitive.lines.map((line) => (
                     <li key={line} className="flex items-center gap-2 text-[11px] text-slate-300">
-                      <span className="h-1 w-1 rounded-full bg-indigo-400" />
+                      <span className="h-1 w-1 rounded-full bg-slate-400" />
                       {line}
                     </li>
                   ))}
@@ -114,8 +114,8 @@ export function Primitives() {
 
 export function SectionEyebrow({ children }: { children: ReactNode }) {
   return (
-    <div className="inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-[11px] font-semibold text-indigo-700">
-      <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
+    <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-800">
+      <span className="h-1.5 w-1.5 rounded-full bg-slate-900" />
       {children}
     </div>
   );

@@ -76,7 +76,7 @@ function Window({ url, children }: { url: string; children: ReactNode }) {
         </div>
         <span className="hidden text-slate-300 sm:inline">/</span>
         <div className="hidden min-w-0 items-center gap-1.5 sm:flex">
-          <span className="h-4 w-4 rounded bg-violet-100 text-center text-[9px] font-bold leading-4 text-violet-700">
+          <span className="h-4 w-4 rounded bg-zinc-200 text-center text-[9px] font-bold leading-4 text-zinc-800">
             G
           </span>
           <span className="max-w-48 truncate text-[10px] font-medium text-slate-600">
@@ -281,7 +281,7 @@ function ChatLine({
         <div className="flex items-baseline gap-2">
           <span className="text-[12px] font-semibold text-slate-900">{name}</span>
           {isAI && (
-            <span className="rounded-md bg-violet-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-violet-700 ring-1 ring-violet-200">
+            <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-zinc-800 ring-1 ring-zinc-300">
               AI
             </span>
           )}
@@ -406,7 +406,7 @@ function TasksPreview() {
                       {card.who}
                     </span>
                     {card.isAI && (
-                      <span className="rounded-md bg-violet-50 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-violet-700 ring-1 ring-violet-200">
+                      <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-zinc-800 ring-1 ring-zinc-300">
                         AI
                       </span>
                     )}
@@ -443,7 +443,7 @@ function BasesPreview() {
     {
       name: "Globex",
       stage: "Proposal",
-      tone: "bg-violet-50 text-violet-700 ring-violet-200",
+      tone: "bg-zinc-100 text-zinc-800 ring-zinc-300",
       owner: "AB",
       ownerColor: "bg-sky-100 text-sky-700",
       acv: "$32,000",
@@ -508,7 +508,7 @@ function BasesPreview() {
         </table>
       </div>
       <div className="flex items-center gap-2 border-t border-slate-100 bg-slate-50/60 px-5 py-2.5 text-[11px] text-slate-500">
-        <Sparkles className="h-3.5 w-3.5 text-violet-500" />
+        <Sparkles className="h-3.5 w-3.5 text-zinc-700" />
         <span>
           <span className="font-medium text-slate-700">Alex (AI)</span> updated 3 rows from
           yesterday&apos;s calls · audit-logged
@@ -646,7 +646,7 @@ function ResourcesPreview() {
         ))}
       </div>
       <div className="flex items-center gap-2 border-t border-slate-100 bg-slate-50/60 px-5 py-2.5 text-[11px] text-slate-500">
-        <Sparkles className="h-3.5 w-3.5 text-violet-500" />
+        <Sparkles className="h-3.5 w-3.5 text-zinc-700" />
         <span>
           <span className="font-medium text-slate-700">Alex (AI)</span> cited the Stripe docs in
           today&apos;s pricing brief — every employee holds a read Grant
@@ -684,7 +684,7 @@ function PipelinesPreview() {
           icon={GitBranch}
           title="amount &gt; $1,000"
           subtitle="Branch"
-          tone="bg-violet-50 text-violet-700 ring-violet-200"
+          tone="bg-zinc-100 text-zinc-800 ring-zinc-300"
         />
         <PipelineConnector />
         <PipelineNode
@@ -698,7 +698,7 @@ function PipelinesPreview() {
           icon={MessageSquare}
           title="Post to #wins"
           subtitle="Message"
-          tone="bg-indigo-50 text-indigo-700 ring-indigo-200"
+          tone="bg-slate-100 text-slate-800 ring-slate-300"
         />
       </div>
       <div className="border-t border-slate-100 bg-slate-50/60 px-5 py-2.5 font-mono text-[10.5px] text-slate-500">
@@ -969,7 +969,7 @@ function RevenuePreview() {
     },
     {
       icon: Sparkles,
-      tone: "bg-violet-50 text-violet-700",
+      tone: "bg-zinc-100 text-zinc-800",
       label: "sequence step 2 · drafted by Alex (AI)",
       detail: "waiting in the review queue for a human Send",
       time: "9:15",
@@ -1016,7 +1016,7 @@ function RevenuePreview() {
                       {s.deal.who}
                     </span>
                     {s.deal.isAI && (
-                      <span className="rounded-md bg-violet-50 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-violet-700 ring-1 ring-violet-200">
+                      <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-zinc-800 ring-1 ring-zinc-300">
                         AI
                       </span>
                     )}
@@ -1116,8 +1116,8 @@ function EmailPreview() {
             Hi — our March invoice shows two seats but we downgraded to one on the 3rd. Can you take
             a look?
           </p>
-          <div className="mt-4 rounded-xl border border-violet-200 bg-violet-50/50 p-3.5">
-            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-violet-700">
+          <div className="mt-4 rounded-xl border border-zinc-300 bg-zinc-100/50 p-3.5">
+            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-800">
               <Sparkles className="h-3 w-3" />
               Draft by Mira (AI) · rule: to contains support@
             </div>

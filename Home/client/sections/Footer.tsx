@@ -24,7 +24,7 @@ export function InstallCta() {
   return (
     <section className="bg-white">
       <div className="mx-auto max-w-7xl px-5 py-16 sm:px-6 sm:py-20">
-        <div className="relative overflow-hidden rounded-2xl border border-indigo-500 bg-indigo-600 px-6 py-12 text-center shadow-[0_24px_60px_-30px_rgba(79,70,229,0.75)] sm:px-12 sm:py-16">
+        <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 px-6 py-12 text-center shadow-[0_28px_70px_-36px_rgba(15,23,42,0.5)] sm:px-12 sm:py-16">
           <div aria-hidden className="marketing-dots pointer-events-none absolute inset-0 opacity-20" />
           <div
             aria-hidden
@@ -34,14 +34,14 @@ export function InstallCta() {
             <h2 className="text-balance text-3xl font-semibold tracking-[-0.035em] text-white sm:text-4xl">
               Put your first AI Employee to work.
             </h2>
-            <p className="mx-auto mt-4 max-w-xl text-sm leading-6 text-indigo-100 sm:text-base">
+            <p className="mx-auto mt-4 max-w-xl text-sm leading-6 text-slate-200 sm:text-base">
               Install Genosyn, choose an AI Model, define the role, and schedule the first Routine.
               The rest of the company can grow from there.
             </p>
             <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <a
                 href="/#quickstart"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-white px-5 py-3 text-sm font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-50 sm:w-auto"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-white px-5 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-100 sm:w-auto"
               >
                 Install Genosyn
                 <ArrowRight className="h-4 w-4" />
@@ -50,7 +50,7 @@ export function InstallCta() {
                 href={GITHUB_URL}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-white/25 bg-white/5 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10 sm:w-auto"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-white/25 bg-white/5 px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-white/10 sm:w-auto"
               >
                 <Github className="h-4 w-4" />
                 Star on GitHub

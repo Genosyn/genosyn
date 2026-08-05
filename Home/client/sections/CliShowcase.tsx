@@ -53,7 +53,7 @@ export function CliShowcase() {
             <div className="mt-7 flex flex-col gap-3 sm:flex-row">
               <a
                 href="/docs/install"
-                className="inline-flex items-center justify-center rounded-md bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500"
+                className="inline-flex items-center justify-center rounded-md bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
               >
                 Read the install guide
               </a>
@@ -92,7 +92,7 @@ export function CliShowcase() {
               <div>
                 <span className="text-slate-600">$ </span>
                 <span className="text-slate-100">curl -fsSL </span>
-                <span className="text-indigo-300">https://genosyn.com/install.sh</span>
+                <span className="text-slate-300">https://genosyn.com/install.sh</span>
                 <span className="text-slate-100"> | bash</span>
               </div>
               <div className="mt-4 text-slate-500">→ Pulling the latest Genosyn release</div>
@@ -100,7 +100,7 @@ export function CliShowcase() {
               <div className="text-slate-500">→ Starting Genosyn on port 8471</div>
               <div className="mt-4 text-emerald-400">✓ Genosyn is ready</div>
               <div className="mt-1 text-slate-500">
-                Open <span className="text-indigo-300">http://localhost:8471</span>
+                Open <span className="text-slate-300">http://localhost:8471</span>
               </div>
             </div>
           </div>
@@ -109,7 +109,7 @@ export function CliShowcase() {
         <div className="mt-12 grid gap-3 md:grid-cols-3">
           {FACTS.map((fact) => (
             <article key={fact.title} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-              <fact.icon className="h-5 w-5 text-indigo-600" />
+              <fact.icon className="h-5 w-5 text-slate-950" />
               <h3 className="mt-4 text-sm font-semibold text-slate-900">{fact.title}</h3>
               <p className="mt-2 text-xs leading-5 text-slate-500">{fact.body}</p>
             </article>

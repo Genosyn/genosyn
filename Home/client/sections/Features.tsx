@@ -34,7 +34,7 @@ export function Features() {
         <div className="mt-12 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm">
           <div className="grid lg:grid-cols-[0.72fr_1.28fr]">
             <div className="border-b border-slate-200 bg-white p-6 sm:p-8 lg:border-b-0 lg:border-r">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-indigo-600">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-950">
                 Shared by design
               </div>
               <h3 className="mt-3 text-2xl font-semibold tracking-[-0.03em] text-slate-950">
@@ -47,7 +47,7 @@ export function Features() {
               <ul className="mt-6 space-y-3">
                 {SHARED_FOUNDATION.map((item) => (
                   <li key={item} className="flex items-start gap-2.5 text-sm leading-5 text-slate-600">
-                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-indigo-600" />
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-slate-950" />
                     {item}
                   </li>
                 ))}
@@ -68,7 +68,7 @@ export function Features() {
                   <Link
                     key={product.slug}
                     href={`/products/${product.slug}`}
-                    className="group min-h-48 bg-slate-50 p-5 transition hover:bg-white"
+                    className="group min-h-48 bg-slate-50 p-5 transition hover:bg-white hover:shadow-[inset_0_0_0_1px_rgba(148,163,184,0.28)]"
                   >
                     <div className="flex items-start justify-between">
                       <span
@@ -76,7 +76,7 @@ export function Features() {
                       >
                         <Icon className="h-4 w-4" />
                       </span>
-                      <ArrowRight className="h-4 w-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-indigo-500" />
+                      <ArrowRight className="h-4 w-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-slate-950" />
                     </div>
                     <h3 className="mt-5 text-sm font-semibold text-slate-900">{product.name}</h3>
                     <p className="mt-2 line-clamp-3 text-xs leading-5 text-slate-500">
@@ -94,7 +94,7 @@ export function Features() {
             <Link
               key={product.slug}
               href={`/products/${product.slug}`}
-              className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 transition hover:border-indigo-200 hover:text-indigo-700"
+              className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 transition hover:border-slate-300 hover:text-slate-800"
             >
               {product.name}
             </Link>
