@@ -93,26 +93,35 @@ export function Enterprise(): ReactNode {
 
 function EnterpriseHero() {
   return (
-    <section className="relative overflow-hidden border-b border-slate-200 bg-white">
-      <div aria-hidden className="marketing-grid pointer-events-none absolute inset-0 opacity-60" />
+    <section className="relative overflow-hidden border-b border-slate-800 bg-slate-950 text-white">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-[34rem] bg-[radial-gradient(circle_at_38%_0%,rgba(226,232,240,0.82),transparent_68%)]"
+        className="marketing-grid-dark pointer-events-none absolute inset-0 opacity-60"
       />
-      <div className="relative mx-auto grid max-w-7xl gap-12 px-5 pb-20 pt-14 sm:px-6 sm:pt-20 lg:grid-cols-[0.88fr_1.12fr] lg:items-center lg:gap-16">
-        <div>
-          <SectionEyebrow>Genosyn for Enterprise</SectionEyebrow>
-          <h1 className="mt-6 text-balance text-[3rem] font-semibold leading-[1] tracking-[-0.05em] text-slate-950 sm:text-[4.6rem]">
-            Run Genosyn inside <span className="text-slate-500">your environment.</span>
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -top-64 left-1/3 h-[44rem] w-[56rem] -translate-x-1/2 rounded-full bg-slate-700/30 blur-3xl"
+      />
+      <div className="relative mx-auto grid max-w-[90rem] gap-12 px-5 pb-16 pt-12 sm:px-6 sm:pb-20 sm:pt-16 lg:grid-cols-[0.78fr_1.22fr] lg:items-center lg:gap-16 lg:pt-20 xl:gap-20">
+        <div className="mx-auto max-w-2xl text-center lg:mx-0 lg:text-left">
+          <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-3 py-1.5 text-[11px] font-semibold text-slate-200 shadow-sm">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            Genosyn for Enterprise
+            <span className="text-slate-600">·</span>
+            Your infrastructure
+          </span>
+          <h1 className="mt-6 text-balance text-[3.3rem] font-semibold leading-[0.97] tracking-[-0.055em] text-white sm:text-[4.6rem] lg:text-[5rem]">
+            Your company. Your models. <span className="text-slate-400">Your control.</span>
           </h1>
-          <p className="mt-6 max-w-2xl text-pretty text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
-            Bring the open-source company operating system into the network, identity, database, and
-            model stack your team already trusts. We help you make it production-ready.
+          <p className="mx-auto mt-6 max-w-xl text-pretty text-base leading-7 text-slate-300 sm:text-lg sm:leading-8 lg:mx-0">
+            Run the open-source company operating system inside the network, identity, database, and
+            AI Model stack your team already trusts—with a production path designed around your
+            controls.
           </p>
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row lg:justify-start">
             <a
               href={CONTACT_HREF}
-              className="inline-flex items-center justify-center gap-2 rounded-md bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-md"
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-white px-5 py-3 text-sm font-semibold text-slate-950 shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-100 hover:shadow-md"
             >
               <Mail className="h-4 w-4" />
               Talk to us
@@ -120,15 +129,15 @@ function EnterpriseHero() {
             </a>
             <a
               href="#deployment"
-              className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400"
+              className="inline-flex items-center justify-center rounded-lg border border-white/20 bg-white/[0.06] px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:border-white/30 hover:bg-white/10"
             >
               See deployment paths
             </a>
           </div>
-          <ul className="mt-7 flex flex-wrap gap-x-5 gap-y-2 text-[11px] font-medium text-slate-500">
+          <ul className="mx-auto mt-7 grid max-w-lg grid-cols-2 gap-x-4 gap-y-2 text-left text-[11px] font-medium text-slate-400 lg:mx-0">
             {["MIT licensed", "Your model keys", "SQLite or Postgres", "SSO-ready"].map((item) => (
               <li key={item} className="inline-flex items-center gap-1.5">
-                <CheckCircle2 className="h-3.5 w-3.5 text-slate-950" />
+                <CheckCircle2 className="h-3.5 w-3.5 text-white" />
                 {item}
               </li>
             ))}
@@ -143,50 +152,71 @@ function EnterpriseHero() {
 
 function ArchitectureCard() {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-[0_26px_70px_-36px_rgba(15,23,42,0.45)]">
-      <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 sm:p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-              Your environment
-            </div>
-            <div className="mt-1 text-sm font-semibold text-slate-900">Private application stack</div>
-          </div>
-          <span className="rounded-md bg-emerald-50 px-2 py-1 text-[9px] font-semibold text-emerald-700">
-            You control it
-          </span>
-        </div>
-
-        <div className="mt-6 rounded-xl border border-slate-300 bg-slate-100 p-4">
-          <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-950 text-white">
-              <Boxes className="h-4 w-4" />
-            </span>
+    <div className="relative">
+      <div className="mb-3 flex items-center justify-between px-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+        <span>Deployment profile · Private stack</span>
+        <span className="inline-flex items-center gap-1.5 text-emerald-400">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+          Owned by you
+        </span>
+      </div>
+      <div className="rounded-2xl border border-white/15 bg-white/[0.07] p-3 shadow-[0_32px_80px_-38px_rgba(0,0,0,0.8)] backdrop-blur-sm">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 sm:p-6">
+          <div className="flex items-center justify-between">
             <div>
-              <div className="text-xs font-semibold text-slate-950">Genosyn</div>
-              <div className="text-[10px] text-slate-600">Members + AI Employees + company tools</div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                Your environment
+              </div>
+              <div className="mt-1 text-sm font-semibold text-slate-900">
+                Private application stack
+              </div>
+            </div>
+            <span className="rounded-md bg-emerald-50 px-2 py-1 text-[9px] font-semibold text-emerald-700">
+              You control it
+            </span>
+          </div>
+
+          <div className="mt-6 rounded-xl border border-slate-300 bg-slate-100 p-4">
+            <div className="flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-950 text-white">
+                <Boxes className="h-4 w-4" />
+              </span>
+              <div>
+                <div className="text-xs font-semibold text-slate-950">Genosyn</div>
+                <div className="text-[10px] text-slate-600">
+                  Members + AI Employees + company tools
+                </div>
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="mx-auto h-5 w-px bg-slate-300" />
+          <div className="mx-auto h-5 w-px bg-slate-300" />
 
-        <div className="grid grid-cols-3 gap-2">
-          <ArchitectureNode icon={Database} label="Database" detail="SQLite / PG" />
-          <ArchitectureNode icon={Server} label="AI Models" detail="Your keys" />
-          <ArchitectureNode icon={Network} label="Systems" detail="Connections" />
-        </div>
+          <div className="grid grid-cols-3 gap-2">
+            <ArchitectureNode icon={Database} label="Database" detail="SQLite / PG" />
+            <ArchitectureNode icon={Server} label="AI Models" detail="Your keys" />
+            <ArchitectureNode icon={Network} label="Systems" detail="Connections" />
+          </div>
 
-        <div className="mt-4 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-[10px] leading-5 text-slate-500">
-          Your network and identity controls sit around the entire stack. Genosyn adds scoped Grants,
-          approvals, and Run history inside it.
+          <div className="mt-4 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-[10px] leading-5 text-slate-500">
+            Your network and identity controls sit around the entire stack. Genosyn adds scoped
+            Grants, approvals, and Run history inside it.
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function ArchitectureNode({ icon: Icon, label, detail }: { icon: LucideIcon; label: string; detail: string }) {
+function ArchitectureNode({
+  icon: Icon,
+  label,
+  detail,
+}: {
+  icon: LucideIcon;
+  label: string;
+  detail: string;
+}) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3 text-center shadow-sm">
       <Icon className="mx-auto h-4 w-4 text-slate-500" />
@@ -208,7 +238,10 @@ function EnterpriseReasons() {
         </div>
         <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {REASONS.map((reason) => (
-            <article key={reason.title} className="rounded-xl border border-slate-200 bg-slate-50 p-5 transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:shadow-sm">
+            <article
+              key={reason.title}
+              className="rounded-xl border border-slate-200 bg-slate-50 p-5 transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:shadow-sm"
+            >
               <reason.icon className="h-5 w-5 text-slate-950" />
               <h3 className="mt-4 text-sm font-semibold text-slate-900">{reason.title}</h3>
               <p className="mt-2 text-xs leading-5 text-slate-500">{reason.body}</p>
@@ -280,7 +313,9 @@ function DeploymentRow({
           <Icon className="h-4 w-4" />
         </span>
         <div>
-          <div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-950">{label}</div>
+          <div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-950">
+            {label}
+          </div>
           <h3 className="mt-1 text-sm font-semibold text-slate-900">{title}</h3>
           <p className="mt-2 text-xs leading-5 text-slate-500">{body}</p>
         </div>
@@ -318,7 +353,10 @@ function EnterpriseContact() {
     <section className="bg-white">
       <div className="mx-auto max-w-7xl px-5 pb-20 sm:px-6 sm:pb-24">
         <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 px-6 py-12 text-center sm:px-12 sm:py-16">
-          <div aria-hidden className="marketing-dots pointer-events-none absolute inset-0 opacity-20" />
+          <div
+            aria-hidden
+            className="marketing-dots pointer-events-none absolute inset-0 opacity-20"
+          />
           <div className="relative mx-auto max-w-2xl">
             <h2 className="text-balance text-3xl font-semibold tracking-[-0.035em] text-white sm:text-4xl">
               Let&apos;s plan your Genosyn deployment.

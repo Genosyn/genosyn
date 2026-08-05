@@ -53,7 +53,7 @@ const ACTIVITY = [
   },
 ];
 
-export function CompanyPreview() {
+export function CompanyPreview({ compact = false }: { compact?: boolean }) {
   return (
     <div className="preview-enter relative mx-auto max-w-[84rem] select-none">
       <div
@@ -62,9 +62,15 @@ export function CompanyPreview() {
       />
       <div className="overflow-hidden rounded-2xl border border-slate-300/90 bg-white shadow-[0_38px_90px_-38px_rgba(15,23,42,0.42)] ring-1 ring-white">
         <PreviewHeader />
-        <div className="grid min-h-[31rem] md:grid-cols-[12.5rem_minmax(0,1fr)]">
+        <div
+          className={`grid min-h-[31rem] ${
+            compact
+              ? "md:grid-cols-[10.5rem_minmax(0,1fr)]"
+              : "md:grid-cols-[12.5rem_minmax(0,1fr)]"
+          }`}
+        >
           <PreviewSidebar />
-          <PreviewMain />
+          <PreviewMain compact={compact} />
         </div>
       </div>
     </div>
@@ -144,7 +150,7 @@ function PreviewSidebar() {
   );
 }
 
-function PreviewMain() {
+function PreviewMain({ compact }: { compact: boolean }) {
   return (
     <main className="min-w-0 bg-slate-50 px-4 py-5 sm:px-6 sm:py-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -162,15 +168,19 @@ function PreviewMain() {
         </div>
       </div>
 
-      <div className="mt-5 grid grid-cols-2 gap-2.5 xl:grid-cols-4">
+      <div className={`mt-5 grid grid-cols-2 gap-2.5 ${compact ? "" : "xl:grid-cols-4"}`}>
         <Stat icon={ShieldCheck} value="3" label="Pending approvals" accent="graphite" />
         <Stat icon={Clock3} value="18" label="Routines today" accent="emerald" />
         <Stat icon={ListChecks} value="5" label="Waiting for review" accent="zinc" />
         <Stat icon={Users} value="7" label="AI Employees" accent="sky" />
       </div>
 
-      <div className="mt-3 grid gap-3 xl:grid-cols-[1.08fr_0.92fr]">
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className={`mt-3 grid gap-3 ${compact ? "" : "xl:grid-cols-[1.08fr_0.92fr]"}`}>
+        <div
+          className={`overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ${
+            compact ? "hidden" : ""
+          }`}
+        >
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <div className="text-[11px] font-semibold text-slate-900">AI activity</div>
             <span className="text-[9px] font-medium text-slate-950">View all Runs</span>

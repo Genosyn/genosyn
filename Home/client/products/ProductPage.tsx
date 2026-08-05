@@ -17,60 +17,96 @@ export function ProductPage({ product }: { product: ProductDef }) {
       <Nav />
       <main>
         <section className="relative overflow-hidden border-b border-slate-200 bg-white">
-          <div aria-hidden className="marketing-grid pointer-events-none absolute inset-0 opacity-60" />
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 h-[34rem] bg-[radial-gradient(circle_at_38%_0%,rgba(226,232,240,0.82),transparent_68%)]"
+            className="marketing-grid pointer-events-none absolute inset-0 opacity-60"
           />
-          <div className="relative mx-auto max-w-7xl px-5 pb-16 pt-12 sm:px-6 sm:pb-20 sm:pt-16">
-            <div className="grid gap-10 lg:grid-cols-[0.92fr_1.08fr] lg:items-center lg:gap-16">
-              <div>
-                <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs font-medium text-slate-500">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -top-48 left-1/2 h-[42rem] w-[68rem] -translate-x-1/2 rounded-full bg-slate-200/70 blur-3xl"
+          />
+          <div className="relative mx-auto max-w-[90rem] px-5 pb-14 pt-10 sm:px-6 sm:pb-18 sm:pt-14 lg:pb-20 lg:pt-16">
+            <div className="grid gap-12 lg:grid-cols-[0.78fr_1.22fr] lg:items-center lg:gap-14 xl:gap-20">
+              <div className="mx-auto max-w-2xl lg:mx-0">
+                <nav
+                  aria-label="Breadcrumb"
+                  className="flex items-center gap-2 text-xs font-medium text-slate-500"
+                >
                   <Link href="/products" className="transition hover:text-slate-950">
                     Products
                   </Link>
                   <span className="text-slate-300">/</span>
                   <span>{product.category}</span>
                 </nav>
-                <span
-                  className={`mt-7 flex h-11 w-11 items-center justify-center rounded-xl ring-1 ${product.accent}`}
-                >
-                  <Icon className="h-5 w-5" />
-                </span>
-                <h1 className="mt-6 text-balance text-[2.85rem] font-semibold leading-[1] tracking-[-0.05em] text-slate-950 sm:text-[4.2rem]">
-                  {product.tagline} <span className="text-slate-500">{product.taglineAccent}</span>
+
+                <div className="mt-7 inline-flex items-center gap-2.5 rounded-full border border-slate-200 bg-white py-1.5 pl-1.5 pr-3.5 text-[11px] font-semibold text-slate-800 shadow-sm">
+                  <span
+                    className={`flex h-7 w-7 items-center justify-center rounded-full ring-1 ${product.accent}`}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                  </span>
+                  {product.name}
+                  <span className="h-1 w-1 rounded-full bg-slate-300" />
+                  <span className="font-medium text-slate-500">Built into Genosyn</span>
+                </div>
+
+                <h1 className="mt-6 text-balance text-[3.2rem] font-semibold leading-[0.98] tracking-[-0.055em] text-slate-950 sm:text-[4.4rem] lg:text-[4.7rem]">
+                  {product.tagline}
                 </h1>
-                <p className="mt-6 max-w-2xl text-pretty text-base leading-7 text-slate-600 sm:text-lg">
+                <p className="mt-4 max-w-xl text-balance text-xl font-medium leading-7 tracking-[-0.02em] text-slate-500 sm:text-2xl sm:leading-8">
+                  {product.taglineAccent}
+                </p>
+                <p className="mt-5 max-w-2xl text-pretty text-sm leading-6 text-slate-600 sm:text-base sm:leading-7">
                   {product.intro}
                 </p>
                 <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                   <a
                     href="/#quickstart"
-                    className="inline-flex items-center justify-center gap-2 rounded-md bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-md"
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-[0_8px_20px_-10px_rgba(15,23,42,0.8)] transition hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-md"
                   >
                     Install Genosyn
                     <ArrowRight className="h-4 w-4" />
                   </a>
                   <Link
                     href={product.docsPath ?? "/docs"}
-                    className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400"
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-400 hover:bg-slate-50"
                   >
                     <BookOpen className="h-4 w-4" />
                     Read the docs
                   </Link>
                 </div>
-                <ul className="mt-7 grid gap-x-4 gap-y-2 text-[11px] font-medium text-slate-500 sm:grid-cols-2">
-                  {product.checks.map((check) => (
-                    <li key={check} className="flex items-start gap-1.5">
-                      <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-950" />
-                      {check}
-                    </li>
-                  ))}
-                </ul>
               </div>
 
-              <ProductPrototype product={product} compact />
+              <div className="relative">
+                <div className="mb-3 flex items-center justify-between px-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                  <span>{product.name} · Live product story</span>
+                  <span className="inline-flex items-center gap-1.5 text-emerald-700">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    Running
+                  </span>
+                </div>
+                <ProductPrototype product={product} compact />
+              </div>
             </div>
+
+            <ul className="mt-10 grid overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm sm:grid-cols-2 lg:grid-cols-4">
+              {product.checks.map((check, index) => (
+                <li
+                  key={check}
+                  className="flex items-center gap-3 border-slate-200 px-4 py-3.5 text-[11px] font-medium text-slate-600 sm:[&:nth-child(even)]:border-l lg:border-l lg:first:border-l-0"
+                >
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-950">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                  </span>
+                  <span>
+                    <span className="block text-[8px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+                    <span className="mt-0.5 block">{check}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
           </div>
         </section>
 
@@ -82,13 +118,16 @@ export function ProductPage({ product }: { product: ProductDef }) {
                 Built around outcomes, not demos.
               </h2>
               <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
-                Start with a real role and a real handoff. Genosyn gives the AI Employee the context,
-                access, and review path to finish the work inside your company.
+                Start with a real role and a real handoff. Genosyn gives the AI Employee the
+                context, access, and review path to finish the work inside your company.
               </p>
             </div>
             <div className="mt-10 grid gap-4 lg:grid-cols-3">
               {useCases.map((useCase) => (
-                <article key={useCase.role} className="rounded-xl border border-slate-200 bg-slate-50 p-5 transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:shadow-sm">
+                <article
+                  key={useCase.role}
+                  className="rounded-xl border border-slate-200 bg-slate-50 p-5 transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:shadow-sm"
+                >
                   <div className="flex items-center gap-3">
                     <span
                       className={`flex h-9 w-9 items-center justify-center rounded-lg text-[10px] font-bold ring-1 ${useCase.accent}`}
@@ -99,7 +138,9 @@ export function ProductPage({ product }: { product: ProductDef }) {
                       <div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-400">
                         {useCase.team}
                       </div>
-                      <h3 className="mt-0.5 text-sm font-semibold text-slate-900">{useCase.role}</h3>
+                      <h3 className="mt-0.5 text-sm font-semibold text-slate-900">
+                        {useCase.role}
+                      </h3>
                     </div>
                   </div>
                   <p className="mt-4 text-sm leading-6 text-slate-600">{useCase.objective}</p>
@@ -129,7 +170,10 @@ export function ProductPage({ product }: { product: ProductDef }) {
                 {product.features.map((feature) => {
                   const FeatureIcon = productIcon(feature.icon);
                   return (
-                    <article key={feature.title} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md">
+                    <article
+                      key={feature.title}
+                      className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
+                    >
                       <span
                         className={`flex h-9 w-9 items-center justify-center rounded-lg ring-1 ${product.accent}`}
                       >
@@ -160,7 +204,10 @@ export function ProductPage({ product }: { product: ProductDef }) {
               </div>
               <div className="space-y-3">
                 {product.employees.bullets.map((bullet, index) => (
-                  <article key={bullet.title} className="rounded-xl border border-white/10 bg-white/[0.045] p-5">
+                  <article
+                    key={bullet.title}
+                    className="rounded-xl border border-white/10 bg-white/[0.045] p-5"
+                  >
                     <div className="flex items-start gap-4">
                       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/10 font-mono text-[10px] font-semibold text-slate-300">
                         {String(index + 1).padStart(2, "0")}
@@ -187,7 +234,10 @@ export function ProductPage({ product }: { product: ProductDef }) {
             </div>
             <div className="mt-9 space-y-2.5">
               {product.faqs.map((faq) => (
-                <details key={faq.q} className="group rounded-xl border border-slate-200 bg-white open:bg-slate-50">
+                <details
+                  key={faq.q}
+                  className="group rounded-xl border border-slate-200 bg-white open:bg-slate-50"
+                >
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-sm font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">
                     {faq.q}
                     <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition group-open:rotate-180" />
@@ -209,8 +259,12 @@ export function ProductPage({ product }: { product: ProductDef }) {
 
 function RelatedProducts({ current }: { current: ProductDef }) {
   const related = [
-    ...PRODUCTS.filter((product) => product.slug !== current.slug && product.category === current.category),
-    ...PRODUCTS.filter((product) => product.slug !== current.slug && product.category !== current.category),
+    ...PRODUCTS.filter(
+      (product) => product.slug !== current.slug && product.category === current.category,
+    ),
+    ...PRODUCTS.filter(
+      (product) => product.slug !== current.slug && product.category !== current.category,
+    ),
   ].slice(0, 4);
 
   return (
@@ -218,7 +272,10 @@ function RelatedProducts({ current }: { current: ProductDef }) {
       <div className="mx-auto max-w-7xl px-5 py-16 sm:px-6">
         <div className="flex items-center justify-between gap-4">
           <h2 className="text-lg font-semibold text-slate-900">Explore more products</h2>
-          <Link href="/products" className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-950">
+          <Link
+            href="/products"
+            className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-950"
+          >
             View all
             <ArrowRight className="h-4 w-4" />
           </Link>
@@ -233,13 +290,17 @@ function RelatedProducts({ current }: { current: ProductDef }) {
                 className="group rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
               >
                 <div className="flex items-center gap-3">
-                  <span className={`flex h-8 w-8 items-center justify-center rounded-lg ring-1 ${product.accent}`}>
+                  <span
+                    className={`flex h-8 w-8 items-center justify-center rounded-lg ring-1 ${product.accent}`}
+                  >
                     <Icon className="h-4 w-4" />
                   </span>
                   <span className="text-sm font-semibold text-slate-900">{product.name}</span>
                   <ArrowRight className="ml-auto h-3.5 w-3.5 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-slate-950" />
                 </div>
-                <p className="mt-3 line-clamp-2 text-xs leading-5 text-slate-500">{product.summary}</p>
+                <p className="mt-3 line-clamp-2 text-xs leading-5 text-slate-500">
+                  {product.summary}
+                </p>
               </Link>
             );
           })}
