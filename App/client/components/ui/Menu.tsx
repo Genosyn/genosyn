@@ -1,4 +1,5 @@
 import React from "react";
+import { createPortal } from "react-dom";
 import { clsx } from "./clsx";
 
 /**
@@ -79,16 +80,19 @@ export function Menu({
         onClick: () => setOpen(!open),
         open,
       })}
-      {open && coords && (
-        <div
-          ref={menuRef}
-          role="menu"
-          style={{ top: coords.top, left: coords.left, width }}
-          className="fixed z-50 max-h-[80vh] overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
-        >
-          {children(() => setOpen(false))}
-        </div>
-      )}
+      {open &&
+        coords &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            style={{ top: coords.top, left: coords.left, width }}
+            className="fixed z-50 max-h-[80vh] overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+          >
+            {children(() => setOpen(false))}
+          </div>,
+          document.body,
+        )}
     </>
   );
 }
