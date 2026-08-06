@@ -212,8 +212,9 @@ export function Email() {
         &ldquo;make this draft shorter and friendlier&rdquo;, or &ldquo;label and archive
         this&rdquo;. Type <Code>@</Code> when you want to choose a particular AI employee. The
         employee you tagged stays on that email until you tag somebody else. Type <Code>#</Code> to
-        attach another company resource to the instruction, or <Code>/new</Code> by itself to clear
-        this email&apos;s AI context.
+        attach a product area or company resource to the instruction, or <Code>/new</Code> by itself
+        to clear this email&apos;s AI context. Use several <Code>#</Code> tags when the work crosses
+        products—for example an account, Invoices, and a Workspace channel.
       </P>
       <P>
         Every email has an independent chat, including each item in the Drafts review queue, so

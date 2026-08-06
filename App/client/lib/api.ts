@@ -3218,6 +3218,7 @@ export function displayBillStatus(
 // ───────────────────────── Company search (⌘K palette) ──────────────────
 
 export type SearchResultKind =
+  | "product"
   | "employee"
   | "skill"
   | "routine"

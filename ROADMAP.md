@@ -684,8 +684,11 @@ sends system mail); this is the company's real inbox. Internal namespace is
 - [x] `@employee-slug` mentions auto-invite + reply via `streamChatWithEmployee`
 - [x] AI DMs reply on every message
 - [x] DM archiving (including automatic archive when an AI employee is
-      deleted), `/new` context boundaries, and `#` resource references across
-      every AI-employee chat composer
+      deleted), `/new` context boundaries, and `#` references across every
+      AI-employee chat composer. References cover both visible company rows and
+      stable product areas (Estimates, Invoices, Workspace, Contacts, …); each
+      selected tag stays clickable and adds a safe tool-discovery hint to the
+      AI turn, with multiple targets supported and existing Grants unchanged
 - [x] Unread badges + read markers
 - [x] Recent-first message history with upward-scroll pagination and visible
       loading states

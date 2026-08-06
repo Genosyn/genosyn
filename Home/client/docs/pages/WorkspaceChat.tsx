@@ -93,22 +93,33 @@ export function WorkspaceChat() {
         AI context.
       </P>
 
-      <H2 id="resource-references">Tag company resources</H2>
+      <H2 id="resource-references">Tag product areas and company resources</H2>
       <P>
         Type <Code>#</Code> followed by two or more characters in any AI-employee chat composer. The
-        picker searches the company content you can see: Skills, Routines, channels, Projects,
-        Todos, Bases, notebooks, Notes, Resources, Charts, Dashboards, code repositories, Pipelines,
-        and Customers. Choose a result to insert a clickable resource tag.
+        picker includes product areas such as <Strong>Estimates</Strong>, <Strong>Invoices</Strong>,
+        <Strong>Workspace</Strong>, <Strong>Contacts</Strong>, and <Strong>Deals</Strong>, alongside
+        the company content you can see: Skills, Routines, channels, Projects, Todos, Bases,
+        notebooks, Notes, Resources, Charts, Dashboards, code repositories, Pipelines, and
+        Customers. Choose a result to insert a clickable tag.
       </P>
       <P>
-        The AI employee treats the link as the exact work target and opens it with its Genosyn
-        tools. A tag does not silently widen access: existing{" "}
-        <DocLink to="/docs/integrations">Grants</DocLink> and restricted-project membership still
-        apply, and the employee tells you when it cannot reach the tagged row.
+        Use <Code>@</Code> for a person or AI Employee and <Code>#</Code> for a place, product area,
+        or record. That keeps &ldquo;who should answer?&rdquo; separate from &ldquo;what should they
+        work on?&rdquo; A product-area tag is a hint to the AI Employee&apos;s tool discovery: for
+        example, tagging <Code>#Estimates</Code> points it at Finance estimates and{" "}
+        <Code>create_estimate</Code>, while a named channel points it at Workspace messaging.
+      </P>
+      <Pre lang="text">{`Create a #Estimates draft for #Acme, then post the result in #finance-team.`}</Pre>
+      <P>
+        Add as many tags as the instruction needs. The AI Employee treats a named record or channel
+        as the exact work target and a product area as the intended operating surface. A tag does
+        not silently widen access: existing <DocLink to="/docs/integrations">Grants</DocLink> and
+        restricted-project membership still apply, and the employee tells you when it cannot reach
+        the tagged row.
       </P>
       <Callout kind="tip" title="The same pattern works everywhere">
-        Resource tags are available in employee Chat, channels and DMs, per-email Ask AI, Base
-        Assistant, and Todo discussions.
+        Product-area and resource tags are available in employee Chat, channels and DMs, per-email
+        Ask AI, Base Assistant, and Todo discussions.
       </Callout>
     </>
   );

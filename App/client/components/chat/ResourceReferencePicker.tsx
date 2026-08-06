@@ -1,16 +1,22 @@
 import React from "react";
 import { Link2 } from "lucide-react";
 import { api, CompanySearchResult, SearchResultKind } from "../../lib/api";
+import type { ChatResourceReference } from "./resourceReferences";
+
+export {
+  insertResourceReference,
+  resourceQueryAtCaret,
+  type ChatResourceReference,
+} from "./resourceReferences";
 
 /**
- * A company resource selected from the chat composer. The company-wide search
- * endpoint already applies the signed-in Member's visibility rules, so every
- * chat surface can share this picker without growing a second resource
- * directory with subtly different access checks.
+ * A product area or company resource selected from the chat composer. The
+ * company-wide search endpoint applies the signed-in Member's visibility
+ * rules, so every chat surface can share this picker without growing a second
+ * resource directory with subtly different access checks.
  */
-export type ChatResourceReference = CompanySearchResult;
-
 const KIND_LABELS: Record<SearchResultKind, string> = {
+  product: "Product area",
   employee: "AI employee",
   skill: "Skill",
   routine: "Routine",
@@ -57,8 +63,8 @@ export function useResourceReferences(
         )
         .then(({ results }) => {
           if (latestRef.current !== key) return;
-          // People use @mentions. The # picker is for the company resources
-          // the employee should inspect or act on.
+          // People use @mentions. The # picker is for product hints and the
+          // company resources the employee should inspect or act on.
           setReferences(results.filter((result) => result.kind !== "employee"));
           setLoading(false);
         })
@@ -72,43 +78,6 @@ export function useResourceReferences(
   }, [companyId, query]);
 
   return { references, loading };
-}
-
-/**
- * Find the active `#query` immediately before the caret. Spaces are allowed so
- * `#quarterly plan` searches the same way as the global palette. A selected
- * reference becomes a Markdown link, whose `#` lives inside `[...]`; that
- * means it cannot accidentally reopen the picker on the following keystroke.
- */
-export function resourceQueryAtCaret(
-  value: string,
-  caret: number,
-): { query: string; start: number } | null {
-  const before = value.slice(0, caret);
-  const match = /(^|[\s(])#([^#\n]{0,120})$/.exec(before);
-  if (!match) return null;
-  const start = before.length - match[2].length - 1;
-  return { query: match[2], start };
-}
-
-/** Insert a readable, clickable resource tag while preserving the tail. */
-export function insertResourceReference(args: {
-  value: string;
-  caret: number;
-  start: number;
-  companySlug: string;
-  reference: ChatResourceReference;
-}): { value: string; caret: number } {
-  const label = args.reference.label.startsWith("#")
-    ? args.reference.label
-    : `#${args.reference.label}`;
-  const safeLabel = label.replaceAll("\\", "\\\\").replaceAll("]", "\\]");
-  const tag = `[${safeLabel}](/c/${args.companySlug}${args.reference.path})`;
-  const before = args.value.slice(0, args.start);
-  const after = args.value.slice(args.caret);
-  const separator = after.startsWith(" ") ? "" : " ";
-  const next = `${before}${tag}${separator}${after}`;
-  return { value: next, caret: before.length + tag.length + separator.length };
 }
 
 export function ResourceReferencePicker({
@@ -135,10 +104,10 @@ export function ResourceReferencePicker({
         className
       }
       role="listbox"
-      aria-label="Company resources"
+      aria-label="Product areas and company resources"
     >
       <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-        Company resources
+        Product areas &amp; resources
       </div>
       {loading && references.length === 0 ? (
         <div className="px-3 pb-2 text-xs text-slate-400 dark:text-slate-500">Searching…</div>

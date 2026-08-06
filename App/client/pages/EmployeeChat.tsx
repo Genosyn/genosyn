@@ -1373,8 +1373,8 @@ function Composer({
           </kbd>{" "}
           for newline
           {" · "}
-          <span className="font-mono">#</span> resources · <span className="font-mono">/new</span>{" "}
-          new context
+          <span className="font-mono">#</span> product areas &amp; resources ·{" "}
+          <span className="font-mono">/new</span> new context
         </span>
         <span className="flex flex-wrap items-center justify-end gap-2">
           {uploading ? (
@@ -1693,6 +1693,9 @@ function hrefForAction(
   if (a.action.startsWith("project.") || a.action.startsWith("todo.")) {
     return `/c/${companySlug}/tasks`;
   }
+  if (a.action === "finance.estimate.create") {
+    return `/c/${companySlug}/finance/estimates`;
+  }
   return null;
 }
 
@@ -1715,6 +1718,8 @@ function describeAction(a: MessageAction): string {
       return `Updated todo ${label}`;
     case "journal.create":
       return `Added journal entry "${label}"`;
+    case "finance.estimate.create":
+      return `Created estimate ${label}`;
     case "integration.invoke": {
       const tool = a.metadata?.toolName ?? "";
       const conn = a.metadata?.connectionLabel ?? a.metadata?.provider ?? "";

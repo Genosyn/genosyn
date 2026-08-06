@@ -2053,7 +2053,7 @@ function Composer({
         newline ·{" "}
         <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">↑</kbd> edit
         last · <span className="font-mono">@</span> for people ·{" "}
-        <span className="font-mono">#</span> for any resource
+        <span className="font-mono">#</span> for product areas &amp; resources
         {channel.kind === "dm" ? (
           <>
             {" "}

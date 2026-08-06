@@ -17,6 +17,7 @@ import { Resource } from "../db/entities/Resource.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Skill } from "../db/entities/Skill.js";
 import { Todo } from "../db/entities/Todo.js";
+import { searchChatProductReferences } from "./chatReferences.js";
 import { listAccessibleProjectIds } from "./projects.js";
 
 /**
@@ -35,6 +36,7 @@ import { listAccessibleProjectIds } from "./projects.js";
  */
 
 export type SearchResultKind =
+  | "product"
   | "employee"
   | "skill"
   | "routine"
@@ -504,6 +506,19 @@ export async function searchCompany(opts: {
   ]);
 
   const merged: Scored[] = [];
+  merged.push(
+    ...searchChatProductReferences(qRaw)
+      .slice(0, PER_KIND_CAP)
+      .map((reference) => ({
+        kind: "product" as const,
+        id: `product:${reference.key}`,
+        label: reference.label,
+        sublabel: reference.description,
+        path: reference.path,
+        score: reference.score,
+        updatedAt: null,
+      })),
+  );
   for (const results of perKind) {
     merged.push(
       ...results

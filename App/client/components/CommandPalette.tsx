@@ -16,6 +16,7 @@ import {
   SearchX,
   Table2,
   Users,
+  WalletCards,
   Wrench,
   Zap,
 } from "lucide-react";
@@ -97,6 +98,11 @@ function paletteGroups(isMasterAdmin: boolean): SectionGroup[] {
  * section it lives in.
  */
 const KIND_META: Record<SearchResultKind, { group: string; icon: LucideIcon; iconBg: string }> = {
+  product: {
+    group: "Product areas",
+    icon: WalletCards,
+    iconBg: "bg-teal-100 text-teal-600 dark:bg-teal-500/15 dark:text-teal-300",
+  },
   employee: {
     group: "AI Employees",
     icon: Users,

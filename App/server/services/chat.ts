@@ -17,6 +17,7 @@ import { composeCodeReposContext, materializeCodeReposForEmployee } from "./code
 import { composeFinanceContext } from "./financeGrants.js";
 import { composeRevenueContext } from "./revenue/grants.js";
 import { composeMarketingContext } from "./marketing.js";
+import { composeTaggedChatReferenceContext } from "./chatReferences.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
 import type { AgentMessage, AgentProgress } from "./agent/types.js";
 import { config } from "../../config.js";
@@ -277,6 +278,7 @@ export async function streamChatWithEmployee(
     });
     if (helpSource) system += `\n${helpSource.prompt}`;
     if (options.extraSystem) system += `\n${options.extraSystem}`;
+    system += composeTaggedChatReferenceContext(message, co.slug);
     if (options.onProgress) {
       system += [
         "",

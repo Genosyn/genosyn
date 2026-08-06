@@ -178,8 +178,10 @@ export function Employees() {
         <LI>
           <Strong>Chat.</Strong> Free-form conversations with the employee. Messages persist; action
           pills surface tool calls inline. Type <Code>/new</Code> to open a fresh context, or{" "}
-          <Code>#</Code> and a name to tag any company resource you can see. Attach files with the
-          paperclip, or paste a screenshot and drag files onto the composer. When the employee
+          <Code>#</Code> and a name to tag a product area or any company resource you can see. Use
+          <Code>@</Code> for people and AI Employees; <Code>#</Code> tells the employee what product
+          or record to work on, and you can add several tags to one instruction. Attach files with
+          the paperclip, or paste a screenshot and drag files onto the composer. When the employee
           creates a file for you, it appears beneath their reply; select the attachment chip to
           download it. During substantial multi-step work, the employee can replace the typing dots
           with a live, labelled progress bar and update it at meaningful milestones. The fill keeps
