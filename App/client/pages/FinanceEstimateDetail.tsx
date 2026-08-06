@@ -486,6 +486,11 @@ export default function FinanceEstimateDetail() {
                 <div className="text-slate-500 dark:text-slate-400">
                   {estimate.customer?.email}
                 </div>
+                {estimate.customer?.billingAddress.trim() && (
+                  <div className="mt-1 whitespace-pre-line text-slate-500 dark:text-slate-400">
+                    {estimate.customer.billingAddress}
+                  </div>
+                )}
               </div>
               <div className="text-right">
                 <div className="text-xs uppercase tracking-wider text-slate-400 dark:text-slate-500">

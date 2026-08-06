@@ -453,6 +453,7 @@ export type EstimateCustomerStub = {
   name: string;
   slug: string;
   email: string;
+  billingAddress: string;
 };
 
 export type EstimateInvoiceStub = {
@@ -487,7 +488,7 @@ export async function hydrateEstimates(
   const [customers, lines, invoices] = await Promise.all([
     AppDataSource.getRepository(Customer).find({
       where: { id: In(customerIds), companyId },
-      select: ["id", "name", "slug", "email"],
+      select: ["id", "name", "slug", "email", "billingAddress"],
     }),
     AppDataSource.getRepository(EstimateLineItem).find({
       where: { estimateId: In(ids) },

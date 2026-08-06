@@ -2531,6 +2531,7 @@ export type EstimateCustomerStub = {
   name: string;
   slug: string;
   email: string;
+  billingAddress: string;
 };
 
 export type EstimateInvoiceStub = {

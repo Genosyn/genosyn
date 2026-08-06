@@ -52,7 +52,8 @@ export function Finance() {
       <P>
         Estimates are pre-sale documents — proposed line items with prices, sent to a customer for
         sign-off. They do not affect the general ledger; only the invoice that an estimate converts
-        into does.
+        into does. When the selected customer has a billing address, it appears in the estimate
+        detail and customer-facing PDF.
       </P>
 
       <H3 id="estimates-lifecycle">Lifecycle</H3>
