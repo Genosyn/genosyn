@@ -132,6 +132,7 @@ import { htmlToPdf } from "../services/htmlToPdf.js";
 import {
   acceptEstimate,
   convertEstimateToInvoice,
+  createEstimateDraft,
   declineEstimate,
   duplicateEstimate,
   hydrateEstimates,
@@ -1953,15 +1954,6 @@ financeRouter.delete("/vendor-refunds/:id", async (req, res) => {
 
 // ───────────────────────────── Estimates ──────────────────────────────
 
-async function draftEstimateSlug(companyId: string): Promise<string> {
-  const repo = AppDataSource.getRepository(Estimate);
-  for (let i = 0; i < 16; i += 1) {
-    const slug = `edraft-${Math.random().toString(36).slice(2, 8)}`;
-    if (!(await repo.findOneBy({ companyId, slug }))) return slug;
-  }
-  return `edraft-${Date.now().toString(36)}`;
-}
-
 const estimateCreateSchema = z.object({
   customerId: z.string().uuid(),
   issueDate: z.string().datetime().optional(),
@@ -1997,39 +1989,23 @@ financeRouter.get("/estimates", async (req, res) => {
 financeRouter.post("/estimates", validateBody(estimateCreateSchema), async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const body = req.body as z.infer<typeof estimateCreateSchema>;
-  const customer = await AppDataSource.getRepository(Customer).findOneBy({
-    id: body.customerId,
-    companyId: cid,
-  });
-  if (!customer) return res.status(400).json({ error: "Invalid customer" });
-
-  const repo = AppDataSource.getRepository(Estimate);
-  const slug = await draftEstimateSlug(cid);
-  const issueDate = body.issueDate ? new Date(body.issueDate) : new Date();
-  const validUntil = body.validUntil
-    ? new Date(body.validUntil)
-    : new Date(issueDate.getTime() + 30 * 24 * 60 * 60 * 1000);
-  const est = repo.create({
-    companyId: cid,
-    customerId: customer.id,
-    slug,
-    numberSeq: 0,
-    number: "",
-    status: "draft",
-    issueDate,
-    validUntil,
-    currency: body.currency ?? customer.currency ?? "USD",
-    notes: body.notes ?? "",
-    footer: body.footer ?? "",
-    createdById: req.userId ?? null,
-  });
-  await repo.save(est);
-  if (body.lines && body.lines.length > 0) {
-    await replaceEstimateLines(est, body.lines);
+  try {
+    const estimate = await createEstimateDraft({
+      companyId: cid,
+      customerId: body.customerId,
+      issueDate: body.issueDate ? new Date(body.issueDate) : undefined,
+      validUntil: body.validUntil ? new Date(body.validUntil) : undefined,
+      currency: body.currency,
+      notes: body.notes,
+      footer: body.footer,
+      lines: body.lines,
+      createdById: req.userId ?? null,
+    });
+    const [hydrated] = await hydrateEstimates(cid, [estimate]);
+    res.json(hydrated);
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
   }
-  const recomputed = await recomputeEstimateTotals(est);
-  const [hydrated] = await hydrateEstimates(cid, [recomputed]);
-  res.json(hydrated);
 });
 
 financeRouter.get("/estimates/:slug", async (req, res) => {

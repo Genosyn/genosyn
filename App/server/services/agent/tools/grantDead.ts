@@ -101,6 +101,7 @@ const FINANCE_GATED_TOOLS = new Set([
   "get_customer",
   "create_customer",
   "update_customer",
+  "create_estimate",
   "create_invoice",
   "send_invoice",
   "record_payment",

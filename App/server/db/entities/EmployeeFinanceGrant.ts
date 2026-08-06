@@ -13,10 +13,11 @@ import {
  * MCP tools:
  *   - `read`    → view invoices, customers, statements, reports, and the
  *                 chart of accounts / posted transactions. No writes.
- *   - `invoice` → read + run accounts receivable: draft, issue, email, and
- *                 void invoices; create and update customers; record and
- *                 reverse payments (mark an invoice paid). This is the tier
- *                 for an AI that keeps invoicing moving on its own.
+ *   - `invoice` → read + run accounts receivable: draft estimates; draft,
+ *                 issue, email, and void invoices; create and update
+ *                 customers; record and reverse payments (mark an invoice
+ *                 paid). This is the tier for an AI that keeps invoicing
+ *                 moving on its own.
  *   - `full`    → invoice + accounting review: stage general-ledger
  *                 re-categorizations for a human to approve
  *                 (`review_finance_transaction`). Still no final approval —

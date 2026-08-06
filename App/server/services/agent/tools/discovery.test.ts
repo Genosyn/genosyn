@@ -67,6 +67,7 @@ const RECALL_CASES: Array<{ query: string; expect: string }> = [
   { query: "record a payment", expect: "record_payment" },
   { query: "who owes us money", expect: "list_invoices" },
   { query: "unpaid invoices", expect: "list_invoices" },
+  { query: "prepare a quotation for a client", expect: "create_estimate" },
   { query: "raise an invoice for a client", expect: "create_invoice" },
   { query: "add a new client", expect: "create_customer" },
   { query: "profit and loss", expect: "get_finance_report" },

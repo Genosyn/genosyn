@@ -430,9 +430,10 @@ export function Finance() {
         </LI>
         <LI>
           <Strong>Invoicing</Strong> — everything in Read, plus the full accounts-receivable loop:
-          create, issue, email, and void invoices; create and update customers; and record payments
-          to mark an invoice paid. Issuing an invoice mints its number and posts it to the ledger;
-          sending emails it to the customer on file.
+          create estimate drafts; create, issue, email, and void invoices; create and update
+          customers; and record payments to mark an invoice paid. Estimate drafts do not affect the
+          ledger and stay unsent for a Member to review. Issuing an invoice mints its number and
+          posts it to the ledger; sending emails it to the customer on file.
         </LI>
         <LI>
           <Strong>Full accounting</Strong> — everything in Invoicing, plus staging ledger
@@ -447,17 +448,27 @@ export function Finance() {
         finance routes. Members still reach Finance through the app as usual; grants govern the AI
         surface only.
       </P>
-
-      <H3 id="ai-finance-tools">The finance tool family</H3>
       <P>
-        Granted employees get a built-in <Code>finance</Code> tool. Its read ops (
+        With Invoicing access, an AI Employee can call <Code>create_estimate</Code> with a customer
+        slug and priced line items. Genosyn creates the same editable draft shown under{" "}
+        <Code>Finance → Estimates</Code>, using the customer&apos;s currency and a thirty-day
+        validity window by default. The tool deliberately stops there: it assigns no number,
+        changes no ledger balance, and sends no email. A Member reviews the draft and chooses when
+        to issue or send it.
+      </P>
+
+      <H3 id="ai-finance-tools">Finance tools</H3>
+      <P>
+        Granted employees use granular built-in Finance tools, reached through{" "}
+        <Code>find_tools</Code> and <Code>call_tool</Code>. The read tools (
         <Code>list_invoices</Code>, <Code>get_invoice</Code>, <Code>list_customers</Code>,{" "}
-        <Code>get_customer</Code>, plus the accounts / transactions / report ops) need{" "}
-        <Strong>Read</Strong>. The invoice lifecycle — <Code>create_invoice</Code>,{" "}
-        <Code>send_invoice</Code>, <Code>record_payment</Code>, <Code>void_invoice</Code>,{" "}
-        <Code>create_customer</Code>, and <Code>update_customer</Code> — needs{" "}
-        <Strong>Invoicing</Strong>. Amounts are integer minor units (cents), so <Code>5000</Code> is
-        $50.00. An employee with no grant gets no finance tool at all.
+        <Code>get_customer</Code>, plus the accounts / transactions / report tools) need{" "}
+        <Strong>Read</Strong>. <Code>create_estimate</Code> and the invoice lifecycle (
+        <Code>create_invoice</Code>, <Code>send_invoice</Code>, <Code>record_payment</Code>,{" "}
+        <Code>void_invoice</Code>, <Code>create_customer</Code>, and{" "}
+        <Code>update_customer</Code>) need <Strong>Invoicing</Strong>. Amounts are integer minor
+        units (cents), so <Code>5000</Code> is $50.00. Without a Finance grant, calls are refused
+        with a clear access error and the tools are deprioritized in discovery.
       </P>
       <P>
         When an AI employee sends an invoice, any <Code>To</Code> / <Code>Cc</Code> it supplies is

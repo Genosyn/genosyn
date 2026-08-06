@@ -181,7 +181,7 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
   },
   finance: {
     label: "finance",
-    blurb: "Invoices, customers, payments and the books. Needs a finance grant.",
+    blurb: "Estimates, invoices, customers, payments and the books. Needs a finance grant.",
     tools: [
       "list_finance_accounts",
       "list_finance_transactions",
@@ -194,6 +194,7 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
       "get_customer",
       "create_customer",
       "update_customer",
+      "create_estimate",
       "create_invoice",
       "send_invoice",
       "record_payment",
@@ -422,6 +423,7 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   // Finance — "who owes us money" is the query, "receivable" is the word.
   list_invoices: ["receivable", "billing", "who owes us", "unpaid", "outstanding", "ar"],
   get_invoice: ["receivable", "billing", "bill"],
+  create_estimate: ["quote", "quotation", "proposal", "pricing", "raise an estimate"],
   create_invoice: ["bill", "billing", "charge", "receivable", "raise an invoice"],
   send_invoice: ["bill", "billing", "email invoice", "chase"],
   record_payment: ["paid", "payment", "receipt", "mark paid", "settle"],

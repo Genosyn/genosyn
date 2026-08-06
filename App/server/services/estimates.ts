@@ -149,6 +149,55 @@ export async function recomputeEstimateTotals(estimate: Estimate): Promise<Estim
   return AppDataSource.getRepository(Estimate).save(estimate);
 }
 
+// ───────────────────────────── Draft creation ─────────────────────────
+
+export type CreateEstimateDraftInput = {
+  companyId: string;
+  customerId: string;
+  issueDate?: Date;
+  validUntil?: Date;
+  currency?: string;
+  notes?: string;
+  footer?: string;
+  lines?: LineDraft[];
+  createdById?: string | null;
+};
+
+/**
+ * Create an unnumbered estimate draft through one shared path for Members and
+ * AI Employees. A draft has no ledger effect and is not emailed; numbering is
+ * minted only when a Member later issues it.
+ */
+export async function createEstimateDraft(input: CreateEstimateDraftInput): Promise<Estimate> {
+  const customer = await AppDataSource.getRepository(Customer).findOneBy({
+    id: input.customerId,
+    companyId: input.companyId,
+  });
+  if (!customer) throw new Error("Invalid customer");
+
+  const issueDate = input.issueDate ?? new Date();
+  const validUntil =
+    input.validUntil ?? new Date(issueDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const repo = AppDataSource.getRepository(Estimate);
+  const estimate = repo.create({
+    companyId: input.companyId,
+    customerId: customer.id,
+    slug: await uniqueDraftEstimateSlug(input.companyId),
+    numberSeq: 0,
+    number: "",
+    status: "draft",
+    issueDate,
+    validUntil,
+    currency: input.currency ?? customer.currency ?? "USD",
+    notes: input.notes ?? "",
+    footer: input.footer ?? "",
+    createdById: input.createdById ?? null,
+  });
+  await repo.save(estimate);
+  if (input.lines?.length) await replaceEstimateLines(estimate, input.lines);
+  return recomputeEstimateTotals(estimate);
+}
+
 // ───────────────────────── Status transitions ──────────────────────────
 
 /**

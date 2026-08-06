@@ -159,7 +159,8 @@ export const RETIRED_FAMILIES: Record<string, FamilySpec> = {
     },
   },
   finance: {
-    blurb: "Work the company's finance system: invoices, customers, payments, and the books.",
+    blurb:
+      "Work the company's finance system: estimates, invoices, customers, payments, and the books.",
     ops: {
       list_invoices: "list_invoices",
       get_invoice: "get_invoice",
@@ -169,6 +170,7 @@ export const RETIRED_FAMILIES: Record<string, FamilySpec> = {
       transactions: "list_finance_transactions",
       get: "get_finance_transaction",
       report: "get_finance_report",
+      create_estimate: "create_estimate",
       create_invoice: "create_invoice",
       send_invoice: "send_invoice",
       record_payment: "record_payment",

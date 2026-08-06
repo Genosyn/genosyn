@@ -1135,20 +1135,22 @@ Phased so each phase ships behind its own PR:
       In-app view at `/customers/:slug/statement`, served as printable HTML and
       a downloadable PDF via the same `htmlToPdf` path invoices use
       (`services/customerStatement.ts` + `customerStatementHtml.ts`).
-- [x] **AI finance access — grants + invoice tools.** `EmployeeFinanceGrant`
+- [x] **AI finance access — grants + accounts-receivable tools.** `EmployeeFinanceGrant`
       gates the whole finance MCP surface per employee at `read` < `invoice`
       < `full`, managed from **Finance → AI access** (owners/admins only,
       `services/financeGrants.ts`). Previously the read/review `finance` tools
       were ungated (every employee could read the books); they now answer to
-      the grant, and the family runs accounts receivable end to end:
-      `create_invoice`, `send_invoice` (auto-issues drafts then emails the
-      customer), `record_payment` (mark paid), `void_invoice`,
+      the grant, and the surface runs accounts receivable end to end:
+      `create_estimate` (creates an unsent, ledger-neutral draft for Member
+      review), `create_invoice`, `send_invoice` (auto-issues drafts then emails
+      the customer), `record_payment` (mark paid), `void_invoice`,
       `create_customer`, `update_customer`, `list_invoices`, `get_invoice`,
       `list_customers`, `get_customer`. Reads need `read`; the AR lifecycle
       needs `invoice`; staging a ledger review (`review_finance_transaction`)
       needs `full`. Each write records an AuditEvent (`actorKind: ai`) +
       JournalEntry; the grant level is injected into the employee prompt; an
-      ungated employee is handed no finance tool at all (`grantDead`).
+      ungated employee's calls fail closed and its Finance tools are demoted in
+      discovery (`grantDead`).
 
 - **Phase H — Customer credits, refunds and write-offs.** Closes the
   "money only flows one way" gap. `CustomerCredit` (credit memo /

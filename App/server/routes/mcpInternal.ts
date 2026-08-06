@@ -173,6 +173,12 @@ import {
   uniqueCustomerSlug,
   voidInvoice,
 } from "../services/finance.js";
+import {
+  createEstimateDraft,
+  displayEstimateStatus,
+  hydrateEstimates,
+  type HydratedEstimate,
+} from "../services/estimates.js";
 import { Customer } from "../db/entities/Customer.js";
 import { getFinanceSettings } from "../services/fx.js";
 import { disallowedRecipients, trustedRecipientDomains } from "../lib/recipientAllowlist.js";
@@ -797,6 +803,44 @@ function serializeInvoiceFull(h: HydratedInvoiceRow) {
   };
 }
 
+function serializeEstimateFull(estimate: HydratedEstimate) {
+  return {
+    id: estimate.id,
+    slug: estimate.slug,
+    number: estimate.number || null,
+    status: displayEstimateStatus(estimate),
+    currency: estimate.currency,
+    customer: estimate.customer
+      ? { name: estimate.customer.name, slug: estimate.customer.slug }
+      : null,
+    customerId: estimate.customerId,
+    subtotalCents: estimate.subtotalCents,
+    taxCents: estimate.taxCents,
+    totalCents: estimate.totalCents,
+    issueDate: estimate.issueDate,
+    validUntil: estimate.validUntil,
+    notes: estimate.notes,
+    footer: estimate.footer,
+    sentAt: estimate.sentAt,
+    acceptedAt: estimate.acceptedAt,
+    declinedAt: estimate.declinedAt,
+    voidedAt: estimate.voidedAt,
+    invoice: estimate.invoice,
+    lines: estimate.lines.map((line) => ({
+      id: line.id,
+      description: line.description,
+      quantity: line.quantity,
+      unitPriceCents: line.unitPriceCents,
+      taxRateId: line.taxRateId,
+      taxName: line.taxName,
+      taxPercent: line.taxPercent,
+      lineSubtotalCents: line.lineSubtotalCents,
+      lineTaxCents: line.lineTaxCents,
+      lineTotalCents: line.lineTotalCents,
+    })),
+  };
+}
+
 /** Shared by every tool that takes no arguments at all. */
 const emptyToolSchema = z.object({}).strict();
 
@@ -971,7 +1015,7 @@ mcpInternalRouter.post(
   },
 );
 
-// ---- Invoices + customers (read: view; invoice: run accounts receivable) ----
+// ---- Estimates + invoices + customers (read: view; invoice: run accounts receivable) ----
 
 const listInvoicesSchema = z
   .object({
@@ -1188,6 +1232,94 @@ const invoiceLineSchema = z.object({
   productId: z.string().uuid().nullable().optional(),
 });
 
+type FinanceDocumentLine = z.infer<typeof invoiceLineSchema>;
+
+async function unknownTaxRateIds(
+  companyId: string,
+  lines: FinanceDocumentLine[],
+): Promise<string[]> {
+  const taxRateIds = [
+    ...new Set(lines.map((line) => line.taxRateId).filter((id): id is string => !!id)),
+  ];
+  if (taxRateIds.length === 0) return [];
+  const found = await AppDataSource.getRepository(TaxRate).find({
+    where: { companyId, id: In(taxRateIds) },
+    select: ["id"],
+  });
+  const known = new Set(found.map((taxRate) => taxRate.id));
+  return taxRateIds.filter((id) => !known.has(id));
+}
+
+const createEstimateSchema = z
+  .object({
+    customerSlug: z.string().min(1).max(200),
+    currency: isoCurrency.optional(),
+    issueDate: z.string().datetime().optional(),
+    validUntil: z.string().datetime().optional(),
+    notes: z.string().max(4000).optional(),
+    footer: z.string().max(1000).optional(),
+    lines: z.array(invoiceLineSchema).min(1).max(200),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/create_estimate",
+  validateBody(createEstimateSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "invoice"))) return;
+    const companyId = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof createEstimateSchema>;
+    const customer = await loadCustomerBySlug(companyId, body.customerSlug);
+    if (!customer) {
+      return res.status(404).json({ error: `Customer "${body.customerSlug}" not found` });
+    }
+    const grossCents = body.lines.reduce(
+      (sum, line) => sum + Math.round(line.quantity * line.unitPriceCents),
+      0,
+    );
+    if (grossCents <= 0) {
+      return res
+        .status(400)
+        .json({ error: "Estimate line items must total more than zero before tax." });
+    }
+    const missingTaxRateIds = await unknownTaxRateIds(companyId, body.lines);
+    if (missingTaxRateIds.length > 0) {
+      return res
+        .status(400)
+        .json({ error: `Unknown tax rate id(s): ${missingTaxRateIds.join(", ")}` });
+    }
+
+    try {
+      const estimate = await createEstimateDraft({
+        companyId,
+        customerId: customer.id,
+        issueDate: body.issueDate ? new Date(body.issueDate) : undefined,
+        validUntil: body.validUntil ? new Date(body.validUntil) : undefined,
+        currency: body.currency,
+        notes: body.notes,
+        footer: body.footer,
+        lines: body.lines,
+        createdById: null,
+      });
+      const [hydrated] = await hydrateEstimates(companyId, [estimate]);
+      await aiWriteTrail(req, {
+        action: "finance.estimate.create",
+        targetType: "estimate",
+        targetId: estimate.id,
+        targetLabel: `Draft for ${customer.name}`,
+        journalTitle: `${req.mcpEmployee!.name} drafted an estimate for ${customer.name}`,
+        metadata: { totalCents: estimate.totalCents, currency: estimate.currency },
+      });
+      res.json({
+        estimate: serializeEstimateFull(hydrated),
+        note: "Draft created. It has no ledger effect and nothing was emailed. A Member can review, issue, and send it from Finance.",
+      });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
 const createInvoiceSchema = z
   .object({
     customerSlug: z.string().min(1).max(200),
@@ -1227,19 +1359,11 @@ mcpInternalRouter.post(
     }
     // Reject unknown tax-rate ids up front — snapshotTax would otherwise treat
     // a stray id as "no tax" and silently under-bill.
-    const taxRateIds = [
-      ...new Set(body.lines.map((l) => l.taxRateId).filter((x): x is string => !!x)),
-    ];
-    if (taxRateIds.length) {
-      const found = await AppDataSource.getRepository(TaxRate).find({
-        where: { companyId: cid, id: In(taxRateIds) },
-        select: ["id"],
-      });
-      const known = new Set(found.map((t) => t.id));
-      const missing = taxRateIds.filter((id) => !known.has(id));
-      if (missing.length) {
-        return res.status(400).json({ error: `Unknown tax rate id(s): ${missing.join(", ")}` });
-      }
+    const missingTaxRateIds = await unknownTaxRateIds(cid, body.lines);
+    if (missingTaxRateIds.length > 0) {
+      return res
+        .status(400)
+        .json({ error: `Unknown tax rate id(s): ${missingTaxRateIds.join(", ")}` });
     }
     const repo = AppDataSource.getRepository(Invoice);
     const issueDate = body.issueDate ? new Date(body.issueDate) : new Date();

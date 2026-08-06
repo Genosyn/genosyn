@@ -2133,6 +2133,57 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "create_estimate",
+    description:
+      "Create a DRAFT estimate (quotation) for a customer with one or more line items. Amounts are integer minor units (cents); `unitPriceCents` of 5000 is $50.00. The draft has no ledger effect, receives no estimate number, and is not emailed; a Member reviews and issues or sends it from Finance. Optionally attach a `taxRateId` per line; tax rates are configured by a human. Needs `invoice` finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        customerSlug: {
+          type: "string",
+          description: "Who receives the quotation (from list_customers / create_customer).",
+        },
+        currency: {
+          type: "string",
+          description: "ISO 4217 code; defaults to the customer's currency.",
+        },
+        issueDate: { type: "string", description: "ISO datetime; defaults to now." },
+        validUntil: {
+          type: "string",
+          description: "ISO datetime; defaults to 30 days after the issue date.",
+        },
+        notes: { type: "string" },
+        footer: { type: "string" },
+        lines: {
+          type: "array",
+          minItems: 1,
+          maxItems: 200,
+          description: "Estimate line items.",
+          items: {
+            type: "object",
+            properties: {
+              description: { type: "string" },
+              quantity: { type: "number" },
+              unitPriceCents: {
+                type: "integer",
+                description: "Unit price in minor units (cents).",
+              },
+              taxRateId: {
+                type: "string",
+                description: "Optional tax-rate id configured by a human.",
+              },
+              productId: { type: "string", description: "Optional catalog product id." },
+            },
+            required: ["description", "quantity", "unitPriceCents"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["customerSlug", "lines"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "create_invoice",
     description:
       "Create a DRAFT invoice for a customer with one or more line items. Amounts are integer minor units (cents); `unitPriceCents` of 5000 is $50.00. Optionally attach a `taxRateId` per line (from list_finance_accounts is NOT it — tax rates are configured by a human; omit for no tax). This does not issue or email anything — call send_invoice next. Needs `invoice` finance access.",
