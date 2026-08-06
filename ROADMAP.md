@@ -981,6 +981,14 @@ Phase A — Foundation (this milestone)
       `get_dashboard`, `create_dashboard`, `add_dashboard_card`. AI
       employees can author Charts the team will see in the same way
       they already author Notes and Bases.
+- [x] **AI-native Explore loop.** AI employees can discover only their granted
+      Postgres / MySQL / ClickHouse Connections, inspect the visible schema,
+      validate ad-hoc SQL, save Charts, and assemble Dashboards through the
+      built-in tool catalogue. Explore's **Build with AI** flow lets a Member
+      select a Connection, grant it to an employee when needed, and open Chat
+      with a ready-to-review analytics brief. Connection Grants are enforced
+      again when an employee creates a Chart or changes its SQL. Shipped in
+      1.87.0.
 
 Phase B+ (deferred — out of this PR)
 

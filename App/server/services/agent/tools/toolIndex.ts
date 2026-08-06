@@ -127,9 +127,12 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
     ],
   },
   charts: {
-    label: "charts",
-    blurb: "Saved SQL charts you can run and edit.",
+    label: "Explore data & charts",
+    blurb: "Granted databases and saved SQL charts.",
     tools: [
+      "list_explore_connections",
+      "get_explore_schema",
+      "run_explore_query",
       "list_charts",
       "get_chart",
       "run_chart",
@@ -399,6 +402,16 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   delete_record_attachment: ["file", "attachment"],
 
   // Charts / dashboards — "sql" and "report" never appear together in prose.
+  list_explore_connections: [
+    "database connection",
+    "data source",
+    "warehouse",
+    "postgres",
+    "mysql",
+    "clickhouse",
+  ],
+  get_explore_schema: ["database schema", "tables", "columns", "inspect database"],
+  run_explore_query: ["sql", "query database", "ad hoc query", "explore data", "analyze data"],
   run_chart: ["sql", "query", "database", "report", "numbers", "metrics"],
   list_charts: ["sql", "report", "graph", "metrics"],
   get_chart: ["sql", "graph", "report"],

@@ -59,10 +59,13 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
  * It rides inside a tool result that `loop.ts` clips at `TOOL_RESULT_CAP_MIN`
  * (8,000 chars), and it has to leave room for returned schemas alongside it.
  * M35 adds twelve granular Marketing tools whose exact names are part of the
- * recall backstop. The extra 500 characters are intentional: abbreviating or
- * hiding those names would make autonomous Campaign operations undiscoverable.
+ * recall backstop. The extra headroom is intentional: abbreviating or hiding
+ * exact tool names would make autonomous operations undiscoverable. M20's
+ * three AI-native Explore tools take the miss-case footer just over 4,000
+ * characters; 4,100 still leaves almost half the 8,000-char result envelope
+ * for returned schemas.
  */
-const DOMAIN_FOOTER_CHARS_MAX = 4_000;
+const DOMAIN_FOOTER_CHARS_MAX = 4_100;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(

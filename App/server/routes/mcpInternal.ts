@@ -440,6 +440,7 @@ import {
   isExploreProvider,
   listAccessibleChartIds,
   listAccessibleDashboardIds,
+  loadExploreSchema,
   runSqlAgainstConnection,
   serializeCard,
   serializeChart,
@@ -11137,6 +11138,92 @@ mcpInternalRouter.post(
 // existing postgres/mysql/clickhouse Integration Connections — no extra
 // auth, same 30s / 5,000-row envelope as the integration tools.
 
+async function loadGrantedExploreConnection(
+  req: McpRequest,
+  res: Response,
+  connectionId: string,
+): Promise<IntegrationConnection | null> {
+  const pair = await getGrantWithConnection(req.mcpEmployee!.id, connectionId);
+  if (!pair || pair.connection.companyId !== req.mcpCompany!.id) {
+    res.status(403).json({
+      error:
+        "No grant: you do not have access to that Connection. Ask an owner or admin to grant it from Explore → Build with AI or Settings → Integrations.",
+    });
+    return null;
+  }
+  if (!isExploreProvider(pair.connection.provider)) {
+    res.status(400).json({ error: "Connection is not a supported Explore source" });
+    return null;
+  }
+  return pair.connection;
+}
+
+const listExploreConnectionsSchema = z.object({}).strict();
+
+mcpInternalRouter.post(
+  "/tools/list_explore_connections",
+  validateBody(listExploreConnectionsSchema),
+  async (req: McpRequest, res) => {
+    const pairs = await loadEmployeeConnections(req.mcpEmployee!);
+    const connections = pairs
+      .map((pair) => pair.connection)
+      .filter((connection) => isExploreProvider(connection.provider))
+      .map((connection) => ({
+        id: connection.id,
+        provider: connection.provider,
+        label: connection.label,
+        accountHint: connection.accountHint,
+        status: connection.status,
+        statusMessage: connection.statusMessage,
+      }));
+    res.json({ connections });
+  },
+);
+
+const exploreConnectionSchema = z.object({ connectionId: z.string().uuid() }).strict();
+
+mcpInternalRouter.post(
+  "/tools/get_explore_schema",
+  validateBody(exploreConnectionSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof exploreConnectionSchema>;
+    const connection = await loadGrantedExploreConnection(req, res, body.connectionId);
+    if (!connection) return;
+    try {
+      res.json(await loadExploreSchema(connection));
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  },
+);
+
+const runExploreQuerySchema = z
+  .object({
+    connectionId: z.string().uuid(),
+    sql: z.string().min(1).max(50_000),
+    maxRows: z.number().int().min(1).max(5000).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/run_explore_query",
+  validateBody(runExploreQuerySchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof runExploreQuerySchema>;
+    const connection = await loadGrantedExploreConnection(req, res, body.connectionId);
+    if (!connection) return;
+    try {
+      res.json(
+        await runSqlAgainstConnection(connection, body.sql, {
+          maxRows: body.maxRows,
+        }),
+      );
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  },
+);
+
 const listChartsSchema = z.object({}).strict();
 
 mcpInternalRouter.post(
@@ -11236,14 +11323,7 @@ mcpInternalRouter.post(
     const body = req.body as z.infer<typeof createChartMcpSchema>;
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
-    const conn = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
-      id: body.connectionId,
-      companyId: co.id,
-    });
-    if (!conn) return res.status(400).json({ error: "Unknown connection" });
-    if (!isExploreProvider(conn.provider)) {
-      return res.status(400).json({ error: "Connection is not a supported Explore source" });
-    }
+    if (!(await loadGrantedExploreConnection(req, res, body.connectionId))) return;
     const repo = AppDataSource.getRepository(Chart);
     const slug = await uniqueChartSlug(co.id, body.title);
     const row = repo.create({
@@ -11301,6 +11381,10 @@ mcpInternalRouter.post(
     if (!row) return res.status(404).json({ error: "Chart not found" });
     if (!(await hasChartAccess(self.id, row.id, "write"))) {
       return res.status(403).json({ error: "Write access required to edit that chart" });
+    }
+    if (body.sql !== undefined) {
+      const connection = await loadGrantedExploreConnection(req, res, row.connectionId);
+      if (!connection) return;
     }
     if (body.title !== undefined) row.title = body.title;
     if (body.description !== undefined) row.description = body.description;

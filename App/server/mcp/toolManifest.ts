@@ -1780,6 +1780,51 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   },
   // ---------- Explore (M20) — Metabase-style analytics ----------
   {
+    name: "list_explore_connections",
+    description:
+      "List the Postgres, MySQL, and ClickHouse Connections granted to you for Explore. Start here when a teammate asks you to analyze a database or build Charts: the result gives you the connectionId required by get_explore_schema, run_explore_query, and create_chart. Credentials are never returned.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_explore_schema",
+    description:
+      "Inspect the schemas, tables, views, columns, data types, and nullability visible to one granted Explore Connection. Use this before writing SQL instead of guessing table or column names. The database role attached to the Connection determines what is visible.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connectionId: {
+          type: "string",
+          description: "UUID from list_explore_connections.",
+        },
+      },
+      required: ["connectionId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "run_explore_query",
+    description:
+      "Run an ad-hoc SQL query against one granted Explore Connection so you can validate a result before saving it as a Chart. Queries have a 30s timeout and 5,000-row cap. Genosyn does not enforce read-only SQL, so stay within the teammate's request and the database role's intended access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connectionId: {
+          type: "string",
+          description: "UUID from list_explore_connections.",
+        },
+        sql: { type: "string", description: "The SQL statement to run." },
+        maxRows: {
+          type: "integer",
+          minimum: 1,
+          maximum: 5000,
+          description: "Cap on rows returned (default 1000, max 5000).",
+        },
+      },
+      required: ["connectionId", "sql"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_charts",
     description:
       "List every saved Chart you have access to. A Chart is a saved SQL query + visualization (table / scalar / bar / line / area / pie) bound to a postgres / mysql / clickhouse Integration Connection. You start at `read` on every chart and `write` on the ones you author; humans manage per-employee grants from the chart's share modal.",
@@ -1826,7 +1871,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "create_chart",
     description:
-      "Author a new Chart. Use this to capture a useful query so the team can re-run it later instead of re-typing the SQL. `connectionId` is the UUID of the Integration Connection the SQL runs against — look it up via the integrations surface. `vizType` defaults to 'table'; for `scalar` the first cell of the first row is shown, for `bar` / `line` / `area` set `vizConfig.dimension` to the X-axis column and `vizConfig.measures` to one or more numeric column names. For `pie` use `dimension` + a single `measure`.",
+      "Author a new Chart after validating its SQL with run_explore_query. Use the connectionId from list_explore_connections; you must hold a Grant on that Connection. `vizType` defaults to 'table'; for `scalar` the first cell of the first row is shown, for `bar` / `line` / `area` set `vizConfig.dimension` to the X-axis column and `vizConfig.measures` to one or more numeric column names. For `pie` use `dimension` + a single `measure`.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1859,7 +1904,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "update_chart",
     description:
-      "Edit an existing Chart's title, description, SQL, or visualization. Pass only the fields you want to change. Requires `write` access on the chart — authors have it; teammates need a human to promote them via the share modal.",
+      "Edit an existing Chart's title, description, SQL, or visualization. Pass only the fields you want to change. Requires `write` access on the Chart; changing SQL also requires a Grant on its Connection, so validate the query with run_explore_query first.",
     inputSchema: {
       type: "object",
       properties: {

@@ -1,12 +1,22 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { BarChart3, Database, Layers, LayoutGrid, LineChart, Plus, Server } from "lucide-react";
+import {
+  BarChart3,
+  Database,
+  Layers,
+  LayoutGrid,
+  LineChart,
+  Plus,
+  Server,
+  Sparkles,
+} from "lucide-react";
 import { api, Company } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Spinner } from "../components/ui/Spinner";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { useExplore } from "./ExploreLayout";
+import { ExploreAiBuilder, type ExploreAiConnection } from "@/components/explore/ExploreAiBuilder";
 
 /**
  * Explore landing page. Three columns:
@@ -19,18 +29,13 @@ import { useExplore } from "./ExploreLayout";
  * connection pre-selected.
  */
 
-type ConnectionRow = {
-  id: string;
-  provider: string;
-  label: string;
-  accountHint: string;
-  status: string;
-};
+type ConnectionRow = ExploreAiConnection;
 
 export default function ExploreIndex({ company }: { company: Company }) {
   const { charts, dashboards, loading, error, createDashboard, reload } = useExplore();
   const [connections, setConnections] = React.useState<ConnectionRow[] | null>(null);
   const [connectionsError, setConnectionsError] = React.useState<string | null>(null);
+  const [aiBuilderOpen, setAiBuilderOpen] = React.useState(false);
 
   const reloadConnections = React.useCallback(async () => {
     try {
@@ -65,11 +70,14 @@ export default function ExploreIndex({ company }: { company: Company }) {
             <BarChart3 size={20} className="text-indigo-500" /> Explore
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-            Self-serve analytics on the databases your team has connected. Write a query, pick a
-            chart, save it. Pin saved charts onto Dashboards anyone in the company can read.
+            Explore connected databases yourself or ask an AI Employee to inspect the schema,
+            validate SQL, create Charts, and assemble Dashboards for the team.
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
+          <Button variant="secondary" size="sm" onClick={() => setAiBuilderOpen(true)}>
+            <Sparkles size={14} className="text-violet-500" /> Build with AI
+          </Button>
           <Button variant="secondary" size="sm" onClick={createDashboard}>
             <LayoutGrid size={14} /> New dashboard
           </Button>
@@ -116,7 +124,7 @@ export default function ExploreIndex({ company }: { company: Company }) {
         ) : connections.length === 0 ? (
           <EmptyState
             title="No database connections"
-            description="Explore queries Postgres, MySQL, or ClickHouse via the existing integrations. Add one to start querying."
+            description="Connect Postgres, MySQL, or ClickHouse once, then explore it yourself or grant it to an AI Employee."
             action={
               <Link to={`/c/${company.slug}/explore/integrations`}>
                 <Button size="sm">Open integrations</Button>
@@ -176,11 +184,16 @@ export default function ExploreIndex({ company }: { company: Company }) {
         ) : dashboards.length === 0 ? (
           <EmptyState
             title="No dashboards yet"
-            description="A dashboard is a grid of saved charts. Create one now, then add charts whenever you are ready."
+            description="Create one yourself, or ask an AI Employee to inspect a database and build the first version."
             action={
-              <Button size="sm" onClick={createDashboard}>
-                New dashboard
-              </Button>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button size="sm" onClick={() => setAiBuilderOpen(true)}>
+                  <Sparkles size={13} /> Build with AI
+                </Button>
+                <Button size="sm" variant="secondary" onClick={createDashboard}>
+                  New dashboard
+                </Button>
+              </div>
             }
           />
         ) : (
@@ -254,6 +267,13 @@ export default function ExploreIndex({ company }: { company: Company }) {
           </div>
         )}
       </section>
+
+      <ExploreAiBuilder
+        open={aiBuilderOpen}
+        company={company}
+        connections={connections ?? []}
+        onClose={() => setAiBuilderOpen(false)}
+      />
     </div>
   );
 }

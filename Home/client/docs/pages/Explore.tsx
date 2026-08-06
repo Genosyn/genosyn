@@ -51,8 +51,9 @@ export function Explore() {
           column name, or preview a table without writing the starter query yourself.
         </LI>
         <LI>
-          <Strong>Grants</Strong> — give AI Employees <Code>read</Code> or <Code>write</Code> access
-          to a specific Chart or Dashboard so they can author and run analytics alongside humans.
+          <Strong>AI-native workflow</Strong> — grant an AI Employee a database Connection, then ask
+          them to inspect its schema, validate SQL, save Charts, and assemble a Dashboard that
+          appears in the same Explore UI Members use.
         </LI>
       </UL>
 
@@ -61,14 +62,38 @@ export function Explore() {
         Explore reads from <DocLink to="/docs/integrations">Integrations</DocLink> — specifically
         Connections of provider <Code>postgres</Code>, <Code>mysql</Code>, or{" "}
         <Code>clickhouse</Code>. Set one up under <Code>Explore → Integrations</Code>, then it shows
-        up in the Connection picker inside Explore.
+        up in the Connection picker inside Explore. To delegate analytics, click{" "}
+        <Code>Build with AI</Code>, choose the Connection and an AI Employee, and Genosyn can create
+        the Connection Grant before opening Chat.
       </P>
       <Callout kind="warn" title="Connect with a least-privileged role.">
         Read-only enforcement is <em>not</em> baked into the executor — if you give Explore a
-        Connection that can <Code>UPDATE</Code> or <Code>DELETE</Code>, an AI Employee with{" "}
-        <Code>write</Code> grant could too. Create a separate database user with <Code>SELECT</Code>
-        -only privileges and connect with that.
+        Connection that can <Code>UPDATE</Code> or <Code>DELETE</Code>, an AI Employee with a
+        Connection Grant could too. Create a separate database user with <Code>SELECT</Code>-only
+        privileges and connect with that.
       </Callout>
+
+      <H2 id="build-with-ai">Building with an AI Employee</H2>
+      <OL>
+        <LI>
+          Open <Code>Explore</Code> and click <Code>Build with AI</Code>.
+        </LI>
+        <LI>
+          Choose a connected database and an AI Employee. If they do not already hold its Connection
+          Grant, the action is labelled <Code>Grant &amp; open chat</Code> and creates it before
+          continuing.
+        </LI>
+        <LI>
+          Review or edit the starter request. Chat opens with the request as a draft; no model runs
+          and no data is queried until you send it.
+        </LI>
+        <LI>
+          The employee lists its granted Explore Connections, inspects the selected schema,
+          validates each query, saves reusable Charts, creates a Dashboard, and pins the Charts in a
+          readable order. The results appear immediately in Explore and every write carries the AI
+          employee in its audit trail.
+        </LI>
+      </OL>
 
       <H2 id="charts">Authoring a Chart</H2>
       <OL>
@@ -154,13 +179,17 @@ export function Explore() {
 
       <H2 id="grants">Sharing with AI Employees</H2>
       <P>
-        Charts and Dashboards default to <Code>read</Code> for every employee in the company. Bump
-        an employee up to <Code>write</Code> on a specific Chart and they can edit + delete it
-        through the MCP tools below; bump them up on a Dashboard and they can add or move cards.
+        Explore has two grant boundaries. A <Strong>Connection Grant</Strong> lets an AI Employee
+        inspect that database, run ad-hoc SQL, create a Chart against it, and change that
+        Chart&apos;s SQL. A <Strong>Chart or Dashboard Grant</Strong> controls access to the saved
+        Explore row. Charts and Dashboards default to <Code>read</Code> for every employee in the
+        company; their AI author receives <Code>write</Code>.
       </P>
       <P>
         Open the <Code>Share</Code> menu on any Chart or Dashboard to change a teammate&apos;s
-        level, revoke a grant, or invite an employee who didn&apos;t default to access.
+        level, revoke a grant, or invite an employee who didn&apos;t default to access. Manage a
+        database Connection Grant from <Code>Build with AI</Code>, the Connection&apos;s{" "}
+        <Code>Manage access</Code> view, or the employee&apos;s <Code>Connections</Code> tab.
       </P>
 
       <H3 id="mcp-tools">MCP tools</H3>
@@ -170,14 +199,20 @@ export function Explore() {
       </P>
       <UL>
         <LI>
+          <Code>list_explore_connections</Code>, <Code>get_explore_schema</Code>, and{" "}
+          <Code>run_explore_query</Code> — the discovery and validation loop over database
+          Connections explicitly granted to that employee. Credentials are never returned.
+        </LI>
+        <LI>
           <Code>list_charts</Code>, <Code>get_chart</Code>, <Code>run_chart</Code> — read paths. The{" "}
           <Code>run_chart</Code> tool is the one most teams hit: a teammate asks &quot;what was MRR
           last month?&quot;, the employee finds the right Chart and runs it.
         </LI>
         <LI>
           <Code>create_chart</Code>, <Code>update_chart</Code>, <Code>delete_chart</Code> — write
-          paths. Require <Code>write</Code> on the row (create requires <Code>write</Code> on the
-          parent Connection&apos;s Grant).
+          paths. Create requires a Grant on the bound Connection; changing SQL requires both that
+          Connection Grant and <Code>write</Code> on the Chart. Other edits and deletion require{" "}
+          <Code>write</Code> on the Chart.
         </LI>
         <LI>
           <Code>list_dashboards</Code>, <Code>get_dashboard</Code>, <Code>create_dashboard</Code>,{" "}

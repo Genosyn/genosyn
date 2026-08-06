@@ -1,9 +1,13 @@
+import { In } from "typeorm";
 import { AppDataSource } from "../../../db/datasource.js";
 import { STATIC_TOOLS } from "../../../mcp/toolManifest.js";
 import { EmployeeBaseGrant } from "../../../db/entities/EmployeeBaseGrant.js";
 import { EmployeeMailAccountGrant } from "../../../db/entities/EmployeeMailAccountGrant.js";
 import { EmployeeFinanceGrant } from "../../../db/entities/EmployeeFinanceGrant.js";
 import { EmployeeRevenueGrant } from "../../../db/entities/EmployeeRevenueGrant.js";
+import { EmployeeConnectionGrant } from "../../../db/entities/EmployeeConnectionGrant.js";
+import { IntegrationConnection } from "../../../db/entities/IntegrationConnection.js";
+import { EXPLORE_PROVIDERS } from "../../explore.js";
 
 /**
  * Which of an employee's tools can only ever answer "No grant".
@@ -193,6 +197,13 @@ const REVENUE_GATED_TOOLS = new Set([
   "review_revenue_document_candidate",
 ]);
 
+/** Explore's ad-hoc database tools need at least one Connection Grant. */
+const EXPLORE_CONNECTION_GATED_TOOLS = new Set([
+  "get_explore_schema",
+  "run_explore_query",
+  "create_chart",
+]);
+
 /**
  * Fail at boot if any gated name has drifted away from the manifest.
  *
@@ -209,6 +220,7 @@ export function assertGrantSetsResolve(): void {
     ...MAIL_GATED_TOOLS,
     ...FINANCE_GATED_TOOLS,
     ...REVENUE_GATED_TOOLS,
+    ...EXPLORE_CONNECTION_GATED_TOOLS,
   ].filter((n) => !known.has(n));
   if (unknown.length > 0) {
     throw new Error(
@@ -247,6 +259,21 @@ export async function deadToolNames(employeeId: string): Promise<Set<string>> {
       where: { employeeId },
     });
     if (revenue === 0) for (const t of REVENUE_GATED_TOOLS) dead.add(t);
+    const connectionGrants = await AppDataSource.getRepository(EmployeeConnectionGrant).find({
+      where: { employeeId },
+      select: ["connectionId"],
+    });
+    const exploreConnections = connectionGrants.length
+      ? await AppDataSource.getRepository(IntegrationConnection).count({
+          where: {
+            id: In(connectionGrants.map((grant) => grant.connectionId)),
+            provider: In(EXPLORE_PROVIDERS as readonly string[]),
+          },
+        })
+      : 0;
+    if (exploreConnections === 0) {
+      for (const tool of EXPLORE_CONNECTION_GATED_TOOLS) dead.add(tool);
+    }
     return dead;
   } catch {
     return new Set();
