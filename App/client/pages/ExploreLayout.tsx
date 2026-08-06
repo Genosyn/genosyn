@@ -1,23 +1,12 @@
 import React from "react";
-import {
-  NavLink,
-  Outlet,
-  useLocation,
-  useNavigate,
-} from "react-router-dom";
-import {
-  BarChart3,
-  LayoutGrid,
-  LineChart as LineIcon,
-  Plus,
-  Search,
-} from "lucide-react";
+import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { BarChart3, LayoutGrid, LineChart as LineIcon, Plus, Search } from "lucide-react";
 import { api, Company } from "../lib/api";
 import { ContextualLayout } from "../components/AppShell";
 import { Spinner } from "../components/ui/Spinner";
-import { useDialog } from "../components/ui/Dialog";
 import { useToast } from "../components/ui/Toast";
 import { useLiveRefetch } from "../components/CompanySocket";
+import { ExploreDashboardDetailsModal } from "../components/explore/ExploreDashboardDetailsModal";
 
 /**
  * Explore section sidebar. Two lists: Charts and Dashboards. Mirrors the
@@ -44,7 +33,10 @@ export type DashboardListItem = {
 export type ExploreContextValue = {
   charts: ChartListItem[];
   dashboards: DashboardListItem[];
+  loading: boolean;
+  error: string | null;
   reload: () => Promise<void>;
+  createDashboard: () => void;
 };
 
 export const ExploreContext = React.createContext<ExploreContextValue | null>(null);
@@ -57,25 +49,28 @@ export function useExplore(): ExploreContextValue {
 
 export default function ExploreLayout({ company }: { company: Company }) {
   const navigate = useNavigate();
-  const location = useLocation();
   const { toast } = useToast();
-  const dialog = useDialog();
   const [charts, setCharts] = React.useState<ChartListItem[] | null>(null);
   const [dashboards, setDashboards] = React.useState<DashboardListItem[] | null>(null);
   const [query, setQuery] = React.useState("");
+  const [error, setError] = React.useState<string | null>(null);
+  const [creatingDashboard, setCreatingDashboard] = React.useState(false);
+  const [savingDashboard, setSavingDashboard] = React.useState(false);
 
   const reload = React.useCallback(async () => {
-    try {
-      const [c, d] = await Promise.all([
-        api.get<ChartListItem[]>(`/api/companies/${company.id}/explore/charts`),
-        api.get<DashboardListItem[]>(`/api/companies/${company.id}/explore/dashboards`),
-      ]);
-      setCharts(c);
-      setDashboards(d);
-    } catch {
-      setCharts([]);
-      setDashboards([]);
-    }
+    const [chartResult, dashboardResult] = await Promise.allSettled([
+      api.get<ChartListItem[]>(`/api/companies/${company.id}/explore/charts`),
+      api.get<DashboardListItem[]>(`/api/companies/${company.id}/explore/dashboards`),
+    ]);
+    if (chartResult.status === "fulfilled") setCharts(chartResult.value);
+    else setCharts((current) => current ?? []);
+    if (dashboardResult.status === "fulfilled") setDashboards(dashboardResult.value);
+    else setDashboards((current) => current ?? []);
+    setError(
+      chartResult.status === "rejected" || dashboardResult.status === "rejected"
+        ? "Some Explore items could not be loaded. Try refreshing."
+        : null,
+    );
   }, [company.id]);
 
   React.useEffect(() => {
@@ -84,32 +79,40 @@ export default function ExploreLayout({ company }: { company: Company }) {
 
   useLiveRefetch(["chart", "dashboard"], reload);
 
-  async function newDashboard() {
-    const title = await dialog.prompt({
-      title: "New dashboard",
-      placeholder: "Dashboard title",
-      confirmLabel: "Create",
-    });
-    if (!title) return;
-    try {
-      const d = await api.post<{ slug: string }>(
-        `/api/companies/${company.id}/explore/dashboards`,
-        { title },
-      );
-      await reload();
-      navigate(`/c/${company.slug}/explore/dashboards/${d.slug}`);
-    } catch (err) {
-      toast((err as Error).message, "error");
-    }
-  }
+  const createDashboard = React.useCallback(() => {
+    setCreatingDashboard(true);
+  }, []);
+
+  const submitDashboard = React.useCallback(
+    async (details: { title: string; description: string }) => {
+      setSavingDashboard(true);
+      try {
+        const d = await api.post<{ slug: string }>(
+          `/api/companies/${company.id}/explore/dashboards`,
+          details,
+        );
+        setCreatingDashboard(false);
+        await reload();
+        navigate(`/c/${company.slug}/explore/dashboards/${d.slug}`);
+      } catch (err) {
+        toast((err as Error).message, "error");
+      } finally {
+        setSavingDashboard(false);
+      }
+    },
+    [company.id, company.slug, navigate, reload, toast],
+  );
 
   const ctx = React.useMemo<ExploreContextValue>(
     () => ({
       charts: charts ?? [],
       dashboards: dashboards ?? [],
+      loading: charts === null || dashboards === null,
+      error,
       reload,
+      createDashboard,
     }),
-    [charts, dashboards, reload],
+    [charts, dashboards, error, reload, createDashboard],
   );
 
   const filtered = React.useMemo(() => {
@@ -117,9 +120,7 @@ export default function ExploreLayout({ company }: { company: Company }) {
     if (!q) return { charts: charts ?? [], dashboards: dashboards ?? [] };
     return {
       charts: (charts ?? []).filter((c) => c.title.toLowerCase().includes(q)),
-      dashboards: (dashboards ?? []).filter((d) =>
-        d.title.toLowerCase().includes(q),
-      ),
+      dashboards: (dashboards ?? []).filter((d) => d.title.toLowerCase().includes(q)),
     };
   }, [charts, dashboards, query]);
 
@@ -142,7 +143,7 @@ export default function ExploreLayout({ company }: { company: Company }) {
         </NavLink>
       </div>
 
-      {totalCount > 4 && (
+      {totalCount > 0 && (
         <div className="relative border-b border-slate-100 px-2 py-2 dark:border-slate-800">
           <Search
             size={13}
@@ -151,13 +152,19 @@ export default function ExploreLayout({ company }: { company: Company }) {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filter…"
+            placeholder="Search charts and dashboards…"
+            aria-label="Search charts and dashboards"
             className="w-full rounded-md border border-slate-200 bg-slate-50 py-1 pl-7 pr-2 text-xs text-slate-700 placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:outline-none dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200"
           />
         </div>
       )}
 
       <div className="flex-1 overflow-y-auto p-2">
+        {error && (
+          <div className="mx-1 mb-2 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+            {error}
+          </div>
+        )}
         <SidebarSection
           label="Charts"
           icon={<LineIcon size={12} />}
@@ -165,7 +172,9 @@ export default function ExploreLayout({ company }: { company: Company }) {
           newTitle="New chart"
         >
           {charts === null ? (
-            <div className="flex justify-center p-2"><Spinner size={14} /></div>
+            <div className="flex justify-center p-2">
+              <Spinner size={14} />
+            </div>
           ) : filtered.charts.length === 0 ? (
             <div className="px-3 py-2 text-[11px] text-slate-400 dark:text-slate-500">
               {query ? "No matches." : "No charts yet."}
@@ -195,11 +204,13 @@ export default function ExploreLayout({ company }: { company: Company }) {
         <SidebarSection
           label="Dashboards"
           icon={<LayoutGrid size={12} />}
-          onNew={newDashboard}
+          onNew={createDashboard}
           newTitle="New dashboard"
         >
           {dashboards === null ? (
-            <div className="flex justify-center p-2"><Spinner size={14} /></div>
+            <div className="flex justify-center p-2">
+              <Spinner size={14} />
+            </div>
           ) : filtered.dashboards.length === 0 ? (
             <div className="px-3 py-2 text-[11px] text-slate-400 dark:text-slate-500">
               {query ? "No matches." : "No dashboards yet."}
@@ -217,10 +228,7 @@ export default function ExploreLayout({ company }: { company: Company }) {
                         : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800")
                     }
                   >
-                    <LayoutGrid
-                      size={12}
-                      className="shrink-0 text-slate-400 dark:text-slate-500"
-                    />
+                    <LayoutGrid size={12} className="shrink-0 text-slate-400 dark:text-slate-500" />
                     <span className="min-w-0 flex-1 truncate">{d.title}</span>
                     <span className="ml-1 shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                       {d.cardCount}
@@ -235,15 +243,20 @@ export default function ExploreLayout({ company }: { company: Company }) {
     </div>
   );
 
-  // Suppress unused-import warning while we're inside the layout — `location`
-  // exists for future "auto-select first chart on visit" wiring.
-  void location;
-
   return (
     <ExploreContext.Provider value={ctx}>
       <ContextualLayout sidebar={sidebar}>
         <Outlet />
       </ContextualLayout>
+      <ExploreDashboardDetailsModal
+        open={creatingDashboard}
+        title=""
+        description=""
+        submitLabel="Create dashboard"
+        saving={savingDashboard}
+        onClose={() => setCreatingDashboard(false)}
+        onSubmit={(details) => void submitDashboard(details)}
+      />
     </ExploreContext.Provider>
   );
 }

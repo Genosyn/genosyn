@@ -3,10 +3,14 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import {
   BarChart3,
   ChevronLeft,
+  Database,
   LineChart as LineIcon,
+  PanelLeftClose,
+  PanelLeftOpen,
   Play,
   Save,
   Share2,
+  Sparkles,
   Table,
   Trash2,
 } from "lucide-react";
@@ -19,6 +23,16 @@ import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { useExplore } from "./ExploreLayout";
 import { AsyncResourceTagPicker } from "../components/TagPicker";
+import { ExploreDataBrowser } from "../components/explore/ExploreDataBrowser";
+import {
+  buildTablePreviewSql,
+  humanizeExploreName,
+  quoteExploreIdentifier,
+  suggestExploreVisualization,
+  type ExploreProvider,
+  type ExploreSchemaTable,
+  type VisualizationSuggestion,
+} from "../lib/explore";
 import {
   ChartRenderer,
   type QueryResult,
@@ -43,7 +57,7 @@ import {
 
 type ConnectionRow = {
   id: string;
-  provider: string;
+  provider: ExploreProvider;
   label: string;
   accountHint: string;
   status: string;
@@ -78,7 +92,7 @@ const VIZ_OPTIONS: { value: VizType; label: string; icon: React.ReactNode }[] = 
   },
 ];
 
-const STARTER_SQL: Record<string, string> = {
+const STARTER_SQL: Record<ExploreProvider, string> = {
   postgres: "SELECT now() AS at, 1 AS value",
   mysql: "SELECT NOW() AS at, 1 AS value",
   clickhouse: "SELECT now() AS at, 1 AS value",
@@ -108,6 +122,10 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
   const [dirty, setDirty] = React.useState(false);
   const [sharing, setSharing] = React.useState(false);
   const [chartId, setChartId] = React.useState<string | null>(null);
+  const [schemaOpen, setSchemaOpen] = React.useState(isNew);
+  const [suggestion, setSuggestion] = React.useState<VisualizationSuggestion | null>(null);
+  const editorRef = React.useRef<HTMLTextAreaElement>(null);
+  const ranOnceRef = React.useRef(false);
 
   // Load connections once.
   React.useEffect(() => {
@@ -133,6 +151,9 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
 
   // Load chart if editing existing.
   React.useEffect(() => {
+    ranOnceRef.current = false;
+    setResult(null);
+    setSuggestion(null);
     if (isNew) {
       setChartId(null);
       setLoading(false);
@@ -140,6 +161,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
       setDescription("");
       setVizType("table");
       setVizConfig({});
+      setSchemaOpen(true);
       return;
     }
     setLoading(true);
@@ -165,7 +187,6 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
 
   // Auto-run the saved chart once on load so the visualization shows up
   // without the user having to hit Run.
-  const ranOnceRef = React.useRef(false);
   React.useEffect(() => {
     if (loading || isNew) return;
     if (ranOnceRef.current) return;
@@ -175,16 +196,59 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, isNew, sql, connectionId]);
 
+  React.useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
+  React.useEffect(() => {
+    if (!dirty) return;
+    const interceptLink = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey) return;
+      const target = event.target;
+      const anchor = target instanceof Element ? target.closest("a[href]") : null;
+      if (!(anchor instanceof HTMLAnchorElement) || anchor.target || anchor.download) return;
+      const destination = new URL(anchor.href, window.location.href);
+      if (destination.origin !== window.location.origin) return;
+      if (
+        `${destination.pathname}${destination.search}` ===
+        `${window.location.pathname}${window.location.search}`
+      ) {
+        return;
+      }
+      event.preventDefault();
+      void dialog
+        .confirm({
+          title: "Discard unsaved changes?",
+          message: "This chart has changes that have not been saved.",
+          confirmLabel: "Discard changes",
+          variant: "danger",
+        })
+        .then((confirmed) => {
+          if (!confirmed) return;
+          setDirty(false);
+          navigate(`${destination.pathname}${destination.search}${destination.hash}`);
+        });
+    };
+    document.addEventListener("click", interceptLink, true);
+    return () => document.removeEventListener("click", interceptLink, true);
+  }, [dialog, dirty, navigate]);
+
   function markDirty() {
     if (!dirty) setDirty(true);
   }
 
-  async function runSql() {
-    if (!connectionId) {
+  async function runSql(sqlOverride = sql, connectionOverride = connectionId) {
+    if (!connectionOverride) {
       toast("Pick a connection first", "error");
       return;
     }
-    if (!sql.trim()) {
+    if (!sqlOverride.trim()) {
       toast("SQL is empty", "error");
       return;
     }
@@ -192,16 +256,53 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
     setRunError(null);
     try {
       const r = await api.post<QueryResult>(`/api/companies/${company.id}/explore/run`, {
-        connectionId,
-        sql,
+        connectionId: connectionOverride,
+        sql: sqlOverride,
       });
       setResult(r);
+      setSuggestion(suggestExploreVisualization(r));
     } catch (err) {
       setRunError((err as Error).message);
       setResult(null);
+      setSuggestion(null);
     } finally {
       setRunning(false);
     }
+  }
+
+  function previewTable(table: ExploreSchemaTable, provider: ExploreProvider) {
+    const nextSql = buildTablePreviewSql(provider, table);
+    setSql(nextSql);
+    if (isNew && title === "Untitled chart") setTitle(humanizeExploreName(table.name));
+    setDirty(true);
+    void runSql(nextSql);
+  }
+
+  function insertIdentifier(identifier: string, provider: ExploreProvider) {
+    const insertion = quoteExploreIdentifier(provider, identifier);
+    const editor = editorRef.current;
+    if (!editor) {
+      setSql((current) => `${current}${current ? " " : ""}${insertion}`);
+      setDirty(true);
+      return;
+    }
+    const start = editor.selectionStart ?? editor.value.length;
+    const end = editor.selectionEnd ?? editor.value.length;
+    const nextSql = editor.value.slice(0, start) + insertion + editor.value.slice(end);
+    setSql(nextSql);
+    setDirty(true);
+    requestAnimationFrame(() => {
+      editor.focus();
+      const cursor = start + insertion.length;
+      editor.setSelectionRange(cursor, cursor);
+    });
+  }
+
+  function applySuggestion() {
+    if (!suggestion) return;
+    setVizType(suggestion.vizType);
+    setVizConfig(suggestion.vizConfig);
+    setDirty(true);
   }
 
   async function save() {
@@ -271,7 +372,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
     }
   }
 
-  if (loading) {
+  if (loading || connections === null) {
     return (
       <div className="flex h-full items-center justify-center">
         <Spinner />
@@ -301,7 +402,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Header */}
-      <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-6 py-3 dark:border-slate-700 dark:bg-slate-950">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-3 sm:px-6 dark:border-slate-700 dark:bg-slate-950">
         <Link
           to={`/c/${company.slug}/explore`}
           className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
@@ -317,7 +418,17 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
           placeholder="Chart title"
           className="min-w-0 flex-1 border-0 bg-transparent text-base font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
         />
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSchemaOpen((open) => !open)}
+            aria-pressed={schemaOpen}
+            title={schemaOpen ? "Hide data browser" : "Browse tables and columns"}
+          >
+            {schemaOpen ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
+            <span className="hidden sm:inline">Data</span>
+          </Button>
           {!isNew && (
             <Button variant="secondary" size="sm" onClick={() => setSharing(true)}>
               <Share2 size={14} /> Share
@@ -346,9 +457,25 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
       )}
 
       {/* Body */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(320px,420px)_1fr]">
+      <div
+        className={
+          "grid min-h-0 flex-1 grid-cols-1 overflow-y-auto " +
+          (schemaOpen
+            ? "xl:grid-cols-[240px_minmax(320px,400px)_1fr] xl:overflow-hidden"
+            : "lg:grid-cols-[minmax(320px,420px)_1fr] lg:overflow-hidden")
+        }
+      >
+        {schemaOpen && connectionId && (
+          <ExploreDataBrowser
+            companyId={company.id}
+            connectionId={connectionId}
+            onPreview={previewTable}
+            onInsert={insertIdentifier}
+          />
+        )}
+
         {/* LEFT: SQL pane */}
-        <div className="flex min-h-0 flex-col border-r border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950">
+        <div className="flex min-h-[440px] flex-col border-b border-r border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950 lg:border-b-0">
           <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
             <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
               Connection
@@ -356,7 +483,18 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
             <Select
               value={connectionId}
               onChange={(e) => {
-                setConnectionId(e.target.value);
+                const nextId = e.target.value;
+                const nextConnection = connections?.find((connection) => connection.id === nextId);
+                setConnectionId(nextId);
+                if (
+                  isNew &&
+                  nextConnection &&
+                  (!sql.trim() || Object.values(STARTER_SQL).includes(sql))
+                ) {
+                  setSql(STARTER_SQL[nextConnection.provider]);
+                }
+                setResult(null);
+                setSuggestion(null);
                 markDirty();
               }}
               className="mt-1 w-full"
@@ -369,17 +507,23 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
             </Select>
           </div>
 
-          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2 dark:border-slate-800">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              SQL
-            </span>
-            <Button onClick={runSql} size="sm" disabled={running}>
+          <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-2 dark:border-slate-800">
+            <div>
+              <span className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                SQL
+              </span>
+              <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                ⌘/Ctrl + Enter to run
+              </span>
+            </div>
+            <Button onClick={() => void runSql()} size="sm" disabled={running}>
               <Play size={12} />
               {running ? "Running…" : "Run"}
             </Button>
           </div>
 
           <textarea
+            ref={editorRef}
             value={sql}
             onChange={(e) => {
               setSql(e.target.value);
@@ -387,6 +531,17 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
             }}
             spellCheck={false}
             placeholder="SELECT count(*) FROM users"
+            aria-label="SQL query"
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                event.preventDefault();
+                void runSql();
+              }
+              if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+                event.preventDefault();
+                void save();
+              }
+            }}
             className="min-h-0 flex-1 resize-none border-0 bg-transparent px-4 py-3 font-mono text-[12.5px] leading-relaxed text-slate-800 placeholder:text-slate-400 focus:outline-none dark:text-slate-200"
           />
 
@@ -423,7 +578,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
         </div>
 
         {/* RIGHT: viz preview + config */}
-        <div className="flex min-h-0 flex-col overflow-y-auto bg-slate-50 dark:bg-slate-900">
+        <div className="flex min-h-[480px] flex-col overflow-y-auto bg-slate-50 dark:bg-slate-900 lg:min-h-0">
           {/* Viz type tabs */}
           <div className="sticky top-0 z-10 flex flex-wrap gap-1 border-b border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-950">
             {VIZ_OPTIONS.map((opt) => (
@@ -446,14 +601,32 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
             ))}
           </div>
 
+          {suggestion && suggestion.vizType !== vizType && (
+            <div className="flex flex-wrap items-center gap-2 border-b border-indigo-100 bg-indigo-50 px-4 py-2 text-xs text-indigo-800 dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:text-indigo-200">
+              <Sparkles size={13} className="shrink-0" />
+              <span className="min-w-0 flex-1">
+                Suggested: <strong>{suggestion.label}</strong> — {suggestion.reason}.
+              </span>
+              <Button variant="secondary" size="sm" onClick={applySuggestion}>
+                Use suggestion
+              </Button>
+            </div>
+          )}
+
           {/* Preview */}
           <div className="flex min-h-[340px] flex-1 items-stretch p-4">
             <div className="flex h-full min-h-[300px] w-full rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-950">
               {result ? (
                 <ChartRenderer vizType={vizType} vizConfig={vizConfig} result={result} />
               ) : (
-                <div className="flex h-full w-full items-center justify-center text-xs text-slate-400 dark:text-slate-500">
-                  Run the query to preview the visualization.
+                <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-6 text-center text-xs text-slate-400 dark:text-slate-500">
+                  <Database size={22} className="text-slate-300 dark:text-slate-600" />
+                  <span>Run the query to preview the visualization.</span>
+                  {schemaOpen && (
+                    <span className="max-w-sm text-[11px]">
+                      Choose the eye icon beside a table to build and run a starter query.
+                    </span>
+                  )}
                 </div>
               )}
             </div>

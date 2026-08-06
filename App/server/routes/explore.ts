@@ -13,7 +13,7 @@ import {
   type ChartAccessLevel,
 } from "../db/entities/EmployeeChartGrant.js";
 import { EmployeeDashboardGrant } from "../db/entities/EmployeeDashboardGrant.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateParams } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { recordAudit } from "../services/audit.js";
 import { params } from "../lib/params.js";
@@ -26,6 +26,7 @@ import {
   isExploreProvider,
   listDirectChartGrants,
   listDirectDashboardGrants,
+  loadExploreSchema,
   runSqlAgainstConnection,
   serializeCard,
   serializeChart,
@@ -57,14 +58,7 @@ export const exploreRouter = Router({ mergeParams: true });
 exploreRouter.use(requireAuth);
 exploreRouter.use(requireCompanyMember);
 
-const VIZ_ENUM = [
-  "table",
-  "scalar",
-  "bar",
-  "line",
-  "area",
-  "pie",
-] as [string, ...string[]];
+const VIZ_ENUM = ["table", "scalar", "bar", "line", "area", "pie"] as [string, ...string[]];
 
 // ---------- Connections ----------
 
@@ -85,6 +79,34 @@ exploreRouter.get("/explore/connections", async (req, res) => {
   );
 });
 
+const connectionSchemaParams = z.object({
+  cid: z.string().uuid(),
+  connectionId: z.string().uuid(),
+});
+
+exploreRouter.get(
+  "/explore/connections/:connectionId/schema",
+  validateParams(connectionSchemaParams),
+  async (req, res) => {
+    const { cid, connectionId } = params(req);
+    const connection = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
+      id: connectionId,
+      companyId: cid,
+    });
+    if (!connection) return res.status(404).json({ error: "Connection not found" });
+    if (!isExploreProvider(connection.provider)) {
+      return res.status(400).json({ error: "Connection is not a supported Explore source" });
+    }
+    try {
+      res.json(await loadExploreSchema(connection));
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  },
+);
+
 // ---------- Ad-hoc run ----------
 
 const runAdhocSchema = z.object({
@@ -93,34 +115,30 @@ const runAdhocSchema = z.object({
   maxRows: z.number().int().min(1).max(5000).optional(),
 });
 
-exploreRouter.post(
-  "/explore/run",
-  validateBody(runAdhocSchema),
-  async (req, res) => {
-    const { cid } = params(req);
-    const body = req.body as z.infer<typeof runAdhocSchema>;
-    const conn = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
-      id: body.connectionId,
-      companyId: cid,
+exploreRouter.post("/explore/run", validateBody(runAdhocSchema), async (req, res) => {
+  const { cid } = params(req);
+  const body = req.body as z.infer<typeof runAdhocSchema>;
+  const conn = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
+    id: body.connectionId,
+    companyId: cid,
+  });
+  if (!conn) return res.status(404).json({ error: "Connection not found" });
+  if (!isExploreProvider(conn.provider)) {
+    return res.status(400).json({
+      error: `Connection provider "${conn.provider}" is not a supported Explore source`,
     });
-    if (!conn) return res.status(404).json({ error: "Connection not found" });
-    if (!isExploreProvider(conn.provider)) {
-      return res.status(400).json({
-        error: `Connection provider "${conn.provider}" is not a supported Explore source`,
-      });
-    }
-    try {
-      const result = await runSqlAgainstConnection(conn, body.sql, {
-        maxRows: body.maxRows,
-      });
-      res.json(result);
-    } catch (err) {
-      res.status(400).json({
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  },
-);
+  }
+  try {
+    const result = await runSqlAgainstConnection(conn, body.sql, {
+      maxRows: body.maxRows,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
 
 // ---------- Charts: CRUD ----------
 
@@ -142,59 +160,50 @@ const createChartSchema = z.object({
   vizConfig: z.record(z.unknown()).optional(),
 });
 
-exploreRouter.post(
-  "/explore/charts",
-  validateBody(createChartSchema),
-  async (req, res) => {
-    const { cid } = params(req);
-    const body = req.body as z.infer<typeof createChartSchema>;
-    const conn = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
-      id: body.connectionId,
-      companyId: cid,
-    });
-    if (!conn) return res.status(400).json({ error: "Unknown connection" });
-    if (!isExploreProvider(conn.provider)) {
-      return res
-        .status(400)
-        .json({ error: "Connection is not a supported Explore source" });
-    }
-    const repo = AppDataSource.getRepository(Chart);
-    const slug = await uniqueChartSlug(cid, body.title);
-    const row = repo.create({
-      companyId: cid,
-      title: body.title,
-      slug,
-      description: body.description ?? "",
-      connectionId: body.connectionId,
-      sql: body.sql,
-      vizType: (body.vizType ?? "table") as Chart["vizType"],
-      vizConfig: JSON.stringify(body.vizConfig ?? {}),
-      createdById: req.userId ?? null,
-      createdByEmployeeId: null,
-    });
-    await repo.save(row);
-    const granted = await grantChartToAllEmployees(cid, row.id);
-    await recordAudit({
-      companyId: cid,
-      actorUserId: req.userId ?? null,
-      action: "chart.create",
-      targetType: "chart",
-      targetId: row.id,
-      targetLabel: row.title,
-      metadata: {
-        vizType: row.vizType,
-        connectionId: row.connectionId,
-        grantedToEmployees: granted,
-      },
-    });
-    res.status(201).json(serializeChart(row));
-  },
-);
+exploreRouter.post("/explore/charts", validateBody(createChartSchema), async (req, res) => {
+  const { cid } = params(req);
+  const body = req.body as z.infer<typeof createChartSchema>;
+  const conn = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
+    id: body.connectionId,
+    companyId: cid,
+  });
+  if (!conn) return res.status(400).json({ error: "Unknown connection" });
+  if (!isExploreProvider(conn.provider)) {
+    return res.status(400).json({ error: "Connection is not a supported Explore source" });
+  }
+  const repo = AppDataSource.getRepository(Chart);
+  const slug = await uniqueChartSlug(cid, body.title);
+  const row = repo.create({
+    companyId: cid,
+    title: body.title,
+    slug,
+    description: body.description ?? "",
+    connectionId: body.connectionId,
+    sql: body.sql,
+    vizType: (body.vizType ?? "table") as Chart["vizType"],
+    vizConfig: JSON.stringify(body.vizConfig ?? {}),
+    createdById: req.userId ?? null,
+    createdByEmployeeId: null,
+  });
+  await repo.save(row);
+  const granted = await grantChartToAllEmployees(cid, row.id);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "chart.create",
+    targetType: "chart",
+    targetId: row.id,
+    targetLabel: row.title,
+    metadata: {
+      vizType: row.vizType,
+      connectionId: row.connectionId,
+      grantedToEmployees: granted,
+    },
+  });
+  res.status(201).json(serializeChart(row));
+});
 
-async function loadChart(
-  companyId: string,
-  slug: string,
-): Promise<Chart | null> {
+async function loadChart(companyId: string, slug: string): Promise<Chart | null> {
   return AppDataSource.getRepository(Chart).findOneBy({ companyId, slug });
 }
 
@@ -214,37 +223,32 @@ const patchChartSchema = z.object({
   vizConfig: z.record(z.unknown()).optional(),
 });
 
-exploreRouter.patch(
-  "/explore/charts/:slug",
-  validateBody(patchChartSchema),
-  async (req, res) => {
-    const { cid, slug } = params(req);
-    const row = await loadChart(cid, slug);
-    if (!row) return res.status(404).json({ error: "Chart not found" });
-    const body = req.body as z.infer<typeof patchChartSchema>;
-    if (body.title !== undefined) row.title = body.title;
-    if (body.description !== undefined) row.description = body.description;
-    if (body.connectionId !== undefined) {
-      const conn = await AppDataSource.getRepository(
-        IntegrationConnection,
-      ).findOneBy({ id: body.connectionId, companyId: cid });
-      if (!conn) return res.status(400).json({ error: "Unknown connection" });
-      if (!isExploreProvider(conn.provider)) {
-        return res
-          .status(400)
-          .json({ error: "Connection is not a supported Explore source" });
-      }
-      row.connectionId = body.connectionId;
+exploreRouter.patch("/explore/charts/:slug", validateBody(patchChartSchema), async (req, res) => {
+  const { cid, slug } = params(req);
+  const row = await loadChart(cid, slug);
+  if (!row) return res.status(404).json({ error: "Chart not found" });
+  const body = req.body as z.infer<typeof patchChartSchema>;
+  if (body.title !== undefined) row.title = body.title;
+  if (body.description !== undefined) row.description = body.description;
+  if (body.connectionId !== undefined) {
+    const conn = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
+      id: body.connectionId,
+      companyId: cid,
+    });
+    if (!conn) return res.status(400).json({ error: "Unknown connection" });
+    if (!isExploreProvider(conn.provider)) {
+      return res.status(400).json({ error: "Connection is not a supported Explore source" });
     }
-    if (body.sql !== undefined) row.sql = body.sql;
-    if (body.vizType !== undefined) row.vizType = body.vizType as Chart["vizType"];
-    if (body.vizConfig !== undefined) {
-      row.vizConfig = JSON.stringify(body.vizConfig);
-    }
-    await AppDataSource.getRepository(Chart).save(row);
-    res.json(serializeChart(row));
-  },
-);
+    row.connectionId = body.connectionId;
+  }
+  if (body.sql !== undefined) row.sql = body.sql;
+  if (body.vizType !== undefined) row.vizType = body.vizType as Chart["vizType"];
+  if (body.vizConfig !== undefined) {
+    row.vizConfig = JSON.stringify(body.vizConfig);
+  }
+  await AppDataSource.getRepository(Chart).save(row);
+  res.json(serializeChart(row));
+});
 
 exploreRouter.delete("/explore/charts/:slug", async (req, res) => {
   const { cid, slug } = params(req);
@@ -274,37 +278,32 @@ const runChartSchema = z
   })
   .optional();
 
-exploreRouter.post(
-  "/explore/charts/:slug/run",
-  async (req, res) => {
-    const { cid, slug } = params(req);
-    const row = await loadChart(cid, slug);
-    if (!row) return res.status(404).json({ error: "Chart not found" });
-    const parsed = runChartSchema.safeParse(req.body ?? {});
-    if (!parsed.success) {
-      return res.status(400).json({ error: "ValidationError" });
-    }
-    const conn = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
-      id: row.connectionId,
-      companyId: cid,
+exploreRouter.post("/explore/charts/:slug/run", async (req, res) => {
+  const { cid, slug } = params(req);
+  const row = await loadChart(cid, slug);
+  if (!row) return res.status(404).json({ error: "Chart not found" });
+  const parsed = runChartSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "ValidationError" });
+  }
+  const conn = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
+    id: row.connectionId,
+    companyId: cid,
+  });
+  if (!conn) {
+    return res.status(400).json({ error: "Chart's connection no longer exists" });
+  }
+  try {
+    const result = await runSqlAgainstConnection(conn, row.sql, {
+      maxRows: parsed.data?.maxRows,
     });
-    if (!conn) {
-      return res
-        .status(400)
-        .json({ error: "Chart's connection no longer exists" });
-    }
-    try {
-      const result = await runSqlAgainstConnection(conn, row.sql, {
-        maxRows: parsed.data?.maxRows,
-      });
-      res.json(result);
-    } catch (err) {
-      res.status(400).json({
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  },
-);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
 
 // ---------- Dashboards: CRUD ----------
 
@@ -340,41 +339,34 @@ const createDashboardSchema = z.object({
   description: z.string().max(2000).optional(),
 });
 
-exploreRouter.post(
-  "/explore/dashboards",
-  validateBody(createDashboardSchema),
-  async (req, res) => {
-    const { cid } = params(req);
-    const body = req.body as z.infer<typeof createDashboardSchema>;
-    const repo = AppDataSource.getRepository(Dashboard);
-    const slug = await uniqueDashboardSlug(cid, body.title);
-    const row = repo.create({
-      companyId: cid,
-      title: body.title,
-      slug,
-      description: body.description ?? "",
-      createdById: req.userId ?? null,
-      createdByEmployeeId: null,
-    });
-    await repo.save(row);
-    const granted = await grantDashboardToAllEmployees(cid, row.id);
-    await recordAudit({
-      companyId: cid,
-      actorUserId: req.userId ?? null,
-      action: "dashboard.create",
-      targetType: "dashboard",
-      targetId: row.id,
-      targetLabel: row.title,
-      metadata: { grantedToEmployees: granted },
-    });
-    res.status(201).json(serializeDashboard(row));
-  },
-);
+exploreRouter.post("/explore/dashboards", validateBody(createDashboardSchema), async (req, res) => {
+  const { cid } = params(req);
+  const body = req.body as z.infer<typeof createDashboardSchema>;
+  const repo = AppDataSource.getRepository(Dashboard);
+  const slug = await uniqueDashboardSlug(cid, body.title);
+  const row = repo.create({
+    companyId: cid,
+    title: body.title,
+    slug,
+    description: body.description ?? "",
+    createdById: req.userId ?? null,
+    createdByEmployeeId: null,
+  });
+  await repo.save(row);
+  const granted = await grantDashboardToAllEmployees(cid, row.id);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "dashboard.create",
+    targetType: "dashboard",
+    targetId: row.id,
+    targetLabel: row.title,
+    metadata: { grantedToEmployees: granted },
+  });
+  res.status(201).json(serializeDashboard(row));
+});
 
-async function loadDashboard(
-  companyId: string,
-  slug: string,
-): Promise<Dashboard | null> {
+async function loadDashboard(companyId: string, slug: string): Promise<Dashboard | null> {
   return AppDataSource.getRepository(Dashboard).findOneBy({ companyId, slug });
 }
 
@@ -462,6 +454,13 @@ exploreRouter.post(
       companyId: cid,
     });
     if (!chart) return res.status(400).json({ error: "Unknown chart" });
+    const duplicate = await AppDataSource.getRepository(DashboardCard).findOneBy({
+      dashboardId: dashboard.id,
+      chartId: chart.id,
+    });
+    if (duplicate) {
+      return res.status(409).json({ error: "Chart is already on this dashboard" });
+    }
 
     // Default placement: append to the bottom of the grid so a freshly
     // added card doesn't overlap an existing one. New row is `maxY + maxH`.
@@ -519,19 +518,16 @@ exploreRouter.patch(
   },
 );
 
-exploreRouter.delete(
-  "/explore/dashboards/:slug/cards/:cardId",
-  async (req, res) => {
-    const { cid, slug, cardId } = params(req);
-    const dashboard = await loadDashboard(cid, slug);
-    if (!dashboard) return res.status(404).json({ error: "Dashboard not found" });
-    const repo = AppDataSource.getRepository(DashboardCard);
-    const card = await repo.findOneBy({ id: cardId, dashboardId: dashboard.id });
-    if (!card) return res.status(404).json({ error: "Card not found" });
-    await repo.delete({ id: card.id });
-    res.json({ ok: true });
-  },
-);
+exploreRouter.delete("/explore/dashboards/:slug/cards/:cardId", async (req, res) => {
+  const { cid, slug, cardId } = params(req);
+  const dashboard = await loadDashboard(cid, slug);
+  if (!dashboard) return res.status(404).json({ error: "Dashboard not found" });
+  const repo = AppDataSource.getRepository(DashboardCard);
+  const card = await repo.findOneBy({ id: cardId, dashboardId: dashboard.id });
+  if (!card) return res.status(404).json({ error: "Card not found" });
+  await repo.delete({ id: card.id });
+  res.json({ ok: true });
+});
 
 // ---------- Grants ----------
 //
@@ -693,19 +689,16 @@ exploreRouter.patch(
   },
 );
 
-exploreRouter.delete(
-  "/explore/charts/:slug/grants/:grantId",
-  async (req, res) => {
-    const { cid, slug, grantId } = params(req);
-    const row = await loadChart(cid, slug);
-    if (!row) return res.status(404).json({ error: "Chart not found" });
-    const repo = AppDataSource.getRepository(EmployeeChartGrant);
-    const grant = await repo.findOneBy({ id: grantId, chartId: row.id });
-    if (!grant) return res.status(404).json({ error: "Grant not found" });
-    await repo.delete({ id: grant.id });
-    res.json({ ok: true });
-  },
-);
+exploreRouter.delete("/explore/charts/:slug/grants/:grantId", async (req, res) => {
+  const { cid, slug, grantId } = params(req);
+  const row = await loadChart(cid, slug);
+  if (!row) return res.status(404).json({ error: "Chart not found" });
+  const repo = AppDataSource.getRepository(EmployeeChartGrant);
+  const grant = await repo.findOneBy({ id: grantId, chartId: row.id });
+  if (!grant) return res.status(404).json({ error: "Grant not found" });
+  await repo.delete({ id: grant.id });
+  res.json({ ok: true });
+});
 
 // Dashboard grants
 
@@ -717,32 +710,29 @@ exploreRouter.get("/explore/dashboards/:slug/grants", async (req, res) => {
   res.json({ direct: await hydrateDashboardGrants(cid, direct) });
 });
 
-exploreRouter.get(
-  "/explore/dashboards/:slug/grant-candidates",
-  async (req, res) => {
-    const { cid, slug } = params(req);
-    const row = await loadDashboard(cid, slug);
-    if (!row) return res.status(404).json({ error: "Dashboard not found" });
-    const [emps, direct] = await Promise.all([
-      AppDataSource.getRepository(AIEmployee).find({
-        where: { companyId: cid },
-        order: { createdAt: "ASC" },
-      }),
-      listDirectDashboardGrants(row.id),
-    ]);
-    const grantedSet = new Set(direct.map((g) => g.employeeId));
-    res.json(
-      emps.map((e) => ({
-        id: e.id,
-        name: e.name,
-        slug: e.slug,
-        role: e.role,
-        avatarKey: e.avatarKey ?? null,
-        alreadyGranted: grantedSet.has(e.id),
-      })),
-    );
-  },
-);
+exploreRouter.get("/explore/dashboards/:slug/grant-candidates", async (req, res) => {
+  const { cid, slug } = params(req);
+  const row = await loadDashboard(cid, slug);
+  if (!row) return res.status(404).json({ error: "Dashboard not found" });
+  const [emps, direct] = await Promise.all([
+    AppDataSource.getRepository(AIEmployee).find({
+      where: { companyId: cid },
+      order: { createdAt: "ASC" },
+    }),
+    listDirectDashboardGrants(row.id),
+  ]);
+  const grantedSet = new Set(direct.map((g) => g.employeeId));
+  res.json(
+    emps.map((e) => ({
+      id: e.id,
+      name: e.name,
+      slug: e.slug,
+      role: e.role,
+      avatarKey: e.avatarKey ?? null,
+      alreadyGranted: grantedSet.has(e.id),
+    })),
+  );
+});
 
 exploreRouter.post(
   "/explore/dashboards/:slug/grants",
@@ -785,19 +775,16 @@ exploreRouter.patch(
   },
 );
 
-exploreRouter.delete(
-  "/explore/dashboards/:slug/grants/:grantId",
-  async (req, res) => {
-    const { cid, slug, grantId } = params(req);
-    const row = await loadDashboard(cid, slug);
-    if (!row) return res.status(404).json({ error: "Dashboard not found" });
-    const repo = AppDataSource.getRepository(EmployeeDashboardGrant);
-    const grant = await repo.findOneBy({ id: grantId, dashboardId: row.id });
-    if (!grant) return res.status(404).json({ error: "Grant not found" });
-    await repo.delete({ id: grant.id });
-    res.json({ ok: true });
-  },
-);
+exploreRouter.delete("/explore/dashboards/:slug/grants/:grantId", async (req, res) => {
+  const { cid, slug, grantId } = params(req);
+  const row = await loadDashboard(cid, slug);
+  if (!row) return res.status(404).json({ error: "Dashboard not found" });
+  const repo = AppDataSource.getRepository(EmployeeDashboardGrant);
+  const grant = await repo.findOneBy({ id: grantId, dashboardId: row.id });
+  if (!grant) return res.status(404).json({ error: "Grant not found" });
+  await repo.delete({ id: grant.id });
+  res.json({ ok: true });
+});
 
 // ---------- Catalog metadata for the UI ----------
 
@@ -809,4 +796,3 @@ exploreRouter.get("/explore/meta", (_req, res) => {
     statementTimeoutMs: 30_000,
   });
 });
-

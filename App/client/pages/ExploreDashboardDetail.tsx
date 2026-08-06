@@ -1,6 +1,10 @@
 import React from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
   Check,
   ChevronLeft,
   Pencil,
@@ -27,6 +31,7 @@ import {
 import { useExplore } from "./ExploreLayout";
 import { AsyncResourceTagPicker } from "../components/TagPicker";
 import { useLiveRefetch } from "../components/CompanySocket";
+import { ExploreDashboardDetailsModal } from "../components/explore/ExploreDashboardDetailsModal";
 
 /**
  * Dashboard detail. Renders the saved cards in a 12-column CSS grid and
@@ -85,6 +90,8 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
   const [editing, setEditing] = React.useState(false);
   const [picking, setPicking] = React.useState(false);
   const [sharing, setSharing] = React.useState(false);
+  const [editingDetails, setEditingDetails] = React.useState(false);
+  const [savingDetails, setSavingDetails] = React.useState(false);
   const [runs, setRuns] = React.useState<Record<string, RunState>>({});
 
   const reload = React.useCallback(async () => {
@@ -171,33 +178,27 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
     }
   }
 
-  async function renameDashboard() {
+  async function saveDashboardDetails(details: { title: string; description: string }) {
     if (!data) return;
-    const title = await dialog.prompt({
-      title: "Rename dashboard",
-      defaultValue: data.title,
-      confirmLabel: "Rename",
-    });
-    if (!title || title === data.title) return;
+    setSavingDetails(true);
     try {
-      await api.patch(
-        `/api/companies/${company.id}/explore/dashboards/${data.slug}`,
-        { title },
-      );
+      await api.patch(`/api/companies/${company.id}/explore/dashboards/${data.slug}`, details);
+      setEditingDetails(false);
       await reload();
       await reloadIndex();
     } catch (err) {
       toast((err as Error).message, "error");
+    } finally {
+      setSavingDetails(false);
     }
   }
 
   async function addCard(chartId: string) {
     if (!data) return;
     try {
-      await api.post(
-        `/api/companies/${company.id}/explore/dashboards/${data.slug}/cards`,
-        { chartId },
-      );
+      await api.post(`/api/companies/${company.id}/explore/dashboards/${data.slug}/cards`, {
+        chartId,
+      });
       setPicking(false);
       await reload();
     } catch (err) {
@@ -219,24 +220,24 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
 
   async function patchCard(card: CardDTO, patch: Partial<CardDTO>) {
     if (!data) return;
+    setData((current) =>
+      current
+        ? {
+            ...current,
+            cards: current.cards.map((candidate) =>
+              candidate.id === card.id ? { ...candidate, ...patch } : candidate,
+            ),
+          }
+        : current,
+    );
     try {
       await api.patch(
         `/api/companies/${company.id}/explore/dashboards/${data.slug}/cards/${card.id}`,
         patch,
       );
-      // Optimistic — update local state immediately, then refetch to settle.
-      setData((d) =>
-        d
-          ? {
-              ...d,
-              cards: d.cards.map((c) =>
-                c.id === card.id ? { ...c, ...patch } : c,
-              ),
-            }
-          : d,
-      );
     } catch (err) {
       toast((err as Error).message, "error");
+      await reload();
     }
   }
 
@@ -252,24 +253,35 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-slate-50 dark:bg-slate-900">
-      <header className="flex items-center gap-3 border-b border-slate-200 bg-white px-6 py-3 dark:border-slate-700 dark:bg-slate-950">
+      <header className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-3 sm:px-6 dark:border-slate-700 dark:bg-slate-950">
         <Link
           to={`/c/${company.slug}/explore`}
           className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
         >
           <ChevronLeft size={16} />
         </Link>
-        <button
-          onClick={renameDashboard}
-          className="min-w-0 flex-1 truncate text-left text-base font-semibold text-slate-900 hover:text-indigo-600 dark:text-slate-100 dark:hover:text-indigo-300"
-          title="Rename"
+        <div className="min-w-[180px] flex-1">
+          <button
+            onClick={() => setEditingDetails(true)}
+            className="block max-w-full truncate text-left text-base font-semibold text-slate-900 hover:text-indigo-600 dark:text-slate-100 dark:hover:text-indigo-300"
+            title="Rename dashboard"
+          >
+            {data.title}
+          </button>
+          {data.description && (
+            <p className="mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400">
+              {data.description}
+            </p>
+          )}
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            // Re-run every card; clears stale state and refetches.
+            for (const c of data.charts) void runChart(c.slug);
+          }}
         >
-          {data.title}
-        </button>
-        <Button variant="ghost" size="sm" onClick={() => {
-          // Re-run every card; clears stale state and refetches.
-          for (const c of data.charts) void runChart(c.slug);
-        }}>
           <RefreshCw size={14} /> Refresh
         </Button>
         <Button variant="secondary" size="sm" onClick={() => setSharing(true)}>
@@ -322,12 +334,7 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
             }
           />
         ) : (
-          <div
-            className="grid auto-rows-[64px] gap-4"
-            style={{
-              gridTemplateColumns: "repeat(12, minmax(0, 1fr))",
-            }}
-          >
+          <div className="explore-dashboard-grid">
             {data.cards.map((card) => {
               const chart = chartById.get(card.chartId);
               if (!chart) return null;
@@ -336,33 +343,49 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
               return (
                 <div
                   key={card.id}
-                  className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-950"
-                  style={{
-                    gridColumn: `${card.x + 1} / span ${card.w}`,
-                    gridRow: `${card.y + 1} / span ${card.h}`,
-                  }}
+                  className="explore-dashboard-card flex flex-col rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-950"
+                  style={
+                    {
+                      "--explore-card-column": `${card.x + 1} / span ${card.w}`,
+                      "--explore-card-row": `${card.y + 1} / span ${card.h}`,
+                    } as React.CSSProperties
+                  }
                 >
-                  <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 dark:border-slate-800">
-                    <Link
-                      to={`/c/${company.slug}/explore/charts/${chart.slug}`}
-                      className="min-w-0 flex-1 truncate text-xs font-medium text-slate-700 hover:text-indigo-600 dark:text-slate-200 dark:hover:text-indigo-300"
-                      title={chart.title}
-                    >
-                      {label}
-                    </Link>
+                  <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-3 py-2 dark:border-slate-800">
                     {editing ? (
-                      <CardEditControls card={card} onChange={(p) => patchCard(card, p)} onDelete={() => deleteCard(card)} />
+                      <>
+                        <CardTitleEditor
+                          card={card}
+                          chartTitle={chart.title}
+                          onChange={(titleOverride) => patchCard(card, { titleOverride })}
+                        />
+                        <CardEditControls
+                          card={card}
+                          onChange={(patch) => patchCard(card, patch)}
+                          onDelete={() => deleteCard(card)}
+                        />
+                      </>
                     ) : (
-                      <button
-                        onClick={() => runChart(chart.slug)}
-                        className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-                        title="Refresh"
-                      >
-                        <RefreshCw size={12} />
-                      </button>
+                      <>
+                        <Link
+                          to={`/c/${company.slug}/explore/charts/${chart.slug}`}
+                          className="min-w-0 flex-1 truncate text-xs font-medium text-slate-700 hover:text-indigo-600 dark:text-slate-200 dark:hover:text-indigo-300"
+                          title={chart.title}
+                        >
+                          {label}
+                        </Link>
+                        <button
+                          onClick={() => runChart(chart.slug)}
+                          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                          title="Refresh chart"
+                          aria-label={`Refresh ${label}`}
+                        >
+                          <RefreshCw size={12} />
+                        </button>
+                      </>
                     )}
                   </div>
-                  <div className="relative h-[calc(100%-37px)]">
+                  <div className="relative min-h-0 flex-1">
                     {run.kind === "running" && (
                       <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/60 dark:bg-slate-950/60">
                         <Spinner size={16} />
@@ -398,6 +421,7 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
       {picking && (
         <ChartPicker
           companyId={company.id}
+          companySlug={company.slug}
           alreadyOn={new Set(data.cards.map((c) => c.chartId))}
           onClose={() => setPicking(false)}
           onPick={(chartId) => addCard(chartId)}
@@ -411,6 +435,15 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
         kind="dashboard"
         slug={data.slug}
         rowTitle={data.title}
+      />
+      <ExploreDashboardDetailsModal
+        open={editingDetails}
+        title={data.title}
+        description={data.description}
+        submitLabel="Save details"
+        saving={savingDetails}
+        onClose={() => setEditingDetails(false)}
+        onSubmit={(details) => void saveDashboardDetails(details)}
       />
     </div>
   );
@@ -426,26 +459,72 @@ function CardEditControls({
   onDelete: () => void;
 }) {
   return (
-    <div className="flex items-center gap-1">
+    <div className="ml-auto flex shrink-0 items-center gap-0.5">
+      <button
+        onClick={() => onChange({ x: card.x - 1 })}
+        disabled={card.x <= 0}
+        className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+        title="Move left"
+        aria-label="Move card left"
+      >
+        <ArrowLeft size={11} />
+      </button>
+      <button
+        onClick={() => onChange({ x: card.x + 1 })}
+        disabled={card.x + card.w >= 12}
+        className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+        title="Move right"
+        aria-label="Move card right"
+      >
+        <ArrowRight size={11} />
+      </button>
+      <button
+        onClick={() => onChange({ y: card.y - 1 })}
+        disabled={card.y <= 0}
+        className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+        title="Move up"
+        aria-label="Move card up"
+      >
+        <ArrowUp size={11} />
+      </button>
+      <button
+        onClick={() => onChange({ y: card.y + 1 })}
+        className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+        title="Move down"
+        aria-label="Move card down"
+      >
+        <ArrowDown size={11} />
+      </button>
       <select
         value={card.w}
-        onChange={(e) => onChange({ w: Number(e.target.value) })}
+        onChange={(e) => {
+          const width = Number(e.target.value);
+          onChange({ w: width, x: Math.min(card.x, 12 - width) });
+        }}
         className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] dark:border-slate-700 dark:bg-slate-900"
-        title="Width (cols)"
+        title="Card width"
+        aria-label="Card width"
       >
-        {[3, 4, 6, 8, 9, 12].map((n) => (
-          <option key={n} value={n}>w{n}</option>
-        ))}
+        <option value={3}>Narrow</option>
+        <option value={4}>Small</option>
+        <option value={6}>Half</option>
+        <option value={8}>Wide</option>
+        <option value={9}>Large</option>
+        <option value={12}>Full</option>
       </select>
       <select
         value={card.h}
         onChange={(e) => onChange({ h: Number(e.target.value) })}
         className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] dark:border-slate-700 dark:bg-slate-900"
-        title="Height (rows)"
+        title="Card height"
+        aria-label="Card height"
       >
-        {[2, 3, 4, 5, 6, 8].map((n) => (
-          <option key={n} value={n}>h{n}</option>
-        ))}
+        <option value={2}>Short</option>
+        <option value={3}>Compact</option>
+        <option value={4}>Medium</option>
+        <option value={5}>Roomy</option>
+        <option value={6}>Tall</option>
+        <option value={8}>Extra tall</option>
       </select>
       <button
         onClick={onDelete}
@@ -458,13 +537,55 @@ function CardEditControls({
   );
 }
 
+function CardTitleEditor({
+  card,
+  chartTitle,
+  onChange,
+}: {
+  card: CardDTO;
+  chartTitle: string;
+  onChange: (titleOverride: string) => void;
+}) {
+  const [value, setValue] = React.useState(card.titleOverride);
+
+  React.useEffect(() => {
+    setValue(card.titleOverride);
+  }, [card.titleOverride]);
+
+  function commit() {
+    const next = value.trim();
+    if (next !== card.titleOverride) onChange(next);
+  }
+
+  return (
+    <input
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commit();
+          event.currentTarget.blur();
+        }
+      }}
+      placeholder={chartTitle}
+      aria-label="Dashboard card title"
+      title="Override this card title"
+      className="min-w-32 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-xs font-medium text-slate-700 placeholder:text-slate-400 hover:border-slate-200 focus:border-indigo-400 focus:outline-none dark:text-slate-200 dark:hover:border-slate-700"
+    />
+  );
+}
+
 function ChartPicker({
   companyId,
+  companySlug,
   alreadyOn,
   onClose,
   onPick,
 }: {
   companyId: string;
+  companySlug: string;
   alreadyOn: Set<string>;
   onClose: () => void;
   onPick: (chartId: string) => void;
@@ -499,8 +620,13 @@ function ChartPicker({
               <Spinner />
             </div>
           ) : filtered.length === 0 ? (
-            <div className="px-3 py-6 text-center text-xs text-slate-500 dark:text-slate-400">
-              No charts. Create one first from Explore.
+            <div className="flex flex-col items-center gap-3 px-3 py-6 text-center text-xs text-slate-500 dark:text-slate-400">
+              <span>{q ? "No charts match that search." : "No charts yet."}</span>
+              {!q && (
+                <Link to={`/c/${companySlug}/explore/charts/new`} onClick={onClose}>
+                  <Button size="sm">Create a chart</Button>
+                </Link>
+              )}
             </div>
           ) : (
             <ul className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -509,20 +635,21 @@ function ChartPicker({
                 return (
                   <li key={c.id}>
                     <button
-                      onClick={() => onPick(c.id)}
-                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+                      onClick={() => {
+                        if (!isOn) onPick(c.id);
+                      }}
+                      disabled={isOn}
+                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:opacity-60 dark:hover:bg-slate-800 dark:disabled:bg-slate-900"
                     >
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-slate-900 dark:text-slate-100">
-                          {c.title}
-                        </div>
+                        <div className="truncate text-slate-900 dark:text-slate-100">{c.title}</div>
                         <div className="text-[11px] text-slate-500 dark:text-slate-400">
                           {c.vizType}
                         </div>
                       </div>
                       {isOn && (
                         <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                          already on board
+                          already added
                         </span>
                       )}
                     </button>

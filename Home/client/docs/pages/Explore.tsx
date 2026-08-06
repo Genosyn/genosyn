@@ -46,6 +46,11 @@ export function Explore() {
           through the same executor with a 30s wall-clock timeout and a 5,000-row cap.
         </LI>
         <LI>
+          <Strong>Data browser</Strong> — the Chart editor reads the tables, views, columns, and
+          data types visible to the selected Connection. Search it, expand a table, insert a quoted
+          column name, or preview a table without writing the starter query yourself.
+        </LI>
+        <LI>
           <Strong>Grants</Strong> — give AI Employees <Code>read</Code> or <Code>write</Code> access
           to a specific Chart or Dashboard so they can author and run analytics alongside humans.
         </LI>
@@ -72,16 +77,25 @@ export function Explore() {
         </LI>
         <LI>Pick the Connection that holds the data.</LI>
         <LI>
-          Write SQL in the editor. <Code>Run</Code> previews the result table. Errors come back
+          Use the <Code>Data</Code> browser to search the Connection&apos;s visible tables and
+          columns. Expand a table to inspect its data types. Click a column to insert its safely
+          quoted name at the SQL cursor, or click the eye beside a table to build and immediately
+          run a <Code>SELECT * … LIMIT 100</Code> preview.
+        </LI>
+        <LI>
+          Write or refine the SQL, then click <Code>Run</Code>. <Code>Cmd/Ctrl + Enter</Code> runs
+          from the editor; <Code>Cmd/Ctrl + S</Code> saves. Query errors and the elapsed time stay
           inline so you can iterate without leaving the page.
         </LI>
         <LI>
-          Pick a visualization. The picker shows a live preview of every viz type against your
-          current result set — switch between them in one click until the shape fits.
+          After a successful Run, Explore may suggest a Number, Line, or Bar visualization from the
+          result shape. Accept it in one click or choose any visualization yourself; nothing changes
+          automatically behind your back.
         </LI>
         <LI>
-          Configure the viz in the side panel (dimension column, measure column(s), bar orientation
-          + stacking, pie slice column …). <Code>Save</Code>.
+          Configure the visualization (dimension column, measure column(s), stacking, prefix or
+          suffix), then <Code>Save</Code>. Explore warns before a link takes you away from unsaved
+          edits.
         </LI>
       </OL>
 
@@ -118,20 +132,23 @@ export function Explore() {
       <H2 id="dashboards">Building a Dashboard</H2>
       <OL>
         <LI>
-          From <Code>Explore</Code>, click <Code>New dashboard</Code>. Title + description, save.
+          From <Code>Explore</Code>, click <Code>New dashboard</Code>. Add a title and an optional
+          description, then create it.
         </LI>
         <LI>
-          Open the dashboard in <Code>Edit</Code> mode. Drag any Chart from the side panel onto the
-          grid — drop it where you want it. Resize by dragging the bottom-right corner.
+          Click <Code>Add chart</Code> and choose a saved Chart. Charts already on the Dashboard are
+          marked and cannot be added twice. If none exists yet, jump straight to the Chart editor
+          from the picker.
         </LI>
         <LI>
-          Each <Code>DashboardCard</Code> can override the Chart&apos;s title for the context
-          it&apos;s pinned in (you might call the same Chart &quot;MRR&quot; on the finance
-          dashboard and &quot;Revenue (MTD)&quot; on the home dashboard).
+          In <Code>Edit</Code> mode, use the arrow controls to move a card and the named size menus
+          to resize it. Edit the title in place when the Dashboard needs a shorter label than the
+          saved Chart. Cards collapse into a readable single column on smaller screens.
         </LI>
         <LI>
-          Hit <Code>Done editing</Code>. The view mode reloads each card&apos;s data — same 30s /
-          5,000-row envelope as the editor.
+          Hit <Code>Done</Code>. <Code>Refresh</Code> reloads every card, while the refresh button
+          on an individual card reloads just that Chart — both use the same 30s / 5,000-row envelope
+          as the editor.
         </LI>
       </OL>
 

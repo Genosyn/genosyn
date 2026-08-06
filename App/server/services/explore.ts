@@ -50,6 +50,26 @@ export type QueryResult = {
   elapsedMs: number;
 };
 
+export type ExploreSchemaColumn = {
+  name: string;
+  dataType: string;
+  nullable: boolean;
+  position: number;
+};
+
+export type ExploreSchemaTable = {
+  schema: string;
+  name: string;
+  kind: "table" | "view";
+  columns: ExploreSchemaColumn[];
+};
+
+export type ExploreSchema = {
+  provider: ExploreProvider;
+  tables: ExploreSchemaTable[];
+  truncated: boolean;
+};
+
 export function isExploreProvider(p: string): p is ExploreProvider {
   return (EXPLORE_PROVIDERS as readonly string[]).includes(p);
 }
@@ -211,9 +231,7 @@ async function runClickhouse(
     let rowsRaw: ClickhouseJsonRow[] = [];
     let meta: ClickhouseJsonField[] | undefined;
     try {
-      const j = (await result.json()) as
-        | ClickhouseJsonRow[]
-        | ClickhouseJsonResponse;
+      const j = (await result.json()) as ClickhouseJsonRow[] | ClickhouseJsonResponse;
       if (Array.isArray(j)) {
         rowsRaw = j;
       } else if (j && typeof j === "object") {
@@ -254,9 +272,7 @@ export async function runSqlAgainstConnection(
   opts: { maxRows?: number } = {},
 ): Promise<QueryResult> {
   if (!isExploreProvider(connection.provider)) {
-    throw new Error(
-      `Connection provider "${connection.provider}" is not supported by Explore`,
-    );
+    throw new Error(`Connection provider "${connection.provider}" is not supported by Explore`);
   }
   const trimmed = sql.trim();
   if (!trimmed) throw new Error("SQL is required");
@@ -274,12 +290,141 @@ export async function runSqlAgainstConnection(
   }
 }
 
+// ----- Data browser -----
+
+/**
+ * One metadata statement per supported database. Aliases deliberately share
+ * the same lowercase shape so the rows can flow through one normalizer.
+ * Explore only exposes schemas visible to the Connection's database role.
+ */
+export function schemaSqlForProvider(provider: ExploreProvider): string {
+  switch (provider) {
+    case "postgres":
+      return `SELECT
+  c.table_schema AS schema_name,
+  c.table_name AS table_name,
+  t.table_type AS table_kind,
+  c.column_name AS column_name,
+  c.data_type AS data_type,
+  c.is_nullable AS is_nullable,
+  c.ordinal_position AS ordinal_position
+FROM information_schema.columns c
+JOIN information_schema.tables t
+  ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+WHERE c.table_schema NOT IN ('pg_catalog', 'pg_toast', 'information_schema')
+  AND c.table_schema NOT LIKE 'pg_temp_%'
+  AND c.table_schema NOT LIKE 'pg_toast_temp_%'
+ORDER BY c.table_schema, c.table_name, c.ordinal_position`;
+    case "mysql":
+      return `SELECT
+  c.table_schema AS schema_name,
+  c.table_name AS table_name,
+  t.table_type AS table_kind,
+  c.column_name AS column_name,
+  c.column_type AS data_type,
+  c.is_nullable AS is_nullable,
+  c.ordinal_position AS ordinal_position
+FROM information_schema.columns c
+JOIN information_schema.tables t
+  ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+WHERE c.table_schema = DATABASE()
+ORDER BY c.table_schema, c.table_name, c.ordinal_position`;
+    case "clickhouse":
+      return `SELECT
+  c.database AS schema_name,
+  c.table AS table_name,
+  t.engine AS table_kind,
+  c.name AS column_name,
+  c.type AS data_type,
+  startsWith(c.type, 'Nullable(') AS is_nullable,
+  c.position AS ordinal_position
+FROM system.columns c
+LEFT JOIN system.tables t
+  ON t.database = c.database AND t.name = c.table
+WHERE c.database = currentDatabase()
+ORDER BY c.database, c.table, c.position`;
+  }
+}
+
+function schemaText(row: Record<string, unknown>, key: string): string {
+  const value = row[key];
+  return value === null || value === undefined ? "" : String(value).trim();
+}
+
+function schemaKind(raw: string): "table" | "view" {
+  return /view/i.test(raw) ? "view" : "table";
+}
+
+function schemaNullable(raw: unknown): boolean {
+  if (raw === true || raw === 1 || raw === "1") return true;
+  return typeof raw === "string" && raw.toUpperCase() === "YES";
+}
+
+/**
+ * Turn driver-normalized metadata rows into the compact tree consumed by the
+ * editor. Malformed rows are ignored so one unusual system object cannot make
+ * the whole data browser disappear.
+ */
+export function buildExploreSchema(
+  provider: ExploreProvider,
+  rows: Record<string, unknown>[],
+  truncated = false,
+): ExploreSchema {
+  const tables = new Map<string, ExploreSchemaTable>();
+
+  for (const row of rows) {
+    const schema = schemaText(row, "schema_name");
+    const name = schemaText(row, "table_name");
+    const columnName = schemaText(row, "column_name");
+    if (!schema || !name || !columnName) continue;
+
+    const key = `${schema}\u0000${name}`;
+    let table = tables.get(key);
+    if (!table) {
+      table = {
+        schema,
+        name,
+        kind: schemaKind(schemaText(row, "table_kind")),
+        columns: [],
+      };
+      tables.set(key, table);
+    }
+
+    const rawPosition = Number(row.ordinal_position);
+    table.columns.push({
+      name: columnName,
+      dataType: schemaText(row, "data_type") || "unknown",
+      nullable: schemaNullable(row.is_nullable),
+      position:
+        Number.isFinite(rawPosition) && rawPosition > 0 ? rawPosition : table.columns.length + 1,
+    });
+  }
+
+  const ordered = [...tables.values()].sort(
+    (a, b) => a.schema.localeCompare(b.schema) || a.name.localeCompare(b.name),
+  );
+  for (const table of ordered) {
+    table.columns.sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
+  }
+
+  return { provider, tables: ordered, truncated };
+}
+
+export async function loadExploreSchema(connection: IntegrationConnection): Promise<ExploreSchema> {
+  if (!isExploreProvider(connection.provider)) {
+    throw new Error(`Connection provider "${connection.provider}" is not supported by Explore`);
+  }
+  const result = await runSqlAgainstConnection(
+    connection,
+    schemaSqlForProvider(connection.provider),
+    { maxRows: MAX_ROWS },
+  );
+  return buildExploreSchema(connection.provider, result.rows, result.truncated);
+}
+
 // ----- Slug helpers -----
 
-export async function uniqueChartSlug(
-  companyId: string,
-  base: string,
-): Promise<string> {
+export async function uniqueChartSlug(companyId: string, base: string): Promise<string> {
   const repo = AppDataSource.getRepository(Chart);
   const root = toSlug(base) || "chart";
   let candidate = root;
@@ -292,10 +437,7 @@ export async function uniqueChartSlug(
   }
 }
 
-export async function uniqueDashboardSlug(
-  companyId: string,
-  base: string,
-): Promise<string> {
+export async function uniqueDashboardSlug(companyId: string, base: string): Promise<string> {
   const repo = AppDataSource.getRepository(Dashboard);
   const root = toSlug(base) || "dashboard";
   let candidate = root;
@@ -324,14 +466,7 @@ export function parseVizConfig(raw: string): Record<string, unknown> {
   }
 }
 
-export const VIZ_TYPES: ChartVizType[] = [
-  "table",
-  "scalar",
-  "bar",
-  "line",
-  "area",
-  "pie",
-];
+export const VIZ_TYPES: ChartVizType[] = ["table", "scalar", "bar", "line", "area", "pie"];
 
 // ----- Serialization -----
 
@@ -447,9 +582,7 @@ export async function upsertChartGrant(
   return repo.save(repo.create({ employeeId, chartId, accessLevel }));
 }
 
-export async function listDirectChartGrants(
-  chartId: string,
-): Promise<EmployeeChartGrant[]> {
+export async function listDirectChartGrants(chartId: string): Promise<EmployeeChartGrant[]> {
   return AppDataSource.getRepository(EmployeeChartGrant).find({
     where: { chartId },
     order: { createdAt: "ASC" },
@@ -460,9 +593,7 @@ export async function deleteGrantsForChart(chartId: string): Promise<void> {
   await AppDataSource.getRepository(EmployeeChartGrant).delete({ chartId });
 }
 
-export async function listAccessibleChartIds(
-  employeeId: string,
-): Promise<Set<string>> {
+export async function listAccessibleChartIds(employeeId: string): Promise<Set<string>> {
   const grants = await AppDataSource.getRepository(EmployeeChartGrant).find({
     where: { employeeId },
   });
@@ -536,9 +667,7 @@ export async function deleteGrantsForDashboard(dashboardId: string): Promise<voi
   });
 }
 
-export async function listAccessibleDashboardIds(
-  employeeId: string,
-): Promise<Set<string>> {
+export async function listAccessibleDashboardIds(employeeId: string): Promise<Set<string>> {
   const grants = await AppDataSource.getRepository(EmployeeDashboardGrant).find({
     where: { employeeId },
   });

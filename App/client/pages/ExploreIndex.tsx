@@ -28,17 +28,20 @@ type ConnectionRow = {
 };
 
 export default function ExploreIndex({ company }: { company: Company }) {
-  const { charts, dashboards } = useExplore();
+  const { charts, dashboards, loading, error, createDashboard, reload } = useExplore();
   const [connections, setConnections] = React.useState<ConnectionRow[] | null>(null);
+  const [connectionsError, setConnectionsError] = React.useState<string | null>(null);
 
   const reloadConnections = React.useCallback(async () => {
     try {
+      setConnectionsError(null);
       const rows = await api.get<ConnectionRow[]>(
         `/api/companies/${company.id}/explore/connections`,
       );
       setConnections(rows);
-    } catch {
-      setConnections([]);
+    } catch (err) {
+      setConnections((current) => current ?? []);
+      setConnectionsError((err as Error).message);
     }
   }, [company.id]);
 
@@ -50,11 +53,13 @@ export default function ExploreIndex({ company }: { company: Company }) {
   // database sources list live too.
   useLiveRefetch("connection", reloadConnections);
 
-  const hasConnections = (connections?.length ?? 0) > 0;
+  const hasConnections = (connections ?? []).some(
+    (connection) => connection.status === "connected",
+  );
 
   return (
     <div className="page-shell px-8 py-10">
-      <header className="mb-8 flex items-start justify-between gap-4">
+      <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-semibold text-slate-900 dark:text-slate-100">
             <BarChart3 size={20} className="text-indigo-500" /> Explore
@@ -64,7 +69,10 @@ export default function ExploreIndex({ company }: { company: Company }) {
             chart, save it. Pin saved charts onto Dashboards anyone in the company can read.
           </p>
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <Button variant="secondary" size="sm" onClick={createDashboard}>
+            <LayoutGrid size={14} /> New dashboard
+          </Button>
           <Link
             to={
               hasConnections
@@ -79,6 +87,22 @@ export default function ExploreIndex({ company }: { company: Company }) {
           </Link>
         </div>
       </header>
+
+      {(error || connectionsError) && (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+          <span>{error ?? `Couldn't load database sources: ${connectionsError}`}</span>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              void reload();
+              void reloadConnections();
+            }}
+          >
+            Try again
+          </Button>
+        </div>
+      )}
 
       {/* Data sources */}
       <section className="mb-10">
@@ -104,7 +128,11 @@ export default function ExploreIndex({ company }: { company: Company }) {
             {connections.map((c) => (
               <Link
                 key={c.id}
-                to={`/c/${company.slug}/explore/charts/new?connectionId=${c.id}`}
+                to={
+                  c.status === "connected"
+                    ? `/c/${company.slug}/explore/charts/new?connectionId=${c.id}`
+                    : `/c/${company.slug}/explore/integrations`
+                }
                 className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-indigo-300 hover:shadow-md dark:border-slate-700 dark:bg-slate-900 dark:hover:border-indigo-500"
               >
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
@@ -141,10 +169,19 @@ export default function ExploreIndex({ company }: { company: Company }) {
         <h2 className="mb-3 flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
           <span>Recent dashboards</span>
         </h2>
-        {dashboards.length === 0 ? (
+        {loading ? (
+          <div className="flex justify-center p-6">
+            <Spinner />
+          </div>
+        ) : dashboards.length === 0 ? (
           <EmptyState
             title="No dashboards yet"
-            description="A dashboard is a grid of charts. Build a couple of charts first, then start one from the sidebar."
+            description="A dashboard is a grid of saved charts. Create one now, then add charts whenever you are ready."
+            action={
+              <Button size="sm" onClick={createDashboard}>
+                New dashboard
+              </Button>
+            }
           />
         ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -177,7 +214,11 @@ export default function ExploreIndex({ company }: { company: Company }) {
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
           Recent charts
         </h2>
-        {charts.length === 0 ? (
+        {loading ? (
+          <div className="flex justify-center p-6">
+            <Spinner />
+          </div>
+        ) : charts.length === 0 ? (
           <EmptyState
             title="No charts yet"
             description="A chart is a saved SQL query with a visualization. Start one from a data source above."

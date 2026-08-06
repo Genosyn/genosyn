@@ -5,36 +5,14 @@ import { ChartBar } from "./ChartBar";
 import { ChartLine } from "./ChartLine";
 import { ChartArea } from "./ChartArea";
 import { ChartPie } from "./ChartPie";
+import type { QueryResult, VizConfig, VizType } from "../../lib/explore";
+
+export type { QueryResult, VizConfig, VizType } from "../../lib/explore";
 
 /**
  * Visualization kinds known to the Explore renderer. Mirrors the
  * `ChartVizType` union on the server entity.
  */
-export type VizType = "table" | "scalar" | "bar" | "line" | "area" | "pie";
-
-export type QueryResult = {
-  fields: { name: string }[];
-  rows: Record<string, unknown>[];
-  rowCount: number;
-  truncated: boolean;
-  elapsedMs?: number;
-};
-
-export type VizConfig = {
-  /** Categorical or ordered axis (bar / line / area / pie). */
-  dimension?: string;
-  /** Numeric column names. Single value for pie / scalar; array for bar/line/area. */
-  measures?: string[];
-  measure?: string;
-  /** Bar-stack flag — when true, multiple measures stack instead of dodge. */
-  stacked?: boolean;
-  /** Scalar prefix/suffix (e.g. "$", "%"). */
-  prefix?: string;
-  suffix?: string;
-  /** Table column allowlist. */
-  columns?: string[];
-};
-
 /**
  * Dispatch a `vizType` to the right SVG renderer. Falls back to the table
  * view if the type is unknown or the config is incomplete — keeps a stale

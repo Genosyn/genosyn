@@ -967,7 +967,15 @@ Phase A — Foundation (this milestone)
 - [x] **React pages** at `/c/<co>/explore`: index (recent charts +
       dashboards + database sources), chart editor (SQL textarea +
       result preview + viz picker + viz config side panel), dashboard
-      view (grid render), dashboard edit (drag-grid of cards).
+      view (grid render), dashboard edit (card movement / size controls).
+- [x] **Explore usability pass.** The Chart editor has a searchable live
+      browser for visible schemas, tables, views, columns, and data types;
+      one click builds and runs a safely quoted preview query, successful
+      results offer a conservative visualization suggestion, and keyboard
+      shortcuts plus unsaved-change protection make iteration safer. Dashboard
+      creation captures useful context up front, cards are responsive, and edit
+      mode exposes title overrides, understandable sizes, movement, and
+      duplicate prevention. Shipped in 1.84.0.
 - [x] **MCP tools** — `list_charts`, `get_chart`, `run_chart`,
       `create_chart`, `update_chart`, `delete_chart`, `list_dashboards`,
       `get_dashboard`, `create_dashboard`, `add_dashboard_card`. AI
