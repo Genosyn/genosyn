@@ -1,4 +1,5 @@
 import React from "react";
+import { Select } from "@/components/ui/Select";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowDown,
@@ -495,7 +496,7 @@ function CardEditControls({
       >
         <ArrowDown size={11} />
       </button>
-      <select
+      <Select
         value={card.w}
         onChange={(e) => {
           const width = Number(e.target.value);
@@ -511,8 +512,8 @@ function CardEditControls({
         <option value={8}>Wide</option>
         <option value={9}>Large</option>
         <option value={12}>Full</option>
-      </select>
-      <select
+      </Select>
+      <Select
         value={card.h}
         onChange={(e) => onChange({ h: Number(e.target.value) })}
         className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] dark:border-slate-700 dark:bg-slate-900"
@@ -525,7 +526,7 @@ function CardEditControls({
         <option value={5}>Roomy</option>
         <option value={6}>Tall</option>
         <option value={8}>Extra tall</option>
-      </select>
+      </Select>
       <button
         onClick={onDelete}
         className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10"

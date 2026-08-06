@@ -1,4 +1,5 @@
 import React from "react";
+import { Select } from "@/components/ui/Select";
 import { Link, useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import {
   AlertCircle,
@@ -1394,7 +1395,7 @@ function Composer({
             <label className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
               <Brain size={12} aria-hidden="true" />
               <span className="sr-only">AI Model for this message</span>
-              <select
+              <Select
                 aria-label="AI Model for this message"
                 value={selectedModelId}
                 onChange={(event) => onModelChange(event.target.value)}
@@ -1406,7 +1407,7 @@ function Composer({
                     {model.isActive ? " (active)" : ""}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
           )}
         </span>

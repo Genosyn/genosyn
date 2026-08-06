@@ -1,4 +1,5 @@
 import React from "react";
+import { Select } from "@/components/ui/Select";
 import {
   CheckCircle2,
   Download,
@@ -746,7 +747,7 @@ function DestinationModal({
           <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
             Type
           </label>
-          <select
+          <Select
             className={FIELD_CLASS}
             value={kind}
             disabled={isEdit}
@@ -761,7 +762,7 @@ function DestinationModal({
             <option value="local">Mounted path (NAS / remote volume)</option>
             <option value="sftp">SFTP / SSH host</option>
             <option value="smb">SMB / CIFS share (no mount)</option>
-          </select>
+          </Select>
           {isEdit && (
             <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
               Type can&apos;t be changed after creation.
@@ -925,14 +926,14 @@ function DestinationModal({
                   <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
                     Authentication
                   </label>
-                  <select
+                  <Select
                     className={FIELD_CLASS}
                     value={authMode}
                     onChange={(e) => setAuthMode(e.target.value as SftpAuthMode)}
                   >
                     <option value="password">Password</option>
                     <option value="key">Private key</option>
-                  </select>
+                  </Select>
                 </div>
                 {authMode === "password" ? (
                   <div>
@@ -1103,7 +1104,7 @@ function ScheduleCard({
               <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
                 Frequency
               </label>
-              <select
+              <Select
                 className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900"
                 value={draft.frequency}
                 onChange={(e) =>
@@ -1117,14 +1118,14 @@ function ScheduleCard({
                 <option value="daily">Daily</option>
                 <option value="weekly">Weekly</option>
                 <option value="monthly">Monthly</option>
-              </select>
+              </Select>
             </div>
 
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
                 Hour of day
               </label>
-              <select
+              <Select
                 className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900"
                 value={draft.hour}
                 onChange={(e) =>
@@ -1137,7 +1138,7 @@ function ScheduleCard({
                     {h.toString().padStart(2, "0")}:00
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
 
             {draft.frequency === "weekly" && (
@@ -1145,7 +1146,7 @@ function ScheduleCard({
                 <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
                   Day of week
                 </label>
-                <select
+                <Select
                   className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900"
                   value={draft.dayOfWeek}
                   onChange={(e) =>
@@ -1158,7 +1159,7 @@ function ScheduleCard({
                       {d}
                     </option>
                   ))}
-                </select>
+                </Select>
               </div>
             )}
 
@@ -1167,7 +1168,7 @@ function ScheduleCard({
                 <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
                   Day of month
                 </label>
-                <select
+                <Select
                   className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900"
                   value={draft.dayOfMonth}
                   onChange={(e) =>
@@ -1183,7 +1184,7 @@ function ScheduleCard({
                       {i + 1}
                     </option>
                   ))}
-                </select>
+                </Select>
               </div>
             )}
           </div>

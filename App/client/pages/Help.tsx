@@ -1,4 +1,5 @@
 import React from "react";
+import { Select } from "@/components/ui/Select";
 import { Link } from "react-router-dom";
 import { AlertCircle, CircleHelp, Code2, MessageSquarePlus, Send, Sparkles } from "lucide-react";
 import { ContextualLayout } from "@/components/AppShell";
@@ -383,7 +384,7 @@ export default function Help({ company }: { company: Company }) {
 
             {employees && employees.length > 0 && (
               <div className="mt-3 flex gap-2 lg:hidden">
-                <select
+                <Select
                   aria-label="AI Employee"
                   value={selectedId ?? ""}
                   disabled={sending}
@@ -395,9 +396,9 @@ export default function Help({ company }: { company: Company }) {
                       {employee.name} — {employee.role}
                     </option>
                   ))}
-                </select>
+                </Select>
                 {conversations.length > 0 && (
-                  <select
+                  <Select
                     aria-label="Help conversation"
                     value={activeId ?? ""}
                     disabled={sending}
@@ -409,7 +410,7 @@ export default function Help({ company }: { company: Company }) {
                         {conversation.title ?? "New Help conversation"}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 )}
               </div>
             )}

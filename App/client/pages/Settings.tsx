@@ -1,4 +1,5 @@
 import React from "react";
+import { Select } from "@/components/ui/Select";
 import { useOutletContext } from "react-router-dom";
 import { Pencil, Trash2 } from "lucide-react";
 import { api, Company, FinanceAccess, Member, Secret } from "../lib/api";
@@ -356,7 +357,7 @@ export function SettingsMembers() {
                   </div>
                   <div className="flex items-center gap-2">
                     {canManage && m.role === "member" ? (
-                      <select
+                      <Select
                         className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-900"
                         value={m.financeAccess}
                         onChange={(event) =>
@@ -368,10 +369,10 @@ export function SettingsMembers() {
                         <option value="none">No finance</option>
                         <option value="read">Finance: read-only</option>
                         <option value="full">Finance: full</option>
-                      </select>
+                      </Select>
                     ) : null}
                     {company.role === "owner" && m.role !== "owner" && m.userId !== me.id ? (
-                      <select
+                      <Select
                         className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-900"
                         value={m.role}
                         onChange={(event) =>
@@ -381,7 +382,7 @@ export function SettingsMembers() {
                       >
                         <option value="member">Member</option>
                         <option value="admin">Admin</option>
-                      </select>
+                      </Select>
                     ) : (
                       <span className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">
                         {m.role}

@@ -1,4 +1,5 @@
 import React from "react";
+import { Select } from "@/components/ui/Select";
 import { AlertCircle, ArrowRight, CheckCircle2, Copy, Info, Trash2, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
@@ -400,7 +401,7 @@ function FlowSettings({
               <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
                 {handle === "true" ? "If true" : handle === "false" ? "If false" : "Next step"}
               </span>
-              <select
+              <Select
                 value={edge?.toNodeId ?? ""}
                 onChange={(event) => onSetConnection(node.id, handle, event.target.value || null)}
                 className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-indigo-900"
@@ -411,7 +412,7 @@ function FlowSettings({
                     {nodeDisplayName(target, catalog)}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
           );
         })}
@@ -442,7 +443,7 @@ function FieldEditor({
     return (
       <div>
         <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{label}</label>
-        <select
+        <Select
           value={current}
           onChange={(event) => onChange(event.target.value)}
           disabled={resource.loading}
@@ -457,7 +458,7 @@ function FieldEditor({
               {option.label}
             </option>
           ))}
-        </select>
+        </Select>
         {current && resource.options.find((option) => option.value === current)?.description && (
           <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
             {resource.options.find((option) => option.value === current)?.description}
@@ -540,7 +541,7 @@ function FieldEditor({
     return (
       <div>
         <label className="text-sm font-medium text-slate-700 dark:text-slate-300">{label}</label>
-        <select
+        <Select
           value={String(normalized)}
           onChange={(event) => onChange(event.target.value)}
           className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-indigo-900"
@@ -550,7 +551,7 @@ function FieldEditor({
               {option.label}
             </option>
           ))}
-        </select>
+        </Select>
         {field.hint && (
           <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{field.hint}</p>
         )}

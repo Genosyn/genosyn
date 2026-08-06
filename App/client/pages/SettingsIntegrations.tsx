@@ -1,4 +1,5 @@
 import React from "react";
+import { Select } from "@/components/ui/Select";
 import { Link, useOutletContext } from "react-router-dom";
 import {
   AlertCircle,
@@ -1783,7 +1784,7 @@ export function OauthOrServiceAccountModal({
                   <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
                     Installation <span className="ml-1 text-red-500">*</span>
                   </label>
-                  <select
+                  <Select
                     required
                     value={selectedInstallationId}
                     onChange={(e) => setSelectedInstallationId(e.target.value)}
@@ -1795,7 +1796,7 @@ export function OauthOrServiceAccountModal({
                         {i.account} ({i.targetType}) · #{i.id}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
               )
             ) : null}

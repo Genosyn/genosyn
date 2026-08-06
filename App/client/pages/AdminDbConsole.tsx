@@ -1,4 +1,5 @@
 import React from "react";
+import { Select } from "@/components/ui/Select";
 import {
   AlertTriangle,
   ChevronRight,
@@ -301,7 +302,7 @@ export function AdminDbConsole() {
 
               <label className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
                 <span className="hidden sm:inline">Limit</span>
-                <select
+                <Select
                   value={limit}
                   onChange={(e) => setLimit(Number(e.target.value))}
                   className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-indigo-900"
@@ -311,7 +312,7 @@ export function AdminDbConsole() {
                       {n.toLocaleString()} rows
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
 
               <div className="ml-auto flex items-center gap-2">

@@ -1,4 +1,5 @@
 import React from "react";
+import { Select } from "@/components/ui/Select";
 import { useOutletContext } from "react-router-dom";
 import {
   CheckCircle2,
@@ -135,7 +136,7 @@ export function HandoffsPage() {
                 <Send size={12} /> Sent
               </button>
             </div>
-            <select
+            <Select
               className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-900"
               value={statusFilter}
               onChange={(e) =>
@@ -147,7 +148,7 @@ export function HandoffsPage() {
               <option value="completed">Completed</option>
               <option value="declined">Declined</option>
               <option value="cancelled">Cancelled</option>
-            </select>
+            </Select>
           </div>
         </CardHeader>
         <CardBody>
@@ -348,7 +349,7 @@ function NewHandoffModal({
           <span className="font-medium text-slate-700 dark:text-slate-300">
             To
           </span>
-          <select
+          <Select
             className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
             value={toEmployeeId}
             onChange={(e) => setToEmployeeId(e.target.value)}
@@ -366,7 +367,7 @@ function NewHandoffModal({
                 </option>
               ))
             )}
-          </select>
+          </Select>
         </label>
         <Input
           label="Title"

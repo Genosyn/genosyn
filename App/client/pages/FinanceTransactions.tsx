@@ -1,4 +1,5 @@
 import React from "react";
+import { Select } from "@/components/ui/Select";
 import { useOutletContext, useSearchParams } from "react-router-dom";
 import {
   CheckCircle2,
@@ -847,7 +848,7 @@ function TransactionReviewModal({
                   </td>
                   <td className="px-3 py-3">
                     {editable ? (
-                      <select
+                      <Select
                         value={categories[line.id] ?? line.accountId}
                         onChange={(event) =>
                           setCategories((values) => ({
@@ -867,7 +868,7 @@ function TransactionReviewModal({
                               {account.code} {account.name}
                             </option>
                           ))}
-                      </select>
+                      </Select>
                     ) : (
                       <div>
                         <div className="text-slate-700 dark:text-slate-200">

@@ -1,4 +1,5 @@
 import React from "react";
+import { Select } from "@/components/ui/Select";
 import {
   CheckCircle2,
   Copy,
@@ -243,7 +244,7 @@ export function AdminSSO() {
                   <label className={LABEL_CLASS} htmlFor="sso-provider">
                     Provider
                   </label>
-                  <select
+                  <Select
                     id="sso-provider"
                     className={FIELD_CLASS}
                     value={draft.provider}
@@ -253,7 +254,7 @@ export function AdminSSO() {
                   >
                     <option value="google">Google</option>
                     <option value="oidc">Custom OpenID Connect</option>
-                  </select>
+                  </Select>
                   <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
                     {draft.provider === "google"
                       ? "Uses Google's fixed issuer — create the OAuth client in Google Cloud Console."

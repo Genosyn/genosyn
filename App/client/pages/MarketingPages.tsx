@@ -1,4 +1,5 @@
 import React from "react";
+import { Select } from "@/components/ui/Select";
 import { Link, useOutletContext } from "react-router-dom";
 import {
   Bot,
@@ -443,7 +444,7 @@ export function MarketingCampaignsPage() {
             </label>
             <label>
               <span className={labelClass}>Objective</span>
-              <select
+              <Select
                 className={inputClass}
                 value={draft.objective}
                 onChange={(event) =>
@@ -458,11 +459,11 @@ export function MarketingCampaignsPage() {
                     {marketingStatusLabel(value)}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
             <label>
               <span className={labelClass}>Channel</span>
-              <select
+              <Select
                 className={inputClass}
                 value={draft.channel}
                 onChange={(event) => setDraft({ ...draft, channel: event.target.value })}
@@ -472,7 +473,7 @@ export function MarketingCampaignsPage() {
                 <option value="microsoft-ads">Microsoft Advertising</option>
                 <option value="reddit-ads">Reddit Ads</option>
                 <option value="browser-managed">Browser-managed</option>
-              </select>
+              </Select>
             </label>
             <label>
               <span className={labelClass}>Daily budget</span>
@@ -517,7 +518,7 @@ export function MarketingCampaignsPage() {
             </label>
             <label>
               <span className={labelClass}>Autonomy</span>
-              <select
+              <Select
                 className={inputClass}
                 value={draft.autonomyMode}
                 onChange={(event) =>
@@ -530,11 +531,11 @@ export function MarketingCampaignsPage() {
                 <option value="observe">Observe</option>
                 <option value="optimize">Optimize</option>
                 <option value="autonomous">Autonomous</option>
-              </select>
+              </Select>
             </label>
             <label>
               <span className={labelClass}>Owning AI Employee</span>
-              <select
+              <Select
                 className={inputClass}
                 required={draft.autonomyMode === "autonomous"}
                 value={draft.ownerEmployeeId}
@@ -546,7 +547,7 @@ export function MarketingCampaignsPage() {
                     {employee.name} · {employee.role}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
             <label className="md:col-span-2">
               <span className={labelClass}>Audience</span>
@@ -790,7 +791,7 @@ export function MarketingCreativePage() {
           <div className="grid gap-4 md:grid-cols-2">
             <label>
               <span className={labelClass}>Campaign</span>
-              <select
+              <Select
                 required
                 className={inputClass}
                 value={draft.campaignId}
@@ -801,7 +802,7 @@ export function MarketingCreativePage() {
                     {campaign.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
             <label>
               <span className={labelClass}>Variant name</span>
@@ -815,7 +816,7 @@ export function MarketingCreativePage() {
             </label>
             <label>
               <span className={labelClass}>Format</span>
-              <select
+              <Select
                 className={inputClass}
                 value={draft.format}
                 onChange={(event) =>
@@ -827,7 +828,7 @@ export function MarketingCreativePage() {
                     {marketingStatusLabel(value)}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
             <label>
               <span className={labelClass}>Variant group</span>
@@ -1069,7 +1070,7 @@ export function MarketingExperimentsPage() {
           <div className="grid gap-4 md:grid-cols-2">
             <label>
               <span className={labelClass}>Campaign</span>
-              <select
+              <Select
                 className={inputClass}
                 value={draft.campaignId}
                 onChange={(event) =>
@@ -1081,7 +1082,7 @@ export function MarketingExperimentsPage() {
                     {row.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
             <label>
               <span className={labelClass}>Name</span>
@@ -1236,7 +1237,7 @@ export function MarketingExperimentsPage() {
                       <>
                         <label className="min-w-48 flex-1">
                           <span className={labelClass}>Winning Creative</span>
-                          <select
+                          <Select
                             className={inputClass}
                             value={decision.winnerCreativeId}
                             onChange={(event) =>
@@ -1254,7 +1255,7 @@ export function MarketingExperimentsPage() {
                                 {creativeById.get(id)?.name ?? id}
                               </option>
                             ))}
-                          </select>
+                          </Select>
                         </label>
                         <label className="min-w-64 flex-[2]">
                           <span className={labelClass}>Decision rationale</span>
@@ -1370,7 +1371,7 @@ export function MarketingAiAccessPage() {
                     <div className="truncate text-xs text-slate-500">{row.employee.role}</div>
                   </div>
                 </div>
-                <select
+                <Select
                   className={inputClass}
                   value={row.grant?.accessLevel ?? ""}
                   onChange={(event) => setAccess(row, event.target.value)}
@@ -1379,7 +1380,7 @@ export function MarketingAiAccessPage() {
                   <option value="read">Read</option>
                   <option value="write">Write</option>
                   <option value="operate">Operate</option>
-                </select>
+                </Select>
               </div>
             ))}
           </div>

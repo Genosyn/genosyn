@@ -1,4 +1,5 @@
 import React from "react";
+import { Select } from "@/components/ui/Select";
 import { NavLink, Outlet, useOutletContext } from "react-router-dom";
 import {
   AlertCircle,
@@ -798,7 +799,7 @@ function FieldInput({
           {field.label}
           {field.required && <span className="ml-1 text-red-500">*</span>}
         </label>
-        <select
+        <Select
           required={field.required}
           value={String(value ?? "")}
           onChange={(e) => onChange(e.target.value)}
@@ -809,7 +810,7 @@ function FieldInput({
               {o.label}
             </option>
           ))}
-        </select>
+        </Select>
         {field.hint && (
           <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
             {field.hint}

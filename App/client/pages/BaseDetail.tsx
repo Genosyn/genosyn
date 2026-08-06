@@ -1,4 +1,5 @@
 import React from "react";
+import { Select } from "@/components/ui/Select";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   Plus,
@@ -1123,7 +1124,7 @@ function AddLinkFieldModal({
             <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
               Link to table
             </label>
-            <select
+            <Select
               value={targetTableId}
               onChange={(e) => setTargetTableId(e.target.value)}
               className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
@@ -1133,7 +1134,7 @@ function AddLinkFieldModal({
                   {t.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
           <div className="mt-1 flex justify-end gap-2">
             <Button variant="secondary" size="sm" onClick={onCancel}>

@@ -145,6 +145,12 @@ export function Introduction() {
         focus styling plus a skip-to-main link.
       </P>
       <P>
+        Dropdown fields are searchable throughout Genosyn. Open one and start typing to narrow its
+        choices; use the arrow keys and <Code>↵</Code> to select. Lists populated from live company
+        data update their search results as new choices load, and grouped or multi-select fields use
+        the same search interaction.
+      </P>
+      <P>
         The palette searches your company&apos;s content too, not just the section list. Type two or
         more characters and matching AI employees, skills, routines, notebooks, notes, bases,
         channels, projects, todos, customers, charts, dashboards, repositories, and pipelines appear

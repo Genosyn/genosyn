@@ -437,7 +437,7 @@ export default function FinanceRecurringInvoiceNew() {
                 className={`${scheduleField} w-16 text-center tabular-nums`}
                 aria-label="Interval count"
               />
-              <select
+              <Select
                 value={schedule.frequency}
                 onChange={(e) =>
                   setSchedule({ ...schedule, frequency: e.target.value as Frequency })
@@ -456,12 +456,12 @@ export default function FinanceRecurringInvoiceNew() {
                     {schedule.intervalCount > 1 ? `${u.unit}s` : u.unit}
                   </option>
                 ))}
-              </select>
+              </Select>
 
               {schedule.frequency === "weekly" && (
                 <>
                   <span>on</span>
-                  <select
+                  <Select
                     value={schedule.weekday}
                     onChange={(e) =>
                       setSchedule({ ...schedule, weekday: Number(e.target.value) })
@@ -474,14 +474,14 @@ export default function FinanceRecurringInvoiceNew() {
                         {w}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </>
               )}
 
               {schedule.frequency === "yearly" && (
                 <>
                   <span>in</span>
-                  <select
+                  <Select
                     value={schedule.month}
                     onChange={(e) =>
                       setSchedule({ ...schedule, month: Number(e.target.value) })
@@ -494,7 +494,7 @@ export default function FinanceRecurringInvoiceNew() {
                         {mn}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </>
               )}
 
@@ -502,7 +502,7 @@ export default function FinanceRecurringInvoiceNew() {
                 schedule.frequency !== "daily" && (
                 <>
                   <span>on the</span>
-                  <select
+                  <Select
                     value={schedule.dayOfMonth}
                     onChange={(e) =>
                       setSchedule({ ...schedule, dayOfMonth: Number(e.target.value) })
@@ -515,7 +515,7 @@ export default function FinanceRecurringInvoiceNew() {
                         {ordinal(d)}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </>
               )}
 
@@ -624,7 +624,7 @@ export default function FinanceRecurringInvoiceNew() {
                   >
                     <tr>
                       <td className="px-2 pt-2 align-top">
-                        <select
+                        <Select
                           value={l.productId ?? ""}
                           onChange={(e) => pickProduct(i, e.target.value)}
                           className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
@@ -635,7 +635,7 @@ export default function FinanceRecurringInvoiceNew() {
                               {p.name}
                             </option>
                           ))}
-                        </select>
+                        </Select>
                       </td>
                       <td className="px-2 pt-2 align-top">
                         <input
@@ -658,7 +658,7 @@ export default function FinanceRecurringInvoiceNew() {
                         />
                       </td>
                       <td className="px-2 pt-2 align-top">
-                        <select
+                        <Select
                           value={l.taxRateId}
                           onChange={(e) =>
                             patchLine(i, { taxRateId: e.target.value })
@@ -672,7 +672,7 @@ export default function FinanceRecurringInvoiceNew() {
                               {t.inclusive ? " incl" : ""})
                             </option>
                           ))}
-                        </select>
+                        </Select>
                       </td>
                       <td className="px-2 pt-2 text-right align-top tabular-nums text-slate-700 dark:text-slate-200">
                         {formatMoney(lineTotal, currency)}

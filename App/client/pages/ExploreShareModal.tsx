@@ -1,4 +1,5 @@
 import React from "react";
+import { Select } from "@/components/ui/Select";
 import { Check, X } from "lucide-react";
 import { api } from "../lib/api";
 import { Modal } from "../components/ui/Modal";
@@ -273,7 +274,7 @@ function LevelSelect({
   onChange: (next: AccessLevel) => void;
 }) {
   return (
-    <select
+    <Select
       value={value}
       disabled={busy}
       onChange={(e) => onChange(e.target.value as AccessLevel)}
@@ -281,6 +282,6 @@ function LevelSelect({
     >
       <option value="read">View only</option>
       <option value="write">Can edit</option>
-    </select>
+    </Select>
   );
 }

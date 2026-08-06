@@ -1,4 +1,5 @@
 import React from "react";
+import { Select } from "@/components/ui/Select";
 import { useOutletContext } from "react-router-dom";
 import { BookOpen, Check, Copy, KeyRound, Trash2 } from "lucide-react";
 import { api, ApiKey, ApiKeyCreated, Company } from "../lib/api";
@@ -267,7 +268,7 @@ function CreateApiKeyModal({
           <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
             Expires
           </label>
-          <select
+          <Select
             value={expiresIn}
             onChange={(e) => setExpiresIn(e.target.value as typeof expiresIn)}
             className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900"
@@ -276,7 +277,7 @@ function CreateApiKeyModal({
             <option value="30d">In 30 days</option>
             <option value="90d">In 90 days</option>
             <option value="365d">In 1 year</option>
-          </select>
+          </Select>
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>

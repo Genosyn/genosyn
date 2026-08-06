@@ -1,4 +1,5 @@
 import React from "react";
+import { Select } from "@/components/ui/Select";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   Circle,
@@ -3039,7 +3040,7 @@ function ProjectAccessTab({
             </p>
           ) : (
             <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
-              <select
+              <Select
                 value={addPick}
                 disabled={busy}
                 onChange={(e) => setAddPick(e.target.value)}
@@ -3064,7 +3065,7 @@ function ProjectAccessTab({
                     ))}
                   </optgroup>
                 )}
-              </select>
+              </Select>
               <div className="flex items-center gap-2">
                 <LevelSelect value={addLevel} disabled={busy} onChange={setAddLevel} />
                 <Button size="sm" onClick={addMember} disabled={busy || !addPick}>
@@ -3124,7 +3125,7 @@ function LevelSelect({
   onChange: (next: ProjectAccessLevel) => void;
 }) {
   return (
-    <select
+    <Select
       value={value}
       disabled={disabled}
       onChange={(e) => onChange(e.target.value as ProjectAccessLevel)}
@@ -3132,7 +3133,7 @@ function LevelSelect({
     >
       <option value="read">View only</option>
       <option value="write">Can edit</option>
-    </select>
+    </Select>
   );
 }
 

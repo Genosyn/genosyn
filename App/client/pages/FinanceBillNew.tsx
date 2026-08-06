@@ -314,7 +314,7 @@ export default function FinanceBillNew() {
                   >
                     <tr>
                       <td className="px-2 pt-2 align-top">
-                        <select
+                        <Select
                           value={l.expenseAccountId}
                           onChange={(e) => patchLine(i, { expenseAccountId: e.target.value })}
                           className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
@@ -325,7 +325,7 @@ export default function FinanceBillNew() {
                               {a.code} {a.name}
                             </option>
                           ))}
-                        </select>
+                        </Select>
                       </td>
                       <td className="px-2 pt-2 align-top">
                         <input
@@ -344,7 +344,7 @@ export default function FinanceBillNew() {
                         />
                       </td>
                       <td className="px-2 pt-2 align-top">
-                        <select
+                        <Select
                           value={l.taxRateId}
                           onChange={(e) => patchLine(i, { taxRateId: e.target.value })}
                           className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
@@ -355,7 +355,7 @@ export default function FinanceBillNew() {
                               {t.name} ({t.ratePercent}%{t.inclusive ? " incl" : ""})
                             </option>
                           ))}
-                        </select>
+                        </Select>
                       </td>
                       <td className="px-3 pt-2 text-right align-middle text-sm tabular-nums text-slate-700 dark:text-slate-200">
                         {formatMoney(lineTotal, currency)}

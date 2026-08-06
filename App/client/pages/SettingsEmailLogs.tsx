@@ -1,4 +1,5 @@
 import React from "react";
+import { Select } from "@/components/ui/Select";
 import { useOutletContext } from "react-router-dom";
 import {
   AlertCircle,
@@ -140,7 +141,7 @@ export function SettingsEmailLogs() {
               <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
                 Status
               </label>
-              <select
+              <Select
                 value={status}
                 onChange={(e) => setStatus(e.target.value as EmailLogStatus | "")}
                 className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900"
@@ -149,13 +150,13 @@ export function SettingsEmailLogs() {
                 <option value="sent">Sent</option>
                 <option value="failed">Failed</option>
                 <option value="skipped">Skipped</option>
-              </select>
+              </Select>
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
                 Purpose
               </label>
-              <select
+              <Select
                 value={purpose}
                 onChange={(e) =>
                   setPurpose(e.target.value as EmailLogPurpose | "")
@@ -168,7 +169,7 @@ export function SettingsEmailLogs() {
                 <option value="welcome">Welcome</option>
                 <option value="test">Test</option>
                 <option value="other">Other</option>
-              </select>
+              </Select>
             </div>
             <Button
               variant="ghost"

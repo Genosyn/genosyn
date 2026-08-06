@@ -1,4 +1,5 @@
 import React from "react";
+import { Select } from "@/components/ui/Select";
 import { Link, useNavigate } from "react-router-dom";
 import { ChevronDown, Network, Pencil, Plus, Users } from "lucide-react";
 import { Button } from "../components/ui/Button";
@@ -519,7 +520,7 @@ function OrgEditMenu({
 }
 
 // "Reports to" select value encodes both kinds in a single string so we
-// can re-use one <select>. "" → no manager; "ai:<id>" → AI manager;
+// can re-use one shared Select control. "" → no manager; "ai:<id>" → AI manager;
 // "human:<userId>" → human manager.
 function initialReportsTo(emp: Employee): string {
   if (emp.reportsToUserId) return humanKey(emp.reportsToUserId);
@@ -608,7 +609,7 @@ function OrgEditForm({
         <span className="font-medium text-slate-700 dark:text-slate-300">
           Team
         </span>
-        <select
+        <Select
           className={selectClass}
           value={teamId}
           onChange={(e) => setTeamId(e.target.value)}
@@ -620,7 +621,7 @@ function OrgEditForm({
               {t.name}
             </option>
           ))}
-        </select>
+        </Select>
         {teams !== null && teams.length === 0 && (
           <span className="text-[10px] text-slate-400 dark:text-slate-500">
             No teams yet — create one in Settings → Teams.
@@ -631,7 +632,7 @@ function OrgEditForm({
         <span className="font-medium text-slate-700 dark:text-slate-300">
           Reports to
         </span>
-        <select
+        <Select
           className={selectClass}
           value={reportsTo}
           onChange={(e) => setReportsTo(e.target.value)}
@@ -655,7 +656,7 @@ function OrgEditForm({
               ))}
             </optgroup>
           )}
-        </select>
+        </Select>
       </label>
       <div className="flex justify-end pt-1">
         <Button type="submit" size="sm" disabled={!dirty || saving}>

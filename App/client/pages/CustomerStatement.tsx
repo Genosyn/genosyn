@@ -1,4 +1,5 @@
 import React from "react";
+import { Select } from "@/components/ui/Select";
 import { Link, useOutletContext, useParams } from "react-router-dom";
 import { ArrowLeft, Download, ExternalLink, Printer } from "lucide-react";
 import {
@@ -207,7 +208,7 @@ export default function CustomerStatement() {
         {statement && statement.availableCurrencies.length > 1 && (
           <div className="ml-auto flex items-center gap-2 text-sm">
             <span className="text-xs text-slate-500 dark:text-slate-400">Currency</span>
-            <select
+            <Select
               value={currency || statement.currency}
               onChange={(e) => setCurrency(e.target.value)}
               className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
@@ -217,7 +218,7 @@ export default function CustomerStatement() {
                   {c}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
         )}
       </div>

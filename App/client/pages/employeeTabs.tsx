@@ -294,7 +294,7 @@ function EmployeeOrgCard({ company, emp }: { company: Company; emp: Employee }) 
           <FormError message={error} />
           <label className="flex flex-col gap-1 text-xs">
             <span className="font-medium text-slate-700 dark:text-slate-300">Team</span>
-            <select
+            <Select
               className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
               value={teamId}
               onChange={(e) => setTeamId(e.target.value)}
@@ -306,11 +306,11 @@ function EmployeeOrgCard({ company, emp }: { company: Company; emp: Employee }) 
                   {t.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           <label className="flex flex-col gap-1 text-xs">
             <span className="font-medium text-slate-700 dark:text-slate-300">Reports to</span>
-            <select
+            <Select
               className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
               value={reportsTo}
               onChange={(e) => setReportsTo(e.target.value)}
@@ -322,7 +322,7 @@ function EmployeeOrgCard({ company, emp }: { company: Company; emp: Employee }) 
                   {p.name} ({p.role})
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           <div className="flex justify-end pt-1">
             <Button type="submit" disabled={!dirty || saving}>

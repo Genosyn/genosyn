@@ -1,4 +1,5 @@
 import React from "react";
+import { Select } from "@/components/ui/Select";
 import { Link, useOutletContext } from "react-router-dom";
 import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
 import {
@@ -546,7 +547,7 @@ function NewEntryModal({
               {lines.map((l, i) => (
                 <tr key={l.key}>
                   <td className="px-2 py-2">
-                    <select
+                    <Select
                       value={l.accountId}
                       onChange={(e) => patch(i, { accountId: e.target.value })}
                       className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
@@ -560,7 +561,7 @@ function NewEntryModal({
                             {a.code} {a.name}
                           </option>
                         ))}
-                    </select>
+                    </Select>
                   </td>
                   <td className="px-2 py-2">
                     <input
@@ -571,14 +572,14 @@ function NewEntryModal({
                     />
                   </td>
                   <td className="px-2 py-2">
-                    <select
+                    <Select
                       value={l.side}
                       onChange={(e) => patch(i, { side: e.target.value as "debit" | "credit" })}
                       className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
                     >
                       <option value="debit">Debit</option>
                       <option value="credit">Credit</option>
-                    </select>
+                    </Select>
                   </td>
                   <td className="px-2 py-2">
                     <input
