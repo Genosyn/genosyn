@@ -975,7 +975,7 @@ Phase A — Foundation (this milestone)
       shortcuts plus unsaved-change protection make iteration safer. Dashboard
       creation captures useful context up front, cards are responsive, and edit
       mode exposes title overrides, understandable sizes, movement, and
-      duplicate prevention. Shipped in 1.84.0.
+      duplicate prevention. Shipped in 1.85.0.
 - [x] **MCP tools** — `list_charts`, `get_chart`, `run_chart`,
       `create_chart`, `update_chart`, `delete_chart`, `list_dashboards`,
       `get_dashboard`, `create_dashboard`, `add_dashboard_card`. AI
