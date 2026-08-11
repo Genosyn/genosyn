@@ -9,8 +9,13 @@ import {
   loadEmployeeConnections,
 } from "./integrations.js";
 import { readGithubRepos, resolveGithubCredentials } from "../integrations/providers/github.js";
-import { configureEnvCredentialHelper, inlineEnvCredentialHelper } from "./gitCredentialHelper.js";
+import {
+  assertSafeCredentialToken,
+  configureEnvCredentialHelper,
+  inlineEnvCredentialHelper,
+} from "./gitCredentialHelper.js";
 import { runWorkspaceGit } from "./workspaceGit.js";
+import { cloneWorkspaceGitRemote, fetchWorkspaceGitRemote } from "./workspaceGitRemote.js";
 
 /**
  * Repo sync seam — materializes git checkouts of every allowlisted repo on
@@ -155,6 +160,7 @@ async function syncConnection(
     });
     return;
   }
+  assertSafeCredentialToken(creds.accessToken);
 
   // Persist refreshed OAuth config (token rotation) before we hand the
   // refreshed token to git.
@@ -235,14 +241,14 @@ async function syncOneRepo(args: {
   const cleanRemote = `https://github.com/${args.owner}/${args.name}.git`;
   const isCheckout = fs.existsSync(path.join(args.repoPath, ".git"));
   const credentialEnv = { [args.envKey]: args.token };
-  const credentialHelper = inlineEnvCredentialHelper("x-access-token", args.envKey);
+  const credentialHelper = inlineEnvCredentialHelper("x-access-token", args.envKey, cleanRemote);
 
   if (!isCheckout) {
     fs.mkdirSync(path.dirname(args.repoPath), { recursive: true });
-    await runWorkspaceGit({
+    await cloneWorkspaceGitRemote({
       workspaceRoot: args.workspaceRoot,
-      cwd: path.dirname(args.repoPath),
-      args: ["clone", "--quiet", cleanRemote, args.name],
+      destinationPath: args.repoPath,
+      remoteUrl: cleanRemote,
       extraEnv: credentialEnv,
       credentialHelper,
     });
@@ -251,12 +257,12 @@ async function syncOneRepo(args: {
       cwd: args.repoPath,
       args: ["remote", "set-url", "origin", cleanRemote],
     });
-    await configureCredentialHelper(args.workspaceRoot, args.repoPath, args.envKey);
+    await configureCredentialHelper(args.workspaceRoot, args.repoPath, args.envKey, cleanRemote);
   } else {
     // Older/manual checkouts may not have a helper yet. Install it before the
     // first authenticated fetch, and make its turn token available to this
     // server-side git process as well as the later employee bash process.
-    await configureCredentialHelper(args.workspaceRoot, args.repoPath, args.envKey);
+    await configureCredentialHelper(args.workspaceRoot, args.repoPath, args.envKey, cleanRemote);
     await runWorkspaceGit({
       workspaceRoot: args.workspaceRoot,
       cwd: args.repoPath,
@@ -264,17 +270,10 @@ async function syncOneRepo(args: {
     });
     // Fetch only the trusted configured URL. Attacker-added remotes in the
     // writable local config are never visited.
-    await runWorkspaceGit({
+    await fetchWorkspaceGitRemote({
       workspaceRoot: args.workspaceRoot,
       cwd: args.repoPath,
-      args: [
-        "fetch",
-        "--no-recurse-submodules",
-        "--prune",
-        "--quiet",
-        cleanRemote,
-        "+refs/heads/*:refs/remotes/origin/*",
-      ],
+      remoteUrl: cleanRemote,
       extraEnv: credentialEnv,
       credentialHelper,
     });
@@ -285,6 +284,7 @@ async function configureCredentialHelper(
   workspaceRoot: string,
   repoPath: string,
   envKey: string,
+  remoteUrl: string,
 ): Promise<void> {
   await configureEnvCredentialHelper(
     (gitArgs) =>
@@ -295,5 +295,6 @@ async function configureCredentialHelper(
       }),
     "x-access-token",
     envKey,
+    remoteUrl,
   );
 }

@@ -600,8 +600,9 @@ sends system mail); this is the company's real inbox. Internal namespace is
       jitter and `Retry-After` support, cancelled with the parent turn and
       never replayed after visible output starts
 - [x] Tools provided directly to the model: built-in coding tools (bash +
-      file read/write/edit/glob/grep), the genosyn tools (dispatched in-process
-      over loopback), browser tools (bridged from the stdio MCP child), and
+      file read/write/edit/directory listing/glob/grep), the genosyn tools
+      (dispatched in-process over loopback), browser tools (bridged from the stdio
+      MCP child), and
       company-configured MCP servers (bridged over stdio/HTTP)
 - [x] **Bounded parallel delegation.** Chat turns and Routine runs expose
       `delegate_parallel_work`: one AI Employee can run up to four temporary

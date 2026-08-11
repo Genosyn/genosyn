@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { findGithubRepoCredential } from "./codeRepos.js";
+import { findGithubRepoCredential, testCodeRepoConnection } from "./codeRepos.js";
+import type { CodeRepository } from "../db/entities/CodeRepository.js";
 import type { GithubRepoCredential } from "./repoSync.js";
 
 const credential: GithubRepoCredential = {
@@ -48,4 +49,15 @@ test("requires an allowlist match to disambiguate multiple GitHub Connections", 
     findGithubRepoCredential("https://github.com/acme/web.git", [otherConnection, credential]),
     credential,
   );
+});
+
+test("connection testing rejects a credential-bearing legacy URL before network access", async () => {
+  const result = await testCodeRepoConnection({
+    authMode: "none",
+    gitUrl: "https://legacy-user:legacy-secret@example.invalid/acme/repo.git",
+  } as CodeRepository);
+
+  assert.equal(result.ok, false);
+  assert.match(result.message, /plain http\(s\)/);
+  assert.doesNotMatch(result.message, /legacy-user|legacy-secret/);
 });

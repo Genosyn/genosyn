@@ -238,17 +238,23 @@ export function Models() {
       <H2 id="built-in-tools">Built-in agent tools</H2>
       <P>
         API-key and custom-endpoint models run through Genosyn&apos;s in-process agent loop; an
-        OpenAI subscription model runs through the official Codex app-server. The employee keeps the
-        same granted <Strong>catalogue</Strong> either way, except that subscription turns omit
-        parallel delegation because they serialize on the model&apos;s credential-refresh lock. An
+        OpenAI subscription model runs through the official Codex app-server. Both receive the same
+        granted product, browser, and MCP <Strong>catalogue</Strong>. Subscription turns omit
+        parallel delegation because they serialize on the model&apos;s credential-refresh lock, and
+        the coding surface follows the installation&apos;s isolation mode as described below. An
         employee is shown a small working set every turn and looks the rest up on demand; see{" "}
         <DocLink to="/docs/tool-discovery">How tools reach the model</DocLink>. The catalogue is:
       </P>
       <UL>
         <LI>
-          <Strong>Coding tools.</Strong> <Code>bash</Code>, <Code>read_file</Code>,{" "}
-          <Code>write_file</Code>, <Code>edit_file</Code>, <Code>glob</Code>, and <Code>grep</Code>{" "}
-          — run inside the employee&apos;s sandboxed directory.
+          <Strong>Coding tools.</Strong> In host mode, <Code>bash</Code>, <Code>read_file</Code>,{" "}
+          <Code>write_file</Code>, <Code>edit_file</Code>, <Code>list_dir</Code>, <Code>glob</Code>,
+          and <Code>grep</Code> are rooted at the employee directory; host shell processes are not
+          OS-sandboxed. In bubblewrap mode, every model receives only sandboxed <Code>bash</Code>{" "}
+          and performs file work through it. OpenAI subscription access requires working bubblewrap
+          mode. The dedicated file helpers cap full reads, writes, and edits at 400 KiB;{" "}
+          <Code>read_file</Code> can still stream a bounded line slice from a larger text file, and{" "}
+          <Code>bash</Code> handles larger generated artifacts.
         </LI>
         <LI>
           <Code>genosyn</Code> — the tools the employee calls to run Routines and Todos, write

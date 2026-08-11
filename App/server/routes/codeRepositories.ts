@@ -26,6 +26,17 @@ import {
   uniqueCodeRepoSlug,
   upsertCodeRepoGrant,
 } from "../services/codeRepos.js";
+import {
+  codeRepositoryCredentialError,
+  codeRepositoryCreateSchema,
+  codeRepositoryPatchSchema,
+  gitRemoteUrlForResponse,
+  isPlainHttpsCredentialUrl,
+} from "../services/codeRepositoryValidation.js";
+import {
+  assertSafeGitRemoteUrl,
+  SAFE_GIT_REMOTE_URL_MESSAGE,
+} from "../services/gitCredentialHelper.js";
 import { deleteTagAssignments } from "../services/tags.js";
 import { config } from "../../config.js";
 
@@ -62,15 +73,6 @@ codeRepositoriesRouter.use(
 
 const ACCESS_LEVELS: [CodeRepoAccessLevel, ...CodeRepoAccessLevel[]] = ["read", "write"];
 
-// A clone URL is one of: https://…, ssh://…, or scp-style git@host:path.
-const gitUrlSchema = z
-  .string()
-  .min(1)
-  .max(500)
-  .refine((v) => /^(https?:\/\/|ssh:\/\/|[\w.-]+@[\w.-]+:)/i.test(v.trim()), {
-    message: "Enter an https://, ssh://, or git@host:owner/repo.git clone URL.",
-  });
-
 type CreatedBy = { kind: "human"; id: string; name: string; email: string | null } | null;
 
 type HydratedRepo = Omit<CodeRepository, "encryptedToken" | "encryptedSshKey"> & {
@@ -103,6 +105,7 @@ async function hydrate(companyId: string, rows: CodeRepository[]): Promise<Hydra
     const u = r.createdById ? userById.get(r.createdById) : undefined;
     return {
       ...rest,
+      gitUrl: gitRemoteUrlForResponse(rest.gitUrl),
       ...credentialSummary(r),
       grantCount: grantCountByRepo.get(r.id) ?? 0,
       createdBy: u
@@ -132,68 +135,50 @@ codeRepositoriesRouter.get("/code-repositories", async (req, res) => {
 
 // ──────────────────────────── CREATE ────────────────────────────────────
 
-const createSchema = z
-  .object({
-    name: z.string().min(1).max(120),
-    gitUrl: gitUrlSchema,
-    defaultBranch: z.string().min(1).max(120).optional(),
-    description: z.string().max(2000).optional(),
-    authMode: z.enum(["none", "https", "ssh"]),
-    httpsUsername: z.string().max(200).optional(),
-    token: z.string().max(20000).optional(),
-    sshKey: z.string().max(50000).optional(),
-    committerName: z.string().max(200).optional(),
-    committerEmail: z.string().email().max(320).optional().or(z.literal("")),
-  })
-  .refine((b) => b.authMode !== "https" || (b.token && b.token.length > 0), {
-    message: "HTTPS auth needs a token / password.",
-    path: ["token"],
-  })
-  .refine((b) => b.authMode !== "ssh" || (b.sshKey && b.sshKey.length > 0), {
-    message: "SSH auth needs a private key.",
-    path: ["sshKey"],
-  });
+codeRepositoriesRouter.post(
+  "/code-repositories",
+  validateBody(codeRepositoryCreateSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const body = req.body as z.infer<typeof codeRepositoryCreateSchema>;
+    const repo = AppDataSource.getRepository(CodeRepository);
 
-codeRepositoriesRouter.post("/code-repositories", validateBody(createSchema), async (req, res) => {
-  const cid = (req.params as Record<string, string>).cid;
-  const body = req.body as z.infer<typeof createSchema>;
-  const repo = AppDataSource.getRepository(CodeRepository);
+    const slug = await uniqueCodeRepoSlug(cid, body.name);
+    const row = repo.create({
+      companyId: cid,
+      name: body.name.trim(),
+      slug,
+      description: (body.description ?? "").trim(),
+      gitUrl: body.gitUrl.trim(),
+      defaultBranch: (body.defaultBranch ?? "main").trim() || "main",
+      authMode: body.authMode,
+      httpsUsername: body.authMode === "https" ? (body.httpsUsername ?? "").trim() || null : null,
+      encryptedToken:
+        body.authMode === "https" && body.token ? encryptRepoSecret(body.token, cid) : null,
+      encryptedSshKey:
+        body.authMode === "ssh" && body.sshKey ? encryptRepoSecret(body.sshKey, cid) : null,
+      committerName: (body.committerName ?? "").trim() || null,
+      committerEmail: (body.committerEmail ?? "").trim() || null,
+      lastSyncStatus: "unknown",
+      lastSyncError: "",
+      createdById: req.userId ?? null,
+    });
+    await repo.save(row);
 
-  const slug = await uniqueCodeRepoSlug(cid, body.name);
-  const row = repo.create({
-    companyId: cid,
-    name: body.name.trim(),
-    slug,
-    description: (body.description ?? "").trim(),
-    gitUrl: body.gitUrl.trim(),
-    defaultBranch: (body.defaultBranch ?? "main").trim() || "main",
-    authMode: body.authMode,
-    httpsUsername: body.authMode === "https" ? (body.httpsUsername ?? "").trim() || null : null,
-    encryptedToken:
-      body.authMode === "https" && body.token ? encryptRepoSecret(body.token, cid) : null,
-    encryptedSshKey:
-      body.authMode === "ssh" && body.sshKey ? encryptRepoSecret(body.sshKey, cid) : null,
-    committerName: (body.committerName ?? "").trim() || null,
-    committerEmail: (body.committerEmail ?? "").trim() || null,
-    lastSyncStatus: "unknown",
-    lastSyncError: "",
-    createdById: req.userId ?? null,
-  });
-  await repo.save(row);
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "code_repository.create",
+      targetType: "code_repository",
+      targetId: row.id,
+      targetLabel: row.name,
+      metadata: { gitUrl: row.gitUrl, authMode: row.authMode },
+    });
 
-  await recordAudit({
-    companyId: cid,
-    actorUserId: req.userId ?? null,
-    action: "code_repository.create",
-    targetType: "code_repository",
-    targetId: row.id,
-    targetLabel: row.name,
-    metadata: { gitUrl: row.gitUrl, authMode: row.authMode },
-  });
-
-  const [hydrated] = await hydrate(cid, [row]);
-  res.status(201).json(hydrated);
-});
+    const [hydrated] = await hydrate(cid, [row]);
+    res.status(201).json(hydrated);
+  },
+);
 
 // ──────────────────────────── DETAIL ────────────────────────────────────
 
@@ -207,28 +192,38 @@ codeRepositoriesRouter.get("/code-repositories/:slug", async (req, res) => {
 
 // ───────────────────────────── PATCH ────────────────────────────────────
 
-const patchSchema = z.object({
-  name: z.string().min(1).max(120).optional(),
-  gitUrl: gitUrlSchema.optional(),
-  defaultBranch: z.string().min(1).max(120).optional(),
-  description: z.string().max(2000).optional(),
-  authMode: z.enum(["none", "https", "ssh"]).optional(),
-  httpsUsername: z.string().max(200).optional(),
-  /** New token/key. Empty string is ignored (leave existing in place). */
-  token: z.string().max(20000).optional(),
-  sshKey: z.string().max(50000).optional(),
-  committerName: z.string().max(200).optional(),
-  committerEmail: z.string().email().max(320).optional().or(z.literal("")),
-});
-
 codeRepositoriesRouter.patch(
   "/code-repositories/:slug",
-  validateBody(patchSchema),
+  validateBody(codeRepositoryPatchSchema),
   async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const row = await loadRepo(cid, req.params.slug);
     if (!row) return res.status(404).json({ error: "Repository not found" });
-    const body = req.body as z.infer<typeof patchSchema>;
+    const body = req.body as z.infer<typeof codeRepositoryPatchSchema>;
+
+    const nextAuthMode = body.authMode ?? row.authMode;
+    const nextGitUrl = (body.gitUrl ?? row.gitUrl).trim();
+    try {
+      assertSafeGitRemoteUrl(nextGitUrl);
+    } catch {
+      return res.status(400).json({ error: SAFE_GIT_REMOTE_URL_MESSAGE });
+    }
+    if (nextAuthMode === "https" && !isPlainHttpsCredentialUrl(nextGitUrl)) {
+      return res.status(400).json({
+        error:
+          "HTTPS auth needs a plain https:// clone URL without embedded credentials or options.",
+      });
+    }
+    const credentialError = codeRepositoryCredentialError({
+      authMode: nextAuthMode,
+      hasStoredToken: !!row.encryptedToken,
+      hasStoredSshKey: !!row.encryptedSshKey,
+      token: body.token,
+      sshKey: body.sshKey,
+    });
+    if (credentialError) {
+      return res.status(400).json({ error: credentialError });
+    }
 
     if (body.name !== undefined) row.name = body.name.trim();
     if (body.gitUrl !== undefined) row.gitUrl = body.gitUrl.trim();

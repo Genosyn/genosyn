@@ -15,12 +15,20 @@ import type { CodeRepoAccessLevel } from "../db/entities/EmployeeCodeRepositoryG
 import { encryptSecret, decryptSecret } from "../lib/secret.js";
 import { toSlug } from "../lib/slug.js";
 import {
+  assertSafeCredentialToken,
+  assertSafeGitRemoteUrl,
   clearEnvCredentialHelper,
   configureEnvCredentialHelper,
   inlineEnvCredentialHelper,
 } from "./gitCredentialHelper.js";
 import type { GithubRepoCredential } from "./repoSync.js";
 import { runWorkspaceGit } from "./workspaceGit.js";
+import { cloneWorkspaceGitRemote, fetchWorkspaceGitRemote } from "./workspaceGitRemote.js";
+import {
+  persistCodeRepoKnownHosts,
+  persistCodeRepoSshKey,
+  readCodeRepoKnownHosts,
+} from "./codeRepoSshFiles.js";
 
 /**
  * Code Repository seam — the provider-agnostic cousin of `repoSync.ts`.
@@ -169,10 +177,6 @@ function httpsUsernameOf(repo: CodeRepository): string {
   return u || "git";
 }
 
-function sshKeyDir(cwd: string): string {
-  return path.join(cwd, "code-repos", ".ssh");
-}
-
 function workspaceVisiblePath(workspaceRoot: string, hostPath: string): string {
   if (config.agent.codingTools.executionMode !== "bubblewrap") return hostPath;
   const relative = path.relative(path.resolve(workspaceRoot), path.resolve(hostPath));
@@ -199,11 +203,13 @@ async function configureCredentialHelper(
   repoPath: string,
   username: string,
   envKey: string,
+  remoteUrl: string,
 ): Promise<void> {
   await configureEnvCredentialHelper(
     (args) => runGit(workspaceRoot, repoPath, args),
     username,
     envKey,
+    remoteUrl,
   );
 }
 
@@ -334,22 +340,15 @@ async function syncOneRepo(
       "SSH key is missing or could not be decrypted. Re-enter it in the repository settings.",
     );
   }
+  if (token) assertSafeCredentialToken(token);
 
   const envKey = linkedGithubCredential?.envKey ?? envKeyFor(repo.id);
   const httpsUsername = linkedGithubCredential ? "x-access-token" : httpsUsernameOf(repo);
   let sshCommand: string | undefined;
-  let cloneEnv: Record<string, string> = {};
 
   if (repo.authMode === "ssh" && sshKey) {
-    const dir = sshKeyDir(cwd);
-    fs.mkdirSync(dir, { recursive: true });
-    const keyPath = path.join(dir, repo.id);
-    // Keys must end with a trailing newline or ssh rejects them.
-    fs.writeFileSync(keyPath, sshKey.endsWith("\n") ? sshKey : sshKey + "\n", {
-      mode: 0o600,
-    });
+    const keyPath = persistCodeRepoSshKey(cwd, repo.id, sshKey);
     sshCommand = sshCommandFor(workspaceVisiblePath(cwd, keyPath));
-    cloneEnv = { GIT_SSH_COMMAND: sshCommand };
   }
   if (repo.authMode === "https" && token) {
     result.extraEnv[envKey] = token;
@@ -358,60 +357,56 @@ async function syncOneRepo(
     result.extraEnv[envKey] = linkedGithubCredential.token;
   }
   const credentialEnv = token ? { [envKey]: token } : {};
-  const credentialHelper = token ? inlineEnvCredentialHelper(httpsUsername, envKey) : undefined;
+  const credentialHelper = token
+    ? inlineEnvCredentialHelper(httpsUsername, envKey, repo.gitUrl)
+    : undefined;
+  const sshCredential =
+    repo.authMode === "ssh" && sshKey
+      ? {
+          privateKey: sshKey,
+          knownHosts: readCodeRepoKnownHosts(cwd),
+        }
+      : undefined;
+  let syncedKnownHosts: string | undefined;
 
   if (!isCheckout) {
     fs.mkdirSync(path.dirname(repoPath), { recursive: true });
-    if (token) {
-      if (!/^https:\/\//i.test(repo.gitUrl)) {
-        throw new Error("HTTPS credentials require an https:// clone URL.");
-      }
-      await runGit(
-        cwd,
-        path.dirname(repoPath),
-        ["clone", "--quiet", repo.gitUrl, repo.slug],
-        credentialEnv,
-        credentialHelper,
-      );
-      await runGit(cwd, repoPath, ["remote", "set-url", "origin", repo.gitUrl]);
-    } else {
-      // SSH or public: clone the URL as-is (SSH key supplied via env).
-      await runGit(
-        cwd,
-        path.dirname(repoPath),
-        ["clone", "--quiet", repo.gitUrl, repo.slug],
-        cloneEnv,
-      );
+    if (token && !/^https:\/\//i.test(repo.gitUrl)) {
+      throw new Error("HTTPS credentials require an https:// clone URL.");
     }
+    const cloneResult = await cloneWorkspaceGitRemote({
+      workspaceRoot: cwd,
+      destinationPath: repoPath,
+      remoteUrl: repo.gitUrl,
+      extraEnv: credentialEnv,
+      credentialHelper,
+      sshCredential,
+    });
+    syncedKnownHosts = cloneResult.sshKnownHosts;
+    await runGit(cwd, repoPath, ["remote", "set-url", "origin", repo.gitUrl]);
   } else {
     // Install/refresh the helper before fetch so a pre-existing private
     // checkout can authenticate even if it predates Genosyn's helper wiring.
     if (token) {
-      await configureCredentialHelper(cwd, repoPath, httpsUsername, envKey);
+      await configureCredentialHelper(cwd, repoPath, httpsUsername, envKey, repo.gitUrl);
     } else {
       await clearCredentialHelper(cwd, repoPath);
     }
     await runGit(cwd, repoPath, ["remote", "set-url", "origin", repo.gitUrl]);
     // Existing checkout: refresh refs from only the trusted configured URL.
     // Never visit remotes an AI Employee added to the writable local config.
-    await runGit(
-      cwd,
-      repoPath,
-      [
-        "fetch",
-        "--no-recurse-submodules",
-        "--prune",
-        "--quiet",
-        repo.gitUrl,
-        "+refs/heads/*:refs/remotes/origin/*",
-      ],
-      {
-        ...cloneEnv,
-        ...credentialEnv,
-      },
+    const fetchResult = await fetchWorkspaceGitRemote({
+      workspaceRoot: cwd,
+      cwd: repoPath,
+      remoteUrl: repo.gitUrl,
+      extraEnv: credentialEnv,
       credentialHelper,
-    );
+      sshCredential,
+    });
+    syncedKnownHosts = fetchResult.sshKnownHosts;
   }
+
+  if (syncedKnownHosts !== undefined) persistCodeRepoKnownHosts(cwd, syncedKnownHosts);
 
   // Pin per-repo wiring every spawn (idempotent — settings may have changed
   // between spawns, e.g. a grant downgraded from write to read).
@@ -424,7 +419,7 @@ async function syncOneRepo(
     );
   }
   if (token) {
-    await configureCredentialHelper(cwd, repoPath, httpsUsername, envKey);
+    await configureCredentialHelper(cwd, repoPath, httpsUsername, envKey, repo.gitUrl);
   } else {
     await clearCredentialHelper(cwd, repoPath);
   }
@@ -514,6 +509,7 @@ export type TestConnectionResult = {
 export async function testCodeRepoConnection(repo: CodeRepository): Promise<TestConnectionResult> {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-repo-"));
   try {
+    assertSafeGitRemoteUrl(repo.gitUrl);
     const env: Record<string, string> = {};
     let credentialHelper: string | undefined;
 
@@ -533,7 +529,7 @@ export async function testCodeRepoConnection(repo: CodeRepository): Promise<Test
       }
       const envKey = "GENOSYN_REPO_TOKEN_CONNECTION_TEST";
       env[envKey] = token;
-      credentialHelper = inlineEnvCredentialHelper(httpsUsernameOf(repo), envKey);
+      credentialHelper = inlineEnvCredentialHelper(httpsUsernameOf(repo), envKey, repo.gitUrl);
     } else if (repo.authMode === "ssh") {
       const key = tryDecrypt(repo.encryptedSshKey);
       if (!key) {

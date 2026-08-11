@@ -92,11 +92,16 @@ export async function gatherEmployeeTools(params: {
   /** Called when a Soul, Skill or brief reached for a retired family name. */
   onDeprecatedFamily?: (family: string, target: string) => void;
 }): Promise<{ registry: ToolRegistry; browser: BrowserConfig; close: () => Promise<void> }> {
+  const codingProcessCleanups = new Set<() => void>();
   const codingCtx: CodingToolContext = {
     cwd: params.cwd,
     env: params.toolEnv,
     bashTimeoutMs: params.bashTimeoutMs,
     signal: params.signal,
+    registerProcessCleanup: (cleanup) => {
+      codingProcessCleanups.add(cleanup);
+      return () => codingProcessCleanups.delete(cleanup);
+    },
   };
 
   // 1 + 2: in-process tools (no teardown needed).
@@ -161,6 +166,8 @@ export async function gatherEmployeeTools(params: {
   sinkGrantDeadTools(tools, grantDead);
 
   const close = async () => {
+    for (const cleanup of codingProcessCleanups) cleanup();
+    codingProcessCleanups.clear();
     await Promise.all(bridged.map((b) => b.close()));
   };
 

@@ -51,6 +51,26 @@ test("workspace Git never inherits arbitrary App or Codex environment variables"
   assert.equal(invocation.env.GIT_SSH_COMMAND, "/bin/false");
 });
 
+test("command-scoped credential helpers receive the HTTPS repository path", () => {
+  const invocation = buildWorkspaceGitInvocation(
+    {
+      workspaceRoot: "/srv/employee",
+      cwd: "/srv/employee",
+      args: ["fetch", "https://github.com/acme/repo.git"],
+      credentialHelper: "!trusted-helper",
+    },
+    "host",
+  );
+  const count = Number(invocation.env.GIT_CONFIG_COUNT);
+  const config = new Map(
+    Array.from({ length: count }, (_value, index) => [
+      invocation.env[`GIT_CONFIG_KEY_${index}`],
+      invocation.env[`GIT_CONFIG_VALUE_${index}`],
+    ]),
+  );
+  assert.equal(config.get("credential.useHttpPath"), "true");
+});
+
 test("workspace Git rejects unsafe environment entries and disabled execution", () => {
   assert.throws(
     () =>
@@ -64,6 +84,19 @@ test("workspace Git rejects unsafe environment entries and disabled execution", 
         "bubblewrap",
       ),
     /not allowed/,
+  );
+  assert.throws(
+    () =>
+      buildWorkspaceGitInvocation(
+        {
+          workspaceRoot: "/srv/employee",
+          cwd: "/srv/employee",
+          args: ["status"],
+          extraEnv: { GENOSYN_REPO_TOKEN_1: "token\nInjected: value" },
+        },
+        "host",
+      ),
+    /Invalid Git token environment value/,
   );
   assert.throws(
     () =>

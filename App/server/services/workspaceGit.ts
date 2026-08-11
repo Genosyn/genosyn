@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { config } from "../../config.js";
 import { buildBubblewrapCommandArgs } from "./agent/bubblewrap.js";
@@ -16,6 +16,8 @@ export type WorkspaceGitOptions = {
   extraEnv?: Record<string, string>;
   /** Trusted command-scoped helper; repository-local helpers are ignored. */
   credentialHelper?: string;
+  /** Optional standard input for plumbing commands such as update-ref. */
+  stdin?: string;
 };
 
 export type GitInvocation = {
@@ -52,6 +54,10 @@ export function buildWorkspaceGitInvocation(
     if (options.credentialHelper.includes("\0")) {
       throw new Error("Invalid Git credential helper.");
     }
+    // A scoped HTTPS helper needs Git to include the repository path in the
+    // credential request. This is command-scoped for clone / connection tests;
+    // the persisted helper configures the same setting repository-locally.
+    gitConfig.push(["credential.useHttpPath", "true"]);
     gitConfig.push(["credential.helper", options.credentialHelper]);
   }
 
@@ -104,12 +110,15 @@ export function buildWorkspaceGitInvocation(
 export async function runWorkspaceGit(options: WorkspaceGitOptions): Promise<{ stdout: string }> {
   const invocation = buildWorkspaceGitInvocation(options);
   try {
-    const { stdout } = await exec(invocation.executable, invocation.args, {
-      cwd: options.cwd,
-      env: invocation.env,
-      timeout: GIT_TIMEOUT_MS,
-      maxBuffer: 16 * 1024 * 1024,
-    });
+    const { stdout } =
+      options.stdin !== undefined
+        ? await execWithInput(invocation, options.cwd, options.stdin)
+        : await exec(invocation.executable, invocation.args, {
+            cwd: options.cwd,
+            env: invocation.env,
+            timeout: GIT_TIMEOUT_MS,
+            maxBuffer: 16 * 1024 * 1024,
+          });
     return { stdout };
   } catch (error) {
     const command = options.args[0] ?? "(unknown)";
@@ -125,6 +134,68 @@ export async function runWorkspaceGit(options: WorkspaceGitOptions): Promise<{ s
   }
 }
 
+function execWithInput(
+  invocation: GitInvocation,
+  cwd: string,
+  stdin: string,
+): Promise<{ stdout: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(invocation.executable, invocation.args, {
+      cwd,
+      env: invocation.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      finish(
+        Object.assign(new Error("Git command timed out."), {
+          stdout,
+          stderr,
+        }),
+      );
+    }, GIT_TIMEOUT_MS);
+
+    const finish = (error?: Error): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolve({ stdout });
+    };
+    const append = (stream: "stdout" | "stderr", chunk: Buffer): void => {
+      if (stream === "stdout") stdout += chunk.toString();
+      else stderr += chunk.toString();
+      if (Buffer.byteLength(stdout) + Buffer.byteLength(stderr) > 16 * 1024 * 1024) {
+        child.kill("SIGKILL");
+        finish(
+          Object.assign(new Error("Git command output exceeded the limit."), { stdout, stderr }),
+        );
+      }
+    };
+
+    child.stdout.on("data", (chunk: Buffer) => append("stdout", chunk));
+    child.stderr.on("data", (chunk: Buffer) => append("stderr", chunk));
+    child.stdin.on("error", () => {
+      // The process error / close event carries the useful Git diagnostic.
+    });
+    child.on("error", (error) => finish(Object.assign(error, { stdout, stderr })));
+    child.on("close", (code) => {
+      if (code === 0) finish();
+      else
+        finish(
+          Object.assign(new Error(`Git exited with status ${code ?? "unknown"}.`), {
+            stdout,
+            stderr,
+          }),
+        );
+    });
+    child.stdin.end(stdin);
+  });
+}
+
 function validateExtraEnv(extraEnv: Record<string, string>): Record<string, string> {
   const clean: Record<string, string> = {};
   for (const [name, value] of Object.entries(extraEnv)) {
@@ -132,6 +203,9 @@ function validateExtraEnv(extraEnv: Record<string, string>): Record<string, stri
       throw new Error(`Git environment variable is not allowed: ${name}`);
     }
     if (value.includes("\0")) throw new Error(`Invalid Git environment value: ${name}`);
+    if (TOKEN_ENV.test(name) && /[\r\n]/.test(value)) {
+      throw new Error(`Invalid Git token environment value: ${name}`);
+    }
     clean[name] = value;
   }
   return clean;

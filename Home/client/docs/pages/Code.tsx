@@ -85,7 +85,9 @@ export function CodeRepositories() {
       <P>
         Credentials are encrypted at rest with the same AES-256-GCM key that protects model API
         keys. They are never shown back to you in plaintext — the UI only reports whether a
-        credential is stored.
+        credential is stored. Keep credentials and URL options out of the clone URL itself; Genosyn
+        rejects them for every authentication mode, so enter tokens, passwords, and SSH keys only in
+        their dedicated fields.
       </P>
       <UL>
         <LI>
@@ -110,6 +112,13 @@ export function CodeRepositories() {
           accepted on first contact.
         </LI>
       </UL>
+      <P>
+        Authenticated clone and refresh operations contact only the configured repository from a
+        private server-owned git workspace, then transfer the fetched objects into the employee
+        checkout. Employee-written remote rewrites, proxy settings, and TLS settings are not read by
+        that networked process. HTTPS credential helpers are additionally scoped to the exact host,
+        port, and repository path.
+      </P>
 
       <H2 id="access">Granting access</H2>
       <P>
