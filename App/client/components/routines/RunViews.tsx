@@ -32,13 +32,7 @@ const RUN_STATUS_STYLE: Record<RunStatus, string> = {
  * nothing ran; `interrupted` means the server stopped mid-run, so we know what
  * the transcript captured and nothing about what happened after.
  */
-export function RunStatusChip({
-  status,
-  size = "sm",
-}: {
-  status: RunStatus;
-  size?: "xs" | "sm";
-}) {
+export function RunStatusChip({ status, size = "sm" }: { status: RunStatus; size?: "xs" | "sm" }) {
   return (
     <span
       className={
@@ -285,6 +279,7 @@ export function RunLiveModal({
             </Button>
           )}
           {onRetry &&
+            !log?.retryAt &&
             isTerminal &&
             (status === "failed" || status === "timeout" || status === "interrupted") && (
               <Button variant="secondary" onClick={onRetry}>

@@ -6,11 +6,23 @@ import { Run } from "../db/entities/Run.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Approval } from "../db/entities/Approval.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
-import { runRoutine } from "./runner.js";
+import { startRoutineRun, type StartRunOptions } from "./runner.js";
 import { notifyApprovalPending } from "./notifications.js";
 import { withSchedulerLease } from "./schedulerLeases.js";
-import { findDueRetries, reconcileOrphanedRuns } from "./runRecovery.js";
-import { ORPHAN_GRACE_MS, STALE_SLOT_MS, countMissedSlots, isSlotStale } from "./cronMath.js";
+import {
+  claimRetryDispatch,
+  findDueRetries,
+  reconcileOrphanedRuns,
+  settleRetryDispatchClaim,
+} from "./runRecovery.js";
+import {
+  ORPHAN_GRACE_MS,
+  STALE_SLOT_MS,
+  automaticRetryLimit,
+  countMissedSlots,
+  isSlotStale,
+  shouldRetry,
+} from "./cronMath.js";
 import { WorkloadLimitError } from "./workloadLeases.js";
 import { dispatchDueFollowUpReminders } from "./revenue/followUpReminders.js";
 
@@ -91,6 +103,25 @@ export function registerRoutine(routine: Routine): void {
   routine.nextRunAt = nextRunFor(routine.cronExpr);
 }
 
+/**
+ * Return a recent Run that still owns this routine's execution window.
+ * Reconciliation and this guard share the same timeout-plus-grace boundary,
+ * so a row is never simultaneously considered live here and crash debris
+ * there.
+ */
+async function findInFlightRun(routine: Routine, now: Date = new Date()): Promise<Run | null> {
+  const inFlightSince = new Date(
+    now.getTime() - (Math.max(1, routine.timeoutSec) * 1000 + ORPHAN_GRACE_MS),
+  );
+  return AppDataSource.getRepository(Run).findOne({
+    where: {
+      routineId: routine.id,
+      status: "running",
+      startedAt: MoreThan(inFlightSince),
+    },
+  });
+}
+
 async function tickRoutine(routineId: string, meta: { missedSlots: number }): Promise<void> {
   // Re-fetch each tick so edits (including flipping requiresApproval or
   // disabling the routine) take effect without restarting the process.
@@ -132,16 +163,7 @@ async function tickRoutine(routineId: string, meta: { missedSlots: number }): Pr
   // the routine's own timeout (plus grace) so a run orphaned by a crash can't
   // block the schedule forever. Manual "Run now" / webhooks bypass this on
   // purpose: a human (or external caller) explicitly asked for that run.
-  const inFlightSince = new Date(
-    Date.now() - (Math.max(1, fresh.timeoutSec) * 1000 + ORPHAN_GRACE_MS),
-  );
-  const inFlight = await AppDataSource.getRepository(Run).findOne({
-    where: {
-      routineId: fresh.id,
-      status: "running",
-      startedAt: MoreThan(inFlightSince),
-    },
-  });
+  const inFlight = await findInFlightRun(fresh);
   if (inFlight) {
     // eslint-disable-next-line no-console
     console.log(
@@ -149,7 +171,17 @@ async function tickRoutine(routineId: string, meta: { missedSlots: number }): Pr
     );
     return;
   }
-  await runRoutine(fresh, { triggerKind: "schedule", missedSlots: meta.missedSlots });
+  const { completion } = await startRoutineRun(fresh, {
+    triggerKind: "schedule",
+    missedSlots: meta.missedSlots,
+  });
+  // The heartbeat only waits until the durable Run row exists. The agent work
+  // continues independently, just as it did when this whole function was
+  // detached, but the retry phase below can now see the row and avoid overlap.
+  void completion.catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error(`[cron] routine ${fresh.id} failed after starting:`, err);
+  });
 }
 
 /**
@@ -189,21 +221,25 @@ function onDispatchError(routineId: string) {
 }
 
 /**
- * A retry refused for capacity must not consume an attempt — re-stamp the
- * parent's `retryAt` so the next pass tries again.
+ * A retry that fails before its child Run exists must not consume an attempt.
+ * Re-stamp the parent's `retryAt` so a transient capacity or setup failure is
+ * retried without turning into a tight heartbeat loop.
  */
-function onRetryError(parentRunId: string) {
+function onRetryError(parentRunId: string, routineId: string, claim: Date) {
   return async (err: unknown) => {
-    if (!isCapacityError(err)) {
+    if (isCapacityError(err)) {
+      // eslint-disable-next-line no-console
+      console.log(`[cron] retry of run ${parentRunId} deferred — ${(err as Error).message}`);
+    } else {
       // eslint-disable-next-line no-console
       console.error(`[cron] retry of run ${parentRunId} failed:`, err);
-      return;
     }
-    const repo = AppDataSource.getRepository(Run);
-    const parent = await repo.findOneBy({ id: parentRunId });
-    if (!parent) return;
-    parent.retryAt = new Date(Date.now() + BUSY_RETRY_MS);
-    await repo.save(parent);
+    await settleRetryDispatchClaim(
+      parentRunId,
+      routineId,
+      claim,
+      new Date(Date.now() + BUSY_RETRY_MS),
+    );
   };
 }
 
@@ -231,6 +267,155 @@ async function journalSkippedCatchUp(
       authorUserId: null,
     }),
   );
+}
+
+export type RetryDispatchResult = {
+  started: number;
+  /** Exposed so service tests can let detached no-model Runs settle cleanly. */
+  completions: Array<Promise<Run>>;
+};
+
+/** A retry became ineligible while its start prerequisites were resolving. */
+class RetryDispatchIneligibleError extends Error {}
+
+function isRetryDispatchEligible(parent: Run, routine: Routine): boolean {
+  return (
+    routine.enabled &&
+    !routine.requiresApproval &&
+    shouldRetry({
+      status: parent.status,
+      triggerKind: parent.triggerKind,
+      attempt: parent.attempt,
+      maxAttempts: routine.maxAttempts,
+      retryOnTimeout: routine.retryOnTimeout,
+    })
+  );
+}
+
+/**
+ * Start the retry attempts whose durable `retryAt` stamps are due.
+ *
+ * The scheduler lease around the caller serializes this across replicas. An
+ * atomic, expiring claim makes cancellation and dispatch deterministic and
+ * stops concurrent schedulers from starting the same parent. A child lookup
+ * closes the process-crash window: once a retry Run row exists, a stale claim
+ * is cleared instead of dispatching that attempt twice. The claim is settled
+ * only after child creation, favoring at-least-once recovery over silent loss.
+ */
+export async function dispatchDueRetries(now: Date): Promise<RetryDispatchResult> {
+  const routineRepo = AppDataSource.getRepository(Routine);
+  const runRepo = AppDataSource.getRepository(Run);
+  const completions: Array<Promise<Run>> = [];
+  let started = 0;
+
+  for (const queuedParent of await findDueRetries(now, MAX_RETRIES_PER_TICK)) {
+    // Re-read after the queue scan so a member cancelling a retry does not
+    // lose a race to stale scheduler state.
+    const parent = await runRepo.findOneBy({ id: queuedParent.id });
+    if (
+      !parent?.retryAt ||
+      !queuedParent.retryAt ||
+      parent.retryAt > now ||
+      parent.retryAt.getTime() !== queuedParent.retryAt.getTime()
+    ) {
+      continue;
+    }
+    const initialClaim = await claimRetryDispatch(parent.id, queuedParent.retryAt);
+    if (!initialClaim) continue;
+    let claim = initialClaim;
+
+    const routine = await routineRepo.findOneBy({ id: parent.routineId });
+    if (!routine || !isRetryDispatchEligible(parent, routine)) {
+      await settleRetryDispatchClaim(parent.id, parent.routineId, claim, null);
+      continue;
+    }
+
+    // A child row proves this retry was already dispatched. This closes the
+    // crash window between creating the child and clearing retryAt.
+    const existingChild = await runRepo.findOneBy({ parentRunId: parent.id });
+    if (existingChild) {
+      await settleRetryDispatchClaim(parent.id, parent.routineId, claim, null);
+      continue;
+    }
+
+    // A one-hour recovery commonly lands near the routine's next natural
+    // hourly slot. Let the current Run finish before starting another copy.
+    if (await findInFlightRun(routine, now)) {
+      await settleRetryDispatchClaim(
+        parent.id,
+        parent.routineId,
+        claim,
+        new Date(now.getTime() + BUSY_RETRY_MS),
+      );
+      continue;
+    }
+
+    let completion: Promise<Run>;
+    try {
+      const startOptions: StartRunOptions = {
+        triggerKind: "retry",
+        attempt: parent.attempt + 1,
+        attemptLimit: automaticRetryLimit(parent.status, routine.maxAttempts),
+        parentRunId: parent.id,
+        missedSlots: 0,
+      };
+      startOptions.beforeRunPersist = async () => {
+        // Renew and verify ownership after setup, so a scheduler that
+        // resumed after its claim expired cannot start work behind a newer
+        // dispatcher.
+        const renewed = await claimRetryDispatch(parent.id, claim);
+        if (!renewed) throw new Error("Retry dispatch claim was lost before child creation");
+        claim = renewed;
+
+        // Setup happens before the child row is inserted. Re-read the
+        // Routine after renewing the claim, at the last safe point before
+        // persistence, so a pause, approval gate, or deletion that landed
+        // during preparation cannot be bypassed by the stale object this
+        // dispatch started with.
+        const currentRoutine = await routineRepo.findOneBy({ id: routine.id });
+        if (!currentRoutine || !isRetryDispatchEligible(parent, currentRoutine)) {
+          throw new RetryDispatchIneligibleError(
+            "Routine became ineligible before retry child creation",
+          );
+        }
+
+        // The child owns the current reliability policy from this point on.
+        // Keep both its transcript ceiling and any later retry stamp aligned
+        // with settings changed while preparation was in progress.
+        routine.maxAttempts = currentRoutine.maxAttempts;
+        routine.retryBackoffSec = currentRoutine.retryBackoffSec;
+        routine.retryOnTimeout = currentRoutine.retryOnTimeout;
+        startOptions.attemptLimit = automaticRetryLimit(parent.status, currentRoutine.maxAttempts);
+      };
+      ({ completion } = await startRoutineRun(routine, startOptions));
+    } catch (err) {
+      // `startRoutineRun` persists its child before flushing the framing log.
+      // If setup failed after that insert, the child owns the attempt and the
+      // parent must not be re-armed. Its terminal cleanup schedules any later
+      // configured attempt on the child itself.
+      const durableChild = await runRepo.findOneBy({ parentRunId: parent.id });
+      if (durableChild) {
+        await settleRetryDispatchClaim(parent.id, parent.routineId, claim, null);
+      } else if (err instanceof RetryDispatchIneligibleError) {
+        await settleRetryDispatchClaim(parent.id, parent.routineId, claim, null);
+      } else {
+        await onRetryError(parent.id, parent.routineId, claim)(err);
+      }
+      continue;
+    }
+
+    completions.push(completion);
+    started += 1;
+    void completion.catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error(`[cron] retry of run ${parent.id} failed after starting:`, err);
+    });
+    // Clear only after the child Run is durable. If the process dies first,
+    // the claim expires and the existing-child guard self-heals it.
+    await settleRetryDispatchClaim(parent.id, parent.routineId, claim, null);
+  }
+
+  return { started, completions };
 }
 
 /**
@@ -282,25 +467,17 @@ async function tick(): Promise<void> {
           await journalSkippedCatchUp(r, slot, count + 1, capped);
           continue;
         }
-        tickRoutine(r.id, { missedSlots: count }).catch(onDispatchError(r.id));
+        try {
+          // Wait only until the Run row is durable (not for the agent to
+          // finish) so phase 3 can see it and defer a colliding retry.
+          await tickRoutine(r.id, { missedSlots: count });
+        } catch (err) {
+          onDispatchError(r.id)(err);
+        }
       }
 
       // Phase 3 — retries owed by earlier failures.
-      const runRepo = AppDataSource.getRepository(Run);
-      for (const parent of await findDueRetries(now, MAX_RETRIES_PER_TICK)) {
-        // Clear first: a crash between here and the start loses one retry
-        // rather than looping on it forever.
-        parent.retryAt = null;
-        await runRepo.save(parent);
-        const routine = await repo.findOneBy({ id: parent.routineId });
-        if (!routine || !routine.enabled) continue;
-        runRoutine(routine, {
-          triggerKind: "retry",
-          attempt: parent.attempt + 1,
-          parentRunId: parent.id,
-          missedSlots: 0,
-        }).catch((err) => void onRetryError(parent.id)(err));
-      }
+      await dispatchDueRetries(now);
 
       // Phase 4 — durable Revenue reminders. The notification entity key
       // makes this idempotent across heartbeats; the scheduler lease prevents

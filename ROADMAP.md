@@ -321,7 +321,14 @@ export const config = {
       folded into its brief; per-routine catch-up policy (`once` — the existing
       default — or `skip` for work that is only useful on time)
 - [x] Per-routine bounded retries with full-jitter exponential backoff, off by
-      default, opt-in separately for timeouts, cancellable per run
+      default for failures and opt-in separately for timeouts. A future initial
+      scheduled Run on an enabled, ungated Routine marked `interrupted` receives
+      a durable recovery retry: exactly one after an hour at the default attempt
+      limit. Higher limits let interrupted retries continue with the configured
+      bounded backoff until the chain is spent. Manual, webhook, and approval
+      Runs stay excluded; pausing or gating the Routine cancels dispatch, and
+      existing interrupted history is never swept. Every pending retry is
+      cancellable per Run
 - [x] Fair capped dispatch (oldest slot first) instead of an unbounded burst,
       and lease contention re-arms the schedule instead of dropping the
       occurrence silently

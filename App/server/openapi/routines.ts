@@ -55,14 +55,22 @@ const Run = z
     finishedAt: z.string().datetime().nullable(),
     triggerKind: z
       .enum(["schedule", "manual", "webhook", "approval", "retry"])
-      .describe("What started this run. Only `schedule` and `retry` runs are ever retried."),
+      .describe(
+        "What started this Run. Only `schedule` and `retry` Runs receive automatic retries; " +
+          "manual, webhook, and approval Runs are excluded.",
+      ),
     attempt: z.number().int().describe("1-based attempt number within a retry chain."),
     parentRunId: z.string().uuid().nullable().describe("The run this one is a retry of."),
     retryAt: z
       .string()
       .datetime()
       .nullable()
-      .describe("When the scheduler will start the next attempt. Null when none is owed."),
+      .describe(
+        "Durable due time for the next attempt. With the default attempt limit, an eligible " +
+          "newly interrupted initial scheduled Run receives exactly one recovery attempt an " +
+          "hour after Genosyn marks it interrupted. Null when none is owed or the attempt " +
+          "budget is spent.",
+      ),
     missedSlots: z
       .number()
       .int()
@@ -164,15 +172,20 @@ const RoutineColumns = z.object({
     .number()
     .int()
     .describe(
-      "Total attempts per scheduled occurrence, counting the first. 1 (default) means no " +
-        "retry. Retries are at-least-once for side effects.",
+      "Total attempts per scheduled occurrence, counting the first. 1 (default) disables " +
+        "ordinary failure and timeout retries, but a newly interrupted initial scheduled Run " +
+        "on an enabled routine without an approval gate still receives exactly one recovery " +
+        "attempt an hour after Genosyn marks it. Higher limits also bound interrupted retries " +
+        "in the same chain. Existing interrupted history is not swept. Retries are " +
+        "at-least-once for side effects.",
     ),
   retryBackoffSec: z
     .number()
     .int()
     .describe(
       "Base for full-jitter exponential backoff between attempts, capped at 6 hours. " +
-        "Inert while `maxAttempts` is 1.",
+        "At `maxAttempts: 1` it is inert; interrupted-Run recovery uses a fixed one-hour " +
+        "delay instead.",
     ),
   retryOnTimeout: z
     .boolean()

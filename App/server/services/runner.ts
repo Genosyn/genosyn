@@ -1,3 +1,4 @@
+import type { Repository } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
@@ -8,7 +9,7 @@ import { Skill } from "../db/entities/Skill.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { employeeDir, ensureDir } from "./paths.js";
 import { nextRunFor } from "./cron.js";
-import { backoffDelayMs, shouldRetry } from "./cronMath.js";
+import { automaticRetryDelayMs, automaticRetryLimit, shouldRetry } from "./cronMath.js";
 import { resolveRoutineModel } from "./models.js";
 import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
@@ -95,9 +96,20 @@ export type StartRunOptions = {
   triggerKind?: RunTrigger;
   /** 1-based attempt within a retry chain. */
   attempt?: number;
+  /** Effective ceiling for display when crash recovery extends the configured budget. */
+  attemptLimit?: number;
   parentRunId?: string | null;
   /** Occurrences this run is catching up for. See `Run.missedSlots`. */
   missedSlots?: number;
+  /**
+   * Internal scheduler seam, called at the last safe point before the Run row
+   * is inserted. Retry dispatch uses it to renew and revalidate its durable
+   * claim after all potentially slow start prerequisites have completed.
+   * Throwing aborts the start and releases any acquired workload lease.
+   *
+   * @internal
+   */
+  beforeRunPersist?: () => Promise<void>;
 };
 
 /**
@@ -112,6 +124,11 @@ export async function startRoutineRun(
   routine: Routine,
   opts: StartRunOptions = {},
 ): Promise<{ run: Run; completion: Promise<Run> }> {
+  // The Routine's timeout is an absolute wall-clock budget, not merely an
+  // agent-loop timer. Capture it before model resolution, lease acquisition,
+  // and every other start prerequisite, then persist this exact boundary.
+  const startedAt = new Date();
+  const timeoutMs = Math.max(1, routine.timeoutSec) * 1000;
   const runRepo = AppDataSource.getRepository(Run);
   const empRepo = AppDataSource.getRepository(AIEmployee);
   const coRepo = AppDataSource.getRepository(Company);
@@ -126,19 +143,13 @@ export async function startRoutineRun(
   const { model, pinned } = await resolveRoutineModel(routine);
   const skills = await skillRepo.find({ where: { employeeId: emp.id } });
   const workloadLease = model
-    ? await acquireWorkloadLease(
-        co.id,
-        emp.id,
-        "routine",
-        Math.max(1, routine.timeoutSec) * 1000 + 60_000,
-      )
+    ? await acquireWorkloadLease(co.id, emp.id, "routine", timeoutMs + 60_000)
     : null;
 
-  const now = new Date();
   const missedSlots = opts.missedSlots ?? 0;
   const run = runRepo.create({
     routineId: routine.id,
-    startedAt: now,
+    startedAt,
     status: "running",
     logContent: "",
     triggerKind: opts.triggerKind ?? "manual",
@@ -148,12 +159,17 @@ export async function startRoutineRun(
   });
   let saved: Run;
   try {
+    await opts.beforeRunPersist?.();
     saved = await runRepo.save(run);
   } catch (error) {
     await releaseWorkloadLease(workloadLease);
     throw error;
   }
+  const deadlineAtMs = saved.startedAt.getTime() + timeoutMs;
 
+  const checkpointState: { headerDurable: boolean; initialFailure?: unknown } = {
+    headerDurable: false,
+  };
   const log = new DurableRunLog({
     cap: RUN_LOG_MAX_BYTES,
     persist: async (content) => {
@@ -162,6 +178,7 @@ export async function startRoutineRun(
       await runRepo.update({ id: saved.id, status: "running" }, { logContent: content });
     },
     onCheckpointError: (error) => {
+      if (!checkpointState.headerDurable) checkpointState.initialFailure = error;
       // A later checkpoint or the final Run save will try again. The Routine
       // itself should not fail solely because one progress snapshot did.
       // eslint-disable-next-line no-console
@@ -171,7 +188,7 @@ export async function startRoutineRun(
   liveBuffers.set(saved.id, log);
   log.write(
     [
-      `[${now.toISOString()}] run started`,
+      `[${startedAt.toISOString()}] run started`,
       `routine=${routine.name} (${routine.slug})`,
       `employee=${emp.name} (${emp.slug})`,
       `company=${co.name} (${co.slug})`,
@@ -184,7 +201,7 @@ export async function startRoutineRun(
       `cron=${routine.cronExpr}`,
       `trigger=${saved.triggerKind}` +
         (saved.attempt > 1
-          ? ` (attempt ${saved.attempt} of ${routine.maxAttempts}, retry of ${saved.parentRunId})`
+          ? ` (attempt ${saved.attempt} of ${opts.attemptLimit ?? routine.maxAttempts}, retry of ${saved.parentRunId})`
           : ""),
       ...(missedSlots > 0
         ? [`missed=${missedSlots} scheduled occurrence(s) while the server was unavailable`]
@@ -195,11 +212,62 @@ export async function startRoutineRun(
   // Make the framing header durable before any model, repository, or tool work
   // begins. Even a crash inside the first checkpoint window then leaves a
   // useful starting boundary instead of an empty interrupted Run.
-  await log.flush();
+  try {
+    await log.flush();
+    // DurableRunLog reports checkpoint errors through its callback so later
+    // progress snapshots remain best-effort. The framing header is different:
+    // startRoutineRun must not report a successfully started child when its
+    // first durable boundary was never written.
+    if ("initialFailure" in checkpointState) throw checkpointState.initialFailure;
+    checkpointState.headerDurable = true;
+  } catch (err) {
+    const setupTimedOut = Date.now() >= deadlineAtMs;
+    log.line(
+      setupTimedOut
+        ? `\n[timeout] Stopped after ${routine.timeoutSec}s. Increase the routine's timeoutSec if this is expected.`
+        : `\n[error] Run setup failed before work began: ${errorMessage(err)}`,
+    );
+    saved.finishedAt = new Date();
+    saved.status = setupTimedOut ? "timeout" : "failed";
+    saved.exitCode = null;
+    stampRetry(saved, routine, log);
+    try {
+      const finalization = await finalizeRunFromRunning(runRepo, saved, log);
+      saved = finalization.run;
+      if (finalization.persisted) {
+        await settleAfterRun(routine.id, saved.finishedAt);
+      }
+    } finally {
+      liveBuffers.delete(saved.id);
+      await releaseWorkloadLease(workloadLease);
+    }
+    throw err;
+  }
 
   const completion = (async (): Promise<Run> => {
     let mcpToken: string | null = null;
+    let agentInvocationStarted = false;
+    const deadlineReached = (): boolean => Date.now() >= deadlineAtMs;
+    const finalizeTimedOutRun = async (): Promise<Run> => {
+      saved.finishedAt = new Date();
+      log.line(
+        `\n[timeout] Stopped after ${routine.timeoutSec}s. Increase the routine's timeoutSec if this is expected.`,
+      );
+      saved.status = "timeout";
+      saved.exitCode = null;
+      stampRetry(saved, routine, log);
+      const finalization = await finalizeRunFromRunning(runRepo, saved, log);
+      saved = finalization.run;
+      if (!finalization.persisted) return saved;
+      await settleAfterRun(routine.id, saved.finishedAt);
+      await journalQuietly(emp.id, routine, saved);
+      return saved;
+    };
     try {
+      if (deadlineReached()) {
+        const timedOutRun = await finalizeTimedOutRun();
+        return timedOutRun;
+      }
       mcpToken = issueMcpToken(emp.id, co.id, {
         runId: saved.id,
         routineId: routine.id,
@@ -211,9 +279,9 @@ export async function startRoutineRun(
         );
         saved.finishedAt = new Date();
         saved.status = "skipped";
-        await log.stopCheckpointing();
-        saved.logContent = log.value();
-        await runRepo.save(saved);
+        const finalization = await finalizeRunFromRunning(runRepo, saved, log);
+        saved = finalization.run;
+        if (!finalization.persisted) return saved;
         await settleAfterRun(routine.id, saved.finishedAt);
         return saved;
       }
@@ -241,6 +309,10 @@ export async function startRoutineRun(
         composeRevenueContext(emp.id),
         composeMarketingContext(emp.id),
       ]);
+      if (deadlineReached()) {
+        const timedOutRun = await finalizeTimedOutRun();
+        return timedOutRun;
+      }
       const system = composeEmployeeSystemPrompt({
         co,
         emp,
@@ -302,14 +374,21 @@ export async function startRoutineRun(
 
       log.line("");
 
-      // Overall time budget: abort the loop after the routine's timeout.
+      const remainingMs = deadlineAtMs - Date.now();
+      if (remainingMs <= 0) {
+        const timedOutRun = await finalizeTimedOutRun();
+        return timedOutRun;
+      }
+
+      // Spend only the wall-clock budget that remains after start and context
+      // setup. This timer shares the persisted Run deadline, so setup time can
+      // never silently extend the configured timeout.
       const controller = new AbortController();
       let timedOut = false;
-      const timeoutMs = Math.max(1, routine.timeoutSec) * 1000;
       const timer = setTimeout(() => {
         timedOut = true;
         controller.abort();
-      }, timeoutMs);
+      }, remainingMs);
 
       // The final answer is already written to the transcript as it streams
       // (onText below); track that so we don't append it a second time — except
@@ -317,49 +396,60 @@ export async function startRoutineRun(
       let streamedAny = false;
       let result;
       try {
-        result = await runEmployeeAgent({
-          model,
-          employeeId: emp.id,
-          system,
-          messages: [{ role: "user", content: [{ type: "text", text: userMessage }] }],
-          cwd,
-          toolEnv,
-          genosynToken: mcpToken,
-          bashTimeoutMs: Math.min(timeoutMs, 5 * 60 * 1000),
-          maxSteps: RUN_MAX_STEPS,
-          skillToolset: residentNamesForSkills(skills, unavailableSkillTools),
-          routineId: routine.id,
-          runId: saved.id,
-          signal: controller.signal,
-          callbacks: {
-            onModelRetry: (retry) =>
-              log.line(
-                `\n[model] ${retry.reason}; retrying attempt ${retry.attempt} of ${retry.maxAttempts} in ${(retry.delayMs / 1000).toFixed(1)}s`,
-              ),
-            onText: (delta) => {
-              streamedAny = true;
-              log.write(delta);
+        if (deadlineReached()) {
+          timedOut = true;
+          controller.abort();
+        } else {
+          agentInvocationStarted = true;
+          result = await runEmployeeAgent({
+            model,
+            employeeId: emp.id,
+            system,
+            messages: [{ role: "user", content: [{ type: "text", text: userMessage }] }],
+            cwd,
+            toolEnv,
+            genosynToken: mcpToken,
+            bashTimeoutMs: Math.min(remainingMs, 5 * 60 * 1000),
+            maxSteps: RUN_MAX_STEPS,
+            skillToolset: residentNamesForSkills(skills, unavailableSkillTools),
+            routineId: routine.id,
+            runId: saved.id,
+            signal: controller.signal,
+            callbacks: {
+              onModelRetry: (retry) =>
+                log.line(
+                  `\n[model] ${retry.reason}; retrying attempt ${retry.attempt} of ${retry.maxAttempts} in ${(retry.delayMs / 1000).toFixed(1)}s`,
+                ),
+              onText: (delta) => {
+                streamedAny = true;
+                log.write(delta);
+              },
+              onToolUse: (name, input) => log.line(`\n[tool] ${name} ${previewArgs(input)}`),
+              onToolResult: (name, r) => log.line(`[tool:${name}] ${r.isError ? "error" : "ok"}`),
+              onUsage: (u) => log.line(usageLine(u, model.contextWindow)),
+              onCompact: (c) => log.line(compactLine(c)),
+              onToolsTrimmed: (t) => log.line(toolTrimLine(t)),
+              onToolsDeferred: (d) => log.line(toolDeferLine(d)),
             },
-            onToolUse: (name, input) => log.line(`\n[tool] ${name} ${previewArgs(input)}`),
-            onToolResult: (name, r) => log.line(`[tool:${name}] ${r.isError ? "error" : "ok"}`),
-            onUsage: (u) => log.line(usageLine(u, model.contextWindow)),
-            onCompact: (c) => log.line(compactLine(c)),
-            onToolsTrimmed: (t) => log.line(toolTrimLine(t)),
-            onToolsDeferred: (d) => log.line(toolDeferLine(d)),
-          },
-        });
+          });
+        }
+      } catch (err) {
+        // Providers differ in whether an aborted request resolves with an
+        // error result or rejects. Both represent the same timeout verdict
+        // once the absolute deadline has passed.
+        if (!timedOut && !deadlineReached()) throw err;
       } finally {
         clearTimeout(timer);
       }
 
+      if (timedOut || deadlineReached()) {
+        const timedOutRun = await finalizeTimedOutRun();
+        return timedOutRun;
+      }
+      if (!result) throw new Error("The AI Model returned no Run result.");
+
       saved.finishedAt = new Date();
-      if (timedOut) {
-        log.line(
-          `\n[timeout] Stopped after ${routine.timeoutSec}s. Increase the routine's timeoutSec if this is expected.`,
-        );
-        saved.status = "timeout";
-        saved.exitCode = null;
-      } else if (result.status === "error") {
+      if (result.status === "error") {
         log.line(`\n[error] ${result.error}`);
         saved.status = "failed";
         saved.exitCode = null;
@@ -370,9 +460,9 @@ export async function startRoutineRun(
       }
       // Before log.value(): stampRetry writes its own transcript line.
       stampRetry(saved, routine, log);
-      await log.stopCheckpointing();
-      saved.logContent = log.value();
-      await runRepo.save(saved);
+      const finalization = await finalizeRunFromRunning(runRepo, saved, log);
+      saved = finalization.run;
+      if (!finalization.persisted) return saved;
       // Deliberately not inside the try that owns the status: a throw from
       // either of these used to fall into the catch below, which unconditionally
       // rewrote an already-persisted `completed` run to `failed`. That matters
@@ -381,26 +471,75 @@ export async function startRoutineRun(
       await journalQuietly(emp.id, routine, saved);
       return saved;
     } catch (err) {
+      if (!agentInvocationStarted && saved.status === "running" && deadlineReached()) {
+        const timedOutRun = await finalizeTimedOutRun();
+        return timedOutRun;
+      }
       log.line(`\n[error] ${err instanceof Error ? err.message : String(err)}`);
       saved.finishedAt = new Date();
       saved.status = "failed";
       saved.exitCode = null;
       stampRetry(saved, routine, log);
-      await log.stopCheckpointing();
-      saved.logContent = log.value();
-      await runRepo.save(saved);
+      const finalization = await finalizeRunFromRunning(runRepo, saved, log);
+      saved = finalization.run;
+      if (!finalization.persisted) return saved;
       await settleAfterRun(routine.id, saved.finishedAt);
       return saved;
     } finally {
       if (mcpToken) revokeMcpToken(mcpToken);
-      await releaseWorkloadLease(workloadLease);
       // Once the row has the final logContent, the live buffer is no longer the
       // source of truth — drop it so subsequent /log reads hit the DB.
       liveBuffers.delete(saved.id);
+      await releaseWorkloadLease(workloadLease);
     }
   })();
 
   return { run: saved, completion };
+}
+
+/**
+ * Persist a terminal verdict only while this process still owns the `running`
+ * row. Crash recovery performs the inverse compare-and-set, so whichever side
+ * wins cannot later be overwritten by a stale in-memory Run object.
+ */
+async function finalizeRunFromRunning(
+  runRepo: Repository<Run>,
+  run: Run,
+  log: DurableRunLog,
+): Promise<{ run: Run; persisted: boolean }> {
+  try {
+    await log.stopCheckpointing();
+  } catch (err) {
+    // The terminal compare-and-set below carries the complete in-memory log,
+    // so a failed progress checkpoint must not strand the row as `running`.
+    log.line(`\n[warn] A progress checkpoint failed while finalizing: ${errorMessage(err)}`);
+  }
+  run.logContent = log.value();
+  const result = await runRepo.update(
+    { id: run.id, status: "running" },
+    {
+      // ResourceChangeSubscriber uses this unchanged relation key to route
+      // Run updates to the correct Routine detail stream.
+      routineId: run.routineId,
+      finishedAt: run.finishedAt,
+      status: run.status,
+      logContent: run.logContent,
+      exitCode: run.exitCode,
+      retryAt: run.retryAt,
+    },
+  );
+  if (result.affected === 1) return { run, persisted: true };
+
+  // Reconciliation (or another terminal owner) won. Return the authoritative
+  // row and, critically, do not run post-completion bookkeeping for our stale
+  // verdict. A deleted Routine may have cascaded the Run away altogether; in
+  // that case the local object is safe to return but must not be persisted.
+  const current = await runRepo.findOneBy({ id: run.id });
+  return { run: current ?? run, persisted: false };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /** Short, safe preview of a tool call's arguments for the run transcript. */
@@ -590,10 +729,15 @@ function stampRetry(run: Run, routine: Routine, log: DurableRunLog): void {
   ) {
     return;
   }
-  const delay = backoffDelayMs(run.attempt, { baseMs: routine.retryBackoffSec * 1000 });
+  const delay = automaticRetryDelayMs({
+    status: run.status,
+    attempt: run.attempt,
+    maxAttempts: routine.maxAttempts,
+    baseMs: routine.retryBackoffSec * 1000,
+  });
   run.retryAt = new Date(Date.now() + delay);
   log.line(
-    `\n[retry] attempt ${run.attempt + 1} of ${routine.maxAttempts} scheduled in ~${Math.round(delay / 1000)}s`,
+    `\n[retry] attempt ${run.attempt + 1} of ${automaticRetryLimit(run.status, routine.maxAttempts)} scheduled in ~${Math.round(delay / 1000)}s`,
   );
 }
 

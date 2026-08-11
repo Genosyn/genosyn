@@ -37,6 +37,14 @@ export const STALE_SLOT_MS = 60 * 1000;
 export const RETRY_MAX_BACKOFF_MS = 6 * 60 * 60 * 1000;
 
 /**
+ * Default pause before the one crash-recovery attempt owed to an interrupted
+ * scheduled Run. This applies only when the routine has not opted into its own
+ * retry budget (`maxAttempts === 1`); configured retry chains keep using their
+ * operator-selected jitter/backoff.
+ */
+export const INTERRUPTED_RECOVERY_DELAY_MS = 60 * 60 * 1000;
+
+/**
  * How many scheduled occurrences elapsed strictly after `after` and at or
  * before `until` — i.e. how much work a catch-up run is standing in for.
  *
@@ -107,12 +115,41 @@ export function backoffDelayMs(
   opts: { baseMs: number; maxMs?: number; rng?: () => number },
 ): number {
   const exp = Math.min(Math.max(0, Math.floor(attempt) - 1), 30);
-  const ceiling = Math.min(
-    opts.maxMs ?? RETRY_MAX_BACKOFF_MS,
-    Math.max(0, opts.baseMs) * 2 ** exp,
-  );
+  const ceiling = Math.min(opts.maxMs ?? RETRY_MAX_BACKOFF_MS, Math.max(0, opts.baseMs) * 2 ** exp);
   const rng = opts.rng ?? Math.random;
   return Math.max(0, Math.floor(rng() * ceiling));
+}
+
+/**
+ * Effective attempt ceiling for a terminal Run.
+ *
+ * Ordinary failures preserve the configured budget exactly. An interrupted
+ * scheduled Run gets one bounded recovery attempt even on the default
+ * `maxAttempts = 1`, so its effective ceiling is two. Keeping this calculation
+ * in one place prevents logs and journals from saying "attempt 2 of 1".
+ */
+export function automaticRetryLimit(status: RunStatus, maxAttempts: number): number {
+  return status === "interrupted" ? Math.max(2, maxAttempts) : maxAttempts;
+}
+
+/**
+ * Delay before the next automatic attempt.
+ *
+ * The implicit crash-recovery attempt waits a predictable hour. Once an
+ * operator raises `maxAttempts`, the routine's existing full-jitter backoff
+ * remains authoritative for failures, timeouts, and interruptions alike.
+ */
+export function automaticRetryDelayMs(a: {
+  status: RunStatus;
+  attempt: number;
+  maxAttempts: number;
+  baseMs: number;
+  rng?: () => number;
+}): number {
+  if (a.status === "interrupted" && a.maxAttempts <= 1) {
+    return INTERRUPTED_RECOVERY_DELAY_MS;
+  }
+  return backoffDelayMs(a.attempt, { baseMs: a.baseMs, rng: a.rng });
 }
 
 /**
@@ -130,8 +167,9 @@ export function shouldRetry(a: {
   maxAttempts: number;
   retryOnTimeout: boolean;
 }): boolean {
-  if (a.maxAttempts <= 1 || a.attempt >= a.maxAttempts) return false;
   if (a.triggerKind !== "schedule" && a.triggerKind !== "retry") return false;
+  const attemptLimit = automaticRetryLimit(a.status, a.maxAttempts);
+  if (attemptLimit <= 1 || a.attempt >= attemptLimit) return false;
   if (a.status === "failed" || a.status === "interrupted") return true;
   if (a.status === "timeout") return a.retryOnTimeout;
   return false;

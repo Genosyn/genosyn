@@ -122,8 +122,11 @@ export function Routines() {
             def: (
               <>
                 Total attempts per scheduled occurrence, counting the first. <Strong>1</Strong> by
-                default — no retry. Paired with <Code>retryBackoffSec</Code> and{" "}
-                <Code>retryOnTimeout</Code>.
+                default — failed and timed-out Runs do not retry, while a newly interrupted initial
+                scheduled Run on an enabled routine without an approval gate still receives one
+                recovery attempt an hour after Genosyn marks it. Higher limits also bound
+                interrupted retries later in the same chain. Paired with{" "}
+                <Code>retryBackoffSec</Code> and <Code>retryOnTimeout</Code>.
               </>
             ),
           },
@@ -339,6 +342,20 @@ Verify the three results, resolve any disagreement, then post one concise brief 
         that line, which is exactly why the status is its own word and not <Code>failed</Code>.
       </P>
       <P>
+        When Genosyn marks an initial scheduled Run on an enabled routine interrupted, it also
+        records a durable recovery retry. At the default <Strong>1 attempt</Strong>, exactly one
+        recovery attempt becomes due an hour later. Raising Attempts lets later interruptions in
+        that retry chain continue with the routine&apos;s configured jittered backoff, up to the
+        five-attempt cap. Manual &quot;Run now,&quot; webhook, and approval Runs are excluded.
+        Pausing the routine or adding an approval gate before dispatch cancels the automatic
+        attempt.
+      </P>
+      <Callout kind="info" title="Recovery starts with newly interrupted Runs.">
+        Upgrading does not sweep old interrupted history and replay it. Only a scheduled or retry
+        Run that Genosyn marks interrupted after this recovery behavior is active receives the
+        automatic attempt.
+      </Callout>
+      <P>
         The same pass releases the <Strong>workload lease</Strong> the dead run was holding. That
         matters more than the status: without it the dead Run keeps consuming one of the
         company&apos;s concurrent workload slots until the lease expires — up to an hour on the
@@ -367,22 +384,26 @@ Verify the three results, resolve any disagreement, then post one concise brief 
 
       <H3 id="retries">Retries</H3>
       <P>
-        <Strong>Off by default.</Strong> Raise <Strong>Attempts</Strong> above 1 in the
-        routine&apos;s Settings and a run that <Code>failed</Code> or was <Code>interrupted</Code>{" "}
-        is re-attempted automatically, up to 5 attempts, waiting a randomized, doubling interval
-        between each (from <Strong>Retry backoff</Strong>, capped at six hours). Timeouts are opted
-        in separately, because retrying one re-burns the routine&apos;s whole time budget.
+        Retries after <Code>failed</Code> Runs are <Strong>off by default.</Strong> Raise{" "}
+        <Strong>Attempts</Strong> above 1 in the routine&apos;s Settings to retry them
+        automatically, up to 5 attempts, waiting a randomized, doubling interval between each (from{" "}
+        <Strong>Retry backoff</Strong>, capped at six hours). Timeouts are opted in separately,
+        because retrying one re-burns the routine&apos;s whole time budget. An interrupted initial
+        scheduled Run on an enabled routine without an approval gate is the safety exception: even
+        at 1 attempt, it receives one recovery attempt after an hour. Above 1, interrupted retries
+        use the configured bounded backoff until the chain reaches its cap.
       </P>
       <Callout kind="warn" title="Retries are at-least-once.">
-        An interrupted run may already have sent the email, posted the update, or moved the money
-        before the process died — Genosyn can&apos;t know. The retry will do it again. Only raise
-        Attempts on routines whose actions are safe to repeat.
+        An interrupted Run may already have sent the email, posted the update, or moved the money
+        before the process died — Genosyn can&apos;t know. The recovery attempt may do it again.
+        Make routine actions safe to repeat, or use <Strong>Cancel retry</Strong> on the Run before
+        its retry becomes due.
       </Callout>
       <UL>
         <LI>
-          Only <Strong>scheduled</Strong> runs retry. A manual &quot;Run now,&quot; a webhook, or an
-          approved run had someone present who saw the outcome, so nothing respawns behind their
-          back.
+          Only <Strong>scheduled</Strong> Runs and Runs created by an automatic retry are eligible.
+          A manual &quot;Run now,&quot; a webhook, or an approved Run had someone present who saw
+          the outcome, so nothing respawns behind their back.
         </LI>
         <LI>
           A run with a retry pending stays out of the Home <Strong>Failed routines</Strong> panel

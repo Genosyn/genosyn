@@ -2,6 +2,7 @@ import React from "react";
 import { Link, useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
+  Ban,
   BrainCircuit,
   Clock,
   Copy,
@@ -82,11 +83,7 @@ export default function RoutineDetail({ company }: { company: Company }) {
   const deepLinkedRun = searchParams.get("run");
   const tabParam = searchParams.get("tab") as Tab | null;
   const tab: Tab =
-    tabParam && TABS.some(([t]) => t === tabParam)
-      ? tabParam
-      : deepLinkedRun
-        ? "runs"
-        : "overview";
+    tabParam && TABS.some(([t]) => t === tabParam) ? tabParam : deepLinkedRun ? "runs" : "overview";
 
   function setTab(next: Tab) {
     setSearchParams(
@@ -224,8 +221,8 @@ export default function RoutineDetail({ company }: { company: Company }) {
             <div className="font-medium">This routine never fires.</div>
             <div className="text-xs">
               It&apos;s enabled, but no next run could be computed from{" "}
-              <code className="font-mono">{routine.cronExpr}</code>. Edit the schedule
-              under Settings, or run it manually.
+              <code className="font-mono">{routine.cronExpr}</code>. Edit the schedule under
+              Settings, or run it manually.
             </div>
           </div>
         </div>
@@ -265,9 +262,7 @@ export default function RoutineDetail({ company }: { company: Company }) {
           onRetry={triggerRun}
         />
       )}
-      {tab === "settings" && (
-        <SettingsTab company={company} routine={routine} onSaved={refresh} />
-      )}
+      {tab === "settings" && <SettingsTab company={company} routine={routine} onSaved={refresh} />}
 
       {activeRun && (
         <RunLiveModal
@@ -433,7 +428,9 @@ function OverviewTab({
           </Row>
           <Row icon={<RefreshCw size={14} />} label="Retries">
             {(routine.maxAttempts ?? 1) <= 1
-              ? "Off"
+              ? routine.enabled && !routine.requiresApproval
+                ? "Interrupted scheduled Runs retry once after 1h"
+                : "Automatic recovery is off while paused or approval-gated"
               : `Up to ${routine.maxAttempts} attempts, from ${formatTimeout(
                   routine.retryBackoffSec ?? 60,
                 )}`}
@@ -583,8 +580,8 @@ function BriefTab({ company, routine }: { company: Company; routine: RoutineWith
     <Card>
       <CardBody className="flex flex-col gap-3">
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          What this employee should actually do each time the routine fires. Folded
-          into the prompt on every run.
+          What this employee should actually do each time the routine fires. Folded into the prompt
+          on every run.
         </p>
         <MarkdownEditor value={content} onChange={setContent} rows={18} />
         <div className="flex items-center gap-2">
@@ -626,9 +623,7 @@ function RunsTab({
 
   const loadRuns = React.useCallback(async () => {
     try {
-      const list = await api.get<Run[]>(
-        `/api/companies/${company.id}/routines/${routine.id}/runs`,
-      );
+      const list = await api.get<Run[]>(`/api/companies/${company.id}/routines/${routine.id}/runs`);
       setRuns(list);
       setActiveId((current) => {
         // Keep the run the human is looking at selected across a live refetch;
@@ -657,6 +652,7 @@ function RunsTab({
       return;
     }
     setLoadingLog(true);
+    setLog(null);
     let cancelled = false;
     (async () => {
       try {
@@ -690,6 +686,27 @@ function RunsTab({
   }
 
   const activeRun = runs.find((r) => r.id === activeId) ?? null;
+  // The Runs list is live-refetched; the selected log is a one-shot snapshot
+  // once terminal. Let the list own queue state so a dispatched retry cannot
+  // leave behind a stale Cancel action.
+  const pendingRetryAt = activeRun?.retryAt ?? null;
+
+  async function cancelActiveRetry() {
+    if (!activeRun || !pendingRetryAt) return;
+    try {
+      await api.post(`/api/companies/${company.id}/runs/${activeRun.id}/cancel-retry`, {});
+      setRuns(
+        (current) =>
+          current?.map((run) => (run.id === activeRun.id ? { ...run, retryAt: null } : run)) ??
+          null,
+      );
+      setLog((current) => (current ? { ...current, retryAt: null } : current));
+      toast("Automatic retry cancelled", "success");
+    } catch (err) {
+      toast((err as Error).message, "error");
+      await loadRuns();
+    }
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -753,15 +770,25 @@ function RunsTab({
       </div>
       <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
         <div className="text-xs text-slate-500 dark:text-slate-400">
-          {activeRun?.status === "interrupted"
-            ? "The log above shows activity captured before the server stopped; anything after its final line is unknown. Retry to run it again now."
-            : activeRun && (activeRun.status === "failed" || activeRun.status === "timeout")
-              ? "This run didn't finish cleanly. Retry to run the routine again now."
-              : "Showing the 50 most recent runs."}
+          {pendingRetryAt
+            ? `Automatic recovery is scheduled ${timeUntil(pendingRetryAt)}. Cancel it before running manually to avoid two Runs.`
+            : activeRun?.status === "interrupted"
+              ? "The log above shows activity captured before the server stopped; anything after its final line is unknown. Run it again only if repeating the work is safe."
+              : activeRun && (activeRun.status === "failed" || activeRun.status === "timeout")
+                ? "This run didn't finish cleanly. Retry to run the routine again now."
+                : "Showing the 50 most recent runs."}
         </div>
-        <Button variant="secondary" onClick={onRetry}>
-          <Play size={14} /> Run now
-        </Button>
+        <div className="flex shrink-0 gap-2">
+          {pendingRetryAt ? (
+            <Button variant="secondary" onClick={cancelActiveRetry}>
+              <Ban size={14} /> Cancel retry
+            </Button>
+          ) : (
+            <Button variant="secondary" onClick={onRetry}>
+              <Play size={14} /> Run now
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -787,9 +814,7 @@ function SettingsTab({
   const [cronExpr, setCronExpr] = React.useState(routine.cronExpr);
   const [enabled, setEnabled] = React.useState(routine.enabled);
   const [timeoutSec, setTimeoutSec] = React.useState(routine.timeoutSec ?? 3600);
-  const [requiresApproval, setRequiresApproval] = React.useState(
-    routine.requiresApproval ?? false,
-  );
+  const [requiresApproval, setRequiresApproval] = React.useState(routine.requiresApproval ?? false);
   // "" is the inherit choice — the routine follows the employee's active model.
   const [modelId, setModelId] = React.useState(routine.modelId ?? "");
   const [models, setModels] = React.useState<AIModel[] | null>(null);
@@ -999,8 +1024,8 @@ function SettingsTab({
               ))}
             </div>
             <div className="text-xs text-slate-500 dark:text-slate-400">
-              Inherit uses the employee&apos;s Browser access setting. An override applies
-              only to this routine&apos;s runs.
+              Inherit uses the employee&apos;s Browser access setting. An override applies only to
+              this routine&apos;s runs.
             </div>
           </div>
         </CardBody>
@@ -1037,9 +1062,9 @@ function SettingsTab({
               ))}
             </div>
             <div className="text-xs text-slate-500 dark:text-slate-400">
-              A routine fires once after an outage, never once per missed slot. Skip
-              suppresses that catch-up run when the slot is already more than a minute late
-              — for work that&apos;s only useful on time.
+              A routine fires once after an outage, never once per missed slot. Skip suppresses that
+              catch-up run when the slot is already more than a minute late — for work that&apos;s
+              only useful on time.
             </div>
           </div>
 
@@ -1050,12 +1075,16 @@ function SettingsTab({
               min={1}
               max={5}
               value={String(maxAttempts)}
-              onChange={(e) => setMaxAttempts(Math.min(5, Math.max(1, Number(e.target.value) || 1)))}
+              onChange={(e) =>
+                setMaxAttempts(Math.min(5, Math.max(1, Number(e.target.value) || 1)))
+              }
             />
             <div className="text-xs text-slate-500 dark:text-slate-400">
-              Counting the first. 1 means no retry. A retry re-runs the whole brief, so only
-              raise this on routines whose actions are safe to repeat — an interrupted run may
-              already have sent the email.
+              Counting the first. At 1, failed and timed-out Runs do not retry, but an initial
+              scheduled Run on an enabled routine without an approval gate still receives one
+              recovery attempt after an hour if a restart interrupts it. Retries re-run the whole
+              brief and are at-least-once — an interrupted Run may already have sent the email. Use
+              Cancel retry on the Run if repeating its actions would be unsafe.
             </div>
           </div>
 
@@ -1067,13 +1096,11 @@ function SettingsTab({
               max={21600}
               disabled={maxAttempts <= 1}
               value={String(retryBackoffSec)}
-              onChange={(e) =>
-                setRetryBackoffSec(Math.max(10, Number(e.target.value) || 60))
-              }
+              onChange={(e) => setRetryBackoffSec(Math.max(10, Number(e.target.value) || 60))}
             />
             <div className="text-xs text-slate-500 dark:text-slate-400">
               {maxAttempts <= 1
-                ? "Inert while attempts is 1."
+                ? "Interrupted Runs use a fixed one-hour recovery delay while Attempts is 1."
                 : `Doubles each attempt with jitter — roughly ${backoffPreview(retryBackoffSec, maxAttempts)}.`}
             </div>
           </div>
@@ -1089,7 +1116,7 @@ function SettingsTab({
               Retry runs that timed out
             </label>
             <div className="text-xs text-slate-500 dark:text-slate-400">
-              Off by default: a timed-out run re-burns its full time budget on the retry.
+              Off by default: a timed-out Run re-burns its full time budget on the retry.
             </div>
           </div>
         </CardBody>
@@ -1122,8 +1149,8 @@ function SettingsTab({
             )}
           </div>
           <div className="text-xs text-slate-500 dark:text-slate-400">
-            External systems POST here to fire this routine. The URL itself is the
-            credential — keep it secret. This one saves immediately.
+            External systems POST here to fire this routine. The URL itself is the credential — keep
+            it secret. This one saves immediately.
           </div>
           {webhookUrl && (
             <div className="flex items-center gap-1">

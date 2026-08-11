@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  INTERRUPTED_RECOVERY_DELAY_MS,
   ORPHAN_GRACE_MS,
   RETRY_MAX_BACKOFF_MS,
+  automaticRetryDelayMs,
+  automaticRetryLimit,
   backoffDelayMs,
   countMissedSlots,
   isRunOrphaned,
@@ -14,37 +17,57 @@ const HOURLY = "0 * * * *";
 const at = (iso: string): Date => new Date(iso);
 
 test("counts no missed slots when the window is empty or inverted", () => {
-  assert.deepEqual(countMissedSlots(HOURLY, at("2026-01-01T10:00:00Z"), at("2026-01-01T10:00:00Z"), 100), {
-    count: 0,
-    capped: false,
-  });
-  assert.deepEqual(countMissedSlots(HOURLY, at("2026-01-01T12:00:00Z"), at("2026-01-01T10:00:00Z"), 100), {
-    count: 0,
-    capped: false,
-  });
+  assert.deepEqual(
+    countMissedSlots(HOURLY, at("2026-01-01T10:00:00Z"), at("2026-01-01T10:00:00Z"), 100),
+    {
+      count: 0,
+      capped: false,
+    },
+  );
+  assert.deepEqual(
+    countMissedSlots(HOURLY, at("2026-01-01T12:00:00Z"), at("2026-01-01T10:00:00Z"), 100),
+    {
+      count: 0,
+      capped: false,
+    },
+  );
 });
 
 test("counts occurrences strictly after the due slot and up to now", () => {
   // 10:00 is the slot being served, so it isn't counted; 30 minutes later
   // nothing else has come due.
-  assert.deepEqual(countMissedSlots(HOURLY, at("2026-01-01T10:00:00Z"), at("2026-01-01T10:30:00Z"), 100), {
-    count: 0,
-    capped: false,
-  });
+  assert.deepEqual(
+    countMissedSlots(HOURLY, at("2026-01-01T10:00:00Z"), at("2026-01-01T10:30:00Z"), 100),
+    {
+      count: 0,
+      capped: false,
+    },
+  );
   // 11:00 through 15:00 elapsed while we were down.
-  assert.deepEqual(countMissedSlots(HOURLY, at("2026-01-01T10:00:00Z"), at("2026-01-01T15:01:00Z"), 100), {
-    count: 5,
-    capped: false,
-  });
+  assert.deepEqual(
+    countMissedSlots(HOURLY, at("2026-01-01T10:00:00Z"), at("2026-01-01T15:01:00Z"), 100),
+    {
+      count: 5,
+      capped: false,
+    },
+  );
   // A slot landing exactly on `until` is included.
-  assert.deepEqual(countMissedSlots(HOURLY, at("2026-01-01T10:00:00Z"), at("2026-01-01T11:00:00Z"), 100), {
-    count: 1,
-    capped: false,
-  });
+  assert.deepEqual(
+    countMissedSlots(HOURLY, at("2026-01-01T10:00:00Z"), at("2026-01-01T11:00:00Z"), 100),
+    {
+      count: 1,
+      capped: false,
+    },
+  );
 });
 
 test("caps the missed-slot count instead of enumerating a week of minutes", () => {
-  const res = countMissedSlots("* * * * *", at("2026-01-01T00:00:00Z"), at("2026-01-02T00:00:00Z"), 100);
+  const res = countMissedSlots(
+    "* * * * *",
+    at("2026-01-01T00:00:00Z"),
+    at("2026-01-02T00:00:00Z"),
+    100,
+  );
   assert.equal(res.count, 100);
   assert.equal(res.capped, true);
 });
@@ -52,10 +75,13 @@ test("caps the missed-slot count instead of enumerating a week of minutes", () =
 test("treats an unschedulable expression as zero missed slots, not a throw", () => {
   // node-cron's validate() accepts this, so routines.ts used to let it through;
   // cron-parser throws on it. The heartbeat must not die on that.
-  assert.deepEqual(countMissedSlots("5-1 9 * * *", at("2026-01-01T00:00:00Z"), at("2026-01-02T00:00:00Z"), 100), {
-    count: 0,
-    capped: false,
-  });
+  assert.deepEqual(
+    countMissedSlots("5-1 9 * * *", at("2026-01-01T00:00:00Z"), at("2026-01-02T00:00:00Z"), 100),
+    {
+      count: 0,
+      capped: false,
+    },
+  );
 });
 
 test("only calls a slot stale once it is past the grace window", () => {
@@ -126,12 +152,37 @@ const base = {
   retryOnTimeout: false,
 };
 
-test("never retries on the default settings", () => {
-  // The load-bearing assertion for the upgrade: an install nobody has touched
-  // behaves exactly as it did before retries existed.
-  for (const status of ["running", "completed", "failed", "skipped", "timeout", "interrupted"] as const) {
+test("default settings grant only one recovery attempt to interrupted scheduled Runs", () => {
+  for (const status of ["running", "completed", "failed", "skipped", "timeout"] as const) {
     assert.equal(shouldRetry({ ...base, status, maxAttempts: 1 }), false);
   }
+  assert.equal(shouldRetry({ ...base, status: "interrupted", maxAttempts: 1 }), true);
+  assert.equal(shouldRetry({ ...base, status: "interrupted", maxAttempts: 1, attempt: 2 }), false);
+  assert.equal(automaticRetryLimit("interrupted", 1), 2);
+  assert.equal(automaticRetryLimit("failed", 1), 1);
+});
+
+test("uses a fixed hour for implicit interruption recovery and configured jitter otherwise", () => {
+  assert.equal(
+    automaticRetryDelayMs({
+      status: "interrupted",
+      attempt: 1,
+      maxAttempts: 1,
+      baseMs: 10_000,
+      rng: () => 0,
+    }),
+    INTERRUPTED_RECOVERY_DELAY_MS,
+  );
+  assert.equal(
+    automaticRetryDelayMs({
+      status: "interrupted",
+      attempt: 1,
+      maxAttempts: 3,
+      baseMs: 10_000,
+      rng: () => 0.5,
+    }),
+    5_000,
+  );
 });
 
 test("retries failed and interrupted runs, but not clean or skipped ones", () => {
@@ -156,6 +207,15 @@ test("stops once the attempt budget is spent", () => {
 test("leaves human- and caller-triggered runs alone", () => {
   for (const triggerKind of ["manual", "webhook", "approval"] as const) {
     assert.equal(shouldRetry({ ...base, status: "failed", triggerKind }), false);
+    assert.equal(
+      shouldRetry({
+        ...base,
+        status: "interrupted",
+        triggerKind,
+        maxAttempts: 1,
+      }),
+      false,
+    );
   }
   // A retry may itself be retried, up to the budget.
   assert.equal(shouldRetry({ ...base, status: "failed", triggerKind: "retry" }), true);

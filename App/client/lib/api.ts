@@ -341,9 +341,18 @@ export type Routine = {
    * Missed slots are never replayed one-for-one.
    */
   catchUpPolicy?: CatchUpPolicy;
-  /** Total attempts per occurrence, counting the first. 1 means no retry. */
+  /**
+   * Total attempts per scheduled occurrence, counting the first. `1` disables
+   * ordinary failure/timeout retries, but an initial scheduled Run on an
+   * enabled routine without an approval gate still receives one recovery
+   * attempt an hour after it is marked interrupted. Higher limits also bound
+   * interrupted retries in the same chain.
+   */
   maxAttempts?: number;
-  /** Base for full-jitter exponential backoff. Inert while `maxAttempts` is 1. */
+  /**
+   * Base for full-jitter exponential backoff. At `maxAttempts: 1` it is inert;
+   * the single interrupted-Run recovery uses a fixed one-hour delay instead.
+   */
   retryBackoffSec?: number;
   /**
    * Whether a `timeout` is retryable. Off by default — a retry re-burns the
@@ -421,8 +430,12 @@ export type RunStatus =
   | "failed"
   | "skipped"
   | "timeout"
-  /** The server stopped while this run was executing. */
+  /**
+   * The server stopped while this Run was executing. Newly interrupted
+   * scheduled/retry Runs are eligible for durable automatic recovery.
+   */
   | "interrupted";
+/** Manual, webhook, and approval Runs never receive automatic retries. */
 export type RunTrigger = "schedule" | "manual" | "webhook" | "approval" | "retry";
 export type Run = {
   id: string;
@@ -435,7 +448,12 @@ export type Run = {
   triggerKind?: RunTrigger;
   /** 1-based attempt within a retry chain. */
   attempt?: number;
-  /** When the scheduler will start the next attempt. Null when none is owed. */
+  /**
+   * Durable due time for the next attempt. At the default attempt limit, an
+   * eligible interrupted initial scheduled Run receives exactly one due an
+   * hour later. Null when no attempt is owed or the chain has spent its attempt
+   * budget.
+   */
   retryAt?: string | null;
   /** Occurrences missed during downtime that this run stands in for. */
   missedSlots?: number;

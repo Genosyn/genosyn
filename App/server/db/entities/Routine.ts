@@ -136,10 +136,15 @@ export class Routine {
 
   /**
    * Total attempts for one scheduled occurrence, counting the first. `1`
-   * (default) means no retry — the historical behaviour. Capped at 5 by the
-   * API.
+   * (default) disables ordinary failure and timeout retries. An initial
+   * scheduled Run on an enabled routine without an approval gate that Genosyn
+   * newly marks `interrupted` is the safety exception: at this default it
+   * receives exactly one durable recovery attempt after an hour. Higher
+   * configured limits also bound interruptions later in that retry chain.
+   * Existing interrupted history is never swept. The configured limit is
+   * capped at 5 by the API.
    *
-   * Retries are **at-least-once** for side effects: a run that sent an email
+   * Retries are **at-least-once** for side effects: a Run that sent an email
    * and then died will send it again. Only raise this on routines whose work
    * is safe to repeat.
    */
@@ -149,7 +154,8 @@ export class Routine {
   /**
    * Base for full-jitter exponential backoff between attempts: the wait before
    * attempt N is a random slice of `retryBackoffSec * 2^(N-1)`, capped at six
-   * hours. Inert while `maxAttempts` is 1.
+   * hours. At `maxAttempts: 1` this field is inert; the single interrupted-Run
+   * recovery uses a fixed one-hour delay instead.
    */
   @Column({ type: "integer", default: 60 })
   retryBackoffSec!: number;

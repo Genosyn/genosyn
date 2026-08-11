@@ -1,10 +1,15 @@
-import { In, LessThanOrEqual, Not } from "typeorm";
+import { Between, In, LessThanOrEqual, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Run } from "../db/entities/Run.js";
 import { Routine } from "../db/entities/Routine.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { WorkloadLease } from "../db/entities/WorkloadLease.js";
-import { backoffDelayMs, isRunOrphaned, shouldRetry } from "./cronMath.js";
+import {
+  automaticRetryDelayMs,
+  automaticRetryLimit,
+  isRunOrphaned,
+  shouldRetry,
+} from "./cronMath.js";
 import { config } from "../../config.js";
 
 /**
@@ -45,6 +50,88 @@ export type RunRecoveryResult = {
 };
 
 /**
+ * Durable claim stored in `retryAt` while a scheduler owns dispatch.
+ *
+ * Claim dates live in a reserved historical window and encode when the claim
+ * was taken. That gives the compare-and-set a distinct value per dispatch,
+ * while a claim abandoned by a dead scheduler becomes eligible again after a
+ * short lease. A member-facing cancellation refuses an active claim, so either
+ * cancellation or dispatch wins — never both.
+ */
+export const RETRY_DISPATCH_CLAIM_TTL_MS = 5 * 60 * 1000;
+const RETRY_DISPATCH_CLAIM_STORAGE_MS = Date.UTC(1900, 0, 1);
+const RETRY_DISPATCH_CLAIM_CLOCK_MS = Date.UTC(2020, 0, 1);
+const RETRY_DISPATCH_CLAIM_END_MS = Date.UTC(2000, 0, 1);
+
+export function isRetryDispatchClaimed(retryAt: Date | null): boolean {
+  const value = retryAt?.getTime();
+  return (
+    value !== undefined &&
+    value >= RETRY_DISPATCH_CLAIM_STORAGE_MS &&
+    value < RETRY_DISPATCH_CLAIM_END_MS
+  );
+}
+
+function retryDispatchClaimDate(claimedAt: Date): Date {
+  return new Date(
+    RETRY_DISPATCH_CLAIM_STORAGE_MS + (claimedAt.getTime() - RETRY_DISPATCH_CLAIM_CLOCK_MS),
+  );
+}
+
+/** Atomically claim one observed queue stamp. */
+export async function claimRetryDispatch(
+  runId: string,
+  expectedRetryAt: Date,
+  claimedAt: Date = new Date(),
+): Promise<Date | null> {
+  const claim = retryDispatchClaimDate(claimedAt);
+  const result = await AppDataSource.getRepository(Run).update(
+    { id: runId, retryAt: expectedRetryAt },
+    { retryAt: claim },
+  );
+  return result.affected === 1 ? claim : null;
+}
+
+/** Release a claim to either a later due time or the completed `null` state. */
+export async function settleRetryDispatchClaim(
+  runId: string,
+  routineId: string,
+  claim: Date,
+  nextRetryAt: Date | null,
+): Promise<boolean> {
+  const result = await AppDataSource.getRepository(Run).update(
+    { id: runId, retryAt: claim },
+    { routineId, retryAt: nextRetryAt },
+  );
+  return result.affected === 1;
+}
+
+export type CancelPendingRetryResult = "cancelled" | "none" | "dispatching" | "changed";
+
+/**
+ * Cancel a queued retry with a compare-and-set so dispatch and cancellation
+ * have a deterministic winner. The short retry handles a capacity deferral
+ * moving `retryAt` between the route's read and write.
+ */
+export async function cancelPendingRetry(runId: string): Promise<CancelPendingRetryResult> {
+  const repo = AppDataSource.getRepository(Run);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const run = await repo.findOneBy({ id: runId });
+    if (!run?.retryAt) return "none";
+    // A stale claim is recovered by the scheduler, never cancelled directly:
+    // the original dispatcher may still resume. Refusing every claim means a
+    // member is only told "cancelled" when no claimed dispatcher can start it.
+    if (isRetryDispatchClaimed(run.retryAt)) return "dispatching";
+    const result = await repo.update(
+      { id: run.id, retryAt: run.retryAt },
+      { routineId: run.routineId, retryAt: null },
+    );
+    if (result.affected === 1) return "cancelled";
+  }
+  return "changed";
+}
+
+/**
  * Mark crash-orphaned `running` Runs `interrupted`, stamp a retry on the ones
  * that are owed another attempt, and clear the workload leases they stranded.
  *
@@ -83,7 +170,8 @@ export async function reconcileOrphanedRuns(opts?: {
 
       let retryDelayMs: number | null = null;
       if (
-        routine &&
+        routine?.enabled &&
+        !routine.requiresApproval &&
         shouldRetry({
           status: "interrupted",
           triggerKind: run.triggerKind,
@@ -92,16 +180,40 @@ export async function reconcileOrphanedRuns(opts?: {
           retryOnTimeout: routine.retryOnTimeout,
         })
       ) {
-        retryDelayMs = backoffDelayMs(run.attempt, { baseMs: routine.retryBackoffSec * 1000 });
+        retryDelayMs = automaticRetryDelayMs({
+          status: "interrupted",
+          attempt: run.attempt,
+          maxAttempts: routine.maxAttempts,
+          baseMs: routine.retryBackoffSec * 1000,
+        });
         run.retryAt = new Date(now.getTime() + retryDelayMs);
-        result.retriesScheduled += 1;
       }
-      // One save so a second crash cannot land the terminal status without the
-      // retry that goes with it.
-      await runRepo.save(run);
+      // One conditional write so a second crash cannot land the terminal
+      // status without its retry, and a live sibling that finalized first can
+      // never be overwritten back to `interrupted`.
+      const recovered = await runRepo.update(
+        { id: run.id, status: "running" },
+        {
+          status: run.status,
+          routineId: run.routineId,
+          exitCode: run.exitCode,
+          finishedAt: run.finishedAt,
+          logContent: run.logContent,
+          retryAt: run.retryAt,
+        },
+      );
+      if (recovered.affected !== 1) continue;
+      if (retryDelayMs !== null) result.retriesScheduled += 1;
       result.interrupted += 1;
 
-      if (routine) await journalInterrupted(routine, run, retryDelayMs);
+      if (routine) {
+        await journalInterrupted(routine, run, retryDelayMs).catch((error) => {
+          // The Run and its durable retry are already saved. A journal outage
+          // must not abort reconciliation and strand later orphaned Runs.
+          // eslint-disable-next-line no-console
+          console.error(`[recovery] failed to journal interrupted run ${run.id}:`, error);
+        });
+      }
     }
   }
 
@@ -121,8 +233,20 @@ export async function reconcileOrphanedRuns(opts?: {
  * the order it was created rather than by whatever the DB returns.
  */
 export async function findDueRetries(now: Date, take: number): Promise<Run[]> {
+  const staleClaimCutoff = retryDispatchClaimDate(
+    new Date(now.getTime() - RETRY_DISPATCH_CLAIM_TTL_MS),
+  );
   return AppDataSource.getRepository(Run).find({
-    where: { retryAt: LessThanOrEqual(now), status: Not("running") },
+    where: [
+      {
+        retryAt: Between(new Date(RETRY_DISPATCH_CLAIM_END_MS), now),
+        status: Not("running"),
+      },
+      {
+        retryAt: Between(new Date(RETRY_DISPATCH_CLAIM_STORAGE_MS), staleClaimCutoff),
+        status: Not("running"),
+      },
+    ],
     order: { retryAt: "ASC" },
     take,
   });
@@ -156,8 +280,12 @@ async function journalInterrupted(
   const repo = AppDataSource.getRepository(JournalEntry);
   const body =
     retryDelayMs === null
-      ? "The run is marked interrupted. Nothing was retried — this routine allows one attempt."
-      : `A retry is scheduled in about ${Math.max(1, Math.round(retryDelayMs / 1000))}s (attempt ${run.attempt + 1} of ${routine.maxAttempts}).`;
+      ? !routine.enabled
+        ? "The run is marked interrupted. No recovery was scheduled because the routine is disabled."
+        : routine.requiresApproval
+          ? "The run is marked interrupted. No recovery was scheduled because the routine now requires approval."
+          : "The run is marked interrupted. Its automatic recovery attempt budget is exhausted."
+      : `A retry is scheduled in about ${Math.max(1, Math.round(retryDelayMs / 1000))}s (attempt ${run.attempt + 1} of ${automaticRetryLimit("interrupted", routine.maxAttempts)}).`;
   await repo.save(
     repo.create({
       employeeId: routine.employeeId,

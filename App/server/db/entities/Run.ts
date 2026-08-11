@@ -1,13 +1,7 @@
 import { dateTimeColumnType } from "./columnTypes.js";
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
-export type RunStatus =
-  | "running"
-  | "completed"
-  | "failed"
-  | "skipped"
-  | "timeout"
-  | "interrupted";
+export type RunStatus = "running" | "completed" | "failed" | "skipped" | "timeout" | "interrupted";
 
 /**
  * What caused a Run to start. Only `schedule` and `retry` runs are ever
@@ -97,7 +91,9 @@ export class Run {
    * is owed" survives a second crash without needing a non-terminal queue
    * state. Cleared the moment the retry is dispatched. Null means no further
    * attempt is owed — which is also what stops the row nagging from the Home
-   * failed-routines panel while a retry is still pending.
+   * failed-routines panel while a retry is still pending. Dispatch temporarily
+   * replaces the due time with an internal, expiring compare-and-set claim;
+   * callers should treat any non-null value as queued or starting.
    */
   @Column({ type: dateTimeColumnType, nullable: true })
   retryAt!: Date | null;

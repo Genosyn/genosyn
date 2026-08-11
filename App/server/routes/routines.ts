@@ -21,6 +21,7 @@ import { toSlug } from "../lib/slug.js";
 import { routineTemplate } from "../services/files.js";
 import { nextRunFor, registerRoutine } from "../services/cron.js";
 import { startRoutineRun, getLiveRunSnapshot, RUN_LOG_MAX_BYTES } from "../services/runner.js";
+import { cancelPendingRetry } from "../services/runRecovery.js";
 import { recordAudit } from "../services/audit.js";
 import {
   deleteTagAssignments,
@@ -269,8 +270,11 @@ const patchSchema = z.object({
   // Three-valued: null inherits the employee's `browserEnabled`; explicit
   // boolean overrides for this routine only.
   browserEnabledOverride: z.boolean().nullable().optional(),
-  // Reliability. Defaults reproduce the historical behaviour exactly: catch up
-  // once after downtime, never retry.
+  // Reliability. Defaults catch up once after downtime and disable ordinary
+  // failure/timeout retries. A future initial scheduled Run on an enabled,
+  // ungated routine marked interrupted is the safety exception: one durable
+  // recovery attempt is due an hour later. Higher configured limits bound
+  // interruptions later in the retry chain.
   catchUpPolicy: z.enum(["once", "skip"]).optional(),
   maxAttempts: z.number().int().min(1).max(5).optional(),
   retryBackoffSec: z
@@ -568,11 +572,16 @@ routinesRouter.post(
     if (!run) return res.status(404).json({ error: "Not found" });
     const found = await loadRoutine((req.params as Record<string, string>).cid, run.routineId);
     if (!found) return res.status(404).json({ error: "Not found" });
-    if (run.retryAt === null) {
+    const outcome = await cancelPendingRetry(run.id);
+    if (outcome === "none") {
       return res.status(409).json({ error: "This run has no retry scheduled" });
     }
-    run.retryAt = null;
-    await runRepo.save(run);
+    if (outcome === "dispatching") {
+      return res.status(409).json({ error: "This retry is already starting" });
+    }
+    if (outcome === "changed") {
+      return res.status(409).json({ error: "The retry changed; refresh and try again" });
+    }
     await recordAudit({
       companyId: found.co.id,
       actorUserId: req.userId ?? null,
@@ -582,6 +591,6 @@ routinesRouter.post(
       targetLabel: found.routine.name,
       metadata: { routineId: found.routine.id, attempt: run.attempt },
     });
-    res.json(run);
+    res.json({ ...run, retryAt: null });
   },
 );
