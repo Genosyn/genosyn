@@ -34,6 +34,7 @@ export type EmailLogPurpose =
   | "email_verification"
   | "password_reset"
   | "welcome"
+  | "signature"
   | "test"
   | "other";
 

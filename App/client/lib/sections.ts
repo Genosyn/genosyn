@@ -5,6 +5,7 @@ import {
   CircleUser,
   Contact2,
   FolderGit2,
+  FileSignature,
   GitBranch,
   Home,
   Library,
@@ -51,6 +52,7 @@ export type SectionKey =
   | "revenue"
   | "marketing"
   | "customers"
+  | "signatures"
   | "finance"
   | "pipelines"
   | "approvals"
@@ -300,6 +302,24 @@ export const SECTION_GROUPS: SectionGroup[] = [
         keywords: ["accounts", "contacts", "crm", "contracts", "acv"],
       },
       {
+        key: "signatures",
+        label: "Signatures",
+        description: "Send documents and collect signatures.",
+        icon: FileSignature,
+        shortcut: "G",
+        path: "/signatures",
+        iconBg: "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300",
+        keywords: [
+          "esign",
+          "e-signature",
+          "docusign",
+          "agreements",
+          "contracts",
+          "envelopes",
+          "signing",
+        ],
+      },
+      {
         key: "finance",
         label: "Finance",
         description: "Invoices, bills, and revenue.",
@@ -437,6 +457,7 @@ export function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/marketing(\/|$)/.test(pathname)) return "marketing";
   if (/\/c\/[^/]+\/revenue(\/|$)/.test(pathname)) return "revenue";
   if (/\/c\/[^/]+\/customers(\/|$)/.test(pathname)) return "customers";
+  if (/\/c\/[^/]+\/signatures(\/|$)/.test(pathname)) return "signatures";
   if (/\/c\/[^/]+\/finance(\/|$)/.test(pathname)) return "finance";
   if (/\/c\/[^/]+\/pipelines(\/|$)/.test(pathname)) return "pipelines";
   if (/\/c\/[^/]+\/approvals(\/|$)/.test(pathname)) return "approvals";

@@ -125,6 +125,11 @@ import { Note } from "../db/entities/Note.js";
 import { Notebook } from "../db/entities/Notebook.js";
 import { EmployeeNoteGrant } from "../db/entities/EmployeeNoteGrant.js";
 import { Resource } from "../db/entities/Resource.js";
+import {
+  EmployeeSigningGrant,
+  SIGNING_ACCESS_RANK,
+  type SigningAccessLevel,
+} from "../db/entities/EmployeeSigningGrant.js";
 import { CodeRepository } from "../db/entities/CodeRepository.js";
 import { EmployeeCodeRepositoryGrant } from "../db/entities/EmployeeCodeRepositoryGrant.js";
 import { hasNoteAccess, listAccessibleNoteIds, upsertNoteGrant } from "../services/notes.js";
@@ -141,6 +146,18 @@ import {
   uniqueResourceSlug,
   upsertResourceGrant,
 } from "../services/resources.js";
+import {
+  SigningConflictError,
+  SigningNotFoundError,
+  SigningValidationError,
+  createSignatureEnvelopeFromResource,
+  getSignatureEnvelopeDetail,
+  listSignatureEnvelopes,
+  remindSignatureRecipient,
+  sendSignatureEnvelope,
+  voidSignatureEnvelope,
+  type SignatureEnvelopeDetail,
+} from "../services/signing.js";
 import { EXPORT_FORMATS, exportResource, isExportFormat } from "../services/resourceExport.js";
 import {
   deleteTagAssignments,
@@ -659,6 +676,32 @@ async function employeeFinanceAccessLevel(req: McpRequest): Promise<FinanceAcces
   return grant && typeof FINANCE_ACCESS_RANK[grant.accessLevel] === "number"
     ? grant.accessLevel
     : null;
+}
+
+/**
+ * Enforce the company-wide Signing Grant for an AI Employee. The rank lookup
+ * deliberately fails closed on unknown values, matching the Finance gate.
+ */
+async function requireSigning(
+  req: McpRequest,
+  res: Response,
+  required: SigningAccessLevel,
+): Promise<SigningAccessLevel | null> {
+  const grant = await AppDataSource.getRepository(EmployeeSigningGrant).findOneBy({
+    employeeId: req.mcpEmployee!.id,
+    companyId: req.mcpCompany!.id,
+  });
+  const accessLevel = grant?.accessLevel;
+  const have = accessLevel ? SIGNING_ACCESS_RANK[accessLevel] : undefined;
+  if (!accessLevel || typeof have !== "number" || have < SIGNING_ACCESS_RANK[required]) {
+    res.status(403).json({
+      error: accessLevel
+        ? `No grant: this needs the "${required}" signing access level; yours is "${accessLevel}". Ask an owner or admin to raise it under Signatures → AI access.`
+        : "No grant: you do not have access to signature envelopes. Ask an owner or admin to grant it under Signatures → AI access.",
+    });
+    return null;
+  }
+  return accessLevel;
 }
 
 async function revenueEvidenceGrantScope(
@@ -10715,6 +10758,375 @@ mcpInternalRouter.post(
     );
 
     res.json({ ok: true });
+  },
+);
+
+// ----- Document signing -----
+//
+// AI Employees can inspect, prepare and dispatch signature envelopes according
+// to a company-wide Signing Grant. There is intentionally no tool or handler
+// that can fill or complete a recipient signature: identity and consent stay
+// on the public recipient surface.
+
+function respondToSigningError(res: Response, error: unknown): boolean {
+  if (
+    error instanceof SigningValidationError ||
+    error instanceof SigningNotFoundError ||
+    error instanceof SigningConflictError
+  ) {
+    res.status(error.statusCode).json({ error: error.message });
+    return true;
+  }
+  return false;
+}
+
+function serializeSignatureEnvelopeForAi(
+  envelope: SignatureEnvelopeDetail["envelope"] & {
+    recipientCount?: number;
+    completedRecipientCount?: number;
+  },
+) {
+  const {
+    originalStorageKey: _originalStorageKey,
+    completedStorageKey: _completedStorageKey,
+    documentText: _documentText,
+    ...safe
+  } = envelope;
+  return safe;
+}
+
+function serializeSignatureEnvelopeSummaryForAi(
+  envelope: SignatureEnvelopeDetail["envelope"] & {
+    recipientCount?: number;
+    completedRecipientCount?: number;
+  },
+) {
+  return serializeSignatureEnvelopeForAi(envelope);
+}
+
+function serializeSignatureDetailForAi(detail: SignatureEnvelopeDetail) {
+  return {
+    envelope: serializeSignatureEnvelopeForAi(detail.envelope),
+    recipients: detail.recipients.map((recipient) => {
+      const { tokenHash: _tokenHash, ...safe } = recipient;
+      return safe;
+    }),
+    fields: detail.fields.map((field) => {
+      const { valueJson: _valueJson, value: _value, ...safe } = field;
+      return safe;
+    }),
+    events: detail.events.map((event) => {
+      const { metadataJson: _metadataJson, ...safe } = event;
+      return safe;
+    }),
+  };
+}
+
+const listSignatureEnvelopesSchema = z
+  .object({
+    status: z
+      .enum(["draft", "sent", "in_progress", "completed", "declined", "voided", "expired"])
+      .optional(),
+    customerId: z.string().uuid().optional(),
+    query: z.string().trim().min(1).max(200).optional(),
+    limit: z.number().int().min(1).max(100).default(50),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/list_signature_envelopes",
+  validateBody(listSignatureEnvelopesSchema),
+  async (req: McpRequest, res) => {
+    const accessLevel = await requireSigning(req, res, "read");
+    if (!accessLevel) return;
+    const body = req.body as z.infer<typeof listSignatureEnvelopesSchema>;
+    try {
+      const envelopes = await listSignatureEnvelopes({
+        companyId: req.mcpCompany!.id,
+        status: body.status,
+        customerId: body.customerId,
+        q: body.query,
+      });
+      res.json({
+        accessLevel,
+        envelopes: envelopes
+          .slice(0, body.limit)
+          .map((envelope) => serializeSignatureEnvelopeSummaryForAi(envelope)),
+      });
+    } catch (error) {
+      if (!respondToSigningError(res, error)) throw error;
+    }
+  },
+);
+
+const getSignatureEnvelopeSchema = z
+  .object({
+    envelopeId: z.string().uuid(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/get_signature_envelope",
+  validateBody(getSignatureEnvelopeSchema),
+  async (req: McpRequest, res) => {
+    const accessLevel = await requireSigning(req, res, "read");
+    if (!accessLevel) return;
+    const body = req.body as z.infer<typeof getSignatureEnvelopeSchema>;
+    try {
+      const detail = await getSignatureEnvelopeDetail({
+        companyId: req.mcpCompany!.id,
+        envelopeId: body.envelopeId,
+      });
+      res.json({ accessLevel, ...serializeSignatureDetailForAi(detail) });
+    } catch (error) {
+      if (!respondToSigningError(res, error)) throw error;
+    }
+  },
+);
+
+const draftSignatureFieldSchema = z
+  .object({
+    type: z.enum(["signature", "initials", "name", "email", "date", "text", "checkbox"]),
+    label: z.string().trim().max(255).optional(),
+    placeholder: z.string().trim().max(255).optional(),
+    required: z.boolean().optional(),
+    pageNumber: z.number().int().min(1).max(10_000),
+    x: z.number().min(0).max(1),
+    y: z.number().min(0).max(1),
+    width: z.number().positive().max(1),
+    height: z.number().positive().max(1),
+  })
+  .strict()
+  .superRefine((field, ctx) => {
+    if (field.x + field.width > 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["width"],
+        message: "x + width must stay within the PDF page",
+      });
+    }
+    if (field.y + field.height > 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["height"],
+        message: "y + height must stay within the PDF page",
+      });
+    }
+  });
+
+const draftSignatureRecipientSchema = z
+  .object({
+    name: z.string().trim().min(1).max(255),
+    email: z.string().trim().email().max(320),
+    role: z.enum(["signer", "copy"]),
+    routingOrder: z.number().int().min(0).max(10_000).optional(),
+    fields: z.array(draftSignatureFieldSchema).max(100).optional(),
+  })
+  .strict();
+
+const draftSignatureEnvelopeSchema = z
+  .object({
+    resourceSlug: z.string().trim().min(1).max(160),
+    title: z.string().trim().min(1).max(255),
+    message: z.string().trim().max(10_000).optional(),
+    customerId: z.string().uuid().optional(),
+    routingMode: z.enum(["parallel", "ordered"]).default("parallel"),
+    expiresAt: z.string().datetime({ offset: true }).optional(),
+    recipients: z.array(draftSignatureRecipientSchema).min(1).max(50),
+  })
+  .strict()
+  .superRefine((body, ctx) => {
+    const fieldCount = body.recipients.reduce(
+      (total, recipient) => total + (recipient.fields?.length ?? 0),
+      0,
+    );
+    if (fieldCount > 500) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["recipients"],
+        message: "An envelope can contain at most 500 fields",
+      });
+    }
+    for (let index = 0; index < body.recipients.length; index += 1) {
+      const recipient = body.recipients[index];
+      if (recipient.role === "copy" && recipient.fields?.length) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["recipients", index, "fields"],
+          message: "Copy recipients cannot own signing fields",
+        });
+      }
+      if (
+        recipient.role === "signer" &&
+        !recipient.fields?.some((field) => field.type === "signature" && field.required !== false)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["recipients", index, "fields"],
+          message: "Every signer needs at least one required signature field",
+        });
+      }
+    }
+  });
+
+mcpInternalRouter.post(
+  "/tools/draft_signature_envelope",
+  validateBody(draftSignatureEnvelopeSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireSigning(req, res, "draft"))) return;
+    const company = req.mcpCompany!;
+    const employee = req.mcpEmployee!;
+    const body = req.body as z.infer<typeof draftSignatureEnvelopeSchema>;
+    try {
+      const detail = await createSignatureEnvelopeFromResource({
+        company,
+        employeeId: employee.id,
+        resourceSlug: body.resourceSlug,
+        title: body.title,
+        message: body.message,
+        customerId: body.customerId,
+        routingMode: body.routingMode,
+        expiresAt: body.expiresAt,
+        recipients: body.recipients.map((recipient, index) => ({
+          ...recipient,
+          routingOrder: recipient.routingOrder ?? index,
+        })),
+        actor: { actorKind: "ai", actorId: employee.id },
+      });
+      const fieldCount = body.recipients.reduce(
+        (total, recipient) => total + (recipient.fields?.length ?? 0),
+        0,
+      );
+      await aiWriteTrail(req, {
+        action: "signature.envelope.create",
+        targetType: "signature_envelope",
+        targetId: detail.envelope.id,
+        targetLabel: detail.envelope.title,
+        journalTitle: `${employee.name} prepared signature envelope "${detail.envelope.title}"`,
+        journalBody: `Drafted from PDF Resource \`${body.resourceSlug}\` with ${body.recipients.length} recipient(s) and ${fieldCount} field(s). Nothing was emailed.`,
+        metadata: {
+          resourceSlug: body.resourceSlug,
+          recipientCount: body.recipients.length,
+          fieldCount,
+        },
+      });
+      res.json({
+        ...serializeSignatureDetailForAi(detail),
+        note: "Draft prepared. Nothing was emailed; a Member can review it before sending.",
+      });
+    } catch (error) {
+      if (!respondToSigningError(res, error)) throw error;
+    }
+  },
+);
+
+const sendSignatureEnvelopeSchema = z
+  .object({
+    envelopeId: z.string().uuid(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/send_signature_envelope",
+  validateBody(sendSignatureEnvelopeSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireSigning(req, res, "send"))) return;
+    const employee = req.mcpEmployee!;
+    const body = req.body as z.infer<typeof sendSignatureEnvelopeSchema>;
+    try {
+      const detail = await sendSignatureEnvelope({
+        companyId: req.mcpCompany!.id,
+        envelopeId: body.envelopeId,
+        actor: { actorKind: "ai", actorId: employee.id },
+      });
+      await aiWriteTrail(req, {
+        action: "signature.envelope.send",
+        targetType: "signature_envelope",
+        targetId: detail.envelope.id,
+        targetLabel: detail.envelope.title,
+        journalTitle: `${employee.name} sent signature envelope "${detail.envelope.title}"`,
+        journalBody: "Invitation delivery was started via the built-in signing tool.",
+        metadata: { recipientCount: detail.recipients.length },
+      });
+      res.json(serializeSignatureDetailForAi(detail));
+    } catch (error) {
+      if (!respondToSigningError(res, error)) throw error;
+    }
+  },
+);
+
+const remindSignatureRecipientSchema = z
+  .object({
+    envelopeId: z.string().uuid(),
+    recipientId: z.string().uuid(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/remind_signature_recipient",
+  validateBody(remindSignatureRecipientSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireSigning(req, res, "send"))) return;
+    const employee = req.mcpEmployee!;
+    const body = req.body as z.infer<typeof remindSignatureRecipientSchema>;
+    try {
+      const detail = await remindSignatureRecipient({
+        companyId: req.mcpCompany!.id,
+        envelopeId: body.envelopeId,
+        recipientId: body.recipientId,
+        actor: { actorKind: "ai", actorId: employee.id },
+      });
+      const recipient = detail.recipients.find((row) => row.id === body.recipientId);
+      await aiWriteTrail(req, {
+        action: "signature.envelope.remind",
+        targetType: "signature_recipient",
+        targetId: body.recipientId,
+        targetLabel: recipient?.name ?? body.recipientId,
+        journalTitle: `${employee.name} reminded ${recipient?.name ?? "a signature recipient"}`,
+        journalBody: `Envelope: "${detail.envelope.title}".`,
+        metadata: { envelopeId: detail.envelope.id },
+      });
+      res.json(serializeSignatureDetailForAi(detail));
+    } catch (error) {
+      if (!respondToSigningError(res, error)) throw error;
+    }
+  },
+);
+
+const voidSignatureEnvelopeSchema = z
+  .object({
+    envelopeId: z.string().uuid(),
+    reason: z.string().trim().min(1).max(2_000),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/void_signature_envelope",
+  validateBody(voidSignatureEnvelopeSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireSigning(req, res, "send"))) return;
+    const employee = req.mcpEmployee!;
+    const body = req.body as z.infer<typeof voidSignatureEnvelopeSchema>;
+    try {
+      const detail = await voidSignatureEnvelope({
+        companyId: req.mcpCompany!.id,
+        envelopeId: body.envelopeId,
+        reason: body.reason,
+        actor: { actorKind: "ai", actorId: employee.id },
+      });
+      await aiWriteTrail(req, {
+        action: "signature.envelope.void",
+        targetType: "signature_envelope",
+        targetId: detail.envelope.id,
+        targetLabel: detail.envelope.title,
+        journalTitle: `${employee.name} voided signature envelope "${detail.envelope.title}"`,
+        journalBody: body.reason,
+        metadata: { reason: body.reason },
+      });
+      res.json(serializeSignatureDetailForAi(detail));
+    } catch (error) {
+      if (!respondToSigningError(res, error)) throw error;
+    }
   },
 );
 

@@ -1563,6 +1563,183 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "list_signature_envelopes",
+    description:
+      "List the company's signature envelopes you are allowed to inspect, newest first. Filter by lifecycle status or customer when useful. Returns compact progress and recipient counts; call `get_signature_envelope` for fields and the tamper-evident event trail. Needs `read` signing access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: {
+          type: "string",
+          enum: ["draft", "sent", "in_progress", "completed", "declined", "voided", "expired"],
+        },
+        customerId: {
+          type: "string",
+          description: "Optional Customer UUID to filter to one customer.",
+        },
+        query: {
+          type: "string",
+          description: "Optional title or source-filename search.",
+        },
+        limit: { type: "integer", minimum: 1, maximum: 100 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_signature_envelope",
+    description:
+      "Read one signature envelope in full, including recipients, normalized PDF field positions, delivery state, and its append-only evidence trail. This never reveals recipient signing tokens or signature values. Needs `read` signing access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        envelopeId: {
+          type: "string",
+          description: "Envelope UUID from `list_signature_envelopes`.",
+        },
+      },
+      required: ["envelopeId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "draft_signature_envelope",
+    description:
+      "Prepare a draft signature envelope from an existing PDF Resource you can read. Add recipients and normalized field placements (0–1 page coordinates) for a Member to review. This copies the immutable source PDF into signing storage; it does not email anyone. Needs both `draft` signing access and read access to the Resource. You may prepare fields, but only the named external recipient may consent to or complete a signature.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        resourceSlug: {
+          type: "string",
+          description:
+            "Slug of a ready PDF Resource from `list_resources`; URL, text, EPUB, and video Resources are rejected.",
+        },
+        title: { type: "string", description: "Human-facing envelope title." },
+        message: {
+          type: "string",
+          description: "Optional plain-text note included with the signing invitation.",
+        },
+        customerId: {
+          type: "string",
+          description: "Optional Customer UUID to link to the envelope.",
+        },
+        routingMode: {
+          type: "string",
+          enum: ["parallel", "ordered"],
+          description:
+            "`parallel` sends to every signer together; `ordered` unlocks each routing order in turn. Defaults to parallel.",
+        },
+        expiresAt: {
+          type: "string",
+          description: "Optional future ISO-8601 datetime after which signing is closed.",
+        },
+        recipients: {
+          type: "array",
+          minItems: 1,
+          maxItems: 50,
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              email: { type: "string" },
+              role: {
+                type: "string",
+                enum: ["signer", "copy"],
+                description: "A `copy` recipient receives the final document and has no fields.",
+              },
+              routingOrder: {
+                type: "integer",
+                minimum: 0,
+                maximum: 10000,
+                description:
+                  "Zero-based step used by ordered routing; defaults to this recipient's array position.",
+              },
+              fields: {
+                type: "array",
+                maxItems: 100,
+                description:
+                  "Fields assigned to this signer. Every signer needs at least one required `signature` field; omit for copy recipients.",
+                items: {
+                  type: "object",
+                  properties: {
+                    type: {
+                      type: "string",
+                      enum: ["signature", "initials", "name", "email", "date", "text", "checkbox"],
+                    },
+                    label: { type: "string" },
+                    placeholder: { type: "string" },
+                    required: { type: "boolean" },
+                    pageNumber: { type: "integer", minimum: 1 },
+                    x: { type: "number", minimum: 0, maximum: 1 },
+                    y: { type: "number", minimum: 0, maximum: 1 },
+                    width: { type: "number", exclusiveMinimum: 0, maximum: 1 },
+                    height: { type: "number", exclusiveMinimum: 0, maximum: 1 },
+                  },
+                  required: ["type", "pageNumber", "x", "y", "width", "height"],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ["name", "email", "role"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["resourceSlug", "title", "recipients"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "send_signature_envelope",
+    description:
+      "Send a reviewed draft signature envelope to its recipients. This starts the evidence trail and sends real invitation emails, so first call `get_signature_envelope` and verify the document, recipients, routing, expiry, and required signer fields. Needs `send` signing access. The AI Employee may dispatch the request but can never consent or sign for a recipient.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        envelopeId: {
+          type: "string",
+          description: "Draft envelope UUID from `list_signature_envelopes`.",
+        },
+      },
+      required: ["envelopeId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "remind_signature_recipient",
+    description:
+      "Send a reminder to one still-pending signer on a sent or in-progress envelope. Inspect the envelope first and use the recipient UUID it returns. Needs `send` signing access. This only re-sends the secure invitation; it never signs or changes a recipient's consent state.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        envelopeId: { type: "string", description: "Envelope UUID." },
+        recipientId: {
+          type: "string",
+          description: "Pending signer UUID from `get_signature_envelope`.",
+        },
+      },
+      required: ["envelopeId", "recipientId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "void_signature_envelope",
+    description:
+      "Void a draft, sent, or in-progress signature envelope so it is closed and any recipient links can no longer be used. This cannot be undone; explain why in `reason` and inspect the envelope first. Needs `send` signing access. Completed, declined, expired, and already-voided envelopes cannot be voided.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        envelopeId: { type: "string", description: "Envelope UUID." },
+        reason: {
+          type: "string",
+          description: "Human-readable reason recorded in the evidence trail and recipient notice.",
+        },
+      },
+      required: ["envelopeId", "reason"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_base_record",
     description:
       "Open a single Base record like a form: returns the row's fields + values, every field definition for the table, the comment thread, and the list of file attachments. Use this when a teammate asks you to read or update a specific row, or before posting a comment so you know the row's context. Pair with `update_base_row` (existing) for cell edits, `create_record_comment` to discuss, and `attach_file_to_record` to drop in supporting files.",

@@ -947,7 +947,13 @@ export type EmailLogTransport =
   | "postmark"
   | "config_smtp"
   | "console";
-export type EmailLogPurpose = "invitation" | "password_reset" | "welcome" | "test" | "other";
+export type EmailLogPurpose =
+  | "invitation"
+  | "password_reset"
+  | "welcome"
+  | "signature"
+  | "test"
+  | "other";
 
 export type EmailLog = {
   id: string;

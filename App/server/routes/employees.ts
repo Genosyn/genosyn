@@ -20,6 +20,8 @@ import { Activity } from "../db/entities/Activity.js";
 import { Partnership } from "../db/entities/Partnership.js";
 import { RevenueDocument } from "../db/entities/RevenueDocument.js";
 import { RevenueImportBatch } from "../db/entities/RevenueImportBatch.js";
+import { EmployeeSigningGrant } from "../db/entities/EmployeeSigningGrant.js";
+import { SignatureEnvelope } from "../db/entities/SignatureEnvelope.js";
 import { validateBody, validateParams } from "../middleware/validate.js";
 import {
   requireAuth,
@@ -458,6 +460,11 @@ employeesRouter.delete("/:eid", async (req, res) => {
   await deleteEmployeeConversations(emp.id);
   await archiveEmployeeDirectMessages(emp.id);
   await AppDataSource.getRepository(JournalEntry).delete({ employeeId: emp.id });
+  await AppDataSource.getRepository(EmployeeSigningGrant).delete({ employeeId: emp.id });
+  await AppDataSource.getRepository(SignatureEnvelope).update(
+    { createdByEmployeeId: emp.id },
+    { createdByEmployeeId: null },
+  );
   await AppDataSource.getRepository(Customer).update(
     { ownerEmployeeId: emp.id },
     { ownerEmployeeId: null },

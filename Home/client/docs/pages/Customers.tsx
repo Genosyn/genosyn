@@ -41,7 +41,7 @@ export function Customers() {
         </LI>
         <LI>
           <Strong>Contracts</Strong> — the signed agreements you hold with a
-          customer, uploaded and stored alongside the account.
+          customer, uploaded or completed through Genosyn and stored alongside the account.
         </LI>
         <LI>
           <Strong>Statements</Strong> — a statement of account per customer:
@@ -171,6 +171,11 @@ export function Customers() {
         Download, edit the details of, or delete any contract from either
         view. Files are stored on the server under your company&apos;s data
         directory, never in the database itself.
+      </P>
+      <P>
+        To collect signatures rather than upload an agreement that is already complete, open{" "}
+        <DocLink to="/docs/signatures">Signatures</DocLink>. A completed, Customer-linked request
+        is archived here automatically with its signed date and evidence-backed PDF.
       </P>
     </>
   );

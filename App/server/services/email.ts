@@ -93,6 +93,9 @@ export type SendEmailOptions = {
   purpose?: EmailLogPurpose;
   /** User who triggered the send (when known); recorded on the log row. */
   triggeredByUserId?: string | null;
+  /** Optional safe text for Email Logs when the delivered body contains a
+   * bearer credential or other secret that must never be persisted. */
+  bodyPreview?: string;
 };
 
 export type SendEmailResult = {
@@ -108,6 +111,7 @@ export async function sendEmail(
 ): Promise<SendEmailResult> {
   const purpose: EmailLogPurpose = opts.purpose ?? "other";
   const triggeredByUserId = opts.triggeredByUserId ?? null;
+  const bodyPreview = opts.bodyPreview ?? opts.text;
 
   const provider = opts.companyId
     ? await loadDefaultProvider(opts.companyId)
@@ -135,7 +139,7 @@ export async function sendEmail(
         toAddress: opts.to,
         fromAddress: provider.fromAddress,
         subject: opts.subject,
-        bodyPreview: opts.text,
+        bodyPreview,
         status: "sent",
         errorMessage: "",
         messageId: result.messageId,
@@ -158,7 +162,7 @@ export async function sendEmail(
         toAddress: opts.to,
         fromAddress: provider.fromAddress,
         subject: opts.subject,
-        bodyPreview: opts.text,
+        bodyPreview,
         status: "failed",
         errorMessage: message,
         messageId: "",
@@ -205,7 +209,7 @@ export async function sendEmail(
         toAddress: opts.to,
         fromAddress: from,
         subject: opts.subject,
-        bodyPreview: opts.text,
+        bodyPreview,
         status: "sent",
         errorMessage: "",
         messageId,
@@ -228,7 +232,7 @@ export async function sendEmail(
         toAddress: opts.to,
         fromAddress: from,
         subject: opts.subject,
-        bodyPreview: opts.text,
+        bodyPreview,
         status: "failed",
         errorMessage: message,
         messageId: "",
@@ -262,7 +266,7 @@ export async function sendEmail(
     toAddress: opts.to,
     fromAddress: formatGlobalSmtpSender(global.settings),
     subject: opts.subject,
-    bodyPreview: opts.text,
+    bodyPreview,
     status: "skipped",
     errorMessage: "No email provider configured",
     messageId: "",

@@ -188,6 +188,8 @@ genosyn/
 - **Marketing agency (M35):** `MarketingCampaign`, `MarketingCreative`,
   `MarketingExperiment`, `MarketingPerformanceSnapshot`,
   `EmployeeMarketingGrant`
+- **Signatures (M36):** `SignatureEnvelope`, `SignatureRecipient`,
+  `SignatureField`, `SignatureEvent`, `EmployeeSigningGrant`
 
 ### Stack
 
@@ -1625,6 +1627,42 @@ one Routine run into the next.
 - [x] **Docs and tests.** Paid Marketing docs now lead with the in-app Marketing
       flow and explain the two-lock access model, native vs guarded
       browser/MCP publishing, and the immutable performance record.
+
+### M36 — AI-native document signing ✅
+
+Send a PDF to customers for electronic signature without handing the document
+or its commercial context to a separate SaaS. Genosyn owns the source bytes,
+recipient routing, completed PDF, evidence, customer relationship and the AI
+Employee workflow in one company-scoped system.
+
+- [x] **Signing requests.** A first-class Signatures section for PDF upload,
+      customer linkage, parallel or ordered signers, copy recipients, expiry,
+      messages, field placement, draft duplication and lifecycle tracking.
+- [x] **Recipient experience.** A focused session-free signing page reached by
+      a high-entropy, database-hashed bearer link. Signers review the exact
+      source PDF, consent to electronic records, complete required text,
+      checkbox, name, email, date, initials and typed or drawn signature fields,
+      or decline with a reason. Sent requests are immutable.
+- [x] **Evidence and archival.** Stamp completed values into the PDF, append a
+      human-readable completion certificate, retain original/completed SHA-256
+      fingerprints and an append-only hash-chained event trail, capture consent,
+      timestamps, IP and user agent, email every party a completed copy, and
+      automatically archive the result as a signed Customer Contract.
+- [x] **Delivery controls.** Company transactional email sends requests,
+      completion copies and manually-triggered reminders. Ordered routing only
+      activates the next signer group after the prior group completes; void,
+      decline, delivery failure and expiry remain visible and auditable.
+- [x] **AI delegation.** `EmployeeSigningGrant` gates `read < draft < send`.
+      Granular deferred tools let AI Employees inspect signing work, prepare a
+      request from a granted PDF Resource, configure recipients/fields, send,
+      remind and void. External delivery requires explicit `send` access; every
+      AI mutation writes both AuditEvent and JournalEntry evidence.
+- [x] **Docs, security and tests.** Document the in-app flow, self-hosting
+      requirements and the distinction between evidence-backed electronic
+      signatures and certificate-backed qualified signatures. Cover lifecycle,
+      tenancy, token hashing, immutable state, routing, PDF rendering, audit
+      verification, AI grants and public signer endpoints with automated and
+      real-browser tests.
 
 ### M33 — AI-native accounting
 

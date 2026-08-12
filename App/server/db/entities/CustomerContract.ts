@@ -19,9 +19,10 @@ import {
  * large binaries never bloat sqlite.
  *
  * `customerId` is nullable so a contract can be uploaded before it's tied to
- * an account and so deleting a customer never cascade-fails on a contract
- * (the link is nulled instead). `companyId` is denormalized so the download
- * handler can resolve the on-disk path without joining through Customer.
+ * an account. A linked account must be archived rather than hard-deleted so
+ * contract history keeps its customer identity. `companyId` is denormalized
+ * so the download handler can resolve the on-disk path without joining through
+ * Customer.
  */
 @Entity("customer_contracts")
 @Index(["companyId", "customerId"])

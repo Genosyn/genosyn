@@ -39,7 +39,60 @@ import {
   type SectionKey,
 } from "../../client/lib/sections.js";
 import { cronHuman, cronIsReadable, CRON_PRESETS, DEFAULT_CRON } from "../../client/lib/cron.js";
+import {
+  canRetryPublicSignatureFinalization,
+  signatureCalendarDateForOffset,
+  signatureDateInputToEndOfDayIso,
+  signatureIsoToDateInput,
+  type PublicSigningEnvelope,
+} from "../../client/lib/signing.js";
 import { listProviderIds } from "../integrations/index.js";
+
+describe("signing date helpers", () => {
+  test("offers completion recovery only to the completed signer of an all-signed saga", () => {
+    const receipt = {
+      envelope: { status: "in_progress", finalizationPending: true },
+      recipient: { status: "completed" },
+    } as PublicSigningEnvelope;
+    assert.equal(canRetryPublicSignatureFinalization(receipt), true);
+    assert.equal(
+      canRetryPublicSignatureFinalization({
+        ...receipt,
+        envelope: { ...receipt.envelope, finalizationPending: false },
+      }),
+      false,
+    );
+    assert.equal(
+      canRetryPublicSignatureFinalization({
+        ...receipt,
+        recipient: { ...receipt.recipient, status: "viewed" },
+      }),
+      false,
+    );
+    assert.equal(
+      canRetryPublicSignatureFinalization({
+        ...receipt,
+        envelope: { ...receipt.envelope, status: "completed" },
+      }),
+      false,
+    );
+  });
+
+  test("derives the signer's calendar date from the reported timezone offset", () => {
+    const instant = new Date("2026-08-13T00:30:00.000Z");
+    assert.equal(signatureCalendarDateForOffset(instant, 420), "2026-08-12");
+    assert.equal(signatureCalendarDateForOffset(instant, -330), "2026-08-13");
+    assert.equal(signatureCalendarDateForOffset(new Date("invalid"), 0), "");
+    assert.equal(signatureCalendarDateForOffset(instant, 1.5), "");
+  });
+
+  test("round-trips expiry dates at local end-of-day", () => {
+    const iso = signatureDateInputToEndOfDayIso("2026-08-31");
+    assert.ok(iso);
+    assert.equal(signatureIsoToDateInput(iso), "2026-08-31");
+    assert.equal(signatureDateInputToEndOfDayIso("2026-02-30"), null);
+  });
+});
 
 describe("contract display helpers", () => {
   test("formats size boundaries and clamps invalid values", () => {

@@ -64,6 +64,11 @@ import { EmployeeFinanceGrant } from "./entities/EmployeeFinanceGrant.js";
 import { Customer } from "./entities/Customer.js";
 import { CustomerContact } from "./entities/CustomerContact.js";
 import { CustomerContract } from "./entities/CustomerContract.js";
+import { SignatureEnvelope } from "./entities/SignatureEnvelope.js";
+import { SignatureRecipient } from "./entities/SignatureRecipient.js";
+import { SignatureField } from "./entities/SignatureField.js";
+import { SignatureEvent } from "./entities/SignatureEvent.js";
+import { EmployeeSigningGrant } from "./entities/EmployeeSigningGrant.js";
 import { Product } from "./entities/Product.js";
 import { TaxRate } from "./entities/TaxRate.js";
 import { Invoice } from "./entities/Invoice.js";
@@ -230,6 +235,11 @@ const entities = [
   Customer,
   CustomerContact,
   CustomerContract,
+  SignatureEnvelope,
+  SignatureRecipient,
+  SignatureField,
+  SignatureEvent,
+  EmployeeSigningGrant,
   Product,
   TaxRate,
   Invoice,

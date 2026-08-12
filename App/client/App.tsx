@@ -137,6 +137,12 @@ import CustomerNew from "./pages/CustomerNew";
 import CustomerDetail from "./pages/CustomerDetail";
 import CustomerStatement from "./pages/CustomerStatement";
 import ContractsIndex from "./pages/ContractsIndex";
+import SignatureLayout from "@/pages/SignatureLayout";
+import SignaturesIndex from "@/pages/SignaturesIndex";
+import SignatureNew from "@/pages/SignatureNew";
+import SignatureDetail from "@/pages/SignatureDetail";
+import SignatureAiAccess from "@/pages/SignatureAiAccess";
+import PublicSigning from "@/pages/PublicSigning";
 import FinanceLayout from "./pages/FinanceLayout";
 import FinanceIndex from "./pages/FinanceIndex";
 import FinanceProducts from "./pages/FinanceProducts";
@@ -183,6 +189,8 @@ type AuthState =
   | { status: "ready"; me: Me; companies: Company[] };
 
 export default function App() {
+  const location = useLocation();
+  const isPublicSigning = location.pathname.startsWith("/sign/");
   const [auth, setAuth] = React.useState<AuthState>({ status: "loading" });
 
   const refresh = React.useCallback(async () => {
@@ -196,14 +204,18 @@ export default function App() {
   }, []);
 
   React.useEffect(() => {
-    refresh();
-  }, [refresh]);
+    if (!isPublicSigning) void refresh();
+  }, [isPublicSigning, refresh]);
 
   return (
     <ThemeProvider>
       <ToastProvider>
         <DialogProvider>
-          {auth.status === "loading" ? (
+          {isPublicSigning ? (
+            <Routes>
+              <Route path="/sign/:token" element={<PublicSigning />} />
+            </Routes>
+          ) : auth.status === "loading" ? (
             <div className="flex h-full items-center justify-center">
               <Spinner size={24} />
             </div>
@@ -447,6 +459,15 @@ function CompanyRoutes({
             <Route path=":customerSlug" element={<CustomerDetail />} />
             <Route path=":customerSlug/statement" element={<CustomerStatement />} />
             <Route path=":customerSlug/edit" element={<CustomerNew />} />
+          </Route>
+
+          {/* Signatures — AI-native document preparation, delivery, and
+            public recipient signing with a complete audit trail. */}
+          <Route path="signatures" element={<SignatureLayout company={company} />}>
+            <Route index element={<SignaturesIndex />} />
+            <Route path="new" element={<SignatureNew />} />
+            <Route path="ai-access" element={<SignatureAiAccess />} />
+            <Route path=":envelopeId" element={<SignatureDetail />} />
           </Route>
 
           {/* Revenue (M32) — follow-ups, accounts, contacts, deals,

@@ -41,6 +41,7 @@ const PURPOSE_LABELS: Record<EmailLogPurpose, string> = {
   invitation: "Invitation",
   password_reset: "Password reset",
   welcome: "Welcome",
+  signature: "Document signing",
   test: "Test",
   other: "Other",
 };
@@ -167,6 +168,7 @@ export function SettingsEmailLogs() {
                 <option value="invitation">Invitation</option>
                 <option value="password_reset">Password reset</option>
                 <option value="welcome">Welcome</option>
+                <option value="signature">Document signing</option>
                 <option value="test">Test</option>
                 <option value="other">Other</option>
               </Select>

@@ -205,6 +205,12 @@ export const DOCS_NAV: DocsSection[] = [
         blurb: "Accounts, contacts, annual contract value, statements, and signed contracts.",
       },
       {
+        path: "/docs/signatures",
+        title: "Document signing",
+        blurb:
+          "Prepare, send, sign, and archive PDFs with recipient evidence and AI Employee delegation.",
+      },
+      {
         path: "/docs/finance",
         title: "Finance",
         blurb: "Estimates, invoices, bills, ledger, and reports — native double-entry accounting.",

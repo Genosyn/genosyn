@@ -34,6 +34,7 @@ export function composeEmployeeSystemPrompt(args: {
   memoryContext: string;
   codeReposContext: string;
   financeContext: string;
+  signingContext: string;
   revenueContext: string;
   marketingContext: string;
   /** The one line the two seams genuinely disagree on. */
@@ -55,6 +56,7 @@ export function composeEmployeeSystemPrompt(args: {
     memoryContext,
     codeReposContext,
     financeContext,
+    signingContext,
     revenueContext,
     marketingContext,
   } = args;
@@ -75,6 +77,7 @@ export function composeEmployeeSystemPrompt(args: {
   if (memoryContext) parts.push(memoryContext);
   if (codeReposContext) parts.push(codeReposContext);
   if (financeContext) parts.push(financeContext);
+  if (signingContext) parts.push(signingContext);
   if (revenueContext) parts.push(revenueContext);
   if (marketingContext) parts.push(marketingContext);
 

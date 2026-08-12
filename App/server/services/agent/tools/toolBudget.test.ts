@@ -11,6 +11,7 @@ import { RESIDENT_GENOSYN_TOOLS } from "./index.js";
 import { assertIndexCoversManifest, TOOL_DOMAINS, TOOL_KEYWORDS } from "./toolIndex.js";
 import { assertAliasesResolve, RETIRED_FAMILIES } from "./familyAliases.js";
 import { assertGrantSetsResolve } from "./grantDead.js";
+import { SIGNING_ACCESS_RANK } from "../../../db/entities/EmployeeSigningGrant.js";
 import type { AgentTool } from "../types.js";
 
 /**
@@ -62,10 +63,11 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
  * recall backstop. The extra headroom is intentional: abbreviating or hiding
  * exact tool names would make autonomous operations undiscoverable. M20's
  * three AI-native Explore tools take the miss-case footer just over 4,000
- * characters; 4,100 still leaves almost half the 8,000-char result envelope
- * for returned schemas.
+ * characters. The six granular signing tools add their exact, independently
+ * callable names to that same recall backstop; 4,300 still leaves nearly half
+ * the 8,000-char result envelope for returned schemas.
  */
-const DOMAIN_FOOTER_CHARS_MAX = 4_100;
+const DOMAIN_FOOTER_CHARS_MAX = 4_300;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(
@@ -217,6 +219,26 @@ describe("catalogue invariants", () => {
       "unindexed tools are unreachable through find_tools",
     );
     assert.deepEqual(indexed.filter((n) => !known.has(n)), []);
+  });
+
+  test("signing stays granular, ranked, and cannot complete a recipient signature", () => {
+    assert.deepEqual(SIGNING_ACCESS_RANK, { read: 0, draft: 1, send: 2 });
+    const signingNames = TOOL_DOMAINS.signing.tools;
+    assert.deepEqual(signingNames, [
+      "list_signature_envelopes",
+      "get_signature_envelope",
+      "draft_signature_envelope",
+      "send_signature_envelope",
+      "remind_signature_recipient",
+      "void_signature_envelope",
+    ]);
+    assert.equal(
+      signingNames.some((name) => /complete|submit|sign_recipient/.test(name)),
+      false,
+      "recipient consent and signature completion must never be exposed to an AI Employee",
+    );
+    const send = STATIC_TOOLS.find((tool) => tool.name === "send_signature_envelope");
+    assert.match(send?.description ?? "", /never consent or sign for a recipient/i);
   });
 
   test("the retired families are hidden, not deleted", () => {

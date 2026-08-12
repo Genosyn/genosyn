@@ -5,6 +5,11 @@ import { EmployeeBaseGrant } from "../../../db/entities/EmployeeBaseGrant.js";
 import { EmployeeMailAccountGrant } from "../../../db/entities/EmployeeMailAccountGrant.js";
 import { EmployeeFinanceGrant } from "../../../db/entities/EmployeeFinanceGrant.js";
 import { EmployeeRevenueGrant } from "../../../db/entities/EmployeeRevenueGrant.js";
+import {
+  EmployeeSigningGrant,
+  SIGNING_ACCESS_RANK,
+  type SigningAccessLevel,
+} from "../../../db/entities/EmployeeSigningGrant.js";
 import { EmployeeConnectionGrant } from "../../../db/entities/EmployeeConnectionGrant.js";
 import { IntegrationConnection } from "../../../db/entities/IntegrationConnection.js";
 import { EXPLORE_PROVIDERS } from "../../explore.js";
@@ -115,6 +120,22 @@ const FINANCE_GATED_TOOLS = new Set([
 ]);
 
 /**
+ * Every signing action is company-wide and answers to one EmployeeSigningGrant.
+ * Recipient signing itself deliberately has no AI tool and therefore cannot
+ * appear in this set.
+ */
+const SIGNING_TOOL_ACCESS: Record<string, SigningAccessLevel> = {
+  list_signature_envelopes: "read",
+  get_signature_envelope: "read",
+  draft_signature_envelope: "draft",
+  send_signature_envelope: "send",
+  remind_signature_recipient: "send",
+  void_signature_envelope: "send",
+};
+
+const SIGNING_GATED_TOOLS = new Set(Object.keys(SIGNING_TOOL_ACCESS));
+
+/**
  * The revenue surface (Revenue section, M32): every tool — reads included —
  * answers to an `EmployeeRevenueGrant`. Same shape as finance: one grant row
  * per employee over one company-wide subsystem, and no ungated create that
@@ -219,6 +240,7 @@ export function assertGrantSetsResolve(): void {
     ...BASE_GATED_TOOLS,
     ...MAIL_GATED_TOOLS,
     ...FINANCE_GATED_TOOLS,
+    ...SIGNING_GATED_TOOLS,
     ...REVENUE_GATED_TOOLS,
     ...EXPLORE_CONNECTION_GATED_TOOLS,
   ].filter((n) => !known.has(n));
@@ -255,6 +277,22 @@ export async function deadToolNames(employeeId: string): Promise<Set<string>> {
       where: { employeeId },
     });
     if (finance === 0) for (const t of FINANCE_GATED_TOOLS) dead.add(t);
+    const signing = await AppDataSource.getRepository(EmployeeSigningGrant).findOne({
+      where: { employeeId },
+    });
+    if (!signing) {
+      for (const tool of SIGNING_GATED_TOOLS) dead.add(tool);
+    } else {
+      const have = SIGNING_ACCESS_RANK[signing.accessLevel];
+      // Unknown levels stay live here (the route gate still fails closed):
+      // grant-dead is a ranking hint, so its own fail-safe rule prefers a
+      // wasted call over hiding a capability that may work after deployment.
+      if (typeof have === "number") {
+        for (const [tool, required] of Object.entries(SIGNING_TOOL_ACCESS)) {
+          if (have < SIGNING_ACCESS_RANK[required]) dead.add(tool);
+        }
+      }
+    }
     const revenue = await AppDataSource.getRepository(EmployeeRevenueGrant).count({
       where: { employeeId },
     });

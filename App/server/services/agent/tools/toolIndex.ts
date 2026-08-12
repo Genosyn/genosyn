@@ -126,6 +126,19 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
       "delete_resource",
     ],
   },
+  signing: {
+    label: "document signing",
+    blurb:
+      "Prepare, send, track, remind and void signature envelopes. Needs a Signing Grant; recipients alone consent and sign.",
+    tools: [
+      "list_signature_envelopes",
+      "get_signature_envelope",
+      "draft_signature_envelope",
+      "send_signature_envelope",
+      "remind_signature_recipient",
+      "void_signature_envelope",
+    ],
+  },
   charts: {
     label: "Explore data & charts",
     blurb: "Granted databases and saved SQL charts.",
@@ -917,6 +930,52 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   create_resource: ["knowledge", "library", "ingest", "upload"],
   update_resource: ["knowledge", "library"],
   delete_resource: ["knowledge", "library"],
+
+  // Signing — operators will usually say contract, agreement, e-signature,
+  // or the incumbent product name rather than "signature envelope".
+  list_signature_envelopes: [
+    "contract status",
+    "agreement status",
+    "signature requests",
+    "awaiting signature",
+    "unsigned documents",
+    "docusign",
+  ],
+  get_signature_envelope: [
+    "inspect contract",
+    "read agreement",
+    "signature progress",
+    "signers",
+    "e-signature",
+  ],
+  draft_signature_envelope: [
+    "prepare contract for signature",
+    "prepare agreement",
+    "create signature request",
+    "add signature fields",
+    "e-signature",
+    "docusign",
+  ],
+  send_signature_envelope: [
+    "send contract for signature",
+    "send agreement for signature",
+    "request signatures",
+    "dispatch signature request",
+    "e-signature",
+  ],
+  remind_signature_recipient: [
+    "chase signature",
+    "signature reminder",
+    "remind signer",
+    "nudge signer",
+    "resend signing link",
+  ],
+  void_signature_envelope: [
+    "cancel signature request",
+    "withdraw contract",
+    "revoke signing link",
+    "void agreement",
+  ],
 
   // Files
   send_chat_attachment: ["file", "download", "attach", "send file", "deliver"],

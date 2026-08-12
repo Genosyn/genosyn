@@ -57,6 +57,8 @@ import { codeRepositoriesRouter } from "./routes/codeRepositories.js";
 import { financeRouter } from "./routes/finance.js";
 import { cardExpensesRouter } from "./routes/cardExpenses.js";
 import { contractsRouter } from "./routes/contracts.js";
+import { signaturesRouter } from "./routes/signatures.js";
+import { publicSignaturesRouter, publicSigningSecurityHeaders } from "./routes/publicSignatures.js";
 import { exploreRouter } from "./routes/explore.js";
 import { notificationsRouter } from "./routes/notifications.js";
 import { teamsRouter } from "./routes/teams.js";
@@ -87,6 +89,7 @@ import {
 import { installOutboundNetworkPolicy } from "./services/outboundNetworkPolicy.js";
 import { bootPublicUrl } from "./services/publicUrl.js";
 import { bootDurableChatTurnRecovery } from "./services/durableChatTurns.js";
+import { bootSignatureExpirySweeper } from "./services/signing.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -106,6 +109,7 @@ async function main() {
   await ensureBootstrapMasterAdmin();
   await bootCron();
   await bootDurableChatTurnRecovery();
+  await bootSignatureExpirySweeper();
   await bootBackups();
   await bootPipelineCron();
   await bootRecurringInvoices();
@@ -139,7 +143,17 @@ async function main() {
     app.set("trust proxy", config.security.trustedProxyHops);
   }
   app.use(securityHeaders);
+  // Signing URLs contain a bearer credential. Install these protections before
+  // body parsing as well, so parser errors cannot emit a cacheable response.
+  app.use("/api/sign", publicSigningSecurityHeaders);
+  app.use("/sign", publicSigningSecurityHeaders);
   app.use(express.json({ limit: "1mb" }));
+
+  // Recipient signing links are bearer-token authenticated and intentionally
+  // session-free. Mount before cookie sessions and the trusted-origin gate so
+  // email clients that omit Origin can view, consent, complete, or decline.
+  app.use("/api/sign", publicSignaturesRouter);
+
   const sessionMiddleware = cookieSession({
     name: "genosyn.sid",
     secret: config.sessionSecret,
@@ -300,6 +314,10 @@ async function main() {
   // Separate router from finance so the Customers section owns its own
   // backend surface; mounted at the same company-scoped base path.
   app.use("/api/companies/:cid", contractsRouter);
+
+  // Signature envelopes — sender/admin surface. Recipient links use the
+  // public router mounted above; every route here requires company membership.
+  app.use("/api/companies/:cid", signaturesRouter);
 
   // Explore (M20) — Metabase-style analytics. Saved SQL queries (Charts) +
   // grids of charts (Dashboards) re-using the company's postgres/mysql/

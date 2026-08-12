@@ -69,6 +69,11 @@ import { RevenueOperationRow } from "../db/entities/RevenueOperationRow.js";
 import { RevenueRecordAlias } from "../db/entities/RevenueRecordAlias.js";
 import { DealHistoryEvent } from "../db/entities/DealHistoryEvent.js";
 import { CustomerContract } from "../db/entities/CustomerContract.js";
+import { SignatureEnvelope } from "../db/entities/SignatureEnvelope.js";
+import { SignatureEvent } from "../db/entities/SignatureEvent.js";
+import { SignatureField } from "../db/entities/SignatureField.js";
+import { SignatureRecipient } from "../db/entities/SignatureRecipient.js";
+import { EmployeeSigningGrant } from "../db/entities/EmployeeSigningGrant.js";
 import { Dashboard } from "../db/entities/Dashboard.js";
 import { DashboardCard } from "../db/entities/DashboardCard.js";
 import { EmailLog } from "../db/entities/EmailLog.js";
@@ -356,6 +361,13 @@ export async function deleteCompanyCascade(args: {
     // and the three employee grants were removed in the leaf/employee sweeps.
     await m.delete(Estimate, { companyId });
     await m.delete(RecurringInvoice, { companyId });
+    // Signing evidence and placed fields are leaves; remove them before their
+    // recipients and envelope. The AI access grant is company-scoped.
+    await m.delete(SignatureEvent, { companyId });
+    await m.delete(SignatureField, { companyId });
+    await m.delete(SignatureRecipient, { companyId });
+    await m.delete(SignatureEnvelope, { companyId });
+    await m.delete(EmployeeSigningGrant, { companyId });
     await m.delete(CustomerContract, { companyId });
     await m.delete(CustomerContact, { companyId });
     // Revenue (M32). Children first so a partial failure never strands a row

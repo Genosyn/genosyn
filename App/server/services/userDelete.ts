@@ -26,6 +26,7 @@ import { Partnership } from "../db/entities/Partnership.js";
 import { RevenueDocument } from "../db/entities/RevenueDocument.js";
 import { RevenueImportBatch } from "../db/entities/RevenueImportBatch.js";
 import { CustomerContract } from "../db/entities/CustomerContract.js";
+import { SignatureEnvelope } from "../db/entities/SignatureEnvelope.js";
 import { Dashboard } from "../db/entities/Dashboard.js";
 import { EmailLog } from "../db/entities/EmailLog.js";
 import { EmployeeMemory } from "../db/entities/EmployeeMemory.js";
@@ -145,6 +146,7 @@ export async function deleteUserCascade(args: {
     await m.update(BankTransaction, { reconciledById: userId }, { reconciledById: null });
     await m.update(BaseRecordAttachment, { uploadedByUserId: userId }, { uploadedByUserId: null });
     await m.update(CustomerContract, { uploadedByUserId: userId }, { uploadedByUserId: null });
+    await m.update(SignatureEnvelope, { createdByUserId: userId }, { createdByUserId: null });
     await m.update(BaseRecordComment, { authorUserId: userId }, { authorUserId: null });
     await m.update(Channel, { createdByUserId: userId }, { createdByUserId: null });
     await m.update(ChannelMessage, { authorUserId: userId }, { authorUserId: null });

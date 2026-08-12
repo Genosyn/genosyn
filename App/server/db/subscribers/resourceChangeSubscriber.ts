@@ -110,6 +110,21 @@ const REGISTRY: Record<string, Mapping> = {
   CustomerContact: { kind: "customer", company: "direct", scopeFk: "customerId" },
   CustomerContract: { kind: "contract", company: "direct" },
 
+  // ── Customer signing ────────────────────────────────────────────────────
+  SignatureEnvelope: { kind: "signature", company: "direct" },
+  SignatureRecipient: {
+    kind: "signature",
+    company: "direct",
+    scopeFk: "envelopeId",
+  },
+  SignatureField: { kind: "signature", company: "direct", scopeFk: "envelopeId" },
+  SignatureEvent: { kind: "signature", company: "direct", scopeFk: "envelopeId" },
+  EmployeeSigningGrant: {
+    kind: "signature",
+    company: "direct",
+    scopeFk: "employeeId",
+  },
+
   // ── Revenue (M32) ────────────────────────────────────────────────────────
   // Every one of these is `direct`: each carries its own companyId, including
   // the child rows, so no parent hop is needed. Activities are the highest

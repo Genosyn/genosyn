@@ -13,11 +13,13 @@ import { Deal } from "../db/entities/Deal.js";
 import { Partnership } from "../db/entities/Partnership.js";
 import { RevenueDocument } from "../db/entities/RevenueDocument.js";
 import { CustomerContact } from "../db/entities/CustomerContact.js";
+import { CustomerContract } from "../db/entities/CustomerContract.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { Invoice } from "../db/entities/Invoice.js";
 import { InvoiceLineItem } from "../db/entities/InvoiceLineItem.js";
 import { InvoicePayment } from "../db/entities/InvoicePayment.js";
 import { InvoiceWriteOff } from "../db/entities/InvoiceWriteOff.js";
+import { SignatureEnvelope } from "../db/entities/SignatureEnvelope.js";
 import { RecurringInvoice } from "../db/entities/RecurringInvoice.js";
 import { RecurringInvoiceLineItem } from "../db/entities/RecurringInvoiceLineItem.js";
 import { Estimate } from "../db/entities/Estimate.js";
@@ -573,21 +575,43 @@ financeRouter.delete("/customers/:slug", async (req, res) => {
   // Customer is the shared Revenue account. Refuse a hard delete when any
   // finance or go-to-market history points at it; archive keeps that history
   // intact and prevents dangling relationship ids.
-  const [invoiceCount, contactCount, dealCount, partnershipCount, documentCount] =
-    await Promise.all([
-      AppDataSource.getRepository(Invoice).count({ where: { companyId: cid, customerId: c.id } }),
-      AppDataSource.getRepository(Contact).count({ where: { companyId: cid, customerId: c.id } }),
-      AppDataSource.getRepository(Deal).count({ where: { companyId: cid, customerId: c.id } }),
-      AppDataSource.getRepository(Partnership).count({
-        where: { companyId: cid, customerId: c.id },
-      }),
-      AppDataSource.getRepository(RevenueDocument).count({
-        where: { companyId: cid, customerId: c.id },
-      }),
-    ]);
-  if (invoiceCount + contactCount + dealCount + partnershipCount + documentCount > 0) {
+  const [
+    invoiceCount,
+    contactCount,
+    dealCount,
+    partnershipCount,
+    documentCount,
+    contractCount,
+    signatureEnvelopeCount,
+  ] = await Promise.all([
+    AppDataSource.getRepository(Invoice).count({ where: { companyId: cid, customerId: c.id } }),
+    AppDataSource.getRepository(Contact).count({ where: { companyId: cid, customerId: c.id } }),
+    AppDataSource.getRepository(Deal).count({ where: { companyId: cid, customerId: c.id } }),
+    AppDataSource.getRepository(Partnership).count({
+      where: { companyId: cid, customerId: c.id },
+    }),
+    AppDataSource.getRepository(RevenueDocument).count({
+      where: { companyId: cid, customerId: c.id },
+    }),
+    AppDataSource.getRepository(CustomerContract).count({
+      where: { companyId: cid, customerId: c.id },
+    }),
+    AppDataSource.getRepository(SignatureEnvelope).count({
+      where: { companyId: cid, customerId: c.id },
+    }),
+  ]);
+  if (
+    invoiceCount +
+      contactCount +
+      dealCount +
+      partnershipCount +
+      documentCount +
+      contractCount +
+      signatureEnvelopeCount >
+    0
+  ) {
     return res.status(409).json({
-      error: "This account has linked Revenue or finance history. Archive it instead.",
+      error: "This account has linked Revenue, finance, or signing history. Archive it instead.",
     });
   }
   await AppDataSource.getRepository(CustomerContact).delete({ customerId: c.id });
