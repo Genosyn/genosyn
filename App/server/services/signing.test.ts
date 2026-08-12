@@ -250,10 +250,16 @@ test("delivery logs never persist recipient bearer links", async () => {
   );
   const tokenHash = sent.recipients[0].tokenHash;
   assert.ok(tokenHash);
-  const log = await AppDataSource.getRepository(EmailLog).findOneByOrFail({
+  const logs = await AppDataSource.getRepository(EmailLog).findBy({
     companyId: company.id,
     purpose: "signature",
   });
+  assert.equal(logs.length, 1, "one invitation attempt writes one delivery log");
+  const log = logs[0];
+  assert.equal(log.subject, "[Acme Test] Signature requested: Mutual agreement");
+  assert.match(log.bodyPreview, /Acme Test sent you a signature request/);
+  assert.match(log.bodyPreview, /Document: Mutual agreement/);
+  assert.match(log.bodyPreview, /Action: Review and sign/);
   assert.match(log.bodyPreview, /private signing link redacted/);
   assert.doesNotMatch(log.bodyPreview, /\/sign\/[A-Za-z0-9_-]{43}/);
   assert.doesNotMatch(log.bodyPreview, new RegExp(tokenHash));
@@ -373,6 +379,50 @@ test("draft saves reject stale revisions and always advance the optimistic revis
     envelopeId: draft.envelope.id,
   });
   assert.equal(unchanged.envelope.title, "First editor's revision");
+});
+
+test("draft participant saves preserve recipient and field identity", async () => {
+  const company = await fixtureCompany();
+  const draft = await createDraft({ company });
+  const recipient = draft.recipients[0];
+  const field = draft.fields[0];
+  const resizedWidth = field.width + 0.01;
+  const saved = await updateSignatureEnvelopeDraft({
+    companyId: company.id,
+    envelopeId: draft.envelope.id,
+    expectedUpdatedAt: draft.envelope.updatedAt.toISOString(),
+    recipients: [
+      {
+        id: recipient.id,
+        role: recipient.role,
+        name: recipient.name,
+        email: recipient.email,
+        routingOrder: recipient.routingOrder,
+      },
+    ],
+    fields: [
+      {
+        id: field.id,
+        recipientId: recipient.id,
+        type: field.type,
+        label: field.label,
+        placeholder: field.placeholder,
+        required: field.required,
+        pageNumber: field.pageNumber,
+        x: field.x,
+        y: field.y,
+        width: resizedWidth,
+        height: field.height,
+        sortOrder: field.sortOrder,
+      },
+    ],
+    actor: { userId: company.ownerId },
+  });
+
+  assert.equal(saved.recipients[0].id, recipient.id);
+  assert.equal(saved.fields[0].id, field.id);
+  assert.equal(saved.fields[0].recipientId, recipient.id);
+  assert.equal(saved.fields[0].width, resizedWidth);
 });
 
 test("send refuses a draft revision that changed after review", async () => {
@@ -891,6 +941,24 @@ test("completion stamps a PDF, appends an evidence page, archives a contract, an
   assert.ok(completed.recipients.every((recipient) => recipient.lastDeliveryStatus === "skipped"));
   assert.ok(completed.recipients.every((recipient) => recipient.lastDeliveredAt));
 
+  const allDeliveryLogs = await AppDataSource.getRepository(EmailLog).findBy({
+    companyId: company.id,
+    purpose: "signature",
+  });
+  assert.equal(allDeliveryLogs.length, 3, "one invitation and two completed copies are logged");
+  const completionLogs = allDeliveryLogs.filter(
+    (entry) => entry.subject === "[Acme Test] Completed: Mutual agreement",
+  );
+  assert.equal(completionLogs.length, 2);
+  const signerCopy = completionLogs.find((entry) => entry.toAddress === "alice@example.com");
+  const copiedParty = completionLogs.find((entry) => entry.toAddress === "casey@example.com");
+  assert.ok(signerCopy);
+  assert.ok(copiedParty);
+  assert.match(signerCopy.bodyPreview, /Thank you for completing your part/);
+  assert.match(signerCopy.bodyPreview, /Attached signed PDF: agreement-signed\.pdf/);
+  assert.match(copiedParty.bodyPreview, /included you as a copy recipient/);
+  assert.doesNotMatch(completionLogs.map((entry) => entry.bodyPreview).join("\n"), /\/sign\//);
+
   const repeated = await quietly(() =>
     completeSignatureRecipient({
       token,
@@ -903,7 +971,9 @@ test("completion stamps a PDF, appends an evidence page, archives a contract, an
 
 test("a completed signer can retry finalization after a filesystem failure without duplicating evidence", async () => {
   const company = await fixtureCompany();
-  const expiresAt = new Date(Date.now() + 1_000);
+  // PDF validation and font loading can take several seconds on a busy CI host.
+  // Leave enough time to reach completion before deliberately crossing the deadline.
+  const expiresAt = new Date(Date.now() + 20_000);
   const draft = await createDraft({ company, expiresAt });
   const sent = await quietly(() =>
     sendSignatureEnvelope({

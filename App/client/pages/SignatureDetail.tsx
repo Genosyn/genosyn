@@ -50,6 +50,8 @@ import {
   recipientStatusClasses,
   signatureAiHandoffPrompt,
   signatureDateInputToEndOfDayIso,
+  signatureRecipientColor,
+  signatureRecipientColorKey,
   signatureIsoToDateInput,
   signatureDraftReadiness,
   signatureSendReviewIsCurrent,
@@ -76,6 +78,14 @@ const FIELD_ICONS: Record<SignatureFieldType, React.ReactNode> = {
 
 type DraftRecipient = SignatureRecipient & { id: string };
 type SigningAiCandidate = { employee: Employee; accessLevel: SignatureAccessLevel };
+
+function recipientColorStyle(recipientId: string): React.CSSProperties {
+  return signatureRecipientColor(recipientId).cssVariables as React.CSSProperties;
+}
+
+function colorKeyForRecipient(recipient: Pick<SignatureRecipient, "id" | "email">): string {
+  return signatureRecipientColorKey(recipient);
+}
 
 function freshRecipient(order: number): DraftRecipient {
   return {
@@ -409,6 +419,10 @@ export default function SignatureDetail() {
     if (!detail) return null;
     const routeGeneration = routeGenerationRef.current;
     const savingRevision = editRevisionRef.current;
+    const savingRecipients = recipients;
+    const savingFields = fields;
+    const savingSelectedRecipientId = selectedRecipientId;
+    const savingSelectedFieldId = selectedFieldId;
     setSaving(true);
     if (!options.autosave) setError(null);
     try {
@@ -426,6 +440,22 @@ export default function SignatureDetail() {
       setRemoteDraft(null);
       setAutosaveError(null);
       if (saveIsCurrent) {
+        const selectedRecipientIndex = savingRecipients.findIndex(
+          (recipient) => recipient.id === savingSelectedRecipientId,
+        );
+        const selectedFieldIndex = savingFields.findIndex(
+          (field) => field.id === savingSelectedFieldId,
+        );
+        const persistedSelectedRecipient =
+          next.recipients.find((recipient) => recipient.id === savingSelectedRecipientId) ??
+          next.recipients[selectedRecipientIndex];
+        const persistedSelectedField =
+          next.fields.find((field) => field.id === savingSelectedFieldId) ??
+          next.fields.find((field) => field.sortOrder === selectedFieldIndex);
+        setRecipients(next.recipients);
+        setFields(next.fields);
+        setSelectedRecipientId(persistedSelectedRecipient?.id ?? "");
+        setSelectedFieldId(persistedSelectedField?.id ?? null);
         dirtyRef.current = false;
         setDirty(false);
         if (!options.quiet) toast("Draft saved", "success");
@@ -1169,12 +1199,14 @@ function DraftEditor(props: DraftEditorProps) {
   const editorRootRef = React.useRef<HTMLDivElement>(null);
   const [mobilePanel, setMobilePanel] = React.useState<"people" | "document" | "field">("people");
   const signers = props.recipients.filter((recipient) => recipient.role === "signer");
-  const fieldStyles = [
-    "!border-indigo-400 !bg-indigo-50/90 dark:!border-indigo-500 dark:!bg-indigo-950/80",
-    "!border-emerald-400 !bg-emerald-50/90 dark:!border-emerald-500 dark:!bg-emerald-950/80",
-    "!border-amber-400 !bg-amber-50/90 dark:!border-amber-500 dark:!bg-amber-950/80",
-    "!border-fuchsia-400 !bg-fuchsia-50/90 dark:!border-fuchsia-500 dark:!bg-fuchsia-950/80",
-  ];
+  function colorForSigner(recipientId: string) {
+    const recipient = props.recipients.find((candidate) => candidate.id === recipientId);
+    return signatureRecipientColor(recipient ? colorKeyForRecipient(recipient) : recipientId);
+  }
+  function colorStyleForSigner(recipientId: string) {
+    const recipient = props.recipients.find((candidate) => candidate.id === recipientId);
+    return recipientColorStyle(recipient ? colorKeyForRecipient(recipient) : recipientId);
+  }
   React.useLayoutEffect(() => {
     editorRootRef.current?.toggleAttribute("inert", props.editingLocked);
   }, [props.editingLocked]);
@@ -1228,9 +1260,10 @@ function DraftEditor(props: DraftEditorProps) {
               return (
                 <div
                   key={recipient.id}
+                  style={colorStyleForSigner(recipient.id)}
                   className={`rounded-xl border p-3 ${
                     props.selectedRecipientId === recipient.id
-                      ? "border-indigo-300 bg-indigo-50/50 dark:border-indigo-700 dark:bg-indigo-950/30"
+                      ? colorForSigner(recipient.id).badgeClassName
                       : "border-slate-200 dark:border-slate-700"
                   }`}
                 >
@@ -1242,13 +1275,22 @@ function DraftEditor(props: DraftEditorProps) {
                           recipient.role === "signer" ? recipient.id : "",
                         )
                       }
-                      className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                     >
-                      {envelope.routingMode === "ordered" && signerIndex >= 0
-                        ? `${signerIndex + 1}. Signer`
-                        : recipient.role === "copy"
-                          ? "Completion copy"
-                          : "Signer"}
+                      {signerIndex >= 0 && (
+                        <span
+                          aria-hidden="true"
+                          className="h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: colorForSigner(recipient.id).dotColor }}
+                        />
+                      )}
+                      <span>
+                        {envelope.routingMode === "ordered" && signerIndex >= 0
+                          ? `${signerIndex + 1}. Signer`
+                          : recipient.role === "copy"
+                            ? "Completion copy"
+                            : "Signer"}
+                      </span>
                     </button>
                     {envelope.routingMode === "ordered" && signerIndex >= 0 && (
                       <span className="flex gap-1">
@@ -1461,13 +1503,17 @@ function DraftEditor(props: DraftEditorProps) {
                 </button>
               ))}
             </div>
-            <span className="ml-auto text-xs text-slate-400">Click the PDF to place a field</span>
+            <span className="ml-auto text-xs text-slate-400">
+              Click to place · drag fields to move · drag the corner to resize
+            </span>
             {signers.length > 0 && (
               <div className="flex w-full flex-wrap gap-x-3 gap-y-1 border-t border-slate-100 pt-2 text-[11px] text-slate-500 dark:border-slate-800 dark:text-slate-400">
                 {signers.map((recipient, index) => (
                   <span key={recipient.id} className="flex items-center gap-1.5">
                     <span
-                      className={`h-2.5 w-2.5 rounded-full ${["bg-indigo-500", "bg-emerald-500", "bg-amber-500", "bg-fuchsia-500"][index % 4]}`}
+                      aria-hidden="true"
+                      className="h-2.5 w-2.5 rounded-full"
+                      style={{ backgroundColor: colorForSigner(recipient.id).dotColor }}
                     />
                     {recipient.name || `Signer ${index + 1}`} ·{" "}
                     {props.fields.filter((field) => field.recipientId === recipient.id).length}{" "}
@@ -1484,9 +1530,9 @@ function DraftEditor(props: DraftEditorProps) {
             onPageClick={props.onAddField}
             onFieldSelect={(id) => {
               props.onSelectField(id);
-              setMobilePanel("field");
             }}
             onFieldMove={props.onMoveField}
+            onFieldResize={props.onFieldChange}
             fieldLabel={(field) => {
               const owner = props.recipients.find(
                 (recipient) => recipient.id === field.recipientId,
@@ -1496,13 +1542,11 @@ function DraftEditor(props: DraftEditorProps) {
               );
               return `${owner?.name || `Signer ${signerIndex + 1}`} · ${field.label || SIGNATURE_FIELD_LABELS[field.type]}`;
             }}
-            fieldClassName={(field) => {
-              const index = Math.max(
-                0,
-                signers.findIndex((recipient) => recipient.id === field.recipientId),
-              );
-              return fieldStyles[index % fieldStyles.length];
+            fieldClassName={(field, selected) => {
+              const color = colorForSigner(field.recipientId);
+              return `${color.fieldClassName} ${selected ? color.selectedClassName : ""}`;
             }}
+            fieldStyle={(field) => colorStyleForSigner(field.recipientId)}
           />
         </main>
 
@@ -1516,11 +1560,15 @@ function DraftEditor(props: DraftEditorProps) {
             </h2>
             {!props.selectedField ? (
               <p className="mt-4 text-sm leading-6 text-slate-500 dark:text-slate-400">
-                Select a field on the document to edit it. Drag fields to reposition them.
+                Select a field on the document to edit it. Drag the field to move it, or drag its
+                bottom-right handle to resize it.
               </p>
             ) : (
               <div className="mt-4 space-y-4">
-                <div className="rounded-lg bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 dark:bg-indigo-950 dark:text-indigo-200">
+                <div
+                  style={colorStyleForSigner(props.selectedField.recipientId)}
+                  className={`rounded-lg border px-3 py-2 text-sm font-medium ${colorForSigner(props.selectedField.recipientId).badgeClassName}`}
+                >
                   {props.recipients.find(
                     (recipient) => recipient.id === props.selectedField!.recipientId,
                   )?.name || "Signer"}{" "}
@@ -1665,10 +1713,28 @@ function SentEnvelope({
   onVoid: () => Promise<void>;
 }) {
   const active = ["sent", "in_progress"].includes(detail.envelope.status);
+  function signerColor(recipientId: string) {
+    const recipient = detail.recipients.find((candidate) => candidate.id === recipientId);
+    return signatureRecipientColor(recipient ? colorKeyForRecipient(recipient) : recipientId);
+  }
+  function signerColorStyle(recipientId: string) {
+    const recipient = detail.recipients.find((candidate) => candidate.id === recipientId);
+    return recipientColorStyle(recipient ? colorKeyForRecipient(recipient) : recipientId);
+  }
   return (
     <div className="grid min-w-0 flex-1 overflow-x-hidden 2xl:grid-cols-[minmax(0,1fr)_22rem]">
       <main className="min-h-[70vh] min-w-0 overflow-y-auto bg-slate-200/60 dark:bg-slate-900">
-        <PdfCanvasRenderer sourceUrl={sourceUrl} fields={detail.fields} readOnly />
+        <PdfCanvasRenderer
+          sourceUrl={sourceUrl}
+          fields={detail.fields}
+          readOnly
+          fieldLabel={(field) => {
+            const owner = detail.recipients.find((recipient) => recipient.id === field.recipientId);
+            return `${owner?.name || "Signer"} · ${field.label || SIGNATURE_FIELD_LABELS[field.type]}`;
+          }}
+          fieldClassName={(field) => signerColor(field.recipientId).fieldClassName}
+          fieldStyle={(field) => signerColorStyle(field.recipientId)}
+        />
       </main>
       <aside className="border-t border-slate-200 bg-white p-5 2xl:border-l 2xl:border-t-0 dark:border-slate-700 dark:bg-slate-950">
         <div className="flex items-center justify-between">
@@ -1691,9 +1757,18 @@ function SentEnvelope({
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
-                    {detail.envelope.routingMode === "ordered" ? `${index + 1}. ` : ""}
-                    {recipient.name}
+                  <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-slate-900 dark:text-slate-100">
+                    {recipient.role === "signer" && (
+                      <span
+                        aria-hidden="true"
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: signerColor(recipient.id).dotColor }}
+                      />
+                    )}
+                    <span className="truncate">
+                      {detail.envelope.routingMode === "ordered" ? `${index + 1}. ` : ""}
+                      {recipient.name}
+                    </span>
                   </div>
                   <div className="truncate text-xs text-slate-400">{recipient.email}</div>
                 </div>

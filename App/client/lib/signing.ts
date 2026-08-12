@@ -231,6 +231,53 @@ export const SIGNATURE_FIELD_LABELS: Record<SignatureFieldType, string> = {
   checkbox: "Checkbox",
 };
 
+export type SignatureRecipientColor = {
+  dotColor: string;
+  cssVariables: Record<`--signature-${string}`, string>;
+  fieldClassName: string;
+  selectedClassName: string;
+  badgeClassName: string;
+};
+
+/** Use an address across recipient row replacement; fall back while it is incomplete. */
+export function signatureRecipientColorKey(
+  recipient: Pick<SignatureRecipient, "id" | "email">,
+): string {
+  return normalizeSignatureEmail(recipient.email) ?? recipient.id;
+}
+
+/**
+ * Derive a stable, high-cardinality signer color from recipient identity.
+ * Recipient names and field labels remain the primary ownership cue.
+ */
+export function signatureRecipientColor(recipientId: string): SignatureRecipientColor {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < recipientId.length; index += 1) {
+    hash ^= recipientId.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  const hue = ((hash >>> 0) / 0x1_0000_0000) * 360;
+  const hsl = (saturation: number, lightness: number, alpha = 1) =>
+    `hsl(${hue.toFixed(3)} ${saturation}% ${lightness}%${alpha < 1 ? ` / ${alpha}` : ""})`;
+  return {
+    dotColor: hsl(72, 45),
+    cssVariables: {
+      "--signature-field-border": hsl(68, 42),
+      "--signature-field-background": hsl(85, 96, 0.95),
+      "--signature-field-text": hsl(62, 25),
+      "--signature-field-border-dark": hsl(72, 64),
+      "--signature-field-background-dark": hsl(68, 15, 0.9),
+      "--signature-field-text-dark": hsl(72, 88),
+      "--signature-field-ring": hsl(72, 48, 0.42),
+    },
+    fieldClassName:
+      "!border-[var(--signature-field-border)] !bg-[var(--signature-field-background)] !text-[var(--signature-field-text)] dark:!border-[var(--signature-field-border-dark)] dark:!bg-[var(--signature-field-background-dark)] dark:!text-[var(--signature-field-text-dark)]",
+    selectedClassName: "!ring-[var(--signature-field-ring)]",
+    badgeClassName:
+      "border-[var(--signature-field-border)] bg-[var(--signature-field-background)] text-[var(--signature-field-text)] dark:border-[var(--signature-field-border-dark)] dark:bg-[var(--signature-field-background-dark)] dark:text-[var(--signature-field-text-dark)]",
+  };
+}
+
 export const SIGNATURE_STATUS_LABELS: Record<SignatureEnvelopeStatus, string> = {
   draft: "Draft",
   sent: "Waiting",
@@ -451,16 +498,116 @@ export function signatureDraftReadiness(
   return issues;
 }
 
+export const SIGNATURE_FIELD_MIN_WIDTH = 0.04;
+export const SIGNATURE_FIELD_MIN_HEIGHT = 0.025;
+export const SIGNATURE_FIELD_MAX_WIDTH = 0.9;
+export const SIGNATURE_FIELD_MAX_HEIGHT = 0.4;
+
+export type SignatureFieldGeometry = Pick<SignatureField, "x" | "y" | "width" | "height">;
+export type SignatureFieldResizeHandle = "north-west" | "north-east" | "south-west" | "south-east";
+export type SignatureFieldResizeHandlePosition = { left: number; top: number };
+
+function finiteNumber(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function clampNumber(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
 export function clampFieldGeometry(
   patch: Partial<Pick<SignatureField, "x" | "y" | "width" | "height">>,
-): Pick<SignatureField, "x" | "y" | "width" | "height"> {
-  const width = Math.min(0.9, Math.max(0.04, Number(patch.width ?? 0.28)));
-  const height = Math.min(0.4, Math.max(0.025, Number(patch.height ?? 0.07)));
+): SignatureFieldGeometry {
+  const width = clampNumber(
+    finiteNumber(patch.width, 0.28),
+    SIGNATURE_FIELD_MIN_WIDTH,
+    SIGNATURE_FIELD_MAX_WIDTH,
+  );
+  const height = clampNumber(
+    finiteNumber(patch.height, 0.07),
+    SIGNATURE_FIELD_MIN_HEIGHT,
+    SIGNATURE_FIELD_MAX_HEIGHT,
+  );
   return {
     width,
     height,
-    x: Math.min(1 - width, Math.max(0, Number(patch.x ?? 0.08))),
-    y: Math.min(1 - height, Math.max(0, Number(patch.y ?? 0.08))),
+    x: clampNumber(finiteNumber(patch.x, 0.08), 0, 1 - width),
+    y: clampNumber(finiteNumber(patch.y, 0.08), 0, 1 - height),
+  };
+}
+
+/** Resize one corner while keeping the opposite corner anchored to the page. */
+export function resizeSignatureFieldGeometry(
+  geometry: SignatureFieldGeometry,
+  handle: SignatureFieldResizeHandle,
+  pointer: Pick<SignatureFieldGeometry, "x" | "y">,
+): SignatureFieldGeometry {
+  const current = clampFieldGeometry(geometry);
+  let left = current.x;
+  let top = current.y;
+  let right = current.x + current.width;
+  let bottom = current.y + current.height;
+  const pointerX = clampNumber(finiteNumber(pointer.x, right), 0, 1);
+  const pointerY = clampNumber(finiteNumber(pointer.y, bottom), 0, 1);
+
+  if (handle.endsWith("west")) {
+    left = clampNumber(
+      pointerX,
+      Math.max(0, right - SIGNATURE_FIELD_MAX_WIDTH),
+      right - SIGNATURE_FIELD_MIN_WIDTH,
+    );
+  } else {
+    right = clampNumber(
+      pointerX,
+      left + SIGNATURE_FIELD_MIN_WIDTH,
+      Math.min(1, left + SIGNATURE_FIELD_MAX_WIDTH),
+    );
+  }
+
+  if (handle.startsWith("north")) {
+    top = clampNumber(
+      pointerY,
+      Math.max(0, bottom - SIGNATURE_FIELD_MAX_HEIGHT),
+      bottom - SIGNATURE_FIELD_MIN_HEIGHT,
+    );
+  } else {
+    bottom = clampNumber(
+      pointerY,
+      top + SIGNATURE_FIELD_MIN_HEIGHT,
+      Math.min(1, top + SIGNATURE_FIELD_MAX_HEIGHT),
+    );
+  }
+
+  return {
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
+  };
+}
+
+/**
+ * Keep the full touch target on the page and beside the selected field when
+ * space allows, preserving a separate moving surface even for tiny fields.
+ */
+export function signatureFieldResizeHandlePosition(
+  geometry: SignatureFieldGeometry,
+  page: { width: number; height: number },
+  handleSize = 44,
+): SignatureFieldResizeHandlePosition {
+  const field = clampFieldGeometry(geometry);
+  const pageWidth = Math.max(handleSize, finiteNumber(page.width, handleSize));
+  const pageHeight = Math.max(handleSize, finiteNumber(page.height, handleSize));
+  const fieldLeft = field.x * pageWidth;
+  const fieldRight = (field.x + field.width) * pageWidth;
+  const fieldBottom = (field.y + field.height) * pageHeight;
+  let left: number;
+  if (pageWidth - fieldRight >= handleSize) left = fieldRight;
+  else if (fieldLeft >= handleSize) left = fieldLeft - handleSize;
+  else left = clampNumber(fieldRight - handleSize / 4, 0, pageWidth - handleSize);
+  return {
+    left,
+    top: clampNumber(fieldBottom - handleSize / 4, 0, pageHeight - handleSize),
   };
 }
 

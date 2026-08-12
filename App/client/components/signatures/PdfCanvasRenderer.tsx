@@ -8,7 +8,13 @@ import {
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { AlertCircle, FileText } from "lucide-react";
 import { Spinner } from "@/components/ui/Spinner";
-import { SIGNATURE_FIELD_LABELS, type SignatureField } from "@/lib/signing";
+import {
+  SIGNATURE_FIELD_LABELS,
+  resizeSignatureFieldGeometry,
+  signatureFieldResizeHandlePosition,
+  type SignatureField,
+  type SignatureFieldGeometry,
+} from "@/lib/signing";
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
@@ -21,9 +27,11 @@ export type PdfCanvasRendererProps = {
   onFieldSelect?: (fieldId: string) => void;
   onPageClick?: (pageNumber: number, x: number, y: number) => void;
   onFieldMove?: (fieldId: string, position: FieldPosition) => void;
+  onFieldResize?: (fieldId: string, geometry: SignatureFieldGeometry) => void;
   renderField?: (field: SignatureField) => React.ReactNode;
   fieldLabel?: (field: SignatureField) => string;
-  fieldClassName?: (field: SignatureField) => string;
+  fieldClassName?: (field: SignatureField, selected: boolean) => string;
+  fieldStyle?: (field: SignatureField) => React.CSSProperties;
   readOnly?: boolean;
   className?: string;
 };
@@ -39,9 +47,11 @@ export function PdfCanvasRenderer({
   onFieldSelect,
   onPageClick,
   onFieldMove,
+  onFieldResize,
   renderField,
   fieldLabel,
   fieldClassName,
+  fieldStyle,
   readOnly = false,
   className = "",
 }: PdfCanvasRendererProps) {
@@ -111,9 +121,11 @@ export function PdfCanvasRenderer({
             onFieldSelect={onFieldSelect}
             onPageClick={onPageClick}
             onFieldMove={onFieldMove}
+            onFieldResize={onFieldResize}
             renderField={renderField}
             fieldLabel={fieldLabel}
             fieldClassName={fieldClassName}
+            fieldStyle={fieldStyle}
             readOnly={readOnly}
           />
         );
@@ -130,9 +142,11 @@ function PdfPage({
   onFieldSelect,
   onPageClick,
   onFieldMove,
+  onFieldResize,
   renderField,
   fieldLabel,
   fieldClassName,
+  fieldStyle,
   readOnly,
 }: {
   document: PDFDocumentProxy;
@@ -142,9 +156,11 @@ function PdfPage({
   onFieldSelect?: (fieldId: string) => void;
   onPageClick?: (pageNumber: number, x: number, y: number) => void;
   onFieldMove?: (fieldId: string, position: FieldPosition) => void;
+  onFieldResize?: (fieldId: string, geometry: SignatureFieldGeometry) => void;
   renderField?: (field: SignatureField) => React.ReactNode;
   fieldLabel?: (field: SignatureField) => string;
-  fieldClassName?: (field: SignatureField) => string;
+  fieldClassName?: (field: SignatureField, selected: boolean) => string;
+  fieldStyle?: (field: SignatureField) => React.CSSProperties;
   readOnly: boolean;
 }) {
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
@@ -153,6 +169,7 @@ function PdfPage({
   const [ratio, setRatio] = React.useState(1.294);
   const [shouldLoad, setShouldLoad] = React.useState(false);
   const [shouldRender, setShouldRender] = React.useState(false);
+  const [wrapperSize, setWrapperSize] = React.useState({ width: 850, height: 1100 });
   const dragMoved = React.useRef(false);
 
   React.useEffect(() => {
@@ -199,9 +216,13 @@ function PdfPage({
     const wrapper = wrapperRef.current;
 
     const render = () => {
-      const width = Math.max(280, wrapper.clientWidth);
+      const width = Math.max(1, wrapper.clientWidth);
+      const height = Math.max(1, wrapper.clientHeight);
+      setWrapperSize((current) =>
+        current.width === width && current.height === height ? current : { width, height },
+      );
       const base = page.getViewport({ scale: 1 });
-      const scale = width / base.width;
+      const scale = Math.max(280, width) / base.width;
       const viewport = page.getViewport({ scale });
       const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
       canvas.width = Math.floor(viewport.width * pixelRatio);
@@ -284,99 +305,185 @@ function PdfPage({
         {page && shouldRender ? (
           <canvas ref={canvasRef} aria-hidden="true" className="block max-w-full" />
         ) : null}
-        {fields.map((field) => (
-          <div
-            key={field.id}
-            role={readOnly ? undefined : "button"}
-            tabIndex={readOnly ? undefined : 0}
-            aria-label={
-              readOnly
-                ? undefined
-                : `${SIGNATURE_FIELD_LABELS[field.type]} field. Use arrow keys to move it.`
-            }
-            data-signature-field-id={field.id}
-            className={`absolute overflow-hidden rounded border text-[10px] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
-              field.id === selectedFieldId
-                ? "z-20 border-indigo-600 bg-indigo-100/90 ring-2 ring-indigo-400/30 dark:bg-indigo-950/90"
-                : "z-10 border-indigo-300 bg-indigo-50/90 dark:border-indigo-600 dark:bg-indigo-950/80"
-            } ${!readOnly && onFieldMove ? "cursor-move touch-none" : ""} ${fieldClassName?.(field) ?? ""}`}
-            style={{
-              left: `${field.x * 100}%`,
-              top: `${field.y * 100}%`,
-              width: `${field.width * 100}%`,
-              height: `${field.height * 100}%`,
-            }}
-            onClick={(event) => {
-              event.stopPropagation();
-              onFieldSelect?.(field.id);
-            }}
-            onKeyDown={(event) => {
-              if (readOnly) return;
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                event.stopPropagation();
-                onFieldSelect?.(field.id);
-                return;
-              }
-              if (
-                !onFieldMove ||
-                !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
-              ) {
-                return;
-              }
-              event.preventDefault();
-              event.stopPropagation();
-              const step = event.shiftKey ? 0.05 : 0.01;
-              const dx = event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
-              const dy = event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
-              onFieldMove(field.id, {
-                x: Math.max(0, Math.min(1 - field.width, field.x + dx)),
-                y: Math.max(0, Math.min(1 - field.height, field.y + dy)),
-              });
-            }}
-            onPointerDown={(event) => {
-              if (readOnly || !onFieldMove) return;
-              event.stopPropagation();
-              event.currentTarget.setPointerCapture(event.pointerId);
-              dragMoved.current = false;
-              const start = positionFromPointer(event);
-              const origin = { x: field.x, y: field.y };
-              const target = event.currentTarget;
-              const move = (moveEvent: PointerEvent) => {
-                dragMoved.current = true;
-                const rect = wrapperRef.current?.getBoundingClientRect();
-                if (!rect) return;
-                const x = origin.x + (moveEvent.clientX - event.clientX) / rect.width;
-                const y = origin.y + (moveEvent.clientY - event.clientY) / rect.height;
-                onFieldMove(field.id, {
-                  x: Math.max(0, Math.min(1 - field.width, x)),
-                  y: Math.max(0, Math.min(1 - field.height, y)),
-                });
-              };
-              const up = () => {
-                target.removeEventListener("pointermove", move);
-                target.removeEventListener("pointerup", up);
-                target.removeEventListener("pointercancel", up);
-                window.setTimeout(() => {
+        {fields.map((field) => {
+          const selected = field.id === selectedFieldId;
+          const label = fieldLabel?.(field) || field.label || SIGNATURE_FIELD_LABELS[field.type];
+          const resizeHandle = signatureFieldResizeHandlePosition(field, wrapperSize);
+          return (
+            <React.Fragment key={field.id}>
+              <div
+                role={readOnly ? undefined : "button"}
+                tabIndex={readOnly ? undefined : 0}
+                aria-label={
+                  readOnly
+                    ? undefined
+                    : `${label} field. Use arrow keys to move it${onFieldResize ? "; select it to reveal the resize handle" : ""}.`
+                }
+                aria-pressed={!readOnly ? selected : undefined}
+                data-signature-field-id={field.id}
+                className={`absolute overflow-hidden rounded border text-[10px] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                  selected
+                    ? "z-20 border-indigo-600 bg-indigo-100/90 ring-2 ring-indigo-400/30 dark:bg-indigo-950/90"
+                    : "z-10 border-indigo-300 bg-indigo-50/90 dark:border-indigo-600 dark:bg-indigo-950/80"
+                } ${!readOnly && onFieldMove ? "cursor-move touch-none" : ""} ${fieldClassName?.(field, selected) ?? ""}`}
+                style={{
+                  ...fieldStyle?.(field),
+                  left: `${field.x * 100}%`,
+                  top: `${field.y * 100}%`,
+                  width: `${field.width * 100}%`,
+                  height: `${field.height * 100}%`,
+                }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onFieldSelect?.(field.id);
+                }}
+                onKeyDown={(event) => {
+                  if (readOnly) return;
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onFieldSelect?.(field.id);
+                    return;
+                  }
+                  if (
+                    !onFieldMove ||
+                    !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
+                  ) {
+                    return;
+                  }
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const step = event.shiftKey ? 0.05 : 0.01;
+                  const dx =
+                    event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
+                  const dy = event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
+                  onFieldMove(field.id, {
+                    x: Math.max(0, Math.min(1 - field.width, field.x + dx)),
+                    y: Math.max(0, Math.min(1 - field.height, field.y + dy)),
+                  });
+                }}
+                onPointerDown={(event) => {
+                  if (readOnly || !onFieldMove) return;
+                  event.stopPropagation();
+                  event.currentTarget.setPointerCapture(event.pointerId);
                   dragMoved.current = false;
-                });
-              };
-              target.addEventListener("pointermove", move);
-              target.addEventListener("pointerup", up);
-              target.addEventListener("pointercancel", up);
-              void start;
-            }}
-          >
-            {renderField ? (
-              renderField(field)
-            ) : (
-              <div className="flex h-full items-center px-2 font-medium text-indigo-700 dark:text-indigo-200">
-                {fieldLabel?.(field) || field.label || SIGNATURE_FIELD_LABELS[field.type]}
-                {field.required ? " *" : ""}
+                  const origin = { x: field.x, y: field.y };
+                  const target = event.currentTarget;
+                  const move = (moveEvent: PointerEvent) => {
+                    dragMoved.current = true;
+                    const rect = wrapperRef.current?.getBoundingClientRect();
+                    if (!rect) return;
+                    const x = origin.x + (moveEvent.clientX - event.clientX) / rect.width;
+                    const y = origin.y + (moveEvent.clientY - event.clientY) / rect.height;
+                    onFieldMove(field.id, {
+                      x: Math.max(0, Math.min(1 - field.width, x)),
+                      y: Math.max(0, Math.min(1 - field.height, y)),
+                    });
+                  };
+                  const up = () => {
+                    target.removeEventListener("pointermove", move);
+                    target.removeEventListener("pointerup", up);
+                    target.removeEventListener("pointercancel", up);
+                    window.setTimeout(() => {
+                      dragMoved.current = false;
+                    });
+                  };
+                  target.addEventListener("pointermove", move);
+                  target.addEventListener("pointerup", up);
+                  target.addEventListener("pointercancel", up);
+                }}
+              >
+                {renderField ? (
+                  renderField(field)
+                ) : (
+                  <div className="flex h-full items-center px-2 font-medium">
+                    <span className="truncate">
+                      {label}
+                      {field.required ? " *" : ""}
+                    </span>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        ))}
+              {!readOnly && onFieldResize && selected && (
+                <button
+                  type="button"
+                  data-signature-field-resize={field.id}
+                  aria-label={`Resize ${label} field, currently ${Math.round(field.width * 100)} percent wide by ${Math.round(field.height * 100)} percent high. Use arrow keys to resize; hold Shift for larger steps.`}
+                  title="Drag to resize"
+                  className="absolute z-30 h-11 w-11 cursor-nwse-resize touch-none rounded-sm text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-200"
+                  style={{
+                    left: `${resizeHandle.left}px`,
+                    top: `${resizeHandle.top}px`,
+                  }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onFieldSelect?.(field.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+                      return;
+                    }
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const step = event.shiftKey ? 0.05 : 0.01;
+                    const dx =
+                      event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
+                    const dy =
+                      event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
+                    onFieldResize(
+                      field.id,
+                      resizeSignatureFieldGeometry(field, "south-east", {
+                        x: field.x + field.width + dx,
+                        y: field.y + field.height + dy,
+                      }),
+                    );
+                  }}
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    onFieldSelect?.(field.id);
+                    dragMoved.current = false;
+                    const target = event.currentTarget;
+                    const move = (moveEvent: PointerEvent) => {
+                      dragMoved.current = true;
+                      const rect = wrapperRef.current?.getBoundingClientRect();
+                      if (!rect) return;
+                      onFieldResize(
+                        field.id,
+                        resizeSignatureFieldGeometry(field, "south-east", {
+                          x:
+                            field.x +
+                            field.width +
+                            (moveEvent.clientX - event.clientX) / rect.width,
+                          y:
+                            field.y +
+                            field.height +
+                            (moveEvent.clientY - event.clientY) / rect.height,
+                        }),
+                      );
+                    };
+                    const up = () => {
+                      target.removeEventListener("pointermove", move);
+                      target.removeEventListener("pointerup", up);
+                      target.removeEventListener("pointercancel", up);
+                      window.setTimeout(() => {
+                        dragMoved.current = false;
+                      });
+                    };
+                    target.addEventListener("pointermove", move);
+                    target.addEventListener("pointerup", up);
+                    target.addEventListener("pointercancel", up);
+                  }}
+                >
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-[5px] top-[5px] h-3 w-3 rounded-br-sm border-b-2 border-r-2 border-current"
+                  />
+                </button>
+              )}
+            </React.Fragment>
+          );
+        })}
       </div>
       <div className="mt-2 text-center text-[11px] text-slate-400">Page {pageNumber}</div>
     </div>

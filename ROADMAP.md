@@ -1668,7 +1668,10 @@ Employee workflow in one company-scoped system.
       the AI handoff save first and let the Member choose an employee, and state
       its real boundary: AI can inspect saved configuration and evidence or
       prepare a new request from a shared PDF Resource, but cannot read the
-      source PDF through signing tools, edit an existing draft, or sign.
+      source PDF through signing tools, edit an existing draft, or sign. Keep
+      multi-signer field ownership obvious with recipient-specific colors and
+      names, support direct pointer, touch and keyboard field resizing, and send
+      clear company-branded invitation, reminder and completion emails.
 
 ### M33 — AI-native accounting
 

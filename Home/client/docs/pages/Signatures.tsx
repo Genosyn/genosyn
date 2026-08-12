@@ -39,7 +39,12 @@ export function Signatures() {
         </LI>
         <LI>
           Place fields on the PDF. Every signer needs at least one signature field; name, email,
-          date, initials, text, and checkbox fields can be required or optional.
+          date, initials, text, and checkbox fields can be required or optional. Each signer has a
+          distinct field color and their name stays on every field, so ownership remains clear.
+          Drag a field to move it, or select it and drag its corner handle to resize it. The handle
+          stays inside the page and may move beside fields placed at a page edge. The
+          arrow keys move the selected field; the resize handle also supports arrow keys, with
+          <Strong> Shift</Strong> for larger steps.
         </LI>
         <LI>
           Review the request and click <Strong>Send</Strong>. Genosyn freezes the source,
@@ -52,6 +57,13 @@ export function Signatures() {
         fallback described in <DocLink to="/docs/self-hosting">Configuration</DocLink>. A local
         console-only install can create and test requests, but customers cannot reach localhost.
       </Callout>
+      <P>
+        Invitation and reminder emails identify the company and document, show the deadline and
+        routing context, preserve the sender&apos;s message, and provide a prominent private signing
+        button. Completion emails explain whether the recipient signed or received a copy and attach
+        the completed PDF. Every email includes a plain-text version and guidance for recognizing and
+        protecting the private signing link.
+      </P>
 
       <H2 id="recipient">What the signer sees</H2>
       <P>

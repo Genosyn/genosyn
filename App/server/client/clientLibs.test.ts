@@ -41,17 +41,22 @@ import {
 import { cronHuman, cronIsReadable, CRON_PRESETS, DEFAULT_CRON } from "../../client/lib/cron.js";
 import {
   canRetryPublicSignatureFinalization,
+  clampFieldGeometry,
   firstIncompleteRequiredSignatureField,
   lockSignatureSendReviewForDispatch,
   publicSignatureRecipientIsComplete,
   normalizeSignatureEmail,
   reconcileSignatureDraftSave,
+  resizeSignatureFieldGeometry,
   signatureAiHandoffPrompt,
   signatureCalendarDateForOffset,
   signatureDateInputToEndOfDayIso,
   signatureFieldValueIsComplete,
+  signatureFieldResizeHandlePosition,
   signatureIsoToDateInput,
   signatureDraftReadiness,
+  signatureRecipientColor,
+  signatureRecipientColorKey,
   signatureSendReviewIsCurrent,
   type SignatureEnvelope,
   type SignatureEnvelopeDetail,
@@ -62,6 +67,80 @@ import {
 import { listProviderIds } from "../integrations/index.js";
 
 describe("signing date helpers", () => {
+  test("assigns each signer a distinct identity-stable field color", () => {
+    const recipientIds = Array.from({ length: 200 }, (_, index) => `recipient-${index}`);
+    const colors = recipientIds.map((id) => signatureRecipientColor(id).dotColor);
+    assert.equal(new Set(colors).size, recipientIds.length);
+    assert.notEqual(
+      signatureRecipientColor("alice").dotColor,
+      signatureRecipientColor("bob").dotColor,
+    );
+    assert.equal(
+      signatureRecipientColorKey({ id: "temporary", email: " ADA@Example.COM " }),
+      signatureRecipientColorKey({ id: "persisted", email: "ada@example.com" }),
+    );
+    assert.equal(signatureRecipientColorKey({ id: "temporary", email: "" }), "temporary");
+
+    const beforeReorder = new Map(
+      recipientIds.map((id) => [id, signatureRecipientColor(id).dotColor]),
+    );
+    for (const id of [...recipientIds].reverse()) {
+      assert.equal(signatureRecipientColor(id).dotColor, beforeReorder.get(id));
+    }
+  });
+
+  test("keeps direct field resizing normalized, bounded, and anchored", () => {
+    const closeTo = (actual: number, expected: number) =>
+      assert.ok(Math.abs(actual - expected) < 1e-12, `${actual} is not close to ${expected}`);
+    const original = { x: 0.2, y: 0.2, width: 0.3, height: 0.1 };
+    const resizedSouthEast = resizeSignatureFieldGeometry(original, "south-east", {
+      x: 0.8,
+      y: 0.5,
+    });
+    assert.equal(resizedSouthEast.x, original.x);
+    assert.equal(resizedSouthEast.y, original.y);
+    closeTo(resizedSouthEast.width, 0.6);
+    closeTo(resizedSouthEast.height, 0.3);
+
+    const resizedNorthWest = resizeSignatureFieldGeometry(original, "north-west", {
+      x: -1,
+      y: -1,
+    });
+    assert.equal(resizedNorthWest.x, 0);
+    assert.equal(resizedNorthWest.y, 0);
+    closeTo(resizedNorthWest.x + resizedNorthWest.width, original.x + original.width);
+    closeTo(resizedNorthWest.y + resizedNorthWest.height, original.y + original.height);
+
+    const minimum = resizeSignatureFieldGeometry(original, "south-east", {
+      x: original.x,
+      y: original.y,
+    });
+    closeTo(minimum.width, 0.04);
+    closeTo(minimum.height, 0.025);
+
+    const sanitized = clampFieldGeometry({
+      x: -10,
+      y: 10,
+      width: Number.NaN,
+      height: Number.POSITIVE_INFINITY,
+    });
+    assert.equal(sanitized.x, 0);
+    closeTo(sanitized.y, 0.93);
+    assert.equal(sanitized.width, 0.28);
+    assert.equal(sanitized.height, 0.07);
+
+    const checkbox = { x: 0.955, y: 0.965, width: 0.045, height: 0.035 };
+    const handle = signatureFieldResizeHandlePosition(checkbox, { width: 320, height: 414 });
+    closeTo(handle.left + 44, checkbox.x * 320);
+    assert.ok(handle.top >= 0 && handle.top + 44 <= 414);
+
+    const middleHandle = signatureFieldResizeHandlePosition(
+      { ...checkbox, x: 0.45, y: 0.45 },
+      { width: 320, height: 414 },
+    );
+    closeTo(middleHandle.left, (0.45 + checkbox.width) * 320);
+  });
+
   test("keeps the Ask AI handoff inside the signing tools' real capabilities", () => {
     const draft = signatureAiHandoffPrompt({
       id: "envelope-1",

@@ -48,6 +48,7 @@ import { sendEmail } from "./email.js";
 import { companyDir, ensureDir } from "./paths.js";
 import { getPublicUrl } from "./publicUrl.js";
 import { hasResourceAccess, pdfBufferToText, resolveResourceFile } from "./resources.js";
+import { buildSignatureCompletionEmail, buildSignatureInvitationEmail } from "./signingEmails.js";
 
 const MAX_PDF_BYTES = 25 * 1024 * 1024;
 export const MAX_SIGNATURE_PDF_PAGES = 200;
@@ -972,43 +973,43 @@ async function replaceDraftParticipants(
     companyId: envelope.companyId,
     envelopeId: envelope.id,
   });
-  if (oldRecipients.length) {
-    await fieldRepository.delete({
-      companyId: envelope.companyId,
-      envelopeId: envelope.id,
-    });
-    await recipientRepository.delete({
-      companyId: envelope.companyId,
-      envelopeId: envelope.id,
-    });
-  }
+  const oldFields = await fieldRepository.findBy({
+    companyId: envelope.companyId,
+    envelopeId: envelope.id,
+  });
+  const oldRecipientsById = new Map(oldRecipients.map((recipient) => [recipient.id, recipient]));
+  const oldFieldsById = new Map(oldFields.map((field) => [field.id, field]));
+  const keptRecipientIds = new Set<string>();
+  const keptFieldIds = new Set<string>();
   const byReference = new Map<string, SignatureRecipient>();
   const ambiguousReferences = new Set<string>();
   const savedRecipients: SignatureRecipient[] = [];
   for (const input of normalizedRecipients) {
-    const saved = await recipientRepository.save(
-      recipientRepository.create({
-        companyId: envelope.companyId,
-        envelopeId: envelope.id,
-        role: input.role,
-        name: input.name,
-        email: input.email,
-        routingOrder: input.routingOrder,
-        status: "waiting",
-        tokenHash: null,
-        lastDeliveryStatus: "pending",
-        lastDeliveryError: "",
-        lastDeliveredAt: null,
-        reminderCount: 0,
-        viewedAt: null,
-        consentedAt: null,
-        completedAt: null,
-        declinedAt: null,
-        declineReason: "",
-        ipAddress: "",
-        userAgent: "",
-      }),
-    );
+    const recipient =
+      (input.id ? oldRecipientsById.get(input.id) : undefined) ?? recipientRepository.create();
+    Object.assign(recipient, {
+      companyId: envelope.companyId,
+      envelopeId: envelope.id,
+      role: input.role,
+      name: input.name,
+      email: input.email,
+      routingOrder: input.routingOrder,
+      status: "waiting",
+      tokenHash: null,
+      lastDeliveryStatus: "pending",
+      lastDeliveryError: "",
+      lastDeliveredAt: null,
+      reminderCount: 0,
+      viewedAt: null,
+      consentedAt: null,
+      completedAt: null,
+      declinedAt: null,
+      declineReason: "",
+      ipAddress: "",
+      userAgent: "",
+    });
+    const saved = await recipientRepository.save(recipient);
+    keptRecipientIds.add(saved.id);
     savedRecipients.push(saved);
     for (const reference of [input.id, input.key, input.email]) {
       const normalizedReference = reference?.trim().toLowerCase();
@@ -1041,25 +1042,46 @@ async function replaceDraftParticipants(
     }
     const required = input.required ?? true;
     if (input.type === "signature" && required) signatureOwners.add(recipient.id);
-    await fieldRepository.save(
-      fieldRepository.create({
-        companyId: envelope.companyId,
-        envelopeId: envelope.id,
-        recipientId: recipient.id,
-        type: input.type,
-        label: cleanText(input.label ?? "", "Field label", 255, false),
-        placeholder: cleanText(input.placeholder ?? "", "Field placeholder", 255, false),
-        required,
-        pageNumber: input.pageNumber,
-        x: input.x,
-        y: input.y,
-        width: input.width,
-        height: input.height,
-        valueJson: "null",
-        completedAt: null,
-        sortOrder: Number.isFinite(input.sortOrder) ? Number(input.sortOrder) : index,
-      }),
-    );
+    const field = (input.id ? oldFieldsById.get(input.id) : undefined) ?? fieldRepository.create();
+    Object.assign(field, {
+      companyId: envelope.companyId,
+      envelopeId: envelope.id,
+      recipientId: recipient.id,
+      type: input.type,
+      label: cleanText(input.label ?? "", "Field label", 255, false),
+      placeholder: cleanText(input.placeholder ?? "", "Field placeholder", 255, false),
+      required,
+      pageNumber: input.pageNumber,
+      x: input.x,
+      y: input.y,
+      width: input.width,
+      height: input.height,
+      valueJson: "null",
+      completedAt: null,
+      sortOrder: Number.isFinite(input.sortOrder) ? Number(input.sortOrder) : index,
+    });
+    const saved = await fieldRepository.save(field);
+    keptFieldIds.add(saved.id);
+  }
+  const removedFieldIds = oldFields
+    .filter((field) => !keptFieldIds.has(field.id))
+    .map((field) => field.id);
+  if (removedFieldIds.length) {
+    await fieldRepository.delete({
+      companyId: envelope.companyId,
+      envelopeId: envelope.id,
+      id: In(removedFieldIds),
+    });
+  }
+  const removedRecipientIds = oldRecipients
+    .filter((recipient) => !keptRecipientIds.has(recipient.id))
+    .map((recipient) => recipient.id);
+  if (removedRecipientIds.length) {
+    await recipientRepository.delete({
+      companyId: envelope.companyId,
+      envelopeId: envelope.id,
+      id: In(removedRecipientIds),
+    });
   }
   for (const recipient of savedRecipients) {
     if (requireReady && recipient.role === "signer" && !signatureOwners.has(recipient.id)) {
@@ -1545,67 +1567,6 @@ type DeliveryAttempt = {
   reminder: boolean;
 };
 
-function invitationMessage(
-  company: Company,
-  envelope: SignatureEnvelope,
-  recipient: SignatureRecipient,
-  token: string,
-  reminder: boolean,
-): Parameters<typeof sendEmail>[0] {
-  const link = `${getPublicUrl()}/sign/${encodeURIComponent(token)}`;
-  const prefix = reminder ? "Reminder: " : "";
-  const expiry = envelope.expiresAt
-    ? `\n\nThis request expires ${envelope.expiresAt.toISOString()}.`
-    : "";
-  const note = envelope.message ? `\n\n${envelope.message}` : "";
-  const text = [
-    `Hello ${recipient.name},`,
-    "",
-    `${company.name} asked you to review and sign “${envelope.title}”.`,
-    note,
-    "",
-    `Review and sign: ${link}`,
-    expiry,
-    "",
-    "This private link is for you. Do not forward it.",
-  ]
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n");
-  const html = `<p>Hello ${escapeHtml(recipient.name)},</p>
-<p>${escapeHtml(company.name)} asked you to review and sign <strong>${escapeHtml(envelope.title)}</strong>.</p>
-${envelope.message ? `<p>${escapeHtml(envelope.message)}</p>` : ""}
-<p><a href="${escapeHtml(link)}">Review and sign</a></p>
-${envelope.expiresAt ? `<p>This request expires ${escapeHtml(envelope.expiresAt.toISOString())}.</p>` : ""}
-<p>This private link is for you. Do not forward it.</p>`;
-  return {
-    to: recipient.email,
-    subject: `${prefix}Signature requested: ${envelope.title}`,
-    text,
-    html,
-    companyId: envelope.companyId,
-    purpose: "signature",
-    triggeredByUserId: envelope.createdByUserId,
-    // The real message contains the recipient's bearer credential. Keep the
-    // delivery audit useful without persisting an impersonation link.
-    bodyPreview: [
-      `Hello ${recipient.name},`,
-      "",
-      `${company.name} asked you to review and sign “${envelope.title}”.`,
-      "",
-      "Review and sign: [private signing link redacted]",
-    ].join("\n"),
-  };
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 async function persistDeliveryResults(
   envelope: SignatureEnvelope,
   actor: NormalizedActor,
@@ -1677,7 +1638,16 @@ async function deliverPending(
       recipient,
       tokenHash: hashSignatureRecipientToken(token),
       reminder,
-      result: await sendEmail(invitationMessage(company, envelope, recipient, token, reminder)),
+      result: await sendEmail(
+        buildSignatureInvitationEmail({
+          company,
+          envelope,
+          recipient,
+          publicUrl: getPublicUrl(),
+          token,
+          reminder,
+        }),
+      ),
     })),
   );
   await persistDeliveryResults(envelope, actor, deliveries);
@@ -3292,6 +3262,7 @@ async function buildCompletedPdf(params: {
 }
 
 async function sendCompletionCopies(params: {
+  company: Company;
   envelope: SignatureEnvelope;
   recipients: SignatureRecipient[];
   completed: Buffer;
@@ -3303,11 +3274,14 @@ async function sendCompletionCopies(params: {
   }
   const attempts = await Promise.all(
     [...recipientGroups.values()].map(async (recipients) => {
+      const message = buildSignatureCompletionEmail({
+        company: params.company,
+        envelope: params.envelope,
+        recipients,
+        filename: completedFilename(params.envelope),
+      });
       const result = await sendEmail({
-        to: recipients[0].email,
-        subject: `Completed: ${params.envelope.title}`,
-        text: `The signature request “${params.envelope.title}” is complete. A copy of the signed document is attached.`,
-        html: `<p>The signature request <strong>${escapeHtml(params.envelope.title)}</strong> is complete.</p><p>A copy of the signed document is attached.</p>`,
+        ...message,
         attachments: [
           {
             filename: completedFilename(params.envelope),
@@ -3315,9 +3289,6 @@ async function sendCompletionCopies(params: {
             contentType: "application/pdf",
           },
         ],
-        companyId: params.envelope.companyId,
-        purpose: "signature",
-        triggeredByUserId: params.envelope.createdByUserId,
       });
       return { recipientIds: recipients.map((recipient) => recipient.id), result };
     }),
@@ -3470,6 +3441,7 @@ async function finalizeSignatureEnvelope(params: {
     if (completedBytes) {
       try {
         await sendCompletionCopies({
+          company: params.company,
           envelope,
           recipients: completedRecipients,
           completed: completedBytes,
